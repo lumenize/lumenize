@@ -30,7 +30,7 @@ function makeFactoryClient(star: string, browser: Browser) {
     baseUrl: ORIGIN,
     authScope: universeOf(star),
     activeScope: star,
-    appVersion: 'v1',
+    ontologyVersion: 'v1',
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage,

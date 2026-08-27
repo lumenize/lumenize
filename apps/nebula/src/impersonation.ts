@@ -56,12 +56,16 @@ export const INTERNAL_PARENT = Symbol('lumenize.nebula.impersonation.parent');
 /** Exactly the parent config a child inherits. Named so the contract is a type, not a convention. */
 export interface ChildConfigBase {
   baseUrl?: string;
-  appVersion: string;
+  ontologyVersion: string;
   fetch?: typeof fetch;
   WebSocket?: unknown;
   sessionStorage?: unknown;
   BroadcastChannel?: unknown;
   resourceHostBinding: string;
+  /** The chat `(binding, scope)` pair, inherited so an impersonated session chats where
+   *  its parent does (absent when the parent holds none — the chat paths then throw). */
+  chatHostBinding?: string;
+  chatScope?: string;
 }
 
 /** The `refresh` shape `LumenizeClient` expects. */

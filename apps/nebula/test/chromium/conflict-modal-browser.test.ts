@@ -57,7 +57,7 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
     // correctly refused and the transaction below then fails `ontology-stale`. That separation is the
     // real model — the app developer publishes the ontology, the tenant consumes it.
     const admin = new OntologyAdminClient({
-      baseUrl, authScope: universe, activeScope: galaxyName, appVersion: 'v1', onShouldRefreshUI: () => {},
+      baseUrl, authScope: universe, activeScope: galaxyName, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
     });
     await vi.waitFor(() => expect(admin.connectionState).toBe('connected'), { timeout: 15000 });
     admin.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v1', types: ONTOLOGY });
@@ -65,7 +65,7 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
 
     // The factory client — the doc's `client` + `store`.
     const { client, store, ready, dispose } = createNebulaClient({
-      baseUrl, authScope: scope, activeScope: scope, appVersion: 'v1', onShouldRefreshUI: () => {},
+      baseUrl, authScope: scope, activeScope: scope, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
     });
     try {
       await ready;

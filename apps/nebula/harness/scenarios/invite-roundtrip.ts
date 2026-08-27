@@ -32,7 +32,7 @@
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
-import { NebulaClient, ROOT_NODE_ID, type OrgTreeState } from '@lumenize/nebula/client';
+import { NebulaClient, ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, type OrgTreeState } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { provisionAndLogin, pointLinkAt, refreshAccessToken } from '../../test/lib/email-login';
@@ -108,7 +108,8 @@ export async function run(stack: DevStack): Promise<void> {
       baseUrl: stack.baseUrl,
       authScope: star,
       activeScope: star,
-      appVersion: 'harness-v0',
+      // Inert — the invitee only watches orgTree here, never a resource op.
+      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       accessToken: inviteeSession.accessToken,
       instanceName: `${inviteeSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
       fetch: inviteeBrowser.fetch,

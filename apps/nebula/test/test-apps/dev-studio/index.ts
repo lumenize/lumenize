@@ -18,7 +18,6 @@ import { DEFAULT_LOOP_CONFIG, TOOL_ARGS_BUNDLE_ID, TOOL_ARGS_TYPES } from '../..
 import type { ChatMessage, ModelParams, CodegenLoopConfig, LoopResult } from '../../../src/codegen-loop';
 import { getParserValidatorFacet, generateParseModule } from '@lumenize/ts-runtime-parser-validator';
 import type { ParseResult } from '@lumenize/ts-runtime-parser-validator';
-import { createResourceOntologyProvider } from '../../../src/devstudio-resource-ontology';
 
 /**
  * The GALAXY class under test — a Galaxy whose `callModel` replays a **synthetic
@@ -61,35 +60,34 @@ export class GalaxyLoopProbe extends Galaxy {
     return { result, seenMessages: this.#seenMessages };
   }
 
-  // --- Resource data-plane facet hooks ---
-  // These mount + exercise the Session/Message facet the way Galaxy.onStart's composed
-  // data-plane does, without needing a Gateway/client. The provider is reconstructed
-  // here (same bundleId → same cached facet) since the composed `#dataPlane` is private.
+  // --- Chat-ontology facet hooks ---
+  // These exercise the INSTALLED chat ontology exactly the way the composed data-plane's
+  // provider does — through the protected `chatOntology()` accessor (the same
+  // self-seeding install + loader mount), without needing a Gateway/client.
 
-  /** Parse a value through the Session/Message facet, with the tool-args facet ALSO
-   *  mounted in THIS DO first — a passing parse therefore proves no Worker-Loader
+  /** Parse a value through the INSTALLED Chat/Message facet, with the tool-args facet
+   *  ALSO mounted in THIS DO first — a passing parse therefore proves no Worker-Loader
    *  bundleId cross-wiring (M2) on top of the ADR-006 embed-guard (SC3). */
   @mesh(requireDominionHere)
-  async parseSessionTurnForTest(typeName: string, value: unknown): Promise<ParseResult> {
-    // If the Session/Message bundleId collided with the tool-args id, the facet
-    // below would serve THIS validator and a valid Message would fail to parse.
+  async parseChatMessageForTest(typeName: string, value: unknown): Promise<ParseResult> {
+    // If the chat bundleId collided with the tool-args id, the facet below would serve
+    // THIS validator and a valid Message would fail to parse.
     getParserValidatorFacet(this.ctx, this.env.LOADER, TOOL_ARGS_BUNDLE_ID, () => generateParseModule(TOOL_ARGS_TYPES));
-    const { facet } = createResourceOntologyProvider(this.ctx, this.env.LOADER)();
-    return facet.parse(value, typeName);
+    return this.chatOntology().facet.parse(value, typeName);
   }
 
-  /** The fixed Session/Message ontology version (server-sourced) — for the wipe/re-init check. */
+  /** The INSTALLED chat-ontology version (server-sourced) — for the wipe/re-init check. */
   @mesh(requireDominionHere)
   resourceOntologyVersionForTest(): string {
-    return createResourceOntologyProvider(this.ctx, this.env.LOADER)().version;
+    return this.chatOntology().version;
   }
 
   /** The relationship metadata the `getOntology()` seam carries — exercises the REAL
-   *  provider closure (this.ctx/this.env.LOADER), so dropping `relationships` from the
-   *  provider returns `undefined` here (red). */
+   *  installed row, so dropping `relationships` from the accessor returns `undefined`
+   *  here (red). */
   @mesh(requireDominionHere)
   resourceRelationshipsForTest(): unknown {
-    return createResourceOntologyProvider(this.ctx, this.env.LOADER)().relationships;
+    return this.chatOntology().relationships;
   }
 
   /** Re-run onStart to simulate a DO restart / re-init (M3 wipe-recovery). */

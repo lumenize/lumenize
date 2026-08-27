@@ -21,7 +21,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { canonicalQueryHash, DEFAULT_SESSION_ID } from '@lumenize/nebula';
+import { canonicalQueryHash, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { QueryDescriptor, OntologyVersionConfig } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
 
@@ -50,7 +50,7 @@ async function connect(opts: {
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
   const client = new NebulaClientTest({
-    baseUrl: ORIGIN, authScope: opts.star, activeScope: opts.star, appVersion: VERSION,
+    baseUrl: ORIGIN, authScope: opts.star, activeScope: opts.star, ontologyVersion: VERSION,
     resourceHostBinding: opts.binding ?? 'STAR', accessToken: access_token,
     instanceName: `${sub}.${opts.tab ?? uuid().slice(0, 8)}`,
     fetch: browser.fetch, WebSocket: browser.WebSocket,
@@ -268,7 +268,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
   it('GENERICITY — the standalone subscriber-list rides a Galaxy host too (same shared ResourceDataPlane + bridge)', async () => {
     const scope = `sublist-ds-${uuid().slice(0, 8)}.app.tenant`;
     const query: QueryDescriptor = {
-      queryType: 'parentChild', typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
+      queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
     };
     // A WATCHER on the Galaxy host (resourceHostBinding routes subscribeQuerySubscribers to GALAXY).
     const w = await connect({ star: scope, binding: 'GALAXY' });

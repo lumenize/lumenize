@@ -2,7 +2,7 @@
  * Phase-1 acceptance scenario — the "verify the chat-history *mechanism* in a running system"
  * round-trip (`tasks/archive/claude-live-verification.md`).
  *
- * Capable-of-failing (asserts, does not print): post a `Session` + `Message` carrying a known
+ * Capable-of-failing (asserts, does not print): post a `Chat` + `Message` carrying a known
  * marker into claude@'s fresh sandbox in ONE atomic transaction, then **read AND subscribe it
  * back** and assert the marker is present. Then the NEGATIVE CONTROL — a base-shape token (flat
  * `scopeAdmin`, no `access`) and a nebula-shaped-but-no-`access` token are both REJECTED at the
@@ -18,7 +18,7 @@ import type { Snapshot } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, mintDegradedToken, assertTokenRejected } from '../lib/harness';
 
-/** Star-tier sandbox under the `claude` Universe; `.dev` star slug so `resetDevData` accepts it. */
+/** Galaxy-tier sandbox under the `claude` Universe — the collapse's chat/resource host. */
 export const SCOPE = 'claude.sandbox';
 
 export async function run(stack: DevStack): Promise<void> {
@@ -26,16 +26,18 @@ export async function run(stack: DevStack): Promise<void> {
   const driver = await connectDriver(stack, { scope: SCOPE });
 
   try {
-    // ── POSITIVE: create Session + Message (ADR-006 by-id FK, client UUIDs) atomically ──
-    const sessionId = crypto.randomUUID();
+    // ── POSITIVE: create Chat + Message (ADR-006 by-id FK, client UUIDs) atomically ──
+    // (Phase-4 of the collapse rewrites this drive path onto `postUserMessage`; until then the
+    // raw transaction surface is the mechanism under test.)
+    const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const out = await driver.client.resources.transaction({
-      [sessionId]: { op: 'create', typeName: 'Session', nodeId: ROOT_NODE_ID, value: { title: 'harness chat' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'harness chat' } },
       [messageId]: {
         op: 'create',
         typeName: 'Message',
         nodeId: ROOT_NODE_ID,
-        value: { session: sessionId, role: 'user', content: marker },
+        value: { chat: chatId, content: marker },
       },
     });
     assert.equal(out.kind, 'committed', `transaction should commit, got kind=${out.kind}`);
@@ -48,9 +50,9 @@ export async function run(stack: DevStack): Promise<void> {
       'read-back Message.content must equal the posted marker (persist → read)',
     );
     assert.equal(
-      (readBack.value as { session: string }).session,
-      sessionId,
-      'read-back Message.session must equal the FK (ADR-006 by-id relationship preserved)',
+      (readBack.value as { chat: string }).chat,
+      chatId,
+      'read-back Message.chat must equal the FK (ADR-006 by-id relationship preserved)',
     );
 
     // ── ATTRIBUTION rides the read-back (ADR-016 record → wire projection): the server stamped the
@@ -93,8 +95,8 @@ export async function run(stack: DevStack): Promise<void> {
       token: await mintDegradedToken(stack, { scope: SCOPE, kind: 'base' }),
     });
 
-    // ── WIPE (best-effort; the deterministic local reset is the fresh boot) ──
-    driver.wipe();
+    // (No wipe: the galaxy tier has no `resetDevData`; the deterministic local reset is the
+    // fresh boot.)
   } finally {
     driver.dispose();
   }

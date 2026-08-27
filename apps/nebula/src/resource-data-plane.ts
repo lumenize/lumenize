@@ -512,19 +512,24 @@ export class ResourceDataPlane {
    *
    * ✅ **Confined, via the ordinary path — no special-casing here.** This method holds no admin
    * check of its own: it goes through `Resources.transaction` → `DagTree.requirePermission`, which
-   * is confinement point 1. So the platform-seed path (the Galaxy's `ensureSession` running under
+   * is confinement point 1. So the platform-seed path (the Galaxy's `ensureChat` running under
    * the admin's call) has passage **iff that admin's `authScope` covers THIS host** — the
    * same rule as every other caller. See tasks/nebula-confine-admin-bypass.md.
    */
   async ensureResource(
     resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,
+    opts: { actor?: { sub: string; profileId?: string } } = {},
   ): Promise<void> {
     if (this.#resources.read(resourceId)) return; // idempotent: a live snapshot exists
     const { version, facet } = this.#getOntology();
     await this.#resources.transaction(
       { [resourceId]: { op: 'create', typeName, nodeId, value } },
       version, crypto.randomUUID(), facet,
-      (mutations) => { this.#broadcast(mutations, ''); this.#rerunQueriesForCommit(mutations); },
+      {
+        onMutations: (mutations) => { this.#broadcast(mutations, ''); this.#rerunQueriesForCommit(mutations); },
+        // Server-composed only — see resources.ts TransactionOpts (the trust fence).
+        actor: opts.actor,
+      },
     );
   }
 
@@ -536,19 +541,24 @@ export class ResourceDataPlane {
     newETag: string,
     ops: Record<string, OperationDescriptor>,
     clientId: string,
+    opts: { actor?: { sub: string; profileId?: string } } = {},
   ): Promise<TransactionResult> {
     try {
       const { version, facet } = this.#getOntology();
       // RETURN the result — the framework fires it back to the originating client's `callAsync`
       // (D5 pattern (a)). The committed-mutation broadcasts to OTHER subscribers stay a fire-and-forget
       // side effect (originator excluded via `clientId`). An infra throw propagates → `callAsync` rejects.
-      return await this.#resources.transaction(ops, version, newETag, facet,
-        (mutations) => {
+      return await this.#resources.transaction(ops, version, newETag, facet, {
+        onMutations: (mutations) => {
           // The single post-commit hook drives BOTH channels (Flow 2 + Flow 3 A):
           // single-resource content fanout, then the query rerun for touched types.
           this.#broadcast(mutations, clientId);
           this.#rerunQueriesForCommit(mutations);
-        });
+        },
+        // Server-composed only — the host's client-facing @mesh entries must never accept or
+        // forward a client `actor` (resources.ts TransactionOpts — the trust fence).
+        actor: opts.actor,
+      });
     } catch (err) {
       debug('nebula.ResourceDataPlane.doTransaction').error('handler threw', {
         clientId,

@@ -65,11 +65,11 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 
 ### Config
 
-`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. In a browser session that has completed the auth discovery flow, **only `appVersion` is required** — all other fields auto-detect from the environment. The remaining fields stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no browser cookie or no same-origin server.
+`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. In a browser session that has completed the auth discovery flow, **only `ontologyVersion` is required** — all other fields auto-detect from the environment. The remaining fields stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no browser cookie or no same-origin server.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `appVersion` | `string` | required | Client's app version (lock-step with the server's ontology version). Auto-attached to every `resources.*` call. Studio's bootstrap substitutes this at deploy time; that's the entire reason Studio's `nebula.ts` has substitution markup. |
+| `ontologyVersion` | `string` | required | The installed ontology version this client's resource ops ride (the server enforces the match). Auto-attached to every `resources.*` call. Studio's bootstrap substitutes this at deploy time; that's the entire reason Studio's `nebula.ts` has substitution markup. |
 | `baseUrl` | `string` | `window.location.origin` | Origin of the back end. Default works whenever UI and API share an origin, which is Nebula's standard deployment shape (the tenant's Star serves both). Specify only for cross-origin admin/scripting use. |
 | `authScope` | `string` | from deployment URL | The scope whose per-scope refresh endpoint (`/auth/{authScope}/refresh-token`) and path-scoped cookie this client uses. A deployed app is pinned to one scope, taken from the deployment URL (`window.location`). NOT readable from the refresh cookie (it's HttpOnly). Specify only for cross-origin admin/scripting callers. |
 | `activeScope` | `string` | same as `authScope` | The scope a call's JWT is bound to (`aud`) — where you're currently working. Defaults to `authScope`. A Galaxy/Universe admin sets it to any scope at or below their own to work in a child Star or back in the parent (see [Auth flows § Admin active-scope switching](./auth-flows.md#admin-active-scope-switching-within-one-scopes-subtree)). Sent in the refresh body; the server bounds it against the scope on their membership. Differs from `authScope` by at least the active branch once branches exist. |
@@ -95,7 +95,7 @@ The Studio-generated `nebula.ts` in a browser app:
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 
 export const { client, store, ready } = createNebulaClient({
-  appVersion: __APP_VERSION__,   // Studio substitutes at deploy time
+  ontologyVersion: __APP_VERSION__,   // Studio substitutes at deploy time
 });
 
 // Top-level await: main.ts (and every component) imports this module, so the
@@ -119,7 +119,7 @@ const { client, store } = createNebulaClient({
   baseUrl: 'https://my-app.example.com',
   authScope: 'acme.app.tenant-a',
   activeScope: 'acme.app.tenant-a',
-  appVersion: 'v42',
+  ontologyVersion: 'v42',
   onShouldRefreshUI: () => {},    // opt out of auto-reload (null/undefined both KEEP the default reload)
 });
 ```
@@ -266,7 +266,7 @@ read(
 ): Promise<Snapshot | null>;
 
 interface ReadOptions {
-  appVersion?: string;   // override constructor's version for this call
+  ontologyVersion?: string;   // override constructor's version for this call
 }
 ```
 
@@ -313,7 +313,7 @@ Multi-resource transactions are atomic: every op commits or none do.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `appVersion` | `string` | constructor's `appVersion` | Override for admin/scripting calls. |
+| `ontologyVersion` | `string` | constructor's `ontologyVersion` | Override for admin/scripting calls. |
 | `newETag` | `string` | `crypto.randomUUID()` | One `newETag` shared across every op in the batch. Override for the idempotency-retry pattern (a dropped response is retried with the same `newETag` to avoid double-write). |
 | `onTransactionResourceResolution` | `Record<string, ResourceHandler>` | per-type registered, else framework default | Per-call handlers, **keyed by `resourceId`** — e.g. `{ 'task-42': handler }`. Each entry handles only its own resource; resources NOT in the map fall through to their per-type handler automatically (no defensive `rid` filtering needed). A listed resource's entry **layers in front of** its per-type handler — verdict-returning on `'conflict-pending'`, additive on terminal branches. See [Precedence](#precedence). |
 | `maxRetries` | `number` | per-call value, else min across involved per-type values, else `5` | **Batch-level** cap on the conflict resolve-and-resubmit loop. On exhaustion the batch lands at top-level `{ kind: 'rejected', retryable: true }` with that resource at `'retries-exhausted'`. The retry budget is client-side policy (the server stays stateless + `newETag`-idempotent). In a multi-type batch the per-call value wins, else the **min** across the involved per-type values. |

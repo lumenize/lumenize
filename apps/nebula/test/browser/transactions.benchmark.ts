@@ -264,7 +264,7 @@ describe('transactions latency (decomposed)', () => {
       baseUrl,
       authScope: universeScope,
       activeScope: galaxyScope,
-      appVersion: 'v1',
+      ontologyVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,

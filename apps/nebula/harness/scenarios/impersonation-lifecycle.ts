@@ -22,7 +22,7 @@
 import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient } from '@lumenize/nebula/client';
+import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
 import { provisionStarAdmin, loginViaEmail, refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
@@ -144,8 +144,8 @@ export async function run(stack: DevStack): Promise<void> {
     baseUrl: stack.baseUrl,
     authScope: universe,
     activeScope: universe,
-    appVersion: 'harness-v0',
-    resourceHostBinding: 'DEV_STUDIO',
+    // Inert — this scenario drives impersonation, never a resource op.
+    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     accessToken: admin.accessToken,
     instanceName: `${admin.sub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: countingFetch,

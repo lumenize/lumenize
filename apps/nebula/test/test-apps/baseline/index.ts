@@ -359,10 +359,11 @@ export class GalaxyTest extends Galaxy {
     this.streamProgress(sessionId, messageId, chunk, nodeId);
   }
 
-  /** Commit the durable assistant Message (the completion step). */
+  /** Commit the durable agent Message (the completion step) — Nebula-attributed via the
+   *  actor stamp, `replyTo`-linked (required on an agent message). */
   @mesh(requireDominionHere)
-  async commitAssistantForTest(sessionId: string, messageId: string, content: string, nodeId: string): Promise<void> {
-    await this.commitAssistantMessage(sessionId, messageId, content, nodeId, 'synthetic thought');
+  async commitAgentForTest(chatId: string, messageId: string, content: string, nodeId: string, replyTo: string, codegen?: Record<string, unknown>): Promise<void> {
+    await this.commitAgentMessage(chatId, messageId, content, nodeId, replyTo, { thought: 'synthetic thought', codegen });
   }
 }
 
@@ -791,13 +792,13 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, this.ctn<Star>().unsubscribeQuery(queryHash));
   }
 
-  /** `Galaxy.ensureSession` (idempotent default-Session seed).
+  /** `Galaxy.ensureChat` (idempotent default-Session seed).
    *  Result-handler form so a test can assert it completes WITHOUT error — the second
    *  call must NOT throw (proves the create-if-absent guard; a raw create-on-existing
    *  throws "already exists", resources.ts). */
   callGalaxyEnsureSession(scope: string): void {
     this.resetResults();
-    const remote = this.ctn<Galaxy>().ensureSession();
+    const remote = this.ctn<Galaxy>().ensureChat();
     this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
@@ -814,10 +815,10 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', scope, this.ctn<GalaxyTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId));
   }
 
-  /** Commit the durable assistant Message (result-handler form to await). */
-  callGalaxyCommitAssistant(scope: string, sessionId: string, messageId: string, content: string, nodeId: string): void {
+  /** Commit the durable agent Message (result-handler form to await). */
+  callGalaxyCommitAgent(scope: string, chatId: string, messageId: string, content: string, nodeId: string, replyTo: string, codegen?: Record<string, unknown>): void {
     this.resetResults();
-    const remote = this.ctn<GalaxyTest>().commitAssistantForTest(sessionId, messageId, content, nodeId);
+    const remote = this.ctn<GalaxyTest>().commitAgentForTest(chatId, messageId, content, nodeId, replyTo, codegen);
     this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 

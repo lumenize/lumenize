@@ -23,7 +23,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient } from '@lumenize/nebula/client';
+import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
 import { provisionAndLogin } from '../../test/lib/email-login';
@@ -229,6 +229,26 @@ export interface Driver {
   dispose: () => void;
 }
 
+/**
+ * Post-collapse construction pairs for a driver at `scope`: resources live on the DO that OWNS
+ * the scope (3 segments = a Star, 2 = a Galaxy), and chat always lives at the covering Galaxy
+ * (`{u}.{g}`). A universe-tier driver gets no chat pair — the client's chat surface then throws
+ * loudly rather than misrouting, by design. A scenario exercising a different plane overrides
+ * per-driver: each driver sets the pair for the plane it exercises.
+ */
+function constructionPairs(scope: string): {
+  resourceHostBinding: string;
+  chatHostBinding?: string;
+  chatScope?: string;
+} {
+  const parts = scope.split('.');
+  const galaxy = parts.length >= 2 ? `${parts[0]}.${parts[1]}` : undefined;
+  return {
+    resourceHostBinding: parts.length >= 3 ? 'STAR' : 'GALAXY',
+    ...(galaxy ? { chatHostBinding: 'GALAXY', chatScope: galaxy } : {}),
+  };
+}
+
 /** Poll until the client reaches `connected`, or throw on timeout. */
 async function waitForConnected(client: NebulaClient, timeoutMs: number): Promise<void> {
   const start = Date.now();
@@ -243,8 +263,8 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
 }
 
 /**
- * Connect a real-WS `NebulaClient` for `scope`, bound to GALAXY (so chat `Session`/`Message`
- * Resources round-trip on the Galaxy DO — the collapse's chat host). Resolves once connected.
+ * Connect a real-WS `NebulaClient` for `scope`, with the post-collapse construction pairs derived
+ * from the scope's tier (see {@link constructionPairs}). Resolves once connected.
  *
  * ⚠️ **Identity comes from a REAL email login by default** (rung 1, ADR-009). This harness is the
  * artifact the ADR names as *"the path design reasoning grounds on"*, so running it on a synthetic
@@ -264,6 +284,12 @@ export async function connectDriver(
     scope: string;
     /** Login identity. Defaults to a fresh `test-<uuid>@lumenize.io` (routed by the catch-all). */
     email?: string;
+    /**
+     * The INSTALLED ontology version this driver's resource ops ride (the host enforces it —
+     * `OntologyStaleError` on a mismatch). Default: the platform chat version, right for the
+     * galaxy chat plane; a Star-plane scenario that installs its own version passes it here.
+     */
+    ontologyVersion?: string;
     connectTimeoutMs?: number;
     /**
      * An access token this scenario already obtained from the SERVER by a real login. Still rung 1
@@ -342,8 +368,8 @@ export async function connectDriver(
     baseUrl: stack.baseUrl,
     authScope: scope,
     activeScope: scope,
-    appVersion: 'harness-v0',
-    resourceHostBinding: 'GALAXY', // TEMP → target=Phase 2's chat/resource construction pairs (collapse)
+    ontologyVersion: opts.ontologyVersion ?? CHAT_MESSAGE_ONTOLOGY_VERSION,
+    ...constructionPairs(scope),
     accessToken: access_token,
     instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: browser.fetch,
@@ -358,6 +384,9 @@ export async function connectDriver(
     sub,
     scope,
     wipe: () => {
+      // `resetDevData` lives on the `.dev` Star and throws off it, so only a star-tier driver
+      // has a wipe target; elsewhere the deterministic reset is the fresh boot.
+      if (scope.split('.').length < 3) return;
       try {
         // Fire-and-forget under the continuation-only model (mirrors nebula-studio-ui App.vue).
         client.lmz.call('STAR', scope, (client.ctn() as any).resetDevData());
@@ -398,8 +427,8 @@ export async function inviteViaMesh(
     baseUrl: stack.baseUrl,
     authScope: claims.access.authScope,
     activeScope: claims.aud,
-    appVersion: 'harness-v0',
-    resourceHostBinding: 'GALAXY', // TEMP → target=Phase 2's chat/resource construction pairs (collapse)
+    // Inert here — this client lives for one `invite()` call and never touches resources.
+    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     accessToken: session.accessToken,
     instanceName: `${session.sub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: browser.fetch,
@@ -479,8 +508,8 @@ export async function assertTokenRejected(
     baseUrl: stack.baseUrl,
     authScope: opts.scope,
     activeScope: opts.scope,
-    appVersion: 'harness-v0',
-    resourceHostBinding: 'GALAXY', // TEMP → target=Phase 2's chat/resource construction pairs (collapse)
+    // Inert here — the whole point is that this client never connects, let alone reads.
+    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     accessToken: opts.token,
     instanceName: `neg-control.${crypto.randomUUID().slice(0, 8)}`,
     fetch: browser.fetch,

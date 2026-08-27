@@ -3,8 +3,8 @@
  * extend (per-type conflict resolvers, first-run resource bootstrap). Components
  * import `{ client, store }` from here; NebulaClient never appears in component code.
  *
- * Scope is SERVER-DERIVED: DevContainer.fetch() injects `<meta name="nebula-scope">`
- * into the shell at serve time (activeScope/authScope/appVersion from the routed
+ * Scope is SERVER-DERIVED: the Galaxy's `/app/*` serve path injects `<meta name="nebula-scope">`
+ * into the shell at serve time (activeScope/authScope/ontologyVersion from the routed
  * instance identity — never request-supplied; the wrong-Star footgun guard). The
  * prod static-serve injects the same meta. We read it here, never a URL/query value.
  *
@@ -21,7 +21,7 @@ import { createNebulaClient } from '@lumenize/nebula/frontend';
 interface NebulaScope {
   activeScope: string; // {u}.{g}.dev in dev; the deployed star in prod
   authScope: string;   // parent galaxy {u}.{g}
-  appVersion: string;
+  ontologyVersion: string;
 }
 
 function readInjectedScope(): NebulaScope {
@@ -32,7 +32,7 @@ function readInjectedScope(): NebulaScope {
   return JSON.parse(content) as NebulaScope;
 }
 
-const { activeScope, authScope, appVersion } = readInjectedScope();
+const { activeScope, authScope, ontologyVersion } = readInjectedScope();
 
 // Dev preview only: enable the live reload channel so an ontology change re-syncs this
 // preview onto the new version (Decision 12 / Flow 1d). Segment-precise `.dev` check
@@ -43,7 +43,7 @@ const segs = activeScope.split('.');
 const isDevPreview = segs.length === 3 && segs[2] === 'dev';
 
 export const { client, store, ready } = createNebulaClient({
-  appVersion,
+  ontologyVersion,
   authScope,
   activeScope,
   ...(isDevPreview ? { onReload: () => window.location.reload() } : {}),

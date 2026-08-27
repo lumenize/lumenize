@@ -15,13 +15,25 @@
 
 export class OntologyStaleError extends Error {
   override name = 'OntologyStaleError';
+  /**
+   * Set when the host fired a registry lazy-pull for exactly `clientVersion` INSIDE the
+   * refused op's own call context (a Star pulling a version it doesn't yet hold from its
+   * parent Galaxy). The op is idempotent (transactions replay on `newETag`, reads and
+   * subscribes re-run freely), so the client RETRIES it briefly instead of treating the
+   * version as stale; only a retry-exhausted or non-`installing` stale surfaces to the
+   * refresh-UI path. A cross-node op cannot be awaited (ADR-003), which is why the pull's
+   * completion arrives as a successful retry rather than as this op's own result.
+   */
+  public readonly installing?: boolean;
   constructor(
     public readonly clientVersion: string,
     public readonly currentVersion: string,
+    opts: { installing?: boolean } = {},
   ) {
     super(
       `Ontology version mismatch: client sent '${clientVersion}' but latest is '${currentVersion}'. Refresh your schema.`,
     );
+    if (opts.installing) this.installing = true;
   }
 }
 

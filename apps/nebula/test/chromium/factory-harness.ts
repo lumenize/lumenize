@@ -50,7 +50,7 @@ export async function bootstrapFactory(
     baseUrl,
     authScope: scope,
     activeScope: scope,
-    appVersion: 'v1',
+    ontologyVersion: 'v1',
     onShouldRefreshUI: () => {},
     ...extra,
   });

@@ -2,12 +2,12 @@
  * Galaxy source-of-truth + compile-and-apply (the `dev-studio` project — its name
  * predates the collapse of DevStudio into Galaxy).
  *
- * Driven via `__executeOperation` envelopes (no Gateway/JWT) carrying an admin claim
- * at the `{u}.{g}` scope, so the real receive seam runs (onBeforeCall passage guard
- * + requireDominionHere). Proves:
- *  - **compile-and-apply**: `compileAndInstallOntology` compiles the ontology `.d.ts`
- *    and installs it on the DERIVED `{u}.{g}.dev` Star (post-collapse the brain sits
- *    one level above the workspace Star);
+ * Driven via `__executeOperation` envelopes (no Gateway/JWT), so the real receive seam
+ * runs (onBeforeCall passage guard + requireDominionHere). Proves:
+ *  - **append + lazy-pull**: `appendWorkspaceOntology` compiles the Workspace's ontology
+ *    `.d.ts` into the Galaxy's registry (no downward push exists), and a Star data op
+ *    naming that version — under a plain MEMBER's claims — pulls + installs it, honoring
+ *    the row's `wipeOnInstall`;
  *  - the version is **content-addressed** (the Worker Loader `bundleId` cache guard);
  *  - the command surface is **admin-gated** (the guard's operands, tested pure).
  *
@@ -62,63 +62,99 @@ const fire = (
     metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName: instance } },
   });
 
-describe('Galaxy compile-and-apply — installs a content-addressed ontology on the derived .dev Star', () => {
-  // compileAndInstallOntology fires `setOntology` cross-DO to the {u}.{g}.dev Star (fire-and-
-  // forget). Drive it through the REAL receive path so the scope propagates, then observe the
-  // Star's ontology index (the durable effect). The installed version IS the content hash, so its
-  // shape + count is the assertion — the method's return value isn't needed.
-  it('compiles the ontology .d.ts and installs a content-addressed version on the .dev Star', async () => {
+describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)', () => {
+  // The dev apply is APPEND-ONLY on the Galaxy's registry; a Star acquires a version by
+  // pulling it on a data op whose expected version it doesn't hold — under the asking
+  // member's OWN claims (upward passage), which is the auth story the eager downward
+  // push never had.
+  it('appendWorkspaceOntology appends a content-addressed version to the REGISTRY — no Star involvement', async () => {
     const galaxy = uniqueGalaxyScope();
-    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1)); // local commit
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'compileAndInstallOntology', [{}]);
-    // Capable-of-failing: if compile+install never reached the Star, the index stays empty → times out.
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
     await vi.waitFor(async () => {
-      const index = (await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())) as string[];
-      expect(index.length).toBe(1);
-      expect(index[0]).toMatch(OID_RE);
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(1);
+      expect(versions[0]).toMatch(OID_RE);
+    }, { timeout: 15000 });
+    // Capable-of-failing on the DELETED push: the .dev Star holds nothing until it pulls.
+    expect(await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
+  });
+
+  it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version; unchanged is a no-op', async () => {
+    const galaxy = uniqueGalaxyScope();
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
+    }, { timeout: 15000 });
+    // Unchanged source re-applied → already appended → still 1.
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
+    // Edit → a DIFFERENT content hash → a second version appended.
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
     }, { timeout: 15000 });
   });
 
-  it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version', async () => {
+  it('LAZY-PULL: a data op with the appended version, under NON-ADMIN claims, installs it on the Star', async () => {
     const galaxy = uniqueGalaxyScope();
+    const star = `${galaxy}.dev`;
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'compileAndInstallOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    let version = '';
+    await vi.waitFor(async () => {
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(1);
+      version = versions[0];
+    }, { timeout: 15000 });
+    // A data op naming the new version, from a plain MEMBER at the star — no `scopeAdmin`
+    // anywhere in the claims. The pull is an upward call under these same claims, so it
+    // works for every member (the auth story the deleted eager push never had). The op
+    // itself answers `installing`-stale (a cross-node pull cannot be awaited, ADR-003);
+    // the traveling handler installs, which is the durable effect asserted here.
+    await fire(env.STAR, 'STAR', star, 'read', [version, crypto.randomUUID()],
+      { aud: star, access: { authScope: star } });
+    await vi.waitFor(async () => {
+      const index = (await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[];
+      expect(index).toContain(version);
+    }, { timeout: 15000 });
+  });
+
+  it('wipeOnInstall: a version appended with { wipe: true } wipes the OLDER install first; a plain append does not', async () => {
+    const galaxy = uniqueGalaxyScope();
+    const star = `${galaxy}.dev`;
+    const member = { aud: star, access: { authScope: star } };
+    // V1 → pull-install on the star.
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
     let v1 = '';
     await vi.waitFor(async () => {
-      const index = (await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())) as string[];
-      expect(index.length).toBe(1);
-      v1 = index[0];
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(1);
+      v1 = versions[0];
     }, { timeout: 15000 });
-    // Edit → a DIFFERENT compiled version (git.hashBlob of the source). A constant label would
-    // silently reuse the cached validator bundle → the index would stay at 1 (this reds).
+    await fire(env.STAR, 'STAR', star, 'read', [v1, crypto.randomUUID()], member);
+    await vi.waitFor(async () => {
+      expect((await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[]).toContain(v1);
+    }, { timeout: 15000 });
+    // V2 appended WITH the wipe decision → the pull wipes before installing, so ONLY v2
+    // remains. Capable-of-failing on the WIPE: a no-wipe install yields [v1, v2].
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'compileAndInstallOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{ wipe: true }]);
+    let v2 = '';
     await vi.waitFor(async () => {
-      const index = (await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())) as string[];
-      expect(index).toContain(v1);  // v1 still present (no wipe)
-      expect(index.length).toBe(2); // + a distinct v2
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(2);
+      v2 = versions[1];
     }, { timeout: 15000 });
-  });
-
-  it('{ wipe: true } wipes the .dev Star BEFORE installing (Flow 1b wipe path)', async () => {
-    const galaxy = uniqueGalaxyScope();
-    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'compileAndInstallOntology', [{}]);
-    let vA = '';
+    await fire(env.STAR, 'STAR', star, 'read', [v2, crypto.randomUUID()], member);
     await vi.waitFor(async () => {
-      const index = (await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())) as string[];
-      expect(index.length).toBe(1);
-      vA = index[0];
-    }, { timeout: 15000 });
-    // Change + apply WITH wipe. resetDevData (deleteAll) must run BEFORE setOntology, so only the new
-    // version remains. Capable-of-failing on the WIPE: a no-op / after-setOntology wipe → [vA, vB].
-    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'compileAndInstallOntology', [{ wipe: true }]);
-    await vi.waitFor(async () => {
-      const index = (await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())) as string[];
-      expect(index.length).toBe(1);
-      expect(index).not.toContain(vA);
-      expect(index[0]).toMatch(OID_RE);
+      const index = (await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[];
+      expect(index).toContain(v2);
+      expect(index).not.toContain(v1); // the wipe cleared the older install
     }, { timeout: 15000 });
   });
 });

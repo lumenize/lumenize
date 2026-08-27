@@ -12,7 +12,7 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 // client value graph (`client-index.ts` re-exports `END_OF_TIME`), and the barrel exports the Registry
 // DO, which pulls `cloudflare:workers`. `/claims` is pure by construction — its own header says so —
 // and it is ADR-016's ONE shared projection; no site assembles its own record.
-import { projectActingToken } from '@lumenize/nebula-auth/claims';
+import { projectActingToken, prependActor } from '@lumenize/nebula-auth/claims';
 import type { ActingTokenRecord } from '@lumenize/nebula-auth/claims';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError } from './errors';
@@ -77,6 +77,25 @@ export type TransactionError =
 export type TransactionResult =
   | { ok: true;  eTags: Record<string, string> }
   | { ok: false; errors: Record<string, TransactionError> };
+
+/**
+ * Options for {@link Resources.transaction}.
+ *
+ * `actor` is the SERVER-COMPOSED delegation entry appended (RFC 8693 prepend — the new
+ * outermost `act`) onto the record projected from `callContext.originAuth` — how a Nebula
+ * reply runs under the TRIGGERING HUMAN's authority while recording Nebula as the actor.
+ * Chat-agnostic: the option IS the actor pair, nothing here names an agent. ⚠️ Both fields
+ * MUST be server-supplied (a reserved constant, or a verified claim) — a client-facing
+ * `@mesh` entry must never accept or forward a client-supplied `actor` (the trust fence:
+ * a client could otherwise forge `act: { sub: NEBULA_SUB }` and dress its message as
+ * Nebula's). ADR-016 blesses a server-composed actor inside a claims-shaped record.
+ */
+export interface TransactionOpts {
+  /** Post-commit hook, invoked with the written snapshots (fanout + query reruns). */
+  onMutations?: (mutations: Map<string, Snapshot>) => void;
+  /** Server-composed actor appended as the outermost `act` chain entry. */
+  actor?: { sub: string; profileId?: string };
+}
 
 /** Allow-list pick for the wire — see {@link WireActingToken}. */
 function toWireActingToken(rec: ActingTokenRecord): WireActingToken {
@@ -211,10 +230,17 @@ export class Resources {
     return new Date(ts).toISOString();
   }
 
-  #buildActingToken(): ActingTokenRecord {
+  /** Project the caller's verified claims into the ADR-016 record; when a server-composed
+   *  `actor` is supplied, prepend it as the new OUTERMOST `act` entry via the ONE shared
+   *  `prependActor` helper (nebula-auth/claims) — preserving any pre-existing verified chain
+   *  beneath (an impersonated session's committed message triggering Nebula yields the
+   *  two-level chain; a flatten would drop the delegation). */
+  #buildActingToken(actor?: { sub: string; profileId?: string }): ActingTokenRecord {
     const cc = this.#getCallContext();
     const payload = cc.originAuth?.claims as unknown as NebulaJwtPayload;
-    return projectActingToken(payload);
+    const record = projectActingToken(payload);
+    if (actor) return { ...record, act: prependActor(record.act, actor) };
+    return record;
   }
 
   #writeSnapshot(
@@ -357,8 +383,9 @@ export class Resources {
     ontologyVersion: string,
     newETag: string,
     facet: ParserValidator,
-    onMutations?: (mutations: Map<string, Snapshot>) => void,
+    opts: TransactionOpts = {},
   ): Promise<TransactionResult> {
+    const { onMutations, actor } = opts;
     // Empty ops — no-op
     const entries = Object.entries(ops);
     if (entries.length === 0) return { ok: true, eTags: {} };
@@ -384,8 +411,8 @@ export class Resources {
     // writing again.
     const eTag = newETag;
 
-    // Step 4: Build the acting-token record from callContext
-    const actingToken = this.#buildActingToken();
+    // Step 4: Build the acting-token record from callContext (+ any server-composed actor)
+    const actingToken = this.#buildActingToken(actor);
 
     // Step 4.5: Monotonic pre-checks (before the validator). Run against
     // `currentSnapshots` (already read at Step 1 — no extra reads) so a doomed

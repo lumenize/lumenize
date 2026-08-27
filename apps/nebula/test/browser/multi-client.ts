@@ -101,7 +101,7 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
       baseUrl,
       authScope: universeScope,
       activeScope,
-      appVersion: 'v1',
+      ontologyVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,

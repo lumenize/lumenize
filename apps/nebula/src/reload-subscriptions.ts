@@ -2,7 +2,7 @@
  * ReloadSubscriptions — per-Star dev-preview reload-channel subscriber registry.
  *
  * A **non-resource** per-Star channel modeled exactly on {@link TreeSubscriptions}:
- * keyed by `clientId` ALONE, with no resource / typeName / appVersion checks. The
+ * keyed by `clientId` ALONE, with no resource / typeName / ontologyVersion checks. The
  * preview client subscribes here (`Star.subscribeReload`); `Star.broadcastReload`
  * fans out a reload signal. Its former trigger (`DevStar.compileSFC`) was retired in
  * Phase 4 (vite owns compile); the channel is kept for the **publish-refresh signal**.

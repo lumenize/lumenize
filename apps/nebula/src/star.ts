@@ -38,7 +38,7 @@ import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget, NodeInvitee, NodeInviteAck } from './resource-data-plane';
 import type { QueryDescriptor, SubscriberEntry } from './query-hash';
 import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
-import type { OntologyVersionRow, OntologyState } from './galaxy';
+import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
@@ -310,7 +310,7 @@ export class Star extends NebulaDO {
     }
 
     // Dev-loop live re-sync (Decision 12 / Flow 1d): a new version makes any live
-    // preview's injected appVersion stale → fan out the reload signal so it
+    // preview's injected ontologyVersion stale → fan out the reload signal so it
     // re-fetches the shell at the new version. Dev: the preview is a reload
     // subscriber; prod: none until publish wires them → no-op. One trigger shared
     // by dev (`setOntology`) and prod (Galaxy lazy-pull) — both land here.
@@ -358,6 +358,72 @@ export class Star extends NebulaDO {
   async installOntology(row: OntologyVersionRow, opts?: { wipe?: boolean }): Promise<void> {
     if (opts?.wipe) await this.resetDevData();
     this.setOntology(row);
+  }
+
+  /**
+   * Fire the registry lazy-pull: fetch `version`'s row from the parent Galaxy with a
+   * traveling install handler ({@link onOntologyPulled}). Rides the CURRENT op's
+   * callContext (the asking member's own claims — an upward call every member has
+   * passage for); fire-and-forget, never awaited (ADR-003 — the refused op answers
+   * `installing` and the client retries). Idempotent: a concurrent pull's second
+   * install lands on `setOntology`'s already-present no-op.
+   */
+  #pullOntology(version: string): void {
+    this.lmz.call('GALAXY', this.galaxyId,
+      this.ctn<Galaxy>().getOntologyVersion(version),
+      this.ctn<Star>().onOntologyPulled(version));
+  }
+
+  /**
+   * The lazy-pull's result handler — travels with the call (survives this DO's
+   * eviction). Installs the pulled row; a `wipeOnInstall` row pulled over an OLDER
+   * installed version wipes first (the breaking-edit bargain, decided + dominion-checked
+   * Galaxy-side when the version was appended — a property of the row, never pending
+   * state). `null` (version unknown to the registry) installs nothing — the client's
+   * bounded retries exhaust and surface the ordinary stale signal.
+   *
+   * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
+   * (allowlist off, scope-check on); an `@mesh` here would let any in-scope caller hand
+   * this Star an arbitrary "ontology row" and swap the validator — the same forge fence
+   * as `onInviteResult`. ⚠️ Pre-alpha the only puller is the `.dev` star; a wipeOnInstall
+   * pull on a non-`.dev` star logs + skips (the prod install path is the fast-follow's).
+   */
+  public async onOntologyPulled(version: string, result?: unknown): Promise<void> {
+    const log = debug('nebula.Star.ontologyPull');
+    try {
+      if (result instanceof Error) {
+        log.warn('ontology pull failed', { version, error: result.message });
+        return;
+      }
+      const row = result as OntologyVersionRow | null;
+      if (!row) {
+        log.warn('ontology pull returned no row — version unknown to the registry', { version });
+        return;
+      }
+      if (row.version !== version) {
+        log.error('ontology pull returned a DIFFERENT version — not installing', { version, got: row.version });
+        return;
+      }
+      if (this.#isCachedVersion(row.version)) return; // already current — idempotent
+      const hadPrior = (this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? []).length > 0;
+      if (row.wipeOnInstall && hadPrior) {
+        const segs = this.lmz.instanceName?.split('.') ?? [];
+        if (!(segs.length === 3 && segs[2] === 'dev')) {
+          // resetDevData is .dev-guarded; the prod wipe-on-install story is the
+          // fast-follow's prod install path. Refuse loudly rather than half-install.
+          log.error('wipeOnInstall pull on a non-.dev star — not installing (prod install path pending)', { version });
+          return;
+        }
+        await this.resetDevData();
+      }
+      this.setOntology(row);
+      log.debug('ontology pulled + installed', { version, wiped: Boolean(row.wipeOnInstall && hadPrior) });
+    } catch (err) {
+      // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
+      log.error('ontology pull handling failed', {
+        version, error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**
@@ -478,16 +544,22 @@ export class Star extends NebulaDO {
    *  the `OntologyStaleError` as a VALUE (resolve, not reject): the client's submit wrapper maps it to
    *  the engine's `{ontologyStale}` signal (asymmetric with `read`, which THROWS on stale). The
    *  version-gate is Galaxy-multi-version-specific and stays on Star; the capability never sees
-   *  `appVersion`. */
+   *  `ontologyVersion`. */
   @mesh()
-  transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult> | OntologyStaleError {
+  transaction(ontologyVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult> | OntologyStaleError {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('transaction requires a client origin with instanceName in callChain[0]');
     }
-    // No Galaxy lazy-pull (Phase 4): a version the Star doesn't hold → tell the client to refresh.
-    if (!this.#isCachedVersion(appVersion)) {
-      return new OntologyStaleError(appVersion, this.#currentVersion());
+    if (!this.#isCachedVersion(ontologyVersion)) {
+      // LAZY-PULL (dev unified with the prod Flow-2b design): fire the registry fetch from
+      // the parent Galaxy INSIDE this op's own call context — upward passage is free for
+      // every member, so it works under any claims (the auth story the deleted eager push
+      // never had) — and answer `installing` so the client retries the replay-idempotent
+      // op instead of treating the version as stale. The op cannot await the pull
+      // (ADR-003); the traveling handler installs, the retry succeeds.
+      this.#pullOntology(ontologyVersion);
+      return new OntologyStaleError(ontologyVersion, this.#currentVersion(), { installing: true });
     }
     return this.#dataPlane.doTransaction(newETag, ops, clientId);
   }
@@ -499,9 +571,11 @@ export class Star extends NebulaDO {
    *  `OntologyStaleError` (→ error RESULT → the client's `callAsync` rejects → its `.catch` fires
    *  `onShouldRefreshUI`). */
   @mesh()
-  read(appVersion: string, resourceId: string): Snapshot | null {
-    if (!this.#isCachedVersion(appVersion)) {
-      throw new OntologyStaleError(appVersion, this.#currentVersion());
+  read(ontologyVersion: string, resourceId: string): Snapshot | null {
+    if (!this.#isCachedVersion(ontologyVersion)) {
+      // Same lazy-pull as `transaction` — reads retry freely, so `installing` rides the throw.
+      this.#pullOntology(ontologyVersion);
+      throw new OntologyStaleError(ontologyVersion, this.#currentVersion(), { installing: true });
     }
     return this.#dataPlane.doRead(resourceId);
   }
@@ -510,7 +584,7 @@ export class Star extends NebulaDO {
 
   /** Handler 1: Check cache, dispatch to Handler 2 */
   @mesh()
-  subscribe(appVersion: string, resourceType: string, resourceId: string) {
+  subscribe(ontologyVersion: string, resourceType: string, resourceId: string) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('subscribe requires a client origin with instanceName in callChain[0]');
@@ -520,10 +594,13 @@ export class Star extends NebulaDO {
       throw new Error('subscribe requires a gateway in callChain.at(-1)');
     }
 
-    if (!this.#isCachedVersion(appVersion)) {
+    if (!this.#isCachedVersion(ontologyVersion)) {
+      // Same lazy-pull as `transaction`; the stale signal still pushes so the client's
+      // pending subscribe settles (a re-subscribe after the install succeeds).
+      this.#pullOntology(ontologyVersion);
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
         this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-          new OntologyStaleError(appVersion, this.#currentVersion())));
+          new OntologyStaleError(ontologyVersion, this.#currentVersion(), { installing: true })));
       return;
     }
     this.#dataPlane.doSubscribe(resourceType, resourceId, clientId, subscriberBinding);
@@ -641,7 +718,7 @@ export class Star extends NebulaDO {
    * `onBeforeCall`'s aud-lock (ran already) + `dagTree.getState()`'s auth check
    * (a valid in-scope `sub`). There is intentionally **NO node-level read check**
    * — the tree is universally visible by design. Ontology-version-independent, so
-   * no Handler-1/2 cache dance and no `appVersion` argument.
+   * no Handler-1/2 cache dance and no `ontologyVersion` argument.
    */
   @mesh()
   subscribeTree(): void {
@@ -665,7 +742,7 @@ export class Star extends NebulaDO {
   /**
    * Subscribe the caller to this Star's **reload channel** — a per-Star,
    * non-resource signal modeled exactly on {@link subscribeTree}: registers the
-   * caller in `#reloadSubscriptions` with NO resource/typeName/`appVersion`
+   * caller in `#reloadSubscriptions` with NO resource/typeName/`ontologyVersion`
    * checks (a reload marker is none of those).
    *
    * **Kept channel, trigger deferred:** its former trigger (`DevStar.compileSFC`)

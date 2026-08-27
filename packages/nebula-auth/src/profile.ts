@@ -38,7 +38,7 @@ import { ComposedMeshDO, mesh, newContinuation, type Continuation } from '@lumen
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, isPlatformScope } from './parse-id';
-import { REGISTRY_INSTANCE_NAME } from './types';
+import { NEBULA_SUB, REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
 
 /** The PUBLIC OIDC fields — the ONLY fields a read/subscribed/pushed snapshot carries. */
@@ -93,6 +93,26 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),
     );
+    // The reserved Nebula LLM profile SELF-SEEDS — never a deploy step, never a manual one. An
+    // instance whose own id is the reserved agent id writes ALL THREE public fields (a partial
+    // seed would render Nebula unlike every human — the set is exactly the PUBLIC_FIELDS
+    // allow-list); every other instance does nothing. `ctx.id.name`, not `this.lmz.instanceName`
+    // — identity is not stamped this early (the same trap ResourceDataPlane documents), while a
+    // named DO's `ctx.id.name` is available at construction. INSERT OR IGNORE: one more
+    // statement in this constructor's established seed pattern, and a later super-admin edit is
+    // never clobbered on reconstruct. Write-authz needs no special-casing — #requireOwnerOrAdmin
+    // already denies everyone but a super-admin on an ownerless, not-in-Registry profile.
+    if (ctx.id.name === NEBULA_SUB) {
+      for (const [field, value] of [
+        ['name', 'Nebula'],
+        ['nickname', 'Nebula'],
+        ['picture', 'https://lumenize.com/img/logo.svg'],
+      ] as const) {
+        ctx.storage.sql.exec(
+          `INSERT OR IGNORE INTO ProfileFields (field, value) VALUES (?, ?)`, field, value,
+        );
+      }
+    }
   }
 
   // `ctn()` stays per-class (off ComposedMeshDO) — its `Continuation<this>` return can't cross the mixin

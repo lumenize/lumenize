@@ -415,8 +415,6 @@ The actor id is `agent:nebula` — self-describing and syntactically not a human
 
 Two inversions are tempting and both are wrong. Giving the agent its own login would **grant** it authority that then has to be confined, where this design has nothing to confine. And the actor is composed server-side: a client able to name its own actor would defeat the record entirely.
 
-> **Today's code differs.** Nothing prepends Nebula yet, so every `act` chain in a record comes from impersonation alone.
-
 ### Attribution
 
 An attribution record answers two questions.

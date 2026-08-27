@@ -728,7 +728,7 @@ export function createNebulaStore(
 export { effectScope, vueComputed as computed };
 
 /**
- * Configuration for {@link createNebulaClient}. Only `appVersion` is required;
+ * Configuration for {@link createNebulaClient}. Only `ontologyVersion` is required;
  * `baseUrl` / `activeScope` / `onShouldRefreshUI` auto-detect, and all the
  * inherited `NebulaClient` fields (`fetch`, `sessionStorage`, `onLoginRequired`,
  * `onConnectionStateChange`, …) stay available as escape hatches for
@@ -789,18 +789,18 @@ function defaultOnShouldRefreshUI(_info: OntologyStaleInfo): void {
 
 /**
  * Pure config resolution (auto-detect + defaults), split out so it's unit-testable
- * without opening a connection. Throws on a missing `appVersion` or `authScope`
+ * without opening a connection. Throws on a missing `ontologyVersion` or `authScope`
  * (the latter's URL auto-detect is deferred — see {@link CreateNebulaClientConfig}).
  */
 export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   baseUrl?: string;
   authScope: string;
   activeScope: string;
-  appVersion: string;
+  ontologyVersion: string;
   onShouldRefreshUI: (info: OntologyStaleInfo) => void;
 } {
-  if (!config.appVersion) {
-    throw new Error('createNebulaClient: `appVersion` is required.');
+  if (!config.ontologyVersion) {
+    throw new Error('createNebulaClient: `ontologyVersion` is required.');
   }
   if (config.authScope === undefined) {
     throw new Error(
@@ -815,7 +815,7 @@ export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   // `?? ` coalesces both `undefined` and `null` to the default reload (by design —
   // there is no "disable" sentinel; opt out with an explicit `() => {}`).
   const onShouldRefreshUI = config.onShouldRefreshUI ?? defaultOnShouldRefreshUI;
-  return { baseUrl, authScope, activeScope, appVersion: config.appVersion, onShouldRefreshUI };
+  return { baseUrl, authScope, activeScope, ontologyVersion: config.ontologyVersion, onShouldRefreshUI };
 }
 
 /**
@@ -852,7 +852,7 @@ export function createNebulaClient(config: CreateNebulaClientConfig): FactoryRes
     baseUrl: resolved.baseUrl,
     authScope: resolved.authScope,
     activeScope: resolved.activeScope,
-    appVersion: resolved.appVersion,
+    ontologyVersion: resolved.ontologyVersion,
     onShouldRefreshUI: resolved.onShouldRefreshUI,
     onConnectionStateChange: (state) => {
       if (state === 'connected' && !readySettled) {

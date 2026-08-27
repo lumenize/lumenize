@@ -63,7 +63,7 @@ describe('client.resources.read does not write to the bound store (§5.3.8, real
       baseUrl: ORIGIN,
       authScope: universeOf(star),
       activeScope: star,
-      appVersion: ONTOLOGY_VERSION,
+      ontologyVersion: ONTOLOGY_VERSION,
       fetch: browserR.fetch,
       WebSocket: browserR.WebSocket,
       sessionStorage: ctx.sessionStorage,

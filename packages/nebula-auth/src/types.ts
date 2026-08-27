@@ -331,6 +331,25 @@ export const REGISTRY_INSTANCE_NAME = 'registry';
  */
 export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 
+/**
+ * Nebula's reserved AGENT id — an **actor** id, never a standalone subject: a Nebula-authored
+ * message's `actingToken.sub` is always the triggering human, with `{ sub: NEBULA_SUB,
+ * profileId: NEBULA_SUB }` prepended as the outermost `act` entry (RFC 8693). Self-describing
+ * over a UUID: readable, syntactically not-a-human, and it degrades legibly in a cold record.
+ *
+ * The id is ALSO Nebula's `profileId` (picked 2026-08-27 — one reserved id, no second constant):
+ * a reserved sentinel cannot collide with minted UUIDs (the {@link RESERVED_STAR_SLUGS}
+ * precedent — ADR-010's axis is coordination, and reservation IS coordination), and `profileId`
+ * is never an authz input, so the shared value leaks nothing. The `Profile` DO whose instance
+ * name equals this id SELF-SEEDS the public "Nebula" fields (profile.ts) — no deploy step.
+ *
+ * Home: here beside the other reserved names, because the `Profile` DO seeds off it and a
+ * package may not import from `apps/nebula`. Browser-safe consumers (deriving `kind` at render)
+ * import it via the pure `@lumenize/nebula-auth/claims` subpath, which re-exports it — the ROOT
+ * barrel exports the Registry DO and must never enter a client bundle.
+ */
+export const NEBULA_SUB = 'agent:nebula';
+
 /** Default URL prefix for all auth routes */
 export const NEBULA_AUTH_PREFIX = '/auth';
 

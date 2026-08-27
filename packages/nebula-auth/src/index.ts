@@ -79,4 +79,5 @@ export {
   NEBULA_AUTH_PREFIX,
   ACCESS_TOKEN_TTL,
   NEBULA_AUTH_ISSUER,
+  NEBULA_SUB,
 } from './types';

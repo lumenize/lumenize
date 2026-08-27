@@ -16,7 +16,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
 import { requireDominionHere } from '../../../src/nebula-do';
-import { SESSION_MESSAGE_ONTOLOGY_VERSION } from '../../../src/devstudio-resource-ontology';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '../../../src/chat-constants';
 
 // ─── driver — direct in-DO call ────────────────────────────────────────────
 // These `*ForTest` methods are PURE (they read `this.ctx`/`this.env.LOADER`, no callContext, no
@@ -68,8 +68,8 @@ describe('Galaxy @mesh surface freeze (m5)', () => {
   it('codegen/source + registry-write methods stay requireDominionHere', () => {
     const admin = meshMethods(true);
     for (const m of [
-      'writeSource', 'readSource', 'compileAndInstallOntology',
-      'chat', 'warmPreview', 'ensureSession',
+      'writeSource', 'readSource', 'appendWorkspaceOntology',
+      'chat', 'warmPreview', 'ensureChat',
       'appendOntologyVersion', 'setGalaxyConfig',
     ]) {
       expect(admin).toContain(m);
@@ -86,42 +86,42 @@ describe('Galaxy @mesh surface freeze (m5)', () => {
 });
 
 describe('Galaxy Session/Message facet (composed provider)', () => {
-  const validTurn = { session: 'sess-1', role: 'user', content: 'hello' };
+  const validTurn = { chat: 'chat-1', content: 'hello' };
 
-  it('SC3 + M2: accepts a Message whose session is an id string (both facets mounted → no cross-wiring)', async () => {
+  it('SC3 + M2: accepts a Message whose chat is an id string (both facets mounted → no cross-wiring)', async () => {
     const g = uniqueGalaxyScope();
-    const r = await callGalaxy(g, 'parseSessionTurnForTest', ['Message', validTurn]);
+    const r = await callGalaxy(g, 'parseChatMessageForTest', ['Message', validTurn]);
     expect(r.valid).toBe(true);
   });
 
-  it('SC3: rejects an embedded session object with the ADR-006 by-id (embed) guard', async () => {
+  it('SC3: rejects an embedded chat object with the ADR-006 by-id (embed) guard', async () => {
     const g = uniqueGalaxyScope();
-    const embedded = { session: { title: 'embedded not an id' }, role: 'user', content: 'x' };
-    const r = await callGalaxy(g, 'parseSessionTurnForTest', ['Message', embedded]);
+    const embedded = { chat: { title: 'embedded not an id' }, content: 'x' };
+    const r = await callGalaxy(g, 'parseChatMessageForTest', ['Message', embedded]);
     expect(r.valid).toBe(false);
-    const err = r.errors.find((e: { path: string }) => e.path === '$input.session');
+    const err = r.errors.find((e: { path: string }) => e.path === '$input.chat');
     expect(err).toBeDefined();
     // The loud warning explains the by-id relationship contract (names field + target).
     expect(err.description).toMatch(/reference by id/i);
   });
 
-  it('the getOntology() seam carries relationships (Message.session is to-one)', async () => {
+  it('the getOntology() seam carries relationships (Message.chat is to-one)', async () => {
     const g = uniqueGalaxyScope();
     const rels = await callGalaxy(g, 'resourceRelationshipsForTest') as
       Record<string, Record<string, { target: string; cardinality: string }>>;
     // Capable-of-failing: drop `relationships` from the provider closure → this is
     // `undefined` and the `.Message.session` access throws (red). subscribeQuery field
     // validation has nothing to check without this.
-    expect(rels.Message.session).toMatchObject({ target: 'Session', cardinality: 'one' });
+    expect(rels.Message.chat).toMatchObject({ target: 'Chat', cardinality: 'one' });
   });
 
   it('M3: ontology version is the fixed constant and survives an onStart re-init', async () => {
     const g = uniqueGalaxyScope();
-    expect(await callGalaxy(g, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
+    expect(await callGalaxy(g, 'resourceOntologyVersionForTest')).toBe(CHAT_MESSAGE_ONTOLOGY_VERSION);
     await callGalaxy(g, 'reInitForTest');
     // Re-derivable from the platform constant — a write still validates, version unchanged.
-    const r = await callGalaxy(g, 'parseSessionTurnForTest', ['Message', validTurn]);
+    const r = await callGalaxy(g, 'parseChatMessageForTest', ['Message', validTurn]);
     expect(r.valid).toBe(true);
-    expect(await callGalaxy(g, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
+    expect(await callGalaxy(g, 'resourceOntologyVersionForTest')).toBe(CHAT_MESSAGE_ONTOLOGY_VERSION);
   });
 });

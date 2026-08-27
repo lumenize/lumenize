@@ -1,24 +1,22 @@
 /**
  * Galaxy resource data-plane — real-NebulaClient e2e (Child 1; host re-homed by the collapse).
  *
- * A `NebulaClient` configured `resourceHostBinding: 'GALAXY'` (D9) hosts the
- * chat `Session`/`Message` Resources on the **Galaxy** DO instead of a Star —
- * exercised through the **public** API (`client.resources.*` / `client.orgTree.*`)
- * over the full integration path (real JWTs minted locally + verified normally —
- * NOT a test-mode bypass), proving the Phase-3-deferred criteria that need a
- * Gateway + client:
- *   - CRUD + the ADR-006 `Message.session` FK in one atomic transaction (client UUIDs);
+ * A `NebulaClient` configured `resourceHostBinding: 'GALAXY'` hosts the chat
+ * `Chat`/`Message` Resources on the **Galaxy** DO — exercised through the **public**
+ * API (`client.resources.*` / `client.orgTree.*`) over the full integration path
+ * (real JWTs minted locally + verified normally — NOT a test-mode bypass):
+ *   - CRUD + the ADR-006 `Message.chat` FK in one atomic transaction (client UUIDs);
  *   - single-resource subscribe + fanout PUSH to a *second* subscriber client;
  *   - DAG permission: a non-granted subject is denied, a granted one allowed (SC2);
- *   - the snapshot's `ontologyVersion` is server-sourced regardless of the client's
- *     `appVersion`, and a "wrong" appVersion does NOT error (D8 no-version-gate + m4).
+ *   - the UNIFORMITY GATE: the Galaxy ENFORCES its INSTALLED chat-ontology version —
+ *     a client sending the old arbitrary string ("studio-ui"-style) gets
+ *     `OntologyStaleError`, and the snapshot's version is server-stamped.
  *
- * The Galaxy needs no ontology-apply: its Session/Message ontology is the fixed
- * platform constant compiled on-DO. No Galaxy round-trip.
+ * The chat ontology self-seeds as an INSTALLED version on first touch; no apply step.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, SESSION_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -26,42 +24,46 @@ import { NebulaClientTest } from './index';
 // Chat lives on the Galaxy at the `{u}.{g}` tier (the collapse).
 const uniqueChatScope = () => `acme-${crypto.randomUUID().slice(0, 8)}.app`;
 
-// Admin (scope-admin) client bound to GALAXY. appVersion is irrelevant to
-// the Galaxy pre-Phase-2 (no version-gate) — default 'v1'.
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
-  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
-  // a galaxy is administered.
-function devAdmin(scope: string, appVersion = 'v1') {
+// Admin (scope-admin) client bound to GALAXY, sending the REAL installed chat-ontology
+// version (the uniformity gate: the host enforces it).
+// ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+// post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+// a galaxy is administered.
+function devAdmin(scope: string, ontologyVersion = CHAT_MESSAGE_ONTOLOGY_VERSION) {
   return universeAdminClient(
-    NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', appVersion,
+    NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', ontologyVersion,
     { resourceHostBinding: 'GALAXY' },
   );
 }
 
 describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)', () => {
-  it('creates a Session + Message (FK, client UUIDs) in one transaction; reads them back; version is server-stamped', async () => {
+  it('UNIFORMITY GATE: an arbitrary "studio-ui"-style version gets OntologyStaleError; the REAL version works and is server-stamped', async () => {
     const scope = uniqueChatScope();
-    // Deliberately "wrong" appVersion: the Galaxy ignores it pre-Phase-2 (no stale error)
-    // and stamp the server constant (m4).
-    const { client } = await devAdmin(scope, 'client-claims-WRONG');
-    const sessionId = crypto.randomUUID();
-    const turnId = crypto.randomUUID();
+    // The OLD arbitrary-string behavior ("studio-ui" / "harness-v0") must now be REFUSED —
+    // the Galaxy enforces its installed version. Capable-of-failing: restore `void
+    // ontologyVersion` on the host → this read succeeds → red.
+    const { client: wrong } = await devAdmin(scope, 'studio-ui');
+    await expect(wrong.resources.read('Message', crypto.randomUUID())).rejects.toThrow(/Ontology version mismatch/);
+    wrong[Symbol.dispose]();
+
+    const { client } = await devAdmin(scope);
+    const chatId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
 
     const out = await client.resources.transaction({
-      [sessionId]: { op: 'create', typeName: 'Session', nodeId: ROOT_NODE_ID, value: { title: 'chat 1' } },
-      [turnId]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: sessionId, role: 'user', content: 'hello' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'chat 1' } },
+      [messageId]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: chatId, content: 'hello' } },
     });
     expect(out.kind).toBe('committed');
 
-    const turn = await client.resources.read('Message', turnId) as Snapshot;
-    expect((turn.value as { session: string }).session).toBe(sessionId); // ADR-006 by-id FK
-    expect((turn.value as { content: string }).content).toBe('hello');
-    // m4: stamped with the SERVER constant, NOT the client's bogus appVersion.
-    expect(turn.meta.ontologyVersion).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
-    expect(turn.meta.ontologyVersion).not.toBe('client-claims-WRONG');
+    const message = await client.resources.read('Message', messageId) as Snapshot;
+    expect((message.value as { chat: string }).chat).toBe(chatId); // ADR-006 by-id FK
+    expect((message.value as { content: string }).content).toBe('hello');
+    // Stamped with the SERVER's installed version.
+    expect(message.meta.ontologyVersion).toBe(CHAT_MESSAGE_ONTOLOGY_VERSION);
 
-    const session = await client.resources.read('Session', sessionId) as Snapshot;
-    expect((session.value as { title: string }).title).toBe('chat 1');
+    const chat = await client.resources.read('Chat', chatId) as Snapshot;
+    expect((chat.value as { title: string }).title).toBe('chat 1');
 
     client[Symbol.dispose]();
   });
@@ -74,14 +76,14 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     const { client: b } = await devAdmin(scope);
     const turnId = crypto.randomUUID();
 
-    using sub = a.resources.createAndSubscribe('Message', turnId, ROOT_NODE_ID, { session: 'sess-x', role: 'user', content: 'v1' });
+    using sub = a.resources.createAndSubscribe('Message', turnId, ROOT_NODE_ID, { chat: 'chat-x', content: 'v1' });
     const created = await sub.snapshot;
     expect(created).not.toBeNull();
     const eTag = created!.meta.eTag;
 
     const baseline = a.resourceUpdateCount;
     const out = await b.resources.transaction({
-      [turnId]: { op: 'put', typeName: 'Message', eTag, value: { session: 'sess-x', role: 'assistant', content: 'v2-from-b' } },
+      [turnId]: { op: 'put', typeName: 'Message', eTag, value: { chat: 'chat-x', content: 'v2-from-b' } },
     });
     expect(out.kind).toBe('committed');
 
@@ -103,7 +105,7 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     const nodeId = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'private', 'Private');
     const existingTurn = crypto.randomUUID();
     const seed = await admin.resources.transaction({
-      [existingTurn]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'secret' } },
+      [existingTurn]: { op: 'create', typeName: 'Message', nodeId, value: { chat: 'chat-x', content: 'secret' } },
     });
     expect(seed.kind).toBe('committed');
 
@@ -112,7 +114,7 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
     const { client: user, payload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', 'v1',
+      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
       { resourceHostBinding: 'GALAXY' },
     );
 
@@ -120,7 +122,7 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     await expect(user.resources.read('Message', existingTurn)).rejects.toThrow(/permission/i);
     // DENIED: write a new Message on the node → per-resource permission-denied.
     const denied = await user.resources.transaction({
-      [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'nope' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId, value: { chat: 'chat-x', content: 'nope' } },
     });
     expect(denied.kind).toBe('rejected');
     expect(denied.kind === 'rejected' && denied.resources[Object.keys(denied.resources)[0]]?.kind).toBe('permission-denied');
@@ -129,7 +131,7 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     await admin.orgTree.setPermission(nodeId, payload.sub, 'write');
     const myTurn = crypto.randomUUID();
     const allowed = await user.resources.transaction({
-      [myTurn]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'mine' } },
+      [myTurn]: { op: 'create', typeName: 'Message', nodeId, value: { chat: 'chat-x', content: 'mine' } },
     });
     expect(allowed.kind).toBe('committed');
     const back = await user.resources.read('Message', myTurn) as Snapshot;

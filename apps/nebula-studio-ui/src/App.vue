@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
-import { createNebulaClient } from "@lumenize/nebula/frontend";
+import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
@@ -54,6 +54,17 @@ const deletePlan = ref<ScopeDeletionPlan | null>(null);
 const log = (role: Msg["role"], text: string) => messages.value.push({ role, text });
 
 const isDevStar = (s?: string) => !!s && s.split(".").length === 3 && s.endsWith(".dev");
+// Chat lives at the GALAXY ({u}.{g}) post-collapse — one thread shared across the galaxy's
+// stars. A universe-only scope has no galaxy, so no chat pair is passed and the client's
+// #chatHost() throws loudly if a chat call is attempted there.
+const galaxyOf = (s?: string) => {
+  const parts = (s ?? "").split(".");
+  return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : undefined;
+};
+const chatPair = (s?: string) => {
+  const g = galaxyOf(s);
+  return g ? { chatHostBinding: "GALAXY", chatScope: g } : {};
+};
 // Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (only when
 // you're inside a `.dev` Star) > the Universe/Galaxy/Star help (the default, incl. first use).
 const stageMode = computed<"manage" | "preview" | "help">(() =>
@@ -179,7 +190,8 @@ async function connect() {
   const n = createNebulaClient({
     authScope: authScope.value,
     activeScope: activeScope.value,
-    appVersion: "studio-ui",
+    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+    ...chatPair(activeScope.value),
     onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
     onLoginRequired: onSessionExpired,
   });
@@ -405,7 +417,8 @@ async function openStar(star: string) {
     const n = createNebulaClient({
       authScope: authScope.value!,
       activeScope: star,
-      appVersion: "studio-ui",
+      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+      ...chatPair(star),
       onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
       onLoginRequired: onSessionExpired,
     });

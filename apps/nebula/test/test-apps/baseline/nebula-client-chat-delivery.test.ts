@@ -75,7 +75,7 @@ describe('nebula-client resilient chat-turn delivery', () => {
       baseUrl: ORIGIN,
       authScope: star,
       activeScope: star,
-      appVersion: 'v1',
+      ontologyVersion: 'v1',
       instanceName: aInstanceName,
       accessToken: a.accessToken,
       fetch: browserB.fetch,

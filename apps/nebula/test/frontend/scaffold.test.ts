@@ -31,6 +31,6 @@ describe('nebula frontend scaffold', () => {
   it('createNebulaClient throws clearly when authScope cannot be auto-detected (deferred)', () => {
     // authScope URL auto-detect is deferred (Studio-hosting decision); omitting
     // it must fail loudly rather than connect to a wrong/undefined scope.
-    expect(() => createNebulaClient({ appVersion: 'dev' })).toThrow(/authScope/);
+    expect(() => createNebulaClient({ ontologyVersion: 'dev' })).toThrow(/authScope/);
   });
 });

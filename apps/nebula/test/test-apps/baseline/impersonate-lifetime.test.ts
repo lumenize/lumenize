@@ -84,7 +84,7 @@ describe('lifetime — the cascade', () => {
     // `disconnect()` and never reaches 'disconnected' — which is the whole distinction under test.
     const browserB = new Browser();
     const superseder = new NebulaClientTest({
-      baseUrl: ORIGIN, authScope: star, activeScope: star, appVersion: 'v1',
+      baseUrl: ORIGIN, authScope: star, activeScope: star, ontologyVersion: 'v1',
       instanceName: admin.lmz.instanceName, accessToken: adminToken,
       fetch: browserB.fetch, WebSocket: browserB.WebSocket,
     });

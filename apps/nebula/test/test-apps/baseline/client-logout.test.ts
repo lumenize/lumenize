@@ -36,7 +36,7 @@ describe('client.logout (§5.3.8 path 6, real Star)', () => {
       baseUrl: ORIGIN,
       authScope: universeOf(star),
       activeScope: star,
-      appVersion: 'v1',
+      ontologyVersion: 'v1',
       fetch: browser.fetch,
       WebSocket: browser.WebSocket,
       sessionStorage: ctx.sessionStorage,

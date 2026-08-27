@@ -78,7 +78,7 @@ async function nebulaClient(opts: { activeScope: string }): Promise<NebulaClient
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
   const client = new NebulaClientTest({
-    baseUrl: ORIGIN, authScope: opts.activeScope, activeScope: opts.activeScope, appVersion: 'v1',
+    baseUrl: ORIGIN, authScope: opts.activeScope, activeScope: opts.activeScope, ontologyVersion: 'v1',
     resourceHostBinding: 'STAR', accessToken: access_token,
     instanceName: `${sub}.${uuid().slice(0, 8)}`,
     fetch: browser.fetch, WebSocket: browser.WebSocket,

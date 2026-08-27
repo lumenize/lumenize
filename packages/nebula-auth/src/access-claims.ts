@@ -25,9 +25,14 @@
  * without dragging the root barrel's Registry DO (`cloudflare:workers`) along. Signing stays with the
  * caller (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
  */
-import type { AccessEntry, NebulaJwtPayload } from './types';
+import type { AccessEntry, ActClaim, NebulaJwtPayload } from './types';
 import { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER } from './types';
 import { isAtOrAbove } from './parse-id';
+
+// Re-exported here because this file IS the pure `@lumenize/nebula-auth/claims` subpath — the
+// browser-safe route by which a client bundle (deriving `kind` from `act?.sub === NEBULA_SUB` at
+// render) takes the constant without the root barrel's Registry DO (`cloudflare:workers`).
+export { NEBULA_SUB } from './types';
 
 /** Inputs for {@link buildNebulaJwtPayload}. */
 export interface NebulaAccessClaimInput {
@@ -85,6 +90,37 @@ export function buildNebulaAccessEntry(
   const access: AccessEntry = { authScope: instanceName };
   if (scopeAdmin) access.scopeAdmin = true;
   return access;
+}
+
+/**
+ * RFC 8693 §4.1 chain nesting, written ONCE: prepend `actor` as the NEW OUTERMOST `act` entry,
+ * preserving any pre-existing verified chain beneath it. Flattening/overwriting DROPS the
+ * delegation chain — the wrong shape this helper exists to make unwritable. Callers: the
+ * server-composed actor on an `actingToken` RECORD (`apps/nebula` resources.ts
+ * `#buildActingToken`) and any later cross-node mint path, so the two cannot drift on the
+ * RFC semantics.
+ *
+ * ⚠️ **Applies to an actingToken RECORD only — never to a TOKEN.** The Profile owner check is
+ * presence-only by design (`claims.profileId === profileId && !claims.act`, ADR-012), so ANY
+ * token carrying `act` loses ownership of its own profile — prepend into a session's token and
+ * that person can no longer edit their own profile. If a token ever seems to need this, that
+ * re-opens ADR-012; it is NOT repaired with an `act.sub === claims.sub` compare (profile.ts
+ * carries the same warning from the other side).
+ *
+ * The actor arrives as the PAIR — a bare `actorSub` would drop the `profileId` the chain is
+ * supposed to carry for display. `profileId` is spread CONDITIONALLY (never an
+ * explicit-`undefined` key): the emitted entry matches `buildNebulaJwtPayload`'s `act` shape
+ * byte-for-byte once JSON-encoded.
+ */
+export function prependActor(
+  base: ActClaim | undefined,
+  actor: { sub: string; profileId?: string },
+): ActClaim {
+  return {
+    sub: actor.sub,
+    ...(actor.profileId ? { profileId: actor.profileId } : {}),
+    ...(base ? { act: base } : {}),
+  };
 }
 
 /** The acting-principal record: every party to an action, projected from verified claims. */

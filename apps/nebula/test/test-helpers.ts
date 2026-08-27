@@ -248,7 +248,7 @@ export async function createSubject(
     baseUrl: ORIGIN,
     authScope: adminClaims.access.authScope,
     activeScope: adminClaims.aud,
-    appVersion: 'v1',
+    ontologyVersion: 'v1',
     accessToken: adminAccessToken,
     instanceName: `${adminSub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: adminBrowser.fetch,
@@ -363,7 +363,7 @@ async function connectClient<T extends NebulaClient>(
   browser: Browser,
   authScope: string,
   activeScope: string,
-  appVersion: string,
+  ontologyVersion: string,
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<T> {
   const ctx = browser.context(ORIGIN);
@@ -371,7 +371,7 @@ async function connectClient<T extends NebulaClient>(
     baseUrl: ORIGIN,
     authScope,
     activeScope,
-    appVersion,
+    ontologyVersion,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage,
@@ -421,7 +421,7 @@ export async function adminClientAt<T extends NebulaClient>(
   scope: string,
   activeScope: string,
   email: string,
-  appVersion: string = 'v1',
+  ontologyVersion: string = 'v1',
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   const segments = scope.split('.');
@@ -444,7 +444,7 @@ export async function adminClientAt<T extends NebulaClient>(
     );
   }
   const { accessToken, payload, authScope } = await foundStarAndLogin(browser, scope, email, activeScope);
-  const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
+  const client = await connectClient(ClientClass, browser, authScope, activeScope, ontologyVersion, extraConfig);
   return { client, payload, accessToken };
 }
 
@@ -470,10 +470,10 @@ export async function universeAdminClient<T extends NebulaClient>(
   scope: string,
   activeScope: string,
   email: string,
-  appVersion: string = 'v1',
+  ontologyVersion: string = 'v1',
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
-  return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, appVersion, extraConfig);
+  return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, ontologyVersion, extraConfig);
 }
 
 /**
@@ -497,7 +497,7 @@ export async function universeAdminClient<T extends NebulaClient>(
  * For an **invited member** (no admin, minted at a non-universe scope by `createSubject`) use
  * {@link createInvitedClient} instead — this factory would mint them a *second*, admin identity.
  *
- * `appVersion` defaults to `'v1'` (matches `ONTOLOGY_VERSION` in
+ * `ontologyVersion` defaults to `'v1'` (matches `ONTOLOGY_VERSION` in
  * `star-resources.test.ts` and similar). Tests that bind to a different
  * ontology pass their own value. Tests that don't use `client.resources.*`
  * at all are unaffected by the default — only the auto-attach paths use it.
@@ -508,13 +508,13 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   scope: string,
   activeScope: string,
   email: string,
-  appVersion: string = 'v1',
+  ontologyVersion: string = 'v1',
   /** Optional extra config to pass through to the client constructor —
    *  e.g. `{ onShouldRefreshUI: fn }` for Phase 5.3.3d staleness tests. */
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
   const { accessToken, payload, authScope } = await foundAndLogin(browser, scope, email, activeScope);
-  const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
+  const client = await connectClient(ClientClass, browser, authScope, activeScope, ontologyVersion, extraConfig);
   // ⚠️ `authScope` is RETURNED because it is NOT the `scope` you passed — `foundAndLogin` founds the
   // UNIVERSE above it, so that is where the login happens and where the refresh cookie is Path-scoped
   // (`/auth/{universe}`). Pass `star` and you get a `{u}` admin whose cookie is at the universe.
@@ -546,11 +546,11 @@ export async function createPlatformAdminClient<T extends NebulaClient>(
   ClientClass: new (config: NebulaClientConfig) => T,
   browser: Browser,
   activeScope: string,
-  appVersion: string = 'v1',
+  ontologyVersion: string = 'v1',
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   const { accessToken, payload } = await browserLogin(browser, PLATFORM_SCOPE, BOOTSTRAP_EMAIL, activeScope);
-  const client = await connectClient(ClientClass, browser, PLATFORM_SCOPE, activeScope, appVersion, extraConfig);
+  const client = await connectClient(ClientClass, browser, PLATFORM_SCOPE, activeScope, ontologyVersion, extraConfig);
   return { client, payload, accessToken };
 }
 
@@ -565,10 +565,10 @@ export async function createInvitedClient<T extends NebulaClient>(
   authScope: string,
   activeScope: string,
   email: string,
-  appVersion: string = 'v1',
+  ontologyVersion: string = 'v1',
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
-  const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
+  const client = await connectClient(ClientClass, browser, authScope, activeScope, ontologyVersion, extraConfig);
   return { client, payload, accessToken };
 }

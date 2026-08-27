@@ -18,7 +18,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
+import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -30,8 +30,8 @@ const uniqueChatScope = () => `c3t-${crypto.randomUUID().slice(0, 8)}.app`;
   // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
-    NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'GALAXY' },
+    NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+    { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
   );
 }
 
@@ -40,7 +40,7 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const S = crypto.randomUUID();
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'session', value: S };
+    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S };
 
     // A node the admin has NO explicit grant on (the Galaxy seeds no root admin — the
     // admin acts purely via the access.scopeAdmin bypass), so the admin subscriber exercises
@@ -52,13 +52,13 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
     await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'granted@example.com');
     const { client: granted, payload: grantedP } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', 'v1', { resourceHostBinding: 'GALAXY' });
+      NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
     await admin.orgTree.setPermission(node, grantedP.sub, 'read');
 
     // Non-admin "denied": no grant anywhere.
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
     const { client: denied } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', 'v1', { resourceHostBinding: 'GALAXY' });
+      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
 
     // All three subscribe the SAME session query → three QuerySubs rows (each carrying
     // its own sub + dominionOverHostAtSubscribe flag). subscribeQuery always succeeds (no gate at

@@ -34,14 +34,14 @@ The smallest thing that runs: load Vue, create the factory, mount an app whose t
   import { createApp } from 'vue';
   import { createNebulaClient } from '@lumenize/nebula/frontend';
 
-  const { client, store, ready } = createNebulaClient({ appVersion: 'v1' });
+  const { client, store, ready } = createNebulaClient({ ontologyVersion: 'v1' });
   await ready;  // first connection complete → client.claims populated
 
   createApp({ setup: () => ({ store, id: 'todo-1' }) }).mount('#app');
 </script>
 ```
 
-`createNebulaClient({ appVersion: 'v1' })` is the whole config in a deployed browser session: `baseUrl`, `activeScope`, and `onShouldRefreshUI` auto-detect from the environment (`authScope` is currently required-in-practice — see the [config table](./api-reference.md#createnebulaclient)). `appVersion` is the one field Studio substitutes at deploy time.
+`createNebulaClient({ ontologyVersion: 'v1' })` is the whole config in a deployed browser session: `baseUrl`, `activeScope`, and `onShouldRefreshUI` auto-detect from the environment (`authScope` is currently required-in-practice — see the [config table](./api-reference.md#createnebulaclient)). `ontologyVersion` is the one field Studio substitutes at deploy time.
 
 This single-file shape uses **in-DOM templates** — the `v-model` markup lives in the HTML and is compiled in the browser by Vue's runtime compiler. That's the convenient path for a quick page, but it has a CSP cost (below) that production deploys avoid.
 

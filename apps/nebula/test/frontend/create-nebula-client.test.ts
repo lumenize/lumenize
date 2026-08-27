@@ -11,22 +11,22 @@ import type { OntologyStaleInfo } from '../../src/nebula-client';
 const STALE: OntologyStaleInfo = { reason: 'ontology-stale', clientVersion: 'v1', currentVersion: 'v2' };
 
 describe('resolveNebulaClientConfig', () => {
-  it('requires appVersion', () => {
-    expect(() => resolveNebulaClientConfig({ authScope: 'a.b.c' } as never)).toThrow(/appVersion/);
+  it('requires ontologyVersion', () => {
+    expect(() => resolveNebulaClientConfig({ authScope: 'a.b.c' } as never)).toThrow(/ontologyVersion/);
   });
 
   it('throws a clear error when authScope is omitted (URL auto-detect deferred)', () => {
-    expect(() => resolveNebulaClientConfig({ appVersion: 'v1' })).toThrow(/authScope/);
+    expect(() => resolveNebulaClientConfig({ ontologyVersion: 'v1' })).toThrow(/authScope/);
   });
 
   it('defaults baseUrl to window.location.origin', () => {
-    const { baseUrl } = resolveNebulaClientConfig({ appVersion: 'v1', authScope: 'a.b.c' });
+    const { baseUrl } = resolveNebulaClientConfig({ ontologyVersion: 'v1', authScope: 'a.b.c' });
     expect(baseUrl).toBe(window.location.origin);
   });
 
   it('passes an explicit baseUrl through unchanged', () => {
     const { baseUrl } = resolveNebulaClientConfig({
-      appVersion: 'v1',
+      ontologyVersion: 'v1',
       authScope: 'a.b.c',
       baseUrl: 'https://admin.example.com',
     });
@@ -34,22 +34,22 @@ describe('resolveNebulaClientConfig', () => {
   });
 
   it('defaults activeScope to authScope; honors an explicit override', () => {
-    expect(resolveNebulaClientConfig({ appVersion: 'v1', authScope: 'a.b.c' }).activeScope).toBe('a.b.c');
+    expect(resolveNebulaClientConfig({ ontologyVersion: 'v1', authScope: 'a.b.c' }).activeScope).toBe('a.b.c');
     expect(
-      resolveNebulaClientConfig({ appVersion: 'v1', authScope: 'a.b', activeScope: 'a.b.child' }).activeScope,
+      resolveNebulaClientConfig({ ontologyVersion: 'v1', authScope: 'a.b', activeScope: 'a.b.child' }).activeScope,
     ).toBe('a.b.child');
   });
 
   it('uses an explicit onShouldRefreshUI; coerces undefined AND null to the default', () => {
     const custom = vi.fn();
     expect(
-      resolveNebulaClientConfig({ appVersion: 'v1', authScope: 'a.b.c', onShouldRefreshUI: custom }).onShouldRefreshUI,
+      resolveNebulaClientConfig({ ontologyVersion: 'v1', authScope: 'a.b.c', onShouldRefreshUI: custom }).onShouldRefreshUI,
     ).toBe(custom);
     // null and undefined both keep the default (no "disable" sentinel by design).
     expect(
-      resolveNebulaClientConfig({ appVersion: 'v1', authScope: 'a.b.c', onShouldRefreshUI: null }).onShouldRefreshUI,
+      resolveNebulaClientConfig({ ontologyVersion: 'v1', authScope: 'a.b.c', onShouldRefreshUI: null }).onShouldRefreshUI,
     ).not.toBe(custom);
-    expect(typeof resolveNebulaClientConfig({ appVersion: 'v1', authScope: 'a.b.c' }).onShouldRefreshUI).toBe(
+    expect(typeof resolveNebulaClientConfig({ ontologyVersion: 'v1', authScope: 'a.b.c' }).onShouldRefreshUI).toBe(
       'function',
     );
   });
@@ -66,7 +66,7 @@ describe('default onShouldRefreshUI — reload-storm guard', () => {
     // sessionStorage sentinel that gates the reload. First stale arms it (and
     // reaches reload); the second short-circuits on it before reloading.
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
-    const { onShouldRefreshUI } = resolveNebulaClientConfig({ appVersion: 'v1', authScope: 'a.b.c' });
+    const { onShouldRefreshUI } = resolveNebulaClientConfig({ ontologyVersion: 'v1', authScope: 'a.b.c' });
 
     onShouldRefreshUI(STALE);
     onShouldRefreshUI(STALE);

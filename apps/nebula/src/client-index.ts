@@ -77,3 +77,12 @@ export type {
 
 // Ontology config types — shape contract for callGalaxyAppendOntologyVersion.
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
+
+// Chat identity + the platform chat-ontology version label (pure strings — the value a
+// chat client sends as its `ontologyVersion`).
+export { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from './chat-constants';
+
+// Participant derivation — display identity from the stamped `meta.actingToken`
+// (author from `sub`, kind from the outermost act?.sub === NEBULA_SUB). Pure.
+export { deriveKind, deriveParticipants } from './participants';
+export type { ParticipantKind, ParticipantRef } from './participants';

@@ -170,15 +170,15 @@ Will cover briefly (link out for depth):
 - The validator runs on every transaction (server-side, before write).
 - Validation failures surface per-resource as `{ kind: 'validation-failed', errors }` in the `TransactionResourceResolution` (see [Resources § Per-resource behavior](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler)).
 - Detailed pipeline + the typia tag vocabulary live in [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md).
-- The validator bundle ships alongside the deployed app (lock-step with `appVersion`); old clients hitting a new server get `{ kind: 'ontology-stale' }` and reload.
+- The validator bundle ships alongside the deployed app (lock-step with `ontologyVersion`); old clients hitting a new server get `{ kind: 'ontology-stale' }` and reload.
 
 ## When to evolve the ontology
 
 Will cover:
 
 - **Backward-compatible changes** — adding optional fields, adding new types, adding non-required references. Old clients keep working; new clients use the new fields.
-- **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. These require a coordinated `appVersion` bump.
-- The `appVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
+- **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. These require a coordinated `ontologyVersion` bump.
+- The `ontologyVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
 - Migrations: link to wherever the migration story ultimately lives (`tasks/on-hold/nebula-lazy-schema-migrations.md` references this; the user-facing doc TBD).
 
 ## Authoring with Studio

@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
+import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -23,8 +23,8 @@ const uniqueChatScope = () => `c2e-${crypto.randomUUID().slice(0, 8)}.app`;
   // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
-    NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'GALAXY' },
+    NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+    { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
   );
 }
 
@@ -46,15 +46,15 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     const S = crypto.randomUUID();
     const Other = crypto.randomUUID();
 
-    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'session', value: S });
+    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
     await sub.ready;
     expect(sub.resourceIds).toEqual([]);
 
     // B creates t1, t2 (one txn → same validFrom → resourceId tiebreaker).
     const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
     const eTags = await b.resources.transaction({
-      [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't1' } },
-      [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't2' } },
+      [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't1' } },
+      [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't2' } },
     });
     await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([t1, t2].sort()));
     expect(sub.resourceIds).toEqual([t1, t2].sort()); // co-created → resourceId order
@@ -62,8 +62,8 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     // B creates t3 (later) belonging to S, and a noise Message of Other.
     const t3 = crypto.randomUUID(), tn = crypto.randomUUID();
     await b.resources.transaction({
-      [t3]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't3' } },
-      [tn]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: Other, role: 'user', content: 'noise' } },
+      [t3]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't3' } },
+      [tn]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: Other, content: 'noise' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds).toContain(t3));
     expect(sub.resourceIds).toEqual(await ordered(a, [t1, t2, t3]));
@@ -71,7 +71,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
 
     // reparent-out: edit t1.session away from S → leaves membership.
     await b.resources.transaction({
-      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { session: Other, role: 'user', content: 't1' } },
+      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { chat: Other, content: 't1' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds).not.toContain(t1));
     expect(sub.resourceIds).toEqual(await ordered(a, [t2, t3]));
@@ -90,12 +90,12 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     const { client: b } = await devClient(scope);
     const S = crypto.randomUUID();
 
-    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'session', value: S });
+    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
     await sub.ready;
     const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
     const eTags = await b.resources.transaction({
-      [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't1-v0' } },
-      [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't2-v0' } },
+      [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't1-v0' } },
+      [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't2-v0' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2));
 
@@ -108,14 +108,14 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     });
     // B mutates the windowed t1 → A receives the content update (sub is live).
     await b.resources.transaction({
-      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { session: S, role: 'user', content: 't1-v1' } },
+      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { chat: S, content: 't1-v1' } },
     });
     await vi.waitFor(() =>
       expect((a.lastResourceUpdate?.snapshot?.value as { content?: string })?.content).toBe('t1-v1'));
     // B mutates the UNrendered t2 → A gets a query rerun (membership unchanged) but
     // NO content push for t2; the last content A saw stays t1.
     await b.resources.transaction({
-      [t2]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t2], value: { session: S, role: 'user', content: 't2-v1' } },
+      [t2]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t2], value: { chat: S, content: 't2-v1' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2)); // rerun landed
     expect(a.lastResourceUpdate?.resourceId).toBe(t1); // never t2 (unrendered)
@@ -133,8 +133,8 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     const nodeB = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
     const tA = crypto.randomUUID(), tB = crypto.randomUUID();
     await admin.resources.transaction({
-      [tA]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { session: S, role: 'user', content: 'a' } },
-      [tB]: { op: 'create', typeName: 'Message', nodeId: nodeB, value: { session: S, role: 'user', content: 'b' } },
+      [tA]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { chat: S, content: 'a' } },
+      [tB]: { op: 'create', typeName: 'Message', nodeId: nodeB, value: { chat: S, content: 'b' } },
     });
 
     // A non-admin user granted read on BOTH sibling nodes (so it initially sees both).
@@ -142,11 +142,11 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
     const { client: user, payload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', 'v1', { resourceHostBinding: 'GALAXY' });
+      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
     await admin.orgTree.setPermission(nodeA, payload.sub, 'read');
     await admin.orgTree.setPermission(nodeB, payload.sub, 'read');
 
-    using sub = user.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'session', value: S });
+    using sub = user.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
     await sub.ready;
     await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([tA, tB].sort()));
     expect(sub.deniedNodes).toEqual([]);

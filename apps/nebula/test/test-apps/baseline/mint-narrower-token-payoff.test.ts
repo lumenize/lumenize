@@ -194,7 +194,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
       const browser = new Browser();
       const ctx = browser.context('http://localhost');
       const client = new NebulaClientTest({
-        baseUrl: 'http://localhost', authScope: instanceName, activeScope: star, appVersion: 'v1',
+        baseUrl: 'http://localhost', authScope: instanceName, activeScope: star, ontologyVersion: 'v1',
         resourceHostBinding: 'STAR',
         accessToken: (await createNebulaTestToken({
           privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,

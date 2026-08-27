@@ -40,15 +40,18 @@ export type { QueryDescriptor, QueryUpdatePayload, QueryType, OnPartial, OrderBy
 export { ResourceDataPlane } from './resource-data-plane';
 export type { OntologyProvider, ResourceHostBridge, BroadcastTarget } from './resource-data-plane';
 
-// The Galaxy's platform-fixed Session/Message chat ontology + its getOntology() provider.
+// The platform chat ontology: pure strings from the client-safe leaf; the compiled
+// seed row from the server-only module.
 export {
-  SESSION_MESSAGE_TYPES,
-  SESSION_MESSAGE_ONTOLOGY_VERSION,
-  SESSION_MESSAGE_BUNDLE_ID,
-  createResourceOntologyProvider,
-} from './devstudio-resource-ontology';
-// Session-identity constants live in a client-safe leaf (no server imports).
-export { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
+  DEFAULT_CHAT_ID,
+  CHAT_NODE_ID,
+  CHAT_MESSAGE_ONTOLOGY_VERSION,
+  CHAT_MESSAGE_TYPES,
+} from './chat-constants';
+export { chatOntologySeedRow } from './chat-ontology';
+// Participant derivation — display identity from the stamped actingToken (client-safe).
+export { deriveKind, deriveParticipants } from './participants';
+export type { ParticipantKind, ParticipantRef } from './participants';
 
 // Errors
 export {

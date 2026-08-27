@@ -48,7 +48,7 @@ import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, Transa
 import type { QueryUpdatePayload, QueryDescriptor, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
 import type { DagTreeState, PermissionTier } from './dag-ops';
-import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
+import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
 import type { Star } from './star';
 import type { Galaxy } from './galaxy';
 
@@ -189,8 +189,8 @@ export interface ChatTurnResult {
  * contract).
  */
 export interface TransactionOptions {
-  /** Override the constructor's `appVersion` for this call (admin/scripting only). */
-  appVersion?: string;
+  /** Override the constructor's `ontologyVersion` for this call (admin/scripting only). */
+  ontologyVersion?: string;
   /**
    * Per-call resolution handlers, **keyed by `resourceId`** (api-reference
    * § onTransactionResourceResolution). A listed resource's handler layers in
@@ -207,8 +207,8 @@ export interface TransactionOptions {
 
 /** Per-call options for `client.resources.read()`. */
 export interface ReadOptions {
-  /** Override the constructor's `appVersion` for this call. */
-  appVersion?: string;
+  /** Override the constructor's `ontologyVersion` for this call. */
+  ontologyVersion?: string;
 }
 
 export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {
@@ -221,7 +221,7 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * ontology version). Auto-attached to every `client.resources.*` call.
    * Studio bakes this in at app build time.
    */
-  appVersion: string;
+  ontologyVersion: string;
   /**
    * Optional hook invoked when the server signals the client's ontology
    * version is stale (deploys happened since this client started). Typical
@@ -248,18 +248,38 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
   /**
    * Which mesh binding hosts this client's Resources (the data-plane: transaction /
    * read / subscribe / unsubscribe / dagTree, + the org-tree & reload channels).
-   * Default `'STAR'` (the Nebula UI — unchanged). The **chat** client sets
-   * `'GALAXY'` so its `Session`/`Message` Resources live on the Galaxy (the collapse).
-   * The codegen path (`chat`/`warmPreview`) always targets `GALAXY` regardless.
-   * TEMP → target=Phase 2's chat/resource construction pairs (chat routing stops
-   * riding this field there).
+   * Default `'STAR'` (generated apps + the published `client.resources.*` surface are
+   * untouched by the chat pair). The chat paths route via {@link chatHostBinding} +
+   * {@link chatScope}, never this field.
    *
    * NOTE: a `'GALAXY'`-bound client must NOT enable `onReload`/an org-tree
    * listener — the Galaxy hosts neither `subscribeReload` nor `subscribeTree`
    * pre-Phase-3; both are gated off and inert unless configured.
    */
   resourceHostBinding?: string;
+  /**
+   * The CHAT host pair — which binding + instance host this client's chat
+   * (`postUserMessage` / `chat` / `warmPreview`). Chat `Chat`/`Message` Resources live on
+   * **GALAXY `{u}.{g}`** (the app-level brain) while app resources stay on the Star, so
+   * the two planes are separate construction pairs — PER CLIENT INSTANCE, never per op
+   * (no client needs two hosts: Studio's client chats and never touches app resources;
+   * a generated app's client does the reverse and leaves this unset).
+   *
+   * ⚠️ NO default, deliberately — a chat-path call with the pair unset THROWS loudly,
+   * which is what kills the silent misroute (chat falling back to the resource pair
+   * would write the user `Message` to the Star's plane). `Profile` subs ride NEITHER
+   * pair (the fixed `PROFILE` binding with the profileId as instance, ADR-012).
+   */
+  chatHostBinding?: string;
+  /** The chat host's instance — the galaxy `{u}.{g}` (see {@link chatHostBinding}). */
+  chatScope?: string;
 }
+
+/** Bounded retry for an `installing` OntologyStaleError — the host fired a registry
+ *  lazy-pull inside the refused op's call context; the install typically lands within a
+ *  round trip, so a few short retries cover it without masking a genuinely stale client. */
+const INSTALLING_RETRY_LIMIT = 4;
+const INSTALLING_RETRY_DELAY_MS = 400;
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
 
@@ -339,9 +359,12 @@ interface ProfileSubscribeTarget { subscribe(): void; unsubscribe(): void; }
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
   #activeScope: string;
-  #appVersion: string;
-  /** Binding hosting this client's Resources (default 'STAR'; 'GALAXY' for chat). */
+  #ontologyVersion: string;
+  /** Binding hosting this client's Resources (default 'STAR'; the resource pair). */
   #resourceHostBinding: string;
+  /** The chat host pair — NO default; chat paths throw when unset (see the config JSDoc). */
+  #chatHostBinding?: string;
+  #chatScope?: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   #onReload?: () => void;
   #onPreviewReady?: (scope: string) => void;
@@ -496,11 +519,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const {
       authScope,
       activeScope,
-      appVersion,
+      ontologyVersion,
       onShouldRefreshUI,
       onReload,
       onPreviewReady,
       resourceHostBinding,
+      chatHostBinding,
+      chatScope,
       onConnectionStateChange: userOnConnectionStateChange,
       ...baseConfig
     } = config;
@@ -596,15 +621,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
     this.#authScope = authScope;
     this.#activeScope = activeScope;
-    this.#appVersion = appVersion;
+    this.#ontologyVersion = ontologyVersion;
     this.#resourceHostBinding = resourceHostBinding ?? 'STAR';
+    this.#chatHostBinding = chatHostBinding;
+    this.#chatScope = chatScope;
     // The inheritance contract for a child from `impersonate()`, captured as ONE field because a
     // method cannot reach the constructor's `config` (see `#baseUrl` above) and `LumenizeClient`'s
     // own `#config` is private. Deliberately EXCLUDES `onLoginRequired`: a child must not hold the
     // admin's handler, or someone else's session ending would bounce the admin to login.
     this.#childConfigBase = {
       baseUrl: config.baseUrl,
-      appVersion,
+      ontologyVersion,
       fetch: config.fetch,
       // Passed THROUGH, `undefined` included — the `/live` harness supplies no `WebSocket` and
       // relies on the Node global, so requiring one here would break that path.
@@ -612,6 +639,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       sessionStorage: config.sessionStorage,
       BroadcastChannel: config.BroadcastChannel,
       resourceHostBinding: this.#resourceHostBinding,
+      chatHostBinding: this.#chatHostBinding,
+      chatScope: this.#chatScope,
     };
     this.#mintedFrom = (config as unknown as Record<symbol, unknown>)[INTERNAL_PARENT] as NebulaClient | undefined;
     this.#onShouldRefreshUI = onShouldRefreshUI;
@@ -985,24 +1014,31 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * infrastructure-error. Resilient across reconnect (D16/D17): a dropped RESULT re-resolves to the
    * new socket, or `callAsync`'s default timeout rejects → the engine retries.
    */
-  #meshSubmit(subs: QueueSubmission[]): Promise<ServerBatchResponse> {
+  async #meshSubmit(subs: QueueSubmission[], attempt = 0): Promise<ServerBatchResponse> {
     // One mesh `newETag` per batch (the server writes it as every resource's eTag — resources.ts
     // Step 4.5a); stable across reconnect replays, so a re-issued submission is replay-idempotent.
     const meshNewETag = subs[0]!.newETag;
-    return this.lmz.callAsync(
+    const result = await this.lmz.callAsync(
       this.#resourceHostBinding, this.#activeScope,
-      this.ctn<Star>().transaction(this.#appVersion, meshNewETag, this.#buildMeshOps(subs)),
-    ).then((result) => {
-      if (result instanceof Error) {
-        // Ontology-stale is delivered as a RETURNED value (resolve, not reject) — the engine treats it
-        // as a version-skew signal, not an infrastructure error (asymmetric with `read`, which rejects).
-        if (isOntologyStaleError(result)) {
-          return { ontologyStale: { clientVersion: result.clientVersion, currentVersion: result.currentVersion } };
+      this.ctn<Star>().transaction(this.#ontologyVersion, meshNewETag, this.#buildMeshOps(subs)),
+    );
+    if (result instanceof Error) {
+      // Ontology-stale is delivered as a RETURNED value (resolve, not reject) — the engine treats it
+      // as a version-skew signal, not an infrastructure error (asymmetric with `read`, which rejects).
+      if (isOntologyStaleError(result)) {
+        // `installing` = the host fired a registry lazy-pull for exactly this version inside
+        // our op's call context (an install it cannot await — ADR-003), so the op is expected
+        // to succeed shortly. Retry the replay-idempotent submission (same `newETag`) a few
+        // times before treating the version as genuinely stale.
+        if (result.installing && attempt < INSTALLING_RETRY_LIMIT) {
+          await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));
+          return this.#meshSubmit(subs, attempt + 1);
         }
-        throw result; // any other Error-as-value → engine infrastructure-error
+        return { ontologyStale: { clientVersion: result.clientVersion, currentVersion: result.currentVersion } };
       }
-      return this.#mapTransactionResult(result, subs);
-    });
+      throw result; // any other Error-as-value → engine infrastructure-error
+    }
+    return this.#mapTransactionResult(result, subs);
   }
 
   /** Turn queue submissions into wire ops. A submission carrying an explicit
@@ -1080,7 +1116,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // was re-routed to the global PROFILE DO — tasks/nebula-subscriber-lists.md.)
     for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
+        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId));
     }
     // Re-fire every live global-Profile sub on its own PROFILE binding (binding-agnostic, instance = profileId).
     for (const profileId of this.#profileRefcount.keys()) {
@@ -1457,7 +1493,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#subscriptionRegistry.set(key, { resourceType, resourceId });
     return this.#subscribeVia(key, () =>
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId)));
+        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId)));
   }
 
   /**
@@ -1587,15 +1623,24 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // per Star). Kept in the client signature for API symmetry with
     // subscribe/transaction and for future addressing changes.
     void resourceType;
-    const version = options?.appVersion ?? this.#appVersion;
+    const version = options?.ontologyVersion ?? this.#ontologyVersion;
     // `callAsync` returns the snapshot (framework fire-back, D5 pattern (a)) — resilient across
     // reconnect/freeze, bounded by the default timeout. Concurrent reads are correlated by the
     // primitive's `callId`. On a stale version `Star.read` throws `OntologyStaleError` → the reject
-    // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting.
+    // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting —
+    // except an `installing` stale (the host is mid-lazy-pull), which retries the idempotent read.
+    const attempt = (options as { installingAttempt?: number } | undefined)?.installingAttempt ?? 0;
     return this.lmz.callAsync<Snapshot | null>(this.#resourceHostBinding, this.#activeScope,
       this.ctn<Star>().read(version, resourceId),
-    ).catch((err) => {
-      if (isOntologyStaleError(err)) this.#dispatchOntologyStale(err.clientVersion, err.currentVersion);
+    ).catch(async (err) => {
+      if (isOntologyStaleError(err)) {
+        if (err.installing && attempt < INSTALLING_RETRY_LIMIT) {
+          await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));
+          return this.#readResource(resourceType, resourceId,
+            { ...(options ?? {}), installingAttempt: attempt + 1 } as ReadOptions);
+        }
+        this.#dispatchOntologyStale(err.clientVersion, err.currentVersion);
+      }
       throw err;
     });
   }
@@ -1618,7 +1663,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     try {
       this.#onShouldRefreshUI({
         reason: 'ontology-stale',
-        clientVersion: clientVersion || this.#appVersion,
+        clientVersion: clientVersion || this.#ontologyVersion,
         currentVersion,
       });
     } catch (err) {
@@ -1824,6 +1869,23 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
+   * The chat host pair, or a LOUD throw when unset — the guard that kills the silent
+   * misroute (a chat path falling back to the resource pair would land the user
+   * `Message` on the Star's plane and Phase 4's subscription would watch the wrong
+   * host). Construct the client with `chatHostBinding: 'GALAXY', chatScope: '{u}.{g}'`
+   * to chat.
+   */
+  #chatHost(): { binding: string; scope: string } {
+    if (!this.#chatHostBinding || !this.#chatScope) {
+      throw new Error(
+        'This client has no chat host: construct it with chatHostBinding + chatScope ' +
+        "(chat lives on GALAXY at the {u}.{g} tier) — chat never falls back to the resource pair.",
+      );
+    }
+    return { binding: this.#chatHostBinding, scope: this.#chatScope };
+  }
+
+  /**
    * Fire a codegen turn at the Galaxy and resolve when its result is delivered
    * back via {@link onChatResult}. Uses fire-and-forget + **direct delivery**, NOT
    * an awaited `callRaw`: a turn can run for minutes, during which the client WS
@@ -1836,35 +1898,50 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * [[client-calls-use-direct-delivery]].
    */
   async chat(message: string): Promise<ChatTurnResult> {
-    // Phase 4: create the user Message FIRST (atomic, on Enter — D3/D-human-no-stream:
-    // no streaming for a user message, one create). No optimistic echo — the sender
-    // sees its own Message via the query fanout, like everyone else (D-echo default).
-    await this.postUserMessage(message);
+    // Create the user Message FIRST (atomic, on Enter — no streaming for a user message,
+    // one create). No optimistic echo — the sender sees its own Message via the query
+    // fanout, like everyone else. Its client-minted id becomes the agent reply's
+    // `replyTo` (the corpus's prompt→reply linkage).
+    const userMessageId = await this.postUserMessage(message);
     const turnId = crypto.randomUUID();
     const clientId = this.lmz.instanceName;
     const pending = this.trackTurn(turnId);
-    this.lmz.call('GALAXY', this.#activeScope, this.ctn<Galaxy>().chat(turnId, clientId, message));
+    const { binding, scope } = this.#chatHost();
+    this.lmz.call(binding, scope, this.ctn<Galaxy>().chat(turnId, clientId, message, userMessageId));
     return pending;
   }
 
   /**
-   * Post a `role:'user'` Message to the pre-alpha session (Child 3 Phase 4) — a single
-   * atomic create on the Galaxy data plane, stamped with the sender's `author` (the surrogate
-   * `sub`, display-only — D-attribution). `email` is no longer a JWT claim
-   * (tasks/archive/nebula-auth-surrogate-sub.md), so the author is the `sub`; server-stamped `actingToken.sub`
-   * display is the proper follow-on (tasks/nebula-chat-history-multiuser.md). Returns the
-   * client-generated message id. Rides the `Message where session==DEFAULT_SESSION_ID` query, so the
-   * sender AND every other subscriber see it via the fanout (no optimistic echo, D-echo). `chat`
-   * calls this before kicking codegen; a non-codegen participant can call it directly to just chat.
+   * Post a human `Message` to the pre-alpha chat — a single atomic create on the CHAT
+   * host's data plane (the chat pair — throws without one). ⚠️ Writes NO identity
+   * fields: attribution comes entirely from the server-stamped `meta.actingToken`
+   * (`sub` + `profileId` from the writer's verified JWT), which is what makes author
+   * spoofing impossible — a client-written `author`/`role` would be a second, forgeable
+   * source of truth. Returns the client-minted message id (idempotency, ADR-010); the
+   * agent reply links back to it via `replyTo`. Rides the
+   * `Message where chat==DEFAULT_CHAT_ID` query, so the sender AND every other
+   * subscriber see it via the fanout (no optimistic echo). `chat` calls this before
+   * kicking codegen; a non-codegen participant can call it directly to just chat.
    */
   async postUserMessage(content: string): Promise<string> {
+    const { binding, scope } = this.#chatHost();
     const messageId = crypto.randomUUID();
-    await this.resources.transaction({
-      [messageId]: {
-        op: 'create', typeName: 'Message', nodeId: SESSION_NODE_ID,
-        value: { session: DEFAULT_SESSION_ID, role: 'user', content, author: this.claims.sub },
-      },
-    });
+    const newETag = crypto.randomUUID();
+    // The Galaxy's Handler-1 returns an OntologyStaleError as a VALUE on a version
+    // mismatch (Star's asymmetry); everything else is the ordinary TransactionResult.
+    const result = await this.lmz.callAsync(
+      binding, scope,
+      this.ctn<Galaxy>().transaction(this.#ontologyVersion, newETag, {
+        [messageId]: {
+          op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
+          value: { chat: DEFAULT_CHAT_ID, content },
+        },
+      }),
+    ) as TransactionResult | Error;
+    if (result instanceof Error) throw result;
+    if (!result.ok) {
+      throw new Error(`postUserMessage failed: ${JSON.stringify(result.errors)}`);
+    }
     return messageId;
   }
 
@@ -1905,7 +1982,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   warmPreview(): void {
     const clientId = this.lmz.instanceName;
-    this.lmz.call('GALAXY', this.#activeScope, this.ctn<Galaxy>().warmPreview(clientId));
+    const { binding, scope } = this.#chatHost();
+    this.lmz.call(binding, scope, this.ctn<Galaxy>().warmPreview(clientId));
   }
 
   /**

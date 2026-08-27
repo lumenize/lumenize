@@ -7,7 +7,7 @@
 
 /**
  * Reserved sentinel id for the root orgTree node. A v4-shaped UUID (matching
- * `DEFAULT_SESSION_ID`'s convention in `chat-constants.ts`) so it lives in the
+ * `DEFAULT_CHAT_ID`'s convention in `chat-constants.ts`) so it lives in the
  * same id space as every client-supplied nodeId — distinct from the virtual
  * `__deleted__`/`__orphaned__` tree sentinels (those are underscore-prefixed,
  * a UUID can never equal them). Seeded server-side by `DagTree.#ensureRoot`,
