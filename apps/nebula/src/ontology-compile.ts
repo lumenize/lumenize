@@ -2,7 +2,7 @@
  * Ontology compilation — the pure half of the ontology pipeline, in a leaf module with NO mesh or
  * `cloudflare:workers` imports so it loads in plain Node too (the `/live` harness compiles an
  * ontology row to install on a running Star via `setOntology`; in-Worker callers are Galaxy,
- * DevStudio and the platform-fixed DevStudio ontology). `galaxy.ts` re-exports everything here, so
+ * Galaxy and the platform-fixed chat ontology). `galaxy.ts` re-exports everything here, so
  * existing import sites are untouched.
  *
  * ⚠️ NOT browser-safe — `generateParseModule` pulls the bundled tsc/typia deps (multi-MB, Node/

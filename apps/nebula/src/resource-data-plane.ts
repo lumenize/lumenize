@@ -3,27 +3,29 @@
  *
  * Lifted out of `Star` (Child 1 of the multi-user chat thread) so it can be
  * composed by ANY Nebula node that needs to host Resources — `Star` today,
- * `DevStudio` next (chat `Session`/`Message` Resources). ADR-007: composition,
+ * the Galaxy (chat `Session`/`Message` Resources). ADR-007: composition,
  * never reimplemented.
  *
  * It owns the data-plane trio — `DagTree` + `Resources` + `Subscriptions` — and
  * **Handler 2** (the actual resource op + result-delivery + the mutation
  * broadcast). It deliberately does NOT own:
  *   - **Handler 1 / the ontology-version gate** — Galaxy's multi-version concern,
- *     stays per-host (Star gates; DevStudio's single fixed ontology is never
+ *     stays per-host (Star gates; the Galaxy's fixed pre-Phase-2 ontology is never
  *     stale). See `nebula-devstudio-data-plane.md` D8.
  *   - **mesh I/O construction** — the capability has no `this.lmz`/`this.ctn`
  *     (like `Resources`/`DagTree`, which is why they take `()=>callContext`).
  *     All continuation construction stays host-side, reached via the injected
  *     {@link ResourceHostBridge}.
  *   - **the ontology source** — reached only via the injected {@link OntologyProvider}
- *     (Star: Galaxy-cached row; DevStudio: a compiled platform constant), so the
+ *     (Star: Galaxy-cached row; Galaxy: a compiled platform constant), so the
  *     capability never couples to Galaxy.
  */
 
 import { debug } from '@lumenize/debug';
 import type { CallContext } from '@lumenize/mesh';
 import type { ParserValidator, TypeMetadata } from '@lumenize/ts-runtime-parser-validator';
+import type { InviteSummary, InviteeError } from '@lumenize/nebula-auth';
+import type { PermissionTier } from './dag-ops';
 import { DagTree } from './dag-tree';
 import { Resources } from './resources';
 import { Subscriptions } from './subscriptions';
@@ -38,7 +40,7 @@ import type { OperationDescriptor, TransactionResult, Snapshot } from './resourc
 /**
  * Supplies the active ontology `{ version, facet, relationships }` for resource
  * ops — the only way the capability learns about the ontology (it never fetches
- * it itself). Star's impl reads the Galaxy-cached row; DevStudio's compiles the
+ * it itself). Star's impl reads the Galaxy-cached row; the Galaxy's compiles the
  * in-source `Session`/`Message` types. `version` is stamped into snapshot metadata
  * and is therefore server-sourced, never client-supplied.
  *
@@ -46,7 +48,7 @@ import type { OperationDescriptor, TransactionResult, Snapshot } from './resourc
  * (`Record<typeName, Record<field, Relationship>>`) — needed by `subscribeQuery`
  * (Child 2) to validate that a query's `field` exists on `typeName` and is a
  * to-one relationship (D11/D1). Widened from Child 1's `{ version, facet }`; both
- * providers already produce it (the Galaxy-cached row carries it; DevStudio's
+ * providers already produce it (the Galaxy-cached row carries it; the Galaxy's
  * `compileOntologyVersion` emits it).
  */
 export type OntologyProvider = () => {
@@ -61,8 +63,29 @@ export interface BroadcastTarget {
   instanceName: string;
 }
 
+/** One requested node invitee: the address, and the DAG tier to grant at the node. */
+export interface NodeInvitee { email: string; tier: PermissionTier }
+
+/** {@link ResourceDataPlane.invite}'s synchronous ack — SUBMISSION outcomes only (a true delivery
+ *  failure is out-of-band and arrives hours later, when no tab is listening); everything downstream
+ *  lands in `_InviteStatus` rows the members panel query-subscribes. */
+export interface NodeInviteAck { accepted: number; errors: InviteeError[] }
+
+/** The DAG tier vocabulary, as a runtime gate — mesh args are compile-time typed but
+ *  runtime-unchecked, and `invite`'s eventual caller is Studio-GENERATED app code (ADR-001: the
+ *  mesh method is the validation boundary). */
+const PERMISSION_TIERS: ReadonlySet<string> = new Set(['admin', 'write', 'read']);
+
+/** Structural email gate — non-empty local part, `@`, non-empty domain (the same hand-rolled shape
+ *  the Registry re-checks; a failure here is a per-invitee error, never a whole-batch one). */
+function isValidInviteEmail(email: unknown): email is string {
+  if (typeof email !== 'string') return false;
+  const at = email.indexOf('@');
+  return at > 0 && at < email.length - 1;
+}
+
 /**
- * Host-side mesh I/O the data-plane invokes. The host DO (Star/DevStudio)
+ * Host-side mesh I/O the data-plane invokes. The host DO (Star/Galaxy)
  * implements each method with its own `this.lmz`/`this.ctn`/`this.svc`, so every
  * continuation is constructed host-side (ADR-007 / review m1). Delivery targets
  * the originating client via the `NEBULA_CLIENT_GATEWAY` binding; broadcast
@@ -126,7 +149,7 @@ export class ResourceDataPlane {
     this.#getOntology = getOntology;
     this.#bridge = bridge;
     // The capability hangs the Flow-3 trigger B rerun off DagTree's onChanged,
-    // IN ADDITION to the host's hook (Star's org-tree broadcast / DevStudio's no-op).
+    // IN ADDITION to the host's hook (Star's org-tree broadcast / the Galaxy's no-op).
     // A permission change reruns ALL live queries (a grant changes readability across
     // every type → no typeName filter); cheap at v1 scale, no drops. The host
     // hook runs first, then the query rerun. (Fires only AFTER construction — on a
@@ -146,11 +169,211 @@ export class ResourceDataPlane {
     return this.#dagTree;
   }
 
+  // ─── Node invites (two-plane: the DAG grant here, the membership via the facade) ────────
+
+  /**
+   * Invite people onto a NODE — the two-plane operation, written ONCE for every host
+   * (Star + Galaxy) so the security logic cannot fork: it initiates here, where the
+   * inviter's authority lives (`requirePermission`: `admin` at `nodeId` — the only authz
+   * decision on this path, because the facade cannot evaluate a DAG grant by design),
+   * writes `pending` `_InviteStatus` rows locally, fires the membership mint through the
+   * host-supplied `fireInvite`, and returns the ack. The result handler
+   * ({@link onInviteResult}) writes the `setPermission` grants and flips each row to
+   * `sent`/`submission-failed` — so the two planes are both written at INVITE time, and
+   * the invitee's first login finds everything in place (no login-time sequencing).
+   *
+   * `fireInvite` is the ONE host-typed piece — the capability has no `this.lmz`/`this.ctn`
+   * (mesh I/O construction stays host-side, like the {@link ResourceHostBridge}), so the
+   * host builds the facade call with its OWN result continuation and passes it in. It is
+   * invoked only when at least one invitee survived validation.
+   *
+   * Batch semantics: one `nodeId` per call (one `requirePermission` licenses the whole
+   * batch), `tier` per invitee, a malformed email joins the per-invitee errors without
+   * failing the batch — but an out-of-vocabulary `tier` refuses the WHOLE call before any
+   * side effect (a grant vocabulary error is a caller bug, not a per-address condition).
+   *
+   * The facade call requests NO `scopeAdmin` bit — the cap rule in its degenerate form: a
+   * node inviter's authority is a DAG grant, and the `tier` parameter governs the DAG
+   * grant only. Convergence: one `_InviteStatus` row per (email, node) — a re-invite
+   * converges on the existing row (fresh `tier`, back to `pending`) rather than
+   * duplicating, so a second admin sees one coherent state (ADR-008 org-visibility).
+   *
+   * Precondition: the host must hold a WORKING ontology — the `_InviteStatus` rows ride
+   * the ordinary Resources pipeline, so this fails closed (before the facade fires) on a
+   * host that has never had one.
+   */
+  async invite(
+    nodeId: string,
+    invitees: NodeInvitee[],
+    fireInvite: (valid: NodeInvitee[]) => void,
+  ): Promise<NodeInviteAck> {
+    // ── The ADR-001 boundary: shape-check what the wire cannot. Whole-call refusals carry their
+    // own messages, each distinguishable from the DAG refusal (`PermissionDeniedError`'s
+    // "admin permission required on node …") and from every facade refusal.
+    if (typeof nodeId !== 'string' || nodeId.length === 0) {
+      throw new Error('Invalid node invite: nodeId must be a node id string');
+    }
+    if (!Array.isArray(invitees)) {
+      throw new Error('Invalid node invite: invitees must be an array');
+    }
+    const errors: InviteeError[] = [];
+    const valid: NodeInvitee[] = [];
+    for (const entry of invitees) {
+      if (entry === null || typeof entry !== 'object') {
+        errors.push({ email: '', error: 'Invalid invitee entry' });
+        continue;
+      }
+      const { email, tier } = entry as { email: unknown; tier: unknown };
+      if (!PERMISSION_TIERS.has(tier as string)) {
+        // BEFORE any mint or send side effect, deliberately whole-call — see the JSDoc.
+        throw new Error(`Invalid node invite: tier "${String(tier)}" is not one of admin | write | read`);
+      }
+      if (!isValidInviteEmail(email)) {
+        errors.push({ email: typeof email === 'string' ? email : '', error: 'Invalid email format' });
+        continue;
+      }
+      // Normalize exactly as the Registry does — the handler's tier lookup keys on the summary's
+      // normalized address, so the two sides must agree.
+      valid.push({ email: email.toLowerCase().trim(), tier: tier as PermissionTier });
+    }
+
+    // The DAG gate at the door — one check licenses the whole batch.
+    this.#dagTree.requirePermission(nodeId, 'admin');
+
+    if (valid.length > 0) {
+      // `pending` rows, converged on (email, node) — through the ordinary transaction path, so
+      // validation, `actingToken` attribution (the inviter, `act` chain included) and subscriber
+      // fan-out all apply. Server-side write → no originating client to exclude ('').
+      const ops: Record<string, OperationDescriptor> = {};
+      for (const v of valid) {
+        const existing = this.#findInviteStatus(nodeId, v.email);
+        const value = { node: nodeId, email: v.email, tier: v.tier, state: 'pending' };
+        if (existing) {
+          ops[existing.resourceId] = { op: 'put', eTag: existing.meta.eTag, value };
+        } else {
+          ops[crypto.randomUUID()] = { op: 'create', nodeId, typeName: '_InviteStatus', value };
+        }
+      }
+      const written = await this.doTransaction(crypto.randomUUID(), ops, '');
+      if (!written.ok) {
+        // Unreachable through this method's own inputs (the ops were just derived from current
+        // rows under the input gate) — surface loudly rather than half-invite.
+        throw new Error(`node invite could not record its pending state: ${JSON.stringify(written.errors)}`);
+      }
+
+      // Fire the membership mint through the ONE issuing entry, receiving the outcome in the
+      // host's TRAVELING handler (two one-way calls): the slow email I/O runs on the CPU-billed
+      // facade Worker while the host DO's input gates stay closed, and the handler runs on a
+      // cold, storage-restored host if this one was evicted. `callContext` (the inviter's
+      // verified claims) propagates across the hop, so the facade's eligibility + the
+      // Registry's ADR-016 record see the real acting principal.
+      fireInvite(valid);
+    }
+    return { accepted: valid.length, errors };
+  }
+
+  /**
+   * The node invite's result handler — the body behind each host's traveling
+   * continuation (never awaited), so it survives the host's eviction and the inviter's
+   * disconnect. Writes the second plane: `setPermission` at the node for every minted
+   * `sub` (already-member outcomes included — that is what heals the one reachable
+   * two-plane inconsistency, a membership without its grant), then flips each
+   * `_InviteStatus` row to `sent`/`submission-failed`.
+   *
+   * ⚠️ The host's forward MUST be `public` and NOT `@mesh()` — the fire-back lands via
+   * `__handleResponse` (allowlist off, scope-check on), and an `@mesh` there would let
+   * any in-scope caller forge an invite outcome and write themselves grants. The whole
+   * body is wrapped: an uncaught throw in a fire-back handler is silently lost, so
+   * failures are logged with identifiers only.
+   */
+  async onInviteResult(
+    nodeId: string, tiers: Record<string, PermissionTier>, result?: unknown,
+  ): Promise<void> {
+    const log = debug('nebula.ResourceDataPlane.invite');
+    try {
+      if (result instanceof Error) {
+        // The whole submission failed (facade refusal or infra) — every pending row flips.
+        // ⚠️ DEFENSIVE, with no honest in-lane producer today (testing.md's hard-to-reach
+        // exception): the host pre-validates with the same email gate the Registry re-runs, sends
+        // no bit for the cap to breach on, and its caller passed `requirePermission` — so reaching
+        // here requires an infrastructure failure or a facade eligibility change. What replaces
+        // the test is that the event announces itself below and the flip is visible org-wide.
+        await this.#flipInviteStatuses(nodeId, Object.keys(tiers).map((email) =>
+          ({ email, state: 'submission-failed', error: result.message })));
+        log.warn('node invite submission failed', { nodeId, error: result.message });
+        return;
+      }
+      const summary = result as InviteSummary;
+      // The grants FIRST — they are the operation's point; the flips are reporting. Runs under the
+      // response-leg callContext (the inviter's claims), so `setPermission`'s own `admin` gate
+      // re-checks the same principal `requirePermission` admitted at the door.
+      for (const r of summary.results) {
+        const tier = tiers[r.email];
+        if (!tier) {
+          // A summary row for an address this call never sent — an invariant breach, not a grant.
+          log.error('node invite summary named an unrequested address — no grant written', { nodeId });
+          continue;
+        }
+        this.#dagTree.setPermission(nodeId, r.sub, tier);
+      }
+      await this.#flipInviteStatuses(nodeId, [
+        ...summary.results.map((r) => ({ email: r.email, state: 'sent' as const })),
+        ...summary.errors.map((e) => ({ email: e.email, state: 'submission-failed' as const, error: e.error })),
+      ]);
+    } catch (err) {
+      // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
+      log.error('node invite result handling failed', {
+        nodeId, error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** The CURRENT `_InviteStatus` row for (email, node), or null — the convergence lookup. */
+  #findInviteStatus(nodeId: string, email: string): (Snapshot & { resourceId: string }) | null {
+    for (const { resourceId } of this.findCurrentByField('_InviteStatus', 'node', nodeId)) {
+      const snapshot = this.doRead(resourceId);
+      if (snapshot && (snapshot.value as { email?: string }).email === email) {
+        return { ...snapshot, resourceId };
+      }
+    }
+    return null;
+  }
+
+  /** Flip each (email, node) row's `state` (+ optional `error`), subscriber fan-out included.
+   *  PER-ROW transactions, deliberately — the rows are independent, and one atomic batch would let
+   *  a single stale eTag (a concurrent re-invite converging that address mid-flight) void the
+   *  SIBLING invitees' flips, stranding them at `pending` with only a warn to show for it. A row
+   *  that vanished or moved on (converged by a newer writer) is skipped: that writer owns its
+   *  state. */
+  async #flipInviteStatuses(
+    nodeId: string,
+    flips: Array<{ email: string; state: 'sent' | 'submission-failed'; error?: string }>,
+  ): Promise<void> {
+    for (const flip of flips) {
+      const existing = this.#findInviteStatus(nodeId, flip.email);
+      if (!existing) continue;
+      const value = {
+        ...(existing.value as Record<string, unknown>),
+        state: flip.state,
+        ...(flip.error !== undefined ? { error: flip.error } : {}),
+      };
+      if (flip.error === undefined) delete (value as Record<string, unknown>).error;
+      const written = await this.doTransaction(crypto.randomUUID(), {
+        [existing.resourceId]: { op: 'put', eTag: existing.meta.eTag, value },
+      }, '');
+      if (!written.ok) {
+        debug('nebula.ResourceDataPlane.invite').warn('an _InviteStatus flip did not apply (a newer writer owns the row)', {
+          nodeId, resourceId: existing.resourceId,
+        });
+      }
+    }
+  }
+
   /**
    * Permission-filtered fanout targets for a live query's current subscribers —
    * the subscriber connections that hold `read` on `nodeId` right now. Exposed so
    * a host can push a **transient** signal to a query's audience WITHOUT a Resource
-   * write (Child 3 option (b): DevStudio's assistant progress/thought stream fans to
+   * write (Child 3 option (b): the Galaxy's assistant progress/thought stream fans to
    * the session query's subscribers, then commits ONE durable Message). The capability
    * owns targeting + the `access.scopeAdmin`-aware read recheck (never re-implemented
    * host-side, D3/D16); the host owns delivery via its own `this.svc.broadcast`.
@@ -281,7 +504,7 @@ export class ResourceDataPlane {
 
   /**
    * Server-internal **create-if-absent** (D-session): idempotently seed a fixed
-   * platform Resource (DevStudio's default `Session`) with NO client-facing result
+   * platform Resource (the Galaxy's default `Session`) with NO client-facing result
    * delivery. A live snapshot already present → no-op. A first create still fans out
    * to any subscribers (mirrors {@link doTransaction}'s post-commit hook; originator
    * `''` — a server seed has no client origin). The caller must be in an authed
@@ -289,7 +512,7 @@ export class ResourceDataPlane {
    *
    * ✅ **Confined, via the ordinary path — no special-casing here.** This method holds no admin
    * check of its own: it goes through `Resources.transaction` → `DagTree.requirePermission`, which
-   * is confinement point 1. So the platform-seed path (DevStudio's `ensureSession` running under
+   * is confinement point 1. So the platform-seed path (the Galaxy's `ensureSession` running under
    * the admin's call) has passage **iff that admin's `authScope` covers THIS host** — the
    * same rule as every other caller. See tasks/nebula-confine-admin-bypass.md.
    */
@@ -552,7 +775,7 @@ export class ResourceDataPlane {
    * state returns via the Flow-3 permission rerun when access does). The recheck
    * is an explicit-sub `evaluatePermissions` honoring the row's stored
    * `dominionOverHostAtSubscribe` (the `access.scopeAdmin` bypass, D16), NOT the live caller's
-   * `requirePermission`. Closing it in the capability protects Star AND DevStudio.
+   * `requirePermission`. Closing it in the capability protects Star AND Galaxy.
    */
   #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string): void {
     for (const [resourceId, snapshot] of mutations) {

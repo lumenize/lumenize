@@ -53,7 +53,7 @@ async function setupStaleScenario() {
     { onShouldRefreshUI: refreshHookSpy },
   );
 
-  // Apply v1 to the Star (DevStudio's setOntology path replaced the Galaxy lazy-pull).
+  // Apply v1 to the Star (the setOntology dev apply path).
   a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 

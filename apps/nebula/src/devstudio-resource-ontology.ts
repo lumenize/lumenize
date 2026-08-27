@@ -1,11 +1,11 @@
 /**
- * DevStudio's platform-fixed `Session`/`Message` resource ontology + its
+ * The Galaxy's platform-fixed `Session`/`Message` chat resource ontology + its
  * `getOntology()` provider (Child 1, nebula-devstudio-data-plane.md Phase 2;
  * `Turn`→`Message` rename + field enrichment in Child 3 Phase 0).
  *
  * This is the ontology for the Studio chat's own Resources — **platform code,
- * not user data**: a fixed version defined here in source, compiled **on
- * DevStudio** via the same `compileOntologyVersion` Galaxy uses (so the ADR-006
+ * not user data**: a fixed version defined here in source, compiled **on the
+ * Galaxy** via the same `compileOntologyVersion` its registry uses (so the ADR-006
  * relationship/embed-guard threads identically), and mounted lazily through the
  * Worker Loader exactly like the tool-args facet. It is NOT a Galaxy ontology
  * version and never routes through Galaxy.
@@ -17,8 +17,9 @@
  * ⚠️ Sentinel-version contract (review n1): the version is stamped into every
  * snapshot's `meta.ontologyVersion`. Editing these types is a BREAKING change —
  * bump {@link SESSION_MESSAGE_ONTOLOGY_VERSION} (and {@link SESSION_MESSAGE_BUNDLE_ID}
- * so a warm Worker-Loader doesn't serve a stale validator) *and* wipe DevStudio's
- * resource snapshots (there is no Galaxy version-registry / migration chain for it).
+ * so a warm Worker-Loader doesn't serve a stale validator) *and* wipe the host's
+ * resource snapshots (no installed version-registry / migration chain for it yet —
+ * Phase 2 of the collapse replaces this whole ritual with an installed version).
  */
 
 import { compileOntologyVersion } from './galaxy';
@@ -37,7 +38,7 @@ export const SESSION_MESSAGE_ONTOLOGY_VERSION = 'session-message-v1';
 /**
  * Worker-Loader bundle id for the compiled Session/Message validator. A fixed global
  * constant — the facet carries no tenant data, so it is safely shared across all
- * DevStudios. **Deliberately disjoint** from every other bundle-id namespace
+ * Galaxies. **Deliberately disjoint** from every other bundle-id namespace
  * (review M2 — a Worker-Loader collision silently serves the wrong validator =
  * validation bypass): the `nebula:` colon prefix cannot match the tool-args id
  * (`nebula-devstudio-tool-args-v1`) nor Star's `{universe.galaxy}/{version}` form
@@ -62,7 +63,7 @@ export const SESSION_MESSAGE_TYPES = [
 
 /**
  * Build the `getOntology()` provider the {@link ResourceDataPlane} consumes on
- * DevStudio: compiles the fixed Session/Message ontology on this DO (via
+ * the Galaxy: compiles the fixed Session/Message ontology on this DO (via
  * `compileOntologyVersion`) and mounts the validator through the Worker Loader.
  * The compile thunk only runs on a cold Worker-Loader build (cached by bundleId);
  * the version is server-sourced, never client-supplied.

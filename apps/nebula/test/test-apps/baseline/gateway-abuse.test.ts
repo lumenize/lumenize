@@ -17,29 +17,29 @@ describe('gateway abuse cases', () => {
   // ============================================
 
   describe('direct HTTP rejection', () => {
-    // The direct-DO route is opened ONLY for the dev preview serve (Phase 4 retired
-    // the in-DO Star.onRequest serve): GET/HEAD to DEV_CONTAINER reaches
-    // `DevContainer.fetch()`; every other method is 405, every other binding
-    // (incl. STAR/UNIVERSE) is 404.
-    it('returns 404 for direct HTTP GET to a non-serving binding (Star — in-DO serve retired)', async () => {
+    // There is NO direct-DO route at all since the collapse retired the DevContainer
+    // preview proxy (the in-DO Star.onRequest serve was retired earlier): every
+    // un-prefixed /{BINDING}/{instance} path — HTTP or WS — falls to the 404 fallback.
+    // The built app's /app/* serve lands with the Phase-3 route table.
+    it('returns 404 for direct HTTP GET to a DO binding (Star — no direct-DO route)', async () => {
       const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
         method: 'GET',
       });
-      expect(resp.status).toBe(404);   // STAR is no longer a serving target → gate 404s
+      expect(resp.status).toBe(404);
     });
 
-    it('returns 405 for a non-GET to the serving binding (DEV_CONTAINER)', async () => {
+    it('returns 404 for the RETIRED preview-proxy prefix (any method)', async () => {
       const resp = await SELF.fetch('http://localhost/DEV_CONTAINER/acme.app.dev', {
         method: 'POST',
       });
-      expect(resp.status).toBe(405);   // gate bounds the opened route to GET/HEAD
+      expect(resp.status).toBe(404);   // the route died with the DevContainer node
     });
 
-    it('returns 404 for direct HTTP to a non-serving binding (Universe)', async () => {
+    it('returns 404 for direct HTTP to a DO binding (Universe)', async () => {
       const resp = await SELF.fetch('http://localhost/UNIVERSE/acme', {
         method: 'GET',
       });
-      expect(resp.status).toBe(404);   // not a serving target → gate 404s
+      expect(resp.status).toBe(404);
     });
 
     it('returns 501 for HTTP to gateway route', async () => {
@@ -49,14 +49,14 @@ describe('gateway abuse cases', () => {
       expect(resp.status).toBe(501);
     });
 
-    it('returns 501 for direct WebSocket to DO binding (no gateway prefix)', async () => {
+    it('returns 404 for direct WebSocket to DO binding (no gateway prefix — mesh WS terminates at the Gateway)', async () => {
       const resp = await SELF.fetch('http://localhost/NEBULA_CLIENT_GATEWAY/sub.tab1', {
         headers: {
           'Upgrade': 'websocket',
           'Sec-WebSocket-Protocol': 'lmz',
         },
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(404);
     });
   });
 

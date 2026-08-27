@@ -1,5 +1,5 @@
 /**
- * Session-identity constants for the DevStudio chat (Child 3, D-session).
+ * Session-identity constants for the Studio chat (Child 3, D-session).
  *
  * Kept in a **client-safe LEAF** — it imports ONLY `./dag-ops` (itself a pure
  * constants/types leaf) — so BOTH the browser client (`nebula-client.ts`, bundled via

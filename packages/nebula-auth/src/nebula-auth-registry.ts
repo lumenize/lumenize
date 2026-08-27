@@ -47,7 +47,8 @@ export interface AffectedScope {
   instanceName: string;
   /** 'universe' | 'galaxy' | 'star' — picks the tier DO binding to teardown. */
   tier: string;
-  /** A `{u}.{g}.dev` authoring Star → the client also tears down DevStudio + DevContainer. */
+  /** A `{u}.{g}.dev` authoring Star. Display-only since the Galaxy collapse — the brain's
+   *  state dies with the GALAXY row's own teardown, so no extra per-dev teardown exists. */
   isDev: boolean;
 }
 

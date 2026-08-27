@@ -5,17 +5,14 @@
 // DO classes
 export { NebulaDO, requireDominionHere, requirePassage } from './nebula-do';
 export { NebulaContainer } from './nebula-container';
-export { DevContainer } from './dev-container';
-export type { SourceFile } from './dev-container';
-export { DevStudio } from './dev-studio';
 export { Universe } from './universe';
 export { Galaxy } from './galaxy';
 export { Star } from './star';
-export type { NodeInvitee, NodeInviteAck } from './star';
+export type { NodeInvitee, NodeInviteAck } from './resource-data-plane';
 
 // Ontology
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
-// Pure compile fn (`.d.ts` → validator row). Used by DevStudio (dev apply) + test
+// Pure compile fn (`.d.ts` → validator row). Used by the Galaxy (dev apply) + test
 // helpers that apply an ontology via `Star.setOntology` without a Galaxy round-trip.
 export { compileOntologyVersion } from './galaxy';
 
@@ -39,11 +36,11 @@ export { canonicalQueryHash } from './query-hash';
 export type { QueryDescriptor, QueryUpdatePayload, QueryType, OnPartial, OrderBy, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 
 // Resource data-plane capability (Child 1) — the composable host for Resources,
-// shared by Star + DevStudio (ADR-007).
+// shared by Star + Galaxy (ADR-007).
 export { ResourceDataPlane } from './resource-data-plane';
 export type { OntologyProvider, ResourceHostBridge, BroadcastTarget } from './resource-data-plane';
 
-// DevStudio's platform-fixed Session/Message ontology + its getOntology() provider.
+// The Galaxy's platform-fixed Session/Message chat ontology + its getOntology() provider.
 export {
   SESSION_MESSAGE_TYPES,
   SESSION_MESSAGE_ONTOLOGY_VERSION,

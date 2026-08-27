@@ -58,7 +58,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'identity-convergence': identityConvergence, // one address, two real logins → ONE profileId (no fixture)
   'revoke-is-total': revokeIsTotal,            // two real sessions → a real 401 from a real server
   'profile-takeover-refused': profileTakeoverRefused, // manufactured scope dominion buys nothing (no fixture)
-  'studio-codegen-rest': studioCodegenRest,    // one real codegen turn over the Workers-AI REST transport
+  'studio-codegen-rest': { ...studioCodegenRest, needsContainer: false }, // one real codegen turn over the Workers-AI REST transport — container-free since the collapse (the build tool returns in Phase 3)
   'upward-invite-refused': upwardInviteRefused, // a real star admin's upward invite rejected by the facade's dominion message (no Docker)
   'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → founder stamp (no Docker)
   'node-invite-roundtrip': nodeInviteRoundtrip, // Star.invite → both planes → real email → invitee acts at the node (no Docker)

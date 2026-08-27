@@ -483,10 +483,9 @@ async function confirmDelete() {
       for (const a of affected) {
         const binding = a.tier === "universe" ? "UNIVERSE" : a.tier === "galaxy" ? "GALAXY" : "STAR";
         client.lmz.call(binding, a.instanceName, ctnT());
-        if (a.isDev) {
-          client.lmz.call("DEV_STUDIO", a.instanceName, ctnT());
-          client.lmz.call("DEV_CONTAINER", a.instanceName, ctnT());
-        }
+        // Post-collapse a `.dev` row needs no extra calls: the brain (chat + Workspace +
+        // registry) lives on the GALAXY row's own teardown above, and DEV_STUDIO /
+        // DEV_CONTAINER no longer exist. The dev star's data dies with its STAR teardown.
       }
     }
     cancelDelete();

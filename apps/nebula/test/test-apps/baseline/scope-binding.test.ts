@@ -114,15 +114,17 @@ describe('structural tier-DO scope binding', () => {
         NebulaClientTest, browser, galaxy, starB, 'admin@example.com',
       );
 
+      // The coalesce default is the composed Resources plane's config bootstrap (the
+      // collapse gave Galaxy a data plane — same shared-'config'-key shape as a Star).
       clientA.callGalaxyGetConfig(galaxy);
       await vi.waitFor(() => { expect(clientA.callCompleted).toBe(true); });
       expect(clientA.lastError).toBeUndefined();
-      expect(clientA.lastResult).toEqual({});
+      expect(clientA.lastResult).toEqual({ coalesceWindowMs: 3600000 });
 
       clientB.callGalaxyGetConfig(galaxy);
       await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
       expect(clientB.lastError).toBeUndefined();
-      expect(clientB.lastResult).toEqual({});
+      expect(clientB.lastResult).toEqual({ coalesceWindowMs: 3600000 });
 
       clientA[Symbol.dispose]();
       clientB[Symbol.dispose]();

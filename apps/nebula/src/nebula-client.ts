@@ -50,7 +50,7 @@ import { canonicalQueryHash } from './query-hash';
 import type { DagTreeState, PermissionTier } from './dag-ops';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
 import type { Star } from './star';
-import type { DevStudio } from './dev-studio';
+import type { Galaxy } from './galaxy';
 
 const log = debug('lumenize.nebula-client');
 
@@ -238,10 +238,10 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    */
   onReload?: () => void;
   /**
-   * Optional hook invoked when DevStudio signals the dev preview is up and serving
-   * (the {@link NebulaClient.handlePreviewReady} push, in response to
+   * Optional hook invoked when the Galaxy signals the preview can (re)load (the
+   * {@link NebulaClient.handlePreviewReady} push, in response to
    * {@link NebulaClient.warmPreview}). The Studio uses it to auto-refresh the preview
-   * iframe — no manual Reload. `scope` is the dev star the readiness is for (ignore if
+   * iframe — no manual Reload. `scope` is the scope the readiness is for (ignore if
    * the UI has since switched scopes).
    */
   onPreviewReady?: (scope: string) => void;
@@ -249,13 +249,14 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * Which mesh binding hosts this client's Resources (the data-plane: transaction /
    * read / subscribe / unsubscribe / dagTree, + the org-tree & reload channels).
    * Default `'STAR'` (the Nebula UI — unchanged). The **chat** client sets
-   * `'DEV_STUDIO'` so its `Session`/`Message` Resources live on DevStudio (Child 1).
-   * The codegen path (`chat`/`warmPreview`) always targets `DEV_STUDIO` regardless.
+   * `'GALAXY'` so its `Session`/`Message` Resources live on the Galaxy (the collapse).
+   * The codegen path (`chat`/`warmPreview`) always targets `GALAXY` regardless.
+   * TEMP → target=Phase 2's chat/resource construction pairs (chat routing stops
+   * riding this field there).
    *
-   * NOTE: a `'DEV_STUDIO'`-bound client must NOT enable `onReload`/an org-tree
-   * listener in Child 1 — DevStudio hosts neither `subscribeReload` nor
-   * `subscribeTree` (those stay Star/preview concerns); both are gated off and inert
-   * unless configured. Child 3 revisits a live participant view.
+   * NOTE: a `'GALAXY'`-bound client must NOT enable `onReload`/an org-tree
+   * listener — the Galaxy hosts neither `subscribeReload` nor `subscribeTree`
+   * pre-Phase-3; both are gated off and inert unless configured.
    */
   resourceHostBinding?: string;
 }
@@ -339,7 +340,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
   #activeScope: string;
   #appVersion: string;
-  /** Binding hosting this client's Resources (default 'STAR'; 'DEV_STUDIO' for chat). */
+  /** Binding hosting this client's Resources (default 'STAR'; 'GALAXY' for chat). */
   #resourceHostBinding: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   #onReload?: () => void;
@@ -470,8 +471,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * In-flight chat turns, correlated by the client-generated `turnId`. A turn is
-   * fired one-way at DevStudio ({@link chat}) — NOT an awaited `callRaw` — and
-   * settled when DevStudio delivers the result back via the {@link onChatResult}
+   * fired one-way at the Galaxy ({@link chat}) — NOT an awaited `callRaw` — and
+   * settled when the Galaxy delivers the result back via the {@link onChatResult}
    * push (direct delivery addressed to this client's stable `instanceName`, so it
    * survives a WS drop+reconnect mid-turn). The Promise lives in memory; it does
    * NOT survive a page reload (history-restore is the deferred reactive-chat work).
@@ -1511,7 +1512,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * whose `ready` resolves on the first roster push; the roster lands in the reactive store at the
    * query-in-path `store.lmz.querySubscribers.<typeName>.<field>[value]` via the factory listener.
    * Refcounted (a 2nd subscribe of the same canonical query coalesces) + reconnect-safe (re-fired by
-   * `#resubscribeAll`). Routes to the active-scope host (Star/DevStudio). tasks/nebula-subscriber-lists.md.
+   * `#resubscribeAll`). Routes to the active-scope host (Star/Galaxy). tasks/nebula-subscriber-lists.md.
    */
   subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription {
     const queryHash = canonicalQueryHash(query);
@@ -1796,7 +1797,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * Receive a transient assistant-progress chunk for `messageId` (Child 3 option (b)).
-   * Server→client direct delivery (`svc.broadcast` from DevStudio, addressed to this
+   * Server→client direct delivery (`svc.broadcast` from the Galaxy, addressed to this
    * client's stable `instanceName`) as the codegen loop makes progress. Accumulates
    * into the ephemeral {@link #streamingMessages} cache + fires the optional live hook.
    * NOT durable: reconciled away when the durable `Message` lands ({@link handleResourceUpdate}),
@@ -1823,7 +1824,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Fire a codegen turn at DevStudio and resolve when its result is delivered
+   * Fire a codegen turn at the Galaxy and resolve when its result is delivered
    * back via {@link onChatResult}. Uses fire-and-forget + **direct delivery**, NOT
    * an awaited `callRaw`: a turn can run for minutes, during which the client WS
    * may drop and reconnect — the result is addressed to this client's stable
@@ -1842,13 +1843,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const turnId = crypto.randomUUID();
     const clientId = this.lmz.instanceName;
     const pending = this.trackTurn(turnId);
-    this.lmz.call('DEV_STUDIO', this.#activeScope, this.ctn<DevStudio>().chat(turnId, clientId, message));
+    this.lmz.call('GALAXY', this.#activeScope, this.ctn<Galaxy>().chat(turnId, clientId, message));
     return pending;
   }
 
   /**
    * Post a `role:'user'` Message to the pre-alpha session (Child 3 Phase 4) — a single
-   * atomic create on the DevStudio data plane, stamped with the sender's `author` (the surrogate
+   * atomic create on the Galaxy data plane, stamped with the sender's `author` (the surrogate
    * `sub`, display-only — D-attribution). `email` is no longer a JWT claim
    * (tasks/archive/nebula-auth-surrogate-sub.md), so the author is the `sub`; server-stamped `actingToken.sub`
    * display is the proper follow-on (tasks/nebula-chat-history-multiuser.md). Returns the
@@ -1870,7 +1871,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /**
    * Register an in-flight turn keyed by `turnId` and return its Promise — settled
    * by {@link onChatResult}. No call is fired here (that's {@link chat}'s job).
-   * `protected` so a test subclass can register a turn without a real DevStudio.
+   * `protected` so a test subclass can register a turn without a real Galaxy.
    */
   protected trackTurn(turnId: string): Promise<ChatTurnResult> {
     return new Promise<ChatTurnResult>((resolve, reject) => {
@@ -1879,7 +1880,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Receive a completed codegen turn's result from DevStudio. Direct delivery,
+   * Receive a completed codegen turn's result from the Galaxy. Direct delivery,
    * addressed to this client's `instanceName`, so it lands on whatever socket is
    * current after a reconnect. Settles the matching {@link chat} Promise by
    * `turnId`; an unknown `turnId` (page reloaded mid-turn, or duplicate delivery)
@@ -1894,7 +1895,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Ask DevStudio to bring the dev preview up and signal when vite is serving, so the
+   * Ask the Galaxy to signal the preview can load (post-collapse there is nothing to warm
+   * for viewing — dist/ serves from the Galaxy's own VFS), so the
    * UI can auto-refresh the iframe (no manual Reload). Fire-and-forget (NOT awaited
    * `callRaw`) — the container boot is long and the readiness comes back via the
    * {@link handlePreviewReady} push (direct delivery by this client's stable
@@ -1903,11 +1905,11 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   warmPreview(): void {
     const clientId = this.lmz.instanceName;
-    this.lmz.call('DEV_STUDIO', this.#activeScope, this.ctn<DevStudio>().warmPreview(clientId));
+    this.lmz.call('GALAXY', this.#activeScope, this.ctn<Galaxy>().warmPreview(clientId));
   }
 
   /**
-   * Receive DevStudio's "preview is serving" signal (direct delivery, addressed to this
+   * Receive the Galaxy's "preview is serving" signal (direct delivery, addressed to this
    * client's `instanceName`). Invokes the `onPreviewReady` hook so the UI can refresh
    * the preview iframe. `@mesh()` because it arrives over the Gateway like the other pushes.
    */

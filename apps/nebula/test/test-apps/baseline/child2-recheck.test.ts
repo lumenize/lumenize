@@ -1,8 +1,8 @@
 /**
  * Child 2 Phase 2 — per-push read recheck (Flow 2 / D3) in the capability's
  * `#broadcast`. Closes the subscribe-time-only gap Child 1 carried into the
- * capability, so it protects Star AND DevStudio (tested here on Star; the
- * capability code is identical on both hosts — DevStudio composition is proven by
+ * capability, so it protects Star AND Galaxy (tested here on Star; the
+ * capability code is identical on both hosts — Galaxy composition is proven by
  * devstudio-resources-e2e).
  *
  * Two pinned behaviors:

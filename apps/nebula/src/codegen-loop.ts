@@ -7,22 +7,47 @@
  * **Standalone + dependency-injected** so the loop is testable with a synthetic (fake)
  * model and no AI binding (Phase 2/3, vitest-pool-workers), and so the offline prompt
  * harness can drive it too. The driver imports only the pure {@link compileSource} gate
- * and {@link assertSafeRelPath}; it holds **no reference** to the `.dev` Star / DevContainer
- * bindings or the install/wipe methods (`compileAndInstallOntology` / `applyOntologyChange`
- * / `resetDevData` / `setOntology` / `setAppVersion` / `applyChanges`) — that absence is
- * the secure-by-default D2 guarantee (an autonomous tool can compile but never install or
- * wipe; install/wipe stays the human-gated apply step fired AFTER the loop, Flow 1b).
+ * and {@link assertSafeRelPath}; it holds **no reference** to the `.dev` Star binding or
+ * the install/wipe methods (`compileAndInstallOntology` / `resetDevData` / `setOntology`)
+ * — that absence is the secure-by-default D2 guarantee (an autonomous tool can compile
+ * but never install or wipe; install/wipe stays the human-gated apply step fired AFTER
+ * the loop, Flow 1b).
  *
  * @see tasks/archive/nebula-codegen-loop.md § Phases 2–3 (D1, D2, D4, D5, D5a, D6, D7, D8)
  */
 import { compileSource, type GateResult } from './codegen-gate';
-import { assertSafeRelPath } from './dev-container';
-import type { ToolCall } from './galaxy';
+
+/** One model tool call — the loop's per-call record slot (every dispatched call + its
+ *  result/error). Folds into the agent `Message`'s `codegen` value object (Phase 2). */
+export interface ToolCall {
+  name: string;
+  args: unknown;
+  result?: unknown;
+  error?: string;
+}
+
+/**
+ * Path-safety guard for the untrusted, model-chosen `write_file` path (defense-in-depth —
+ * `writeSource` only strips leading slashes, so `..` would survive). Rejects any absolute
+ * path or `..` segment BEFORE anything is written. Pure + synchronous so it's
+ * unit-testable. Throws on reject.
+ */
+export function assertSafeRelPath(path: string): void {
+  if (typeof path !== 'string' || path.length === 0) {
+    throw new Error(`Invalid source path: ${String(path)}`);
+  }
+  if (path.startsWith('/')) {
+    throw new Error(`Absolute source path rejected: ${path}`);
+  }
+  if (path.split(/[/\\]/).includes('..')) {
+    throw new Error(`'..' segment rejected in source path: ${path}`);
+  }
+}
 
 // ─── Tool surface (D1: write_file + mark_complete only) ──────────────────
 
 /** Tool-arg TS types — the ADR-001 source of truth for runtime validation
- *  (compiled to a typia validator via `generateParseModule`; see DevStudio). */
+ *  (compiled to a typia validator via `generateParseModule`; see Galaxy). */
 export const TOOL_ARGS_TYPES = `
 interface WriteFileArgs { path: string; content: string; }
 interface MarkCompleteArgs {}
@@ -121,7 +146,7 @@ export interface LoopResult {
   stop: StopReason;
   /** Model inferences performed (rounds). */
   rounds: number;
-  /** The recorder slot (`TurnRecord.toolCalls`) — every dispatched call + its result/error. */
+  /** Every dispatched call + its result/error — folds into the agent Message's codegen object. */
   toolCalls: ToolCall[];
   /** The full assembled transcript (system + user + assistant/tool/user rounds). */
   messages: ChatMessage[];
@@ -140,7 +165,7 @@ export interface LoopResult {
 export interface CodegenLoopDeps {
   /** Abstracts `env.AI.run(STUDIO_MODEL, …)` — fake (script) in tests. */
   callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown>;
-  /** Persist one file (DevStudio.writeSource → Workspace + git commit). */
+  /** Persist one file (Galaxy.writeSource → Workspace + git commit). */
   writeFile(path: string, content: string): Promise<{ oid: string; path: string }>;
   /** typia shape validation of tool args. Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
@@ -149,7 +174,7 @@ export interface CodegenLoopDeps {
    * reasoning and per file with `wrote <path>` — the coarse, step-level content the
    * assistant progress stream fans to session subscribers (NOT model tokens; `callModel`
    * is non-streaming). Optional + synchronous fire-and-forget: a slow/throwing sink must
-   * not perturb the loop, so callers keep it cheap (DevStudio buffers + broadcasts). Only
+   * not perturb the loop, so callers keep it cheap (Galaxy buffers + broadcasts). Only
    * exercised under `wrangler dev` (real `chat`); pool-workers tests drive the downstream
    * push directly via the test harness.
    */

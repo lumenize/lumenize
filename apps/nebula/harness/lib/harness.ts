@@ -13,8 +13,8 @@
  * the Node-safe entries (`@lumenize/nebula/client`, `@lumenize/nebula-auth/testing`,
  * `@lumenize/crypto`, `@lumenize/testing`) — none pull `cloudflare:workers`.
  *
- * Local `wrangler dev` needs Docker Desktop (the DevContainer builds at boot) — the harness
- * probes it and fails loudly if absent. PROD driving is deliberately NOT here: prod tokens come
+ * Local `wrangler dev` needs Docker Desktop when the boot builds the container image — the
+ * harness probes it and fails loudly if absent. PROD driving is deliberately NOT here: prod tokens come
  * via audited login / stored-refresh, never this local mint (Phase 3 security boundary).
  */
 import { execSync } from 'node:child_process';
@@ -32,10 +32,10 @@ import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lu
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
 const STUDIO_UI_DIR = resolve(NEBULA_DIR, '../nebula-studio-ui');
-/** apps/nebula config — the only one with DEV_STUDIO / DEV_CONTAINER / the AI binding. */
+/** apps/nebula config — the only one with the GALAXY container + AI bindings. */
 const WRANGLER_CONFIG = './wrangler.jsonc';
 /**
- * A derived, container-free copy of the config, for scenarios that never touch the DevContainer.
+ * A derived, container-free copy of the config, for scenarios that never touch `ctx.container`.
  *
  * ⚠️ **Must live beside the original**: wrangler resolves `main`, `assets.directory` and every other
  * relative path against the CONFIG FILE's directory, so putting this under `.wrangler/` would break
@@ -53,8 +53,7 @@ const WRANGLER_CONFIG_NO_CONTAINER = './wrangler.harness-no-container.jsonc';
  * because no JSONC parser is available here and a regex comment-strip would corrupt any `//` inside a
  * string (an https URL, say).
  *
- * ⚠️ The `DEV_CONTAINER` binding and the `DevContainer` DO export are LEFT IN PLACE — only the image
- * build is removed. So the class still registers and `env.DEV_CONTAINER` still resolves; what a
+ * ⚠️ Only the image build is removed — the `GALAXY` binding and class are untouched. What a
  * scenario loses is `ctx.container`, which is exactly the capability it declared it does not need.
  *
  * Throws loudly if the config's shape has changed, rather than silently emitting a config that
@@ -83,7 +82,7 @@ function deriveContainerFreeConfig(): string {
   return WRANGLER_CONFIG_NO_CONTAINER;
 }
 
-/** A Docker daemon is reachable (`docker info` exits 0). Required to boot the DevContainer. */
+/** A Docker daemon is reachable (`docker info` exits 0). Required for a with-container boot. */
 export const HAS_DOCKER: boolean = (() => {
   try {
     execSync('docker info', { stdio: 'ignore' });
@@ -136,8 +135,8 @@ export async function bootDevStack(
   opts: {
     readyTimeoutMs?: number;
     /**
-     * Whether this boot needs the DevContainer. Default `true` — the historical behaviour, and
-     * correct for anything driving Studio codegen or a build.
+     * Whether this boot needs the build container image. Default `true` — the historical
+     * behaviour, and correct for anything driving a build.
      *
      * Pass `false` for a scenario that never touches `ctx.container` (auth, impersonation, resources,
      * subscriptions): the image build is the ONLY thing in this stack that needs Docker, so skipping
@@ -158,7 +157,7 @@ export async function bootDevStack(
   if (withContainer && !HAS_DOCKER) {
     throw new Error(
       'bootDevStack: Docker Desktop is not reachable (`docker info` failed). The apps/nebula ' +
-        'DevContainer builds at `wrangler dev` boot, so Docker is required. Start Docker Desktop and retry, ' +
+        'container image builds at `wrangler dev` boot, so Docker is required. Start Docker Desktop and retry, ' +
         'or pass `withContainer: false` if this scenario never touches `ctx.container`.',
     );
   }
@@ -184,7 +183,7 @@ export async function bootDevStack(
   const { baseUrl, cleanup } = await spawnWranglerDev({
     configPath,
     cwd: NEBULA_DIR,
-    // Cold DevContainer image build can be slow; give generous headroom.
+    // A cold container image build can be slow; give generous headroom.
     readyTimeoutMs: opts.readyTimeoutMs ?? 300_000,
     extraArgs: [
       ...(localMode ? ['--local'] : []),
@@ -244,8 +243,8 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
 }
 
 /**
- * Connect a real-WS `NebulaClient` for `scope`, bound to DEV_STUDIO (so chat `Session`/`Message`
- * Resources round-trip on the DevStudio DO). Resolves once connected.
+ * Connect a real-WS `NebulaClient` for `scope`, bound to GALAXY (so chat `Session`/`Message`
+ * Resources round-trip on the Galaxy DO — the collapse's chat host). Resolves once connected.
  *
  * ⚠️ **Identity comes from a REAL email login by default** (rung 1, ADR-009). This harness is the
  * artifact the ADR names as *"the path design reasoning grounds on"*, so running it on a synthetic
@@ -344,7 +343,7 @@ export async function connectDriver(
     authScope: scope,
     activeScope: scope,
     appVersion: 'harness-v0',
-    resourceHostBinding: 'DEV_STUDIO',
+    resourceHostBinding: 'GALAXY', // TEMP → target=Phase 2's chat/resource construction pairs (collapse)
     accessToken: access_token,
     instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: browser.fetch,
@@ -400,7 +399,7 @@ export async function inviteViaMesh(
     authScope: claims.access.authScope,
     activeScope: claims.aud,
     appVersion: 'harness-v0',
-    resourceHostBinding: 'DEV_STUDIO',
+    resourceHostBinding: 'GALAXY', // TEMP → target=Phase 2's chat/resource construction pairs (collapse)
     accessToken: session.accessToken,
     instanceName: `${session.sub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: browser.fetch,
@@ -481,7 +480,7 @@ export async function assertTokenRejected(
     authScope: opts.scope,
     activeScope: opts.scope,
     appVersion: 'harness-v0',
-    resourceHostBinding: 'DEV_STUDIO',
+    resourceHostBinding: 'GALAXY', // TEMP → target=Phase 2's chat/resource construction pairs (collapse)
     accessToken: opts.token,
     instanceName: `neg-control.${crypto.randomUUID().slice(0, 8)}`,
     fetch: browser.fetch,

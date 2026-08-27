@@ -1,5 +1,5 @@
 /**
- * Child 2 Phase 6 — client `subscribeQuery` handle + two-client e2e on DevStudio.
+ * Child 2 Phase 6 — client `subscribeQuery` handle + two-client e2e on the Galaxy chat host.
  *
  * Drives the PUBLIC `client.resources.subscribeQuery` (NOT a callXxx initiator —
  * the unit under test is client-side membership / windowed content subs / grace,
@@ -16,16 +16,15 @@ import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c2e-${crypto.randomUUID().slice(0, 8)}.app.dev`;
+const uniqueChatScope = () => `c2e-${crypto.randomUUID().slice(0, 8)}.app`;
 
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
-  // is administered by the covering admin's wildcard. That is how it works in production, not a test
-  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'DEV_STUDIO' },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
@@ -39,9 +38,9 @@ async function ordered(c: NebulaClientTest, ids: string[]): Promise<string[]> {
   return [...ids].sort((x, y) => vf[x] < vf[y] ? -1 : vf[x] > vf[y] ? 1 : (x < y ? -1 : x > y ? 1 : 0));
 }
 
-describe('child2 query subscription e2e (DevStudio, public client.resources.subscribeQuery)', () => {
+describe('child2 query subscription e2e (Galaxy, public client.resources.subscribeQuery)', () => {
   it('membership tracks create / reparent-out / delete in (validFrom, resourceId) order', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: a } = await devClient(scope);
     const { client: b } = await devClient(scope);
     const S = crypto.randomUUID();
@@ -86,7 +85,7 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
   });
 
   it('windowed lazy content: content arrives for the rendered window ONLY', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: a } = await devClient(scope);
     const { client: b } = await devClient(scope);
     const S = crypto.randomUUID();
@@ -125,7 +124,7 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
   });
 
   it('a resource A loses read on falls out of A\'s membership set', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const S = crypto.randomUUID();
 
@@ -143,7 +142,7 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
     await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
     const { client: user, payload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
+      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', 'v1', { resourceHostBinding: 'GALAXY' });
     await admin.orgTree.setPermission(nodeA, payload.sub, 'read');
     await admin.orgTree.setPermission(nodeB, payload.sub, 'read');
 

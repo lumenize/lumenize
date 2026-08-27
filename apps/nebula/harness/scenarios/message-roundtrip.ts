@@ -19,7 +19,7 @@ import type { DevStack } from '../lib/harness';
 import { connectDriver, mintDegradedToken, assertTokenRejected } from '../lib/harness';
 
 /** Star-tier sandbox under the `claude` Universe; `.dev` star slug so `resetDevData` accepts it. */
-export const SCOPE = 'claude.sandbox.dev';
+export const SCOPE = 'claude.sandbox';
 
 export async function run(stack: DevStack): Promise<void> {
   const marker = `harness-marker-${crypto.randomUUID()}`;

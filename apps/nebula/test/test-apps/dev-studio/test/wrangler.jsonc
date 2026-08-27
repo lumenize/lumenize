@@ -1,8 +1,9 @@
 {
-  // DevStudio node test (Phase 3.5b). DevStudio (shell Workspace + isomorphic-git)
-  // + DevStarOntologyProbe (the .dev apply target) + LOADER (the validator facet).
-  // nodejs_compat is REQUIRED: @cloudflare/shell + isomorphic-git touch node:
-  // builtins. Run with `npx vitest run --project dev-studio`.
+  // Galaxy codegen test (the `dev-studio` project — its name predates the collapse).
+  // GalaxyLoopProbe (the @cloudflare/computer Workspace + host-side git + the codegen
+  // loop with a scripted model) + DevStarOntologyProbe (the `{u}.{g}.dev` apply target)
+  // + LOADER (the validator facet). nodejs_compat is REQUIRED: @cloudflare/computer +
+  // isomorphic-git touch node: builtins. Run with `npx vitest run --project dev-studio`.
   "name": "nebula-dev-studio-test",
   "main": "../index.ts",
   "compatibility_date": "2026-04-01",
@@ -10,14 +11,12 @@
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
-      { "name": "DEV_STUDIO", "class_name": "DevStudioLoopProbe" },
-      { "name": "STAR", "class_name": "DevStarOntologyProbe" },
-      { "name": "GALAXY", "class_name": "Galaxy" }
+      { "name": "GALAXY", "class_name": "GalaxyLoopProbe" },
+      { "name": "STAR", "class_name": "DevStarOntologyProbe" }
     ]
   },
   "exports": {
-    "DevStudioLoopProbe": { "type": "durable-object", "storage": "sqlite" },
-    "DevStarOntologyProbe": { "type": "durable-object", "storage": "sqlite" },
-    "Galaxy": { "type": "durable-object", "storage": "sqlite" }
+    "GalaxyLoopProbe": { "type": "durable-object", "storage": "sqlite" },
+    "DevStarOntologyProbe": { "type": "durable-object", "storage": "sqlite" }
   }
 }

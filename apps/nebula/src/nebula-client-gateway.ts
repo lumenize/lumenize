@@ -17,7 +17,7 @@ export class NebulaClientGateway extends LumenizeClientGateway {
     // holding the profileId, so cross-scope delivery is intentional — skip the same-aud check. `metadata.caller`
     // is stamped by the trusted mesh (never the client); a hand-rolled fanout (no tier hop) keeps it
     // reliably `PROFILE` at any N. Absent metadata falls through to the aud check (fail-closed). Every
-    // other push (STAR / DEV_STUDIO / …) keeps the same-Star aud gate, behavior-identical.
+    // other push (STAR / GALAXY / …) keeps the same-Star aud gate, behavior-identical.
     if (envelope.metadata?.caller?.bindingName === 'PROFILE') return;
 
     const aud = (envelope.callContext.originAuth?.claims as NebulaJwtPayload | undefined)?.aud;

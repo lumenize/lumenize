@@ -7,7 +7,7 @@
  * breaking edit invalidates stored snapshots, which we do NOT migrate — `resetDevData()`
  * wipes the sandbox (full `deleteAll` + `onStart` re-init, hard-guarded to `.dev`
  * instances) and the user-developer rebuilds. Ontology is applied via
- * `setOntology` (DevStudio's dev path); the Galaxy lazy-pull was retired in Phase 4.
+ * `setOntology` (the Galaxy's dev apply path); the registry lazy-pull returns in Phase 2 of the collapse.
  *
  * @see tasks/nebula-studio.md § Dev-data reset
  */

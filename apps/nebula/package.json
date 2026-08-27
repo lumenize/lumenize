@@ -68,7 +68,7 @@
     "wrangler": "^4.111.0"
   },
   "dependencies": {
-    "@cloudflare/shell": "^0.4.0",
+    "@cloudflare/computer": "^0.1.1",
     "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
@@ -77,10 +77,11 @@
     "@lumenize/sql-migrations": "*",
     "@lumenize/structured-clone": "*",
     "@lumenize/ts-runtime-parser-validator": "*",
+    "@platformatic/vfs": "^0.4.0",
     "@vue/compiler-sfc": "^3.5.13",
-    "isomorphic-git": "^1.38.4",
     "@vue/reactivity": "^3.5.13",
     "@vue/runtime-core": "^3.5.13",
+    "isomorphic-git": "^1.38.4",
     "typescript": "^5.9.2",
     "vue": "^3.5.13"
   },

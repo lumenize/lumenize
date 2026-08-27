@@ -25,25 +25,24 @@ import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3st-${crypto.randomUUID().slice(0, 8)}.app.dev`;
+const uniqueChatScope = () => `c3st-${crypto.randomUUID().slice(0, 8)}.app`;
 const sessionQuery = {
   queryType: 'parentChild' as const, typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
 };
 
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
-  // is administered by the covering admin's wildcard. That is how it works in production, not a test
-  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'DEV_STUDIO' },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
 describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)', () => {
   it('streams chunks BEFORE the durable Message, then reconciles the ephemeral away by id', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client } = await devClient(scope);
     const messageId = crypto.randomUUID();
 
@@ -52,17 +51,17 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
     expect(sub.resourceIds).toEqual([]);
 
     // Stream two chunks (transient — NO Resource write). The client accumulates them.
-    client.callDevStudioStreamChunk(scope, DEFAULT_SESSION_ID, messageId, 'Writing ', SESSION_NODE_ID);
+    client.callGalaxyStreamChunk(scope, DEFAULT_SESSION_ID, messageId, 'Writing ', SESSION_NODE_ID);
     await vi.waitFor(() => expect(client.streamChunkCount).toBeGreaterThanOrEqual(1));
     // M3a: a chunk arrived, and NO durable Message exists in membership yet.
     expect(client.streamingProgress(messageId)).toBe('Writing ');
     expect(sub.resourceIds).not.toContain(messageId);
 
-    client.callDevStudioStreamChunk(scope, DEFAULT_SESSION_ID, messageId, 'App.vue…', SESSION_NODE_ID);
+    client.callGalaxyStreamChunk(scope, DEFAULT_SESSION_ID, messageId, 'App.vue…', SESSION_NODE_ID);
     await vi.waitFor(() => expect(client.streamingProgress(messageId)).toBe('Writing App.vue…')); // accumulates
 
     // Commit the durable Message. Membership gains it via the query rerun.
-    client.callDevStudioCommitAssistant(scope, DEFAULT_SESSION_ID, messageId, 'Updated the preview.', SESSION_NODE_ID);
+    client.callGalaxyCommitAssistant(scope, DEFAULT_SESSION_ID, messageId, 'Updated the preview.', SESSION_NODE_ID);
     await vi.waitFor(() => expect(client.callCompleted).toBe(true));
     expect(client.lastError).toBeUndefined();
     await vi.waitFor(() => expect(sub.resourceIds).toContain(messageId));
@@ -78,7 +77,7 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
   });
 
   it('a subscriber DENIED on the assistant node receives ZERO chunks (M1 transient recheck)', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const messageId = crypto.randomUUID();
 
@@ -88,13 +87,13 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
     await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
     const { client: denied } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
+      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', 'v1', { resourceHostBinding: 'GALAXY' });
 
     using sa = admin.resources.subscribeQuery(sessionQuery); await sa.ready;
     using sd = denied.resources.subscribeQuery(sessionQuery); await sd.ready;
 
     // Stream to SESSION_NODE_ID: admin (access.scopeAdmin bypass) is a target; denied is not.
-    admin.callDevStudioStreamChunk(scope, DEFAULT_SESSION_ID, messageId, 'thinking…', SESSION_NODE_ID);
+    admin.callGalaxyStreamChunk(scope, DEFAULT_SESSION_ID, messageId, 'thinking…', SESSION_NODE_ID);
     await vi.waitFor(() => expect(admin.streamChunkCount).toBeGreaterThanOrEqual(1));
 
     // The admin received the chunk (proves the broadcast fired); the denied subscriber

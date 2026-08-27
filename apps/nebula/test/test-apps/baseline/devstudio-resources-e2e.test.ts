@@ -1,8 +1,8 @@
 /**
- * DevStudio resource data-plane — real-NebulaClient e2e (Child 1, nebula-devstudio-data-plane.md Phase 5).
+ * Galaxy resource data-plane — real-NebulaClient e2e (Child 1; host re-homed by the collapse).
  *
- * A `NebulaClient` configured `resourceHostBinding: 'DEV_STUDIO'` (D9) hosts the
- * chat `Session`/`Message` Resources on the **DevStudio** DO instead of a Star —
+ * A `NebulaClient` configured `resourceHostBinding: 'GALAXY'` (D9) hosts the
+ * chat `Session`/`Message` Resources on the **Galaxy** DO instead of a Star —
  * exercised through the **public** API (`client.resources.*` / `client.orgTree.*`)
  * over the full integration path (real JWTs minted locally + verified normally —
  * NOT a test-mode bypass), proving the Phase-3-deferred criteria that need a
@@ -13,7 +13,7 @@
  *   - the snapshot's `ontologyVersion` is server-sourced regardless of the client's
  *     `appVersion`, and a "wrong" appVersion does NOT error (D8 no-version-gate + m4).
  *
- * DevStudio needs no ontology-apply: its Session/Message ontology is the fixed
+ * The Galaxy needs no ontology-apply: its Session/Message ontology is the fixed
  * platform constant compiled on-DO. No Galaxy round-trip.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -23,26 +23,25 @@ import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-// A DevStudio sandbox is the `{u}.{g}.dev` star-tier instance.
-const uniqueDevScope = () => `acme-${crypto.randomUUID().slice(0, 8)}.app.dev`;
+// Chat lives on the Galaxy at the `{u}.{g}` tier (the collapse).
+const uniqueChatScope = () => `acme-${crypto.randomUUID().slice(0, 8)}.app`;
 
-// Admin (scope-admin) client bound to DEV_STUDIO. appVersion is irrelevant to
-// DevStudio (no version-gate, D8) — default 'v1'.
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
-  // is administered by the covering admin's wildcard. That is how it works in production, not a test
-  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
+// Admin (scope-admin) client bound to GALAXY. appVersion is irrelevant to
+// the Galaxy pre-Phase-2 (no version-gate) — default 'v1'.
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
 function devAdmin(scope: string, appVersion = 'v1') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', appVersion,
-    { resourceHostBinding: 'DEV_STUDIO' },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
-describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_STUDIO)', () => {
+describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)', () => {
   it('creates a Session + Message (FK, client UUIDs) in one transaction; reads them back; version is server-stamped', async () => {
-    const scope = uniqueDevScope();
-    // Deliberately "wrong" appVersion: DevStudio must ignore it (no stale error, D8)
+    const scope = uniqueChatScope();
+    // Deliberately "wrong" appVersion: the Galaxy ignores it pre-Phase-2 (no stale error)
     // and stamp the server constant (m4).
     const { client } = await devAdmin(scope, 'client-claims-WRONG');
     const sessionId = crypto.randomUUID();
@@ -68,7 +67,7 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
   });
 
   it('fans a Message mutation out to a SECOND subscriber client (push to other subscribers)', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: a } = await devAdmin(scope);
     // Distinct Browser ⇒ distinct Gateway ⇒ distinct clientId (the fanout is keyed
     // on clientId, so b's put fans out to a, the non-originator subscriber).
@@ -97,7 +96,7 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
   });
 
   it('DAG permission: a non-granted subject is denied; granting write lets them in (SC2)', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devAdmin(scope);
 
     // Admin (scope-admin bypass) makes a private node + a Message on it.
@@ -114,7 +113,7 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
     const { client: user, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', 'v1',
-      { resourceHostBinding: 'DEV_STUDIO' },
+      { resourceHostBinding: 'GALAXY' },
     );
 
     // DENIED: read the existing Message (exists but no grant) → rejects with permission.

@@ -19,7 +19,7 @@ import type { DagTree } from './dag-tree';
 import type { Resources, Snapshot } from './resources';
 
 /** Distinct migration marker so this runner's progress never collides with another
- *  `SQLSchemaMigrations` composed into the SAME Star/DevStudio DO (the `markerKey`
+ *  `SQLSchemaMigrations` composed into the SAME Star/Galaxy DO (the `markerKey`
  *  knob exists for exactly this per-component composition). */
 const SUBSCRIBERS_MARKER_KEY = '__sql_migrations_Subscribers';
 
@@ -206,7 +206,7 @@ export class Subscriptions {
 
   /**
    * Drop a single subscriber row. Called by the host's broadcast-result handler
-   * (`Star.onBroadcastResult` / `DevStudio.onBroadcastResult`) when a broadcast
+   * (`Star.onBroadcastResult` / `Galaxy.onBroadcastResult`) when a broadcast
    * `lmz.call` returns a `ClientDisconnectedError`. This is the **reactive** half
    * of the "user closed the tab" cleanup story (Phase 5.3.5); push-on-clear
    * (5.3.4b) catches the rest on next deploy.

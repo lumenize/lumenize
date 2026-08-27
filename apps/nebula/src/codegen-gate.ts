@@ -32,7 +32,7 @@ export interface GateResult {
 }
 
 /** Cap on the fed-back / persisted error tail (D8 — bounded so it neither bloats
- *  the prompt nor harms eval-fixture portability when stored in `TurnRecord.error`). */
+ *  the prompt nor harms eval-fixture portability when persisted in the codegen record). */
 const MAX_ERROR_TAIL = 4000;
 
 /**
@@ -128,7 +128,7 @@ declare module 'lucide-vue-next';
  * Strip host-absolute paths + bundler/workerd-internal frames and bound the length.
  * Raw `@vue/compiler-sfc` / `tsc` output can embed absolute paths or internal
  * stack frames; unbounded it bloats the prompt and harms eval-fixture portability
- * (the corpus persists this in `TurnRecord.error`).
+ * (the corpus persists this on the agent Message's codegen record).
  */
 export function sanitizeErrorTail(raw: string): string {
   let s = raw

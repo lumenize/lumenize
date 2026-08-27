@@ -19,8 +19,6 @@ export {
   Universe,
   Galaxy,
   Star,
-  DevStudio,
-  DevContainer,
 } from './index';
 export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
 export { Profile } from '@lumenize/nebula-auth/profile';

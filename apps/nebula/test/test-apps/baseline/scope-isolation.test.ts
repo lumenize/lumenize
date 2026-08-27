@@ -148,11 +148,13 @@ describe('structural scope isolation (Fix 1)', () => {
       NebulaClientTest, browser, galaxyX, galaxyX, 'admin@example.com',
     );
 
-    // Positive: reaches its own Galaxy X (covered by `galaxyX.*`).
+    // Positive: reaches its own Galaxy X (covered by `galaxyX.*`). A fresh Galaxy's
+    // config carries the composed Resources plane's coalesce default (the collapse gave
+    // Galaxy a data plane; same shared-'config'-key shape a fresh Star has always had).
     client.callGalaxyGetConfig(galaxyX);
     await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
     expect(client.lastError).toBeUndefined();
-    expect(client.lastResult).toEqual({});
+    expect(client.lastResult).toEqual({ coalesceWindowMs: 3600000 });
 
     // Negative: the SAME admin calls an admin method on foreign Galaxy Y.
     // Tenant boundary rejects before requireDominionHere → 'Active-scope mismatch'.
@@ -209,11 +211,12 @@ describe('structural scope isolation (Fix 1)', () => {
       NebulaClientTest, browser, universe, universe, 'admin@example.com',
     );
 
-    // Reaches the descendant Galaxy (covered by `<u>.*`).
+    // Reaches the descendant Galaxy (covered by `<u>.*`; the coalesce default is the
+    // composed data plane's config bootstrap — see T2).
     client.callGalaxyGetConfig(galaxy);
     await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
     expect(client.lastError).toBeUndefined();
-    expect(client.lastResult).toEqual({});
+    expect(client.lastResult).toEqual({ coalesceWindowMs: 3600000 });
 
     // Reaches a descendant Star too.
     client.callStarWhoAmI(star);
@@ -372,11 +375,28 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
   // list deliberately). Admin methods sit under the same boundary but their
   // @mesh(requireDominionHere) is the authorization wall, so they're excluded.
   it('B5: Galaxy non-admin @mesh surface equals the frozen shared-data allow-list', () => {
+    // Deliberately widened by the collapse: the Galaxy now hosts the chat resource
+    // data-plane, so the non-admin surface gains the DAG-gated resource methods, the
+    // invite entry, and the broadcast fire-back handlers — the same classification the
+    // per-host surface freeze pins in dev-studio/devstudio-resource-surface.test.ts.
     expect(nonAdminMeshMethods(Galaxy)).toEqual([
+      'dagTree',
       'getGalaxyConfig',
       'getLatestOntologyVersion',
       'getOntologyVersion',
+      'invite',
       'listOntologyVersions',
+      'onBroadcastResult',
+      'onQueryBroadcastResult',
+      'onQuerySubscriberListBroadcastResult',
+      'read',
+      'subscribe',
+      'subscribeQuery',
+      'subscribeQuerySubscribers',
+      'transaction',
+      'unsubscribe',
+      'unsubscribeQuery',
+      'unsubscribeQuerySubscribers',
     ]);
   });
 

@@ -7,11 +7,7 @@
  * Routing layers:
  * 1. /auth/... → routeNebulaAuthRequest (login, refresh, invite, etc.)
  * 2. /gateway/... → routeDORequest with prefix:'gateway' (WebSocket mesh connections)
- * 3. /{BINDING}/... → routeDORequest without prefix — opened ONLY for the dev
- *    preview serve: GET/HEAD to DEV_CONTAINER reaches `DevContainer.fetch()`;
- *    every other method is 405, every other binding is 404. (HMR WS to
- *    DEV_CONTAINER is allowed; every other direct WS is 501.)
- * 4. Fallback → 404
+ * 3. Fallback → 404 (the built app's /app/* serve lands with the Phase-3 route table)
  *
  * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
  * binding (comma-separated origins). Empty / unset → same-origin only.
@@ -122,40 +118,11 @@ export default {
     });
     if (gatewayResponse) return gatewayResponse;
 
-    // 3. Direct DO access (no /gateway/ prefix) — opened ONLY for the dev preview
-    //    serve. Bounded so it doesn't expose every method/binding: only GET/HEAD to
-    //    DEV_CONTAINER passes through to `DevContainer.fetch()` (the ungated static
-    //    read — no JWT, since browsers don't attach Authorization to document/
-    //    sub-resource loads; the data is gated on the WS/mesh path). Other methods →
-    //    405; other bindings (incl. the raw NEBULA_AUTH GET handlers) → 404. (The
-    //    in-DO `Star.onRequest` serve was retired in Phase 4 — STAR/DEV_STAR are no
-    //    longer serving targets; prod serve is Workers Assets.) WS to a non-
-    //    DEV_CONTAINER DO is never allowed (mesh WS terminates at the Gateway).
-    const directResponse = await routeDORequest(request, env, {
-      cors: corsOptions,
-      onBeforeRequest(request, { doNamespace }) {
-        // DEV_CONTAINER is the only direct-serve target: the dev preview shell + vite
-        // assets via the DO `fetch()` proxy (GET/HEAD).
-        if (doNamespace !== env.DEV_CONTAINER) {
-          return new Response('Not Found', { status: 404 });
-        }
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
-        }
-        return undefined; // GET/HEAD to DEV_CONTAINER → DevContainer.fetch
-      },
-      onBeforeConnect(request, { doNamespace }) {
-        // M2: the vite HMR WebSocket to DEV_CONTAINER is allowed, ungated — like the
-        // preview shell. No tenant data flows over HMR (the scope is injected
-        // server-side; DevContainer.onBeforeCall guards the mesh path, not fetch()).
-        // Every OTHER direct WS to a DO stays closed — mesh WS terminates at the Gateway.
-        if (doNamespace === env.DEV_CONTAINER) return undefined;
-        return new Response('Not Implemented', { status: 501 });
-      },
-    });
-    if (directResponse) return directResponse;
+    // (The former direct-DO route — GET/HEAD `/dev-container/*` to the vite preview
+    // proxy — died with the DevContainer node. The built app's `/app/*` serve, direct
+    // from Galaxy's VFS, lands with the Phase-3 route table.)
 
-    // 4. Fallback
+    // 3. Fallback
     return new Response('Not Found', { status: 404 });
   },
 };

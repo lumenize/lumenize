@@ -6,7 +6,6 @@
  */
 
 import { mesh } from '@lumenize/mesh';
-import { DurableObject } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
@@ -14,10 +13,6 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 export {
   NebulaClientGateway,
   Universe,
-  Galaxy,
-  // DevStudio (Child 1) — bound at DEV_STUDIO so a real NebulaClient (configured
-  // resourceHostBinding: 'DEV_STUDIO') can host Session/Turn Resources on it (Phase 5 e2e).
-  DevStudio,
   entrypoint as default,
 } from '@lumenize/nebula';
 
@@ -46,7 +41,6 @@ import {
   Star,
   Universe,
   Galaxy,
-  DevStudio,
   NebulaClient,
   requireDominionHere,
   ROOT_NODE_ID,
@@ -99,7 +93,7 @@ export class StarTest extends Star {
     );
   }
 
-  /** Test-only stand-in for `DevStudio.chat` (resilient-turn-delivery.md): receive a
+  /** Test-only stand-in for `Galaxy.chat` (resilient-turn-delivery.md): receive a
    *  fired turn (the client-generated `turnId` + the client's *explicit* instanceName +
    *  the message) and echo the result straight back to that client via `onChatResult`
    *  (the direct-delivery pattern). Proves `NebulaClient.chat` fires `turnId`+`clientId`
@@ -111,7 +105,7 @@ export class StarTest extends Star {
       ctn.onChatResult(turnId, `echo: ${message}`, `thought: ${message}`));
   }
 
-  /** Test-only stand-in for `DevStudio.warmPreview`'s signal (preview-ready-autorefresh.md):
+  /** Test-only stand-in for `Galaxy.warmPreview`'s signal (preview-ready-autorefresh.md):
    *  echo `handlePreviewReady` (scope = this Star's instanceName) back to the client, proving
    *  `warmPreview` fires `clientId` correctly and the client's `handlePreviewReady` invokes
    *  the `onPreviewReady` hook. */
@@ -342,21 +336,22 @@ export class StarTest extends Star {
 // StarTest at a {u}.{g}.dev instance; its lifecycle inspection hooks moved onto StarTest.)
 
 // ============================================
-// Test subclass: DevStudioTest — exposes the protected data-plane seams (Child 3)
-// for tests that can't run the wrangler-dev-only `chat` codegen loop in pool-workers.
+// Test subclass: GalaxyTest — the GALAXY binding's class. IS-A Galaxy (ontology
+// registry + chat data-plane + codegen seams), plus the protected data-plane seams
+// exposed for tests that can't run the wrangler-dev-only `chat` codegen loop.
 // ============================================
 
-export class DevStudioTest extends DevStudio {
-  /** Child 3 Phase 2 (M4): the permission-filtered query targets for the per-operand
-   *  accessor test. Returns the clientIds among the query's subscribers that may read
-   *  `nodeId` (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
+export class GalaxyTest extends Galaxy {
+  /** The permission-filtered query targets for the per-operand accessor test (M4).
+   *  Returns the clientIds among the query's subscribers that may read `nodeId`
+   *  (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
   @mesh(requireDominionHere)
   inspectQueryTargets(query: QueryDescriptor, nodeId: string): string[] {
     return this.queryTargets(query, nodeId).map((t) => t.instanceName);
   }
 
-  /** Child 3 Phase 3: push ONE transient progress chunk (the loop's `onProgress` seam
-   *  is wrangler-dev-only, so tests drive `streamProgress` directly with synthetic
+  /** Push ONE transient progress chunk (the loop's `onProgress` seam is
+   *  wrangler-dev-only, so tests drive `streamProgress` directly with synthetic
    *  progress). Kept separate from the commit so a test can observe a chunk arriving
    *  BEFORE the durable Message (M3 transient-surface assertion). */
   @mesh(requireDominionHere)
@@ -364,30 +359,10 @@ export class DevStudioTest extends DevStudio {
     this.streamProgress(sessionId, messageId, chunk, nodeId);
   }
 
-  /** Child 3 Phase 3: commit the durable assistant Message (the completion step). */
+  /** Commit the durable assistant Message (the completion step). */
   @mesh(requireDominionHere)
   async commitAssistantForTest(sessionId: string, messageId: string, content: string, nodeId: string): Promise<void> {
     await this.commitAssistantMessage(sessionId, messageId, content, nodeId, 'synthetic thought');
-  }
-}
-
-// ============================================
-// Inert DEV_CONTAINER serving stub (Phase 3.5a — entrypoint M2/M3 gate test).
-//
-// The REAL DevContainer `extends Container` and can't construct under
-// vitest-pool-workers ([[container-no-construct-pool-workers]]), so the baseline
-// binds this inert stand-in to `DEV_CONTAINER`. It only proves the ENTRYPOINT gate
-// routes to the bound DO: it returns a recognizable marker for any request (GET
-// shell/asset OR an HMR WS upgrade), so a test can assert the gate passed the
-// request through (M3 = GET/HEAD serving target; M2 = HMR WS allowed) vs. blocked it
-// (405/404/501). The real fetch() 3-way branch + scope injection is tested as pure
-// helpers in container-node/dev-container.test.ts + the e2e run with `wrangler dev`.
-// ============================================
-
-export class DevContainerServeStub extends DurableObject {
-  override async fetch(request: Request): Promise<Response> {
-    const isWs = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
-    return new Response(`DEV_CONTAINER_STUB ${isWs ? 'WS' : request.method}`, { status: 200 });
   }
 }
 
@@ -514,7 +489,7 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   /** Exercise the real `chat()` shape against a stand-in (`StarTest.runFakeTurn`) rather
-   *  than DEV_STUDIO (absent from this app): register a pending turn, fire the turn with
+   *  than the Galaxy chat host: register a pending turn, fire the turn with
    *  this client's *explicit* instanceName, resolve when `onChatResult` echoes back. */
   chatViaStarForTest(starInstanceName: string, message: string): Promise<{ reply: string; thought: string }> {
     const turnId = crypto.randomUUID();
@@ -524,8 +499,8 @@ export class NebulaClientTest extends NebulaClient {
     return pending;
   }
 
-  /** Exercise `warmPreview`'s fire shape against the StarTest stand-in (DEV_STUDIO is absent
-   *  here): fire with this client's *explicit* instanceName; the stand-in echoes
+  /** Exercise `warmPreview`'s fire shape against the StarTest stand-in: fire with this
+   *  client's *explicit* instanceName; the stand-in echoes
    *  `handlePreviewReady` → the `onPreviewReady` hook fires. */
   warmPreviewViaStarForTest(starInstanceName: string): void {
     const clientId = this.lmz.instanceName;
@@ -816,35 +791,34 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, this.ctn<Star>().unsubscribeQuery(queryHash));
   }
 
-  /** Child 3 Phase 1: `DevStudio.ensureSession` (idempotent default-Session seed).
+  /** `Galaxy.ensureSession` (idempotent default-Session seed).
    *  Result-handler form so a test can assert it completes WITHOUT error — the second
    *  call must NOT throw (proves the create-if-absent guard; a raw create-on-existing
    *  throws "already exists", resources.ts). */
-  callDevStudioEnsureSession(scope: string): void {
+  callGalaxyEnsureSession(scope: string): void {
     this.resetResults();
-    const remote = this.ctn<DevStudio>().ensureSession();
-    this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<Galaxy>().ensureSession();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
-  /** Child 3 Phase 2 (M4): fetch DevStudio's permission-filtered query targets
-   *  (subscriber clientIds allowed to read `nodeId`) into `lastResult`. */
-  callDevStudioInspectQueryTargets(scope: string, query: QueryDescriptor, nodeId: string): void {
+  /** Fetch the Galaxy's permission-filtered query targets (M4 — subscriber clientIds
+   *  allowed to read `nodeId`) into `lastResult`. */
+  callGalaxyInspectQueryTargets(scope: string, query: QueryDescriptor, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<DevStudioTest>().inspectQueryTargets(query, nodeId);
-    this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<GalaxyTest>().inspectQueryTargets(query, nodeId);
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
-  /** Child 3 Phase 3: fire one transient progress chunk (fire-and-forget, like the
-   *  server→client stream). */
-  callDevStudioStreamChunk(scope: string, sessionId: string, messageId: string, chunk: string, nodeId: string): void {
-    this.lmz.call('DEV_STUDIO', scope, this.ctn<DevStudioTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId));
+  /** Fire one transient progress chunk (fire-and-forget, like the server→client stream). */
+  callGalaxyStreamChunk(scope: string, sessionId: string, messageId: string, chunk: string, nodeId: string): void {
+    this.lmz.call('GALAXY', scope, this.ctn<GalaxyTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId));
   }
 
-  /** Child 3 Phase 3: commit the durable assistant Message (result-handler form to await). */
-  callDevStudioCommitAssistant(scope: string, sessionId: string, messageId: string, content: string, nodeId: string): void {
+  /** Commit the durable assistant Message (result-handler form to await). */
+  callGalaxyCommitAssistant(scope: string, sessionId: string, messageId: string, content: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<DevStudioTest>().commitAssistantForTest(sessionId, messageId, content, nodeId);
-    this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<GalaxyTest>().commitAssistantForTest(sessionId, messageId, content, nodeId);
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
   callStarInspectQuerySubscribers(starName: string): void {
@@ -976,7 +950,7 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   /** Apply an ontology directly to a Star (Phase 4: the Galaxy lazy-pull was retired,
-   *  so tests install the compiled validator via `Star.setOntology` — DevStudio's dev
+   *  so tests install the compiled validator via `Star.setOntology` — the Galaxy's dev
    *  apply path). Compiles client-side via the pure `compileOntologyVersion`. */
   callStarApplyOntology(starName: string, versionConfig: OntologyVersionConfig): void {
     this.resetResults();

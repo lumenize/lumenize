@@ -2,9 +2,9 @@
   "name": "nebula",
   "main": "src/worker.ts",
   "compatibility_date": "2026-04-01",
-  // nodejs_compat is REQUIRED: DevStudio (bound below) transitively imports
-  // isomorphic-git + @cloudflare/shell, which import `node:` builtins (buffer/crypto/
-  // path/os). Use plain `nodejs_compat` (NOT the legacy `nodejs_compat_v2` flag-name):
+  // nodejs_compat is REQUIRED: Galaxy transitively imports isomorphic-git +
+  // @cloudflare/computer, which import `node:` builtins (buffer/crypto/path/zlib).
+  // Use plain `nodejs_compat` (NOT the legacy `nodejs_compat_v2` flag-name):
   // with our compat_date it already gives v2 semantics, AND it actually resolves
   // `node:` builtins in real `wrangler dev` (4.x). The bare `nodejs_compat_v2` flag
   // does NOT — a `node:os`/etc. import crashes startup with `No such module`
@@ -14,7 +14,7 @@
   // test validate under a different runtime than prod.
   // (Phase 4 retired the old rationale — the @vue/compiler-sfc SFC compiler + vendored
   // tsc bundle were deleted with the in-DO serve path; the flag now survives for
-  // DevStudio's isomorphic-git/@cloudflare/shell.)
+  // Galaxy's isomorphic-git/@cloudflare/computer.)
   "compatibility_flags": ["nodejs_compat"],
   // Branded custom domain. Cloudflare auto-provisions the proxied DNS record + edge cert for this
   // hostname on the `lumenize.com` zone (active on this account) at `wrangler deploy`. Magic-link
@@ -28,8 +28,8 @@
   // while the custom-domain cert provisions, and keeps `nebula.transformation.workers.dev` live.
   "workers_dev": true,
   "worker_loaders": [{ "binding": "LOADER" }],
-  // Workers AI — DevStudio's codegen engine runs the model through this binding (the
-  // model id is a swappable constant in dev-studio.ts; Studio is model-agnostic). In
+  // Workers AI — Galaxy's codegen engine runs the model through this binding (the
+  // model id is a swappable constant in galaxy.ts; Studio is model-agnostic). In
   // local `wrangler dev` this proxies to the account's Workers AI (needs network + the
   // CLOUDFLARE_* creds already in .dev.vars).
   "ai": { "binding": "AI" },
@@ -63,8 +63,6 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "Star" },
-      { "name": "DEV_STUDIO", "class_name": "DevStudio" },
-      { "name": "DEV_CONTAINER", "class_name": "DevContainer" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
       { "name": "PROFILE", "class_name": "Profile" }
     ]
@@ -87,9 +85,10 @@
     { "name": "NEBULA_AUTH_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 1000, "period": 60 } },
     { "name": "NEBULA_AUTH_CONNECTION_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } }
   ],
-  // DevContainer runs the dev-loop vite preview (5173 public) + command-server
-  // (9000, host-DO-only). Image is baked (deps + framework skeleton) → 0 npm
-  // install on cold boot. Deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
+  // Galaxy's EPHEMERAL build-box (one fresh container per build; Phase 3 of the collapse
+  // rewires the image to computerd + `vite build` — until then the image is the retired
+  // vite-dev-server one, started by nothing). Deps baked on ext4 (never the FUSE mount);
+  // deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
   //
   // instance_type = standard-2 (1 vCPU / 6 GiB). ⚠️ Do NOT drop back to standard-1
   // (½ vCPU): the old "standard-1 clears the `vite build` starvation bar" sizing held
@@ -114,7 +113,7 @@
   "containers": [
     {
       "max_instances": 10,
-      "class_name": "DevContainer",
+      "class_name": "Galaxy",
       "image": "./container/Dockerfile",
       "instance_type": "standard-2"
     }
@@ -165,8 +164,6 @@
     "Universe": { "type": "durable-object", "storage": "sqlite" },
     "Galaxy": { "type": "durable-object", "storage": "sqlite" },
     "Star": { "type": "durable-object", "storage": "sqlite" },
-    "DevStudio": { "type": "durable-object", "storage": "sqlite" },
-    "DevContainer": { "type": "durable-object", "storage": "sqlite" },
     "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "Profile": { "type": "durable-object", "storage": "sqlite" }
   },

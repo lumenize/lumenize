@@ -6,16 +6,15 @@
  *    deps + a synthetic model script — the bound (D4), loop-detection (D4, each
  *    operand mutated independently), the m2 malformed-envelope cases, path safety
  *    (D5a), and the user-layer error-tail round-trip (D1/D7/D8).
- *  - **DevStudio integration tests** go through the real node (the `DevStudioLoopProbe`
- *    whose `callModel` replays a script): the real typia arg-validator facet (D5), the
- *    recorder wiring (m4), and the **secure-by-default D2 guard** — a hostile ontology
- *    `write_file` compiles but the `.dev` Star is never installed/wiped.
+ *  - **Galaxy integration tests** go through the real node (the `GalaxyLoopProbe`
+ *    whose `callModel` replays a script): the real typia arg-validator facet (D5) and
+ *    the **secure-by-default D2 guard** — a hostile ontology `write_file` compiles but
+ *    the `.dev` Star is never installed/wiped.
  *
  * @see tasks/archive/nebula-codegen-loop.md § Phases 2–3
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { preprocess } from '@lumenize/structured-clone';
 import {
   runCodegenLoop,
   assembleCodegenPrompt,
@@ -26,7 +25,7 @@ import {
   type ChatMessage,
   type ModelParams,
 } from '../../../src/codegen-loop';
-import { unwrapWorkersAiRest } from '../../../src/dev-studio';
+import { unwrapWorkersAiRest } from '../../../src/galaxy';
 
 // ─── Fake-model + deps scaffolding (unit layer) ──────────────────────────
 
@@ -259,135 +258,70 @@ describe('Phase 2 — D2 structural guard: the loop names no install/wipe sink',
   it('runCodegenLoop references none of the Star/DevContainer install/wipe symbols', () => {
     const src = runCodegenLoop.toString();
     for (const forbidden of [
-      'resetDevData', 'setOntology', 'compileAndInstallOntology',
-      'applyOntologyChange', 'setAppVersion', 'applyChanges',
-      'STAR_BINDING', 'DEV_CONTAINER',
+      'resetDevData', 'setOntology', 'compileAndInstallOntology', 'STAR_BINDING',
     ]) {
       expect(src).not.toContain(forbidden);
     }
   });
 });
 
-// ─── DevStudio integration layer (real node via the probe + envelopes) ───
+// ─── Galaxy integration layer (real node via the probe) ───
 
-const OID_RE = /^[0-9a-f]{40}$/;
-const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
+const uniqueGalaxyScope = () => `${crypto.randomUUID()}.app`;
 const VALID_ONTOLOGY = `interface Todo { title: string; done: boolean; }`;
 
-// Direct in-DO call — returns the method's result. `runLoopForTest` returns its LoopResult this way:
-// the loop's own recordTurn fire-and-forget is caught non-fatally when there's no callContext, so
-// the result still comes back. (Where the LANDED turn is the assertion — m4 below — we drive through
-// the real receive path via `fire` so recordTurn carries scope.)
+// Direct in-DO call — returns the method's result. The loop is LOCAL now (compile/
+// validate/git in-DO, no cross-DO recorder), so this is faithful and gets the value.
 const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
   (runInDurableObject as any)(binding.getByName(instance), fn);
-
-// Fire through the REAL early-ack receive path (claims in the envelope) so cross-DO effects — here
-// the loop's recordTurn → {u}.{g} Galaxy (aud {u}.{g}.dev, covered by the Galaxy's `{u}.{g}.*`) —
-// propagate callContext. Observe the durable effect with `inDO` + vi.waitFor.
-const fire = (binding: any, bindingName: string, instance: string, method: string, args: unknown[] = []) =>
-  binding.getByName(instance).__executeOperation({
-    version: 1,
-    chain: preprocess([{ type: 'get', key: method }, { type: 'apply', args }]),
-    // `authScope` is required — `requireDominionHere` confines the admin bit to the callee node, and
-    // the denial on these 3-arg calls is SILENT (a missing downstream effect, not an error).
-    // `{universe}.*` mirrors the real caller: a universe admin reaching its `.dev` Star.
-    callContext: { callChain: [], state: {}, originAuth: { sub: 'admin', claims: { aud: instance, access: { scopeAdmin: true, authScope: `${instance.split('.')[0]}` } } } } as any,
-    metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName: instance } },
-  });
 const tc = toolCall;
 const aiResp = resp;
 
-describe('Phase 2/3 integration — real DevStudio loop (probe replays a script)', () => {
+describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', () => {
   it('clean write_file then mark_complete: commits the file + completes', async () => {
-    const dev = uniqueDevScope();
-    // The loop is LOCAL (compile/validate/git in-DO); its recordTurn fire is non-fatal without a
-    // callContext, so a direct in-DO call gets the LoopResult. (The landed turn is m4 below.)
-    const { result } = (await inDO(env.DEV_STUDIO, dev, (s) => s.runLoopForTest(
+    const dev = uniqueGalaxyScope();
+    const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
       'build a todo app',
       [aiResp([tc('write_file', { path: 'src/App.vue', content: GOOD_APP })]), aiResp([tc('mark_complete', {})])],
     ))) as any;
     expect(result.stop).toBe('complete');
     expect(result.appliedPaths).toEqual(['src/App.vue']);
     // The real Workspace holds the committed file.
-    expect(await inDO(env.DEV_STUDIO, dev, (s) => s.readSource('src/App.vue'))).toBe(GOOD_APP);
+    expect(await inDO(env.GALAXY, dev, (s) => s.readSource('src/App.vue'))).toBe(GOOD_APP);
   });
 
   it('D5: a non-string path is rejected by the REAL typia validator facet (never written)', async () => {
-    const dev = uniqueDevScope();
-    const { result } = (await inDO(env.DEV_STUDIO, dev, (s) => s.runLoopForTest(
+    const dev = uniqueGalaxyScope();
+    const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
       'build',
       [aiResp([tc('write_file', { path: 123, content: 'x' })]), aiResp([tc('mark_complete', {})])],
     ))) as any;
     expect(result.toolCalls[0].error).toContain('invalid write_file args');
-    // Capable-of-failing: nothing landed in the Workspace.
-    const tree = (await inDO(env.DEV_STUDIO, dev, (s) => s.getSourceTree())) as any;
-    expect(tree.files.length).toBe(0);
+    // Capable-of-failing: nothing landed in the Workspace — a read of the only path the
+    // model could have written rejects (absent file). (getSourceTree died with the push.)
+    await expect(inDO(env.GALAXY, dev, (s) => s.readSource('src/App.vue'))).rejects.toThrow();
+    expect(result.appliedPaths).toEqual([]);
   });
 
   it('D2 SECURE-BY-DEFAULT: a hostile ontology write_file compiles but NEVER installs/wipes the .dev Star', async () => {
-    const dev = uniqueDevScope();
-    const { result } = (await inDO(env.DEV_STUDIO, dev, (s) => s.runLoopForTest(
+    const dev = uniqueGalaxyScope();
+    const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
       'add a Todo type',
       [aiResp([tc('write_file', { path: 'src/ontology.d.ts', content: VALID_ONTOLOGY })]), aiResp([tc('mark_complete', {})])],
     ))) as any;
     expect(result.stop).toBe('complete');
     // The ontology was written to the Workspace and compiled clean…
-    expect(await inDO(env.DEV_STUDIO, dev, (s) => s.readSource('src/ontology.d.ts'))).toBe(VALID_ONTOLOGY);
+    expect(await inDO(env.GALAXY, dev, (s) => s.readSource('src/ontology.d.ts'))).toBe(VALID_ONTOLOGY);
     expect(result.lastGate).toEqual({ ok: true });
-    // …but it was NEVER installed on the .dev Star (no setOntology / compileAndInstallOntology) and
-    // nothing was wiped. Capable-of-failing: an install would leave a version in the Star's index.
-    expect(await inDO(env.STAR, dev, (s) => s.inspectOntologyIndex())).toEqual([]);
+    // …but it was NEVER installed on the derived .dev Star (no setOntology /
+    // compileAndInstallOntology) and nothing was wiped. Capable-of-failing: an install
+    // would leave a version in the Star's index.
+    expect(await inDO(env.STAR, `${dev}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
   });
 
-  it('m4: the loop records a TurnRecord (toolCalls non-empty; error/validate reflect the final gate); getTurns round-trips it', async () => {
-    const dev = uniqueDevScope();
-    const galaxy = dev.split('.').slice(0, 2).join('.'); // {u}.{g}
-    // Drive through the REAL receive path so the loop's fire-and-forget recordTurn carries scope to
-    // the Galaxy; then poll the Galaxy (its durable effect) until the turn lands.
-    await fire(env.DEV_STUDIO, 'DEV_STUDIO', dev, 'runLoopForTest', [
-      'add a Todo type',
-      [aiResp([tc('write_file', { path: 'src/ontology.d.ts', content: VALID_ONTOLOGY })]), aiResp([tc('mark_complete', {})])],
-    ]);
-    await vi.waitFor(async () => {
-      const turns = (await inDO(env.GALAXY, galaxy, (g) => g.getTurns({}))) as any[];
-      expect(turns.length).toBe(1);
-      const t = turns[0];
-      expect(t.toolCalls.length).toBeGreaterThan(0);
-      expect(t.toolCalls.some((c: any) => c.name === 'write_file')).toBe(true);
-      expect(t.validate).toEqual({ ok: true }); // final gate result
-      expect(t.error).toBeUndefined();           // clean finish → no error tail
-      expect(t.applied).toBe(true);
-      // The default 1s waitFor loses to the full-suite parallel load — the codegen turn plus the
-      // cross-DO getTurns roundtrip runs long when 85 files share the box. Raising it does NOT
-      // weaken the assertion: a turn that never lands still reds, just 15s later.
-    }, { timeout: 15000 });
-  });
-
-  it('m4: a turn that ENDS on a failing gate persists validate.ok=false + a populated error tail (getTurns)', async () => {
-    const dev = uniqueDevScope();
-    const galaxy = dev.split('.').slice(0, 2).join('.');
-    // A type-broken <script setup> passes Pass-1 transpile but fails Pass-2; the
-    // model then marks complete, so the FINAL gate is the failing one.
-    const BROKEN_APP = `<script setup lang="ts">
-const n: number = 'not a number';
-</script>
-<template><p>{{ n }}</p></template>`;
-    await fire(env.DEV_STUDIO, 'DEV_STUDIO', dev, 'runLoopForTest', [
-      'build',
-      [aiResp([tc('write_file', { path: 'src/App.vue', content: BROKEN_APP })]), aiResp([tc('mark_complete', {})])],
-    ]);
-    await vi.waitFor(async () => {
-      const turns = (await inDO(env.GALAXY, galaxy, (g) => g.getTurns({}))) as any[];
-      expect(turns.length).toBe(1);
-      const t = turns[0];
-      // Exercises the !ok branch of the error-mapping (dev-studio.ts runCodegenTurn):
-      // validate carries {ok:false,errorTail}; error is the SAME sanitized tail.
-      expect(t.validate.ok).toBe(false);
-      expect(t.error).toBeTruthy();
-      expect(t.error).toBe(t.validate.errorTail);
-      expect(t.applied).toBe(true); // the broken file was still written to the Workspace
-    }, { timeout: 15000 });         // see the sibling m4 above — default 1s loses to full-suite load
-  });
+  // (The two m4 recorder tests died with the `Turns` apparatus — an agent `Message` IS a
+  // codegen turn; the corpus folds into its `codegen` value object in Phase 2 of
+  // tasks/nebula-galaxy-collapse-and-chat.md.)
 
   // (The `response_format: json_schema` Workers-AI capability probe was a one-off
   // investigation, not a regression — the shipping path is the typia post-validate of

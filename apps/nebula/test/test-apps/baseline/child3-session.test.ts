@@ -1,7 +1,7 @@
 /**
  * Child 3 Phase 1 — the fixed default Session (D-session).
  *
- * `DevStudio.ensureSession` lazily + idempotently seeds ONE `Session` Resource at
+ * `Galaxy.ensureSession` lazily + idempotently seeds ONE `Session` Resource at
  * the well-known `DEFAULT_SESSION_ID` under the single `SESSION_NODE_ID`. A fresh
  * sandbox has none; the first ensure creates it; a second ensure is a clean no-op —
  * NOT the "already exists" throw a raw create-on-existing raises (resources.ts) —
@@ -16,29 +16,28 @@ import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3s-${crypto.randomUUID().slice(0, 8)}.app.dev`;
+const uniqueChatScope = () => `c3s-${crypto.randomUUID().slice(0, 8)}.app`;
 
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
-  // is administered by the covering admin's wildcard. That is how it works in production, not a test
-  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'DEV_STUDIO' },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
 describe('child3 Phase 1 — fixed default Session (D-session)', () => {
   it('ensureSession idempotently seeds the fixed Session under the single node; the 2nd call does NOT throw "already exists"', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client } = await devClient(scope);
 
     // Fresh sandbox: the default Session does not exist yet.
     expect(await client.resources.read('Session', DEFAULT_SESSION_ID)).toBeNull();
 
     // First ensure: seeds it, completes without error.
-    client.callDevStudioEnsureSession(scope);
+    client.callGalaxyEnsureSession(scope);
     await vi.waitFor(() => expect(client.callCompleted).toBe(true));
     expect(client.lastError).toBeUndefined();
 
@@ -51,7 +50,7 @@ describe('child3 Phase 1 — fixed default Session (D-session)', () => {
     // raw create-on-existing THROW ("already exists") into a clean no-op — so this
     // MUST complete without error (capable-of-failing: remove the guard → the 2nd
     // create throws → lastError set → red) and create NO new snapshot.
-    client.callDevStudioEnsureSession(scope);
+    client.callGalaxyEnsureSession(scope);
     await vi.waitFor(() => expect(client.callCompleted).toBe(true));
     expect(client.lastError).toBeUndefined();
     const second = await client.resources.read('Session', DEFAULT_SESSION_ID) as Snapshot;
@@ -62,7 +61,7 @@ describe('child3 Phase 1 — fixed default Session (D-session)', () => {
   });
 
   it('the fixed id needs no discovery: subscribeQuery(Message where session==DEFAULT_SESSION_ID) tracks a Message on the session node', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client } = await devClient(scope);
 
     using sub = client.resources.subscribeQuery({

@@ -20,37 +20,36 @@ import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3e-${crypto.randomUUID().slice(0, 8)}.app.dev`;
+const uniqueChatScope = () => `c3e-${crypto.randomUUID().slice(0, 8)}.app`;
 const sessionQuery = {
   queryType: 'parentChild' as const, typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
 };
 
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
-  // is administered by the covering admin's wildcard. That is how it works in production, not a test
-  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'DEV_STUDIO' },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
 describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
   it('a late-joining participant restores the full ordered conversation from durable Messages alone', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: sender } = await devClient(scope);
     const a1 = crypto.randomUUID(), a2 = crypto.randomUUID();
 
     // Build the conversation as durable Messages, alternating user/assistant. Sequential
     // awaits → advancing clock → chronological (validFrom, resourceId) order.
     const u1 = await sender.postUserMessage('add a counter');
-    sender.callDevStudioCommitAssistant(scope, DEFAULT_SESSION_ID, a1, 'Added the counter.', SESSION_NODE_ID);
+    sender.callGalaxyCommitAssistant(scope, DEFAULT_SESSION_ID, a1, 'Added the counter.', SESSION_NODE_ID);
     await vi.waitFor(() => expect(sender.callCompleted).toBe(true));
     expect(sender.lastError).toBeUndefined();
 
     const u2 = await sender.postUserMessage('make it blue');
-    sender.callDevStudioCommitAssistant(scope, DEFAULT_SESSION_ID, a2, 'Styled it blue.', SESSION_NODE_ID);
+    sender.callGalaxyCommitAssistant(scope, DEFAULT_SESSION_ID, a2, 'Styled it blue.', SESSION_NODE_ID);
     await vi.waitFor(() => expect(sender.callCompleted).toBe(true));
     expect(sender.lastError).toBeUndefined();
 

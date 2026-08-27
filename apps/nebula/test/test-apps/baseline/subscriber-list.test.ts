@@ -39,7 +39,7 @@ const mkQuery = (): QueryDescriptor => ({ queryType: 'parentChild', typeName: 'C
 let clients: NebulaClientTest[] = [];
 async function connect(opts: {
   star: string; sub?: string; profileId?: string; scopeAdmin?: boolean; tab?: string;
-  binding?: 'STAR' | 'DEV_STUDIO';
+  binding?: 'STAR' | 'GALAXY';
 }): Promise<NebulaClientTest> {
   const sub = opts.sub ?? uuid();
   const { access_token } = await createNebulaTestToken({
@@ -265,19 +265,19 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     expect(s).not.toContain('dominionOverHostAtSubscribe');
   });
 
-  it('GENERICITY — the standalone subscriber-list rides a DevStudio host too (same shared ResourceDataPlane + bridge)', async () => {
+  it('GENERICITY — the standalone subscriber-list rides a Galaxy host too (same shared ResourceDataPlane + bridge)', async () => {
     const scope = `sublist-ds-${uuid().slice(0, 8)}.app.tenant`;
     const query: QueryDescriptor = {
       queryType: 'parentChild', typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
     };
-    // A WATCHER on DevStudio (resourceHostBinding routes subscribeQuerySubscribers to DEV_STUDIO).
-    const w = await connect({ star: scope, binding: 'DEV_STUDIO' });
+    // A WATCHER on the Galaxy host (resourceHostBinding routes subscribeQuerySubscribers to GALAXY).
+    const w = await connect({ star: scope, binding: 'GALAXY' });
     await w.subscribeQuerySubscribers(query).ready;
 
     const bSub = uuid();
-    const b = await connect({ star: scope, sub: bSub, binding: 'DEV_STUDIO' });
+    const b = await connect({ star: scope, sub: bSub, binding: 'GALAXY' });
     await b.resources.subscribeQuery(query).ready;
-    // The watcher sees the grown roster → DevStudio's bridge impl works (ADR-007 composition).
+    // The watcher sees the grown roster → the Galaxy's bridge impl works (ADR-007 composition).
     await vi.waitFor(() => expect(rosterSubs(w).has(bSub)).toBe(true));
   });
 

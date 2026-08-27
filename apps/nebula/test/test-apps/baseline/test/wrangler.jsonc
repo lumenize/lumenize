@@ -8,10 +8,8 @@
     "bindings": [
       { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
       { "name": "UNIVERSE", "class_name": "Universe" },
-      { "name": "GALAXY", "class_name": "Galaxy" },
+      { "name": "GALAXY", "class_name": "GalaxyTest" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "DEV_STUDIO", "class_name": "DevStudioTest" },
-      { "name": "DEV_CONTAINER", "class_name": "DevContainerServeStub" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
       { "name": "PROFILE", "class_name": "ProfileTest" }
     ]
@@ -24,10 +22,8 @@
   "exports": {
     "NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" },
     "Universe": { "type": "durable-object", "storage": "sqlite" },
-    "Galaxy": { "type": "durable-object", "storage": "sqlite" },
+    "GalaxyTest": { "type": "durable-object", "storage": "sqlite" },
     "StarTest": { "type": "durable-object", "storage": "sqlite" },
-    "DevStudioTest": { "type": "durable-object", "storage": "sqlite" },
-    "DevContainerServeStub": { "type": "durable-object", "storage": "sqlite" },
     "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "ProfileTest": { "type": "durable-object", "storage": "sqlite" }
   },

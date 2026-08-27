@@ -15,25 +15,24 @@ import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3p-${crypto.randomUUID().slice(0, 8)}.app.dev`;
+const uniqueChatScope = () => `c3p-${crypto.randomUUID().slice(0, 8)}.app`;
 const sessionQuery = {
   queryType: 'parentChild' as const, typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
 };
 
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
-  // is administered by the covering admin's wildcard. That is how it works in production, not a test
-  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'DEV_STUDIO' },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
 describe('child3 Phase 4 — client posts the user Message', () => {
   it('sender and a 2nd subscriber both see posted user Messages in send order; no streaming for a user message', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: sender, payload: senderPayload } = await devClient(scope);
     const { client: observer } = await devClient(scope); // distinct participant (same admin email, different client)
 

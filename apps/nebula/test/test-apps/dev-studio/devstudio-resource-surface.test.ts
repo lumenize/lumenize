@@ -1,11 +1,12 @@
 /**
- * DevStudio resource data-plane surface (Child 1, nebula-devstudio-data-plane.md Phase 3).
+ * Galaxy @mesh surface + resource facet (the `dev-studio` project — its name predates
+ * the collapse of DevStudio into Galaxy).
  *
- * Two things, neither needing a Gateway/client (the real client resource round-trip
- * + the non-admin-DAG-granted read/write + version-stamp are Phase 5):
- *  1. **Frozen @mesh surface (m5):** the new resource methods are non-admin
- *     (`@mesh()`, DAG-gated — D4); codegen/source methods stay `requireDominionHere`.
- *  2. **Facet behavior on DevStudio:** the composed Session/Message provider mounts +
+ * Two things, neither needing a Gateway/client:
+ *  1. **Frozen @mesh surface (m5):** the resource methods are non-admin (`@mesh()`,
+ *     DAG-gated); codegen/source methods stay `requireDominionHere`; and the invite
+ *     RESULT handler is not mesh-callable at all (the forge-grant fence).
+ *  2. **Facet behavior on Galaxy:** the composed Session/Message provider mounts +
  *     enforces the ADR-006 embed-guard (SC3), coexists with the tool-args facet in
  *     one DO without bundleId cross-wiring (M2), and survives an `onStart` re-init
  *     with an unchanged version (M3).
@@ -13,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
-import { DevStudio } from '../../../src/dev-studio';
+import { Galaxy } from '../../../src/galaxy';
 import { requireDominionHere } from '../../../src/nebula-do';
 import { SESSION_MESSAGE_ONTOLOGY_VERSION } from '../../../src/devstudio-resource-ontology';
 
@@ -24,15 +25,15 @@ import { SESSION_MESSAGE_ONTOLOGY_VERSION } from '../../../src/devstudio-resourc
 // chain in a detached `waitUntil` task, so the result would travel via fire-back, unobservable from
 // a bare envelope. The admin `@mesh(requireDominionHere)` guard is not what these facet-behavior tests
 // exercise (the m5/requireDominionHere *surface* is frozen statically above), so bypassing it is correct.
-const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
-async function callStudio(instance: string, method: string, args: unknown[] = []) {
-  const stub = (env as any).DEV_STUDIO.getByName(instance);
+const uniqueGalaxyScope = () => `${crypto.randomUUID()}.app`;
+async function callGalaxy(instance: string, method: string, args: unknown[] = []) {
+  const stub = (env as any).GALAXY.getByName(instance);
   return (runInDurableObject as any)(stub, (inst: any) => inst[method](...args));
 }
 
-// Walk DevStudio's OWN prototype for mesh-callable methods, partitioned by guard.
+// Walk Galaxy's OWN prototype for mesh-callable methods, partitioned by guard.
 function meshMethods(admin: boolean): string[] {
-  const proto = DevStudio.prototype;
+  const proto = Galaxy.prototype;
   const out: string[] = [];
   for (const name of Object.getOwnPropertyNames(proto)) {
     if (name === 'constructor') continue;
@@ -43,49 +44,60 @@ function meshMethods(admin: boolean): string[] {
   return out.sort();
 }
 
-describe('DevStudio @mesh surface freeze (m5)', () => {
+describe('Galaxy @mesh surface freeze (m5)', () => {
   // Freeze the non-admin surface: a resource method accidentally shipped with
   // requireDominionHere LEAVES this set (→ red); a codegen method accidentally shipped
   // non-admin ENTERS it (→ red). Both gate sets are thus pinned.
-  it('non-admin @mesh surface == the resource surface, exactly', () => {
+  it('non-admin @mesh surface == the resource + registry-read surface, exactly', () => {
     expect(meshMethods(false)).toEqual(
-      ['dagTree', 'onBroadcastResult', 'onQueryBroadcastResult',
-       // Query-subscriber-list (presence). Non-admin BY DESIGN: ADR-008 extends full-org-tree
-       // visibility to presence — who is actively subscribed is Star-reachability-gated, not
-       // admin-gated. These landed with the presence feature and this freeze list was never
-       // updated; the drift predates tasks/nebula-confine-admin-bypass.md (which does not touch
-       // dev-studio.ts) and is recorded here rather than left red.
-       'onQuerySubscriberListBroadcastResult', 'subscribeQuerySubscribers', 'unsubscribeQuerySubscribers',
-       'read', 'subscribe',
-       'subscribeQuery', 'transaction', 'unsubscribe', 'unsubscribeQuery'].sort(),
+      [
+        // Ontology-registry reads — passage-gated only; getOntologyVersion is the
+        // Star's UPWARD lazy-pull target (every member of a descendant scope reaches it).
+        'getGalaxyConfig', 'getLatestOntologyVersion', 'getOntologyVersion', 'listOntologyVersions',
+        // The DagTree gate + the invite ENTRY (DAG-gated per-op inside the plane).
+        'dagTree', 'invite',
+        // The resource data-plane surface — chat participants are non-admin but DAG-granted.
+        'read', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers',
+        'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
+        // Broadcast fire-back handlers (the tier-worker dispatch path).
+        'onBroadcastResult', 'onQueryBroadcastResult', 'onQuerySubscriberListBroadcastResult',
+      ].sort(),
     );
   });
 
-  it('codegen/source methods stay requireDominionHere', () => {
+  it('codegen/source + registry-write methods stay requireDominionHere', () => {
     const admin = meshMethods(true);
     for (const m of [
-      'writeSource', 'readSource', 'getSourceTree',
-      'compileAndInstallOntology', 'applyOntologyChange',
-      'ensureUp', 'syncToDevContainer', 'chat', 'warmPreview',
+      'writeSource', 'readSource', 'compileAndInstallOntology',
+      'chat', 'warmPreview', 'ensureSession',
+      'appendOntologyVersion', 'setGalaxyConfig',
     ]) {
       expect(admin).toContain(m);
     }
   });
+
+  it('onInviteResult is NOT mesh-callable — the forge-grant fence', () => {
+    // The fire-back lands via __handleResponse (allowlist off); an @mesh here would let
+    // any in-scope caller forge an invite outcome and write themselves grants.
+    const fn = (Galaxy.prototype as unknown as Record<string, unknown>).onInviteResult;
+    expect(typeof fn).toBe('function');
+    expect(isMeshCallable(fn as (...a: unknown[]) => unknown)).toBe(false);
+  });
 });
 
-describe('DevStudio Session/Message facet (composed provider)', () => {
+describe('Galaxy Session/Message facet (composed provider)', () => {
   const validTurn = { session: 'sess-1', role: 'user', content: 'hello' };
 
   it('SC3 + M2: accepts a Message whose session is an id string (both facets mounted → no cross-wiring)', async () => {
-    const dev = uniqueDevScope();
-    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Message', validTurn]);
+    const g = uniqueGalaxyScope();
+    const r = await callGalaxy(g, 'parseSessionTurnForTest', ['Message', validTurn]);
     expect(r.valid).toBe(true);
   });
 
   it('SC3: rejects an embedded session object with the ADR-006 by-id (embed) guard', async () => {
-    const dev = uniqueDevScope();
+    const g = uniqueGalaxyScope();
     const embedded = { session: { title: 'embedded not an id' }, role: 'user', content: 'x' };
-    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Message', embedded]);
+    const r = await callGalaxy(g, 'parseSessionTurnForTest', ['Message', embedded]);
     expect(r.valid).toBe(false);
     const err = r.errors.find((e: { path: string }) => e.path === '$input.session');
     expect(err).toBeDefined();
@@ -93,23 +105,23 @@ describe('DevStudio Session/Message facet (composed provider)', () => {
     expect(err.description).toMatch(/reference by id/i);
   });
 
-  it('Child 2 Phase 0: the getOntology() seam carries relationships (Message.session is to-one)', async () => {
-    const dev = uniqueDevScope();
-    const rels = await callStudio(dev, 'resourceRelationshipsForTest') as
+  it('the getOntology() seam carries relationships (Message.session is to-one)', async () => {
+    const g = uniqueGalaxyScope();
+    const rels = await callGalaxy(g, 'resourceRelationshipsForTest') as
       Record<string, Record<string, { target: string; cardinality: string }>>;
     // Capable-of-failing: drop `relationships` from the provider closure → this is
     // `undefined` and the `.Message.session` access throws (red). subscribeQuery field
-    // validation (Phase 3) has nothing to check without this.
+    // validation has nothing to check without this.
     expect(rels.Message.session).toMatchObject({ target: 'Session', cardinality: 'one' });
   });
 
   it('M3: ontology version is the fixed constant and survives an onStart re-init', async () => {
-    const dev = uniqueDevScope();
-    expect(await callStudio(dev, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
-    await callStudio(dev, 'reInitForTest');
+    const g = uniqueGalaxyScope();
+    expect(await callGalaxy(g, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
+    await callGalaxy(g, 'reInitForTest');
     // Re-derivable from the platform constant — a write still validates, version unchanged.
-    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Message', validTurn]);
+    const r = await callGalaxy(g, 'parseSessionTurnForTest', ['Message', validTurn]);
     expect(r.valid).toBe(true);
-    expect(await callStudio(dev, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
+    expect(await callGalaxy(g, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
   });
 });

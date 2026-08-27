@@ -7,10 +7,8 @@ const instrumented = instrumentDOProject(sourceModule);
 export const {
   NebulaClientGateway,
   Universe,
-  Galaxy,
+  GalaxyTest,
   StarTest,
-  DevStudioTest,
-  DevContainerServeStub,
   NebulaAuthRegistry,
   NebulaClientTest,
   ProfileTest,

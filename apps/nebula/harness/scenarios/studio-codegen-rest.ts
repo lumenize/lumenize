@@ -1,15 +1,15 @@
 /**
  * Drive ONE real codegen turn through the shipping Workers-AI REST transport.
  *
- * The subject is `DevStudio#callModelRest` — specifically that gateway routing is now a
+ * The subject is `Galaxy#callModelRest` — specifically that gateway routing is now a
  * `cf-aig-gateway-id` header on the ordinary `/ai/run/{model}` URL rather than a second
  * origin, so there is one URL for every configuration. A wrong URL, a stale envelope shape,
  * or an auth regression all land here as a failed turn.
  *
  * ⚠️ **A broken model call HANGS rather than rejecting**, which is why the timeout below is
- * the real assertion and not a nicety. `client.chat()` fires one-way at DevStudio and settles
+ * the real assertion and not a nicety. `client.chat()` fires one-way at the Galaxy and settles
  * on a *fire-back*; `runCodegenLoop` does not wrap `deps.callModel` in a try/catch, so a
- * throwing REST call unwinds out of `DevStudio.chat` before it ever calls back and the
+ * throwing REST call unwinds out of `Galaxy.chat` before it ever calls back and the
  * client's Promise simply never settles. Racing it against a deadline converts that silence
  * into a loud failure. (Same trap `live.md` warns about: a hang reads as a slow boot.)
  *
@@ -27,10 +27,10 @@ import assert from 'node:assert/strict';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 
-/** A `.dev` star scope of this scenario's own (never shared — codegen writes source). */
-const SCOPE = 'claude.codegen.dev';
+/** A galaxy scope of this scenario's own (never shared — codegen writes source). */
+const SCOPE = 'claude.codegen';
 
-/** The container build + a cold model turn both live inside this budget. */
+/** A cold model turn lives inside this budget (no container in the chat path pre-Phase-3). */
 const TURN_TIMEOUT_MS = 240_000;
 
 export async function run(stack: DevStack): Promise<void> {
@@ -59,7 +59,7 @@ export async function run(stack: DevStack): Promise<void> {
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(
           `codegen turn did not settle in ${TURN_TIMEOUT_MS / 1000}s — a throwing callModel unwinds ` +
-          `out of DevStudio.chat without firing back, so this is what a broken REST transport looks like`,
+          `out of Galaxy.chat without firing back, so this is what a broken REST transport looks like`,
         )), TURN_TIMEOUT_MS).unref?.(),
       ),
     ]);

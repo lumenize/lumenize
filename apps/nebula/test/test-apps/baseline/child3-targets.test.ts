@@ -5,7 +5,7 @@
  * `evaluatePermissions([nodeId], 'read', sub, dominionOverHostAtSubscribe).allowed.size > 0` — a
  * COMPOUND gate (`dominionOverHostAtSubscribe || resolvePermission`). testing.md:29 requires each
  * operand be exercised + mutation-checked independently. Three subscribers on
- * DevStudio's session query, all on ONE node:
+ * the Galaxy's session query, all on ONE node:
  *   - admin@example.com  → access.scopeAdmin, NO DAG grant → IN via the dominionOverHostAtSubscribe operand
  *   - granted (non-admin) → explicit read grant       → IN via the resolvePermission operand
  *   - denied  (non-admin) → no grant                  → OUT (the negative)
@@ -23,27 +23,26 @@ import type { QueryDescriptor } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3t-${crypto.randomUUID().slice(0, 8)}.app.dev`;
+const uniqueChatScope = () => `c3t-${crypto.randomUUID().slice(0, 8)}.app`;
 
-  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
-  // is administered by the covering admin's wildcard. That is how it works in production, not a test
-  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
-    { resourceHostBinding: 'DEV_STUDIO' },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
 describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
   it('includes the dominionOverHostAtSubscribe-bypass + read-granted subscribers, excludes the read-denied one', async () => {
-    const scope = uniqueDevScope();
+    const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const S = crypto.randomUUID();
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'session', value: S };
 
-    // A node the admin has NO explicit grant on (DevStudio seeds no root admin — the
+    // A node the admin has NO explicit grant on (the Galaxy seeds no root admin — the
     // admin acts purely via the access.scopeAdmin bypass), so the admin subscriber exercises
     // the dominionOverHostAtSubscribe operand in isolation.
     const node = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'sess', 'Session node');
@@ -53,13 +52,13 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
     await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'granted@example.com');
     const { client: granted, payload: grantedP } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
+      NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', 'v1', { resourceHostBinding: 'GALAXY' });
     await admin.orgTree.setPermission(node, grantedP.sub, 'read');
 
     // Non-admin "denied": no grant anywhere.
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
     const { client: denied } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
+      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', 'v1', { resourceHostBinding: 'GALAXY' });
 
     // All three subscribe the SAME session query → three QuerySubs rows (each carrying
     // its own sub + dominionOverHostAtSubscribe flag). subscribeQuery always succeeds (no gate at
@@ -69,7 +68,7 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
     using sd = denied.resources.subscribeQuery(query); await sd.ready;
 
     // The accessor, evaluated against `node`.
-    admin.callDevStudioInspectQueryTargets(scope, query, node);
+    admin.callGalaxyInspectQueryTargets(scope, query, node);
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
     expect(admin.lastError).toBeUndefined();
     const targets = admin.lastResult as string[];

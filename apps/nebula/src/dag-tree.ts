@@ -469,7 +469,7 @@ export class DagTree {
    *   - **Push path** (`resource-data-plane.ts` `targetsForQuery` / query-push / mutation-broadcast)
    *     passes the stored row's verdict, which IS confined at write time. That is the path that
    *     matters, and the one tasks/nebula-confine-admin-bypass.md closes.
-   *   - **Wire path** — `Star.dagTree()` / `DevStudio.dagTree()` are bare `@mesh()`, and mesh's
+   *   - **Wire path** — `Star.dagTree()` / `Galaxy.dagTree()` are bare `@mesh()`, and mesh's
    *     "gate once, then chain" checks the allowlist only on a chain's ENTRY op, so a caller can
    *     reach this method directly with an attacker-chosen `hasDominionOverHost`. **That is harmless for a
    *     separate reason**: this method is read-only, non-throwing, and echoes back only the

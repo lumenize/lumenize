@@ -59,7 +59,7 @@ The remaining provisioning / capture / inspection work builds on these (the code
 ## ✅ Shipped (one line each — full detail in the archived children; the code is the authority)
 
 - ✅ **Self-correcting codegen loop** → [archive/nebula-codegen-loop.md](archive/nebula-codegen-loop.md)
-- ✅ **Recorder — generation capture** (`Galaxy.recordTurn`/`getTurns`); the behavioral-UI-events extension is THE GATE below.
+- ✅ **Recorder — generation capture**; the `Turns` side table it shipped as is DELETED by the collapse's Phase 1 — the capture re-homes onto the agent `Message`'s `codegen` value object ([nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) Phase 2, a deliberate one-phase gap). The behavioral-UI-events extension is THE GATE below.
 - ✅ **`onBeforeCall` downward dominion** → [archive/nebula-onbeforecall-higher-admin-reach.md](archive/nebula-onbeforecall-higher-admin-reach.md)
 - ✅ **`/mint-narrower-token` escalation fix** → [archive/rfc-act-chains.md](archive/rfc-act-chains.md); the delegation authz invariants are pinned in `.claude/rules/security.md`.
 - ✅ **Studio UI single-origin serving** → [archive/nebula-studio-vite-proxy.md](archive/nebula-studio-vite-proxy.md). ⚠️ Standing trap: keep two-terminal vite+`wrangler dev`; **avoid the CF Vite plugin** (workerd-in-vite can't construct a `Container` → breaks the DevContainer preview).
@@ -95,8 +95,8 @@ The remaining provisioning / capture / inspection work builds on these (the code
 - 🔬 **Galaxy collapse — all THREE (Galaxy+DevStudio+DevContainer) collapse into one `Galaxy` (build-not-serve).** Design + phases + punch-list: [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md). Its acceptance bar (the preview self-healing on refocus) **subsumes** part of the preview-survives-redeploys gate, which **rides on the collapse** — do **NOT** build a separate pre-collapse self-heal (an interim the collapse obsoletes); any residual self-heal is post-collapse, single-node, and only if the prod trigger-rate still shows it.
 - ⚠️ **GATE — capture live (THE GATE)** — confirm generation-capture is live on deploy; extend with UI
   events (undo / abandon / feedback), sharing the sink with the feedback button. **Rides the
-  turn-as-Resource (`Message`) model** (capture = reading those Resources), not the about-to-be-replaced
-  `Galaxy.recordTurn`. *THE hard gate — capture must be live before day-1 or the data is lost.* **+ store
+  turn-as-Resource (`Message`) model** (capture = reading those Resources), not the deleted
+  `Turns` recorder. *THE hard gate — capture must be live before day-1 or the data is lost.* **+ store
   the container git-hash on each turn's `Message`** so a prompt can be replayed from its exact code
   starting point — the prerequisite for the nightly prompt-improvement/replay loop (reads testers' turns
   cross-scope via the [live-verification harness](archive/claude-live-verification.md)'s `*` reach;

@@ -1,19 +1,17 @@
 /**
- * DevStudio test harness (Phase 3.5b). DevStudio `extends NebulaDO` (a constructable
- * SQLite DO), so unlike DevContainer it CAN run under vitest-pool-workers — this
- * project exercises the real node: shell `Workspace` + isomorphic-git (writeSource /
- * commit / readSource / getSourceTree) and the cross-DO compile-and-apply
- * (`compileAndInstallOntology` → `STAR.setOntology`). Driven via `__executeOperation`
- * envelopes (the container-node + interim-dev-loop pattern) — no Gateway/JWT infra.
- *
- * The container-push primitives (`ensureUp`/`syncToDevContainer`) call DEV_CONTAINER
- * (`extends Container`, can't construct here) → covered top-down by the `ui-smoke` lane.
+ * Galaxy codegen test harness (the `dev-studio` vitest project — its name predates the
+ * collapse of DevStudio into Galaxy). Galaxy `extends NebulaDO` (a constructable SQLite
+ * DO), so it runs under vitest-pool-workers — this project exercises the real node: the
+ * `@cloudflare/computer` Workspace + host-side git (writeSource / commit / readSource)
+ * and the cross-DO compile-and-apply (`compileAndInstallOntology` → `STAR.setOntology`
+ * on the derived `{u}.{g}.dev` star). Driven via `__executeOperation` envelopes (the
+ * interim-dev-loop pattern) — no Gateway/JWT infra.
  *
  * `DevStarOntologyProbe` is the `.dev` data-Star target with a single read hook so a
  * test can confirm `setOntology` installed the compiled version.
  */
 import { mesh } from '@lumenize/mesh';
-import { DevStudio } from '../../../src/dev-studio';
+import { Galaxy } from '../../../src/galaxy';
 import { Star } from '../../../src/star';
 import { requireDominionHere } from '../../../src/nebula-do';
 import { DEFAULT_LOOP_CONFIG, TOOL_ARGS_BUNDLE_ID, TOOL_ARGS_TYPES } from '../../../src/codegen-loop';
@@ -22,20 +20,17 @@ import { getParserValidatorFacet, generateParseModule } from '@lumenize/ts-runti
 import type { ParseResult } from '@lumenize/ts-runtime-parser-validator';
 import { createResourceOntologyProvider } from '../../../src/devstudio-resource-ontology';
 
-// The Galaxy ({u}.{g}) is the turn-recorder store DevStudio writes to.
-export { Galaxy } from '../../../src/galaxy';
-
 /**
- * The DEV_STUDIO class under test — a DevStudio whose `callModel` replays a
- * **synthetic script** (no AI binding) so the Phase-2/3 codegen loop is exercised
- * under vitest-pool-workers. The script is one fake `env.AI.run` response per round;
- * `seenMessages` snapshots the transcript handed to the model each round so a test
- * can assert the error-tail round-trips into the next round's user layer.
+ * The GALAXY class under test — a Galaxy whose `callModel` replays a **synthetic
+ * script** (no AI binding) so the codegen loop is exercised under vitest-pool-workers.
+ * The script is one fake `env.AI.run` response per round; `seenMessages` snapshots the
+ * transcript handed to the model each round so a test can assert the error-tail
+ * round-trips into the next round's user layer.
  *
- * It IS-A DevStudio, so the existing source-of-truth / compile-and-apply tests run
- * against it unchanged (all real methods inherited).
+ * It IS-A Galaxy, so the source-of-truth / compile-and-apply tests run against it
+ * unchanged (all real methods inherited).
  */
-export class DevStudioLoopProbe extends DevStudio {
+export class GalaxyLoopProbe extends Galaxy {
   // Ephemeral — set + consumed synchronously within one runLoopForTest call (the
   // whole loop is awaited inside it; nothing persists across invocations).
   #script: unknown[] = [];
@@ -50,7 +45,7 @@ export class DevStudioLoopProbe extends DevStudio {
   }
 
   /** Test-only entry: replay `script` through the real loop driver, return the
-   *  LoopResult + the per-round transcripts. Admin-gated like every DevStudio method. */
+   *  LoopResult + the per-round transcripts. Admin-gated like every codegen method. */
   @mesh(requireDominionHere)
   async runLoopForTest(
     userRequest: string,
@@ -61,38 +56,37 @@ export class DevStudioLoopProbe extends DevStudio {
     this.#scriptIdx = 0;
     this.#seenMessages = [];
     const cfg: CodegenLoopConfig = { ...DEFAULT_LOOP_CONFIG, ...(config ?? {}) };
-    // runCodegenTurn + callModel are protected on DevStudio — reachable here.
+    // runCodegenTurn + callModel are protected on Galaxy — reachable here.
     const result = await this.runCodegenTurn(userRequest, cfg);
     return { result, seenMessages: this.#seenMessages };
   }
 
-  // --- Child 1 resource data-plane facet hooks (Phase 3) ---
-  // These mount + exercise the Session/Turn facet the way DevStudio.onStart's
-  // composed data-plane does, without needing a Gateway/client (the real client
-  // resource round-trip is Phase 5). The provider is reconstructed here (same
-  // bundleId → same cached facet) since the composed `#dataPlane` is private.
+  // --- Resource data-plane facet hooks ---
+  // These mount + exercise the Session/Message facet the way Galaxy.onStart's composed
+  // data-plane does, without needing a Gateway/client. The provider is reconstructed
+  // here (same bundleId → same cached facet) since the composed `#dataPlane` is private.
 
-  /** Parse a value through the Session/Turn facet, with the tool-args facet ALSO
-   *  mounted in THIS DO first — a passing Turn parse therefore proves no Worker-Loader
+  /** Parse a value through the Session/Message facet, with the tool-args facet ALSO
+   *  mounted in THIS DO first — a passing parse therefore proves no Worker-Loader
    *  bundleId cross-wiring (M2) on top of the ADR-006 embed-guard (SC3). */
   @mesh(requireDominionHere)
   async parseSessionTurnForTest(typeName: string, value: unknown): Promise<ParseResult> {
-    // If the Session/Turn bundleId collided with the tool-args id, the facet
-    // below would serve THIS validator and a valid Turn would fail to parse.
+    // If the Session/Message bundleId collided with the tool-args id, the facet
+    // below would serve THIS validator and a valid Message would fail to parse.
     getParserValidatorFacet(this.ctx, this.env.LOADER, TOOL_ARGS_BUNDLE_ID, () => generateParseModule(TOOL_ARGS_TYPES));
     const { facet } = createResourceOntologyProvider(this.ctx, this.env.LOADER)();
     return facet.parse(value, typeName);
   }
 
-  /** The fixed Session/Turn ontology version (server-sourced) — for the wipe/re-init check. */
+  /** The fixed Session/Message ontology version (server-sourced) — for the wipe/re-init check. */
   @mesh(requireDominionHere)
   resourceOntologyVersionForTest(): string {
     return createResourceOntologyProvider(this.ctx, this.env.LOADER)().version;
   }
 
-  /** Child 2 Phase 0: the relationship metadata the widened `getOntology()` seam
-   *  (D11) carries — exercises the REAL provider closure (this.ctx/this.env.LOADER),
-   *  so dropping `relationships` from the provider returns `undefined` here (red). */
+  /** The relationship metadata the `getOntology()` seam carries — exercises the REAL
+   *  provider closure (this.ctx/this.env.LOADER), so dropping `relationships` from the
+   *  provider returns `undefined` here (red). */
   @mesh(requireDominionHere)
   resourceRelationshipsForTest(): unknown {
     return createResourceOntologyProvider(this.ctx, this.env.LOADER)().relationships;
@@ -105,8 +99,7 @@ export class DevStudioLoopProbe extends DevStudio {
   }
 }
 
-// The `.dev` data-Star target. Post-collapse (Decision 2) the dev Star is a plain
-// `Star` at a `{u}.{g}.dev` instance — no DevStar subclass.
+// The `.dev` data-Star target — a plain `Star` at a `{u}.{g}.dev` instance.
 export class DevStarOntologyProbe extends Star {
   /** Test-only: the ontology version index (proves `setOntology` installed). */
   @mesh(requireDominionHere)
@@ -117,6 +110,6 @@ export class DevStarOntologyProbe extends Star {
 
 export default {
   fetch(): Response {
-    return new Response('dev-studio test harness');
+    return new Response('galaxy codegen test harness');
   },
 };
