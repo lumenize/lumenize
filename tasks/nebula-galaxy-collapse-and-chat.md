@@ -292,23 +292,28 @@ The Studio chat is a **durable, multi-user, reactive** thread. Human messages AN
 
 ## Participant model (settled with Larry 2026-07-06 — survives the collapse)
 
-- **Author attribution = the snapshot's `actingToken.sub`; the DISPLAYED author = `{actor} for {principal}`** when an `act` is present (*Nebula for {human}*), else just the principal. `actingToken` is the full ADR-016 record, server-stamped from `callContext` on every snapshot ([resources.ts](../apps/nebula/src/resources.ts)); on the wire it is the `WireActingToken` allow-list — identity + display `profileId`s, never the asserted `access` — unforgeable, **already delivered** on `Snapshot.meta`, just not consumed yet. This eliminates the **author spoof at the render layer**: the displayed author derives from `actingToken.sub`, so a stray/injected `author` key is simply never read.
-  - **Authorization always keys off the subject `sub`, never `act`** (RFC-8693). The display deliberately shows **both**, which dissolves the impersonation-display question rather than deferring it.
-  - **The shape, once, as it rides the wire** (`WireActingToken` in `resources.ts`; the stored `ActingTokenRecord` adds `access`, which the wire projection never carries):
-    ```jsonc
-    // meta.actingToken on a Nebula-authored snapshot
-    {
-      "sub": "9f2e6c0a-…",        // the TRIGGERING HUMAN — the subject; authorization keys off this
-      "profileId": "c41d88b2-…",  // the human's public profile address — display-only (ADR-013)
-      "act": {                    // present only when someone acted for the subject
-        "sub": "agent:nebula",    // the actor — a non-UUID sub is accepted
-        "profileId": "…"          // NEBULA_PROFILE_ID → the seeded "Nebula" Profile (Phase 2)
-      }
-    }
-    // a human's own message: same shape, no `act` key at all
-    ```
+Every `Message` snapshot includes a `meta.actingToken` that looks like this (a Nebula-authored one shown):
+
+```jsonc
+// The WIRE shape (`WireActingToken`, resources.ts): an allow-list of identity + display
+// profileIds — the stored ActingTokenRecord adds `access`, which never rides the wire.
+// Server-stamped from callContext on every snapshot (resources.ts) — unforgeable,
+// already delivered on Snapshot.meta, just not consumed yet.
+{
+  "sub": "9f2e6c0a-…",        // the TRIGGERING HUMAN — the subject. Author attribution AND
+                              // authorization key off this, never `act` (RFC-8693)
+  "profileId": "c41d88b2-…",  // the human's public profile address — display-only (ADR-013)
+  "act": {                    // present only when someone acted for the subject;
+                              // a human's own message carries no `act` key at all
+    "sub": "agent:nebula",    // the actor — a non-UUID sub is accepted
+    "profileId": "…"          // NEBULA_PROFILE_ID → the seeded "Nebula" Profile (Phase 2)
+  }
+}
+```
+
+- **The DISPLAYED author is `{actor} for {principal}`** when `act` is present (*Nebula for {human}*), else the principal alone — both parties deliberately shown, which dissolves the impersonation-display question rather than deferring it. Deriving display from `actingToken.sub` also eliminates the **author spoof at the render layer**: a stray/injected `author` key is simply never read.
 - **Attribution is by `kind`** (`agent` | `human`) + the display name **`Nebula`** (never "assistant"). ⚠️ *Separate thing, leave it:* `ChatMessage.role:'user'|'assistant'` is the **codegen model provider's** request format for `env.AI` — not our `Message` Resource.
-- **`Participant { sub, kind, name }` is RESOLVED by reactive lookup, never stored on a Message.** `sub` from `actingToken`; **`name` resolves per distinct author** — each snapshot's attribution carries the author's `profileId` (a **permanently-immutable** write-time stamp on `Snapshot.meta`, **ADR-013 as amended**), so the client reads it off the message and holds a live `Profile` sub per distinct `profileId` (deduped, cumulative over *everyone who has ever posted*) — **no `sub`→`profileId` hop, no Registry load**, not the live roster; **`kind` derived** (`sub === NEBULA_SUB` → agent).
+- **`Participant { sub, kind, name }` is RESOLVED by reactive lookup, never stored on a Message** — `sub` from `actingToken`, **`kind` derived** (`sub === NEBULA_SUB` → agent), `name` off the stamped `profileId` via a live `Profile` sub (mechanics: Preserved § *Name resolution*).
 - **Human vs agent is a participant property, not a capability role.** Data-plane capabilities (post/read/subscribe) are uniform at the API, DAG-gated + UI-shaped.
   - **The codegen/build trigger (`chat()`)** spends AI + a container build. It is gated by `@mesh(requireDominionHere)` today; the target is **uniform: any chat participant may trigger** (the participation grant), NOT admin-only. ✅ **The mechanism is pinned and owned by Phase 4** (2026-08-21): the **durable write becomes the trigger** — a committed *human* `Message` on the session node fires codegen via the existing `onMutations` commit hook — so the DAG check on that write is the only door and `chat()`'s decorator relaxes to a bare `@mesh()`, no longer being the authorization point. Owner/admin hold it inherently; an invited participant gets it via the invite. A participant's trigger spends the **owner's** AI+build — accepted pre-alpha (the owner invited them; budgets/rate-limits later).
   - ⚠️ **Whatever the gate becomes, it keys off `sub` and NEVER `act`** (`security.md` rule (1); history in [archive/nebula-impersonation-client.md](archive/nebula-impersonation-client.md)). An impersonated session is authorized as the **subject**, so an admin driving one triggers codegen exactly as that person would: there is no escalation to prevent (eligibility has already placed the subject's whole scope inside the caller's authority, so they could do it with their own token carrying *more* authority), and blocking it would require an `act`-reading authorization decision — a second exception to rule (1) with none of [ADR-012](../docs/adr/012-global-profile-visibility.md)'s justification, since codegen is scope-local where the ordinary model already works.
