@@ -398,8 +398,8 @@ between this document and the system.**
 **What the agent read.** ADR-019 committed the read-side mirror — record what an artifact read, re-check
 every later reader — and was **withdrawn 2026-08-26**: the level-3 sharing case it guarded (an answer produced
 under one participant's authority, persisted as a Message, re-rendered to another) is now the
-permission-holder's **disclosure decision**, made in the consent loop (§ *A worked scenario*). The capture
-question is re-derived if a real resource read ever enters a prompt — the collapse task carries that tripwire.
+permission-holder's **disclosure decision**, made in the consent loop (§ *A worked scenario*). Every read rides
+the asking human's token, and a posted answer is a disclosure decision — nothing is left to capture.
 
 **What the model actually did.** The three above concern the application layer. The inference layer is a
 fourth part, and Studio's chat is where it gets recorded: the agent `Message` carries a `codegen` value object
