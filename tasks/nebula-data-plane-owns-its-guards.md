@@ -59,6 +59,8 @@ The sections below give the guard model these goals imply, the one consequence t
 
 **Future state.** A node type that composes the plane inherits a complete access-control boundary, so standing up the next host is a `new` and a gate. ⚠️ **Design consideration:** once every guard is local, a per-op guard table becomes something *generated from* the code rather than a second copy to keep in sync — worth revisiting after this lands, never before.
 
+**The transient channel joins the plane** (pinned with Larry 2026-08-28, from the collapse review). `streamProgress` — the chat thinking-stream's fire-and-forget broadcast — already addresses by the subscription's own query and permission-checks per target (`queryTargets`), so it is plane-shaped in everything but home and vocabulary. This task moves it into `ResourceDataPlane` with query/resource parameter names (the collapse only relocates it in the class fold). ⚠️ The generic PUBLISHED client surface (transient events on `client.resources.*`) is NOT this task's either — deferred to its named trigger, the first generated-app chat.
+
 ## Transition
 
 **This task runs AFTER the Galaxy collapse, and makes one pass over a settled pair of hosts.** The collapse folds `DevStudio` and `DevContainer` into `Galaxy`; this task then starts from two hosts that are not about to move again and ends at the contract above, with no half-moved state along the way.
