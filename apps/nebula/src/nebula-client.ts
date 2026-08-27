@@ -252,9 +252,10 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * untouched by the chat pair). The chat paths route via {@link chatHostBinding} +
    * {@link chatScope}, never this field.
    *
-   * NOTE: a `'GALAXY'`-bound client must NOT enable `onReload`/an org-tree
-   * listener — the Galaxy hosts neither `subscribeReload` nor `subscribeTree`
-   * pre-Phase-3; both are gated off and inert unless configured.
+   * NOTE: the org-tree channel (`subscribeTree`) rides THIS pair and the Galaxy does
+   * not host it; the reload channel routes by which pair the signal source is on —
+   * the chat pair (the Galaxy's build-completion push) when one is configured, else
+   * this pair (the Star's parked publish signal).
    */
   resourceHostBinding?: string;
   /**
@@ -573,6 +574,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           throw new Error(`Refresh failed: ${res.status}`);
         }
         const data = await res.json() as { access_token: string; sub: string };
+        // The per-workspace AUTH-SCOPE HINT, written at the one authoritative moment:
+        // the client just PROVED the (authScope, activeScope) pair works — it called
+        // this authScope's path-scoped refresh for this activeScope and got a token.
+        // localStorage, never a cookie (the hint tells the CLIENT which refresh
+        // endpoint to call; it must never ride to the server), keyed per active scope
+        // (one machine, several workspaces, several identities). Self-healing: a later
+        // success under a different identity overwrites; nothing ever clears. Both
+        // surfaces embed this client, so built apps inherit it with no Studio code.
+        try {
+          localStorage.setItem(`nebula.authScope:${activeScope}`, authScope);
+        } catch { /* no localStorage outside a browser (tests, restricted iframes) */ }
         return { access_token: data.access_token, sub: data.sub };
       }),
       onConnectionStateChange: (state) => {
@@ -602,13 +614,19 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         if (state === 'connected' && this.#orgTreeListener) {
           this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeTree());
         }
-        // Dev-preview reload channel (Decision 12 / Flow 1d): (re)subscribe on every
-        // 'connected' — gated on a configured `onReload`, which the bootstrap sets for
-        // the `.dev` preview ONLY (prod clients leave it unset → no subscription).
-        // Idempotent server-side (INSERT OR REPLACE by clientId), mirroring the orgTree
-        // singleton above; the Star fans out `handleReload` on a version change.
+        // Preview-reload channel: (re)subscribe on every 'connected' — gated on a
+        // configured `onReload`. Routed by which pair the signal source is on: with a
+        // CHAT pair (Studio) the subscription lands on the GALAXY, whose
+        // `broadcastReload` fires on build completion and Studio reloads the iframe
+        // it composes; without one it falls to the resource pair (the Star's parked
+        // channel — publish's future refresh signal). Idempotent server-side
+        // (INSERT OR REPLACE by clientId), mirroring the orgTree singleton above.
         if (state === 'connected' && this.#onReload) {
-          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeReload());
+          if (this.#chatHostBinding && this.#chatScope) {
+            this.lmz.call(this.#chatHostBinding, this.#chatScope, this.ctn<Galaxy>().subscribeReload());
+          } else {
+            this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeReload());
+          }
         }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also

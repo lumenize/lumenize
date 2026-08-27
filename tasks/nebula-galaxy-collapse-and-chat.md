@@ -460,7 +460,9 @@ container image, keep `node_modules` **baked on ext4** and out of the mount, and
 
 The container demotes to an **ephemeral** `build()`: fire `ctx.container.start()` at codegen-start (**cold + FUSE
 mount ~3.2 s**, hidden behind the LLM), `runtime.exec('vite build')` against the mount once the model's files land,
-`destroy()` after the post-exec sync bracket resolves — **fresh container per build**. There is no source-push and no
+`destroy()` after the post-exec sync bracket resolves — **fresh container per build**. *(Built note
+2026-08-28: `instance_type` was already `standard-2` on disk — the "keep `standard-1`" wording below was stale
+against the config; kept at `standard-2`, which the size-for-build-speed rationale prefers anyway.)* There is no source-push and no
 dist-return: `/workspace` **is** Galaxy's tree, so `applyChanges`/`syncToDevContainer` and the bespoke dist-return
 are **deleted, not ported** (§ *The build-box contract*). **Drive it — never gate on `.running`** (liveness = the
 health probe): `destroy()` (clean slate, ignore errors) → `start()` → **bounded readiness probe** (`.running=true` ≠
@@ -500,11 +502,30 @@ re-generates, and Phase 6's client idle-timeout covers the death case.
     behind**. **The unheld control leg in the same run IS the window measurement** — record the number in
     § *Costs / risks*. If the control *also* completes, that is a real finding (the window exceeds a generation);
     record it and keep the heartbeat as stated insurance rather than silently dropping it.
+  - ✅ **RAN 2026-08-28 (`experiments/residency-hold`, deployed, two 4-min runs) — and the result was the
+    UN-enumerated third case: BOTH arms evicted.** The held arm's last heartbeat tick was **70 s** after start;
+    the isolate died with ~170 s of the await left. A re-arming `setTimeout` buys ~a minute, never a turn. ⇒ **The
+    heartbeat was REMOVED, loudly, not kept as insurance** — insurance that measurably does not insure is a
+    false-safety artifact — while the deadline + single-flight latch stay (validated in-lane). What actually holds
+    a Galaxy through a turn is the turn's own OUTBOUND I/O (the `env.AI` fetch, the build's capnweb WS — the
+    ≤15 min hazard-bounded hold), and a codegen turn has no multi-second timer-only span. An eviction mid-turn is
+    covered as designed (durable input → fresh generation). Full record: the experiment's `RESULTS.md`.
 
 ⚠️ **The mount cannot be validated under `wrangler dev`, so say which criteria are deploy-only.** `/dev/fuse` is
 exposed on Cloudflare Containers and **absent** locally, where `FUSE_MOUNT=auto` silently degrades to a userspace
 shim — so a green local run proves the drive, never the mount. Verify `/proc/mounts` per run, as the spike did, and
 run the mount-dependent criteria **deployed** ([[test-container-changes-with-wrangler-dev]]).
+  - ✅ **Built + measured 2026-08-28, and the shim is WORSE than "degraded": there is NO kernel mount at all
+    locally** — the exec's push bracket lands bytes in computerd's own object store, invisible to a real process,
+    so `vite` sees an EMPTY `/workspace`. The `build-box` scenario is therefore TWO-WORLD by construction: locally
+    it proves the DRIVE (4 container cycles — sequential ×2 + overlap ×2, ✅ green 2026-08-28); its FUSE-world
+    limbs (build ok, dist readback, `<base>`/meta/caching, buildError-then-last-good) are the **staged deploy
+    instrument**, running the first time the collapse deploys (the wipe gate).
+  - Two more real findings from that run, both fixed: computerd reports a non-zero exit as `status: 'failed'`
+    (never `completed`), so the buildError/retryable split rides the EXIT CODE (1–127 their code; signals/-1
+    infra); and the vendor's transport-failure detector misses capnweb's `"Peer closed WebSocket: 1006"`
+    phrasing, so the post-destroy dead session stayed cached and poisoned every later exec — worked around by
+    reconstructing the Workspace at teardown (`#constructWorkspace`; package feedback for `@cloudflare/computer`).
 
 ⚠️ **This phase also OWNS the prefix move — Studio to `/studio`, `/app` to the built app — because it edits the
 route list, and a PARTIAL move breaks login silently.** Today `wrangler.jsonc` is `run_worker_first: ["/auth/*", "/gateway/*", "/dev-container/*",

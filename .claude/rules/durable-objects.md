@@ -74,7 +74,7 @@ A DO is billed for elapsed time whenever it is actively working: `await`ing I/O,
   const stub = env.MY_DO.getByName(name); const result = await stub.someMethod();
   ```
 - Blocking external API calls SHOULD NOT be made from a DO. Mesh code uses the two-one-way-call pattern ([mesh.md](mesh.md))
-- `setTimeout`/`setInterval` MAY be used only to keep a DO from hibernating for up to a few minutes; beyond that you MUST use `alarm()` or two one-way calls.
+- `setTimeout`/`setInterval` MAY be used only to keep a DO from hibernating briefly — measured deployed at **~70 s** before eviction took a timer-held isolate (a re-arming 5 s heartbeat, `experiments/residency-hold/RESULTS.md`, 2026-08-28) — and MUST NOT be relied on to hold in-memory work through anything longer; use `alarm()` or two one-way calls, or ride an OPEN OUTBOUND CONNECTION, which is what actually holds a DO resident (≤15 min, [[cf-long-stream-limits]]).
 
 ## Dynamic Worker Loader cache
 `env.LOADER.get(bundleId, ...)` caches by `bundleId` **per-Worker-project**, not per-DO. Multiple DO instances in the same Worker project share the cache, so identical `bundleId` values silently collide on the first cached entry. `bundleId` MUST be scoped by something globally unique (include a tenant identifier or equivalent). The DO's cross-tenant guards don't intervene — the loader binding is shared infrastructure.

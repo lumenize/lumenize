@@ -18,9 +18,9 @@ export const STAR_LANDING_PREFIX = '/app';
  * Where a login for `universeGalaxyStarId` lands, split by TIER.
  *
  * A **star** is an end user arriving at the app they signed up for. Every other tier is a
- * user-developer arriving at their own control plane, and rides `NEBULA_AUTH_REDIRECT` — which stays
- * `/app` today and becomes `/studio` when the Galaxy collapse flips that env value. So the non-star
- * branch is not new behavior; it is the existing one, named.
+ * user-developer arriving at their own control plane, and rides `NEBULA_AUTH_REDIRECT` — `/studio`
+ * since the Galaxy collapse flipped that env value (Studio at `/studio/{scope}`, the built app at
+ * `/app/{star}`). So the non-star branch is not new behavior; it is the existing one, named.
  *
  * ⚠️ **Derive the tier from a SERVER-TRUSTED id.** On the success path that is the scope the consumed
  * token resolved to, never the URL's `instanceName`: `parseScopeGuard` only *format*-validates that

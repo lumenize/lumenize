@@ -47,6 +47,7 @@ import {
   compileOntologyVersion,
 } from '@lumenize/nebula';
 import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload } from '@lumenize/nebula';
+import type { ChatMessage, ModelParams, BuildOutcome } from '../../../src/codegen-loop';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -192,6 +193,14 @@ export class StarTest extends Star {
       `SELECT clientId, subscriberBinding FROM ReloadSubscribers ORDER BY clientId`,
     ).toArray();
     return rows as unknown as Array<{ clientId: string; subscriberBinding: string }>;
+  }
+
+  /** Test-only: fan the Star's PARKED reload channel (its production trigger — the
+   *  publish-refresh signal — is not built; the ontology-install trigger was retired at
+   *  the collapse). Lets the preservation test still prove DELIVERY. */
+  @mesh(requireDominionHere)
+  broadcastReloadForTest(): void {
+    this.broadcastReload();
   }
 
   /**
@@ -342,6 +351,37 @@ export class StarTest extends Star {
 // ============================================
 
 export class GalaxyTest extends Galaxy {
+  // Scripted chat support: a fake model script (per-round env.AI responses) + an
+  // always-ok build, so the BUILD-COMPLETION reload trigger is drivable in-lane. The
+  // REAL container drive is the build-box /live scenario; nothing here reaches
+  // ctx.container (absent under pool-workers anyway).
+  #chatScript: unknown[] = [];
+  protected override async callModel(_messages: ChatMessage[], _params: ModelParams): Promise<unknown> {
+    const next = this.#chatScript.shift();
+    if (next === undefined) throw new Error('GalaxyTest chat script exhausted');
+    return next;
+  }
+  protected override build(): Promise<BuildOutcome> {
+    return Promise.resolve({ ok: true });
+  }
+
+  /** Run ONE real chat turn against the scripted model (the whole pipeline: loop →
+   *  commit → build-completion reload trigger → delivery). Admin-gated like `chat`. */
+  @mesh(requireDominionHere)
+  async chatScriptedForTest(turnId: string, clientId: string, message: string, replyTo: string, script: unknown[]): Promise<{ reply: string; thought: string }> {
+    this.#chatScript = script;
+    return this.chat(turnId, clientId, message, replyTo);
+  }
+
+  /** Dump the Galaxy's ReloadSubscribers (the build-completion reload channel). */
+  @mesh(requireDominionHere)
+  inspectReloadSubscribers(): Array<{ clientId: string; subscriberBinding: string }> {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT clientId, subscriberBinding FROM ReloadSubscribers ORDER BY clientId`,
+    ).toArray();
+    return rows as unknown as Array<{ clientId: string; subscriberBinding: string }>;
+  }
+
   /** The permission-filtered query targets for the per-operand accessor test (M4).
    *  Returns the clientIds among the query's subscribers that may read `nodeId`
    *  (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
@@ -851,6 +891,35 @@ export class NebulaClientTest extends NebulaClient {
     this.resetResults();
     const remote = this.ctn<StarTest>().inspectReloadSubscribers();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Fan the Star's parked reload channel (delivery half of the preservation test). */
+  callStarBroadcastReloadForTest(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().broadcastReloadForTest();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Subscribe to the GALAXY's build-completion reload channel (explicit form). */
+  callGalaxySubscribeReload(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<Galaxy>().subscribeReload();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  callGalaxyInspectReloadSubscribers(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().inspectReloadSubscribers();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** One scripted chat turn (fake model + always-ok build — the reload-trigger drive). */
+  callGalaxyChatScripted(scope: string, message: string, script: unknown[], replyTo = crypto.randomUUID()): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().chatScriptedForTest(
+      crypto.randomUUID(), this.lmz.instanceName!, message, replyTo, script,
+    );
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
   callStarClearSubscribersForTest(starName: string): void {

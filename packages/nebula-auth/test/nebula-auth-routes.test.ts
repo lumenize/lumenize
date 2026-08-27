@@ -247,8 +247,8 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     // 🔒 This is a wire-level decision: it bakes into every emailed link, so it cannot be fixed after
     // the fact. A **star-scoped** admin is an end user and lands on the built-app surface (`/app`, which is
     // hardcoded because the routing scheme fixes it). Every other tier is a user-developer landing on
-    // their own control plane, and rides `NEBULA_AUTH_REDIRECT` — which the Galaxy collapse flips from
-    // `/app` to `/studio`.
+    // their own control plane, and rides `NEBULA_AUTH_REDIRECT` — `/studio` in the deployed config
+    // since the Galaxy collapse flipped it.
     //
     // ⚠️ The binding is `/app` project-wide (test/wrangler.jsonc), which would make both branches
     // produce the SAME string and the test vacuous. Each test below mutates it to `/studio` for its

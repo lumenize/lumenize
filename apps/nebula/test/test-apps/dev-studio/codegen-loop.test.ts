@@ -77,6 +77,7 @@ function harness(script: unknown[], over: Partial<CodegenLoopDeps> = {}): Harnes
     },
     writeFile: async (path, content) => { writes.push({ path, content }); return { oid: `oid${writes.length}`, path }; },
     validateToolArgs: async () => ({ ok: true }),
+    build: async () => ({ ok: true }),
     ...over,
   };
   return { deps, writes, paramsSeen, messagesSeen };
@@ -297,9 +298,11 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
       [aiResp([tc('write_file', { path: 123, content: 'x' })]), aiResp([tc('mark_complete', {})])],
     ))) as any;
     expect(result.toolCalls[0].error).toContain('invalid write_file args');
-    // Capable-of-failing: nothing landed in the Workspace — a read of the only path the
-    // model could have written rejects (absent file). (getSourceTree died with the push.)
-    await expect(inDO(env.GALAXY, dev, (s) => s.readSource('src/App.vue'))).rejects.toThrow();
+    // Capable-of-failing: nothing landed in the Workspace. The scaffold seeds
+    // src/App.vue at git-init (Phase 3), so ABSENCE is no longer the signal — assert
+    // the SEED content is untouched (a landed write would have replaced it).
+    const appVue = await inDO(env.GALAXY, dev, (s) => s.readSource('src/App.vue')) as string;
+    expect(appVue).toContain('Seed App.vue');
     expect(result.appliedPaths).toEqual([]);
   });
 
@@ -336,6 +339,60 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
 // REST swap silently no-ops (zero tool_calls → loop "stops"). Cheap + deterministic
 // (no fetch); only REST exercises the unwrap (the binding path returns the inner shape
 // directly), so the ui-smoke GHA lane — which uses the binding — can't catch this.
+describe('Phase 3 — the build TOOL (three-way outcome as a tool result)', () => {
+  it('build ok round-trips as the tool result and the loop CONTINUES to mark_complete', async () => {
+    const buildCalls: number[] = [];
+    const h = harness([
+      resp([toolCall('build', {}, 'b1')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], { build: async () => { buildCalls.push(1); return { ok: true }; } });
+    const r = await runCodegenLoop(INITIAL, h.deps);
+    expect(r.stop).toBe('complete');
+    expect(buildCalls).toHaveLength(1);
+    const rec = r.toolCalls.find((t) => t.name === 'build');
+    expect(rec?.result).toEqual({ ok: true });
+    // The outcome went BACK TO THE MODEL as a tool message (the model reads it).
+    const toolMsg = r.messages.find((m) => m.role === 'tool' && m.tool_call_id === 'b1');
+    expect(toolMsg?.content).toContain('"ok":true');
+  });
+
+  it('a buildError is a FIX round, and a repeated build call is EXEMPT from the loop detector', async () => {
+    // fix-then-rebuild legitimately repeats `build` with identical (empty) args — the
+    // identical-call detector must not abort the turn on the second call.
+    const outcomes: unknown[] = [
+      { ok: false, buildError: 'Rollup failed: src/App.vue (3:7)' },
+      { ok: true },
+    ];
+    const h = harness([
+      resp([toolCall('build', {}, 'b1')]),
+      resp([toolCall('write_file', { path: 'src/App.vue', content: GOOD_APP }, 'w1')]),
+      resp([toolCall('build', {}, 'b2')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], { build: async () => outcomes.shift() as never });
+    const r = await runCodegenLoop(INITIAL, h.deps);
+    expect(r.stop).toBe('complete');
+    const builds = r.toolCalls.filter((t) => t.name === 'build');
+    expect(builds).toHaveLength(2);
+    expect(builds[0]!.result).toEqual({ ok: false, buildError: 'Rollup failed: src/App.vue (3:7)' });
+    expect(builds[1]!.result).toEqual({ ok: true });
+    // The buildError dropped the NEXT round into fix params (sawError → fixMode), like a
+    // compile error (per-round: the clean write round after it restores generateParams).
+    expect(h.paramsSeen[1]).toEqual(DEFAULT_LOOP_CONFIG.fixParams);
+    expect(h.paramsSeen[2]).toEqual(DEFAULT_LOOP_CONFIG.generateParams);
+  });
+
+  it('a THROWING deps.build is captured as retryable — never an uncaught crash', async () => {
+    const h = harness([
+      resp([toolCall('build', {}, 'b1')]),
+      resp([], { content: 'giving up' }),
+    ], { build: async () => { throw new Error('capnweb session tore'); } });
+    const r = await runCodegenLoop(INITIAL, h.deps);
+    expect(r.stop).toBe('no-tool-calls'); // the turn survived the throw
+    const rec = r.toolCalls.find((t) => t.name === 'build');
+    expect(rec?.result).toEqual({ ok: false, retryable: true, detail: 'capnweb session tore' });
+  });
+});
+
 describe('Phase 2 — Workers-AI REST envelope unwrap feeds parseModelTurn', () => {
   it('unwraps `.result` so a wrapped REST envelope parses identically to the binding shape', () => {
     const inner = resp([toolCall('writeSource', { path: 'App.vue', source: 'x' })]);

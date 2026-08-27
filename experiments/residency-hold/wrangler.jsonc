@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-residency-hold",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-03-12",
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "ResidencyProbe" }]
+  },
+  "exports": {
+    "ResidencyProbe": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

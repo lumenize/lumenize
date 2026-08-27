@@ -61,6 +61,10 @@ describe('Galaxy @mesh surface freeze (m5)', () => {
         'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
         // Broadcast fire-back handlers (the tier-worker dispatch path).
         'onBroadcastResult', 'onQueryBroadcastResult', 'onQuerySubscriberListBroadcastResult',
+        // Phase 3: the build-completion reload channel — registration is passage-gated
+        // (any chat participant re-registers on reconnect, like subscribeTree); the
+        // fire-back handler rides broadcast.
+        'subscribeReload', 'onReloadBroadcastResult',
       ].sort(),
     );
   });
@@ -69,7 +73,7 @@ describe('Galaxy @mesh surface freeze (m5)', () => {
     const admin = meshMethods(true);
     for (const m of [
       'writeSource', 'readSource', 'appendWorkspaceOntology',
-      'chat', 'warmPreview', 'ensureChat',
+      'chat', 'warmPreview', 'ensureChat', 'buildNow',
       'appendOntologyVersion', 'setGalaxyConfig',
     ]) {
       expect(admin).toContain(m);

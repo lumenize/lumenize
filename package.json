@@ -18,7 +18,8 @@
     "experiments/container-cold-start-probe",
     "experiments/do-cold-start-bundle-ab",
     "experiments/wrangler-test-harness",
-    "experiments/computer-vfs-build"
+    "experiments/computer-vfs-build",
+    "experiments/residency-hold"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

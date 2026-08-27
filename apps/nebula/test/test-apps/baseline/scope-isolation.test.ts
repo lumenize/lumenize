@@ -389,10 +389,14 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
       'onBroadcastResult',
       'onQueryBroadcastResult',
       'onQuerySubscriberListBroadcastResult',
+      // Phase 3 (collapse): the build-completion reload channel — registration is
+      // passage-gated like subscribeTree; the fire-back handler rides broadcast.
+      'onReloadBroadcastResult',
       'read',
       'subscribe',
       'subscribeQuery',
       'subscribeQuerySubscribers',
+      'subscribeReload',
       'transaction',
       'unsubscribe',
       'unsubscribeQuery',

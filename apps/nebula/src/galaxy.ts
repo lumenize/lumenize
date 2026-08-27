@@ -24,6 +24,7 @@ import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
 import type { DurableObjectStorageLike } from '@cloudflare/computer';
+import { CloudflareContainerBackend, WorkspaceContainerAPI } from '@cloudflare/computer/backends/container';
 import { createGitClient } from '@cloudflare/computer/git';
 import git from 'isomorphic-git';
 import {
@@ -44,6 +45,9 @@ import type { QueryDescriptor, SubscriberEntry } from './query-hash';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
 import { OntologyStaleError } from './errors';
+import { serveApp } from './serve';
+import { SCAFFOLD_FILES } from './scaffold-seed';
+import { ReloadSubscriptions } from './reload-subscriptions';
 import type { DagTree } from './dag-tree';
 import type { NebulaClient } from './nebula-client';
 // Type-only: types the facade continuation without pulling a second mesh entry into this
@@ -63,6 +67,7 @@ import {
   type ChatMessage,
   type ModelParams,
   type LoopResult,
+  type BuildOutcome,
 } from './codegen-loop';
 
 export { compileOntologyVersion, PLATFORM_RESOURCE_TYPES } from './ontology-compile';
@@ -113,6 +118,21 @@ const GIT_INITED_KEY = 'galaxy:gitInited';
  *  model-agnostic, and the model name is never surfaced in the UI or elsewhere. */
 const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
 
+/** A build hang is killed here and surfaces as `retryable` (BUILD_TIMEOUT + SIGKILL —
+ *  the build-box contract). Generous: a heavy-lib vite 8 build measured seconds, not
+ *  minutes (§ Relationships in the collapse task; re-tune from evidence, not fear). */
+const BUILD_TIMEOUT_MS = 180_000;
+
+/** The env the in-container `vite build` runs under. Deps are baked at the image
+ *  ROOT (never the FUSE mount — containers.md), so `vite` resolves from
+ *  `/node_modules/.bin`; NODE_ENV pinned so rollup never takes a dev path. */
+const BUILD_ENV = {
+  PATH: '/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+  NODE_ENV: 'production',
+};
+
+
+
 /**
  * Unwrap a Workers AI `/ai/run` REST envelope to the same value `env.AI.run` returns.
  *
@@ -146,6 +166,11 @@ export function isStuckFlagResponse(status: number, body: string): boolean {
   return /not running|suddenly disconnected|proxying request to container/i.test(body);
 }
 
+/** The LAST `n` chars — build/exec output is bounded from the tail, where the error is. */
+function tail(text: string, n: number): string {
+  return text.length > n ? text.slice(-n) : text;
+}
+
 /** {@link isStuckFlagResponse} over a thrown error carrying `(status, body)` — defensive
  *  against a plain Error (no `status`/`body` → not stuck). Pure. */
 export function isStuckFlagError(err: unknown): boolean {
@@ -162,7 +187,8 @@ export function isStuckFlagError(err: unknown): boolean {
 const STUDIO_LOOP_SYSTEM_PROMPT = `You are Studio, an assistant that builds a small web app as a Vue 3 Single-File Component (src/App.vue).
 Use the provided tools — do not output code in your reply:
 - Call write_file with the COMPLETE new contents of a file. The file is compiled immediately and the result is returned; if it does not compile, read the error, fix it, and call write_file again.
-- When every file compiles cleanly and the app is done, call mark_complete.
+- When every file compiles cleanly, call build to produce the deployable bundle. If it returns a buildError, fix the code with write_file and call build again; if it returns retryable, call build again without changing the code.
+- When the build is ok and the app is done, call mark_complete.
 Rules:
 - Vue 3 with <script setup lang="ts"> and a <template>.
 - Style ONLY with Tailwind utility classes and DaisyUI component classes (both are already available).
@@ -194,22 +220,47 @@ export class Galaxy extends NebulaDO {
   // never the source of truth).
   #chatRow: OntologyVersionRow | null = null;
   #chatFacet: ParserValidator | null = null;
+  // The container transport — the backend object is cheap coordination state (no
+  // container starts until a build's exec connects); the API wrapper is constructed
+  // LAZILY because its ctor throws where `ctx.container` is absent (pool-workers).
+  #buildBackend!: CloudflareContainerBackend;
+  #containerApi?: WorkspaceContainerAPI;
+  // The promise-chain build latch — overlapping builds QUEUE on the one container
+  // (never `blockConcurrencyWhile`, which would deafen the hub for the probe's
+  // seconds — containers.md). In-memory coordination state, not business data.
+  #buildChain: Promise<unknown> = Promise.resolve();
+  // Turn single-flight (in-memory BY DESIGN: eviction clearing it is exactly the
+  // post-deadline reset semantics — see `chat`).
+  #turnInFlight = false;
+  /** The generation deadline — a hung `env.AI` await past this releases the turn
+   *  latch + ends the heartbeat so a fresh message can start a NEW generation.
+   *  `protected` field so the test probe can shorten it. */
+  protected generationDeadlineMs = 300_000;
+  // Preview-reload channel subscribers (Studio registers over the chat pair).
+  #reloadSubscriptions!: ReloadSubscriptions;
 
-  /** Reconstruct the Workspace (fs + host-side git over this DO's own SQLite) and
-   *  `git init` once (latched in kv). Async — runs inside the base
-   *  `blockConcurrencyWhile`, so requests block until it completes
-   *  (durable-objects.md § Initialization). The container backend is NOT constructed
-   *  here — the build-box attaches per build (Phase 3), never at init. */
+  /** Reconstruct the Workspace (fs + host-side git over this DO's own SQLite), seed the
+   *  framework scaffold + `git init` once (latched in kv), and register the container
+   *  BACKEND (an inert object until a build's exec connects — no container is started
+   *  here). Async — runs inside the base `blockConcurrencyWhile`, so requests block
+   *  until it completes (durable-objects.md § Initialization). */
   override async onStart(): Promise<void> {
-    this.#ws = new Workspace({
-      storage: this.ctx.storage as unknown as DurableObjectStorageLike,
-      git: createGitClient(),
-      defaultGitIdentity: GIT_AUTHOR,
-    });
+    this.#constructWorkspace();
     if (!this.ctx.storage.kv.get(GIT_INITED_KEY)) {
+      // Seed the framework scaffold (container/app/, embedded at generation time) so the
+      // tree is a COMPLETE vite project from birth — the build box mounts this very tree
+      // at /workspace, so seeding the VFS is the whole delivery (no push step).
+      for (const [rel, content] of Object.entries(SCAFFOLD_FILES)) {
+        const dir = rel.includes('/') ? '/' + rel.slice(0, rel.lastIndexOf('/')) : '/';
+        if (dir !== '/') await this.#ws.fs.mkdir(dir, { recursive: true });
+        await this.#ws.fs.writeFile('/' + rel, content);
+      }
       await this.#ws.git.init({ defaultBranch: 'main' });
+      await this.#ws.git.add({ paths: Object.keys(SCAFFOLD_FILES) });
+      await this.#ws.git.commit({ message: 'scaffold' });
       this.ctx.storage.kv.put(GIT_INITED_KEY, true);
     }
+    this.#reloadSubscriptions = new ReloadSubscriptions(this.ctx);
     // Compose the resource data-plane — the chat Chat/Message host. The ontology
     // provider reads the INSTALLED chat-ontology row (self-seeded on first touch from the
     // platform constant — #ensureChatFacet), exactly the way Star reads its installed app
@@ -450,6 +501,254 @@ export class Galaxy extends NebulaDO {
     return { version };
   }
 
+  // ─── HTTP surface: the built app's serve + the build-box dial-back ──
+
+  /**
+   * The Galaxy's HTTP surface, reached by the entrypoint's `/app/*` forward (GET/HEAD,
+   * deliberately ungated — the bounding is the route's security property) and by the
+   * in-container `computerd` daemon dialing back over the workspace proxy (`/ws`).
+   * Everything else is 404 — the data plane rides the mesh, never HTTP.
+   */
+  override async onRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === '/ws' || request.headers.get('upgrade') === 'websocket') {
+      return this.#buildBackend.handleFetch(request);
+    }
+    if (url.pathname === '/app' || url.pathname.startsWith('/app/')) {
+      return this.#serveBuiltApp(request, url);
+    }
+    return new Response('Not Found', { status: 404 });
+  }
+
+  /**
+   * Serve the built app from this DO's own VFS — `/app/{u}.{g}.{s}/*`, where the star
+   * segment selects WHICH dist: `.dev` = the working tree's current build (`/dist`,
+   * the only tier pre-alpha); any other star is the published `dist-prod/` tier
+   * (deferred — 404 until it exists). `serve.ts` owns the match-first/SPA/caching/
+   * containment contract; the scope meta is injected here because only this side
+   * knows the routed identity (never request-supplied — the wrong-Star footgun guard).
+   */
+  async #serveBuiltApp(request: Request, url: URL): Promise<Response> {
+    const star = url.pathname.split('/')[2] ?? '';
+    const segs = star.split('.');
+    if (segs.length !== 3 || segs.some((s) => s.length === 0)) {
+      return new Response('Not Found', { status: 404 });
+    }
+    if (segs[2] !== 'dev') {
+      // The published tier (dist-prod/, one copy for every tenant star) is the
+      // fast-follow's; answering 404 rather than serving the dev tree is the pin
+      // that keeps "same homogeneous path" from meaning one-dist-for-all.
+      return new Response('Not Found', { status: 404 });
+    }
+    const res = await serveApp(
+      request,
+      { directory: '/dist', not_found_handling: 'single-page-application', base: `/app/${star}/` },
+      async (path) => {
+        try {
+          const stream = await this.#ws.fs.readFile(path);
+          return new Uint8Array(await new Response(stream).arrayBuffer());
+        } catch {
+          return null; // any read failure is a miss — the SPA fallback owns it
+        }
+      },
+    );
+    if (res === null) return new Response('Not Found', { status: 404 });
+    // Server-derived scope meta for the app shell (activeScope = the star, authScope =
+    // the owning galaxy, plus the installed ontology version the client's data ops must
+    // ride). Injected only into HTML serves; asset serves pass through untouched.
+    if ((res.headers.get('Content-Type') ?? '').includes('text/html')) {
+      const scopeMeta = JSON.stringify({
+        activeScope: star,
+        authScope: `${segs[0]}.${segs[1]}`,
+        ontologyVersion: this.#currentWorkspaceVersion() ?? '',
+      }).replace(/'/g, '&#39;'); // the meta rides a single-quoted attribute
+      return new HTMLRewriter()
+        .on('head', {
+          element(el) {
+            el.prepend(`<meta name="nebula-scope" content='${scopeMeta}'>`, { html: true });
+          },
+        })
+        .transform(res);
+    }
+    return res;
+  }
+
+  /** The workspace ontology registry's CURRENT version — the last appended entry
+   *  (append-only index; no stored "latest" pointer exists or is needed). */
+  #currentWorkspaceVersion(): string | undefined {
+    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
+    return index.at(-1);
+  }
+
+  // ─── The build box (ephemeral — fresh container per build) ──────────
+
+  /**
+   * One serialized build cycle — the loop's `build` TOOL. The promise-chain latch
+   * queues overlapping builds on the one `ctx.container` (each caller gets its own
+   * outcome; a predecessor's failure never poisons the chain).
+   */
+  protected build(): Promise<BuildOutcome> {
+    const run = this.#buildChain.then(() => this.#buildOnce());
+    this.#buildChain = run.catch(() => { /* the next cycle starts clean */ });
+    return run;
+  }
+
+  /**
+   * One ephemeral container build: exec `vite build` against the FUSE-mounted
+   * workspace, then destroy — a fresh container per build, so the stuck state is
+   * designed away rather than recovered from. The backend owns start + readiness
+   * (health-probed, never `.running`-gated) + the `monitor()` attach on every start
+   * (`WorkspaceContainerAPI.start` installs it — the homework `containers.md` demands,
+   * done by the vendor). Liveness is bounded twice: the backend's health probe at
+   * connect, and `timeoutMs` on the exec itself — a hang is killed and surfaces as
+   * `retryable` on a fresh container.
+   *
+   * Teardown ordering: `handle.result()` resolves the post-exec sync bracket (dist is
+   * already in this DO's VFS at that moment), and only THEN is the container
+   * destroyed — destroying earlier fails the request with a capnweb 1006. The destroy
+   * itself tolerates that same 1006 shape on the way out (the session it tears is the
+   * one being discarded).
+   */
+  async #buildOnce(): Promise<BuildOutcome> {
+    if (!this.ctx.container) {
+      return { ok: false, retryable: true, detail: 'no build container attached (local test config)' };
+    }
+    try {
+      // `cwd` is the mount root: the workspace IS the app project.
+      const handle = await this.#ws.runtime.exec('vite build', {
+        cwd: '/workspace',
+        encoding: 'utf8',
+        env: BUILD_ENV,
+        timeoutMs: BUILD_TIMEOUT_MS,
+      });
+      const result = await handle.result();
+      this.#destroyBuildContainer();
+      // Status semantics (verified against the shipped runtime): `completed` = exit 0
+      // exactly; any non-zero exit is `failed`; a cancellation exit is `cancelled`. So
+      // the buildError/retryable split rides the EXIT CODE: 1–127 means the command RAN
+      // and their code failed (deterministic — the model fixes it); a signal death
+      // (>= 128 — the timeout's kill), a cancellation, or no exit event at all (-1) is
+      // the box's problem — retryable on a fresh container.
+      if (result.status === 'completed' && result.exitCode === 0) {
+        debug('nebula.Galaxy.build').info('build ok', { pushed: result.pushed, pulled: result.pulled });
+        return { ok: true };
+      }
+      if (result.exitCode > 0 && result.exitCode < 128) {
+        return { ok: false, buildError: tail(`${result.stderr}\n${result.stdout}`, 2000) };
+      }
+      return {
+        ok: false, retryable: true,
+        detail: `build ${result.status} (exit ${result.exitCode}): ${tail(result.stderr, 600)}`,
+      };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // The cloud-only stuck signature — EVIDENCE only (expect zero); never a recovery
+      // trigger (the ephemeral model designs the state away).
+      if (isStuckFlagError(e) || /not running|suddenly disconnected|proxying request to container/i.test(message)) {
+        debug('nebula.Galaxy.build').error('stuck-flag signature observed', { message });
+      }
+      this.#destroyBuildContainer();
+      return { ok: false, retryable: true, detail: message };
+    }
+  }
+
+  /**
+   * Construct the container backend + the Workspace over this DO's storage. Called at
+   * `onStart` AND after every build teardown: the backend caches its capnweb session
+   * handle, and the vendor's transport-failure detector does not match capnweb's
+   * `"Peer closed WebSocket: 1006"` phrasing — so after a destroy the DEAD session
+   * would stay cached and poison every later exec (verified 2026-08-28, build-box
+   * limb 2; package feedback: their `TRANSPORT_PATTERNS` should cover it).
+   * Reconstruction drops the cache; the storage-backed fs/git surfaces are stateless
+   * over the same SQLite, so nothing else observes the swap.
+   */
+  #constructWorkspace(): void {
+    this.#buildBackend = new CloudflareContainerBackend({
+      // Lazy thunks all the way down: `WorkspaceContainerAPI`'s ctor throws where
+      // `ctx.container` is absent (pool-workers), so nothing constructs it until the
+      // backend actually connects for a build.
+      container: () => ({
+        getWorkspaceContainer: () => (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)),
+      }),
+      workspace: { binding: 'GALAXY', id: this.ctx.id.toString() },
+    });
+    this.#ws = new Workspace({
+      storage: this.ctx.storage as unknown as DurableObjectStorageLike,
+      git: createGitClient(),
+      defaultGitIdentity: GIT_AUTHOR,
+      backends: [this.#buildBackend],
+    });
+  }
+
+  /** Fresh-container teardown — tolerate every failure shape (nothing running, the
+   *  capnweb 1006 from tearing the session being discarded), then drop the cached
+   *  transport (see {@link #constructWorkspace}). */
+  #destroyBuildContainer(): void {
+    try {
+      this.ctx.container?.destroy();
+    } catch { /* tolerated — incl. the 1006 */ }
+    this.#containerApi = undefined;
+    this.#constructWorkspace();
+  }
+
+  /**
+   * Run one build cycle on demand — the manual-rebuild affordance (an admin recovering
+   * from a `retryable` without spending a model turn), and the drive-verification
+   * surface (`harness/scenarios/build-box.ts` proves the sequential/overlap/teardown
+   * contract through it — the model's own `build` calls are not deterministically
+   * drivable). Same latch, same ephemeral cycle as the loop's tool; the outcome
+   * returns to the caller's `callAsync`.
+   */
+  @mesh(requireDominionHere)
+  buildNow(): Promise<BuildOutcome> {
+    return this.build();
+  }
+
+  // ─── Preview-reload channel (Studio subscribes over the chat pair) ──
+
+  /**
+   * Subscribe the caller to this Galaxy's **reload channel** — the build-completion
+   * signal Studio uses to reload the preview iframe it composes. Modeled exactly on
+   * Star's (registration only, no snapshot); `@mesh()` with no guard — gated by
+   * `onBeforeCall`'s passage like every chat-pair call.
+   */
+  @mesh()
+  subscribeReload(): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribeReload requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribeReload requires a gateway in callChain.at(-1)');
+    }
+    this.#reloadSubscriptions.register(clientId, subscriberBinding);
+  }
+
+  /**
+   * Fan the reload signal to every subscriber — fired ONCE per turn, on build
+   * completion, by the Galaxy that just ran the build (its own event; nothing watches
+   * or compares — the ontology-install trigger this replaces double-fired). The
+   * fan-out is GALAXY-SIDE only: no Galaxy→Star hop exists (a non-admin collaborator's
+   * trigger carries her galaxy claims, and a downward system call would be refused).
+   */
+  protected broadcastReload(): void {
+    const subscribers = this.#reloadSubscriptions.all();
+    if (subscribers.length === 0) return;
+    const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
+    const remote = this.ctn<NebulaClient>().handleReload();
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onReloadBroadcastResult() });
+  }
+
+  /** Drop a reload subscriber whose Gateway reported it disconnected — mirrors Star's. */
+  @mesh()
+  onReloadBroadcastResult(result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#reloadSubscriptions.removeSubscriber(clientId);
+    }
+  }
+
   // ─── The codegen turn ───────────────────────────────────────────────
 
   /**
@@ -476,6 +775,56 @@ export class Galaxy extends NebulaDO {
    */
   @mesh(requireDominionHere)
   async chat(turnId: string, clientId: string, message: string, replyToMessageId: string): Promise<{ reply: string; thought: string }> {
+    // SINGLE-FLIGHT: one generation at a time. The flag is in-memory BY DESIGN — a
+    // post-deadline or evicted turn clears it (eviction wipes the isolate), so a fresh
+    // message always triggers a NEW generation rather than wedging behind a hung one.
+    if (this.#turnInFlight) {
+      const busy = {
+        reply: "I'm still working on the previous request — send that again in a moment.",
+        thought: 'turn refused: a generation is already in flight (single-flight latch)',
+      };
+      this.deliverTurnResult(turnId, clientId, busy);
+      return busy;
+    }
+    this.#turnInFlight = true;
+    // RESIDENCY: mesh runs this chain DETACHED after early-ack, so no in-flight request
+    // pins the Galaxy — what holds it through a turn is the turn's own OUTBOUND I/O:
+    // every long span is a network await (the `env.AI` fetch, the build's capnweb
+    // session), and an open outbound connection keeps a DO resident (measured, ≤15 min
+    // hazard-bounded). A `setTimeout` HEARTBEAT was designed here and REMOVED on
+    // deployed evidence (experiments/residency-hold, 2026-08-28): a detached timer
+    // await was evicted mid-window WITH the 5 s re-arming heartbeat running — a timer
+    // does not hold an isolate, so the heartbeat insured nothing and billed wall-clock.
+    // An eviction mid-turn is covered as designed: input is durable before the LLM
+    // runs, the in-memory latch dies with the isolate, and a fresh message starts a
+    // fresh generation.
+    // The GENERATION DEADLINE stays: past it the latch releases and the turn surfaces
+    // as failed, so a hung await (which its own socket may keep resident!) cannot
+    // wedge the loop until force-eviction.
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.#chatTurn(turnId, clientId, message, replyToMessageId),
+        new Promise<{ reply: string; thought: string }>((resolve) => {
+          deadlineTimer = setTimeout(() => {
+            const failed = {
+              reply: "That took too long and I gave up — send your request again and I'll start fresh.",
+              thought: `turn failed: generation exceeded the ${this.generationDeadlineMs}ms deadline`,
+            };
+            this.deliverTurnResult(turnId, clientId, failed);
+            resolve(failed);
+          }, this.generationDeadlineMs);
+        }),
+      ]);
+    } finally {
+      this.#turnInFlight = false;
+      // A completed turn must not fire a spurious post-hoc "failed" delivery.
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+    }
+  }
+
+  /** The turn body `chat` races against the generation deadline. */
+  async #chatTurn(turnId: string, clientId: string, message: string, replyToMessageId: string): Promise<{ reply: string; thought: string }> {
     await this.ensureChat(); // the default Chat exists before Messages FK to it
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
@@ -543,6 +892,15 @@ export class Galaxy extends NebulaDO {
       thought: payload.thought,
       codegen,
     });
+    // ONE reload per turn, on build completion — the Galaxy that just ran the build
+    // announces its own event (the retired ontology-install trigger double-fired: the
+    // version label is baked at build, so an install without a build had nothing new
+    // to fetch). Derived from the loop record, so a turn with no successful `build`
+    // tool call pushes nothing.
+    const buildSucceeded = result.toolCalls.some(
+      (tc) => tc.name === 'build' && (tc.result as { ok?: boolean } | undefined)?.ok === true,
+    );
+    if (buildSucceeded) this.broadcastReload();
     // The ephemeral onChatResult push stays for now (retired in Phase 6).
     this.deliverTurnResult(turnId, clientId, payload);
     return payload;
@@ -573,11 +931,11 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
-   * Signal the client its preview can load. TEMP → target=Phase 3's serving: `dist/`
-   * is served Galaxy-direct from this DO's VFS, so there is nothing to warm for
-   * viewing (the container is engaged only on a build, at the codegen verdict) — the
-   * ready signal fires immediately so Studio's auto-refresh path keeps working until
-   * the `/app/*` route + App.vue rewiring land.
+   * Signal the client its preview can load. Immediate BY DESIGN post-collapse: `dist/`
+   * serves Galaxy-direct from this DO's VFS, so there is nothing to warm for VIEWING —
+   * the container is engaged only on a build, off the read path entirely. The signal
+   * survives as Studio's initial-load auto-refresh cue; subsequent refreshes ride the
+   * build-completion reload push.
    */
   @mesh(requireDominionHere)
   warmPreview(clientId: string): void {
@@ -1014,6 +1372,7 @@ export class Galaxy extends NebulaDO {
       callModel: (m, p) => this.callModel(m, p),
       writeFile: (path, content) => this.writeSource(path, content),
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
+      build: () => this.build(),
       onProgress,
     };
     return runCodegenLoop(initial, deps, config);

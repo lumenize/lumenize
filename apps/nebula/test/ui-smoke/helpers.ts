@@ -50,7 +50,7 @@ export async function loginToStudio(opts: {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 
-  await page.goto(`${viteBaseUrl}/app/${scope}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${viteBaseUrl}/studio/${scope}`, { waitUntil: 'domcontentloaded' });
 
   // Arm the email waiter BEFORE driving the form (listen first, then send).
   const waiter = waitForEmail({ testToken, instance: scope });
@@ -70,7 +70,7 @@ export async function loginToStudio(opts: {
   await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
   // Reload → onMounted auto-connect uses the cookie.
-  await page.goto(`${viteBaseUrl}/app/${scope}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${viteBaseUrl}/studio/${scope}`, { waitUntil: 'domcontentloaded' });
   await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
 
   return { ctx, page };

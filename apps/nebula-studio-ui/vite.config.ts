@@ -29,16 +29,17 @@ const swcPlugin = swc.vite({
   },
 });
 
-// Dev-server SPA fallback for `/app/*`. Vite's built-in history fallback serves index.html only for
-// extension-less paths, so a dotted scope (`/app/u.g.dev`) would 404. This mirrors the production
-// Workers-Assets `single-page-application` fallback so the path-carried scope works in dev too
+// Dev-server SPA fallback for `/studio/*` (the Studio surface post-collapse). Vite's built-in
+// history fallback serves index.html only for extension-less paths, so a dotted scope
+// (`/studio/u.g`) would 404. This mirrors the production Workers-Assets
+// `single-page-application` fallback so the path-carried scope works in dev too
 // (normal `npm run dev` + the ui-smoke harness). Dev-only; the real build uses Workers Assets.
 const appSpaFallback = {
-  name: "app-spa-fallback",
+  name: "studio-spa-fallback",
   configureServer(server: import("vite").ViteDevServer) {
     return () => {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url || !/^\/app(\/|$|\?)/.test(req.url)) return next();
+        if (!req.url || !/^\/studio(\/|$|\?)/.test(req.url)) return next();
         try {
           const { readFile } = await import("node:fs/promises");
           const { resolve } = await import("node:path");
@@ -56,8 +57,9 @@ const appSpaFallback = {
 
 // Standalone dev server for the Studio UI. Proxies the Nebula API paths to the
 // `wrangler dev` Worker (default :8787) so the UI is SAME-ORIGIN with /auth, /gateway,
-// /dev-container — required for the refresh cookie (SameSite=Strict) and the mesh +
-// preview WebSockets. Run alongside `npm run dev` (the Worker). Override the worker URL
+// /app (the Galaxy-served built app the preview iframe loads) — required for the refresh
+// cookie (SameSite=Strict) and the mesh WebSocket. Run alongside `npm run dev` (the
+// Worker). Override the worker URL
 // with NEBULA_WORKER_URL if wrangler picked a different port. See README.md.
 const WORKER = process.env.NEBULA_WORKER_URL || "http://localhost:8787";
 
@@ -75,7 +77,7 @@ export default defineConfig({
     proxy: {
       "/auth": { target: WORKER, changeOrigin: true },
       "/gateway": { target: WORKER, changeOrigin: true, ws: true },
-      "/dev-container": { target: WORKER, changeOrigin: true, ws: true },
+      "/app": { target: WORKER, changeOrigin: true },
     },
   },
 });

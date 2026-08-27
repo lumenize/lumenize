@@ -5,6 +5,6 @@
   "worker_loaders": [{ "binding": "LOADER" }],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app"
+    "NEBULA_AUTH_REDIRECT": "/studio"
   }
 }

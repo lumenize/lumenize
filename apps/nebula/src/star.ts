@@ -309,12 +309,10 @@ export class Star extends NebulaDO {
       }
     }
 
-    // Dev-loop live re-sync (Decision 12 / Flow 1d): a new version makes any live
-    // preview's injected ontologyVersion stale → fan out the reload signal so it
-    // re-fetches the shell at the new version. Dev: the preview is a reload
-    // subscriber; prod: none until publish wires them → no-op. One trigger shared
-    // by dev (`setOntology`) and prod (Galaxy lazy-pull) — both land here.
-    if (isNewVersion) this.broadcastReload();
+    // NO reload trigger here (retired at the Galaxy collapse): the ontology label is
+    // baked into the BUILD, so an install without a build gives a reload nothing new
+    // to fetch — the one reload per turn fires on build completion, Galaxy-side. The
+    // Star's reload channel stays parked as publish's future refresh signal.
   }
 
 
@@ -352,7 +350,7 @@ export class Star extends NebulaDO {
    * `call()` (continuation-only model — no awaited callRaw) and the wipe-before-install
    * ordering is guaranteed here rather than across two racing hops. `wipe` runs the same
    * `.dev`-guarded reset (`resetDevData` throws off the `.dev` Star), so the guard is
-   * preserved. The install's effect reaches the live preview via `broadcastReload`.
+   * preserved. (The preview reload rides the Galaxy's build-completion push, not this install.)
    */
   @mesh(requireDominionHere)
   async installOntology(row: OntologyVersionRow, opts?: { wipe?: boolean }): Promise<void> {

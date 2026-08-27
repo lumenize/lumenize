@@ -1,26 +1,44 @@
-# DevContainer image — real vite (5173, public preview + HMR) + a command-server
-# (9000, host-DO-only). The command-server is PID 1 / supervisor: it spawns vite as
-# a child so DevStudio can start/stop/restart the dev server over the command channel.
+# Build-box image — computerd (the @cloudflare/computer in-container daemon) FUSE-mounts
+# the Galaxy's SQLite VFS at /workspace, and the whole job is `vite build` runs against
+# that mount. NO vite dev-server, NO HMR, NO command-server: the container is a stateless,
+# EPHEMERAL build box (fresh per build, destroyed after — a container that never outlives
+# a build can't reach the stuck state).
 #
-# Baked-vs-pushed split (nebula-dev-flows.md § First-run scaffold):
-#   - FRAMEWORK layer is BAKED here (vite config, index.html, main.ts, the nebula.ts
-#     bootstrap, HMR wiring, the curated UI-lib deps). Same for every app, version-
-#     coupled to this image. Deps baked → ZERO `npm install` on cold boot (CF
-#     containers have no persistent volume — baking is the only durable store).
-#   - APP layer is PUSHED by DevStudio (`applyChanges`): App.vue, components, the
-#     ontology .d.ts. A trivial seed App.vue is baked so vite boots before the first
-#     push; DevStudio overwrites it on session start (Flow 1c).
+# Base recipe is lifted from cloudflare/computer's examples/container Dockerfile
+# (debian:stable-slim + nodesource node 24 + fuse3), proven by
+# experiments/computer-vfs-build: the official `node:*-slim` image is bookworm-based and
+# wants `libfuse2`, while the t64 transition renamed it `libfuse2t64` on trixie — this base
+# is what the daemon is actually tested against. That reason is about the DEBIAN RELEASE,
+# not the Node major.
 #
-# Deploy: `wrangler deploy` pushes this image via Docker Desktop + WARP
-# ([[cf-container-deploy-proxy]]); CI is the headless fallback.
-FROM node:24-slim
+# FUSE_MOUNT=auto: Cloudflare Containers expose /dev/fuse so the real kernel backend
+# mounts; `wrangler dev` does NOT and falls back to a userspace shim — which is why every
+# mount-dependent criterion is verified DEPLOYED, never locally (the shim measures itself).
+#
+# Baked-deps placement (the containers.md pin — node_modules stays on ext4, never the
+# mount): deps are installed at the FILESYSTEM ROOT. Node resolution from /workspace walks
+# /workspace/node_modules -> /node_modules, so the app in the mount resolves the baked
+# tree without ~111 MB ever crossing FUSE into the DO's SQLite. The dep manifest is
+# container/app/package.json — the scaffold's curated UI-lib set ("remove a lib" = stop
+# importing it; a NON-baked package is the only thing needing runtime egress).
 
-# node:24-slim ships no git; DevStudio's optional Artifacts `git pull` (future) and
-# general tooling need it (container-vite spike finding).
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-  && rm -rf /var/lib/apt/lists/*
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.1.1 AS computerd
 
-WORKDIR /workspace/app
+FROM debian:stable-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      fuse3 libfuse2t64 ca-certificates curl gnupg git \
+ && mkdir -p /etc/apt/keyrings \
+ && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
+      > /etc/apt/sources.list.d/nodesource.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=computerd /usr/local/bin/computerd /usr/local/bin/computerd
 
 # Optional sandbox-proxy CA hook (PROD-INERT). Some build environments — e.g. Claude
 # Code on the web — route container-build egress through a TLS-terminating proxy whose
@@ -29,38 +47,25 @@ WORKDIR /workspace/app
 # (apps/nebula/test/ui-smoke/global-setup.ts does this ONLY in that lane; the file is
 # gitignored and ABSENT in prod/CI), trust it for this build's npm. The glob makes the
 # COPY a no-op when the CA is absent — `app/package.json` is the always-present sibling
-# that keeps COPY legal with zero matches (a lone non-matching glob would error). In
-# prod nothing is staged → no `cafile` is set → npm behaves exactly as before. This
-# never ships a CA into the prod image. (--network host does NOT help: the proxy
-# intercepts host-network builds too; only CA trust fixes it.)
+# that keeps COPY legal with zero matches. This never ships a CA into the prod image.
 COPY app/package.json ccr-ca.crt* /ccr/
 RUN if [ -f /ccr/ccr-ca.crt ]; then \
-      npm config set cafile /ccr/ccr-ca.crt && echo "ui-smoke: trusting sandbox proxy CA for build npm"; \
+      npm config set cafile /ccr/ccr-ca.crt && echo "trusting sandbox proxy CA for build npm"; \
     fi
 
-# Install the baked UI-lib set first for layer caching (package.json changes rarely
-# vs. source). This is the curated dependency surface — "remove a lib" = stop
-# importing it (vite tree-shakes); pulling a NON-baked package is the only thing
-# that would need runtime egress (deferred; deps are fully baked for the demo).
-# `npm cache clean --force` is NOT cosmetic: the install leaves a ~179 MB cache behind
-# and it ships in this layer (which measured 306 MB uncompressed — 111 MB node_modules
-# + the cache). Measured A/B on THIS image: 173 MB → 130 MB (−25%), and CF cold start
-# is image-dependent (containers.md § Cost/sizing). The cache
-# is dead weight HERE specifically because nothing installs at runtime: it can only
-# speed up re-installing packages already in it, which the baked design never does, and
-# a user-supplied dep would not be in it anyway. Measured in
-# experiments/container-dep-restore-bench.
-COPY app/package.json app/package-lock.json* ./
+# Deps baked at `/`, deliberately (see header). `npm cache clean` is not cosmetic: the
+# cache is ~179 MB of dead weight in this layer — nothing installs at runtime, so it can
+# only speed up re-installing packages already baked (measured in
+# experiments/container-dep-restore-bench).
+WORKDIR /
+COPY app/package.json app/package-lock.json* /
 RUN npm install && npm cache clean --force
 
-# Framework skeleton (baked) + the command-server. The per-app source (App.vue,
-# components, ontology.d.ts) is pushed by DevStudio at runtime via applyChanges.
-COPY app/ ./
-COPY command-server.mjs /workspace/command-server.mjs
+# computerd: PID 1. It dials the companion DO back over the workspace proxy, mounts the
+# VFS at MOUNT_POINT, and executes `runtime.exec` commands against it.
+ENV PORT=8080
+ENV MOUNT_POINT=/workspace
+ENV FUSE_MOUNT=auto
+EXPOSE 8080
 
-# 5173 = vite (public preview proxy); 9000 = command-server (DO-only, server-side).
-EXPOSE 5173 9000
-
-WORKDIR /workspace
-# The command-server boots, listens on 9000, then spawns vite (5173) itself.
-CMD ["node", "/workspace/command-server.mjs"]
+ENTRYPOINT ["/usr/local/bin/computerd"]

@@ -43,6 +43,13 @@ export class GalaxyLoopProbe extends Galaxy {
     return next;
   }
 
+  /** Seed the fake-model script (subclass-reachable — the `#` fields are class-private). */
+  protected setScriptForTest(script: unknown[]): void {
+    this.#script = script;
+    this.#scriptIdx = 0;
+    this.#seenMessages = [];
+  }
+
   /** Test-only entry: replay `script` through the real loop driver, return the
    *  LoopResult + the per-round transcripts. Admin-gated like every codegen method. */
   @mesh(requireDominionHere)
@@ -94,6 +101,68 @@ export class GalaxyLoopProbe extends Galaxy {
   @mesh(requireDominionHere)
   async reInitForTest(): Promise<void> {
     await this.onStart();
+  }
+}
+
+/**
+ * The residency-hold probe — a Galaxy whose model HANGS on demand and whose turn-result
+ * delivery is captured in storage, so the single-flight latch + generation deadline are
+ * drivable in-lane (the criterion: a never-resolving model call must NOT wedge the loop —
+ * a post-deadline fresh message triggers a NEW generation).
+ */
+export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
+  protected override generationDeadlineMs = 800;
+  #hangNext = false;
+
+  protected override async callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown> {
+    if (this.#hangNext) {
+      this.#hangNext = false;
+      return new Promise(() => { /* a genuinely never-resolving env.AI await */ });
+    }
+    return super.callModel(messages, params);
+  }
+
+  /** Capture deliveries instead of dialing a Gateway (none in this lane). */
+  protected override deliverTurnResult(turnId: string, _clientId: string, payload: { reply: string; thought: string }): void {
+    const seen = this.ctx.storage.kv.get<{ turnId: string; reply: string }[]>('probe:delivered') ?? [];
+    seen.push({ turnId, reply: payload.reply });
+    this.ctx.storage.kv.put('probe:delivered', seen);
+  }
+
+  /**
+   * The whole scenario in one entry (the concurrency is the subject, so it must run
+   * inside one DO invocation): (1) a HUNG turn starts; (2) a second turn while it hangs
+   * is refused by the single-flight latch; (3) the hung turn hits the deadline and
+   * surfaces as failed; (4) a FRESH turn after the deadline runs a NEW generation to
+   * completion. Returns the reply of each stage + the captured deliveries.
+   */
+  @mesh(requireDominionHere)
+  async chatDeadlineScenario(): Promise<{ busyReply: string; deadlineReply: string; freshReply: string; delivered: { turnId: string; reply: string }[] }> {
+    // One text-only model round (OpenAI shape, zero tool_calls) → the loop's safe
+    // no-tool-calls stop; its content becomes the fresh turn's reply.
+    this.setScriptForTest([
+      { choices: [{ message: { content: 'fresh turn ran', reasoning_content: '', tool_calls: [] } }] },
+    ]);
+    // (1) The hung generation (fired, not awaited — the hang is the point).
+    this.#hangNext = true;
+    const hung = this.chat('t-hung', 'probe-client', 'hang please', crypto.randomUUID());
+    // (2) Single-flight: a second turn while one is in flight is refused.
+    const busy = await this.chat('t-busy', 'probe-client', 'me too', crypto.randomUUID());
+    // (3) The deadline releases the latch and surfaces the hung turn as failed.
+    const deadline = await hung;
+    // (4) A fresh message now triggers a NEW generation (the criterion).
+    const fresh = await this.chat('t-fresh', 'probe-client', 'try again', crypto.randomUUID());
+    const outcome = {
+      busyReply: busy.reply,
+      deadlineReply: deadline.reply,
+      freshReply: fresh.reply,
+      delivered: this.ctx.storage.kv.get<{ turnId: string; reply: string }[]>('probe:delivered') ?? [],
+    };
+    // Persisted for the test's poll: the drive is the early-ack envelope path (claims must
+    // ride callContext for the data-plane's permission checks), whose return travels only
+    // as a fire-back — the durable record is the in-lane observation surface.
+    this.ctx.storage.kv.put('probe:scenario', outcome);
+    return outcome;
   }
 }
 

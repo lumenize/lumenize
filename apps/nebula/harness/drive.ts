@@ -27,6 +27,7 @@ import * as studioCodegenRest from './scenarios/studio-codegen-rest';
 import * as upwardInviteRefused from './scenarios/upward-invite-refused';
 import * as inviteRoundtrip from './scenarios/invite-roundtrip';
 import * as nodeInviteRoundtrip from './scenarios/node-invite-roundtrip';
+import * as buildBox from './scenarios/build-box';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -62,6 +63,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'upward-invite-refused': upwardInviteRefused, // a real star admin's upward invite rejected by the facade's dominion message (no Docker)
   'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → founder stamp (no Docker)
   'node-invite-roundtrip': nodeInviteRoundtrip, // Star.invite → both planes → real email → invitee acts at the node (no Docker)
+  'build-box': buildBox,                   // Phase 3 — ephemeral build drive: sequential + overlap + buildError + serve readback (Docker)
 };
 
 async function main(): Promise<void> {

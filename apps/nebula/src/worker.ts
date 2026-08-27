@@ -23,3 +23,7 @@ export {
 export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
 export { Profile } from '@lumenize/nebula-auth/profile';
 export { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+// The @cloudflare/computer loopback WorkerEntrypoint — the container backend routes
+// computerd's container→DO traffic through `ctx.exports.WorkspaceProxy`, which only
+// resolves when the class is exported from the Worker's main module.
+export { WorkspaceProxy } from '@cloudflare/computer';

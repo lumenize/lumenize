@@ -1,0 +1,13 @@
+{
+  "name": "experiment-residency-hold",
+  "private": true,
+  "type": "module",
+  "//": "Deploy-only probe for the Galaxy collapse Phase 3 residency hold: does a DETACHED (post-early-ack, floating-promise) long await survive fast hibernation WITHOUT the setTimeout heartbeat — and does the heartbeat hold it? The mesh chain's detachment is a floating promise after the response (lmz-api executeEnvelope post-ack task; waitUntil is a DO no-op), so a raw DO reproduces the exact runtime shape with none of the mesh graph.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "drive": "node scripts/drive.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.114.0"
+  }
+}

@@ -44,23 +44,25 @@ export function assertSafeRelPath(path: string): void {
   }
 }
 
-// ─── Tool surface (D1: write_file + mark_complete only) ──────────────────
+// ─── Tool surface (write_file + build + mark_complete) ───────────────────
 
 /** Tool-arg TS types — the ADR-001 source of truth for runtime validation
  *  (compiled to a typia validator via `generateParseModule`; see Galaxy). */
 export const TOOL_ARGS_TYPES = `
 interface WriteFileArgs { path: string; content: string; }
+interface BuildArgs {}
 interface MarkCompleteArgs {}
 `;
 
 /** Stable Worker-Loader bundle id for the tool-args validator facet. The tool
  *  surface is identical across tenants (not tenant data), so a shared id is
  *  correct — same validator, shared cache (durable-objects.md Worker Loader cache). */
-export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v1';
+export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v2';
 
 /** Map a tool name → the typia type name its args validate against. */
 export const TOOL_ARG_TYPE: Record<string, string> = {
   write_file: 'WriteFileArgs',
+  build: 'BuildArgs',
   mark_complete: 'MarkCompleteArgs',
 };
 
@@ -93,8 +95,21 @@ export const CODEGEN_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'build',
+      description:
+        'Run the production build (vite build) of the whole app in a clean build box. ' +
+        'Call it when you believe the app is complete. Read the outcome: ok means the ' +
+        'built bundle is ready; buildError is a problem in the code — fix it with ' +
+        'write_file and call build again; retryable is an infrastructure hiccup — call ' +
+        'build again without changing the code.',
+      parameters: { type: 'object', additionalProperties: false, properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'mark_complete',
-      description: 'Call when the app is finished and all files compile cleanly.',
+      description: 'Call when the app is finished, all files compile cleanly, and the build is ok.',
       parameters: { type: 'object', additionalProperties: false, properties: {} },
     },
   },
@@ -162,11 +177,27 @@ export interface LoopResult {
   detail?: string;
 }
 
+/**
+ * The build-box contract's three-way outcome — the model reads it as a TOOL RESULT.
+ * `buildError` is THEIR code (deterministic — the model fixes and rebuilds in-turn,
+ * never a blind re-run); `retryable` is a box hiccup (same code may re-run).
+ */
+export type BuildOutcome =
+  | { ok: true }
+  | { ok: false; buildError: string }
+  | { ok: false; retryable: true; detail: string };
+
 export interface CodegenLoopDeps {
   /** Abstracts `env.AI.run(STUDIO_MODEL, …)` — fake (script) in tests. */
   callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown>;
   /** Persist one file (Galaxy.writeSource → Workspace + git commit). */
   writeFile(path: string, content: string): Promise<{ oid: string; path: string }>;
+  /**
+   * One ephemeral container build cycle (`vite build` against the FUSE-mounted
+   * workspace — Galaxy's `#build`, serialized by its promise-chain latch). A throw
+   * is captured into a `retryable` outcome by the loop; it never aborts the turn.
+   */
+  build(): Promise<BuildOutcome>;
   /** typia shape validation of tool args. Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
@@ -360,6 +391,25 @@ export async function runCodegenLoop(
         recorded.push({ name: tc.name, args: {} });
         messages.push(toolResultMessage(tc.id, { ok: true }));
         return done('complete', 'mark_complete');
+      }
+
+      if (tc.name === 'build') {
+        // The build is a TOOL — the model checks its own work; each call is one
+        // ephemeral container cycle. EXEMPT from the identical-call detector below
+        // (like mark_complete): fix-then-rebuild legitimately repeats `build` with
+        // identical (empty) args. The three-way outcome goes back as the tool result;
+        // a buildError makes this a fix round, never an abort.
+        deps.onProgress?.('building…');
+        let outcome: BuildOutcome;
+        try {
+          outcome = await deps.build();
+        } catch (e) {
+          outcome = { ok: false, retryable: true, detail: e instanceof Error ? e.message : String(e) };
+        }
+        recorded.push({ name: tc.name, args: {}, result: outcome });
+        messages.push(toolResultMessage(tc.id, outcome));
+        if (!outcome.ok) sawError = true;
+        continue;
       }
 
       // Loop-detection #2 — identical tool call repeat (same name + args).

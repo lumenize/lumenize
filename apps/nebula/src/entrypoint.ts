@@ -2,12 +2,16 @@
  * Nebula Worker entrypoint
  *
  * Composes nebula-auth routes with DO routing, applying JWT verification
- * at the entrypoint level for all WebSocket connections.
+ * at the entrypoint level for all WebSocket connections. The routes read as ONE
+ * `createRouter` table (the Registry's routes-and-steps convention):
  *
- * Routing layers:
- * 1. /auth/... → routeNebulaAuthRequest (login, refresh, invite, etc.)
- * 2. /gateway/... → routeDORequest with prefix:'gateway' (WebSocket mesh connections)
- * 3. Fallback → 404 (the built app's /app/* serve lands with the Phase-3 route table)
+ *   /_version        → the build-compare endpoint (public, discloses nothing)
+ *   /app/{star}/*    → the built app, forwarded to the owning Galaxy's serve (GET/HEAD,
+ *                      deliberately ungated — the bounding IS the security property)
+ *   /auth/*          → routeNebulaAuthRequest (login, refresh, invite, etc.)
+ *   /gateway/*       → routeDORequest prefix:'gateway' (WebSocket mesh connections)
+ *   anything else    → 404 (`/studio/*` is Workers Assets' by being UNLISTED in
+ *                      `run_worker_first` — it never reaches this Worker in prod)
  *
  * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
  * binding (comma-separated origins). Empty / unset → same-origin only.
@@ -15,7 +19,7 @@
 
 import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
-import { routeNebulaAuthRequest, verifyNebulaAccessToken } from '@lumenize/nebula-auth';
+import { routeNebulaAuthRequest, verifyNebulaAccessToken, createRouter, type Step, type RouteState } from '@lumenize/nebula-auth';
 import { routeDORequest, type CorsOptions } from '@lumenize/routing';
 import { extractWebSocketToken } from '@lumenize/mesh/client';
 
@@ -93,36 +97,76 @@ async function onBeforeConnect(request: Request): Promise<Response | Request> {
   return new Request(request, { headers });
 }
 
+/**
+ * `/app/{u}.{g}.{s}/*` — forward to the owning Galaxy's `fetch` handler, which serves
+ * the built app from its own VFS via `serve.ts`. The URL's scope segment is a STAR
+ * scope; the owning Galaxy is its first two segments — Studio composed the URL by the
+ * inverse move (its own `{u}.{g}` + the star slug).
+ *
+ * The properties carried over from the retired `/dev-container/*` branch: **GET/HEAD-
+ * bounded against ONE namespace, deliberately ungated** — browsers send no
+ * `Authorization` on document/sub-asset loads (the preview iframe IS the consumer), and
+ * data is gated on the mesh path; that bounding IS the security property. Never
+ * `routeDORequest` here: it reads segment 0 as the binding and segment 1 as the
+ * instance, and `/app/{star}` names neither — the identity headers it would have set
+ * are set by hand instead, so the Galaxy's name stamp works on this entry too.
+ */
+const serveAppForward: Step<RouteState> = async (request, { params }) => {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return new Response('Method Not Allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
+  }
+  const star = params.scope ?? '';
+  const segs = star.split('.');
+  // Only a star-tier scope names a dist; anything else has no app to serve.
+  if (segs.length !== 3 || segs.some((s) => s.length === 0)) {
+    return new Response('Not Found', { status: 404 });
+  }
+  const galaxy = `${segs[0]}.${segs[1]}`;
+  const headers = new Headers(request.headers);
+  headers.set('x-lumenize-do-binding-name', 'GALAXY');
+  headers.set('x-lumenize-do-instance-name-or-id', galaxy);
+  return await env.GALAXY.getByName(galaxy).fetch(new Request(request, { headers }));
+};
+
+/**
+ * The Worker's routes as ONE table — the Registry's routes-and-steps convention
+ * (`createRouter` from nebula-auth's route-pipeline). Gates are deliberately minimal:
+ * `/_version` and the SPA carry none, the Gateway and Registry own theirs, `/app/*` is
+ * GET/HEAD-bounded only. `/_version` is the FIRST row (defense-in-depth: it cannot be
+ * reordered behind a future handler; the real prod shadow-prevention is its presence in
+ * wrangler.jsonc's `run_worker_first`). The auth/gateway rows forward to their existing
+ * routers, which answer everything under their prefixes — an in-prefix miss is THEIR
+ * 404, converted here so the runner's ran-out-of-steps 500 stays what it means.
+ */
+const router = createRouter([
+  { path: '/_version', steps: [(request) => handleVersion(request)] },
+  { path: '/app/:scope', steps: [serveAppForward] },
+  { path: '/app/:scope/*', steps: [serveAppForward] },
+  {
+    path: '/auth/*',
+    steps: [async (request) =>
+      (await routeNebulaAuthRequest(request, env, { cors: corsOptions }))
+        ?? new Response('Not Found', { status: 404 })],
+  },
+  {
+    path: '/gateway/*',
+    steps: [async (request) =>
+      (await routeDORequest(request, env, {
+        prefix: 'gateway',
+        cors: corsOptions,
+        onBeforeRequest() {  // No plans to ever implement
+          return new Response('Not Implemented', { status: 501 });
+        },
+        onBeforeConnect,
+      })) ?? new Response('Not Found', { status: 404 })],
+  },
+]);
+
 export default {
   async fetch(request: Request) {
-    // 0. Build-compare fast-path — the LITERAL first statement (defense-in-depth: it can't be
-    //    reordered behind a future handler). Public, side-effect-free, discloses nothing.
-    //    (The real prod shadow-prevention is `/_version`'s presence in wrangler.jsonc's
-    //    `run_worker_first` array, B1 — not this statement order.)
-    const versionResponse = handleVersion(request);
-    if (versionResponse) return versionResponse;
-
-    // 1. Auth routes (login, refresh, invite, etc.)
-    const authResponse = await routeNebulaAuthRequest(request, env, { cors: corsOptions });
-    if (authResponse) return authResponse;
-
-    // 2. Gateway routes (/gateway/{binding}/{instance})
-    // LumenizeClient builds URLs with the /gateway/ prefix
-    const gatewayResponse = await routeDORequest(request, env, {
-      prefix: 'gateway',
-      cors: corsOptions,
-      onBeforeRequest() {  // No plans to ever implement
-        return new Response('Not Implemented', { status: 501 });
-      },
-      onBeforeConnect,
-    });
-    if (gatewayResponse) return gatewayResponse;
-
-    // (The former direct-DO route — GET/HEAD `/dev-container/*` to the vite preview
-    // proxy — died with the DevContainer node. The built app's `/app/*` serve, direct
-    // from Galaxy's VFS, lands with the Phase-3 route table.)
-
-    // 3. Fallback
-    return new Response('Not Found', { status: 404 });
+    // Everything the Worker serves is a row above; an unmatched path is a 404, never a
+    // fall-through to some implicit handler (`/studio/*` is Workers Assets' by being
+    // UNLISTED in `run_worker_first` — it never reaches this code in prod).
+    return (await router(request)) ?? new Response('Not Found', { status: 404 });
   },
 };

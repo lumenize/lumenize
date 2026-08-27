@@ -3,11 +3,11 @@
  * headlessly so a raw-Playwright browser can drive the rendered Studio:
  *
  *   1. `wrangler dev` on the **apps/nebula** config (`./wrangler.jsonc`) — the only
- *      config with DEV_STUDIO / DEV_CONTAINER / `containers` + the `AI` binding
+ *      config with the GALAXY `containers` build-box + the `AI` binding
  *      (NOT `test/browser/worker/wrangler.jsonc`, which is StarTest/BenchAgent and
- *      can't drive the preview or codegen). Needs Docker Desktop for the DevContainer.
+ *      can't drive the preview or codegen). Needs Docker Desktop for the build box.
  *   2. `vite` serving the **real** Studio SPA (`apps/nebula-studio-ui`), proxying
- *      `/auth /gateway /dev-container` → the Worker. The Studio's own vite proxy is
+ *      `/auth /gateway /app` → the Worker. The Studio's own vite proxy is
  *      the same-origin bridge (no `dynamic-env-proxy`); everything is plain
  *      `http://localhost` (localhost is a secure context, so the `Secure;SameSite=Strict`
  *      refresh cookie flows without TLS).

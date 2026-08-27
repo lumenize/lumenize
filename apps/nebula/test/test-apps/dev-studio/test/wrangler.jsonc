@@ -12,11 +12,13 @@
   "durable_objects": {
     "bindings": [
       { "name": "GALAXY", "class_name": "GalaxyLoopProbe" },
+      { "name": "GALAXY_DEADLINE", "class_name": "GalaxyDeadlineProbe" },
       { "name": "STAR", "class_name": "DevStarOntologyProbe" }
     ]
   },
   "exports": {
     "GalaxyLoopProbe": { "type": "durable-object", "storage": "sqlite" },
+    "GalaxyDeadlineProbe": { "type": "durable-object", "storage": "sqlite" },
     "DevStarOntologyProbe": { "type": "durable-object", "storage": "sqlite" }
   }
 }

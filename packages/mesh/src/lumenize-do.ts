@@ -139,11 +139,13 @@ export abstract class LumenizeDO<Env = any> extends ComposedMeshDO(DurableObject
    *
    * Override this to handle HTTP requests routed to this DO. Called after
    * identity initialization (`__initFromHeaders`), so `this.lmz.instanceName`
-   * and `this.lmz.bindingName` are available. Use continuations for async work.
+   * and `this.lmz.bindingName` are available. May be async — a handler that
+   * reads storage (e.g. a static serve off a VFS) returns a Promise; prefer
+   * continuations for anything that leaves the node.
    *
    * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
    */
-  onRequest?(request: Request): Response;
+  onRequest?(request: Request): Response | Promise<Response>;
 
   /**
    * Fetch lifecycle — initializes identity, then delegates to `onRequest`

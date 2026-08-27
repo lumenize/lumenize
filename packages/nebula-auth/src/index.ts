@@ -32,6 +32,10 @@ export { NebulaEmailSender } from './nebula-email-sender';
 // Router entry point — the primary export for composing into a parent Worker
 export { routeNebulaAuthRequest } from './router';
 
+// The Registry's route runner, exported so a parent Worker's own routes read as the same
+// routes-and-steps table convention (apps/nebula entrypoint.ts is the consumer).
+export { createRouter, type RouteEntry, type Step, type RouteState } from './route-pipeline';
+
 // JWT verification — primary export for consuming packages (Phase 2 entrypoint)
 export { verifyNebulaAccessToken } from './router';
 

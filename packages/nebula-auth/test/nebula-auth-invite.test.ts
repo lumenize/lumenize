@@ -274,7 +274,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
 
       const envStub = {
-        NEBULA_AUTH_REDIRECT: '/app',
+        NEBULA_AUTH_REDIRECT: '/studio',
         AUTH_EMAIL_SENDER: { send: () => Promise.reject(new Error('provider exploded')) },
       };
       // Reds against dropping the per-invitee catch: the rejection would surface here.
@@ -306,7 +306,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const reinvite = await issueInvitesAs(admin.access_token, u, [{ email: acceptedMember }, { email: pendingInvitee }]);
       const captured: EmailMessage[] = [];
       await sendInviteEmails(
-        { NEBULA_AUTH_REDIRECT: '/app', AUTH_EMAIL_SENDER: { send: async (m: EmailMessage) => { captured.push(m); } } },
+        { NEBULA_AUTH_REDIRECT: '/studio', AUTH_EMAIL_SENDER: { send: async (m: EmailMessage) => { captured.push(m); } } },
         { instanceName: u, origin: 'http://localhost', invitees: reinvite.results },
       );
       expect(captured).toHaveLength(2);

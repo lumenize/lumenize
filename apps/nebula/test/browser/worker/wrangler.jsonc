@@ -81,7 +81,7 @@
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app",
+    "NEBULA_AUTH_REDIRECT": "/studio",
     // Select Resend explicitly (no EMAIL binding above). Needs RESEND_API_KEY in
     // .dev.vars + `test.lumenize.com` verified as a Resend sending domain — same
     // setup as packages/auth/test/e2e-email-resend.

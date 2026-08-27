@@ -16,16 +16,31 @@ import { readDevVar } from '../lib/harness';
 import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } from '../lib/browser';
 // Reuse the ui-smoke email loop (Node-safe, filters by scope) rather than duplicating it.
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
+import { provisionAndLogin } from '../../test/lib/email-login';
 
-/** A `.dev` star scope for the browser drive (distinct from the API driver's). */
-const SCOPE = 'claude.browser.dev';
+/** The UNIVERSE the browser logs in at (login never mints — membership must exist, and the
+ *  member's membership is AT the universe), and the workspace GALAXY beneath it that Studio
+ *  opens — post-collapse Studio's working scope is `{u}.{g}`; the `.dev` star exists only
+ *  inside the preview iframe. Provisioned by the API driver (`provisionAndLogin`) before the
+ *  browser drives the SAME email through the rendered login form. */
+const UNIVERSE = 'claude-browser';
+const SCOPE = `${UNIVERSE}.app`;
 /** Login email — MUST be an `@lumenize.io` address CF Email Routing forwards to the email-test
- *  Worker. `test@lumenize.io` is the proven-routed one; `claude@lumenize.io` works only if routed
- *  (a CF-config check — see FINDINGS.md). Override with HARNESS_LOGIN_EMAIL. */
-const LOGIN_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? 'test@lumenize.io';
+ *  Worker (the catch-all). A fresh address per run keeps the claim path clean. */
+const LOGIN_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? `test-${Date.now().toString(36)}@lumenize.io`;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
+
+  // 0. PROVISION through the real claim path (API): claims the universe for LOGIN_EMAIL and
+  //    creates the workspace galaxy beneath it. Login never mints, so a browser login only
+  //    works for an email with a membership — this is what creates it, by the same path a
+  //    real user's first visit does.
+  const provisioned = await provisionAndLogin({
+    baseUrl: stack.baseUrl, scope: SCOPE, email: LOGIN_EMAIL, testToken,
+  });
+  void provisioned; // the browser establishes its OWN session below — the API one just provisioned
+
   const { viteBaseUrl, close: closeVite } = await bootStudioVite(stack.baseUrl);
   const browser = await launchChromium();
 
@@ -34,15 +49,16 @@ export async function run(stack: DevStack): Promise<void> {
     const { page } = inst;
     const ctx = page.context();
 
-    // 1. Load the Studio at the explicit scope (the form the magic link redirects to).
-    await page.goto(`${viteBaseUrl}/app/${SCOPE}`, { waitUntil: 'domcontentloaded' });
+    // 1. Load the Studio at the UNIVERSE (where the membership lives — the form targets the
+    //    URL scope, and a galaxy-scoped magic link would find no membership).
+    await page.goto(`${viteBaseUrl}/studio/${UNIVERSE}`, { waitUntil: 'domcontentloaded' });
 
     // 2. Real-email login: arm the waiter, drive the form, extract the link, land the cookie on the
     //    vite origin (ctx.request shares the context cookie jar), then reload → auto-connect.
     //    The email loop is a real external dependency (CF Email Sending → Routing → email-test Worker)
     //    and its latency varies — a generous timeout keeps the harness from flaking on a slow delivery
     //    (a `No email received` timeout here is that flake, NOT a code defect). See FINDINGS.md.
-    const waiter = waitForEmail({ testToken, instance: SCOPE, timeout: 120_000 });
+    const waiter = waitForEmail({ testToken, instance: UNIVERSE, to: LOGIN_EMAIL, timeout: 120_000 });
     let link: string;
     try {
       await page.getByPlaceholder('you@example.com').fill(LOGIN_EMAIL);
@@ -54,10 +70,20 @@ export async function run(stack: DevStack): Promise<void> {
     }
     const u = new URL(link);
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
-    await page.goto(`${viteBaseUrl}/app/${SCOPE}`, { waitUntil: 'domcontentloaded' });
+    // Reload at the universe → auto-connect → nudgeNextStep sees exactly ONE galaxy and opens
+    // its workspace (`openWorkspace`), which is where the chat input renders. This drives the
+    // REAL post-collapse journey: universe login → workspace at the galaxy.
+    await page.goto(`${viteBaseUrl}/studio/${UNIVERSE}`, { waitUntil: 'domcontentloaded' });
 
     // 3. Connected → the chat input renders. This is the harness's real gate (login worked).
-    await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
+    //    On failure, capture the page + console + network FIRST — "never connected" has many
+    //    causes and the artifacts disambiguate (transient-surface discipline, testing.md).
+    try {
+      await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
+    } catch (e) {
+      await captureArtifacts(inst, 'studio-chat-connect-failed');
+      throw e;
+    }
 
     // 4. Submit a chat turn with a marker. The user's OWN message echoes optimistically (before any
     //    codegen), so waiting for it to appear CONFIRMS the turn was actually posted — we don't
@@ -77,7 +103,7 @@ export async function run(stack: DevStack): Promise<void> {
     const before = await captureArtifacts(inst, 'studio-chat-before-reload');
 
     // 5b. Reload → the empirical question: does the posted turn survive / re-authenticate?
-    await page.goto(`${viteBaseUrl}/app/${SCOPE}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${viteBaseUrl}/studio/${SCOPE}`, { waitUntil: 'domcontentloaded' });
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
       /* may not reconnect (e.g. refresh-token 401) — the AFTER capture records the reason */
     });

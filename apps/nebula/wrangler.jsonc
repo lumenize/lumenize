@@ -122,14 +122,14 @@
   // `directory` is the `vite build` output of apps/nebula-studio-ui (gitignored; built
   // by deploy.sh BEFORE `wrangler deploy` so the upload sees it). `run_worker_first` is a
   // ROUTE LIST, not `true`: the Worker runs first ONLY for these API prefixes + /_version;
-  // every other path is served directly by the assets layer (SPA index.html for /, /app,
-  // and any unmatched path) WITHOUT invoking the Worker — so the shared entrypoint.ts is
-  // untouched and never references env.ASSETS (no binding read in code; no terminal guard).
+  // every other path — /studio/* above all — is served directly by the assets layer (SPA
+  // index.html) WITHOUT invoking the Worker; being UNLISTED here is exactly how Studio is
+  // served (entrypoint.ts never references env.ASSETS — no binding read, no terminal guard).
   //   - `*` is DEEP-matching: "glob patterns with * for deep matching" — it matches zero or
   //     more of ANY character, crossing path segments AND dots (CF docs / 2025-06-17 advanced
   //     -routing changelog; the `/api/*` example matches the multi-segment `/api/docs/*`). So
-  //     `/dev-container/*` matches the deep dotted preview sub-assets
-  //     (`/dev-container/acme.app.dev/assets/index-<hash>.js`) → Worker-served, not shadowed
+  //     `/app/*` matches the deep dotted built-app sub-assets
+  //     (`/app/acme.crm.dev/assets/index-<hash>.js`) → Worker-served (the Galaxy serve), not shadowed
   //     by the SPA. `!`-negation is also supported (negative patterns take precedence); unused
   //     here. Verified against the CF docs at build time (nebula-release-process.md, m-3).
   //   - PROD config ONLY — NOT the baseline test-app, NOT the bench worker (their wranglers
@@ -145,7 +145,7 @@
     "directory": "../nebula-studio-ui/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/auth/*", "/gateway/*", "/dev-container/*", "/_version"]
+    "run_worker_first": ["/app/*", "/auth/*", "/gateway/*", "/_version"]
   },
   // Declarative DO class registry — `exports` (NOT SQL migration; replaced the old `migrations` array,
   // tasks/archive/do-exports-and-toolchain-upgrade.md). Every class is `storage: "sqlite"` — all use sync storage
@@ -169,7 +169,7 @@
   },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app",
+    "NEBULA_AUTH_REDIRECT": "/studio",
     // Pre-alpha observability — @lumenize/debug gates ALL output (even errors) on this, so prod is
     // otherwise silent. SAFE to leave ON for pre-alpha (incl. real F&F) because no log statement may
     // emit a secret (security.md § Never log secrets — audited clean 2026-06-26: identifiers +

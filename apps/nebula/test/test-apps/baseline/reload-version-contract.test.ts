@@ -1,22 +1,21 @@
 /**
- * Live dev-loop version contract — the reload channel (Phase 5, container-free half).
+ * The preview-reload channel, post-collapse (container-free half).
  *
- * The version *injection* round-trip (DevContainer.fetch injects the real version →
- * preview ops succeed) needs a live container — the happy-path render is covered by the
- * `ui-smoke` lane, and the "ops succeed against the right version" half is Wave-2 data-bound
- * (no backend ops until then). What IS testable here is the reload channel that re-syncs an
- * already-loaded preview when the ontology version changes — a pure Star↔client path, no container:
- *  - T1: a NEW ontology version fires `Star.broadcastReload` (from `#installState`) →
- *        the client's `handleReload` (Option X: the trigger is the install path, no new
- *        `@mesh` surface);
- *  - T2: `resetDevData` PRESERVES the reload subscriber across its `deleteAll`, so the
- *        post-wipe reload (Flow 1b) still reaches the preview;
- *  - T3: the client auto-subscribes to the reload channel on connect ONLY when
- *        `onReload` is configured (the bootstrap sets it for the `.dev` preview) —
- *        a client without `onReload` does NOT subscribe and gets no reload.
+ * The trigger is BUILD COMPLETION, announced by the GALAXY that just ran the build —
+ * ONE reload per turn. The ontology-install trigger is RETIRED (the version label is
+ * baked into the build, so an install without a build gives a reload nothing new to
+ * fetch; keeping both double-reloaded every ontology-touching turn), and this file
+ * asserts it STAYS dead. The Star's channel is PARKED (publish's future refresh
+ * signal): registration + wipe-preservation still hold, and delivery is proven through
+ * the test-only fan (its production trigger is not built).
  *
- * @see tasks/nebula-dev-flows.md — Decision 12 + Flow 1d
- * @see tasks/nebula-studio.md § Phase 5
+ *  - T1: a chat turn whose `build` tool succeeds fires the GALAXY reload channel to a
+ *        subscribed client — and an ontology INSTALL does NOT (the retired trigger).
+ *  - T2: `resetDevData` PRESERVES the Star's reload subscriber across its `deleteAll`
+ *        (live-connection state, not dev data), and the preserved row still receives.
+ *  - T3: the client's connect-gate routes by PAIR: an `onReload` client with a CHAT
+ *        pair subscribes on the GALAXY; one without subscribes its resource pair (the
+ *        Star's parked channel); no `onReload` → no subscription anywhere.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -26,6 +25,20 @@ import { NebulaClientTest } from './index';
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
 const TODO_V2 = `interface Todo { title: string; done: boolean; priority: string; }`;
 
+/** One fake model round that calls the build tool, then one that marks complete. */
+const BUILD_THEN_COMPLETE = [
+  { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
+    { id: 'b1', type: 'function', function: { name: 'build', arguments: '{}' } },
+  ] } }] },
+  { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
+    { id: 'c1', type: 'function', function: { name: 'mark_complete', arguments: '{}' } },
+  ] } }] },
+];
+/** A text-only script — the turn completes with NO build call (no reload may fire). */
+const NO_BUILD = [
+  { choices: [{ message: { content: 'just chatting', reasoning_content: '', tool_calls: [] } }] },
+];
+
 async function waitForResult(client: NebulaClientTest) {
   await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
 }
@@ -34,103 +47,110 @@ async function waitForSuccess(client: NebulaClientTest) {
   expect(client.lastError).toBeUndefined();
   return client.lastResult;
 }
-async function devAdminClient(galaxy: string, dev: string, extraConfig?: { onReload?: () => void }) {
+async function devAdminClient(galaxy: string, dev: string, extraConfig?: Record<string, unknown>) {
   return universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1', extraConfig);
 }
-/** Apply an ontology version to the `.dev` Star (the `setOntology` path — explicit
- *  version labels, so `#installState` sees a new version when the label changes). */
 async function applyOntology(client: NebulaClientTest, dev: string, version: string, types: string) {
   client.callStarApplyOntology(dev, { version, types });
   await waitForSuccess(client);
 }
-/** Poll the Star's ReloadSubscribers (the fire-and-forget subscribe may not have
- *  landed yet right after connect). */
-async function reloadSubscriberCount(client: NebulaClientTest, dev: string): Promise<number> {
+async function starReloadSubscribers(client: NebulaClientTest, dev: string): Promise<number> {
   client.callStarInspectReloadSubscribers(dev);
   const rows = await waitForSuccess(client) as unknown[];
   return rows.length;
 }
+async function galaxyReloadSubscribers(client: NebulaClientTest, galaxy: string): Promise<number> {
+  client.callGalaxyInspectReloadSubscribers(galaxy);
+  const rows = await waitForSuccess(client) as unknown[];
+  return rows.length;
+}
 
-describe('Version contract — reload channel (Phase 5, container-free)', () => {
-  it('T1: a new ontology version fires the reload channel to a subscribed client', async () => {
+describe('Preview-reload channel — build-completion trigger (post-collapse)', () => {
+  it('T1: a successful build tool call fires the GALAXY channel — and an ontology install does NOT (retired trigger)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
-    // Establish v1 BEFORE subscribing (so the baseline reloadCount is clean).
-    await applyOntology(client, dev, 'v1', TODO_V1);
-
-    // Subscribe to the reload channel (explicit initiator — deterministic: await
-    // registration before triggering, isolating the Star trigger from client wiring).
+    client.callGalaxySubscribeReload(galaxy);
+    await waitForSuccess(client);
+    // ALSO subscribe the STAR channel — the retired install-trigger's fan target.
+    // Without this observer, restoring that trigger would fire into an empty table
+    // and the negative below could never red.
     client.callStarSubscribeReload(dev);
     await waitForSuccess(client);
 
-    const before = client.reloadCount;
-    // A DIFFERENT version → isNewVersion → #installState fires broadcastReload.
+    // NEGATIVE first: an ontology install (old trigger, deliberately retired) fires
+    // nothing on EITHER channel.
+    const beforeInstall = client.reloadCount;
+    await applyOntology(client, dev, 'v1', TODO_V1);
     await applyOntology(client, dev, 'v2', TODO_V2);
 
-    // Capable-of-failing: if broadcastReload were NOT fired from #installState on a
-    // new version (Option X), reloadCount would never advance.
-    await vi.waitFor(() => { expect(client.reloadCount).toBeGreaterThan(before); });
+    // POSITIVE: a chat turn whose build succeeds fires exactly one reload.
+    const beforeBuild = client.reloadCount;
+    client.callGalaxyChatScripted(galaxy, 'build it', BUILD_THEN_COMPLETE);
+    await vi.waitFor(() => { expect(client.reloadCount).toBe(beforeBuild + 1); }, { timeout: 15000 });
+    // The installs above never fired (checked AFTER the build sync point, so a slow
+    // install-path reload would have landed by now — not a too-early read).
+    expect(beforeBuild).toBe(beforeInstall);
+
+    // A turn with NO build call fires nothing (the trigger is build completion, not
+    // turn completion).
+    const beforeChat = client.reloadCount;
+    client.callGalaxyChatScripted(galaxy, 'just talk', NO_BUILD);
+    await waitForResult(client);
+    expect(client.reloadCount).toBe(beforeChat);
 
     client[Symbol.dispose]();
   });
 
-  it('T2: resetDevData preserves the reload subscriber across the wipe (Flow 1b)', async () => {
+  it('T2: resetDevData preserves the Star reload subscriber across the wipe, and it still receives', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
     await applyOntology(client, dev, 'v1', TODO_V1);
     client.callStarSubscribeReload(dev);
     await waitForSuccess(client);
-    expect(await reloadSubscriberCount(client, dev)).toBe(1);
+    expect(await starReloadSubscribers(client, dev)).toBe(1);
 
     // Wipe. deleteAll() drops the ReloadSubscribers table; resetDevData must capture +
     // restore it (live-connection state, not dev data).
     client.callStarResetDevData(dev);
     await waitForResult(client);
     expect(client.lastError).toBeUndefined();
+    expect(await starReloadSubscribers(client, dev)).toBe(1);
 
-    // Primary capable-of-failing assertion: the row survived the wipe. Without the
-    // preserve logic this is 0 (the deleteAll wiped it).
-    expect(await reloadSubscriberCount(client, dev)).toBe(1);
-
-    // Confirmation: the preserved subscriber still RECEIVES a reload. After the wipe
-    // the ontology index is empty, so re-applying is a new version → broadcastReload.
-    // The client never reconnected (a storage wipe doesn't drop the WS) and has no
-    // onReload (so it can't re-subscribe), so delivery here can ONLY mean the
-    // subscription was preserved.
+    // The preserved subscriber still RECEIVES — driven through the test fan (the
+    // channel is parked: its production trigger is publish's, not built). The client
+    // never reconnected and has no onReload, so delivery can ONLY mean preservation.
     const before = client.reloadCount;
-    await applyOntology(client, dev, 'v2', TODO_V2);
-    await vi.waitFor(() => { expect(client.reloadCount).toBeGreaterThan(before); });
+    client.callStarBroadcastReloadForTest(dev);
+    await vi.waitFor(() => { expect(client.reloadCount).toBeGreaterThan(before); }, { timeout: 15000 });
 
     client[Symbol.dispose]();
   });
 
-  it('T3: only an onReload-configured client auto-subscribes on connect (the dev gate)', async () => {
+  it('T3: the connect-gate routes by PAIR — chat pair → Galaxy; none → the resource pair; no onReload → nowhere', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
-    // A: the dev preview (onReload set) — auto-subscribes on connect.
-    // B: a non-preview client (no onReload) — must NOT subscribe.
-    const { client: A } = await devAdminClient(galaxy, dev, { onReload: () => {} });
-    const { client: B } = await devAdminClient(galaxy, dev);
+    // A: onReload + a CHAT pair (Studio's shape) → subscribes on the GALAXY.
+    const { client: A } = await devAdminClient(galaxy, dev, {
+      onReload: () => {}, chatHostBinding: 'GALAXY', chatScope: galaxy,
+    });
+    // B: onReload, NO chat pair (the preview's shape) → subscribes its resource pair (the Star).
+    const { client: B } = await devAdminClient(galaxy, dev, { onReload: () => {} });
+    // C: no onReload → no subscription anywhere.
+    const { client: C } = await devAdminClient(galaxy, dev);
 
-    await applyOntology(A, dev, 'v1', TODO_V1);
+    await vi.waitFor(async () => {
+      expect(await galaxyReloadSubscribers(C, galaxy)).toBe(1); // A alone
+      expect(await starReloadSubscribers(C, dev)).toBe(1);      // B alone
+    }, { timeout: 15000 });
 
-    // Exactly ONE reload subscriber (A) — proves A subscribed via the connect-gate AND
-    // B did not. Capable-of-failing: a subscribe-always wiring → 2; a missing
-    // subscribe → 0.
-    await vi.waitFor(async () => { expect(await reloadSubscriberCount(A, dev)).toBe(1); });
+    // A receives the Galaxy's build-completion push; B (Star-parked) and C do not.
+    const a0 = A.reloadCount, b0 = B.reloadCount, c0 = C.reloadCount;
+    C.callGalaxyChatScripted(galaxy, 'build it', BUILD_THEN_COMPLETE);
+    await vi.waitFor(() => { expect(A.reloadCount).toBe(a0 + 1); }, { timeout: 15000 });
+    expect(B.reloadCount).toBe(b0);
+    expect(C.reloadCount).toBe(c0);
 
-    const aBefore = A.reloadCount;
-    const bBefore = B.reloadCount;
-    await applyOntology(A, dev, 'v2', TODO_V2);
-
-    // A (subscribed) receives the reload; B (not subscribed) does not. The wait on A is
-    // the sync point — B's reload, if it were coming, rides the same broadcast fan-out,
-    // so B staying at its baseline is a reliable negative (catches a gate inversion).
-    await vi.waitFor(() => { expect(A.reloadCount).toBeGreaterThan(aBefore); });
-    expect(B.reloadCount).toBe(bBefore);
-
-    A[Symbol.dispose]();
-    B[Symbol.dispose]();
+    A[Symbol.dispose](); B[Symbol.dispose](); C[Symbol.dispose]();
   });
 });

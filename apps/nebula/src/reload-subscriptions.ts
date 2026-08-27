@@ -1,11 +1,13 @@
 /**
- * ReloadSubscriptions — per-Star dev-preview reload-channel subscriber registry.
+ * ReloadSubscriptions — a host's preview-reload-channel subscriber registry.
  *
- * A **non-resource** per-Star channel modeled exactly on {@link TreeSubscriptions}:
- * keyed by `clientId` ALONE, with no resource / typeName / ontologyVersion checks. The
- * preview client subscribes here (`Star.subscribeReload`); `Star.broadcastReload`
- * fans out a reload signal. Its former trigger (`DevStar.compileSFC`) was retired in
- * Phase 4 (vite owns compile); the channel is kept for the **publish-refresh signal**.
+ * A **non-resource** channel modeled exactly on {@link TreeSubscriptions}: keyed by
+ * `clientId` ALONE, with no resource / typeName / ontologyVersion checks — nothing in
+ * it is host-specific. Two hosts hold one: the **Galaxy**'s is live (Studio registers
+ * over the chat pair; `Galaxy.broadcastReload` fires on build completion, and Studio
+ * reloads the preview iframe it composes), and the **Star**'s is parked as publish's
+ * future refresh signal (its former ontology-install trigger retired with the
+ * collapse — the label is baked at build, so one turn fires one reload).
  *
  * Why its own channel (not a resource subscribe): a reload signal triggers no
  * resource broadcast, and `Subscriptions.subscribe` hard-throws unless the target is

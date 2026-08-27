@@ -11,15 +11,20 @@ import type { Star } from "@lumenize/nebula";
 // hierarchy-builder sidebar). `authScope` = where you logged in (the refresh-cookie scope);
 // `activeScope` = the scope you're working IN (a `.dev` Star under your authority). They differ once
 // you "open" a Star: your Universe cookie mints a token whose admin pattern reaches the Star.
-const SCOPE_KEY = "nebula.authScope";
-// Scope comes from the path: `/app/{scope}` — the canonical, and ONLY, form the magic link redirects
-// to. There is deliberately NO `?scope=` fallback: a second way in is an interim that gets reached for
-// later (the unlearning tax). The single-page-application fallback serves index.html for `/app/*`
-// (prod Workers Assets; dev via the vite plugin), so the scope rides the path.
-const pathScope = location.pathname.match(/^\/app\/([^/?#]+)/)?.[1];
+// The ACTIVE scope comes from the path: `/studio/{scope}` — the canonical, and ONLY, form the
+// magic link redirects to (the first URL segment names a SURFACE; the second is the scope).
+// There is deliberately NO `?scope=` fallback: a second way in is an interim that gets reached
+// for later (the unlearning tax). The AUTH scope comes from the per-workspace localStorage hint
+// `nebula.authScope:{activeScope}` — written by NebulaClient on every successful token
+// acquisition, never the URL and never a cookie (the client must know it to hit the path-scoped
+// refresh endpoint). Cold browser, no hint: pre-alpha the consumed link's scope IS the landing's
+// active scope, so trying the active scope itself succeeds and writes the entry.
+const pathScope = location.pathname.match(/^\/studio\/([^/?#]+)/)?.[1];
 const urlScope = pathScope ? decodeURIComponent(pathScope) : undefined;
-const authScope = ref<string | undefined>(urlScope ?? localStorage.getItem(SCOPE_KEY) ?? undefined);
-const activeScope = ref<string | undefined>(authScope.value);
+const AUTH_HINT_PREFIX = "nebula.authScope:";
+const authHint = (active: string) => localStorage.getItem(AUTH_HINT_PREFIX + active) ?? undefined;
+const activeScope = ref<string | undefined>(urlScope);
+const authScope = ref<string | undefined>(urlScope ? (authHint(urlScope) ?? urlScope) : undefined);
 
 type Msg = { role: "you" | "studio" | "error" | "thought"; text: string };
 const messages = ref<Msg[]>([]);
@@ -53,7 +58,10 @@ const deletePlan = ref<ScopeDeletionPlan | null>(null);
 
 const log = (role: Msg["role"], text: string) => messages.value.push({ role, text });
 
-const isDevStar = (s?: string) => !!s && s.split(".").length === 3 && s.endsWith(".dev");
+// Post-collapse Studio's WORKING scope is the app-level GALAXY ({u}.{g}); the preview it embeds
+// is per-STAR, composed as the galaxy + `.dev` — the one surface where the split is real.
+const isWorkspace = (s?: string) => !!s && s.split(".").length === 2;
+const previewStar = (s: string) => `${s}.dev`;
 // Chat lives at the GALAXY ({u}.{g}) post-collapse — one thread shared across the galaxy's
 // stars. A universe-only scope has no galaxy, so no chat pair is passed and the client's
 // #chatHost() throws loudly if a chat call is attempted there.
@@ -68,15 +76,15 @@ const chatPair = (s?: string) => {
 // Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (only when
 // you're inside a `.dev` Star) > the Universe/Galaxy/Star help (the default, incl. first use).
 const stageMode = computed<"manage" | "preview" | "help">(() =>
-  manageOpen.value ? "manage" : connected.value && isDevStar(activeScope.value) ? "preview" : "help",
+  manageOpen.value ? "manage" : connected.value && isWorkspace(activeScope.value) ? "preview" : "help",
 );
 
 // A session worth a "Log out" affordance even before the WS connects (e.g. a stale cookie that
 // failed to auto-connect, or a half-finished login) — so logout never vanishes when the avatar does.
-const hasSession = computed(() => !!(authScope.value || localStorage.getItem(SCOPE_KEY)));
+const hasSession = computed(() => !!authScope.value);
 
 function reloadPreview() {
-  if (activeScope.value) previewSrc.value = `/dev-container/${activeScope.value}/?t=${Date.now()}`;
+  if (activeScope.value) previewSrc.value = `/app/${previewStar(activeScope.value)}/?t=${Date.now()}`;
 }
 
 // ── Universe-slug suggestion ─────────────────────────────────────────────────
@@ -112,7 +120,8 @@ async function discover(emailAddr: string): Promise<{ universeGalaxyStarId: stri
 function rememberAuthScope(s: string) {
   authScope.value = s;
   activeScope.value = s;
-  localStorage.setItem(SCOPE_KEY, s);
+  // No localStorage write here — NebulaClient writes the per-workspace hint on every
+  // successful token acquisition (the authoritative, self-healing moment).
 }
 
 async function sendMagicLink() {
@@ -120,7 +129,7 @@ async function sendMagicLink() {
   if (!e || busy.value) return;
   busy.value = true;
   try {
-    let target = urlScope; // an explicit `/app/{scope}` (the post-login redirect / ui-smoke) bypasses discovery
+    let target = urlScope; // an explicit `/studio/{scope}` (the post-login redirect / ui-smoke) bypasses discovery
     if (!target) {
       const entries = await discover(e);
       if (entries.length === 1) {
@@ -199,11 +208,10 @@ async function connect() {
   nebula.value = n;
   connected.value = true;
   sessionExpired.value = false;
-  if (isDevStar(activeScope.value)) {
-    previewSrc.value = `/dev-container/${activeScope.value}/`; // cold waking page until ready…
-    n.client.warmPreview(); // …then auto-refresh when vite is serving (onPreviewReady push)
+  if (isWorkspace(activeScope.value)) {
+    previewSrc.value = `/app/${previewStar(activeScope.value!)}/`; // render now; refresh on the ready push
+    n.client.warmPreview(); // initial-load refresh cue (builds push their own reload)
   }
-  localStorage.setItem(SCOPE_KEY, authScope.value);
   await nudgeNextStep();
 }
 
@@ -212,7 +220,7 @@ async function connect() {
  *  create the first (chat composer = "name your app", "B"); exactly one → drop them straight into
  *  developing it; several → open the scopes manager to choose. */
 async function nudgeNextStep() {
-  if (isDevStar(activeScope.value)) {
+  if (isWorkspace(activeScope.value)) {
     log("studio", "Connected. Describe the app you want to build.");
     return;
   }
@@ -240,12 +248,11 @@ onMounted(() => {
   connecting.value = true;
   connect()
     .catch(() => {
-      // Auto-connect to the stored scope failed (not authenticated, or the scope was deleted/wiped —
-      // e.g. a prod data wipe). When the scope came from localStorage (a remembered session) rather
-      // than an explicit `/app/{scope}` URL, it's a stale hint: reset to a clean logged-out state so we
-      // don't re-try a dead scope on every reload (which also left `hasSession` stuck true). A URL scope
-      // is an explicit navigation — keep it and just show the login form targeting that scope.
-      if (!urlScope) resetToLoggedOut();
+      // Auto-connect failed (not authenticated, or the scope was deleted/wiped). A failed
+      // per-workspace hint is stale — drop it so the next load falls back to trying the
+      // active scope itself (and, past pre-alpha, discovery). The URL scope is an explicit
+      // navigation — keep showing the login form targeting it.
+      if (urlScope) localStorage.removeItem(AUTH_HINT_PREFIX + urlScope);
     })
     .finally(() => {
       connecting.value = false;
@@ -264,7 +271,7 @@ function onVisibilityChange() {
   }
   const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
   hiddenAt = 0;
-  if (awayMs > 4 * 60_000 && connected.value && isDevStar(activeScope.value)) {
+  if (awayMs > 4 * 60_000 && connected.value && isWorkspace(activeScope.value)) {
     reloadPreview();
   }
 }
@@ -274,7 +281,7 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisibilityC
 async function send() {
   const msg = input.value.trim();
   if (!msg || !nebula.value || busy.value) return;
-  if (!isDevStar(activeScope.value)) {
+  if (!isWorkspace(activeScope.value)) {
     // At a Universe — the composer creates an app (guided first-run "B") instead of chatting.
     input.value = "";
     await createApp(msg);
@@ -303,14 +310,14 @@ async function send() {
 }
 
 async function wipe() {
-  if (!nebula.value || busy.value || !isDevStar(activeScope.value)) return;
+  if (!nebula.value || busy.value || !isWorkspace(activeScope.value)) return;
   busy.value = true;
   try {
     const client = nebula.value.client;
     // Fire-and-forget under the continuation-only model (no awaited callRaw). The wipe's
     // effect is reflected when the preview reloads; a dispatch failure is logged by the
     // framework (D6), so the confirmation log here is optimistic.
-    client.lmz.call("STAR", activeScope.value!, client.ctn<Star>().resetDevData());
+    client.lmz.call("STAR", previewStar(activeScope.value!), client.ctn<Star>().resetDevData());
     log("studio", "Wiped the development test data.");
     reloadPreview();
   } catch (e) {
@@ -399,12 +406,13 @@ async function develop(galaxy: string) {
     }
     busy.value = false;
   }
-  await openStar(`${galaxy}.dev`);
+  await openWorkspace(galaxy);
 }
 
-/** Enter a `.dev` Star to author: switch the working scope + reconnect (authScope/cookie unchanged;
- *  our admin token reaches it). */
-async function openStar(star: string) {
+/** Enter an app's workspace to author it: the working scope becomes the GALAXY ({u}.{g} — chat,
+ *  scopes, warmPreview all ride it), and the embedded preview is its `.dev` Star. authScope/cookie
+ *  unchanged; our admin token reaches it. */
+async function openWorkspace(galaxy: string) {
   if (busy.value) return;
   busy.value = true;
   try {
@@ -413,12 +421,12 @@ async function openStar(star: string) {
     } catch {
       /* old WS best-effort */
     }
-    activeScope.value = star;
+    activeScope.value = galaxy;
     const n = createNebulaClient({
       authScope: authScope.value!,
-      activeScope: star,
+      activeScope: galaxy,
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
-      ...chatPair(star),
+      ...chatPair(galaxy),
       onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
       onLoginRequired: onSessionExpired,
     });
@@ -426,15 +434,13 @@ async function openStar(star: string) {
     nebula.value = n;
     messages.value = [];
     manageOpen.value = false;
-    previewSrc.value = `/dev-container/${star}/`; // render the stage NOW (waking page if the container is cold)
-    // Bring the (possibly cold) container up + push source, and auto-refresh the iframe when vite is
-    // actually serving — via the onPreviewReady push (event-driven, fire-and-forget). NEVER await here: a
-    // slow/stuck container must not hang the stage (the 2026-06-27 "main stage never refreshes" regression).
-    // The readiness signal is addressed by instanceName, so it survives a WS reconnect during the boot;
-    // the manual Reload button (top right) stays as the missed-signal fallback.
+    previewSrc.value = `/app/${previewStar(galaxy)}/`; // render the stage NOW (Galaxy-served dist)
+    // The ready signal is immediate post-collapse (nothing to warm for viewing — the container is
+    // only engaged on a build); it survives a WS reconnect (addressed by instanceName). Build
+    // completions push their own reload; the manual Reload button stays as the fallback.
     n.client.warmPreview();
   } catch (e) {
-    log("error", `Could not open ${star}: ${(e as Error).message}`);
+    log("error", `Could not open ${galaxy}: ${(e as Error).message}`);
   } finally {
     busy.value = false;
   }
@@ -457,7 +463,7 @@ async function createApp(name: string) {
     return;
   }
   busy.value = false;
-  await openStar(`${universe}.${slug}.dev`); // reconnects + clears chat + manages its own busy
+  await openWorkspace(`${universe}.${slug}`); // reconnects + clears chat + manages its own busy
   log("studio", `Your app “${slug}” is ready. Now describe what you want to build.`);
 }
 
@@ -516,7 +522,7 @@ async function confirmDelete() {
 }
 
 function resetToLoggedOut() {
-  localStorage.removeItem(SCOPE_KEY);
+  if (activeScope.value) localStorage.removeItem(AUTH_HINT_PREFIX + activeScope.value);
   menuOpen.value = false;
   manageOpen.value = false;
   deletePlan.value = null;
@@ -538,7 +544,7 @@ async function logout() {
   // Works whether or not the WS is up: connected → client.logout(); otherwise best-effort hit the
   // logout endpoint for the remembered scope (clears the HttpOnly cookie a stale session left behind).
   const client = nebula.value?.client as { logout?: () => Promise<void> } | undefined;
-  const scope = authScope.value ?? localStorage.getItem(SCOPE_KEY) ?? undefined;
+  const scope = authScope.value;
   try {
     if (client?.logout) await client.logout();
     else if (scope) await fetch(`/auth/${scope}/logout`, { method: "POST", credentials: "include" }).catch(() => {});
@@ -556,7 +562,7 @@ async function logout() {
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Nebula Studio</h1>
         <button
-          v-if="isDevStar(activeScope)"
+          v-if="isWorkspace(activeScope)"
           class="btn btn-sm btn-ghost"
           :disabled="busy || !connected"
           title="Wipe the development test data"
@@ -625,7 +631,7 @@ async function logout() {
           <input
             v-model="input"
             class="input input-bordered flex-1"
-            :placeholder="isDevStar(activeScope) ? 'Describe a change…' : 'Name your app to create it…'"
+            :placeholder="isWorkspace(activeScope) ? 'Describe a change…' : 'Name your app to create it…'"
             :disabled="busy"
           />
           <button class="btn btn-primary" :disabled="busy || !input.trim()">
@@ -642,7 +648,7 @@ async function logout() {
           <Loader2 class="size-3.5 animate-spin" /> Working…
         </span>
         <button
-          v-if="isDevStar(activeScope)"
+          v-if="isWorkspace(activeScope)"
           class="btn btn-sm btn-ghost btn-square"
           :disabled="busy"
           title="Reload preview"

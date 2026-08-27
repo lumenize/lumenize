@@ -44,9 +44,9 @@ import { resolveChromiumExecutable } from './helpers';
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must be valid
  *  for BOTH slug validators: dag-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
  *  stricter nebula-auth `parse-id.isValidSlug` (ALSO no consecutive hyphens), so a single
- *  hyphen — NOT `test--`. Separate from any manually-claimed scope; ends in `.dev` so
- *  `resetDevData` (the teardown) accepts it. */
-const TEST_SCOPE = 'test-u0.test-g0.dev';
+ *  hyphen — NOT `test--`. Separate from any manually-claimed scope; the working scope is the
+ *  GALAXY post-collapse — the Wipe teardown targets its `.dev` star (`{scope}.dev`). */
+const TEST_SCOPE = 'test-u0.test-g0';
 /** Bootstrap admin email = the address CF Email Routing forwards to the email-test Worker. */
 const ADMIN_EMAIL = 'test@lumenize.io';
 
@@ -85,7 +85,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
-      await page.goto(`${viteBaseUrl}/app/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${viteBaseUrl}/studio/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
       // Capable-of-failing: each waitFor auto-waits and THROWS (fails the test) if the
       // element never appears — reds if the SPA fails to mount (build/bundle break) or
@@ -107,31 +107,24 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
   });
 
   // ⛔ SKIPPED — LOGIN NEVER MINTS (post-surrogate-sub), and nothing provisions `TEST_SCOPE`.
-  // Proven 2026-07-25: the magic-link consume returns `302 /app?error=invalid_token` with NO
-  // Set-Cookie, because `getAndVerifyIdentity` finds no membership at the scope — `global-setup`
-  // wipes `.wrangler/state` each run and the bootstrap mint is gated to `nebula-platform` + the
-  // bootstrap email, so it never fires for a star scope. Everything downstream (no cookie → refresh
-  // 401 "No refresh token provided" → never `connected`) follows from that one fact.
-  //
-  // ⚠️ **CORRECTED 2026-07-25 while building Phase 2: `claim-star` does NOT unblock this.** The lane
-  // logs in AT `test-u0.test-g0.dev`, and `.dev` is on the RESERVED list `claim-star` itself adds —
-  // it refuses that slug by design (a stranger founding the user-developer's own Studio workspace is
-  // exactly what the list prevents). A `.dev` scope has no star-scoped admin by construction, so an identity
-  // reaches it only by (a) logging in at an ANCESTOR the covering admin holds — but `refreshCookie` sets
-  // `Path=/auth/{scope}`, so a universe login's cookie is not sent to `/auth/{u}.{g}.dev/refresh-token`
-  // — or (b) an INVITE into the scope (tasks/nebula-auth-identity-mint.md). Which one is a design
-  // question, tracked in tasks/archive/nebula-star-founder-provisioning.md § Phase 2.
-  // ⛔ Do NOT unblock by dropping `dev` from the reserved list.
+  // Proven 2026-07-25 (at the pre-collapse star scope; the mechanism is tier-independent): the
+  // magic-link consume 302s with an error and NO Set-Cookie, because `getAndVerifyIdentity` finds
+  // no membership at the scope — `global-setup` wipes `.wrangler/state` each run, and nothing
+  // mints an identity at a bare galaxy either (`createGalaxy` runs under a universe admin this
+  // lane never logs in as). Everything downstream (no cookie → refresh 401 → never `connected`)
+  // follows from that one fact. Unblocking = provisioning TEST_SCOPE's universe through the real
+  // claim path in global-setup, the deferred random-scope-per-run upgrade.
   it.skip('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
-    // 1. Load the Studio at the explicit test scope via the canonical path form (`/app/{scope}`,
-    //    the same form the magic link redirects to). ui-smoke DELIBERATELY uses the explicit-scope
+    // 1. Load the Studio at the explicit test scope via the canonical path form
+    //    (`/studio/{scope}`, the same form the magic link redirects to — the ACTIVE scope;
+    //    the auth-scope hint self-heals on the first refresh). ui-smoke DELIBERATELY uses the explicit-scope
     //    path — it covers the FORM WIRING, NOT App.vue's discovery-resolve branch (discovery's
     //    automated coverage is the deferred random-scope-per-run upgrade, backlog.md:110). Don't
     //    over-credit this as discovery cover.
-    await page.goto(`${viteBaseUrl}/app/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${viteBaseUrl}/studio/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
     // 2. Arm the email waiter BEFORE driving the form (listen first, then send), then DRIVE the
     //    real-email login form — type the email + click "Send magic link" — in place of the old
@@ -156,7 +149,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
     // 4. Reload the authenticated Studio → onMounted auto-connect uses the cookie.
-    await page.goto(`${viteBaseUrl}/app/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${viteBaseUrl}/studio/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
     // Capable-of-failing: reds if the shell fails to render or the /gateway connect never
     // completes. The chat input ("Describe a change…") only renders when `connected` (the v-else
@@ -168,11 +161,11 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
 
-    // Auto-refresh (preview-ready-autorefresh.md): connect() fired warmPreview(); when vite is
-    // serving, DevStudio's handlePreviewReady push triggers reloadPreview, bumping the iframe src
-    // with a `?t=` cache-buster — with NO manual Reload click. Capable-of-failing: without the
+    // Auto-refresh: connect() fired warmPreview(); the Galaxy's handlePreviewReady push (immediate
+    // post-collapse — dist serves from its VFS) triggers reloadPreview, bumping the iframe src with
+    // a `?t=` cache-buster — with NO manual Reload click. Capable-of-failing: without the
     // warmPreview→onPreviewReady path nothing bumps the src on login, so this times out (the src
-    // stays the bare `/dev-container/{scope}/`). Generous timeout for the cold container boot.
+    // stays the bare `/app/{scope}.dev/`).
     await page.waitForFunction(
       () => (document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '').includes('?t='),
       undefined,
@@ -184,20 +177,20 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
 
   // ⛔ SKIPPED — depends on the login step above (asserts `authed` is non-null). Same blocker,
   // same lane-wide login blocker as above (NOT `claim-star` — see the correction there).
-  it.skip('prompt → DevStudio.chat codegen loop updates the preview (env.AI + Docker)', async () => {
+  it.skip('prompt → Galaxy chat codegen loop + build updates the preview (env.AI + Docker)', async () => {
     expect(authed, 'login step must have established a session').not.toBeNull();
     const { page } = authed!;
 
     // Snapshot the preview src; a completed chat turn appends a ?t= cache-buster
     // (App.vue reloadPreview), so its appearance proves the full
-    // chat → DevStudio.chat → codegen → /dev-container preview loop ran.
+    // chat → Galaxy codegen → build → /app preview loop ran.
     const srcBefore = await page.locator('iframe[title="Preview"]').getAttribute('src');
 
     await page.getByPlaceholder('Describe a change…').fill('Make a simple counter with an increment button');
     await page.getByPlaceholder('Describe a change…').press('Enter');
 
-    // The model call + Rung-1 compile gate + container preview can take a while
-    // (cold container build on the first /dev-container hit). Generous timeout.
+    // The model call + Rung-1 compile gate + the ephemeral container build can take a
+    // while (cold container + FUSE mount on the first build). Generous timeout.
     await page.waitForFunction(
       (prev) => {
         const src = document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '';
@@ -223,28 +216,9 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     expect(errorBubbles, 'the chat turn should not have errored').toBe(0);
   });
 
-  // ⛔ SKIPPED — transitively blocked by the same break: this "rides the warm container the prompt
-  // step spun up" (below), and that step is skipped, so the preview GET has no container to serve.
-  // Same lane-wide login blocker as above (NOT `claim-star` — see the correction there).
-  it.skip('preview ignores a request-supplied scope decoy + the command-port header (security)', async () => {
-    // The public `/dev-container` GET injects the SERVER-DERIVED scope (from the URL path),
-    // never a request-supplied one, and can't be redirected to the container command port.
-    // Rides the warm container the prompt step spun up for TEST_SCOPE (Node-side fetch — the
-    // preview GET is ungated). Replaces the old in-process `?activeScope=evil`/`cf-container-
-    // target-port:9000` decoy `it.skip` with a top-down check.
-    const res = await fetch(`${workerBaseUrl}/dev-container/${TEST_SCOPE}/?activeScope=evil.other.dev`, {
-      headers: { 'cf-container-target-port': '9000' },
-    });
-    expect(res.ok, `preview GET should succeed: ${res.status}`).toBe(true);
-    const html = await res.text();
-
-    const meta = html.match(/name="nebula-scope" content='([^']*)'/)?.[1];
-    expect(meta, 'preview HTML must carry the injected nebula-scope meta').toBeTruthy();
-    const scope = JSON.parse(meta!) as { activeScope: string };
-    // Capable-of-failing: if fetch() trusted the query, activeScope would be the decoy.
-    expect(scope.activeScope).toBe(TEST_SCOPE); // server-derived from the URL path
-    expect(scope.activeScope).not.toContain('evil'); // the `?activeScope=` decoy is ignored
-    // The preview HTML (with its injected meta) being served at all proves the
-    // `cf-container-target-port:9000` header did NOT route us to the command server.
-  });
+  // (The old preview-decoy skip — `?activeScope=evil` + `cf-container-target-port` against the
+  // retired `/dev-container/*` proxy — was DELETED with its subject: the proxy no longer exists,
+  // the serve derives scope from the URL path alone, and its spirit is re-homed as
+  // test/serve-app.test.ts's containment suite + the routing-contract's server-derived
+  // nebula-scope assertions.)
 });

@@ -67,8 +67,9 @@ function refreshCookie(scope: string, token: string): string {
  * A failed login redirect, tier-split like the success path.
  *
  * ⚠️ The split matters most HERE. An **expired** claim link is the exact case the resumable claim
- * exists for, and once the collapse flips `NEBULA_AUTH_REDIRECT` to `/studio`, an unsplit error branch
- * lands a Star admin identity in the user-developer's control plane — the outcome the split prevents.
+ * exists for, and with `NEBULA_AUTH_REDIRECT` at `/studio` (the Galaxy collapse), an unsplit error
+ * branch lands a Star admin identity in the user-developer's control plane — the outcome the split
+ * prevents.
  */
 function redirectWithError(env: Env, error: string, universeGalaxyStarId?: string): Response {
   const redirect = landingBase(env, universeGalaxyStarId);
