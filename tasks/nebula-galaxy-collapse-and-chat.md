@@ -628,6 +628,34 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
 
 **Confirm (capable-of-failing):** a freshly-invited identity with an empty `Profile` sees the modal on first login and **cannot dismiss it** without setting `name`; once set, the name appears in the thread **on that participant's existing earlier messages** (the per-author subscription back-fills). **Mutation:** key the prompt on `!profile.name` instead of the three-state derivation — ⚠️ the end state SELF-HEALS (a named identity still settles modal-closed), so assert the derived tri-state directly: the modal-gating computed never passes through *prompt* while `loading` (capture the transition, not the settle). **And the negative:** an identity whose `Profile` already has a name never sees the modal.
 
+✅ **BUILT 2026-08-28 — build notes that would surprise a re-reader:**
+- **The tri-state's *loading* keys on the `value` KEY, not on the slot's existence** — the phase's
+  own footgun paragraph named only `undefined`-means-loading, and that first cut shipped a flash:
+  the store proxy VIVIFIES `store.lmz.profiles[id]` to `{}` on the very read that opens the
+  subscription, so the slot exists before any snapshot lands. The live scenario caught the modal
+  flashing after every reload (the `[open]` attribute already gone, daisyUI's `.3s` visibility
+  transition still painting it). The derivation is the shared pure `deriveProfileGate`
+  (`src/profile-gate.ts`, exported from `/frontend`; App.vue consumes it, `test/profile-gate.test.ts`
+  asserts the four-shape transition directly).
+- **Non-dismissibility is structural, not guarded**: the dialog renders via the `open` ATTRIBUTE
+  (non-modal form), so Escape/cancel never fire, and no close affordance exists — nothing to guard.
+  The scenario still drives Escape + an overlay click as the live probe.
+- **A browser assert on modal absence must count `dialog.modal[open]`, never `isVisible()`** —
+  daisyUI transitions `visibility` over .3s, so a closing flash reads as visible after the state is
+  already correct (that is how the vivified-husk bug surfaced, and the assert is annotated in place).
+- **The save path is `NebulaClient.updateMyProfile(fields)`** → `Profile.writeProfile` at the
+  session's `profileId` claim; the modal closes on the SUBSCRIPTION reflecting the write (no local
+  flip). Back-fill asserted in-lane (`profile-subscribe.test.ts`, mutation: mis-route at
+  `#activeScope` → reds) and live (the pre-name message's byline flips "Someone" → the typed name;
+  post-reload the name renders from the initial snapshot).
+- **All the live limbs ride `studio-chat-reload`**, which HAD to absorb them anyway — a fresh
+  identity's first browser login now hits the modal before it can chat, so every rendered-Studio
+  drive completes the name as part of the real journey.
+- Environmental, worth a line: the browser project's spawned worker keeps its own
+  `test/browser/worker/.wrangler` state, which predated the `Emails.profileId` schema and 500'd
+  every claim (`no such column: profileId`). Local persisted state is disposable pre-alpha — wipe
+  that directory, not just the package root's.
+
 ## Phase 6 (chat) — streaming: keep the transient stream, one durable write, resilient completion
 - **Keep (already built):** `streamProgress` fire-and-forget `svc.broadcast`s transient chunks to session subscribers ([dev-studio.ts](../apps/nebula/src/dev-studio.ts) ~:575) — **no Resource write per chunk** — and `commitAssistantMessage` (`commitAgentMessage` after Phase 2's rename) writes **ONE durable `Message` at completion** (`status:'complete'`), which the query rerun fans to every subscriber.
 - **Delete (the resilience change):** the fragile `onChatResult` one-shot push (`deliverTurnResult`/`turnId`/`#pendingTurns`) — a keyed reply-channel held in-heap that strands as "thinking… forever" on a dead socket (ADR-003). `chat()` itself is already gone from the mesh surface (Phase 4 — the commit is the trigger; the send is `postUserMessage`); this phase deletes the delivery machinery it left behind. The client observes completion on its **`Message` subscription**, which re-derives on reconnect.

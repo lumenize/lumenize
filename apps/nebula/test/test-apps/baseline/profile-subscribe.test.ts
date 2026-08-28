@@ -70,10 +70,11 @@ async function meshClient(opts: {
  * default `onBeforeCall` + captures `handleResourceUpdate`) using a PRE-MINTED accessToken (skips the
  * baked cookie refresh). This is the production receive-side — NOT a hand-rolled probe.
  */
-async function nebulaClient(opts: { activeScope: string }): Promise<NebulaClientTest> {
+async function nebulaClient(opts: { activeScope: string; profileId?: string }): Promise<NebulaClientTest> {
   const { access_token, sub } = await createNebulaTestToken({
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.activeScope, instanceName: opts.activeScope, scopeAdmin: false, ttlSeconds: 3600,
+    profileId: opts.profileId,
   })();
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
@@ -241,5 +242,34 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     // Release the LAST handle → Profile.unsubscribe fires (refcount 0) → the DO row drops.
     h2[Symbol.dispose]();
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(0));
+  });
+
+  it('updateMyProfile writes MY profile and a live subscriber receives the name — the back-fill leg', async () => {
+    const pid = uuid();
+    // The thread-rendering side: a client already holding the per-author Profile subscription
+    // the byline rides. Its initial snapshot is the empty profile #mintIdentity leaves behind —
+    // the modal's loaded-empty ('prompt') state, asserted here as the wire truth the tri-state
+    // classifies (test/profile-gate.test.ts owns the classification).
+    const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
+    await subscribe(x, pid);
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(1));
+    expect(x.profileUpdates[0].snapshot.value).toEqual({});
+
+    // The completing owner: a REAL NebulaClient whose claims carry profileId = pid — the
+    // modal's save path (updateMyProfile routes on the claim, not a parameter).
+    const owner = await nebulaClient({ activeScope: 'universe-y.app.tenant', profileId: pid });
+    await owner.updateMyProfile({ name: 'Sydney' });
+
+    // The subscriber's live sub receives the completed name — the back-fill: every earlier
+    // message by this author re-renders its byline from this same slot. ⚠️ MUTATION-CHECKED:
+    // route updateMyProfile at `this.#activeScope` instead of the profileId claim → the write
+    // lands on the wrong Profile instance and this second update never arrives.
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
+    expect(x.profileUpdates[1].snapshot.value).toEqual({ name: 'Sydney' });
+  });
+
+  it('updateMyProfile throws loudly when the session carries no profileId claim', async () => {
+    const owner = await nebulaClient({ activeScope: 'universe-z.app.tenant' });
+    expect(() => owner.updateMyProfile({ name: 'Nope' })).toThrow(/no profileId claim/);
   });
 });

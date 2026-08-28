@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
-import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants } from "@lumenize/nebula/frontend";
+import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate } from "@lumenize/nebula/frontend";
+import type { ProfileGate, ProfileSlot } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
@@ -100,6 +101,38 @@ const thread = computed<ThreadMsg[]>(() => {
   }
   return out;
 });
+// ── Profile completion — BLOCKING until `name` exists ──
+// The signal needs no new channel: reading MY store.lmz.profiles[profileId] IS the
+// subscription, and "incomplete" is DERIVED state over the live snapshot. The
+// tri-state is load-bearing (testing.md's self-heal trap): `undefined` = not yet
+// loaded (NEVER prompt — a naive !name flashes the modal during load); a loaded
+// entry with no name = prompt; a name = done. The modal closes when the
+// subscription reflects the saved write — no local "completed" flag (a second
+// source of truth).
+const profileGate = computed<ProfileGate>(() => {
+  if (!connected.value) return "done"; // no session → nothing to gate
+  const pid = (nebula.value?.client as { claims?: { profileId?: string } } | undefined)?.claims?.profileId;
+  if (!pid) return "done";
+  // This read IS the subscription (the store's read-matcher refcounts it).
+  const slot = (nebula.value?.store.lmz.profiles as Record<string, ProfileSlot> | undefined)?.[pid];
+  return deriveProfileGate(slot);
+});
+const profileName = ref("");
+const profileSaving = ref(false);
+async function saveProfileName() {
+  const name = profileName.value.trim();
+  if (!name || profileSaving.value) return;
+  profileSaving.value = true;
+  try {
+    await nebula.value!.client.updateMyProfile({ name });
+    // No local flip — the fanout closes the modal (and back-fills the thread bylines).
+  } catch (e) {
+    log("error", `Could not save your name: ${(e as Error).message}`);
+  } finally {
+    profileSaving.value = false;
+  }
+}
+
 // Thinking: my message posted, no agent reply linking back to it yet.
 const thinking = computed(() => {
   const posted = lastPostedId.value;
@@ -639,6 +672,21 @@ async function logout() {
 
 <template>
   <div class="h-screen flex" data-theme="dark">
+    <!-- Profile completion — BLOCKING (deliberate): no close button, no backdrop
+         dismiss, Escape swallowed. Everyone in the thread sees your name, so the
+         one-time capture IS the product working. -->
+    <dialog class="modal" :open="profileGate === 'prompt'" @cancel.prevent @keydown.escape.prevent>
+      <div class="modal-box">
+        <h3 class="text-lg font-bold">What should we call you?</h3>
+        <p class="py-2 text-sm opacity-80">Your name appears next to everything you post — everyone in your workspace sees it.</p>
+        <form class="flex gap-2" @submit.prevent="saveProfileName">
+          <input v-model="profileName" class="input input-bordered flex-1" placeholder="Your name" :disabled="profileSaving" />
+          <button class="btn btn-primary" :disabled="profileSaving || !profileName.trim()">
+            <Loader2 v-if="profileSaving" class="size-4 animate-spin" /> Save
+          </button>
+        </form>
+      </div>
+    </dialog>
     <!-- Chat rail -->
     <section class="w-[28rem] shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">

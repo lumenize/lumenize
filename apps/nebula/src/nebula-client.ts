@@ -355,7 +355,11 @@ function createInMemoryStoreAdapter(): NebulaStoreAdapter {
  *  since the Profile DO is global/cross-scope. Profiles ride a DEDICATED client channel (`#profileRefcount`
  *  / `handleProfileUpdate`), NOT the resource keyspace — so a dev-user ontology type named `Profile` can't
  *  collide (tasks/nebula-subscriber-lists.md). */
-interface ProfileSubscribeTarget { subscribe(): void; unsubscribe(): void; }
+interface ProfileSubscribeTarget {
+  subscribe(): void;
+  unsubscribe(): void;
+  writeProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void>;
+}
 
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
@@ -1512,6 +1516,22 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     return this.#subscribeVia(key, () =>
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
         this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId)));
+  }
+
+  /**
+   * Write public `Profile` fields (name / nickname / picture) for the session's
+   * `profileId` claim — the profile-completion save. Routes on the fixed `PROFILE`
+   * binding at that claim (ADR-012); the Profile DO enforces owner-or-admin
+   * server-side (`#requireOwnerOrAdmin` — under impersonation the claim names the
+   * SUBJECT, so the owner branch never fires and the admin branches decide). The live
+   * subscription fans the change to every subscriber, back-filling names on earlier
+   * messages.
+   */
+  updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
+    const profileId = this.claims.profileId;
+    if (!profileId) throw new Error('updateMyProfile: this session carries no profileId claim');
+    return this.lmz.callAsync('PROFILE', profileId,
+      this.ctn<ProfileSubscribeTarget>().writeProfile(fields)) as Promise<void>;
   }
 
   /**

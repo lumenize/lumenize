@@ -1,9 +1,16 @@
 /**
- * Drive the rendered Studio through login → post → reload, ASSERTING ON RENDER (the
- * collapse's Phase 4 rewrite — the old optimistic-echo assumption is gone): the posted
- * marker must render from the durable Message SUBSCRIPTION before the reload, and render
- * AGAIN after it (fresh-heap history restore). Captures (screenshot + a11y +
- * console/network) ride every leg for the evidence trail.
+ * Drive the rendered Studio through login → profile completion → post → reload,
+ * ASSERTING ON RENDER (the collapse's Phase 4 rewrite — the old optimistic-echo
+ * assumption is gone): the posted marker must render from the durable Message
+ * SUBSCRIPTION before the reload, and render AGAIN after it (fresh-heap history
+ * restore). Captures (screenshot + a11y + console/network) ride every leg.
+ *
+ * Profile-completion limbs (the blocking modal): a fresh identity's first
+ * login shows the name modal; Escape and an overlay click do NOT dismiss it; saving a
+ * name closes it via the subscription push (no local flip), and the name BACK-FILLS the
+ * byline on a message the same identity posted BEFORE ever naming itself (API-posted
+ * pre-login, so it renders "Someone" first — the transient is asserted, not the settle).
+ * The post-reload leg doubles as the negative: a named identity never sees the modal.
  *
  * Login uses the REAL magic-link loop (reusing the ui-smoke email helpers) — the proven path. See
  * FINDINGS.md for why cookie/token injection (skip-login) resists: the Studio SPA drives its own
@@ -13,7 +20,7 @@
  */
 import assert from 'node:assert/strict';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar } from '../lib/harness';
 import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } from '../lib/browser';
 // Reuse the ui-smoke email loop (Node-safe, filters by scope) rather than duplicating it.
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
@@ -40,7 +47,22 @@ export async function run(stack: DevStack): Promise<void> {
   const provisioned = await provisionAndLogin({
     baseUrl: stack.baseUrl, scope: SCOPE, email: LOGIN_EMAIL, testToken,
   });
-  void provisioned; // the browser establishes its OWN session below — the API one just provisioned
+
+  // 0b. PRE-NAME message: post as the SAME identity via the API before the browser ever
+  //     logs in — the "existing earlier message" the back-fill limb below flips.
+  //     Same-identity is load-bearing: the byline must flip on THIS author's bubble.
+  const preNameMarker = `pre-name message ${Date.now().toString(36)}`;
+  {
+    const apiDriver = await connectDriver(stack, {
+      scope: SCOPE, session: { accessToken: provisioned.accessToken, sub: provisioned.sub },
+    });
+    try {
+      await apiDriver.client.postUserMessage(preNameMarker);
+    } finally {
+      // dispose ONLY — no wipe: the posted message must survive for the browser leg.
+      apiDriver.dispose();
+    }
+  }
 
   const { viteBaseUrl, close: closeVite } = await bootStudioVite(stack.baseUrl);
   const browser = await launchChromium();
@@ -86,6 +108,37 @@ export async function run(stack: DevStack): Promise<void> {
       throw e;
     }
 
+    // 3b. PROFILE COMPLETION. A fresh identity's Profile is empty —
+    //     #mintIdentity writes no ProfileFields — so the blocking modal is up. The
+    //     pre-name bubble renders "Someone" while it shows (the TRANSIENT, captured
+    //     before the flip so the back-fill below is unambiguous).
+    const DISPLAY_NAME = 'Robin Harness';
+    const modal = page.locator('dialog.modal');
+    await modal.locator('.modal-box').waitFor({ state: 'visible', timeout: 30_000 });
+    const preNameChat = page.locator('div.chat', { hasText: preNameMarker }).first();
+    await preNameChat.locator('.chat-header').getByText('Someone').first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
+
+    // Non-dismissible: Escape and an overlay click leave it up; Save is inert while empty.
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+    await page.waitForTimeout(300);
+    assert.equal(await modal.locator('.modal-box').isVisible(), true,
+      'the profile modal must survive Escape + an overlay click — it is deliberately blocking');
+    assert.equal(await modal.getByRole('button', { name: 'Save' }).isDisabled(), true,
+      'Save must be disabled while the name field is empty');
+
+    // Save a name → the modal closes on the SUBSCRIPTION reflecting the write (no local
+    // flip in App.vue), so this wait asserts write → Profile fanout → store → derive.
+    await modal.getByPlaceholder('Your name').fill(DISPLAY_NAME);
+    await modal.getByRole('button', { name: 'Save' }).click();
+    await modal.locator('.modal-box').waitFor({ state: 'hidden', timeout: 20_000 });
+
+    // BACK-FILL: the pre-name message — posted before the identity had any name — now
+    // renders the name in its byline, from the same live Profile slot.
+    await preNameChat.locator('.chat-header').getByText(DISPLAY_NAME).first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
+
     // 4. Submit a chat turn with a marker. There is NO optimistic echo any more (the
     //    collapse's Phase 4): the sender's own message renders from the durable Message
     //    SUBSCRIPTION like everyone else's — so this wait ASSERTS the whole
@@ -107,6 +160,20 @@ export async function run(stack: DevStack): Promise<void> {
     await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
     const after = await captureArtifacts(inst, 'studio-chat-after-reload');
     const renderedAfterReload = (await page.getByText(marker).count()) > 0;
+
+    // PROFILE-COMPLETION NEGATIVE: the identity is named now, so the fresh-heap session settles with
+    // NO modal (the thread already rendered above, so the profile slot has landed — this
+    // is the settled state; the no-flash transient is owned by test/profile-gate.test.ts).
+    // The fresh heap renders the name from the INITIAL Profile snapshot (no push
+    // involved) — both bubbles, including the one posted before the identity was named.
+    await page.locator('div.chat', { hasText: preNameMarker }).first()
+      .locator('.chat-header').getByText(DISPLAY_NAME).first()
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    // ⚠️ assert the [open] ATTRIBUTE, not visibility — daisyUI transitions `visibility`
+    // over .3s, so isVisible() can catch the tail of a closing flash and a flash is
+    // exactly the defect this leg exists to catch (it did, once: the vivified-husk bug).
+    assert.equal(await page.locator('dialog.modal[open]').count(), 0,
+      'a named identity must never see the profile-completion modal');
 
     // Assert the HARNESS produced BOTH captures (capable-of-failing on the harness, not the feature).
     const { existsSync, statSync } = await import('node:fs');
