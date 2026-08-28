@@ -33,7 +33,7 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * ⚠️ **The bare `access.scopeAdmin` bit is NOT dominion** — it is dominion only over what the
  * caller's `authScope` covers. `requirePassage` deliberately admits a caller whose own scope sits
  * *below* this node (a member of a child may call its parent), so a bare bit check let an admin of
- * a child scope act as admin on its ancestors. See tasks/nebula-confine-admin-bypass.md.
+ * a child scope act as admin on its ancestors. See tasks/archive/nebula-confine-admin-bypass.md.
  *
  * **Fail closed on a missing instance name.** `instanceName` is permanently `undefined` on a
  * `LumenizeWorker`, and a node type could compose this guard *without* `requirePassage`. Never

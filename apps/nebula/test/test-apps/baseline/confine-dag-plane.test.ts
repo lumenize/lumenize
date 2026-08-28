@@ -251,10 +251,12 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       using adminContent = admin.resources.subscribe('Message', seeded);
       await adminContent.snapshot;
 
-      const rows = await (runInDurableObject as any)((env as any).GALAXY.getByName(scope),
+      type SubscriberRow = { clientId: string; dominionOverHostAtSubscribe: number };
+      const rows: SubscriberRow[] = await (runInDurableObject as any)(
+        (env as any).GALAXY.getByName(scope),
         (_i: any, c: any) => c.storage.sql.exec(
           'SELECT clientId, dominionOverHostAtSubscribe FROM Subscribers WHERE resourceId = ?', seeded,
-        ).toArray() as Array<{ clientId: string; dominionOverHostAtSubscribe: number }>);
+        ).toArray() as SubscriberRow[]);
       const devRow = rows.find((r) => r.clientId === devAdmin.lmz.instanceName);
       const adminRow = rows.find((r) => r.clientId === admin.lmz.instanceName);
       expect(devRow?.dominionOverHostAtSubscribe).toBe(0); // admitted by the grant, NOT as admin

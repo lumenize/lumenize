@@ -178,8 +178,10 @@ export class DagTree {
     // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
     // minted with an `aud` at or below the admin's `authScope`" — true, but it establishes that about
     // `aud`, NOT about THIS HOST, which is the question actually being asked.
-    // (It held only because every DagTree host is a star-tier leaf — an incidental property the
-    // Galaxy collapse deletes. See tasks/nebula-confine-admin-bypass.md §B.)
+    // (It held only because every DagTree host WAS a star-tier leaf — an incidental property the
+    // Galaxy collapse deleted: the collapsed Galaxy hosts a DAG at `{u}.{g}`, so a `{u}.{g}.dev`
+    // admin now reaches a host their scope does not cover. That denial is the live case, and
+    // `confine-dag-plane.test.ts` drives it against the real chat plane.)
     // Fail closed on an absent host name by simply NOT granting the bypass — the caller falls
     // through to the ordinary DAG lookup and needs a real grant. Never coerce to a sentinel:
     // it would flow into `isAtOrAbove`, where a superuser's root scope covers any string.
@@ -468,7 +470,7 @@ export class DagTree {
    * and only one of them comes from the store:
    *   - **Push path** (`resource-data-plane.ts` `targetsForQuery` / query-push / mutation-broadcast)
    *     passes the stored row's verdict, which IS confined at write time. That is the path that
-   *     matters, and the one tasks/nebula-confine-admin-bypass.md closes.
+   *     matters, and the one tasks/archive/nebula-confine-admin-bypass.md closed.
    *   - **Wire path** — `Star.dagTree()` / `Galaxy.dagTree()` are bare `@mesh()`, and mesh's
    *     "gate once, then chain" checks the allowlist only on a chain's ENTRY op, so a caller can
    *     reach this method directly with an attacker-chosen `hasDominionOverHost`. **That is harmless for a

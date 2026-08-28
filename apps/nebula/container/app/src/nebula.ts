@@ -11,9 +11,10 @@
  * ⚠️ Assembled-image wiring: `@lumenize/nebula/frontend` is a private workspace package
  * (not on npm), so it is VENDORED into the container image at image build — the seed
  * App.vue boots standalone (doesn't import this file) so the image self-validates
- * vite+HMR without the factory; DevStudio's first `applyChanges` pushes an App.vue
- * that imports `{ client, store }` from here once the frontend is vendored. The
- * assembled preview (factory + live Star) rides the e2e run with `wrangler dev` + Docker Desktop (task Phase 3.5).
+ * vite+HMR without the factory; the Galaxy seeds an App.vue into its own source tree
+ * at git-init that imports `{ client, store }` from here, and the container's
+ * `/workspace` IS that tree (a FUSE mount of the DO's VFS — there is no push step).
+ * The assembled preview (factory + live Star) rides the e2e run with `wrangler dev` + Docker Desktop.
  */
 // @ts-expect-error — vendored at deploy build (see header); unresolved in the baked tree.
 import { createNebulaClient } from '@lumenize/nebula/frontend';
@@ -35,7 +36,7 @@ function readInjectedScope(): NebulaScope {
 const { activeScope, authScope, ontologyVersion } = readInjectedScope();
 
 // Dev preview only: enable the live reload channel so an ontology change re-syncs this
-// preview onto the new version (Decision 12 / Flow 1d). Segment-precise `.dev` check
+// preview onto the new version. Segment-precise `.dev` check
 // (env detection — NOT a hot-path branch); prod previews leave `onReload` unset and
 // rely on the once-per-session `onShouldRefreshUI` backstop. Setting `onReload` is what
 // makes NebulaClient subscribe to the Star's reload channel on connect.

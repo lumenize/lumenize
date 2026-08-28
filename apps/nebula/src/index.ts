@@ -52,8 +52,8 @@ export { chatOntologySeedRow } from './chat-ontology';
 export { deriveKind, deriveParticipants } from './participants';
 export { deriveProfileGate, type ProfileGate, type ProfileSlot } from './profile-gate';
 export {
-  startTurn, signalTurn, settleTurn, evaluateTurn, TURN_IDLE_MS,
-  type TurnLiveness, type TurnPhase,
+  startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS,
+  type TurnLiveness, type TurnPhase, type TurnDisplay,
 } from './turn-liveness';
 export type { ParticipantKind, ParticipantRef } from './participants';
 

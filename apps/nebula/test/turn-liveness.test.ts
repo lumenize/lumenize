@@ -12,7 +12,7 @@
  * already-shown `failed` (reconciliation), with recovery otherwise manual-only.
  */
 import { describe, it, expect } from 'vitest';
-import { startTurn, signalTurn, settleTurn, evaluateTurn, TURN_IDLE_MS } from '../src/turn-liveness';
+import { startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS } from '../src/turn-liveness';
 
 describe('turn liveness', () => {
   it('a genuinely silent turn fails within one idle window — not a hang', () => {
@@ -58,5 +58,36 @@ describe('turn liveness', () => {
     expect(t.phase).toBe('awaiting');
     // And the window restarts from that signal, not from the post.
     expect(evaluateTurn(t, TURN_IDLE_MS * 2 + 10).phase).toBe('awaiting');
+  });
+});
+
+/**
+ * Which status bubble renders. This lives in the reducer rather than in App.vue's
+ * `v-if`/`v-else-if` order because template order is a decision no test can see — and
+ * it decided wrongly once: the first cut put the transient stream first, so a
+ * chunks-then-dies turn showed a frozen partial reply that `v-else`'d the failed banner
+ * away forever (caught by the /build-task verifier panel, 2026-08-28). Every limb below
+ * would have stayed green against that template, which is the argument for deriving it.
+ */
+describe('deriveTurnDisplay', () => {
+  it('a failed turn OUTRANKS a frozen partial stream — the masking bug', () => {
+    // The shape that bit: chunks arrived (so `streaming` is set and nothing will ever
+    // clear it — its message never lands durably), then generation died.
+    expect(deriveTurnDisplay({ streaming: true, phase: 'failed', awaitingReply: true }))
+      .toBe('failed');
+  });
+
+  it('a live stream outranks thinking, and a settled turn shows neither', () => {
+    expect(deriveTurnDisplay({ streaming: true, phase: 'awaiting', awaitingReply: true }))
+      .toBe('streaming');
+    // Settled: the durable reply landed, so `awaitingReply` is false and nothing shows.
+    expect(deriveTurnDisplay({ streaming: false, phase: 'settled', awaitingReply: false }))
+      .toBe('none');
+  });
+
+  it('thinking covers the pre-first-chunk window, and nothing shows with no turn', () => {
+    expect(deriveTurnDisplay({ streaming: false, phase: 'awaiting', awaitingReply: true }))
+      .toBe('thinking');
+    expect(deriveTurnDisplay({ streaming: false, awaitingReply: false })).toBe('none');
   });
 });

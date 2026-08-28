@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
-import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate, startTurn, signalTurn, settleTurn, evaluateTurn } from "@lumenize/nebula/frontend";
+import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
 import type { TurnLiveness } from "@lumenize/nebula/frontend";
 import type { ProfileGate, ProfileSlot } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
@@ -158,6 +158,13 @@ watch(replyLanded, (landed) => {
 // Thinking: my message posted, no agent reply linking back to it yet (the template
 // shows the failed banner instead once the idle window lapses).
 const thinking = computed(() => !!lastPostedId.value && !replyLanded.value);
+// WHICH status bubble shows — derived, never template-order (see deriveTurnDisplay's
+// JSDoc: a `failed` turn must outrank a frozen partial stream, which nothing clears).
+const turnDisplay = computed(() => deriveTurnDisplay({
+  streaming: !!streaming.value && !messageIds.value.includes(streaming.value.id),
+  phase: turn.value?.phase,
+  awaitingReply: thinking.value,
+}));
 // The idle ticker: a coarse sweep is all the reducer needs (the window is 90s), and
 // a spurious `failed` self-heals on the durable reply.
 let turnTicker: ReturnType<typeof setInterval> | undefined;
@@ -744,17 +751,18 @@ async function logout() {
             <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.thought }}</pre>
           </details>
         </template>
-        <!-- The transient stream (best-effort animation; superseded by the durable reply). -->
-        <div v-if="streaming && !messageIds.includes(streaming.id)" class="chat chat-start">
+        <!-- ONE status bubble, chosen by `turnDisplay` — the branches are keyed on the
+             derived value, so precedence is the reducer's and not this list's order. -->
+        <div v-if="turnDisplay === 'streaming'" class="chat chat-start">
           <div class="chat-header text-xs opacity-60 mb-0.5">Nebula</div>
-          <div class="chat-bubble whitespace-pre-wrap">{{ streaming.text }}</div>
+          <div class="chat-bubble whitespace-pre-wrap">{{ streaming!.text }}</div>
         </div>
-        <div v-else-if="turn?.phase === 'failed'" class="chat chat-start">
+        <div v-else-if="turnDisplay === 'failed'" class="chat chat-start">
           <div class="chat-bubble chat-bubble-error text-sm">
             No reply arrived — this turn may have been lost. Re-send your message to try again.
           </div>
         </div>
-        <div v-else-if="thinking" class="chat chat-start">
+        <div v-else-if="turnDisplay === 'thinking'" class="chat chat-start">
           <div class="chat-bubble flex items-center gap-2"><Loader2 class="size-4 animate-spin" /> Studio is thinking…</div>
         </div>
         <!-- Local notices (login guidance, nudges, errors) — never the conversation. -->

@@ -3,7 +3,7 @@
 **Date**: 2026-07-17
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: `packages/mesh/src/lumenize-container.ts` (the container node type), `apps/nebula/src/nebula-container.ts` + the Galaxy collapse `tasks/nebula-galaxy-collapse-and-chat.md` (first application), `.claude/rules/containers.md` (day-to-day mechanics + the state machines). Origin: a month of running CF Containers ([[studio-keep-container-native-tide]]).
+**Evidence**: `apps/nebula/src/galaxy.ts` — the first hub, a plain `NebulaDO` driving its own build container through raw `ctx.container`; `.claude/rules/containers.md` (day-to-day mechanics + the state machines). Origin: a month of running CF Containers ([[studio-keep-container-native-tide]]).
 
 ## Context
 

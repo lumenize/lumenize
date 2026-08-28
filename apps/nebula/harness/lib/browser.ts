@@ -52,7 +52,7 @@ export function launchChromium(): Promise<Browser> {
 }
 
 /**
- * Boot a vite dev server rendering the real Studio SPA, proxying `/auth /gateway /dev-container`
+ * Boot a vite dev server rendering the real Studio SPA, proxying `/auth /gateway /app`
  * to the booted worker. `NEBULA_WORKER_URL` is read by the Studio's `vite.config.ts` at config
  * load, so it MUST be set before `createViteServer`. Lifted from `test/ui-smoke/global-setup.ts`.
  */

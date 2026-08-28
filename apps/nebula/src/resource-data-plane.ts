@@ -522,7 +522,7 @@ export class ResourceDataPlane {
    * check of its own: it goes through `Resources.transaction` → `DagTree.requirePermission`, which
    * is confinement point 1. So the platform-seed path (the Galaxy's `ensureChat` running under
    * the admin's call) has passage **iff that admin's `authScope` covers THIS host** — the
-   * same rule as every other caller. See tasks/nebula-confine-admin-bypass.md.
+   * same rule as every other caller. See tasks/archive/nebula-confine-admin-bypass.md.
    */
   async ensureResource(
     resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,

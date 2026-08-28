@@ -809,6 +809,36 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
 - The CSRF slice re-homed into [nebula-same-origin-guard.md](nebula-same-origin-guard.md) (the
   route it tested is gone; the three-leg shape transfers to whatever that verdict guards).
 
+✅ **VERIFIER PANEL 2026-08-28 — what it caught, and the one real defect:**
+- 🔴 **The failed banner was MASKED by a frozen partial stream** (Phase 6, major). App.vue's
+  transient-stream `v-if` preceded the banner's `v-else-if`, and `streaming` clears only when its
+  own message lands durably — so a turn that emitted chunks and then died uncommitted showed a
+  half-written reply forever, `v-else`-ing the banner away. That is the "thinking… forever" hang
+  this phase exists to kill, wearing a partial answer instead of a spinner, and it was reachable
+  by **any** hang after the first streamed step. The build note's *"the reducer owns every
+  decision"* was false: template order decided too. **Fixed by deriving the decision** —
+  `deriveTurnDisplay` in `src/turn-liveness.ts` returns which single bubble shows, with `failed`
+  outranking `streaming` and the reason stated at the site; the template branches key on the
+  derived value, so precedence is no longer expressible in a `v-if` list. Three new mutations,
+  including the original bug as a mutation, each reds exactly one limb.
+- **Every other finding was TEXT, not code** — which is the panel's known residual value (its own
+  calibration note says so): ADR-014's Evidence header still cited the deleted
+  `nebula-container.ts`; the scaffold seed's embedded header still taught the deleted
+  `applyChanges` push model to the codegen LLM; `workflow.md`'s rename-rule example named the
+  just-deleted `trackTurn`; four source comments cited the pre-archive
+  `nebula-confine-admin-bypass.md` path (one with a `§B` handle and a now-false tense);
+  `profile.ts`'s `prependActor` warning still said "future" for a helper that now exists;
+  `harness/lib/browser.ts` listed the deleted `/dev-container` proxy. All corrected.
+- 🔴 **The agent-memory half of Phase 7's sweep had been skipped** (major, and correctly called):
+  five memory files still asserted dead paths — `#forceReset` and `recover.test.ts` as live use,
+  `STUDIO_LOOP_SYSTEM_PROMPT` in `dev-studio.ts`, `DevStudio.chat` as the codegen entry, a
+  `#callModelRest` pointer, and the container-guidance surface list. Swept; dated build-log
+  memories were left alone deliberately, as archives.
+- ⚠️ **`npm run type-check` had been reported clean on a run that PREDATED the denial test** —
+  two `TS7006` implicit-anys shipped in `ffc8efc` and the note claimed otherwise. Fixed and
+  re-verified. The lesson is the phase-end walk's own rule applied to a *criterion*: a green
+  measured before the last edit is not a green.
+
 ## Relationships / sequencing
 
 - **Feasibility spike CLEAN on all four gates → GO** (ResourceDataPlane composition · container-only recovery spares the chat · DO-class migration defused by pre-alpha wipe-freely · test extraction ~90% done). *"Clean" ≠ trivial — a bounded, mechanical, multi-file change with no blocker.*

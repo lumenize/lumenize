@@ -1526,7 +1526,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * (the reactive store's grace→dispose) can actually unwind a profile. DEDICATED channel: profiles use
    * `#profileRefcount` / `#profilePending` / `handleProfileUpdate` and are mirrored to `store.lmz.profiles`
    * by the factory listener — never the resource keyspace, so a dev-user ontology type named `Profile`
-   * can't collide. tasks/nebula-subscriber-lists.md.
+   * can't collide. tasks/archive/nebula-subscriber-lists.md.
    */
   subscribeProfile(profileId: string): ResourceSubscription {
     this.#profileRefcount.set(profileId, (this.#profileRefcount.get(profileId) ?? 0) + 1);

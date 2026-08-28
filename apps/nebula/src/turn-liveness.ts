@@ -47,3 +47,31 @@ export function settleTurn(t: TurnLiveness): TurnLiveness {
 export function evaluateTurn(t: TurnLiveness, now: number, idleMs: number = TURN_IDLE_MS): TurnLiveness {
   return t.phase === 'awaiting' && now - t.lastSignalAt > idleMs ? { ...t, phase: 'failed' } : t;
 }
+
+/** Which single status bubble the thread shows beneath the durable messages. */
+export type TurnDisplay = 'streaming' | 'failed' | 'thinking' | 'none';
+
+/**
+ * The rendered status, derived — so PRECEDENCE lives here rather than in a template's
+ * `v-if`/`v-else-if` order, where it is invisible to a test.
+ *
+ * ⚠️ **`failed` outranks `streaming`, and that ordering is the whole point.** A transient
+ * stream clears only when its own message lands durably, so a generation that emits
+ * chunks and then dies uncommitted leaves a frozen partial reply with nothing to clear
+ * it — and if that outranked `failed`, it would hide the banner forever. That is the
+ * "thinking… forever" hang this module exists to kill, wearing a half-written answer
+ * instead of a spinner. A late chunk re-arms the turn to `awaiting` ({@link signalTurn}),
+ * so a turn that is merely slow goes back to showing its stream.
+ */
+export function deriveTurnDisplay(o: {
+  /** A transient stream is in flight whose message has not yet landed durably. */
+  streaming: boolean;
+  /** The liveness phase of my in-flight turn, if I have one. */
+  phase?: TurnPhase;
+  /** My message is posted and no durable reply links back to it yet. */
+  awaitingReply: boolean;
+}): TurnDisplay {
+  if (o.phase === 'failed') return 'failed';
+  if (o.streaming) return 'streaming';
+  return o.awaitingReply ? 'thinking' : 'none';
+}
