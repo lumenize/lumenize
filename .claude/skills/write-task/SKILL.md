@@ -50,6 +50,9 @@ Write the file down to and including *Design intent, constraints, and future sta
 [Often: **N goals, in the order they matter** — the properties that make the objective worth delivering,
 ranked. See the goals rules below.]
 
+## Relationships
+[What gates this and what this gates, one line each, by file. Seeded here — completed in Pass 2.]
+
 ## Context and current state
 Built already: [what exists, anchored on symbol + quoted fragment — never line numbers —
                 AND what becomes of each part: carried over, adapted, or left behind]
@@ -71,6 +74,7 @@ Missing: [numbered, specific, each a thing this task adds or changes]
   - ⚠️ **If the goals and the `Missing` list come out near-parallel, MERGE them** — give each goal its own "today, this is how it goes wrong" clause and delete `Missing`. Keep both lists only where they sit on genuinely different axes (`Missing` = specific defects, goals = outcome properties, as in `nebula-passage-dominion-from-scope.md`). Two parallel lists say everything twice and then drift, which is the defect this skill exists to prevent, reproduced inside one file.
 - **`Built already` states a FATE, not just an inventory.** For each part: carried over unchanged, adapted, or left behind. "What exists" alone leaves a cold implementer to guess which existing code they may keep, and the guess is usually "all of it". The verdicts are also load-bearing evidence — a part carried over unchanged is why a change is a migration rather than a rewrite, and that is a fact a reviewer wants when pricing it.
 - **Open questions** are decisions that must be MADE and that gate something. If the honest answer to *"what happens if we never decide this?"* is "nothing — we keep a seam open," it is a design consideration, not an open question.
+- **Relationships sits ABOVE Context, and Pass 1 seeds only the gating half.** It is orientation — a reader arriving cold wants the constellation before the argument — and it is read at the Pass-1 gate, which is the whole reason it moved up: below Phases it sits under content the reviewer skips. Write only what gates this and what this gates; supersessions, invalidated backlog rows, and un-skip obligations are outputs of the design and land in Pass 2. ⚠️ **Say each gating fact once.** The Status line already carries "what this blocks or is blocked by", so a Relationships row restating it is the backward duplication `prose-voice.md` § *Duplication* rules out — keep the one-line verdict in Status and the per-file detail here.
 
 **Then stop.** Present the section and ask for a read. Expect to iterate here — it is cheaper than iterating on phases.
 
@@ -115,8 +119,8 @@ Only after the intent is approved:
 ## Non-goals
 [Named exclusions, each with a home if it is deferred rather than dropped]
 
-## Relationships
-[Cross-file dependencies · un-skip obligations this task owns in other lanes · what it supersedes · which backlog rows it invalidates]
+## Relationships  ← COMPLETE the Pass-1 section in place; it stays above Context
+[+ un-skip obligations this task owns in other lanes · what it supersedes · which backlog rows it invalidates]
 ```
 
 **Notes that carry their weight:**
