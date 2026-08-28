@@ -17,7 +17,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "vitest --run",
+    "test": "node scripts/bundle-tsc.mjs --check && vitest --run",
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
     "types": "wrangler types",

@@ -64,6 +64,24 @@ jobs:
         # vite). The Rollup/SWC native-binding re-install lives inside the script.
         run: ./scripts/ci-install.sh --cache-clean --dev-vars --chromium --bundle
 
+      - name: Verify committed worker-configuration.d.ts is not stale
+        # `worker-configuration.d.ts` is COMMITTED (29 files) but generated from
+        # wrangler.jsonc, so editing a config without re-running `npm run types` leaves a
+        # stale global `Env`. Adding a binding fails loudly (the code that uses it will not
+        # type-check); REMOVING one does not — `Env` keeps declaring a binding that is
+        # `undefined` at runtime. Regenerate and diff: same rebuild-and-compare shape as
+        # `gen-scaffold.mjs --check` and `bundle-tsc.mjs --check`, and free here because the
+        # files are committed. Deterministic across machines — the output carries a content
+        # hash and the workerd version, both pinned by the lockfile. ~42s, so it lives in CI
+        # rather than `npm test`. A toolchain-triple bump reds this until someone regenerates,
+        # which is the intended behaviour, not a false positive.
+        run: |
+          npm run types
+          git diff --exit-code -- '*worker-configuration.d.ts' || {
+            echo "::error::worker-configuration.d.ts is stale — run 'npm run types' and commit the result."
+            exit 1
+          }
+
       - name: Run tests with coverage for all packages + apps
         # Shared discovery with local dev (scripts/test-code.sh) so a package can
         # never be tested locally but silently skipped in CI (that drifted once:

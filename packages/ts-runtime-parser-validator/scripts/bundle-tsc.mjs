@@ -31,7 +31,7 @@
  */
 
 import { build } from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
@@ -39,9 +39,27 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(__dirname, '../dist');
-const outfile = resolve(outDir, 'deps.bundle.mjs');
 
-mkdirSync(outDir, { recursive: true });
+// `--check` (run by the `test` script, ahead of vitest) REBUILDS into a scratch dir and
+// byte-compares against what is on disk, so a stale bundle fails LOUDLY instead of silently
+// validating against an old typia. Output is byte-deterministic for identical inputs
+// (verified 2026-08-28: identical sha256 across runs) and a full build is ~0.8s.
+//
+// Why rebuild-and-compare rather than stamping the input versions: the inputs are not only
+// `typescript` + `@typia/transform`. They include all eight `scripts/stubs/*.mjs` shims and
+// this script's own alias table, so any stamp is an enumeration that goes stale the moment
+// someone edits a stub — the exact silent staleness the check exists to catch. Rebuilding
+// derives the answer instead of listing what to watch.
+//
+// Why not regenerate in `postinstall`: ci-install.sh installs with `npm ci --no-optional`,
+// which strips esbuild's platform binary and restores it only in a later `npm install`, so a
+// postinstall bundle would run in the window where esbuild cannot execute and would fail every
+// CI install. The generator stays explicit (`npm run bundle`); this check makes forgetting loud.
+const CHECK = process.argv.includes('--check');
+const targetDir = CHECK ? resolve(outDir, '.check') : outDir;
+const outfile = resolve(targetDir, 'deps.bundle.mjs');
+
+mkdirSync(targetDir, { recursive: true });
 
 // Capture the TypeScript lib files typia needs to classify types (isArrayType,
 // isTupleType, etc.). Without these, typia emits `expected: "{}"` for builtin
@@ -67,7 +85,7 @@ const libEntries = libFiles
     }
   })
   .filter(Boolean);
-const libBundlePath = resolve(outDir, 'ts-lib-files.mjs');
+const libBundlePath = resolve(targetDir, 'ts-lib-files.mjs');
 writeFileSync(libBundlePath, `export const TS_LIB_FILES = {\n${libEntries.join(',\n')}\n};\n`);
 console.log(`Wrote ${libFiles.length} TS lib files → ${libBundlePath}`);
 
@@ -79,7 +97,7 @@ export { default as ts } from 'typescript';
 export { default as typiaTransform } from '@typia/transform';
 `;
 
-const barrelPath = resolve(outDir, '_barrel.mjs');
+const barrelPath = resolve(targetDir, '_barrel.mjs');
 writeFileSync(barrelPath, barrelSrc);
 
 const stubsDir = resolve(__dirname, 'stubs');
@@ -124,4 +142,24 @@ await build({
 
 const stats = readFileSync(outfile);
 const sizeMB = (stats.length / (1024 * 1024)).toFixed(2);
-console.log(`Bundled @typia/transform + typescript → ${outfile} (${sizeMB} MB)`);
+
+if (CHECK) {
+  const stale = ['deps.bundle.mjs', 'ts-lib-files.mjs'].filter((name) => {
+    const onDisk = resolve(outDir, name);
+    if (!existsSync(onDisk)) return true;
+    return !readFileSync(onDisk).equals(readFileSync(resolve(targetDir, name)));
+  });
+  rmSync(targetDir, { recursive: true, force: true });
+  if (stale.length > 0) {
+    console.error(
+      `\u2717 dist/ is missing or stale: ${stale.join(', ')}\n` +
+        `    A rebuild from the current inputs does not match what is on disk.\n` +
+        `    Fix: npm run bundle -w @lumenize/ts-runtime-parser-validator`,
+    );
+    process.exit(1);
+  }
+  console.log('\u2713 deps bundle matches a fresh rebuild from the current inputs');
+  process.exit(0);
+}
+
+console.log(`Bundled @typia/transform + typescript \u2192 ${outfile} (${sizeMB} MB)`);

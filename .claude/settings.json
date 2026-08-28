@@ -24,6 +24,10 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/prose-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/generated-artifact-hook.sh"
           }
         ]
       }
