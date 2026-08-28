@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
+import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
-import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate } from "@lumenize/nebula/frontend";
+import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate, startTurn, signalTurn, settleTurn, evaluateTurn } from "@lumenize/nebula/frontend";
+import type { TurnLiveness } from "@lumenize/nebula/frontend";
 import type { ProfileGate, ProfileSlot } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
@@ -49,6 +50,9 @@ let chatSub: ChatSub | null = null;
 const streaming = ref<{ id: string; text: string } | null>(null);
 /** The id of MY last posted message — "thinking" until an agent reply links back to it. */
 const lastPostedId = ref<string | null>(null);
+/** Liveness of MY in-flight turn (src/turn-liveness.ts): chunks are a hint, the durable
+ *  reply is truth, `failed` means re-send by hand — nothing retries automatically. */
+const turn = ref<TurnLiveness | null>(null);
 
 function openChatThread(client: { resources: { subscribeQuery(q: unknown): unknown } }) {
   closeChatThread();
@@ -71,6 +75,7 @@ function closeChatThread() {
   messageIds.value = [];
   streaming.value = null;
   lastPostedId.value = null;
+  turn.value = null;
 }
 
 type ThreadMsg = { id: string; kind: "agent" | "human"; mine: boolean; byline: string; content: string; thought?: string };
@@ -133,18 +138,35 @@ async function saveProfileName() {
   }
 }
 
-// Thinking: my message posted, no agent reply linking back to it yet.
-const thinking = computed(() => {
+// The durable agent reply linking back to my last posted message — TRUTH (the
+// transient stream is only a hint). Settles the liveness reducer, clearing any
+// spurious `failed`, however late it lands (reconciliation).
+const replyLanded = computed(() => {
   const posted = lastPostedId.value;
   if (!posted) return false;
   const store = nebula.value?.store;
   if (!store) return false;
   for (const id of messageIds.value) {
     const v = (store.resources as Record<string, Record<string, { value?: { replyTo?: string } }>>).Message?.[id]?.value;
-    if (v?.replyTo === posted) return false;
+    if (v?.replyTo === posted) return true;
   }
-  return true;
+  return false;
 });
+watch(replyLanded, (landed) => {
+  if (landed && turn.value) turn.value = settleTurn(turn.value);
+});
+// Thinking: my message posted, no agent reply linking back to it yet (the template
+// shows the failed banner instead once the idle window lapses).
+const thinking = computed(() => !!lastPostedId.value && !replyLanded.value);
+// The idle ticker: a coarse sweep is all the reducer needs (the window is 90s), and
+// a spurious `failed` self-heals on the durable reply.
+let turnTicker: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  turnTicker = setInterval(() => {
+    if (turn.value) turn.value = evaluateTurn(turn.value, Date.now());
+  }, 5_000);
+});
+onUnmounted(() => clearInterval(turnTicker));
 const previewSrc = ref("");
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
@@ -322,7 +344,10 @@ async function connect() {
     onLoginRequired: onSessionExpired,
   });
   await n.ready; // throws if not authenticated
-  n.client.setOnStreamChunk((messageId, text) => { streaming.value = { id: messageId, text }; });
+  n.client.setOnStreamChunk((messageId, text) => {
+      streaming.value = { id: messageId, text };
+      if (turn.value) turn.value = signalTurn(turn.value, Date.now());
+    });
   nebula.value = n;
   connected.value = true;
   sessionExpired.value = false;
@@ -409,11 +434,12 @@ async function send() {
   input.value = "";
   busy.value = true;
   try {
-    // The COMMIT is the trigger (the collapse's Phase 4): postUserMessage writes the
-    // durable Message; the Galaxy's commit hook starts the turn under MY authority; the
-    // reply arrives on the Message subscription like everyone else's (no echo, no reply
+    // The COMMIT is the trigger (the collapse): postUserMessage writes the durable
+    // Message; the Galaxy's commit hook starts the turn under MY authority; the reply
+    // arrives on the Message subscription like everyone else's (no echo, no reply
     // channel). The preview reloads on the build-completion push, not here.
     lastPostedId.value = await nebula.value.client.postUserMessage(msg);
+    turn.value = startTurn(Date.now());
   } catch (e) {
     log("error", `send failed: ${(e as Error).message}`);
   } finally {
@@ -543,7 +569,10 @@ async function openWorkspace(galaxy: string) {
       onLoginRequired: onSessionExpired,
     });
     await n.ready;
-    n.client.setOnStreamChunk((messageId, text) => { streaming.value = { id: messageId, text }; });
+    n.client.setOnStreamChunk((messageId, text) => {
+      streaming.value = { id: messageId, text };
+      if (turn.value) turn.value = signalTurn(turn.value, Date.now());
+    });
     nebula.value = n;
     messages.value = [];
     manageOpen.value = false;
@@ -719,6 +748,11 @@ async function logout() {
         <div v-if="streaming && !messageIds.includes(streaming.id)" class="chat chat-start">
           <div class="chat-header text-xs opacity-60 mb-0.5">Nebula</div>
           <div class="chat-bubble whitespace-pre-wrap">{{ streaming.text }}</div>
+        </div>
+        <div v-else-if="turn?.phase === 'failed'" class="chat chat-start">
+          <div class="chat-bubble chat-bubble-error text-sm">
+            No reply arrived — this turn may have been lost. Re-send your message to try again.
+          </div>
         </div>
         <div v-else-if="thinking" class="chat chat-start">
           <div class="chat-bubble flex items-center gap-2"><Loader2 class="size-4 animate-spin" /> Studio is thinking…</div>

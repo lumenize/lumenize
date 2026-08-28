@@ -94,18 +94,6 @@ export class StarTest extends Star {
     );
   }
 
-  /** Test-only stand-in for `Galaxy.chat` (resilient-turn-delivery.md): receive a
-   *  fired turn (the client-generated `turnId` + the client's *explicit* instanceName +
-   *  the message) and echo the result straight back to that client via `onChatResult`
-   *  (the direct-delivery pattern). Proves `NebulaClient.chat` fires `turnId`+`clientId`
-   *  correctly and the client correlates the result by `turnId`. */
-  @mesh(requireDominionHere)
-  runFakeTurn(turnId: string, clientId: string, message: string): void {
-    const ctn = this.ctn() as any;
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-      ctn.onChatResult(turnId, `echo: ${message}`, `thought: ${message}`));
-  }
-
   /** Test-only stand-in for `Galaxy.warmPreview`'s signal (preview-ready-autorefresh.md):
    *  echo `handlePreviewReady` (scope = this Star's instanceName) back to the client, proving
    *  `warmPreview` fires `clientId` correctly and the client's `handlePreviewReady` invokes
@@ -555,42 +543,12 @@ export class NebulaClientTest extends NebulaClient {
   // --- Test initiators (tests call these to trigger outbound mesh calls) ---
   // Uses this.lmz.call() with this.ctn<TargetType>().method(args) continuation pattern
 
-  // --- Resilient chat-turn delivery (resilient-turn-delivery.md) ---
-
-  /** Register a pending turn for a known `turnId` WITHOUT firing a call — lets a test
-   *  hold a pending turn across a forced reconnect, then deliver `onChatResult` to it.
-   *  Reuses the production `trackTurn` (protected) so it exercises the real pending map. */
-  registerPendingTurnForTest(turnId: string): Promise<{ reply: string; thought: string }> {
-    return this.trackTurn(turnId);
-  }
-
-  /** Exercise the real `chat()` shape against a stand-in (`StarTest.runFakeTurn`) rather
-   *  than the Galaxy chat host: register a pending turn, fire the turn with
-   *  this client's *explicit* instanceName, resolve when `onChatResult` echoes back. */
-  chatViaStarForTest(starInstanceName: string, message: string): Promise<{ reply: string; thought: string }> {
-    const turnId = crypto.randomUUID();
-    const clientId = this.lmz.instanceName;
-    const pending = this.trackTurn(turnId);
-    this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakeTurn(turnId, clientId, message));
-    return pending;
-  }
-
   /** Exercise `warmPreview`'s fire shape against the StarTest stand-in: fire with this
    *  client's *explicit* instanceName; the stand-in echoes
    *  `handlePreviewReady` → the `onPreviewReady` hook fires. */
   warmPreviewViaStarForTest(starInstanceName: string): void {
     const clientId = this.lmz.instanceName;
     this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakePreviewWarm(clientId));
-  }
-
-  /** Fire an `onChatResult` delivery at a client via Star (the DO→client direct-delivery
-   *  path) — used to deliver to a client AFTER a forced reconnect, proving the result
-   *  lands on the *current* socket, not the dead originating one. */
-  triggerOnChatResultForTest(
-    starInstanceName: string, targetClientId: string, turnId: string, reply: string, thought: string,
-  ): void {
-    this.lmz.call('STAR', starInstanceName,
-      this.ctn<StarTest>().callClient(targetClientId, 'onChatResult', turnId, reply, thought));
   }
 
   callStarWhoAmI(starInstanceName: string): void {

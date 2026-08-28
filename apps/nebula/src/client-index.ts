@@ -86,4 +86,8 @@ export { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from './
 // (author from `sub`, kind from the outermost act?.sub === NEBULA_SUB). Pure.
 export { deriveKind, deriveParticipants } from './participants';
 export { deriveProfileGate, type ProfileGate, type ProfileSlot } from './profile-gate';
+export {
+  startTurn, signalTurn, settleTurn, evaluateTurn, TURN_IDLE_MS,
+  type TurnLiveness, type TurnPhase,
+} from './turn-liveness';
 export type { ParticipantKind, ParticipantRef } from './participants';

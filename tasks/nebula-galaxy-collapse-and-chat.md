@@ -672,6 +672,26 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
   - **Rename the two `turnId` locals in `devstudio-resources-e2e.test.ts`** — they name Message resource ids, not turns; leftover vocabulary from before the resources switch. The KEEP-marked test itself is untouched.
   - **Success (capable of failing):** `grep -rnE '\b(onChatResult|trackTurn|pendingTurns|deliverTurnResult|turnId|runFakeTurn)\b' apps/nebula --include='*.ts' --include='*.vue'` returns **nothing**. Run 2026-08-23 pre-work: **6 files hit** (`nebula-client.ts`, `dev-studio.ts`, four baseline test files), so it discriminates. **Mutation:** carry any symbol across → the grep reds. **And repoint [nebula-pre-alpha.md](nebula-pre-alpha.md)'s ✅ Reactive-AI-chat row in the same commit** — its "ephemeral `onChatResult` removal" deferral is what this phase discharges (Phase 2 discharges its D-echo half — `author` deleted, display from verified claims; the codegen fold discharges D-corpus).
 
+✅ **BUILT 2026-08-28 — build notes that would surprise a re-reader:**
+- **The idle-timeout is a pure reducer**, `src/turn-liveness.ts` (exported from `/frontend`;
+  App.vue wires it to the post / chunk / reply-landed events plus a 5s sweep): time is a
+  parameter, so the three failure-story limbs — silent-fails-within-one-window,
+  slow-but-streaming-never-fails, late-commit-clears-failed — are asserted directly in
+  `test/turn-liveness.test.ts`, five mutations cycled per operand. `TURN_IDLE_MS` = 90s
+  (≫ a cold model's first-token lag, well under the 300s generation deadline); a chunk
+  arriving after `failed` re-arms to awaiting (generation alive), and `settled` is terminal.
+- **The failed banner replaces the thinking bubble in the template chain** — same slot,
+  `v-else-if` order — so "thinking… forever" is structurally impossible: past the idle
+  window the same position says re-send by hand. Nothing retries automatically.
+- The deletions were exactly the pinned list; the only consumer of the fixture half was the
+  deleted `nebula-client-chat-delivery.test.ts` itself (verified by grep before deleting).
+  The success grep ran red-capable pre-work (6 files) and returns nothing now.
+- **Deliberately NOT live-driven: the failed-banner path.** A hung model turn is not
+  constructible under `wrangler dev` without a server-side probe (the scripted-turn hooks are
+  pool-workers fixtures), and the wiring above the reducer is a template chain the build
+  checks; the reducer owns every decision. The happy path (chunks → reply → no banner) rides
+  the existing scenarios.
+
 ## Phase 7 (cleanup) — retire the container node type + docs + ADR (AFTER green)
 **Sequenced LAST — do not start until EVERY other phase is green:** don't rip out the old container stack until the plain-`NebulaDO` Galaxy is proven. Stated structurally on purpose, so it stays true if a phase is added or removed.
 - **Remove `NebulaContainer`** (`apps/nebula/src/nebula-container.ts`) — orphaned once Galaxy `extends NebulaDO` (its `DevContainer` consumer merged into Galaxy in Phase 1/3).

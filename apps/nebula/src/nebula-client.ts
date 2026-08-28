@@ -175,12 +175,6 @@ export interface OntologyStaleInfo {
   currentVersion: string;
 }
 
-/** The result of a codegen chat turn, delivered to {@link NebulaClient.onChatResult}. */
-export interface ChatTurnResult {
-  reply: string;
-  thought: string;
-}
-
 /**
  * Per-call options for `client.resources.transaction()`. The transaction-wide
  * `TransactionOutcome` it resolves with + the per-resource
@@ -496,17 +490,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /** Factory listener that mirrors each roster into `store.lmz.querySubscribers.*`. Single-handler. */
   #querySubscribersListener: ((delivery: SubscriberRosterDelivery) => void) | null = null;
 
-
-  /**
-   * In-flight chat turns, correlated by the client-generated `turnId`. A turn is
-   * fired one-way at the Galaxy ({@link chat}) — NOT an awaited `callRaw` — and
-   * settled when the Galaxy delivers the result back via the {@link onChatResult}
-   * push (direct delivery addressed to this client's stable `instanceName`, so it
-   * survives a WS drop+reconnect mid-turn). The Promise lives in memory; it does
-   * NOT survive a page reload (history-restore is the deferred reactive-chat work).
-   * See [[client-calls-use-direct-delivery]].
-   */
-  #pendingTurns = new Map<string, { resolve: (r: ChatTurnResult) => void; reject: (e: Error) => void }>();
 
   /**
    * Ephemeral assistant-progress streams, keyed by `assistantMessageId` (Child 3
@@ -1924,10 +1907,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   // (`chat()` is GONE — the committed human `Message` IS the codegen trigger since the
-  // collapse's Phase 4: the send is {@link postUserMessage}, the Galaxy's commit hook
-  // starts the turn under the poster's own authority, and completion arrives on the
-  // `Message` subscription. The one-shot delivery machinery below (`onChatResult`,
-  // `trackTurn`) is retired in Phase 6.)
+  // collapse: the send is {@link postUserMessage}, the Galaxy's commit hook starts the
+  // turn under the poster's own authority, and completion arrives on the `Message`
+  // subscription — which also re-derives on reconnect and reload, so there is no
+  // one-shot delivery machinery to strand.)
 
   /**
    * Post a human `Message` to the pre-alpha chat — a single atomic create on the CHAT
@@ -1961,32 +1944,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       throw new Error(`postUserMessage failed: ${JSON.stringify(result.errors)}`);
     }
     return messageId;
-  }
-
-  /**
-   * Register an in-flight turn keyed by `turnId` and return its Promise — settled
-   * by {@link onChatResult}. No call is fired here (that's {@link chat}'s job).
-   * `protected` so a test subclass can register a turn without a real Galaxy.
-   */
-  protected trackTurn(turnId: string): Promise<ChatTurnResult> {
-    return new Promise<ChatTurnResult>((resolve, reject) => {
-      this.#pendingTurns.set(turnId, { resolve, reject });
-    });
-  }
-
-  /**
-   * Receive a completed codegen turn's result from the Galaxy. Direct delivery,
-   * addressed to this client's `instanceName`, so it lands on whatever socket is
-   * current after a reconnect. Settles the matching {@link chat} Promise by
-   * `turnId`; an unknown `turnId` (page reloaded mid-turn, or duplicate delivery)
-   * is ignored. `@mesh()` because it arrives over the Gateway like the other pushes.
-   */
-  @mesh()
-  onChatResult(turnId: string, reply: string, thought: string): void {
-    const pending = this.#pendingTurns.get(turnId);
-    if (!pending) return;
-    this.#pendingTurns.delete(turnId);
-    pending.resolve({ reply, thought });
   }
 
   /**

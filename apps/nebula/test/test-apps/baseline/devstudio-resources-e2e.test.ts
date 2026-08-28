@@ -74,16 +74,16 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     // Distinct Browser ⇒ distinct Gateway ⇒ distinct clientId (the fanout is keyed
     // on clientId, so b's put fans out to a, the non-originator subscriber).
     const { client: b } = await devAdmin(scope);
-    const turnId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
 
-    using sub = a.resources.createAndSubscribe('Message', turnId, ROOT_NODE_ID, { chat: 'chat-x', content: 'v1' });
+    using sub = a.resources.createAndSubscribe('Message', messageId, ROOT_NODE_ID, { chat: 'chat-x', content: 'v1' });
     const created = await sub.snapshot;
     expect(created).not.toBeNull();
     const eTag = created!.meta.eTag;
 
     const baseline = a.resourceUpdateCount;
     const out = await b.resources.transaction({
-      [turnId]: { op: 'put', typeName: 'Message', eTag, value: { chat: 'chat-x', content: 'v2-from-b' } },
+      [messageId]: { op: 'put', typeName: 'Message', eTag, value: { chat: 'chat-x', content: 'v2-from-b' } },
     });
     expect(out.kind).toBe('committed');
 

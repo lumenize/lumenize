@@ -1037,30 +1037,6 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
-   * Deliver a finished turn's result back to the originating client by **direct
-   * delivery** — a NEW one-way mesh call to the client's Gateway, addressed by the
-   * client's stable `instanceName` (`clientId`), so a WS drop+reconnect during the
-   * turn doesn't strand the reply. NO `newChain`: the originating client's `originAuth`
-   * must ride through so the Gateway's aud check passes. Fire-and-forget + try/catch:
-   * a delivery failure must never break the dev loop (the turn is already committed to
-   * the Workspace + the durable Message). `protected` so the test harness can exercise
-   * it without the AI-bound `chat`. TEMP → target=Phase 6: the Message subscription
-   * carries completion and this push is deleted.
-   */
-  protected deliverTurnResult(
-    turnId: string,
-    clientId: string,
-    payload: { reply: string; thought: string },
-  ): void {
-    try {
-      this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-        this.ctn<NebulaClient>().onChatResult(turnId, payload.reply, payload.thought));
-    } catch (e) {
-      debug('nebula.Galaxy.chat').warn('turn-result delivery failed (non-fatal)', { error: e });
-    }
-  }
-
-  /**
    * Signal the client its preview can load. Immediate BY DESIGN post-collapse: `dist/`
    * serves Galaxy-direct from this DO's VFS, so there is nothing to warm for VIEWING —
    * the container is engaged only on a build, off the read path entirely. The signal
@@ -1075,8 +1051,9 @@ export class Galaxy extends NebulaDO {
   /**
    * Tell the originating client the preview is ready, by direct delivery — a one-way
    * mesh call to the client's Gateway addressed by its stable `instanceName`
-   * (`clientId`), so a WS reconnect doesn't strand it. Same shape + rationale (no
-   * `newChain`) as {@link deliverTurnResult}; fire-and-forget + try/catch.
+   * (`clientId`), so a WS reconnect doesn't strand it. NO `newChain` — the originating
+   * client's `originAuth` must ride through so the Gateway's aud check passes;
+   * fire-and-forget + try/catch (a delivery failure must never break the dev loop).
    */
   protected deliverPreviewReady(scope: string, clientId: string): void {
     try {

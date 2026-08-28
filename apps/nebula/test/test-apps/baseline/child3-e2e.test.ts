@@ -10,7 +10,7 @@
  *   - completed-while-disconnected / "thinking forever" (the reply is a durable Message,
  *     recovered via the query sub with no pending-Promise / ephemeral-push dependency),
  *   - multi-participant (a 2nd participant sees the conversation).
- * The ephemeral onChatResult path is thereby DEMOTED to a live-only optimization — the
+ * The ephemeral one-shot delivery path is GONE entirely (deleted with the turn machinery) — the
  * durable Message is the source of truth.
  */
 import { describe, it, expect, vi } from 'vitest';
