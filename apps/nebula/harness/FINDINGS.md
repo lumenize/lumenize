@@ -77,7 +77,7 @@ any send). All 5 passed:
   session for the remote `AI` / `send_email` bindings. Verified live: `message-roundtrip` PASSED.
 - **Failed:** forcing `--local` (an earlier `!process.env.CLOUDFLARE_API_TOKEN` auto-detect — wrong
   locally, since a `wrangler login` session is not a token env var) made apps/nebula **hang after the
-  DevContainer image build**: workerd listens but never becomes ready, no `Ready on` is ever logged,
+  container image build**: workerd listens but never becomes ready, no `Ready on` is ever logged,
   reproduced with a bare `wrangler dev`. Not a code bug — a `--local`+container interaction.
 - **Latent:** the ui-smoke lane's `hostedLocalBoot` uses the identical detect → likely hangs the same
   way on a local run. Flagged as product feedback.

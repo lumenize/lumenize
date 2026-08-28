@@ -106,4 +106,30 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
 
     admin[Symbol.dispose](); denied[Symbol.dispose]();
   });
+
+  it('every chunk carries the id of the USER message whose turn is streaming — a peer can tell whose it is', async () => {
+    // The stream is a BROADCAST to the whole chat (a shared thread — watching someone
+    // else's reply appear is the product working), so the recipient needs the
+    // attribution to know whether it is liveness for its OWN turn. Without it, a client
+    // whose message the single-flight latch SKIPPED — and which will therefore never be
+    // answered — has its idle window re-armed by the running turn's chunks and never
+    // surfaces `failed`: the hang the liveness reducer exists to convert into a banner.
+    const scope = uniqueChatScope();
+    const { client } = await devClient(scope);
+    const agentMessageId = crypto.randomUUID();
+    const triggeringUserMessage = crypto.randomUUID();
+
+    using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
+    client.callGalaxyStreamChunk(
+      scope, DEFAULT_CHAT_ID, agentMessageId, 'thinking…', CHAT_NODE_ID, triggeringUserMessage,
+    );
+    await vi.waitFor(() => expect(client.streamChunkCount).toBeGreaterThanOrEqual(1));
+
+    // The attribution reaches the client intact — NOT the agent message's own id, which
+    // is what a recipient cannot correlate against anything it knows.
+    expect(client.lastStreamReplyTo).toBe(triggeringUserMessage);
+    expect(client.lastStreamReplyTo).not.toBe(agentMessageId);
+
+    client[Symbol.dispose]();
+  });
 });

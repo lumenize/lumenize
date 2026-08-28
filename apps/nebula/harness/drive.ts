@@ -78,14 +78,14 @@ async function main(): Promise<void> {
   }
   const needsContainer = scenario.needsContainer ?? true;
   if (needsContainer && !HAS_DOCKER) {
-    console.error('[harness] Docker Desktop is not reachable — the DevContainer builds at boot. Start Docker and retry.');
+    console.error('[harness] Docker Desktop is not reachable — the build-box image builds at boot. Start Docker and retry.');
     process.exitCode = 3;
     return;
   }
 
   console.error(needsContainer
-    ? '[harness] booting a fresh local wrangler dev (cold DevContainer build can take a few minutes)…'
-    : '[harness] booting a fresh local wrangler dev WITHOUT the DevContainer (no Docker needed)…');
+    ? '[harness] booting a fresh local wrangler dev (cold build-box image build can take a few minutes)…'
+    : '[harness] booting a fresh local wrangler dev WITHOUT the build box (no Docker needed)…');
   const stack = await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
   const t0 = Date.now();
   try {

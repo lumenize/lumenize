@@ -17,7 +17,7 @@ npx tsx apps/nebula/harness/drive.ts message-roundtrip
 HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts    # stream wrangler-dev stdio
 ```
 
-**Requires Docker Desktop** — the apps/nebula DevContainer builds at `wrangler dev` boot (a cold
+**Requires Docker Desktop** — the apps/nebula build-box image builds at `wrangler dev` boot (a cold
 build takes a few minutes). The harness probes `docker info` and exits non-zero if it's absent.
 It reads the signing key from the repo-root `.dev.vars` (symlinked into `apps/nebula`); no prod
 creds needed for local (`--local` drops the remote AI / send_email bindings).
@@ -88,7 +88,7 @@ uses neither; the AI binding being remote only incurs charges if a codegen scena
 
 ⚠️ **Do NOT pass `--local`.** An earlier auto-detect (`--local` when `CLOUDFLARE_API_TOKEN` was
 absent from `process.env`) was wrong locally — a `wrangler login` session isn't a token env var — and
-`--local` + the DevContainer makes apps/nebula **hang after the image build** (workerd up, never
+`--local` + the container makes apps/nebula **hang after the image build** (workerd up, never
 ready, no `Ready on`). `HARNESS_LOCAL=1` opts back into `--local` for a no-OAuth environment, but the
 container-hang means the full stack can't yet boot that way (same path the ui-smoke lane's
 `hostedLocalBoot` uses — flagged as product feedback).

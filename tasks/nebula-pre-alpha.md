@@ -50,7 +50,7 @@ The remaining provisioning / capture / inspection work builds on these (the code
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index).
 - **Root-admin Part 1** — initial DataPlane root admin (`admin` on `ROOT_NODE_ID`) ([on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md)).
 - **`onBeforeCall` passage guard** — `requirePassage(name, claims)` (one audit point per ADR-007,
-  `apps/nebula/src/nebula-do.ts`, shared by `NebulaDO`/`NebulaContainer.onBeforeCall`) admits a caller
+  `apps/nebula/src/nebula-do.ts`, every Nebula node's `onBeforeCall` — they all extend `NebulaDO`) admits a caller
   with **passage** into the target. This is what lets the inspection instrument + a support engineer
   read/write/admin anywhere with one identity. Note for provisioning/inspection children: the DataPlane
   root-admin seed requires an **exact-star** `authScope`, so a covering admin first-touching a fresh

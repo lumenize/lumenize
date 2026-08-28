@@ -909,14 +909,21 @@ export class NebulaAuthRegistry extends DurableObject {
         const minted = this.#mintIdentity(email, universeGalaxyStarId, requestedBit);
 
         // The workspace SECOND HALF (galaxy-tier invites only): a galaxy collaborator is
-        // ALSO enrolled in the `.dev` workspace Star, WITH `scopeAdmin` — dominion over
-        // the workspace is the whole grant (coarse passage + the confined scope-admin
-        // bypass), so she can experiment there while her galaxy membership carries no
-        // admin bit at all. Authority: the inviter's dominion over the galaxy covers its
-        // descendant `.dev` structurally (downward-total). Idempotent like the primary.
+        // ALSO enrolled in the `.dev` workspace Star, so she can work in the preview
+        // while her galaxy membership carries no admin bit at all.
+        //
+        // ⚠️ **The workspace bit is DOMINION-PRICED, on the same `dominion` the cap
+        // above uses.** `issueInvites` is reachable by a PEER — the facade admits an
+        // exact-scope member with no admin bit and no dominion — so minting the `.dev`
+        // bit unconditionally let such a member hand a third party admin over the whole
+        // workspace, which the inviter does not hold and cannot delegate (ADR-015:
+        // dominion flows downward from what you actually have, and upward is nil). The
+        // peer case still enrolls the invitee, just without the bit: passage into the
+        // workspace is the collaboration grant; admin over it is the inviter's to give
+        // only if they have it. Idempotent like the primary.
         let galaxyTier = false;
         try { galaxyTier = parseId(universeGalaxyStarId).tier === 'galaxy'; } catch { /* not a scope id */ }
-        if (galaxyTier) this.#mintIdentity(email, `${universeGalaxyStarId}.dev`, true);
+        if (galaxyTier) this.#mintIdentity(email, `${universeGalaxyStarId}.dev`, dominion);
 
         let outcome: InviteeMintResult['outcome'] = minted.created ? 'invited' : 'already-member';
         if (!minted.created && requestedBit && !minted.scopeAdmin) {

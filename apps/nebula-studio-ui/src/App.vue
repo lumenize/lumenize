@@ -348,12 +348,22 @@ async function connect() {
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...chatPair(activeScope.value),
     onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
+    // Setting `onReload` is what SUBSCRIBES this client to the Galaxy's reload channel
+    // (nebula-client gates the subscribe on the hook's presence) — so without it the
+    // build-completion broadcast finds zero subscribers and the preview never refreshes.
+    onReload: () => reloadPreview(),
     onLoginRequired: onSessionExpired,
   });
   await n.ready; // throws if not authenticated
-  n.client.setOnStreamChunk((messageId, text) => {
+  n.client.setOnStreamChunk((messageId, text, replyTo) => {
+      // Render EVERY chunk — the thread is shared, so watching another participant's
+      // reply appear is the product working. But only MY turn's chunks are liveness for
+      // MY idle window: a message the single-flight latch skipped is never answered, and
+      // re-arming it from someone else's running generation is a hang with no banner.
       streaming.value = { id: messageId, text };
-      if (turn.value) turn.value = signalTurn(turn.value, Date.now());
+      if (turn.value && replyTo === lastPostedId.value) {
+        turn.value = signalTurn(turn.value, Date.now());
+      }
     });
   nebula.value = n;
   connected.value = true;
@@ -410,10 +420,14 @@ onMounted(() => {
     });
 });
 
-// When the tab is backgrounded long enough for the dev container to idle-sleep (~5m), re-request the
-// preview on return so it wakes — the DevContainer serves a self-healing "waking" page until it's back
-// up. Gated on a long absence so quick tab-switches (container still warm) don't reload needlessly. The
-// mesh client reconnects its own gateway WS via its backoff; this covers the preview the client doesn't own.
+// Re-request the preview after a long absence. ⚠️ RE-DERIVED post-collapse: the original
+// reason (waking an idle-slept dev container, which served a self-healing "waking" page) is
+// GONE — the container is off the read path entirely and `dist` serves Galaxy-direct from
+// the DO's VFS, so there is nothing to wake. The behavior survives on a DIFFERENT reason: a
+// build that completes while this tab is hidden broadcasts a reload push the client may miss
+// if its gateway WS dropped, so on return the preview can be a version behind. Gated on a
+// long absence, since a quick tab-switch cannot have missed a build. The mesh client
+// reconnects its own WS via backoff; this covers the preview the client doesn't own.
 let hiddenAt = 0;
 function onVisibilityChange() {
   if (document.visibilityState === "hidden") {
@@ -573,12 +587,22 @@ async function openWorkspace(galaxy: string) {
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       ...chatPair(galaxy),
       onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
+    // Setting `onReload` is what SUBSCRIBES this client to the Galaxy's reload channel
+    // (nebula-client gates the subscribe on the hook's presence) — so without it the
+    // build-completion broadcast finds zero subscribers and the preview never refreshes.
+    onReload: () => reloadPreview(),
       onLoginRequired: onSessionExpired,
     });
     await n.ready;
-    n.client.setOnStreamChunk((messageId, text) => {
+    n.client.setOnStreamChunk((messageId, text, replyTo) => {
+      // Render EVERY chunk — the thread is shared, so watching another participant's
+      // reply appear is the product working. But only MY turn's chunks are liveness for
+      // MY idle window: a message the single-flight latch skipped is never answered, and
+      // re-arming it from someone else's running generation is a hang with no banner.
       streaming.value = { id: messageId, text };
-      if (turn.value) turn.value = signalTurn(turn.value, Date.now());
+      if (turn.value && replyTo === lastPostedId.value) {
+        turn.value = signalTurn(turn.value, Date.now());
+      }
     });
     nebula.value = n;
     messages.value = [];

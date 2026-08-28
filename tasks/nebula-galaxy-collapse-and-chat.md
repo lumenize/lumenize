@@ -772,7 +772,7 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
 
 ## Final verification
 
-- ✅ **Suite delta MEASURED 2026-08-28: 3819 passed / 0 failed / 9 skipped** against the baseline 3761/4/10 (backlog's former § *THE SUITE IS RED*, deleted the same day per its own instruction) — no new failure, no new skip (the −1 skip is this file's own un-skip), `npm run type-check` clean, `✅ All package tests passed` across all 17.
+- ✅ **Suite delta, MEASURED LAST — after the verifier panel's fixes: 3828 passed / 0 failed / 9 skipped** against the baseline 3761/4/10 (backlog's former § *THE SUITE IS RED*, deleted the same day per its own instruction). No new failure, no new skip; the −1 skip is this file's own un-skip. The arithmetic closes on the nose: the pre-panel run measured 3819 and the panel's fixes added exactly 9 tests. ⚠️ **That earlier 3819 was recorded and then FALSIFIED by later edits** — the panel caught it, and re-measuring is now the closing action rather than a step (§ *Phase retro*, process proposals).
 - Every phase's **capable-of-failing** test reds against pre-fix code, green after (per testing.md).
 - 🔒 **Leftover sweep — production code whose only consumer is a TEST either dies in this task or carries an explicit keep-decision** (Larry, 2026-08-24). The last substrate move (chat tables → Resources) left its old shape half-standing — the live `Turns` table, the turn machinery, `postUserMessage` ahead of its UI — and each cost review time, because nothing distinguished "superseded, forgot to delete" from "built ahead, adoption coming". The phases delete what this file enumerated; this criterion is the derivation that catches the rest: for every public method and exported symbol on the files this task touched, grep the bare identifier outside `test/` and `harness/` — zero production hits means **delete it**, or write the keep-decision **where it survives this file's archiving**: a JSDoc at the site naming the intended consumer and what brings it (per `workflow.md`, cite an ADR/rule or state it as prose — never a task-file handle). `postUserMessage` pre-Phase-4 is the model of a legitimate keep: test-only today, and Phase 4 is the named arrival. Test-only proves neither deadness nor a use case — the explicit decision is the point.
 - 🔒 **Two-ways sweep — where two roughly equivalent mechanisms coexist for one job, the reason is recorded where the second one lives, or one dies** (Larry, 2026-08-24). This task exists partly because nobody wrote that sentence earlier: `chat(message)` beside `postUserMessage` were two paths to one event (Phase 4 kills one); Star's `#isCachedVersion` beside DevStudio's `void appVersion` were one need met two ways (Phase 2 unifies them); `dagTree()` beside the per-method entries were two shapes for one capability (the follow-on unifies them). At closing, sweep the touched surfaces for a pair doing one job — two write paths, two guards, two ways to reach a capability — and either delete one or record why both, at the site the next reader would otherwise "conform" (`workflow.md` § *Evaluating alternatives* owns the pricing: an unexplained second way accretes false justifications). The test: a cold reader can tell which one to call without asking.
@@ -803,9 +803,10 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
 - **Two-ways sweep:** the pairs this task created are divided at the site (warmPreview's
   initial-load cue vs the build-completion reload push, in `warmPreview`'s JSDoc; `thinking` vs the
   failed banner, one template slot) — no unexplained second way found on the touched surfaces.
-- **Live closers:** `four-party-chat` re-ran green (18.7s) post-Phases-5–7; `build-box` green
-  (55.1s, 4 container cycles) with **zero** `stuck-flag signature observed` entries — and the zero
-  is non-vacuous: a forced-marker probe run put 4 entries through the same drive + grep first.
+- **Live closers, re-run after the panel's fixes:** `studio-chat-reload` green (7.2s, now with the
+  modal-flash watch over the whole connect window), `four-party-chat` green (18.0s — the headline),
+  `build-box` green (55.2s, shim world) with **zero** `stuck-flag signature observed` entries — and
+  the zero is non-vacuous: a forced-marker probe run put 4 entries through the same drive + grep.
 - The CSRF slice re-homed into [nebula-same-origin-guard.md](nebula-same-origin-guard.md) (the
   route it tested is gone; the three-leg shape transfers to whatever that verdict guards).
 
@@ -838,6 +839,88 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
   two `TS7006` implicit-anys shipped in `ffc8efc` and the note claimed otherwise. Fixed and
   re-verified. The lesson is the phase-end walk's own rule applied to a *criterion*: a green
   measured before the last edit is not a green.
+
+## Phase retro (2026-08-28)
+
+**1. What we learned.** The build's own headline — *the commit IS the trigger* — held up, and the
+two-world build box turned out to be the shape that mattered: a local `wrangler dev` has **no kernel
+FUSE mount at all**, so every build-dependent property is deploy-only and had to be staged rather
+than faked. The costlier lesson is about *where correctness can hide*. Three of the panel's five real
+defects were decisions expressed in a **framework's own syntax** rather than in code: a `v-if`/`v-else-if`
+order that silently owned the failed-vs-streaming precedence, a `try/catch` wrapped around an
+un-awaited promise (so it could catch nothing), and a broadcast derived from *whichever caller*
+produced a build instead of from build success itself. None is visible to a test, none is a typo, and
+each read as idiomatic.
+
+**2. What we struggled with.** Fixture fidelity, twice over. `reload-version-contract` T3 supplies
+`onReload` itself, so it could never notice that **Studio never sets it** — the build-completion push
+reached zero subscribers for the entire build and every suite stayed green. Likewise the stream
+attribution: chunks broadcast to the whole chat carry no *whose-turn* marker, so every client read every
+chunk as liveness for its own turn, and the one participant guaranteed never to get a reply (the
+single-flight skip) was the one whose banner could never fire. Both are `testing.md`'s
+fixture-in-the-safe-shape, in the half nobody checks — the fixture supplying what production must.
+
+**3. Tests that failed unexpectedly.** The browser lane's 3 hard-red `claim-universe` failures, carried
+in the backlog for two weeks as an undiagnosed caller-vs-route mystery, were **stale persisted DO
+state** under the config-relative `test/browser/worker/.wrangler` — a registry predating
+`Emails.profileId`. The earlier exclusion run had wiped the package root's `.wrangler`, the wrong
+directory. One `rm -rf` greened the lane and deleted a backlog row.
+
+**4. Impact on follow-on work.** The wipe-gate deploy inherits a named, bounded set: `build-box`'s
+FUSE-world limbs, the `ui-smoke` codegen test, and the preview-survives-redeploys confirm — all
+deploy-staged for the same single reason (a real build needs a real mount), so one deploy discharges
+them together. `LumenizeContainer`'s retirement stays the backlog's. Nothing new was pushed downstream.
+
+**5. Process changes — proposed, not applied.**
+
+- 🆕 **A new `calibration.md` entry: *a decision expressed in framework syntax is invisible to a
+  test*.** Template branch order, route order, CSS precedence, middleware order — all read as layout
+  and all can own a correctness decision. Dated failure: `App.vue`'s status chain put the transient
+  stream ahead of the failed banner, so a turn that streamed and then died showed a frozen partial
+  reply forever — the exact hang Phase 6 exists to kill, and the build note claiming *"the reducer owns
+  every decision"* was false. Correction: **derive the decision into a named function and let the
+  framework render the result** (`deriveTurnDisplay`). Catch yourself when a `v-if` chain's ORDER is
+  load-bearing, or a `try/catch` wraps something un-awaited.
+- 🏠 **Leftover sweep → `testing.md`**, as the production-side mirror of its redundant-test bullet.
+  Evidence from this build: 9 exported symbols on touched files had no other-file production consumer,
+  and **all 9 were legitimate** (in-file consumers, or API typing for a public signature) — zero
+  deletions. So it is cheap and low-yield on a build that mostly *deleted*; worth keeping as a
+  criterion, not worth machinery.
+- 🏠 **Two-ways sweep → `workflow.md` § *Evaluating alternatives*, beside the permanent-divergence
+  bullet — but it MUST arrive with an instrument.** Run as a judgement call over "the touched
+  surfaces" it is worth little: this build's sweep reported *"no unexplained second way found"* and
+  missed a **verbatim duplicate of the stuck-signature regex inside the single most-touched file**,
+  where only the exported copy had tests. The panel found it by reading. Proposed mechanical form:
+  for each predicate or literal a phase introduces, grep its distinctive fragment across the file that
+  defines it and expect exactly one hit.
+- ✏️ **`build-task` SKILL.md — make the suite the LAST action, after the last fix.** The delta was
+  recorded from a run that predated the final edits, and the phase text one bullet above had already
+  written down that exact lesson. A criterion is falsified by any later edit, so the measurement has to
+  be the closing step, not a step.
+- ✏️ **`testing.md` — extend "never mutate while background suites run" to `pkill -9 workerd`.** Bit
+  twice in this build; the second time it killed a full-suite run mid-flight and produced a truncated
+  log that read like a package failure.
+
+**ADR-016 amendments (this build was its first real contact — all three are gaps the build filled by
+convention, so they are proposals, not corrections):**
+
+- **A server-composed actor's `profileId` is the actor's own self-describing id, not a profile
+  handle.** The build stamps `{ sub: 'agent:nebula', profileId: 'agent:nebula' }`. The ADR says
+  `profileId` rides along "so a record can name a **departed** actor without a live registry hop" —
+  which presumes a resolvable profile. For a composed actor there is none, and a renderer that treats
+  the field as a handle will resolve nothing and render blank. State that the sentinel is the value,
+  and that it is legible precisely because it is syntactically not-a-UUID.
+- **The recorded claims are the ones verified at the TRIGGERING call, even when the write lands much
+  later.** The agent reply is committed by a *detached* continuation that keeps the poster's
+  `callContext` through AsyncLocalStorage and can run for the full generation deadline (300 s, against
+  a 900 s access token). "Write-time-pinned" therefore needs a companion sentence: the record states
+  the authority that **initiated** the action, and it MUST NOT be refreshed or re-verified at write
+  time — doing so would name a different principal, or none, for the same act.
+- **Say plainly that a resource write records on EVERY snapshot, not on the qualifying-action list.**
+  The Corollary already says there is no carve-out, but the scope section reads as an enumeration
+  ("destroys or removes state, changes authority, establishes a session"), and a chat message is none
+  of those. A reader reconciling the two has to infer that the resource plane simply records
+  universally. One sentence closes it.
 
 ## Relationships / sequencing
 

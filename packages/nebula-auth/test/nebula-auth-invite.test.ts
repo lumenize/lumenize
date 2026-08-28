@@ -20,8 +20,9 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { sendInviteEmails, summarizeInvites } from '../src/invite-entry';
 import type { EmailMessage, InviteMintResult, NebulaJwtPayload } from '../src/types';
 import {
-  foundUniverse, issueInvitesAs, clickLink, refreshAndParse, url, createGalaxy,
+  foundUniverse, issueInvitesAs, clickLink, refreshAndParse, url, createGalaxy, inviteAndLogin,
 } from './test-helpers';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0, 8)}@example.com`; }
@@ -83,6 +84,42 @@ describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () =>
     expect(dp.profileId).toBe(gp.profileId);
     // …but DIFFERENT memberships (sub is per-(email, scope) — ADR-013 keys on sub).
     expect(dp.sub).not.toBe(gp.sub);
+  });
+
+  it('a PEER inviter (no dominion) co-mints the `.dev` membership WITHOUT the admin bit', async () => {
+    // The escalation this prices: `issueInvites` is reachable by an exact-scope MEMBER
+    // (the facade admits `authScope === targetScope` OR dominion), so an unconditional
+    // `.dev` admin co-mint let a peer hand a third party admin over the whole workspace —
+    // authority the inviter does not hold and cannot delegate (ADR-015: upward is nil).
+    const u = uni();
+    const galaxy = `${u}.app`;
+    const admin = await foundUniverse(SELF, u, em('adm'));
+    expect((await createGalaxy(SELF, galaxy, admin.access_token)).status).toBe(201);
+
+    // A real peer: invited by the admin with NO bit, then logged in through the real
+    // acceptance. Their token is the caller below — a member of the galaxy, no dominion.
+    const peerEmail = em('peer');
+    const peer = await inviteAndLogin(SELF, galaxy, admin.access_token, peerEmail);
+    const peerClaims = parseJwtUnsafe(peer.access_token)!.payload as unknown as NebulaJwtPayload;
+    // The fixture guard — without these the assertion below cannot fail for its own reason.
+    expect(peerClaims.access.scopeAdmin).toBeUndefined();
+    expect(peerClaims.access.authScope).toBe(galaxy);
+
+    const third = em('third');
+    const mint = await issueInvitesAs(peer.access_token, galaxy, [{ email: third }]);
+    expect(mint.errors).toHaveLength(0);
+
+    // Both sessions still seed — collaboration is not the thing being withheld …
+    const resp = await SELF.fetch(new Request(linkFor(mint, third), { redirect: 'manual' }));
+    expect(resp.status).toBe(302);
+    const cookies = resp.headers.getSetCookie();
+    expect(cookies).toHaveLength(2);
+    // … but the workspace session carries NO admin bit, because the inviter had none to give.
+    const devCookie = cookies.find((c) => c.includes(`Path=/auth/${galaxy}.dev;`))!;
+    const devToken = devCookie.split(';')[0]!.split('=')[1]!;
+    const { parsed: dp } = await refreshAndParse(SELF, `${galaxy}.dev`, devToken);
+    expect(dp.access.authScope).toBe(`${galaxy}.dev`);
+    expect(dp.access.scopeAdmin).toBeUndefined();
   });
 
   it('a UNIVERSE invite stays single-session (the second half is galaxy-tier only)', async () => {

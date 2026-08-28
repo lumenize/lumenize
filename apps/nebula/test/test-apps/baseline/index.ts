@@ -418,8 +418,10 @@ export class GalaxyTest extends Galaxy {
    *  progress). Kept separate from the commit so a test can observe a chunk arriving
    *  BEFORE the durable Message (M3 transient-surface assertion). */
   @mesh(requireDominionHere)
-  streamChunkForTest(sessionId: string, messageId: string, chunk: string, nodeId: string): void {
-    this.streamProgress(sessionId, messageId, chunk, nodeId);
+  streamChunkForTest(
+    sessionId: string, messageId: string, chunk: string, nodeId: string, replyTo = 'test-user-message',
+  ): void {
+    this.streamProgress(sessionId, messageId, chunk, nodeId, replyTo);
   }
 
   /** Commit the durable agent Message (the completion step) — Nebula-attributed via the
@@ -492,6 +494,8 @@ export class NebulaClientTest extends NebulaClient {
   //     count of chunks received; read `streamingProgress(id)` for the accumulated text. ---
   lastStreamChunk: { messageId: string; progress: string } | undefined = undefined;
   streamChunkCount = 0;
+  /** The attribution the last chunk carried — the id of the USER message whose turn is streaming. */
+  lastStreamReplyTo: string | undefined;
 
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
@@ -844,8 +848,11 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   /** Fire one transient progress chunk (fire-and-forget, like the server→client stream). */
-  callGalaxyStreamChunk(scope: string, sessionId: string, messageId: string, chunk: string, nodeId: string): void {
-    this.lmz.call('GALAXY', scope, this.ctn<GalaxyTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId));
+  callGalaxyStreamChunk(
+    scope: string, sessionId: string, messageId: string, chunk: string, nodeId: string, replyTo?: string,
+  ): void {
+    this.lmz.call('GALAXY', scope,
+      this.ctn<GalaxyTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId, replyTo));
   }
 
   /** Commit the durable agent Message (result-handler form to await). */
@@ -1011,8 +1018,9 @@ export class NebulaClientTest extends NebulaClient {
    *  `#streamingMessages` accumulation + reconcile still run (assert via the public
    *  `streamingProgress(id)` getter); the counter proves a chunk reached this client. */
   @mesh()
-  override handleStreamChunk(messageId: string, progress: string): void {
-    super.handleStreamChunk(messageId, progress);
+  override handleStreamChunk(messageId: string, progress: string, replyTo?: string): void {
+    super.handleStreamChunk(messageId, progress, replyTo);
+    this.lastStreamReplyTo = replyTo;
     this.streamChunkCount++;
     this.lastStreamChunk = { messageId, progress };
   }

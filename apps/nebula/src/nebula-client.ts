@@ -501,7 +501,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * renders the durable content, never a duplicate. No pending-Promise dependency.
    */
   #streamingMessages = new Map<string, string>();
-  #onStreamChunk?: (messageId: string, progress: string) => void;
+  /** `replyTo` is the id of the USER message whose turn is streaming — the chunk rides a
+   *  broadcast to the whole chat, so a consumer must compare it against its own last post
+   *  before reading the chunk as liveness for its own turn. */
+  #onStreamChunk?: (messageId: string, progress: string, replyTo?: string) => void;
 
   constructor(config: NebulaClientConfig) {
     const {
@@ -1871,10 +1874,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * remotely dispatched Gateway push, like `handleQueryUpdate`/`handleResourceUpdate`.
    */
   @mesh()
-  handleStreamChunk(messageId: string, progress: string): void {
+  handleStreamChunk(messageId: string, progress: string, replyTo?: string): void {
     const accumulated = (this.#streamingMessages.get(messageId) ?? '') + progress;
     this.#streamingMessages.set(messageId, accumulated);
-    this.#onStreamChunk?.(messageId, accumulated);
+    this.#onStreamChunk?.(messageId, accumulated, replyTo);
   }
 
   /** The accumulated ephemeral progress for an in-flight assistant `messageId`, or
@@ -1885,7 +1888,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /** Register the live-progress hook (the UI renders each accumulated chunk). Phase-5
    *  UI seam; headless clients (tests) read {@link streamingProgress} instead. */
-  setOnStreamChunk(hook: (messageId: string, progress: string) => void): void {
+  setOnStreamChunk(hook: (messageId: string, progress: string, replyTo?: string) => void): void {
     this.#onStreamChunk = hook;
   }
 

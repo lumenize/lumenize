@@ -169,7 +169,18 @@ export function unwrapWorkersAiRest(json: unknown): unknown {
  */
 export function isStuckFlagResponse(status: number, body: string): boolean {
   if (status !== 500) return false;
-  return /not running|suddenly disconnected|proxying request to container/i.test(body);
+  return isStuckFlagText(body);
+}
+
+/**
+ * The phrase set alone — the ONE place the signature is written. A thrown error carries
+ * only a `message` (no `status`/`body`), so the drive needs the phrases without the
+ * status guard; spelling them inline there instead made two copies of one answer, and
+ * only the exported pair had tests, so the inline copy could drift silently — on the
+ * very branch that decides whether the evidence marker fires at all.
+ */
+export function isStuckFlagText(text: string): boolean {
+  return /not running|suddenly disconnected|proxying request to container/i.test(text);
 }
 
 /** The LAST `n` chars — build/exec output is bounded from the tail, where the error is. */
@@ -595,11 +606,31 @@ export class Galaxy extends NebulaDO {
    * One serialized build cycle — the loop's `build` TOOL. The promise-chain latch
    * queues overlapping builds on the one `ctx.container` (each caller gets its own
    * outcome; a predecessor's failure never poisons the chain).
+   *
+   * This is the overridable SEAM (a test double fakes the container here), so it owns
+   * the build and nothing else — {@link #buildAndAnnounce} owns the reload push, one
+   * level up, where a faked success announces exactly like a real one.
    */
   protected build(): Promise<BuildOutcome> {
     const run = this.#buildChain.then(() => this.#buildOnce());
     this.#buildChain = run.catch(() => { /* the next cycle starts clean */ });
     return run;
+  }
+
+  /**
+   * A build plus its announcement — **the only way callers should build.** A successful
+   * build refreshes every subscribed preview, and that belongs to the EVENT (new `dist`
+   * in the VFS) rather than to whichever caller produced it: the codegen loop's `build`
+   * tool and the admin `buildNow()` both go through here, so a manual rebuild no longer
+   * leaves a stale preview the way the old loop-derived signal did.
+   *
+   * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
+   * `build()` made every faked build silently stop announcing — the suite caught it.
+   */
+  async #buildAndAnnounce(): Promise<BuildOutcome> {
+    const outcome = await this.build();
+    if (outcome.ok) this.broadcastReload();
+    return outcome;
   }
 
   /**
@@ -653,7 +684,7 @@ export class Galaxy extends NebulaDO {
       const message = e instanceof Error ? e.message : String(e);
       // The cloud-only stuck signature — EVIDENCE only (expect zero); never a recovery
       // trigger (the ephemeral model designs the state away).
-      if (isStuckFlagError(e) || /not running|suddenly disconnected|proxying request to container/i.test(message)) {
+      if (isStuckFlagError(e) || isStuckFlagText(message)) {
         debug('nebula.Galaxy.build').error('stuck-flag signature observed', { message });
       }
       this.#destroyBuildContainer();
@@ -691,11 +722,16 @@ export class Galaxy extends NebulaDO {
 
   /** Fresh-container teardown — tolerate every failure shape (nothing running, the
    *  capnweb 1006 from tearing the session being discarded), then drop the cached
-   *  transport (see {@link #constructWorkspace}). */
+   *  transport (see {@link #constructWorkspace}).
+   *
+   *  ⚠️ `destroy()` returns a PROMISE, so the tolerance has to be a `.catch` on it —
+   *  a bare `try/catch` around an un-awaited call catches only a synchronous throw and
+   *  lets the rejection escape as an unhandled one, which is the very 1006 this is
+   *  written to swallow. Deliberately not awaited: teardown must not extend the turn. */
   #destroyBuildContainer(): void {
     try {
-      this.ctx.container?.destroy();
-    } catch { /* tolerated — incl. the 1006 */ }
+      void this.ctx.container?.destroy()?.catch(() => { /* tolerated — incl. the 1006 */ });
+    } catch { /* a synchronous throw from destroy() itself */ }
     this.#containerApi = undefined;
     this.#constructWorkspace();
   }
@@ -710,7 +746,7 @@ export class Galaxy extends NebulaDO {
    */
   @mesh(requireDominionHere)
   buildNow(): Promise<BuildOutcome> {
-    return this.build();
+    return this.#buildAndAnnounce();
   }
 
   // ─── Preview-reload channel (Studio subscribes over the chat pair) ──
@@ -863,21 +899,38 @@ export class Galaxy extends NebulaDO {
 
     if (!verdict.codegen) {
       // ANSWER path — big model, answer prompt, no tools, zero container involvement.
-      const reply = await this.#answerTurn(message, agentMessageId);
+      const reply = await this.#answerTurn(message, agentMessageId, userMessageId);
       await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, userMessageId);
       return;
     }
 
     // CODEGEN path — fire the container warm NOW (the ~3 s cold+mount hides behind
     // the generation; the build tool's exec finds it already up), then run the loop.
+    // ⚠️ The warm STARTS a container, so from here the turn owes a teardown on EVERY
+    // exit: a turn can end without ever calling `build` (`no-tool-calls`, the round
+    // cap, a `mark_complete` with no build, or the discriminator failing open on a
+    // plain question), and `#buildOnce` is the only other place that destroys. Without
+    // the `finally` below those turns leak a live container against `max_instances`,
+    // breaking the invariant the whole ephemeral design rests on — that a container
+    // never outlives its build. Destroy is idempotent, so the common path (build ran,
+    // already torn down) pays a no-op.
     this.warmBuildBox();
+    try {
+      await this.#codegenTurn(message, agentMessageId, userMessageId);
+    } finally {
+      this.#destroyBuildContainer();
+    }
+  }
+
+  /** The codegen fork's body — extracted so the container teardown above can wrap it. */
+  async #codegenTurn(message: string, agentMessageId: string, userMessageId: string): Promise<void> {
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
     let sourceCommit: string | undefined;
     try { sourceCommit = (await this.#ws.git.log({ depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
-      (step) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, step, CHAT_NODE_ID),
+      (step) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, step, CHAT_NODE_ID, userMessageId),
     );
     debug('nebula.Galaxy.chat').debug('loop', {
       instanceName: this.lmz.instanceName, stop: result.stop,
@@ -933,15 +986,10 @@ export class Galaxy extends NebulaDO {
       thought,
       codegen,
     });
-    // ONE reload per turn, on build completion — the Galaxy that just ran the build
-    // announces its own event (the retired ontology-install trigger double-fired: the
-    // version label is baked at build, so an install without a build had nothing new
-    // to fetch). Derived from the loop record, so a turn with no successful `build`
-    // tool call pushes nothing.
-    const buildSucceeded = result.toolCalls.some(
-      (tc) => tc.name === 'build' && (tc.result as { ok?: boolean } | undefined)?.ok === true,
-    );
-    if (buildSucceeded) this.broadcastReload();
+    // (The reload push is NOT fired here — `build()` announces its own success, so a
+    // manual `buildNow()` refreshes the preview too. The retired ontology-install
+    // trigger double-fired: the version label is baked at build, so an install without
+    // a build had nothing new to fetch.)
   }
 
   /**
@@ -950,7 +998,7 @@ export class Galaxy extends NebulaDO {
    * as transient chunks (best-effort animation); the durable Message is the caller's
    * commit.
    */
-  async #answerTurn(message: string, agentMessageId: string): Promise<string> {
+  async #answerTurn(message: string, agentMessageId: string, userMessageId: string): Promise<string> {
     const raw = await this.runModel(STUDIO_MODEL, {
       messages: [
         {
@@ -967,7 +1015,7 @@ export class Galaxy extends NebulaDO {
     });
     const turn = parseModelTurn(raw);
     const reply = turn.text.trim() || 'I had nothing to add — try rephrasing?';
-    this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID);
+    this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, userMessageId);
     return reply;
   }
 
@@ -1104,13 +1152,21 @@ export class Galaxy extends NebulaDO {
    * a subscriber denied on `nodeId` gets NO chunk). No `onResult`: a missed chunk just
    * drops the animation (the durable Message still lands via the query sub).
    */
-  protected streamProgress(chatId: string, messageId: string, progress: string, nodeId: string): void {
+  protected streamProgress(
+    chatId: string, messageId: string, progress: string, nodeId: string, replyTo: string,
+  ): void {
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: chatId };
     const targets = this.queryTargets(query, nodeId);
     // Log identifiers/counts only — never the progress body.
     debug('nebula.Galaxy.stream').debug('chunk', { messageId, targets: targets.length, len: progress.length });
     if (targets.length === 0) return;
-    this.svc.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress));
+    // `replyTo` ATTRIBUTES the chunk: it broadcasts to every chat subscriber (a shared
+    // thread — seeing someone else's reply appear is the product working), so without it
+    // a recipient cannot tell whose turn is alive, and every client treats every chunk as
+    // liveness for its OWN turn. That is a hang: under single-flight a message posted
+    // during a generation is skipped and never answered, yet its poster's idle window is
+    // re-armed by the running turn's chunks and never fails.
+    this.svc.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress, replyTo));
   }
 
   /**
@@ -1489,7 +1545,7 @@ export class Galaxy extends NebulaDO {
       callModel: (m, p) => this.callModel(m, p),
       writeFile: (path, content) => this.writeSource(path, content),
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
-      build: () => this.build(),
+      build: () => this.#buildAndAnnounce(),
       onProgress,
     };
     return runCodegenLoop(initial, deps, config);

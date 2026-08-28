@@ -19,7 +19,7 @@ The dissolving insight: **the companion DO is a full-fledged Durable Object that
 
 **A container node's hub/orchestration logic lives in the container's own companion DO. Do not front a container with a proxy-only DO and drive it from a separate DO across a mesh hop when the two must be live together.**
 
-- **The companion DO is the hub.** It calls *out* (AI, other DOs, the outside world) and calls *down* (`containerFetch`) — one hop from either side. Put the controller anywhere else and you add a hop to one side and a lifecycle to manage.
+- **The companion DO is the hub.** It calls *out* (AI, other DOs, the outside world) and calls *down* into its own container — one hop from either side. Put the controller anywhere else and you add a hop to one side and a lifecycle to manage.
 - **The container is a general compute platform, not a single-purpose binary.** Model it as a box that runs many jobs behind a supervisor process, not "one binary this DO invokes." Adding a capability is a new job inside the existing container, not a new node.
 - **The generalization — the durable *why*:** do not distribute a **liveness-coupled** workflow across multiple independently-hibernating nodes; colocate it in one node so there is **one lifecycle to manage, not the product of several.** This is scoped to *coupled* liveness. Cross-node hops remain correct and expected where lifecycles are **not** coupled — the Star data plane, the Gateway, Resource hosts. This ADR is not "prefer fewer nodes"; it is "don't split a thing whose parts must wake together."
 

@@ -11,7 +11,7 @@
  * stay mutation-checked.
  */
 import { describe, it, expect } from 'vitest';
-import { isStuckFlagResponse, isStuckFlagError } from '../src/galaxy';
+import { isStuckFlagResponse, isStuckFlagError, isStuckFlagText } from '../src/galaxy';
 
 describe('stuck-flag signature (isStuckFlagResponse)', () => {
   // Phrase operand 1 — the runtime proxy-error literal "Error proxying request to container:".
@@ -68,5 +68,27 @@ describe('stuck-flag signature over a thrown error (isStuckFlagError)', () => {
     // and this would wrongly return false — the historical 120-char-clip regression.
     const err = errWith(500, `${'x'.repeat(200)} Error proxying request to container: boom`);
     expect(isStuckFlagError(err)).toBe(true);
+  });
+});
+
+/**
+ * The phrase set alone — what the BUILD DRIVE's catch tests, where a thrown error carries
+ * only a `message` and the status guard cannot apply. It is the same source the
+ * status-gated predicate above delegates to; spelled inline at the drive it was an
+ * untested second copy of the signature, on the branch that decides whether the
+ * expect-zero evidence marker fires.
+ */
+describe('stuck-flag phrases (isStuckFlagText — the status-free arm)', () => {
+  it.each([
+    'Error proxying request to container: boom',
+    'Container suddenly disconnected, try again',
+    'container is not running',
+  ])('matches the drive-side phrase: %s', (message) => {
+    expect(isStuckFlagText(message)).toBe(true);
+  });
+
+  it('does NOT match an ordinary build failure — the marker must stay at zero for those', () => {
+    expect(isStuckFlagText('Rollup failed: src/App.vue (3:7) Unexpected token')).toBe(false);
+    expect(isStuckFlagText('Failed to start container')).toBe(false); // crash-on-boot ≠ stuck
   });
 });

@@ -156,16 +156,33 @@ export async function run(stack: DevStack): Promise<void> {
     //    restore). Asserted, not reported — this is exactly what the old scenario's
     //    optimistic echo could not distinguish.
     await page.goto(`${viteBaseUrl}/studio/${SCOPE}`, { waitUntil: 'domcontentloaded' });
+    // ⚠️ WATCH THE WHOLE CONNECT WINDOW, not the settled end — the modal-flash defect is a
+    // TRANSIENT that self-heals the instant the Profile snapshot lands, so an assertion
+    // taken after the thread renders cannot see it (that is exactly how the vivified-husk
+    // bug survived the first cut). This poll runs from navigation until the chat input
+    // appears and fails on ANY frame where the dialog is open.
+    const flashWatch = (async () => {
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline) {
+        if (await page.locator('dialog.modal[open]').count() > 0) {
+          await captureArtifacts(inst, 'studio-profile-modal-flash');
+          throw new Error('the profile modal FLASHED open for an already-named identity — ' +
+            'the completion gate is reading a not-yet-loaded profile as incomplete');
+        }
+        if (await page.getByPlaceholder('Describe a change…').count() > 0) return;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    })();
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
+    await flashWatch;
     await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
     const after = await captureArtifacts(inst, 'studio-chat-after-reload');
     const renderedAfterReload = (await page.getByText(marker).count()) > 0;
 
-    // PROFILE-COMPLETION NEGATIVE: the identity is named now, so the fresh-heap session settles with
-    // NO modal (the thread already rendered above, so the profile slot has landed — this
-    // is the settled state; the no-flash transient is owned by test/profile-gate.test.ts).
-    // The fresh heap renders the name from the INITIAL Profile snapshot (no push
-    // involved) — both bubbles, including the one posted before the identity was named.
+    // PROFILE-COMPLETION NEGATIVE, settled half (the TRANSIENT half is the flash watch
+    // above, which is what actually exercises App.vue's gate rather than the extracted
+    // pure function). The fresh heap renders the name from the INITIAL Profile snapshot
+    // (no push involved) — both bubbles, including the one posted before the naming.
     await page.locator('div.chat', { hasText: preNameMarker }).first()
       .locator('.chat-header').getByText(DISPLAY_NAME).first()
       .waitFor({ state: 'visible', timeout: 15_000 });
