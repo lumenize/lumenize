@@ -59,45 +59,41 @@ async function starReloadSubscribers(client: NebulaClientTest, dev: string): Pro
   const rows = await waitForSuccess(client) as unknown[];
   return rows.length;
 }
-async function galaxyReloadSubscribers(client: NebulaClientTest, galaxy: string): Promise<number> {
-  client.callGalaxyInspectReloadSubscribers(galaxy);
-  const rows = await waitForSuccess(client) as unknown[];
-  return rows.length;
-}
-
 describe('Preview-reload channel — build-completion trigger (post-collapse)', () => {
-  it('T1: a successful build tool call fires the GALAXY channel — and an ontology install does NOT (retired trigger)', async () => {
+  it('T1: a successful build REPLIES to the requester — and an ontology install does NOT (retired trigger)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
-    client.callGalaxySubscribeReload(galaxy);
-    await waitForSuccess(client);
-    // ALSO subscribe the STAR channel — the retired install-trigger's fan target.
-    // Without this observer, restoring that trigger would fire into an empty table
-    // and the negative below could never red.
+    // Subscribe the STAR channel — the retired install-trigger's fan target. Without
+    // this observer, restoring that trigger would fire into an empty table and the
+    // negative below could never red.
     client.callStarSubscribeReload(dev);
     await waitForSuccess(client);
 
     // NEGATIVE first: an ontology install (old trigger, deliberately retired) fires
-    // nothing on EITHER channel.
-    const beforeInstall = client.reloadCount;
+    // nothing — not the Star channel, and not a build reply.
+    const beforeInstallReload = client.reloadCount;
+    const beforeInstall = client.previewReadyCount;
     await applyOntology(client, dev, 'v1', TODO_V1);
     await applyOntology(client, dev, 'v2', TODO_V2);
 
-    // POSITIVE: a chat turn whose build succeeds fires exactly one reload.
-    const beforeBuild = client.reloadCount;
+    // POSITIVE: a chat turn whose build succeeds replies exactly once, to the client
+    // that asked. No subscription is involved — this client never enrolled anywhere
+    // for it, which is the point: the answer follows the request.
+    const beforeBuild = client.previewReadyCount;
     client.callGalaxyChatScripted(galaxy, 'build it', BUILD_THEN_COMPLETE);
-    await vi.waitFor(() => { expect(client.reloadCount).toBe(beforeBuild + 1); }, { timeout: 15000 });
+    await vi.waitFor(() => { expect(client.previewReadyCount).toBe(beforeBuild + 1); }, { timeout: 15000 });
     // The installs above never fired (checked AFTER the build sync point, so a slow
-    // install-path reload would have landed by now — not a too-early read).
+    // install-path signal would have landed by now — not a too-early read).
     expect(beforeBuild).toBe(beforeInstall);
+    expect(client.reloadCount).toBe(beforeInstallReload);
 
-    // A turn with NO build call fires nothing (the trigger is build completion, not
+    // A turn with NO build call replies nothing (the trigger is build completion, not
     // turn completion).
-    const beforeChat = client.reloadCount;
+    const beforeChat = client.previewReadyCount;
     client.callGalaxyChatScripted(galaxy, 'just talk', NO_BUILD);
     await waitForResult(client);
-    expect(client.reloadCount).toBe(beforeChat);
+    expect(client.previewReadyCount).toBe(beforeChat);
 
     client[Symbol.dispose]();
   });
@@ -128,29 +124,28 @@ describe('Preview-reload channel — build-completion trigger (post-collapse)', 
     client[Symbol.dispose]();
   });
 
-  it('T3: the connect-gate routes by PAIR — chat pair → Galaxy; none → the resource pair; no onReload → nowhere', async () => {
+  it('T3: the build reply goes to the REQUESTER ONLY — a second participant is deliberately not told', async () => {
+    // The design property, asserted directly: a build is somebody's request, so the
+    // answer goes to them. A bystander in the same chat keeps the older UI until their
+    // own lazy path catches up — a staleness cost accepted on purpose, since unchanged
+    // ontology leaves old code data-correct. ⚠️ This is what a fan-out would blur: with
+    // a broadcast BOTH clients tick, so this test is the one that distinguishes the two
+    // designs and it reds if a fan-out is ever restored.
     const { galaxy, dev } = uniqueGalaxyScope();
-    // A: onReload + a CHAT pair (Studio's shape) → subscribes on the GALAXY.
-    const { client: A } = await devAdminClient(galaxy, dev, {
-      onReload: () => {}, chatHostBinding: 'GALAXY', chatScope: galaxy,
+    const { client: requester } = await devAdminClient(galaxy, dev, {
+      chatHostBinding: 'GALAXY', chatScope: galaxy,
     });
-    // B: onReload, NO chat pair (the preview's shape) → subscribes its resource pair (the Star).
-    const { client: B } = await devAdminClient(galaxy, dev, { onReload: () => {} });
-    // C: no onReload → no subscription anywhere.
-    const { client: C } = await devAdminClient(galaxy, dev);
+    const { client: bystander } = await devAdminClient(galaxy, dev, {
+      chatHostBinding: 'GALAXY', chatScope: galaxy,
+    });
 
-    await vi.waitFor(async () => {
-      expect(await galaxyReloadSubscribers(C, galaxy)).toBe(1); // A alone
-      expect(await starReloadSubscribers(C, dev)).toBe(1);      // B alone
-    }, { timeout: 15000 });
+    const r0 = requester.previewReadyCount, b0 = bystander.previewReadyCount;
+    requester.callGalaxyChatScripted(galaxy, 'build it', BUILD_THEN_COMPLETE);
+    await vi.waitFor(() => { expect(requester.previewReadyCount).toBe(r0 + 1); }, { timeout: 15000 });
+    // The bystander is connected to the same Galaxy on the same chat pair and still
+    // gets nothing — so the reply is addressed, not fanned.
+    expect(bystander.previewReadyCount).toBe(b0);
 
-    // A receives the Galaxy's build-completion push; B (Star-parked) and C do not.
-    const a0 = A.reloadCount, b0 = B.reloadCount, c0 = C.reloadCount;
-    C.callGalaxyChatScripted(galaxy, 'build it', BUILD_THEN_COMPLETE);
-    await vi.waitFor(() => { expect(A.reloadCount).toBe(a0 + 1); }, { timeout: 15000 });
-    expect(B.reloadCount).toBe(b0);
-    expect(C.reloadCount).toBe(c0);
-
-    A[Symbol.dispose](); B[Symbol.dispose](); C[Symbol.dispose]();
+    requester[Symbol.dispose](); bystander[Symbol.dispose]();
   });
 });

@@ -396,15 +396,6 @@ export class GalaxyTest extends Galaxy {
     this.ctx.storage.sql.exec('DELETE FROM QuerySubscribers');
   }
 
-  /** Dump the Galaxy's ReloadSubscribers (the build-completion reload channel). */
-  @mesh(requireDominionHere)
-  inspectReloadSubscribers(): Array<{ clientId: string; subscriberBinding: string }> {
-    const rows = this.ctx.storage.sql.exec(
-      `SELECT clientId, subscriberBinding FROM ReloadSubscribers ORDER BY clientId`,
-    ).toArray();
-    return rows as unknown as Array<{ clientId: string; subscriberBinding: string }>;
-  }
-
   /** The permission-filtered query targets for the per-operand accessor test (M4).
    *  Returns the clientIds among the query's subscribers that may read `nodeId`
    *  (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
@@ -476,6 +467,9 @@ export class NebulaClientTest extends NebulaClient {
   //     zeroed by resetResults (it's a channel counter; baseline it before the
   //     action under test, per testing.md). ---
   reloadCount = 0;
+  /** `handlePreviewReady` capture — the BUILD reply's landing point (the Galaxy answers
+   *  whoever asked for the build). Cumulative, like reloadCount. */
+  previewReadyCount = 0;
 
   // --- handleQueryUpdate capture (Child 2 query channel). Reset explicitly by the
   //     query initiators (not resetResults). ---
@@ -542,6 +536,15 @@ export class NebulaClientTest extends NebulaClient {
   override handleReload(): void {
     this.reloadCount++;
     super.handleReload();
+  }
+
+  /** Count the build reply. `super` keeps the real `handlePreviewReady → #onPreviewReady`
+   *  path (unset in most tests → a no-op); the counter proves the signal reached THIS
+   *  client, which is the whole point of a reply addressed at the requester. */
+  @mesh()
+  override handlePreviewReady(scope: string): void {
+    this.previewReadyCount++;
+    super.handlePreviewReady(scope);
   }
 
   // --- Test initiators (tests call these to trigger outbound mesh calls) ---
@@ -898,19 +901,6 @@ export class NebulaClientTest extends NebulaClient {
     this.resetResults();
     const remote = this.ctn<StarTest>().broadcastReloadForTest();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
-  }
-
-  /** Subscribe to the GALAXY's build-completion reload channel (explicit form). */
-  callGalaxySubscribeReload(scope: string): void {
-    this.resetResults();
-    const remote = this.ctn<Galaxy>().subscribeReload();
-    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
-  }
-
-  callGalaxyInspectReloadSubscribers(scope: string): void {
-    this.resetResults();
-    const remote = this.ctn<GalaxyTest>().inspectReloadSubscribers();
-    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
   /** One scripted TRIGGERED turn (fake model + always-ok build — the reload-trigger drive). */

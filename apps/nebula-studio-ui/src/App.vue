@@ -347,11 +347,10 @@ async function connect() {
     activeScope: activeScope.value,
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...chatPair(activeScope.value),
+    // The build reply lands here: the Galaxy answers whoever asked for the build, so
+    // this one hook covers both the initial preview-ready cue and every rebuild. No
+    // `onReload` — that gates the Star's parked publish channel, not this.
     onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
-    // Setting `onReload` is what SUBSCRIBES this client to the Galaxy's reload channel
-    // (nebula-client gates the subscribe on the hook's presence) — so without it the
-    // build-completion broadcast finds zero subscribers and the preview never refreshes.
-    onReload: () => reloadPreview(),
     onLoginRequired: onSessionExpired,
   });
   await n.ready; // throws if not authenticated
@@ -586,11 +585,10 @@ async function openWorkspace(galaxy: string) {
       activeScope: galaxy,
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       ...chatPair(galaxy),
-      onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
-    // Setting `onReload` is what SUBSCRIBES this client to the Galaxy's reload channel
-    // (nebula-client gates the subscribe on the hook's presence) — so without it the
-    // build-completion broadcast finds zero subscribers and the preview never refreshes.
-    onReload: () => reloadPreview(),
+      // The build reply lands here: the Galaxy answers whoever asked for the build, so
+    // this one hook covers both the initial preview-ready cue and every rebuild. No
+    // `onReload` — that gates the Star's parked publish channel, not this.
+    onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
       onLoginRequired: onSessionExpired,
     });
     await n.ready;

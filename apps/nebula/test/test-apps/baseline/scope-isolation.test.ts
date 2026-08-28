@@ -379,6 +379,11 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
     // data-plane, so the non-admin surface gains the DAG-gated resource methods, the
     // invite entry, and the broadcast fire-back handlers — the same classification the
     // per-host surface freeze pins in dev-studio/devstudio-resource-surface.test.ts.
+    // ⚠️ NARROWED again 2026-08-28: `subscribeReload` + `onReloadBroadcastResult` are
+    // GONE. A build is somebody's request, so its completion is answered to the asker
+    // (`announceBuildToRequester` → the client's `handlePreviewReady`) instead of fanned
+    // to enrolled subscribers — which deletes a client-callable entry, a registry, and
+    // a reaper along with it. This list shrinking is the intended direction.
     expect(nonAdminMeshMethods(Galaxy)).toEqual([
       'dagTree',
       'getGalaxyConfig',
@@ -389,14 +394,10 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
       'onBroadcastResult',
       'onQueryBroadcastResult',
       'onQuerySubscriberListBroadcastResult',
-      // Phase 3 (collapse): the build-completion reload channel — registration is
-      // passage-gated like subscribeTree; the fire-back handler rides broadcast.
-      'onReloadBroadcastResult',
       'read',
       'subscribe',
       'subscribeQuery',
       'subscribeQuerySubscribers',
-      'subscribeReload',
       'transaction',
       'unsubscribe',
       'unsubscribeQuery',

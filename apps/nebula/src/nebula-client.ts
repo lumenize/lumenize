@@ -604,19 +604,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         if (state === 'connected' && this.#orgTreeListener) {
           this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeTree());
         }
-        // Preview-reload channel: (re)subscribe on every 'connected' — gated on a
-        // configured `onReload`. Routed by which pair the signal source is on: with a
-        // CHAT pair (Studio) the subscription lands on the GALAXY, whose
-        // `broadcastReload` fires on build completion and Studio reloads the iframe
-        // it composes; without one it falls to the resource pair (the Star's parked
-        // channel — publish's future refresh signal). Idempotent server-side
-        // (INSERT OR REPLACE by clientId), mirroring the orgTree singleton above.
+        // Preview-reload channel: (re)subscribe on every 'connected', gated on a
+        // configured `onReload`. This is the STAR's channel only — publish's future
+        // refresh signal, parked today. ⚠️ The BUILD-completion signal does NOT come
+        // this way: a build is somebody's request, so the Galaxy replies to whoever
+        // asked (`announceBuildToRequester` → `handlePreviewReady`) rather than fanning
+        // out to enrolled subscribers. Studio therefore needs no `onReload` at all —
+        // and the subscription shape is what let that break silently, since the whole
+        // fan-out ran to an empty list whenever a client forgot to set the hook.
+        // Idempotent server-side (INSERT OR REPLACE by clientId), like orgTree above.
         if (state === 'connected' && this.#onReload) {
-          if (this.#chatHostBinding && this.#chatScope) {
-            this.lmz.call(this.#chatHostBinding, this.#chatScope, this.ctn<Galaxy>().subscribeReload());
-          } else {
-            this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeReload());
-          }
+          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeReload());
         }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also

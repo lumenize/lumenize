@@ -48,7 +48,6 @@ import { OntologyStaleError } from './errors';
 import { serveApp } from './serve';
 import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
-import { ReloadSubscriptions } from './reload-subscriptions';
 import type { DagTree } from './dag-tree';
 import type { NebulaClient } from './nebula-client';
 // Type-only: types the facade continuation without pulling a second mesh entry into this
@@ -269,8 +268,6 @@ export class Galaxy extends NebulaDO {
    *  accepted revocation exposure rather than widening it. Raise this and you are
    *  changing an authorization property, not a timeout. */
   protected generationDeadlineMs = GENERATION_DEADLINE_MS;
-  // Preview-reload channel subscribers (Studio registers over the chat pair).
-  #reloadSubscriptions!: ReloadSubscriptions;
 
   /** Reconstruct the Workspace (fs + host-side git over this DO's own SQLite), seed the
    *  framework scaffold + `git init` once (latched in kv), and register the container
@@ -293,7 +290,6 @@ export class Galaxy extends NebulaDO {
       await this.#ws.git.commit({ message: 'scaffold' });
       this.ctx.storage.kv.put(GIT_INITED_KEY, true);
     }
-    this.#reloadSubscriptions = new ReloadSubscriptions(this.ctx);
     // Compose the resource data-plane — the chat Chat/Message host. The ontology
     // provider reads the INSTALLED chat-ontology row (self-seeded on first touch from the
     // platform constant — #ensureChatFacet), exactly the way Star reads its installed app
@@ -635,17 +631,18 @@ export class Galaxy extends NebulaDO {
 
   /**
    * A build plus its announcement — **the only way callers should build.** A successful
-   * build refreshes every subscribed preview, and that belongs to the EVENT (new `dist`
-   * in the VFS) rather than to whichever caller produced it: the codegen loop's `build`
-   * tool and the admin `buildNow()` both go through here, so a manual rebuild no longer
-   * leaves a stale preview the way the old loop-derived signal did.
+   * build tells whoever asked for it (see {@link announceBuildToRequester}), and that
+   * belongs to the EVENT (new `dist` in the VFS) rather than to whichever caller
+   * produced it: the codegen loop's `build` tool and the admin `buildNow()` both go
+   * through here, so a manual rebuild no longer leaves a stale preview the way the old
+   * loop-derived signal did.
    *
    * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
    * `build()` made every faked build silently stop announcing — the suite caught it.
    */
   async #buildAndAnnounce(): Promise<BuildOutcome> {
     const outcome = await this.build();
-    if (outcome.ok) this.broadcastReload();
+    if (outcome.ok) this.announceBuildToRequester();
     return outcome;
   }
 
@@ -765,49 +762,31 @@ export class Galaxy extends NebulaDO {
     return this.#buildAndAnnounce();
   }
 
-  // ─── Preview-reload channel (Studio subscribes over the chat pair) ──
-
   /**
-   * Subscribe the caller to this Galaxy's **reload channel** — the build-completion
-   * signal Studio uses to reload the preview iframe it composes. Modeled exactly on
-   * Star's (registration only, no snapshot); `@mesh()` with no guard — gated by
-   * `onBeforeCall`'s passage like every chat-pair call.
+   * Tell the client that ASKED for this build that its preview is worth re-fetching —
+   * the reply to their request, addressed by the `instanceName` already on the call
+   * they made. Not a subscription: a build is somebody's request, and the answer goes
+   * back to the asker like any other, so there is no registry to keep, no dead
+   * subscriber to reap, and no way for the signal to reach nobody because a client
+   * forgot to enrol (which is exactly how it broke — Studio never set the hook that
+   * gated the old subscribe, so the fan-out ran to an empty list for a whole build).
+   *
+   * ⚠️ **Other participants are NOT signalled, deliberately.** In a shared session a
+   * second viewer keeps the older UI until their own lazy path catches up — a
+   * refocus re-request, or the next thing they ask for. Unchanged ontology means old
+   * code is still data-correct, so running behind is a staleness cost, never a
+   * correctness one; a fan-out would buy a faster refresh for the passive viewer at
+   * the price of a registry that has to be enrolled in, maintained, and reaped.
+   *
+   * Both build paths reach here through {@link #buildAndAnnounce}: the codegen loop's
+   * `build` tool (running under the POSTER's callContext, so `callChain[0]` is the
+   * person whose message started the turn) and the admin `buildNow()`.
    */
-  @mesh()
-  subscribeReload(): void {
+  protected announceBuildToRequester(): void {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribeReload requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribeReload requires a gateway in callChain.at(-1)');
-    }
-    this.#reloadSubscriptions.register(clientId, subscriberBinding);
-  }
-
-  /**
-   * Fan the reload signal to every subscriber — fired ONCE per turn, on build
-   * completion, by the Galaxy that just ran the build (its own event; nothing watches
-   * or compares — the ontology-install trigger this replaces double-fired). The
-   * fan-out is GALAXY-SIDE only: no Galaxy→Star hop exists (a non-admin collaborator's
-   * trigger carries her galaxy claims, and a downward system call would be refused).
-   */
-  protected broadcastReload(): void {
-    const subscribers = this.#reloadSubscriptions.all();
-    if (subscribers.length === 0) return;
-    const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
-    const remote = this.ctn<NebulaClient>().handleReload();
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onReloadBroadcastResult() });
-  }
-
-  /** Drop a reload subscriber whose Gateway reported it disconnected — mirrors Star's. */
-  @mesh()
-  onReloadBroadcastResult(result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
-      if (clientId) this.#reloadSubscriptions.removeSubscriber(clientId);
-    }
+    // No client origin (a server-internal build) — nobody asked, so nobody is told.
+    if (!clientId) return;
+    this.deliverPreviewReady(this.lmz.instanceName!, clientId);
   }
 
   // ─── The codegen turn ───────────────────────────────────────────────
