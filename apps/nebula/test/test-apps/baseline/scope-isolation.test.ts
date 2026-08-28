@@ -537,10 +537,10 @@ function claims(opts: { aud?: string; authScope?: string; scopeAdmin?: boolean }
 }
 
 describe('requirePassage (pure shared guard — admin-gated dominion + branch matrix)', () => {
-  // This pure function is the single audit point (ADR-007) both NebulaDO and
-  // NebulaContainer onBeforeCall delegate to. Each branch is mutation-validated
-  // here — pure calls, no DO/Container harness — so the integration suites above
-  // only need to confirm the wiring.
+  // This pure function is the single audit point (ADR-007) every Nebula node's
+  // onBeforeCall delegates to (all extend NebulaDO). Each branch is
+  // mutation-validated here — pure calls, no DO harness — so the integration
+  // suites above only need to confirm the wiring.
 
   // ── Downward dominion (the new clause) — admit a covering ADMIN ──────────
   it('admits a superuser to any tier name (Universe/Galaxy/Star)', () => {

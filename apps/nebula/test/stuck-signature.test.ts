@@ -11,7 +11,7 @@
  * stay mutation-checked.
  */
 import { describe, it, expect } from 'vitest';
-import { isStuckFlagResponse, isStuckFlagError } from '../../../src/galaxy';
+import { isStuckFlagResponse, isStuckFlagError } from '../src/galaxy';
 
 describe('stuck-flag signature (isStuckFlagResponse)', () => {
   // Phrase operand 1 — the runtime proxy-error literal "Error proxying request to container:".

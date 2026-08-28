@@ -11,7 +11,7 @@ Lumenize is a mesh of **nodes** that talk over `lmz.call()`. Every node must exp
 
 But the node types are **heterogeneous by necessity**: each extends a different third-party base — a Durable Object, a Worker entrypoint — chosen for what that node is *for*. Single inheritance is already spent on that base, so they cannot always also share a Lumenize base class. The shared behavior therefore cannot be *inherited*; and hand-reimplementing it in each node type guarantees drift — sooner or later a new node-shaped surface forgets a check.
 
-> **Today's code differs, in one place — the container.** `packages/mesh/src/lumenize-container.ts` defines `LumenizeContainer extends ComposedMeshDO(Container, 'LumenizeContainer')`, whose own JSDoc calls it "the 4th Lumenize node type", and `DevContainer → NebulaContainer → LumenizeContainer` is live in `apps/nebula`. So a container-driving node today **is** a separate node type and base class, which the **Deliberately narrow** bullet below says it is not. It composes the same core through the same mixin, so no guard and no seam differs — what differs is that the capability was given a base class of its own. [`tasks/nebula-galaxy-collapse-and-chat.md`](../../tasks/nebula-galaxy-collapse-and-chat.md) closes it: its target `Galaxy` is a plain `NebulaDO` driving the build container through raw `ctx.container`.
+> **One residue in `packages/mesh`:** `lumenize-container.ts` still defines `LumenizeContainer extends ComposedMeshDO(Container, 'LumenizeContainer')` — a container base class this ADR says should not exist. Its Nebula consumers are gone; `Galaxy` is a plain `NebulaDO` on raw `ctx.container`. The deletion is tracked in `tasks/backlog.md` § *Lumenize Mesh*.
 
 ## Decision
 

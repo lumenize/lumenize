@@ -23,7 +23,7 @@ The dissolving insight: **the companion DO is a full-fledged Durable Object that
 - **The container is a general compute platform, not a single-purpose binary.** Model it as a box that runs many jobs behind a supervisor process, not "one binary this DO invokes." Adding a capability is a new job inside the existing container, not a new node.
 - **The generalization — the durable *why*:** do not distribute a **liveness-coupled** workflow across multiple independently-hibernating nodes; colocate it in one node so there is **one lifecycle to manage, not the product of several.** This is scoped to *coupled* liveness. Cross-node hops remain correct and expected where lifecycles are **not** coupled — the Star data plane, the Gateway, Resource hosts. This ADR is not "prefer fewer nodes"; it is "don't split a thing whose parts must wake together."
 
-The mechanism (state machines, the `running`×`status` trap, what's verifiable only when deployed, the base-owned `alarm`/`onStart`) is not part of this commitment — it lives in `.claude/rules/containers.md` and will evolve. The commitment is the *placement*.
+The mechanism (state machines, the `running`×`status` trap, what's verifiable only when deployed, the raw-`ctx.container` drive checklist) is not part of this commitment — it lives in `.claude/rules/containers.md` and will evolve. The commitment is the *placement*.
 
 ## Alternatives considered
 
@@ -42,6 +42,6 @@ The mechanism (state machines, the `running`×`status` trap, what's verifiable o
 - Vertical scale (`instance_type`) is available if a single tenant ever outgrows the default instance, so a tenant-sharded system can let its one container do everything ill-suited to JS/WASM.
 
 ### Negative / open
-- The companion DO now `extends` CF's `Container`, so it **cannot be constructed under vitest-pool-workers** ([[container-no-construct-pool-workers]]) — the thin-shell + pure-modules test discipline becomes **mandatory, not optional**.
-- The `Container` base **owns `alarm()` and `onStart()`** and the single physical alarm slot. A hub that wants scheduling routes through `Container.schedule()` (string-callback, no continuations) until the `svc.alarms` rip-out lands (`tasks/backlog.md` § Lumenize Mesh). This is a real constraint the hub inherits by living where it does.
-- **ADR-007 needs a light refresh when the first hub ships.** Its body still describes the container node as a minimal leaf ("*storage from its DO base + its own `fetch()`; no alarms, no lifecycle init*") — an accurate example when written, stale once the container node becomes the hub. That is an edit to ADR-007's forward-facing body, not a conflict: ADR-007's *commitment* (all node types compose one narrow comms+guards core) is untouched; only its illustrative aside about the container-as-leaf changes.
+- The hub is a plain `LumenizeDO` driving raw `ctx.container` — never `extends Container`. The base's homework transfers to the drive: attach `monitor()`, bound the readiness poll, serialize lifecycle transitions on a promise-chain latch. `.claude/rules/containers.md` § *The `Container` base is optional* carries the checklist. Skip an item and the hub wedges on the next container death.
+- An eviction mid-operation orphans the container **and** tears its capnweb session. Container lifetime therefore sits strictly inside one in-flight request. The ephemeral drive — construct, build, destroy, per build — satisfies that, and pays the container cold-start on every build.
+- The stuck-flag race stays cloud-only and deploy-verifiable. The hub keeps its signature predicates as logged evidence; nothing acts on them.

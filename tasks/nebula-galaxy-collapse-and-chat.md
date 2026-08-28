@@ -701,6 +701,21 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
 - ✅ **`containers.md` already states the corrected container state-machine** (verified 2026-08-21) — nothing to do here; the blog-post `draft:true` flip is a backlog item, not collapse work.
 - **Confirm** (both greps scoped — the bare forms traverse `node_modules`/`coverage` and can NEVER pass): `grep -rn 'NebulaContainer' apps .claude --exclude-dir=node_modules --exclude-dir=coverage` returns only intentional history (archive/superseded banners) — run 2026-08-28 pre-work: **34 hits across 10 tracked files**, so it discriminates; ⚠️ **per symbol, not combined**: `LumenizeContainer` is another task's now, so a joint grep could not be satisfied by either. And `grep -rn '\bappVersion\b' apps packages website/docs --include='*.ts' --include='*.vue' --include='*.md' --exclude-dir=node_modules --exclude-dir=coverage --exclude-dir=dist` returns **nothing** (run 2026-08-28 pre-work: **130 hits**, the Phase 2 rename's site list).
 
+✅ **BUILT 2026-08-28 — build notes that would surprise a re-reader:**
+- **`stuck-signature.test.ts` moved to the `unit` project rather than dying** — it tests live
+  `galaxy.ts` predicates (evidence-only, per the containers.md § *cold ⊋ stuck* rewrite), and only
+  its FOLDER belonged to the retired `container` project. The rest of `container-node/` and the
+  vitest `container` project died with `NebulaContainer`; `npm test` drops `--project container`.
+- **ADR-014's Negative/open section was rewritten, not amended** — all three bullets were the
+  `extends Container` era's (pool-workers non-construction, base-owned `alarm`/`onStart`, the
+  ADR-007 leaf-aside refresh, which ADR-007 had already absorbed). The replacements are the raw
+  drive's real costs: the monitor/readiness/latch homework, lifetime-inside-one-request, and the
+  evidence-only stuck predicates. **Promotion to Accepted is PROPOSED** — Status untouched; the
+  workflow.md one-liner flips only if Larry ratifies.
+- Both confirm greps ran clean, and both discriminated pre-work (34 and 130 hits recorded in the
+  phase text). `NebulaContainer` now appears nowhere in `apps` or `.claude` — even the
+  "intentional history" allowance went unused outside the frozen archive.
+
 ---
 
 ## Costs / risks

@@ -83,7 +83,7 @@ details: `apps/nebula/harness/FINDINGS.md`. Add prod commands to `prod.ts` as ne
 
 ## Prerequisites (a clean checkout needs only these)
 
-- **Docker Desktop running** — the DevContainer builds at boot (the harness probes `docker info`).
+- **Docker Desktop running** — the build-box image builds at boot (the harness probes `docker info`).
 - **`.dev.vars`** with the JWT signing keys (`JWT_PRIVATE_KEY_BLUE`) and `TEST_TOKEN` (browser login).
 - **`wrangler login`** OAuth session — the boot uses the **remote** AI / email bindings (NO `--local`).
 
@@ -95,7 +95,7 @@ scenario's own asserts passed against the live system.
 
 ## Boot gotchas (learned the hard way — see `apps/nebula/harness/FINDINGS.md`)
 
-- **Never `--local`.** Boot exactly like `npm run dev`; `--local` + the DevContainer HANGS after the
+- **Never `--local`.** Boot exactly like `npm run dev`; `--local` + the build container HANGS after the
   image build. (`HARNESS_LOCAL=1` opts in for a no-OAuth env, but the hang means the full stack can't
   yet boot that way.)
 - **Hung boot?** `pkill -9 -f workerd` then `rm -rf apps/nebula/.wrangler` (stale/locked state from a

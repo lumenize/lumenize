@@ -138,8 +138,10 @@ persist anything before an abort, see [durable-objects.md](durable-objects.md) �
 
 **cold ⊋ stuck** — every stuck response is cold, but cold is strictly bigger. `429`/`503`/`502`,
 provisioning, and **`Failed to start container`** are cold-but-**not**-stuck. You MUST NOT force-reset on
-crash-on-boot: abort → recrash → abort is a loop. `apps/nebula/src/dev-container.ts` holds the two
-predicates (`isContainerColdResponse` ⊋ `isStuckFlagResponse`) and is the de-facto spec.
+crash-on-boot: abort → recrash → abort is a loop. The surviving predicates are
+`isStuckFlagResponse`/`isStuckFlagError` in `apps/nebula/src/galaxy.ts`, and they are **evidence-only**
+now — an ephemeral build-box destroys its container at the end of every build, so nothing ACTS on a
+stuck verdict; the build drive logs any match and expects zero ([[cf-container-stuck-flag-cloud]]).
 
 ## What is verifiable where — do not over-trust a green local run
 
