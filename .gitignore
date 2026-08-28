@@ -40,6 +40,9 @@ dist-ssr
 
 # Cloudflare
 .wrangler
+# Written into the CWD by `wrangler check startup --workerBundle` — the startup-cost
+# measurement `workflow.md` documents, so anyone following that procedure produces one.
+*.cpuprofile
 # Derived per harness boot from apps/nebula/wrangler.jsonc (container build commented out).
 # Must sit beside the original because wrangler resolves relative paths against the config's dir.
 wrangler.harness-no-container.jsonc
