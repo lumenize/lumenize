@@ -24,6 +24,7 @@
 import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
+import { provisionAndLogin } from '../lib/email-login';
 import { HAS_DOCKER, HAS_AI_PATH } from './gates';
 import { resolveChromiumExecutable } from './helpers';
 
@@ -47,6 +48,10 @@ import { resolveChromiumExecutable } from './helpers';
  *  hyphen — NOT `test--`. Separate from any manually-claimed scope; the working scope is the
  *  GALAXY post-collapse — the Wipe teardown targets its `.dev` star (`{scope}.dev`). */
 const TEST_SCOPE = 'test-u0.test-g0';
+/** Login lands at the UNIVERSE — login never mints, the claim's membership is AT the
+ *  universe, and a galaxy-scoped magic link finds no membership. `/studio/{universe}`
+ *  then auto-opens the one workspace (nudgeNextStep), same as the harness scenario. */
+const TEST_UNIVERSE = TEST_SCOPE.split('.')[0];
 /** Bootstrap admin email = the address CF Email Routing forwards to the email-test Worker. */
 const ADMIN_EMAIL = 'test@lumenize.io';
 
@@ -106,30 +111,26 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     }
   });
 
-  // ⛔ SKIPPED — LOGIN NEVER MINTS (post-surrogate-sub), and nothing provisions `TEST_SCOPE`.
-  // Proven 2026-07-25 (at the pre-collapse star scope; the mechanism is tier-independent): the
-  // magic-link consume 302s with an error and NO Set-Cookie, because `getAndVerifyIdentity` finds
-  // no membership at the scope — `global-setup` wipes `.wrangler/state` each run, and nothing
-  // mints an identity at a bare galaxy either (`createGalaxy` runs under a universe admin this
-  // lane never logs in as). Everything downstream (no cookie → refresh 401 → never `connected`)
-  // follows from that one fact. Unblocking = provisioning TEST_SCOPE's universe through the real
-  // claim path in global-setup, the deferred random-scope-per-run upgrade.
-  it.skip('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
+  it('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
+    // 0. PROVISION through the real claim path (API): claims `test-u0` for ADMIN_EMAIL and
+    //    creates the workspace galaxy beneath it — global-setup wipes `.wrangler/state`, so
+    //    every run claims fresh. Login never mints; this is what creates the membership the
+    //    in-UI form's magic link needs, by the same path a real user's first visit does.
+    await provisionAndLogin({ baseUrl: workerBaseUrl, scope: TEST_SCOPE, email: ADMIN_EMAIL, testToken });
+
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
-    // 1. Load the Studio at the explicit test scope via the canonical path form
-    //    (`/studio/{scope}`, the same form the magic link redirects to — the ACTIVE scope;
-    //    the auth-scope hint self-heals on the first refresh). ui-smoke DELIBERATELY uses the explicit-scope
-    //    path — it covers the FORM WIRING, NOT App.vue's discovery-resolve branch (discovery's
-    //    automated coverage is the deferred random-scope-per-run upgrade, backlog.md:110). Don't
-    //    over-credit this as discovery cover.
-    await page.goto(`${viteBaseUrl}/studio/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+    // 1. Load the Studio at the UNIVERSE (where the membership lives — the form targets
+    //    the URL scope). ui-smoke covers the FORM WIRING, not App.vue's discovery-resolve
+    //    branch (discovery's automated coverage is the deferred random-scope-per-run
+    //    upgrade, backlog.md § Testing & Quality). Don't over-credit this as discovery cover.
+    await page.goto(`${viteBaseUrl}/studio/${TEST_UNIVERSE}`, { waitUntil: 'domcontentloaded' });
 
     // 2. Arm the email waiter BEFORE driving the form (listen first, then send), then DRIVE the
     //    real-email login form — type the email + click "Send magic link" — in place of the old
     //    Node-side fetch POST. This gives the form capable-of-failing coverage under vite-dev.
-    const waiter = waitForEmail({ testToken, instance: TEST_SCOPE });
+    const waiter = waitForEmail({ testToken, instance: TEST_UNIVERSE });
     let link: string;
     try {
       await page.getByPlaceholder('you@example.com').fill(ADMIN_EMAIL);
@@ -148,8 +149,9 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     const u = new URL(link);
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
-    // 4. Reload the authenticated Studio → onMounted auto-connect uses the cookie.
-    await page.goto(`${viteBaseUrl}/studio/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+    // 4. Reload at the universe → auto-connect → nudgeNextStep sees exactly ONE galaxy and
+    //    opens its workspace, where the chat input renders — the real post-collapse journey.
+    await page.goto(`${viteBaseUrl}/studio/${TEST_UNIVERSE}`, { waitUntil: 'domcontentloaded' });
 
     // Capable-of-failing: reds if the shell fails to render or the /gateway connect never
     // completes. The chat input ("Describe a change…") only renders when `connected` (the v-else
@@ -158,6 +160,15 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     // it present — removing that gate (mutation) would red this.
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
     expect(await page.getByRole('button', { name: /Send magic link/ }).count()).toBe(0);
+
+    // 4b. PROFILE COMPLETION — a fresh identity (every run: state is wiped) has an empty
+    //     Profile, so the blocking name modal is up; complete it the way a person would.
+    //     Non-dismissibility + back-fill are the harness scenario's asserts, not repeated here.
+    const modalBox = page.locator('dialog.modal .modal-box');
+    await modalBox.waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByPlaceholder('Your name').fill('Smoke Admin');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await modalBox.waitFor({ state: 'hidden', timeout: 20_000 });
     await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
 
@@ -175,8 +186,14 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
   });
 
-  // ⛔ SKIPPED — depends on the login step above (asserts `authed` is non-null). Same blocker,
-  // same lane-wide login blocker as above (NOT `claim-star` — see the correction there).
+  // ⛔ SKIPPED — needs a deploy to Cloudflare (NOT the old login blocker, which is fixed above).
+  // The assertion is the preview's ?t= bump, which rides the BUILD-COMPLETION reload push — and a
+  // build succeeds only where computerd's FUSE mount is real. Local `wrangler dev` has no kernel
+  // FUSE mount (the collapse's shim-world finding: pushes land in computerd's store, invisible to
+  // real processes), so the build fails with the shim signature and the push never fires. Runs at
+  // the wipe-gate deploy alongside `harness/scenarios/build-box.ts`'s FUSE-world limbs. ⚠️ When
+  // un-skipping there: the inner waitForFunction budget (180s) exceeds the 120s test timeout —
+  // raise the test timeout too.
   it.skip('prompt → Galaxy chat codegen loop + build updates the preview (env.AI + Docker)', async () => {
     expect(authed, 'login step must have established a session').not.toBeNull();
     const { page } = authed!;

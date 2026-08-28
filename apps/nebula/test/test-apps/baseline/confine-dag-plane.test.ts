@@ -21,10 +21,18 @@
  * so a stale-cache miss throws `NodeNotFoundError` and a `toThrow` deny assertion would pass for
  * the WRONG reason.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { DagTree, Subscriptions, QuerySubs, Resources, ROOT_NODE_ID } from '@lumenize/nebula';
+import { DagTree, Subscriptions, QuerySubs, Resources, ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
+import { Browser } from '@lumenize/testing';
+import { universeAdminClient, foundAndLogin, createSubject, createInvitedClient } from '../../test-helpers';
+import { NebulaClientTest } from './index';
+
+const CHAT_QUERY = {
+  queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+};
 
 const uniqueGalaxy = () => `cdp-${crypto.randomUUID().slice(0, 8)}.app`;
 
@@ -119,33 +127,10 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       expect(covering).toBe(1);
     });
 
-    // ⚠️ The `Subscriptions` half is DEFERRED, not silently dropped (testing.md § Deferring ≠
-    // deleting). Blocker: `Subscriptions.subscribe` calls `Resources.read()` before its INSERT, and
-    // `read` resolves the snapshot BEFORE checking permission — so with no existing resource it
-    // throws "not found" and never reaches the store line. Creating one requires a compiled
-    // ontology facet for validation, which this synthetic non-leaf fixture has no cheap way to
-    // stand up (its whole point is that no such host exists yet to provide one).
-    //
-    // Coverage that DOES exist meanwhile: `QuerySubs` above exercises the identical predicate on
-    // the identical inputs, and both writers are mutation-probed together (reverting either store
-    // site reds the loop-closing test below). What is untested is specifically the second call
-    // site's own line.
-    //
-    // Un-skips when nebula-galaxy-collapse-and-chat.md lands a real non-leaf DagTree host (Galaxy
-    // `{u}.{g}`), which brings an ontology with it — at which point this becomes an ordinary
-    // integration test rather than a synthetic one.
-    it.skip('Subscriptions stores 0 for a granted descendant-scope admin (needs a non-leaf host with an ontology)', async () => {
-      const g = uniqueGalaxy();
-      await onNonLeafHost(g, ({ tree, subs, as }) => {
-        as('covering-admin', COVERING(g));
-        tree.setPermission(ROOT_NODE_ID, 'descendant-admin', 'read');
-        // ... create a resource on ROOT_NODE_ID, then:
-        as('descendant-admin', DESCENDANT(g));
-        subs.subscribe('TestResource', 'some-rid', 'client-d', 'BINDING');
-        const row = subs.forResource('some-rid').find((r) => r.clientId === 'client-d');
-        expect(row?.dominionOverHostAtSubscribe).toBe(0); // admitted by the seeded grant, but NOT as admin
-      });
-    });
+    // The `Subscriptions` half — the deferred store-side assertion — now runs for REAL in
+    // the integration block at the bottom of this file: the Galaxy chat plane is the
+    // non-leaf host with an ontology this fixture could not stand up, so the granted
+    // `.dev` admin's stored bit is asserted on the actual `Subscribers` table there.
   });
 
   describe('closing the loop on the consumer (evaluatePermissions)', () => {
@@ -168,6 +153,114 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       // Reverting the store-side confinement makes dAllowed true → this reds.
       expect(dAllowed).toBe(false);
       expect(cAllowed).toBe(true);
+    });
+  });
+
+  // ─── The REAL non-leaf host — the Galaxy chat plane (integration) ─────────────
+  //
+  // The synthetic fixture above proves the predicates in isolation; these two run the
+  // same escalation against the SHIPPED host: the collapsed Galaxy's chat data plane at
+  // `{u}.{g}`, with its platform ontology installed and real invited identities. The
+  // dangerous principal is the invite's own co-mint — a galaxy-tier invite mints the
+  // `.dev` membership WITH `scopeAdmin` — so the fixture's admin bit comes from the
+  // production mint path, not a hand-built claim.
+  describe('the real non-leaf host — the Galaxy chat plane', () => {
+    it('a {u}.{g}.dev-scoped ADMIN with no DAG grant is DENIED on the chat node; a grant opens exactly that door', async () => {
+      const scope = `cab-${crypto.randomUUID().slice(0, 8)}.app`;
+      const { client: admin, accessToken } = await universeAdminClient(
+        NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+        { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+      );
+      // Seed real content at the chat node (two model rounds: the seed turn + the
+      // granted post's turn below), so the denial withholds something that exists.
+      admin.callGalaxySeedChatScript(scope, [
+        { choices: [{ message: { content: 'seeded', reasoning_content: '', tool_calls: [] } }] },
+        { choices: [{ message: { content: 'granted reply', reasoning_content: '', tool_calls: [] } }] },
+      ], {});
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+      using adminSub = admin.resources.subscribeQuery(CHAT_QUERY); await adminSub.ready;
+      await admin.postUserMessage('seed the thread');
+      await vi.waitFor(() => expect(adminSub.resourceIds.length).toBeGreaterThanOrEqual(2), { timeout: 15000 });
+
+      // The escalation principal, via the REAL mint: invite at the galaxy → the co-minted
+      // `{scope}.dev` membership carries scopeAdmin — then log in AT that `.dev` scope.
+      const adminBrowser = new Browser();
+      await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
+      await createSubject(adminBrowser, scope, accessToken, 'devadmin@example.com');
+      const { client: devAdmin, payload } = await createInvitedClient(
+        NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',
+        CHAT_MESSAGE_ONTOLOGY_VERSION,
+        { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+      );
+      // The fixture guard: the claim must BE the dangerous shape — the bare bit set, the
+      // scope strictly below the host — or the denial below cannot fail for the right reason.
+      expect(payload.access.scopeAdmin).toBe(true);
+      expect(payload.access.authScope).toBe(`${scope}.dev`);
+
+      // THE DOOR: pre-confinement the bare `scopeAdmin` bit short-circuited the DAG and
+      // this post would have LANDED (`{scope}.dev` does not cover `{scope}`). Match the
+      // MESSAGE — a boundary refusal and a DAG refusal are indistinguishable as booleans,
+      // and the /permission/i match is itself proof the call passed the boundary (passage
+      // admits the `.dev` caller upward as a tenant; disclosure is T4's, in chat-trigger).
+      await expect(devAdmin.postUserMessage('as the dev admin')).rejects.toThrow(/permission/i);
+
+      // POSITIVE CONTROL: a covering admin grants write at the chat node → the SAME
+      // caller's SAME op lands — the refusal above was the DAG's and nothing else's.
+      await admin.lmz.callAsync('GALAXY', scope,
+        admin.ctn<Galaxy>().dagTree().setPermission(CHAT_NODE_ID, payload.sub, 'write'));
+      const granted = await devAdmin.postUserMessage('now granted');
+      expect(typeof granted).toBe('string');
+
+      admin[Symbol.dispose](); devAdmin[Symbol.dispose]();
+    });
+
+    it('Subscriptions stores 0 for a granted `.dev` admin on the real host — and 1 for the covering admin (the un-skipped store-side half)', async () => {
+      const scope = `cab-${crypto.randomUUID().slice(0, 8)}.app`;
+      const { client: admin, accessToken } = await universeAdminClient(
+        NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+        { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+      );
+      admin.callGalaxySeedChatScript(scope, [
+        { choices: [{ message: { content: 'seeded', reasoning_content: '', tool_calls: [] } }] },
+      ], {});
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+      using adminSub = admin.resources.subscribeQuery(CHAT_QUERY); await adminSub.ready;
+      const seeded = await admin.postUserMessage('seed the thread');
+      await vi.waitFor(() => expect(adminSub.resourceIds.length).toBeGreaterThanOrEqual(2), { timeout: 15000 });
+
+      const adminBrowser = new Browser();
+      await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
+      await createSubject(adminBrowser, scope, accessToken, 'devadmin@example.com');
+      const { client: devAdmin, payload } = await createInvitedClient(
+        NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',
+        CHAT_MESSAGE_ONTOLOGY_VERSION,
+        { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+      );
+      await admin.lmz.callAsync('GALAXY', scope,
+        admin.ctn<Galaxy>().dagTree().setPermission(CHAT_NODE_ID, payload.sub, 'read'));
+
+      // Both principals subscribe the same seeded Message. The `.dev` admin is admitted
+      // by the grant; the covering admin by dominion — so the stored verdicts must
+      // differ, which is what makes the 0 an assertion rather than the column's default.
+      // The `.dev` leg is a DIRECT mesh call on the chat host: the public `resources.*`
+      // API pins its instance to the session's own scope (aud-confinement), so the
+      // convenience path cannot construct this caller — the escalation is a raw-caller
+      // shape by nature, and the assertion below is server-side rows either way.
+      await devAdmin.lmz.callAsync('GALAXY', scope,
+        devAdmin.ctn<Galaxy>().subscribe(CHAT_MESSAGE_ONTOLOGY_VERSION, 'Message', seeded));
+      using adminContent = admin.resources.subscribe('Message', seeded);
+      await adminContent.snapshot;
+
+      const rows = await (runInDurableObject as any)((env as any).GALAXY.getByName(scope),
+        (_i: any, c: any) => c.storage.sql.exec(
+          'SELECT clientId, dominionOverHostAtSubscribe FROM Subscribers WHERE resourceId = ?', seeded,
+        ).toArray() as Array<{ clientId: string; dominionOverHostAtSubscribe: number }>);
+      const devRow = rows.find((r) => r.clientId === devAdmin.lmz.instanceName);
+      const adminRow = rows.find((r) => r.clientId === admin.lmz.instanceName);
+      expect(devRow?.dominionOverHostAtSubscribe).toBe(0); // admitted by the grant, NOT as admin
+      expect(adminRow?.dominionOverHostAtSubscribe).toBe(1); // the covering admin, as admin
+
+      admin[Symbol.dispose](); devAdmin[Symbol.dispose]();
     });
   });
 });

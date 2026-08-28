@@ -120,19 +120,7 @@ The remaining provisioning / capture / inspection work builds on these (the code
   *then* the scopes come back and you choose one. Every pre-alpha user meets this screen first, which is
   why it lands before invites. → design intent, decisions, open questions:
   **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)** § *The target*.
-- ⚠️ **GATE — preview survives redeploys (NOT built; rides the collapse — see above).** Any
-  container-re-rolling redeploy (ANY container-config change restarts instances) or >5m idle
-  **cold-boots every active preview**: the "Waking your preview…" interstitial does **not** self-heal on
-  a plain cold boot (`wakingPreviewPage`'s `autoRecover` fires only on the stuck-`running`-flag
-  signature), and a cold boot reverts the container disk to the baked image, so the user's generated app
-  is **gone until a new codegen turn re-pushes it**. We redeploy a lot during pre-alpha → must be
-  seamless before/right-after inviting. ✅ **DISCHARGED STRUCTURALLY by the collapse** ([nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) § *Final verification*): `dist` is durable in Galaxy SQLite and the container is out of the read path, so a redeploy/eviction has nothing to revert; the criterion lives there. The probe below is the OLD `/dev-container` shape — it dies with that route.
-  - **Acceptance / verify:** after a container-re-rolling redeploy (or >5m idle), the preview
-    **self-heals to the running app within ~60s with zero manual clicks.** Probe: poll
-    `GET /dev-container/{scope}/` and classify the body — `Waking your preview` = stuck/cold, `warming
-    up` = baked default (source not re-pushed), `nebula-scope` meta = app serving. ⚠️ **Repro is
-    conditional:** a pure worker-code redeploy may NOT re-roll the container — deploy a
-    container-touching change (or idle >5m) first.
+- ✅ **GATE — preview survives redeploys: DISCHARGED STRUCTURALLY by the collapse** (BUILT 2026-08-28; criterion in [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) § *Final verification*). `dist` is durable in Galaxy SQLite and the container is out of the read path — a redeploy or eviction has nothing to revert, no interstitial, nothing to re-push. The old failure class (cold boot reverts the container disk to the baked image; a self-heal that fired only on the stuck signature) died with the `/dev-container` serving route. The deploy-only confirm — post-redeploy `GET /app/{star}` serves the **last-built** `dist` — runs at the wipe-gate deploy alongside the build-box scenario's FUSE-world limbs.
 
 ### Consider before invites (NOT gates)
 

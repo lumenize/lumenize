@@ -32,6 +32,16 @@ Found 2026-08-17 while working `logout`, and it **undercuts the most attractive 
 
 ⇒ **A `sameOriginGuard` as originally specified refuses every `/auth` POST from the everyday local frontend loop.** That is a **dev-server change**, not a "test lane adaptation", and it needs a criterion that a proxied browser login still works under local `wrangler dev` + `vite`. ⚠️ **No lane may be adapted by widening the guard.** The other artifact (`apps/nebula/vitest.config.js`) already rewrites the header, and its comment says it does so to satisfy `LUMENIZE_APPROVED_ORIGINS` — which is the first finding again.
 
+### The one route that HAD a hand-rolled origin check is gone
+
+`_nebula/recover` — the container-recovery POST under `/dev-container/*` — carried its own
+same-origin check, covered by `ui-smoke/recover.test.ts` (same-origin 200 · cross-site 403 ·
+header-less 403). The Galaxy collapse deleted the route, the check, and the test together
+(2026-08-28): an ephemeral build-box has no recovery endpoint to guard. What transfers is the
+test SHAPE, not an obligation — if this file's verdict lands a guard anywhere, assert those
+three legs against the guarded route, pinning **which mechanism refused** per the criterion
+below.
+
 ## Design intent, constraints, and future state
 
 **If a guard survives this analysis, these hold:**
