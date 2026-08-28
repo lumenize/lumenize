@@ -21,7 +21,7 @@
  * wrangler invocation is a leak risk.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { execSync } from 'node:child_process';
 import type { TestProject } from 'vitest/node';
@@ -105,6 +105,16 @@ export default async function setup(project: TestProject) {
     project.provide('emailTestToken', testToken);
     return; // No wrangler-dev to tear down.
   }
+
+  // Start from a CLEAN DO store — the same wipe the `/live` harness and the ui-smoke lane
+  // already do, adopted here 2026-08-28 after this lane's absence of it cost two weeks.
+  // ⚠️ The persist dir is CONFIG-RELATIVE: a `--config test/browser/worker/wrangler.jsonc`
+  // boot persists under `test/browser/worker/.wrangler`, NOT the package root's — so wiping
+  // `apps/nebula/.wrangler` (the obvious target, and what an earlier diagnosis wiped) leaves
+  // this one untouched. A registry predating the `Emails.profileId` column survived here and
+  // 500'd every `claim-universe`, which read as a caller-vs-route mystery in the backlog.
+  // "Wipe, don't migrate" is the pre-alpha model; local persisted state has no claim on us.
+  rmSync(resolvePath(process.cwd(), 'test/browser/worker/.wrangler/state'), { recursive: true, force: true });
 
   const { baseUrl, cleanup } = await spawnWranglerDev({
     configPath: WRANGLER_CONFIG,

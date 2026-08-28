@@ -772,7 +772,8 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
 
 ## Final verification
 
-- ✅ **Suite delta, MEASURED LAST — after the verifier panel's fixes: 3828 passed / 0 failed / 9 skipped** against the baseline 3761/4/10 (backlog's former § *THE SUITE IS RED*, deleted the same day per its own instruction). No new failure, no new skip; the −1 skip is this file's own un-skip. The arithmetic closes on the nose: the pre-panel run measured 3819 and the panel's fixes added exactly 9 tests. ⚠️ **That earlier 3819 was recorded and then FALSIFIED by later edits** — the panel caught it, and re-measuring is now the closing action rather than a step (§ *Phase retro*, process proposals).
+- ✅ **Suite delta, MEASURED LAST — after the verifier panel's fixes AND the follow-up round: 3828
+  passed / 0 failed / 9 skipped** against the baseline 3761/4/10 (backlog's former § *THE SUITE IS RED*, deleted the same day per its own instruction). No new failure, no new skip; the −1 skip is this file's own un-skip. The arithmetic closes on the nose: the pre-panel run measured 3819 and the panel's fixes added exactly 9 tests. ⚠️ **That earlier 3819 was recorded and then FALSIFIED by later edits** — the panel caught it, and re-measuring is now the closing action rather than a step (§ *Phase retro*, process proposals). ⓘ One run in this sequence showed a single red in `@lumenize/fetch`'s `retries on 5xx server error`, which drives the DEPLOYED test-endpoints Worker on a 10 s `vi.waitFor`; it passed on re-run, this task never touched that package or its endpoint, and it is `testing.md`'s external-cold-start class — logged in `backlog.md` rather than treated as a regression.
 - Every phase's **capable-of-failing** test reds against pre-fix code, green after (per testing.md).
 - 🔒 **Leftover sweep — production code whose only consumer is a TEST either dies in this task or carries an explicit keep-decision** (Larry, 2026-08-24). The last substrate move (chat tables → Resources) left its old shape half-standing — the live `Turns` table, the turn machinery, `postUserMessage` ahead of its UI — and each cost review time, because nothing distinguished "superseded, forgot to delete" from "built ahead, adoption coming". The phases delete what this file enumerated; this criterion is the derivation that catches the rest: for every public method and exported symbol on the files this task touched, grep the bare identifier outside `test/` and `harness/` — zero production hits means **delete it**, or write the keep-decision **where it survives this file's archiving**: a JSDoc at the site naming the intended consumer and what brings it (per `workflow.md`, cite an ADR/rule or state it as prose — never a task-file handle). `postUserMessage` pre-Phase-4 is the model of a legitimate keep: test-only today, and Phase 4 is the named arrival. Test-only proves neither deadness nor a use case — the explicit decision is the point.
 - 🔒 **Two-ways sweep — where two roughly equivalent mechanisms coexist for one job, the reason is recorded where the second one lives, or one dies** (Larry, 2026-08-24). This task exists partly because nobody wrote that sentence earlier: `chat(message)` beside `postUserMessage` were two paths to one event (Phase 4 kills one); Star's `#isCachedVersion` beside DevStudio's `void appVersion` were one need met two ways (Phase 2 unifies them); `dagTree()` beside the per-method entries were two shapes for one capability (the follow-on unifies them). At closing, sweep the touched surfaces for a pair doing one job — two write paths, two guards, two ways to reach a capability — and either delete one or record why both, at the site the next reader would otherwise "conform" (`workflow.md` § *Evaluating alternatives* owns the pricing: an unexplained second way accretes false justifications). The test: a cold reader can tell which one to call without asking.
@@ -864,7 +865,27 @@ fixture-in-the-safe-shape, in the half nobody checks — the fixture supplying w
 in the backlog for two weeks as an undiagnosed caller-vs-route mystery, were **stale persisted DO
 state** under the config-relative `test/browser/worker/.wrangler` — a registry predating
 `Emails.profileId`. The earlier exclusion run had wiped the package root's `.wrangler`, the wrong
-directory. One `rm -rf` greened the lane and deleted a backlog row.
+directory. One `rm -rf` greened the lane and deleted a backlog row. ✅ **Prevented rather than
+remembered (2026-08-28):** the `/live` harness and the ui-smoke lane *already* wiped their store on
+boot — the browser lane was the one that never adopted it, which is the whole reason the staleness
+could sit. It does now, with the config-relative trap named at the site, and the wipe is proven to
+fire by a sentinel file that does not survive a run.
+
+**3b. The local FUSE gap, DIAGNOSED (2026-08-28, prompted by Larry asking whether an upgrade fixes
+it).** The build called it "two-world" and moved on, which was an inference dressed as a finding.
+Actually measured since: **`/dev/fuse` IS available under Docker Desktop** — a plain
+`docker run --device /dev/fuse --cap-add SYS_ADMIN` gets the character device — so nothing about the
+Mac, Docker, or miniflare is the obstacle. `wrangler dev` simply does not pass those flags to the
+container it runs, so `computerd`'s `FUSE_MOUNT=auto` falls back to its userspace shim. Two
+consequences: it is a **wrangler** gap worth raising with Cloudflare rather than a property of our
+stack, and the workaround is Larry's — deploy under a throwaway `experiment-`prefixed worker name and
+drive the FUSE limbs in prod (`workflow.md` § *Experiments* governs: dashboard-delete, never
+`wrangler delete`). ⚠️ **An upgrade does NOT fix it, checked rather than assumed:**
+`@cloudflare/computer` is at **0.2.1** (we pin `^0.1.1`, and a caret on `0.x` cannot reach it), the
+matching `computerd:0.2.1` image exists, and the pair installs — but 0.2.x exposes **no FUSE surface
+at all** (the knob is the image's `FUSE_MOUNT` env var) and lands a breaking API change
+(`start(env, enableInternet)`). Bumped, type-checked, reverted: it belongs in its own task with its
+own verification, not smuggled into this one.
 
 **4. Impact on follow-on work.** The wipe-gate deploy inherits a named, bounded set: `build-box`'s
 FUSE-world limbs, the `ui-smoke` codegen test, and the preview-survives-redeploys confirm — all
@@ -873,21 +894,24 @@ them together. `LumenizeContainer`'s retirement stays the backlog's. Nothing new
 
 **5. Process changes — proposed, not applied.**
 
-- 🆕 **A new `calibration.md` entry: *a decision expressed in framework syntax is invisible to a
-  test*.** Template branch order, route order, CSS precedence, middleware order — all read as layout
-  and all can own a correctness decision. Dated failure: `App.vue`'s status chain put the transient
-  stream ahead of the failed banner, so a turn that streamed and then died showed a frozen partial
-  reply forever — the exact hang Phase 6 exists to kill, and the build note claiming *"the reducer owns
-  every decision"* was false. Correction: **derive the decision into a named function and let the
-  framework render the result** (`deriveTurnDisplay`). Catch yourself when a `v-if` chain's ORDER is
-  load-bearing, or a `try/catch` wraps something un-awaited.
+- 🆕 **A `calibration.md` entry — narrowed to ONE checkable habit after Larry called the first draft
+  too abstract to prevent recurrence.** The abstract version ("decisions in framework syntax") named a
+  category; this names the move: ⚠️ **when a `v-if` / `v-else-if` chain's ORDER decides which of two
+  states a user sees, that order is a correctness decision and no test can see it — put it in a named
+  function and let the template key on the result.** Dated failure: `App.vue` put the transient stream
+  ahead of the failed banner, so a turn that streamed and then died left a frozen partial reply that
+  `v-else`'d the banner away forever — the exact hang Phase 6 exists to kill, and the note claiming
+  *"the reducer owns every decision"* was false. The fix (`deriveTurnDisplay`) made the precedence
+  mutation-testable, and the original bug now reds a named test. **How to catch it:** you are writing
+  a second `v-else-if` whose branches are not mutually exclusive by construction.
 - 🏠 **Leftover sweep → `testing.md`**, as the production-side mirror of its redundant-test bullet.
   Evidence from this build: 9 exported symbols on touched files had no other-file production consumer,
   and **all 9 were legitimate** (in-file consumers, or API typing for a public signature) — zero
   deletions. So it is cheap and low-yield on a build that mostly *deleted*; worth keeping as a
   criterion, not worth machinery.
 - 🏠 **Two-ways sweep → `workflow.md` § *Evaluating alternatives*, beside the permanent-divergence
-  bullet — but it MUST arrive with an instrument.** Run as a judgement call over "the touched
+  bullet — but it MUST arrive with an instrument, and Larry is lukewarm on it (noted; it is the
+  weakest of these proposals and the one to drop if any is dropped).** Run as a judgement call over "the touched
   surfaces" it is worth little: this build's sweep reported *"no unexplained second way found"* and
   missed a **verbatim duplicate of the stuck-signature regex inside the single most-touched file**,
   where only the exported copy had tests. The panel found it by reading. Proposed mechanical form:
@@ -904,23 +928,27 @@ them together. `LumenizeContainer`'s retirement stays the backlog's. Nothing new
 **ADR-016 amendments (this build was its first real contact — all three are gaps the build filled by
 convention, so they are proposals, not corrections):**
 
-- **A server-composed actor's `profileId` is the actor's own self-describing id, not a profile
-  handle.** The build stamps `{ sub: 'agent:nebula', profileId: 'agent:nebula' }`. The ADR says
-  `profileId` rides along "so a record can name a **departed** actor without a live registry hop" —
-  which presumes a resolvable profile. For a composed actor there is none, and a renderer that treats
-  the field as a handle will resolve nothing and render blank. State that the sentinel is the value,
-  and that it is legible precisely because it is syntactically not-a-UUID.
-- **The recorded claims are the ones verified at the TRIGGERING call, even when the write lands much
-  later.** The agent reply is committed by a *detached* continuation that keeps the poster's
-  `callContext` through AsyncLocalStorage and can run for the full generation deadline (300 s, against
-  a 900 s access token). "Write-time-pinned" therefore needs a companion sentence: the record states
-  the authority that **initiated** the action, and it MUST NOT be refreshed or re-verified at write
-  time — doing so would name a different principal, or none, for the same act.
+- ~~A server-composed actor's `profileId` is not a profile handle~~ — **WITHDRAWN, it was false.**
+  `agent:nebula` **is** a resolvable profile: the `Profile` DO self-seeds name/nickname/picture when
+  its own `ctx.id.name` is the reserved id, so the handle resolves like any human's and the ADR's
+  departed-actor reasoning holds unchanged. Caught by Larry on the retro itself. ⚠️ Worth recording
+  as `calibration.md` §7 in the wild: the amendment was a *supporting clause* under a conclusion
+  nobody was arguing with, and this build's own `four-party-chat` asserts Nebula's profile name and
+  picture render — the disproof was in evidence I had already collected.
+- ~~"Write-time-pinned" needs a companion sentence about detached writes~~ — **reframed, and Larry's
+  read was right: it is a code invariant, not an ADR gap.** A triggered turn does run detached under
+  claims verified at post time and never re-verified at the write, but the generation deadline
+  (300 s) sits inside `ACCESS_TOKEN_TTL` (900 s), so the write always lands inside the exposure
+  window `security.md` already accepts — nothing new to bless. What was missing is that the
+  relationship was nowhere stated and nothing checked it: `generationDeadlineMs` now carries the
+  reasoning at the site (raising it changes an authorization property, not a timeout) and
+  `turn-liveness.test.ts` asserts the SHIPPED constant against the SHIPPED TTL, mutation-checked at
+  1,200,000 ms.
 - **Say plainly that a resource write records on EVERY snapshot, not on the qualifying-action list.**
-  The Corollary already says there is no carve-out, but the scope section reads as an enumeration
-  ("destroys or removes state, changes authority, establishes a session"), and a chat message is none
-  of those. A reader reconciling the two has to infer that the resource plane simply records
-  universally. One sentence closes it.
+  (The one surviving proposal.) The Corollary already says there is no carve-out, but the scope
+  section reads as an enumeration — "destroys or removes state, changes authority, establishes a
+  session" — and a chat message is none of those. A reader reconciling the two has to infer that the
+  resource plane simply records universally. One sentence closes it.
 
 ## Relationships / sequencing
 

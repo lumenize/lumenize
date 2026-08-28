@@ -32,7 +32,7 @@ import {
   getParserValidatorFacet,
   type ParserValidator,
 } from '@lumenize/ts-runtime-parser-validator';
-import { NEBULA_SUB } from '@lumenize/nebula-auth';
+import { NEBULA_SUB, ACCESS_TOKEN_TTL } from '@lumenize/nebula-auth';
 import { NebulaDO, requireDominionHere } from './nebula-do';
 // The pure compile half lives in the Node-safe leaf `./ontology-compile` (the /live harness
 // compiles rows to install via `setOntology`); re-exported here so import sites are unchanged.
@@ -127,6 +127,13 @@ const DISCRIMINATOR_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
 /** A build hang is killed here and surfaces as `retryable` (BUILD_TIMEOUT + SIGKILL —
  *  the build-box contract). Generous: a heavy-lib vite 8 build measured seconds, not
  *  minutes (§ Relationships in the collapse task; re-tune from evidence, not fear). */
+/**
+ * The default generation deadline, at module scope so a test can assert the
+ * shipped value rather than a copy of it (see `Galaxy.generationDeadlineMs`,
+ * whose JSDoc carries why this is an authorization bound).
+ */
+export const GENERATION_DEADLINE_MS = 300_000;
+
 const BUILD_TIMEOUT_MS = 180_000;
 
 /** The env the in-container `vite build` runs under. Deps are baked at the image
@@ -251,8 +258,17 @@ export class Galaxy extends NebulaDO {
   #turnInFlight = false;
   /** The generation deadline — a hung `env.AI` await past this releases the turn
    *  latch + ends the heartbeat so a fresh message can start a NEW generation.
-   *  `protected` field so the test probe can shorten it. */
-  protected generationDeadlineMs = 300_000;
+   *  `protected` field so the test probe can shorten it.
+   *
+   *  ⚠️ **It MUST stay under `ACCESS_TOKEN_TTL`, and the assert below is why.** A
+   *  triggered turn runs detached under the POSTER's `callContext`, whose claims were
+   *  verified when they posted and are never re-verified at the write — so a turn that
+   *  outran the token's own lifetime would commit under claims that had expired before
+   *  the write landed. At 300 s against 900 s the write always lands inside the window
+   *  the access TTL already bounds, which is what keeps this inside `security.md`'s
+   *  accepted revocation exposure rather than widening it. Raise this and you are
+   *  changing an authorization property, not a timeout. */
+  protected generationDeadlineMs = GENERATION_DEADLINE_MS;
   // Preview-reload channel subscribers (Studio registers over the chat pair).
   #reloadSubscriptions!: ReloadSubscriptions;
 
