@@ -68,12 +68,18 @@
     ]
   },
   // Workers KV — the ONE hot refresh-token record (`refresh:{tokenHash}`), written by the registry and
-  // read at the edge by the Worker on refresh (tasks/nebula-auth-surrogate-sub.md). The per-scope
-  // NebulaAuth DO is dissolved. ⚠️ PHASE-4 (manual): provision the real KV namespace
-  // (`wrangler kv namespace create REFRESH_TOKEN_KV`) and replace the placeholder `id` below before the
-  // greenfield redeploy.
+  // read at the edge by the Worker on refresh (tasks/archive/nebula-auth-surrogate-sub.md). The
+  // per-scope NebulaAuth DO is dissolved.
+  // ✅ Provisioned 2026-08-28 (`nebula-refresh-token-kv`), replacing a literal
+  // `REPLACE_WITH_REAL_KV_NAMESPACE_ID_AT_PHASE_4` placeholder that had made this config
+  // UNDEPLOYABLE — every `wrangler deploy` died on `KV namespace ... is not valid [code: 10042]`.
+  // Nobody had noticed because prod has not been redeployed since 2026-07-04, which predates the
+  // binding; the first deploy attempt after it landed is what surfaced it. ⚠️ The `test-nebula`
+  // worker (scripts/deploy-test.sh) SHARES this namespace: records key on the token hash so they
+  // cannot collide, and both workers already carry the same JWT keys, so the sharing adds no reach
+  // that separate namespaces would withhold.
   "kv_namespaces": [
-    { "binding": "REFRESH_TOKEN_KV", "id": "REPLACE_WITH_REAL_KV_NAMESPACE_ID_AT_PHASE_4" }
+    { "binding": "REFRESH_TOKEN_KV", "id": "fab894998be745fe80d4f75c1c9a92a3" }
   ],
   // nebula-auth's two rate limiters. Without these the guards silently no-op (`checkRateLimit`
   // returns allow when unbound) — the Registry's constructor logs `debug.error` naming any absent

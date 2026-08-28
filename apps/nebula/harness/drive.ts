@@ -11,7 +11,7 @@
  *
  * @see tasks/archive/claude-live-verification.md
  */
-import { bootDevStack, HAS_DOCKER } from './lib/harness';
+import { bootDevStack, HAS_DOCKER, readDevVar } from './lib/harness';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as downwardDominion from './scenarios/downward-dominion';
 import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
@@ -77,16 +77,41 @@ async function main(): Promise<void> {
     return;
   }
   const needsContainer = scenario.needsContainer ?? true;
-  if (needsContainer && !HAS_DOCKER) {
+
+  // DEPLOYED target — run the very same scenarios against a real Worker instead of a
+  // local boot. This is the ONLY way to reach the mount-dependent limbs: local
+  // `wrangler dev` never passes `/dev/fuse` to the container it starts (verified by
+  // `docker inspect`: Devices=null, CapAdd=null), so `computerd` falls back to a
+  // userspace shim and a build can only fail. Deployed, the device is there and the
+  // kernel backend mounts. ⚠️ The target must carry the SAME JWT secrets as `.dev.vars`
+  // — a scenario that mints (rung 3) signs with the local key, and every rung-1 login
+  // rides the deployed worker's own issuer.
+  //   npm run deploy:test && HARNESS_TARGET_URL=<url> npx tsx apps/nebula/harness/drive.ts build-box
+  const target = process.env.HARNESS_TARGET_URL;
+  if (!target && needsContainer && !HAS_DOCKER) {
     console.error('[harness] Docker Desktop is not reachable — the build-box image builds at boot. Start Docker and retry.');
     process.exitCode = 3;
     return;
   }
 
-  console.error(needsContainer
-    ? '[harness] booting a fresh local wrangler dev (cold build-box image build can take a few minutes)…'
-    : '[harness] booting a fresh local wrangler dev WITHOUT the build box (no Docker needed)…');
-  const stack = await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
+  if (target) {
+    console.error(`[harness] DEPLOYED target — no local boot: ${target}`);
+  } else {
+    console.error(needsContainer
+      ? '[harness] booting a fresh local wrangler dev (cold build-box image build can take a few minutes)…'
+      : '[harness] booting a fresh local wrangler dev WITHOUT the build box (no Docker needed)…');
+  }
+  const stack = target
+    ? {
+        baseUrl: target.replace(/\/$/, ''),
+        signingKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),
+        activeKey: 'BLUE' as const,
+        // Nothing local was started, so there is nothing to tear down. ⚠️ State on a
+        // deployed target SURVIVES the run — scenarios provision fresh scopes per run,
+        // which is what keeps repeat runs from colliding.
+        cleanup: async () => {},
+      }
+    : await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
   const t0 = Date.now();
   try {
     console.error(`[harness] booted at ${stack.baseUrl} — running scenario "${name}"…`);

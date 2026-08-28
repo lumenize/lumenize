@@ -35,6 +35,7 @@
     "bench:fanout:agents": "vitest --run --project browser-bench fanout-agents.benchmark",
     "bench:all": "vitest --run --project browser-bench",
     "deploy": "bash scripts/deploy.sh",
+    "deploy:test": "bash scripts/deploy-test.sh",
     "deploy:test-worker": "bash -c 'source scripts/git-stamp.sh && wrangler deploy --config test/browser/worker/wrangler.jsonc \"${WRANGLER_DEFINE_ARGS[@]}\"'",
     "types": "wrangler types",
     "audit:migrations": "node scripts/audit-migrations.mjs",
