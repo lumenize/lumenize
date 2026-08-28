@@ -156,6 +156,28 @@ Both conclusions still stand on their *other* reason, which is precisely why nob
 
 **How to catch yourself:** you are about to write the same `@mesh()` method on two host classes, or a method whose entire body forwards to a composed instance. Either one means the gate belongs one level up.
 
+## 12. You will put a decision in a framework's syntax, where no test can see it
+
+**What you'll do:** express which of two things a user sees as the ORDER of a `v-if` / `v-else-if`
+chain — the idiomatic Vue spelling, and the one every example shows. Route order, middleware order
+and CSS precedence are the same shape. It reads as layout, so nobody reviews it as logic.
+
+**What to do instead:** when the chain's order is what decides the outcome, **put the decision in a
+named function and let the template key on its result.** The order then lives somewhere a mutation
+can flip and a test can catch.
+
+**Where it bit (2026-08-28):** Studio's chat status put the transient stream ahead of the failed
+banner. A turn that streamed and then died left a frozen partial reply — and `streaming` only clears
+when its own message lands durably, so nothing ever cleared it, and the banner was `v-else`'d away
+forever. That is the "thinking… forever" hang the phase existed to kill, wearing a half-written
+answer instead of a spinner. Every unit test passed, the live scenario passed, and the build note
+claimed *"the reducer owns every decision"* — false, because the template owned one too. Extracting
+`deriveTurnDisplay` (`apps/nebula/src/turn-liveness.ts`) made the precedence assertable; the original
+bug now reds a named test.
+
+**How to catch yourself:** you are writing a second `v-else-if` whose branches are not mutually
+exclusive by construction — so one of them is only unreachable because of where it sits in the list.
+
 ## 10. Opening with a sweep — moved
 
 Now `prose-voice.md` § *The moves that make the difference*. It is prose guidance rather than a training bias, and belongs where it loads at drafting time. The handle stays because archived files cite it and they are frozen.
