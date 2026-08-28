@@ -110,3 +110,29 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 - **Open at build: how a persona is minted.** Either Studio runs the REAL login path (ADR-009 rung 1) against a `*@lumenize.io` address and auto-consumes the link the way `provisionAndLogin` does — which means production Studio reading a mailbox — or the Galaxy provisions personas directly on `.dev` (it holds dominion there), justified because a synthetic identity has no human behind it and so no mailbox to prove. Decide it there.
 
 **Demand trigger:** the first user-developer whose app has more than one kind of user — which is most of them, so expect this early.
+
+## Item 8: Tell the OTHER collaborators a new build landed
+
+**Today:** a successful build replies to whoever asked for it (`Galaxy.announceBuildToRequester`
+→ the requester's `handlePreviewReady`). A second person with the same workspace open keeps the
+older UI until their own lazy path catches up — a refocus re-request, or the next thing they ask
+for. That is a deliberate staleness cost, not a correctness one: unchanged ontology leaves old
+code data-correct.
+
+**The change:** fan the same signal to every live Studio on the workspace instead of to one.
+
+**The roster already exists and nothing better is available** (settled with Larry 2026-08-28):
+`queryTargets` over the chat query IS "everyone with this workspace open", and any registry we
+invented would be no better maintained. Its accuracy rests on the mesh dropping a subscriber the
+first time delivery fails — which it does, via the `ClientDisconnectedError` fire-back — so a
+closed tab self-heals rather than accumulating.
+
+⚠️ **Check the drop LATENCY before relying on it.** The verdict is meant to come back in ~5 s;
+Larry recalls a possible bug making it 30 s. Between the disconnect and the drop, a fan-out
+addresses a dead socket — harmless for a reload cue, but confirm the number rather than
+inheriting it, and fix the delay if it is the bug rather than the design.
+
+⚠️ **Do not reintroduce an opt-in enrolment.** The design this replaced broke precisely because a
+client had to remember to subscribe and Studio did not, so the fan-out ran to an empty list for a
+whole build with every suite green. Whatever roster is used must be one Studio cannot forget to
+join.
