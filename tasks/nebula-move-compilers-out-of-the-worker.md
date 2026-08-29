@@ -263,14 +263,19 @@ over; 6 is the payoff.
 4. **The container gains a compile job, beside the old path rather than replacing it.** Copy the
    package source and the four vendored `forks/typia/*` into the image behind a container-side manifest
    that is NOT `container/app/package.json`; run `bundle-tsc.mjs` during the image build; wrap the
-   container's job so it type-checks first and builds only on a clean check, returning `BuildReport`
-   with per-step outcomes and the compiled row written to a named mount path.
+   container's job so it runs EVERY step and reports each — ontology compile, type check, bundle —
+   returning `BuildReport` with per-step outcomes and the compiled row carried back host-side.
+   ⚠️ **No step gates another.** A type finding does not stop the bundle: `@vitejs/plugin-vue`
+   transpiles rather than type-checks, so a `.vue` carrying a real `TS2339` still produces a `dist`,
+   and stopping there would make the model's publish override unreachable by construction — the very
+   hard gate § *Decisions* rejects. Only `bundle`'s own failure means there is no `dist`.
    - **Success criteria:** an image build produces `deps.bundle.mjs` inside the image and editing a
      fork source invalidates that layer; a driven build returns a `BuildReport` whose `typeCheck.checked`
-     names the files tsc looked at; the Galaxy reads the row back with `ws.fs.readFile` and `git status`
-     in the workspace shows it untracked.
-   - **Mutation:** drop the type-check step → `typeCheck.ran` is false while `bundle.ok` is true, which
-     the criterion above reds on.
+     names the files tsc looked at; **a `.vue` with a real type error yields `typeCheck.findings`
+     non-empty AND `bundle: { ran: true, ok: true }` with a `dist`** — the criterion that isolates the
+     no-gating property; the Galaxy reads the row back host-side and `git status` shows it untracked.
+   - **Mutation:** make the bundle conditional on a clean type check → the type-erroring build returns
+     no `dist` and the isolating criterion reds.
    - ⚠️ **Prove `bundle-tsc.mjs` runs unmodified in the image** rather than reasoning about it — it
      resolves `typescript/package.json` and reads its `lib/` off disk.
 
@@ -281,7 +286,10 @@ over; 6 is the payoff.
    `STUDIO_LOOP_SYSTEM_PROMPT`) and `harness/scenarios/build-box.ts`.
    - **Success criteria:** a codegen turn that writes a type-erroring `.vue` still reaches
      `mark_complete` — build, read findings, fix, rebuild — driven live, with rounds and container
-     cycles recorded; no prose surface still says a written file "is compiled immediately";
+     cycles recorded; **no compiling, type-checking or gating survives in the Worker — in code OR in
+     the words that describe it**: the § *Every compiler call site* grep returns nothing under
+     `apps/nebula/src`, and no tool description or system-prompt line still tells the model a written
+     file "is compiled immediately" or that it should call `build` "when every file compiles cleanly";
      `build-box.ts` discriminates shim from FUSE without `'buildError' in outcome`.
    - **Mutation:** leave `sawError` unset for type findings → the loop never drops to `fixParams` and
      the live convergence criterion reds.
