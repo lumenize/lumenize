@@ -66,7 +66,7 @@ Moving only the compile-time call sites reduced the bundle size by only **1.5 MB
 
 ### Every compiler call site in the Worker, and what becomes of each
 
-**The inventory is a construct, not a count.** `grep -rnE 'compileOntologyVersion\(|generateParseModule\(|extractTypeMetadata\(|checkTypeScript\(|compileScript\(|compileTemplate\(' apps/nebula/src` returns the eight sites below (2026-08-29) — BOTH compilers, since `@vue/compiler-sfc` is 11.8% of the bundle and needs a disposition as much as tsc does, and a seventh appearing later inherits the same obligation rather than falsifying a tally:
+**The inventory is a construct, not a count.** `grep -rnE 'compileOntologyVersion\(|generateParseModule\(|extractTypeMetadata\(|checkTypeScript\(|compileScript\(|compileTemplate\(' apps/nebula/src` returns the sites below (2026-08-29) — BOTH compilers, since `@vue/compiler-sfc` is 11.8% of the bundle and needs a disposition as much as tsc does, and a seventh appearing later inherits the same obligation rather than falsifying a tally:
 
 | site | what it compiles | becomes |
 |---|---|---|
