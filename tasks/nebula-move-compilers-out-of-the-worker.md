@@ -249,6 +249,16 @@ Three environments have none, and the answer is the same in each: **the constrai
 - **The per-round gate cost is recorded before and after, and gates nothing.** A number to look at, not a threshold to pass (§ *Decisions*).
 - **The deploy-only scenarios finally run**: `HARNESS_TARGET_URL=<url> npx tsx apps/nebula/harness/drive.ts build-box` reaches the FUSE world (limb 1 decides `world: 'fuse'`, not `'shim'`), which no local run can do. ⚠️ Not runnable at review time — it needs the deployed URL. The `build-box` scenario is registered in `drive.ts` (verified 2026-08-28).
 - **The blocker cannot silently return**: an import-graph tripwire asserts that **no module reachable from `src/worker.ts` imports the package's compile entry or `@vue/compiler-sfc`**. Stated over the Worker ENTRY GRAPH, never a directory and never a byte count — a directory rule reds on the intended end state, since `compileSource` and `ontology-compile.ts` deliberately survive in `src/` for the test lanes and the Node-side regenerator, and it would miss `@vue/compiler-sfc` entirely. One `import` re-blocks the deploy while greening the whole suite, which is how this stayed invisible for eight weeks; a recorded measurement is not a guard.
+- **Every line that goes dark is covered again OR listed with a stated reason it needs nothing.** Baseline taken 2026-08-29 on `apps/nebula` before any deletion — 93 files, 726 passing, 1 failing (`invite-facade.test.ts`, pre-existing, `backlog.md` § *Nebula Auth*), 3 skipped:
+
+  | | covered | CLAUDE.md target |
+  |---|---|---|
+  | lines | 91.87% (2622/2854) | — |
+  | statements | 90.01% (2875/3194) | >90% — clears by 0.01 |
+  | branches | 78.32% (1474/1882) | >80% — **already under** |
+  | functions | 89.13% (525/589) | — |
+
+  Reproduce with `COVERAGE=true npx vitest --run --coverage --coverage.reportOnFailure --project unit --project frontend --project baseline --project dev-studio --project browser` from `apps/nebula`. ⚠️ **The criterion is the LIST, never the percentage.** A number as the target buys tests that execute lines while asserting nothing, which is the defect this file's own review kept finding; and some lines *should* stay dark — `star-ontology.test.ts` covers a method that will not exist, so its going dark is the deletion working. A reviewer can check a list-and-justify; a percentage cannot tell a restored guarantee from a restored line.
 - **The loop still converges, measured on both sides.** A prompt that produces a broken `.vue` reaches `mark_complete` — build, read `typeCheck.findings`, fix, rebuild — with **rounds and container cycles per turn recorded before and after**, since the error path moves from zero cycles to one per fix. Driven live (or by the `ui-smoke` codegen test this task unblocks), never asserted from unit tests: the whole change is about what the real loop does.
 - **The RESOURCE path is untouched** — a Galaxy and a Star still load the generated validator through the facet, and the resource suites stay green without changes to what they assert. ⚠️ The **ontology-registry** suites do change, and saying so is the point: `star-ontology.test.ts`'s registry assertions are deleted with the method they cover, and the browser lanes install committed rows instead of compiling (§ *Installing an ontology in a lane with no compiler*).
 
