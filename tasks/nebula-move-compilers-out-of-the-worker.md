@@ -2,6 +2,18 @@
 
 **Status:** Pass 1 (design intent) — hand-reviewed with Larry and taken through three `/review-task` Stage-1 panels, 2026-08-28/29. Every decision settled; phases not yet written. Not built. Nothing gates this; it gates everything else.
 
+**Objective — every build-like step runs in the container. Compiling, type checking, bundling: the
+Worker orchestrates and stores, and does not build.**
+
+⚠️ **This is the prime directive of this file, and it outranks everything else in it.** Where this
+file, the code, or a sibling task still describes the Worker doing build-like work, that text is
+**outdated and this task deletes it** — it is not a constraint to reconcile with, and a review finding
+that defends it is defending the model we are leaving. Doing more in the DO is what ossified; the cost
+of that ossification is now paid in review time on every pass. **Further cleanup and added testing
+happen on the far side of this task, deliberately** (§ *Success* records the coverage that goes dark
+and § *Non-goals* names what is deferred). The goal is to get there quickly, not to arrive with
+everything tidy.
+
 ## Relationships
 
 - **[nebula-pre-alpha.md](nebula-pre-alpha.md)** — the batched wipe+redeploy gate cannot run until this lands. Its wipe item carries superseded numbers and a stale "no task file yet"; trim both to target-shape plus a pointer here, in this task.
@@ -82,7 +94,7 @@ The split is two subpath exports, replacing the single `"." → ./src/index.ts` 
 | site | what it compiles | becomes |
 |---|---|---|
 | `codegen-gate.ts` → `checkTypeScript` | the SFC semantic pass (tsc) | the `typeCheck` step of `build` |
-| `codegen-gate.ts` → `parse` / `compileScript` / `compileTemplate` | SFC pass 1 — `@vue/compiler-sfc`, tsc-free | **deleted**; `vite build` parses the same SFC in the same cycle |
+| `codegen-gate.ts` → `parse` / `compileScript` / `compileTemplate` | SFC pass 1 — `@vue/compiler-sfc`, tsc-free | **moves** into the container's type-check step — tsc cannot read a `.vue`, so pass 2 needs pass 1's descriptor |
 | `codegen-gate.ts` → `compileOntologyGate` | the `.d.ts` branch's full `compileOntologyVersion` | the `ontology` step of `build` |
 | `galaxy.ts` → `appendWorkspaceOntology` | the Workspace `.d.ts`, at the Apply click | the `ontology` step of `build` — already `async` |
 | `galaxy.ts` → `appendOntologyVersion` | a caller-supplied types string | **deleted**, see § *Decisions* |
@@ -107,7 +119,7 @@ The split is two subpath exports, replacing the single `"." → ./src/index.ts` 
 
 **The tsc-bearing surface is `checkTypeScript` and `compileOntologyVersion`, and both leave the Worker.** `compileSource` (`codegen-gate.ts`) dispatches `*.vue` to a two-pass check and `*.d.ts` to a full `compileOntologyVersion`. Only the `.vue` branch's SECOND pass touches tsc: `checkTypeScript` reaches `ts` through `virtual-ts-host.ts`, and `compileOntologyVersion` reaches `ts` and `typiaTransform` through `generate-parse-module.ts`. Leave either in the Worker and the 8.91 MB stays with it.
 
-**SFC Pass 1 is tsc-free, and it is DELETED rather than moved.** `@vue/compiler-sfc@3.5.34` depends on `@babel/parser`, `estree-walker`, `magic-string`, `postcss`, `source-map-js` and `@vue/*` siblings — no `typescript` — so `parse`/`compileScript`/`compileTemplate` could have stayed behind. It goes because `vite build` parses the same SFC in the same container cycle the type findings arrive in (`container/app/package.json` carries `vue ^3.5.13` and `@vitejs/plugin-vue ^6.0.8`), so a Worker-side Pass 1 would catch nothing the build will not. That removes the second compiler — 1.50 MB, 11.8% of the bundle — by not having it rather than by finding it a home.
+**SFC Pass 1 moves with Pass 2, because Pass 2 is built on it.** `checkTypeScript` is fed `descriptor.scriptSetup?.content` — Pass 1's `parse()` output — alongside `NEBULA_API_DTS`, `VUE_SHIM_DTS` and `ALLOWED_IMPORT_SHIMS_DTS`, because **tsc cannot read a `.vue`**. So the parse is not redundant with `vite build`'s: vite parses to bundle, and hands its descriptor to nobody. Both passes go to the container, and `@vue/compiler-sfc` — 1.50 MB, 11.8% of the bundle — leaves the Worker with them. What is DELETED is the Worker-side gate entire, per § *Objective*: nothing build-like stays behind.
 
 ### What `build` returns
 
@@ -209,7 +221,7 @@ Three environments have none, and the answer is the same in each: **the constrai
 | Decision | Rejected alternative — why |
 |---|---|
 | **The tsc-bearing surface leaves the Worker: `write_file` becomes a pure write and `build` does the checking** (§ *Where the compiling runs*, 2026-08-28) | Keeping the SFC gate in the Worker — it reaches `ts` through `checkTypeScript`, so the 8.91 MB bundle stays and the deploy stays blocked; there is no half-move. Folding the check into `vite build` as one exec, the earlier draft's shape — it assumed a turn that gates once per round, when `compileSource` runs per `write_file` and `build` is a separate model-chosen tool, so it would have put a container exec on every written file. |
-| **SFC Pass 1 is deleted, not kept and not moved** (2026-08-29) — `@vue/compiler-sfc` leaves the Worker with it | Keeping Pass 1 as a container-free write-time signal — it is genuinely tsc-free and would keep syntax fix-rounds free, but it lands the bundle near ~3.8 MB, inside the wake tier `nebula-pre-alpha.md` measures at 120 ms vs 1,256 ms on an identical bundle, and it optimises feedback for the error class a model rarely produces: models write valid Vue syntax, and what they get wrong is the API misuse Pass 2 exists to catch (`codegen-gate.ts`'s JSDoc cites the invented `op: 'set'`). Paying user-visible wake latency for model-visible convenience is the wrong trade. |
+| **SFC Pass 1 moves to the container with Pass 2; the Worker-side gate is deleted entire** (2026-08-29, corrected 2026-08-29 after Stage 2) — `@vue/compiler-sfc` leaves the Worker with it | Deleting Pass 1 outright, which an earlier draft of this row claimed on the grounds that `vite build` parses the same SFC — it does, but it hands its descriptor to nobody, and tsc cannot read a `.vue`, so Pass 2 has no input without it. Keeping Pass 1 as a container-free write-time signal — it is genuinely tsc-free and would keep syntax fix-rounds free, but it lands the bundle near ~3.8 MB, inside the wake tier `nebula-pre-alpha.md` measures at 120 ms vs 1,256 ms on an identical bundle, and it optimises feedback for the error class a model rarely produces: models write valid Vue syntax, and what they get wrong is the API misuse Pass 2 exists to catch (`codegen-gate.ts`'s JSDoc cites the invented `op: 'set'`). Paying user-visible wake latency for model-visible convenience is the wrong trade. |
 | **`Galaxy.appendOntologyVersion` is deleted, not re-signatured** (2026-08-28) — its callers are re-homed per § *Installing an ontology in a lane with no compiler* | Giving it a pre-compiled-row signature — [nebula-ontology-history-file.md](nebula-ontology-history-file.md) already condemns it (scheme settled 2026-08-24: *"what dies … the four mesh methods `appendOntologyVersion` / `listOntologyVersions` / `getLatestOntologyVersion` / `getOntologyVersion`"*), so a new signature is an interim on a method scheduled for deletion, and its four call sites would change twice. Pulling all four forward — only this one compiles, and `getOntologyVersion` is the Star's live lazy-pull target. Sequencing behind that task — it has no phases and an open design question, while this one blocks every deploy. |
 | **The Galaxy test-install path is DELETED, not re-homed; only the chromium lane needs a compiler-free install, and `StarTest.applyOntologyForTest` already is one** (2026-08-29) | Committed precompiled fixture rows plus a generator taking test ontologies as inputs, which an earlier draft of this row specified — it was scoped to a constraint that exists in ONE lane: `vitest.config.js` puts `test/browser/**` on a **Node** project (*"Node-side vitest tests"*), and Node and workerd both carry a compiler because a test Worker never deploys. Rejecting a server-compiling test route as *"reintroducing the capability this task removes"* — `applyOntologyForTest` lives in `test-apps/`, outside the deployed graph, which § *Where there is no container* already licenses, and `smoke.test.ts` calls it today. Porting the registry assertions onto a survivor — they assert `appendOntologyVersion`'s own behaviour, so a port keeps a suite green while it means nothing. |
 | **`build` returns per-step outcomes; there is no global `ok`** (§ *What `build` returns*, 2026-08-28) | The `BuildOutcome` three-way union — one boolean forces every step to fold into it, and folding in the type check means deciding whether a finding is fatal, which is the judgement this design hands to the model. Its `retryable` flag also models a different STEP failing as a different KIND of failure. |
@@ -235,11 +247,23 @@ empty `/workspace`.
 1. **The package stops forcing its consumers to take a compiler.** Split
    `@lumenize/ts-runtime-parser-validator` into a runtime entry (`facet-helper` + its types) and a
    compile entry, and move each consumer to the one it needs — `galaxy.ts`/`star.ts` to runtime,
-   `ontology-compile.ts`/`codegen-gate.ts` to compile.
+   `ontology-compile.ts`/`codegen-gate.ts` to compile. ⚠️ **The pure TYPES need a home** —
+   `TypeMetadata`/`Relationship`/`DefaultsMap` are declared in `extract-type-metadata.ts` and exported
+   only from the compile entry, while `resource-data-plane.ts` and `resources.ts` need them and are
+   value-reachable from `worker.ts`; declarations are free, so re-export them from the runtime entry.
+   The consumer list also includes `resources.ts`, `resource-data-plane.ts` and
+   `test/test-apps/dev-studio/index.ts`, which takes `getParserValidatorFacet` AND `generateParseModule`
+   from one specifier and must split. ⚠️ **`scripts/prepare-for-publish.sh` is in scope**: it rewrites
+   only `pkg.exports['.']` while mapping `files` `src/**` → `dist/**`, so removing the bare `"."` turns
+   it into a silent no-op that ships `exports` pointing at unpacked paths, exit 0.
    - **Success criteria:** a module importing only the runtime entry type-checks and its bundle
-     contains no `typescript`; `npm test -w @lumenize/ts-runtime-parser-validator` stays green;
-     the published `exports` map lists both entries and no bare `"."`.
-   - **Mutation:** point `star.ts` back at the compile entry → the bundle check reds.
+     contains no `typescript`; `npm test -w @lumenize/ts-runtime-parser-validator` stays green; running
+     `prepare-for-publish.sh` then `npm pack --dry-run` shows every `exports` target resolving inside
+     the packed file list; `grep -rn "@lumenize/ts-runtime-parser-validator'" website/docs README.md`
+     returns no bare specifier.
+   - **Mutation:** leave `prepare-for-publish.sh`'s `['.']`-only branch → the pack criterion reds.
+     ⚠️ Do NOT use "`npm run test:doc` stays green" for the docs — `check-examples` strips imports
+     before matching and `test-doc.sh` is `set +e … exit 0`, so it cannot fail.
    - ⚠️ Nothing is unblocked yet — the app barrel still re-exports the compile half (phase 6).
 
 2. **The two constant validators stop being compiled at runtime.** A one-shot generator emits the chat
@@ -248,9 +272,13 @@ empty `/workspace`.
    `scripts/generated-artifact-hook.sh`'s `case` list.
    - **Success criteria:** `chatOntologySeedRow` and `#ensureToolArgsFacet` contain no compiler call —
      the § *Every compiler call site* grep no longer returns them; the `--check` exits non-zero after
-     editing `CHAT_MESSAGE_TYPES` without regenerating; `TOOL_ARGS_BUNDLE_ID` is unchanged, so the
-     Worker Loader cache is not invalidated.
+     editing `CHAT_MESSAGE_TYPES` without regenerating; **each committed literal is byte-identical to
+     what `generateParseModule` emits for its constant, and the facet loads it and validates a
+     known-good and a known-bad object** — the id being unchanged is a non-event and gates nothing.
    - **Mutation:** edit one character of `TOOL_ARGS_TYPES` and run the suite → `--check` reds.
+   - ⚠️ **Record in the generator's header that any change to an emitted module bumps its bundle id.**
+     `getParserValidatorFacet` caches by id, so a changed module under a reused id serves the stale
+     validator, and nothing catches a stale id the way `--check` catches a stale literal.
    - **Replacement obligation:** none — this phase deletes no test.
 
 3. **The dead Galaxy test-install path goes.** Delete `Galaxy.appendOntologyVersion`, the
@@ -268,7 +296,8 @@ empty `/workspace`.
 
 4. **The image carries the compiler, and everything about it is checkable without a deploy.** Copy the
    package source and the four vendored `forks/typia/*` into the image behind a container-side manifest
-   that is NOT `container/app/package.json`; run `bundle-tsc.mjs` during the image build; write the job
+   that is NOT `container/app/package.json`, which already installs `typescript ^5.9.2` at `/`. Run
+   `bundle-tsc.mjs` during the image build; write the job
    script so it runs EVERY step and reports each — ontology compile, type check, bundle — returning
    `BuildReport`, with `version` and `wipeOnInstall` passed IN and the compiled row written where the
    Galaxy reads it back.
@@ -280,11 +309,22 @@ empty `/workspace`.
      image build produces `deps.bundle.mjs` inside the image; editing a `forks/typia/*` source
      invalidates that layer and rebuilds it; the job script's own unit-level run over a fixture tree
      returns a `BuildReport` with every step reporting, and a type-erroring `.vue` yields
-     `typeCheck.findings` non-empty **and** `bundle: { ran: true, ok: true }`.
+     `typeCheck.findings` non-empty **and** `bundle: { ran: true, ok: true }`; **the container's
+     `validatorBundle` for a given `types` string is byte-identical to what the same compile produces
+     outside it** — an equivalence check, because nothing else asserts the emitted validator actually
+     validates, and a no-op validator would green every lane while accepting every write.
+   - ⚠️ **`deps.bundle.mjs` was built `platform: 'neutral'` for workerd** — Node builtins aliased to
+     stubs, `process` injected — and has never executed under real Node, which is what the container is.
+     The equivalence criterion is what covers that, and any later image-dep drift.
    - **Mutation:** make the bundle conditional on a clean type check → the type-erroring fixture
      returns no `dist` and the isolating criterion reds.
+   - ⚠️ **Name the build-context mechanism and carry its consequences.** `wrangler.jsonc` sets no
+     `image_build_context`, so the context is `apps/nebula/container/` and the package source sits
+     outside it. Widening the context re-bases every existing `COPY` and wants a `.dockerignore`;
+     staging a copy in defeats the layer-invalidation criterion above. Pick one and say which.
    - ⚠️ **Prove `bundle-tsc.mjs` runs unmodified in the image** rather than reasoning about it — it
-     resolves `typescript/package.json` and reads its `lib/` off disk.
+     resolves `typescript/package.json` and reads its `lib/` off disk, and `esbuild`'s platform binary
+     must be present wherever it runs.
    - ⚠️ **Behaviour against a REAL FUSE mount is not claimed here** — local `wrangler dev` passes no
      `/dev/fuse`, so a real process sees an empty `/workspace`. Those criteria are phase 6's.
 
@@ -306,9 +346,24 @@ empty `/workspace`.
      `'buildError' in outcome`; the suite is green.
    - **Mutation:** leave `appendWorkspaceOntology` compiling in-Worker → the grep and the tripwire both
      red, which is the pair phase 6's deploy depends on.
-   - **Replacement obligation:** `codegen-loop.test.ts`'s *"compile error-tail round-trips"* block and
-     its four `r.lastGate` assertions are rewritten against the build's findings, not deleted — the
-     behaviour survives, only its trigger moves.
+   - ⚠️ **`CHAT_MESSAGE_TYPES` changes in place and the version label does NOT bump.** Every Galaxy is
+     fresh at the wipe and none has ever seeded a chat ontology, so there is no old facet to disagree
+     with — while bumping the label on an already-seeded Galaxy would fail every client's version check
+     with no re-seed path, pushing an implementer to build the upgrade mechanism
+     [nebula-ontology-history-file.md](nebula-ontology-history-file.md) defers on purpose. Record the
+     spent licence at the site.
+   - ⚠️ **`TOOL_ARGS_TYPES` also changes here** — `BuildArgs` gains the publish override — so the
+     tool-args literal regenerates AND `TOOL_ARGS_BUNDLE_ID` bumps. A changed module under a reused id
+     serves the stale validator, and nothing catches that the way `--check` catches a stale literal.
+   - **Replacement obligation:** `codegen-loop.test.ts`'s *"compile error-tail round-trips"* block, its
+     four `r.lastGate` assertions, AND its `describe('Phase 3 — the build TOOL …')` block are rewritten
+     against the report — the behaviour survives, only its trigger moves. ⚠️ **Four `build:` fakes are
+     rewrites, not renames**, including `test-apps/baseline/index.ts`'s `GalaxyTest.build()`; the one
+     typed `as never` type-checks green against ANY new signature, so a criterion asserts no
+     `as never`/`as any` survives on a build fake. Specify what the report says when `deps.build()`
+     THROWS — today that path synthesizes `retryable` — and distinguish a timeout-killed step from an
+     infra failure, since a step killed at `BUILD_TIMEOUT_MS` exits `>= 128` and would be read as
+     retryable, telling the model to rebuild unchanged until `GENERATION_DEADLINE_MS` kills the turn.
 
 6. **The deploy works, and the running system proves what no local run can.** Deploy, then drive it.
    Everything needing a real FUSE mount lives here, because nothing before this phase can reach one.
@@ -318,7 +373,9 @@ empty `/workspace`.
      build-box` reaches `world: 'fuse'`; a driven build returns `typeCheck.checked` naming the files
      tsc looked at and the Galaxy reads the compiled row back host-side, with `git status` in the
      workspace showing it untracked; a codegen turn that writes a type-erroring `.vue` still reaches
-     `mark_complete` — build, read findings, fix, rebuild — with rounds and container cycles recorded.
+     `mark_complete` — build, read findings, fix, rebuild — with rounds and container cycles recorded
+     **against `GENERATION_DEADLINE_MS` (300 s, the whole turn) and `BUILD_TIMEOUT_MS` (180 s, one
+     exec)**, stating whether either needs re-deriving now that a fix round costs a container cycle.
    - **Mutation:** leave `sawError` unset for type findings → the loop never drops to `fixParams` and
      the convergence criterion reds.
 
@@ -326,7 +383,12 @@ empty `/workspace`.
    to a pointer; trim `nebula-pre-alpha.md`'s wipe item 2 and decide item 3 ("no split") on the
    re-measured number; re-run coverage and account for the delta.
    - **Success criteria:** no sibling restates this task's measurements; every line dark against the
-     recorded baseline is either covered again or listed with a stated reason it needs nothing.
+     recorded baseline is either covered again or listed with a stated reason it needs nothing; **and
+     the reverse — every export still living in `codegen-gate.ts` / `ontology-compile.ts` names a
+     non-test caller or says why it stays.** Coverage alone is blind here: after the cutover those
+     symbols have zero non-test callers yet stay fully covered by their own tests, so nothing goes dark
+     and nothing is reported. ⚠️ Decide their home in phase 5, not here — the tripwire requires them out
+     of the ENTRY GRAPH, which does not require them in `src/`.
    - ⚠️ **This phase is last on purpose** — it edits standing guidance and sibling files describing an
      end state only phases 1–6 produce, and the coverage delta is meaningless before then.
 
