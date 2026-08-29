@@ -8,7 +8,7 @@
 - **[nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)** — its deploy-staged criteria (the build-box FUSE limbs, the `ui-smoke` codegen test, preview-survives-redeploys) are the work this unblocks finishing and archiving.
 - **[backlog.md](backlog.md)** — its row restates these measurements and claims the async ripple reaches "a module-scope constant" in `chat-ontology.ts`, which this file refutes (it is a function). Collapse the row to a one-line pointer HERE, in this task, rather than at build: success criterion 2 re-measures the numbers, so every copy is falsified on build day.
 - **[nebula-ontology-history-file.md](nebula-ontology-history-file.md)** — condemns the KV registry and four mesh methods; this task pulls exactly one of them forward (§ *Decisions*). Its tabled question, *where compiled validator bundles live*, stays ITS to settle — but where the compile runs, decided here, constrains the answer.
-- **[on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md)** — the codegen loop is what the SFC gate serves; a latency change is felt there first.
+- **[on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md)** — its § *The folded shape* pins the `codegen` record this task reshapes. Per-write gate results end; `typeCheck.checked` + `findings` replace them, and the chat-seed literal regenerates. Capture is irreversible, so this lands in THIS task's trim, not afterwards.
 
 ## Context
 
@@ -132,7 +132,9 @@ type BuildReport = {
   container: StepResult                // !ok ⇒ infra; retry the same code
   ontology:  StepResult & { rowPath?: string }   // ran:false when no .d.ts changed; rowPath
                                        // names where the compiled row landed in the mount
-  typeCheck: { ran: boolean; findings: Finding[] }   // no `ok` — advisory by construction
+  typeCheck: { ran: boolean; checked: string[]; findings: Finding[] }  // no `ok` — advisory
+                                       // `checked` is what tsc actually looked at, so a file
+                                       // written, checked and unimplicated is KNOWN CLEAN
                                        // Finding = one raw diagnostic line, e.g.
                                        // "src/App.vue(42,7): error TS2339: Property 'foo'
                                        //  does not exist on type 'Store'."
@@ -142,6 +144,8 @@ type BuildReport = {
   publish:   { done: boolean; why: string }          // a non-publish always says why
 }
 ```
+
+⚠️ **This changes the codegen CORPUS, and capture is irreversible.** `galaxy.ts` writes `codegen = { model, sourceCommit, rounds, stop, appliedPaths, gate, toolCalls }` onto the durable agent Message, and [on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) § *The folded shape* pins `gate` field by field as *"⭐ THE signal AI Gateway cannot see"*, warning that turns already written cannot be backfilled. Per-**write** granularity is traded away because that per-file verdict IS the compiler in the Worker — keeping it keeps the 8.91 MB. Per-**file** credit assignment is not: `checked` restores it at build granularity, so a written file absent from `findings` is *known clean* rather than merely *not implicated*, and the diagnostics carry file and line themselves. `rounds` still counts rounds and `toolCalls[]` still records every write. ⇒ **Tell that task's owner in this task, not after** — its pointer in § *Relationships* says latency, which is not what changes.
 
 ⚠️ **`Finding` is a `CHAT_MESSAGE_TYPES` member, not just a tool-result shape.** It replaces the persisted `gate?: { ok: boolean; errorTail?: string }`, so whatever it is must survive typia compilation under ADR-001 and rides the chat-seed regeneration this task performs. A raw diagnostic string keeps that trivial; anything structured buys a schema change in the same breath.
 
@@ -163,46 +167,20 @@ Three properties are deliberate. **`typeCheck` carries no `ok`**, so nothing can
 
 ### Installing an ontology in a lane with no compiler
 
-**The Galaxy install path was already vestigial, and the survivor already exists.** `test-apps/baseline/index.ts`
-carries both initiators side by side, and the newer one says why: *"Apply an ontology directly to a Star (Phase 4: the
-Galaxy lazy-pull was retired, so tests install the compiled validator via `Star.setOntology` — the Galaxy's dev apply
-path)."* `callStarApplyOntology` has **68 callers**; `callGalaxyAppendOntologyVersion` has 16, and 8 of those are
-`star-ontology.test.ts`, the one suite testing the registry *as a registry*.
+**Only one lane has no compiler.** `apps/nebula/vitest.config.js` puts `test/browser/**` on a **Node** project — its own comment reads *"Browser project — Node-side vitest tests"*, and calls the chromium project *"Distinct from the Node-side `browser` project"*. Node and workerd both carry a compiler happily, because a test Worker never deploys:
 
-**The benchmarks calling the Galaxy path already document that it does not install anything.** They carry the
-same note — *"The one built install path is the dev-loop PUSH (`DevStudio` → `Star.setOntology`) … So the Star's index
-stays empty and the warmup gets `{kind:'ontology-stale', currentVersion:''}` — correctly."* They call it, and narrate
-an empty index as the right outcome.
+| lane | runtime | carries a compiler | what changes |
+|---|---|---|---|
+| `unit`, `baseline`, `dev-studio` | workerd (pool-workers) | yes | nothing; `callStarApplyOntology` keeps compiling in place |
+| `browser`, `browser-bench` | **Node** | yes | imports the compile entry directly, the import `/live` already makes |
+| `chromium` | real browser | **no** | the one real case |
+| `frontend` | jsdom | n/a — no ontology | nothing |
 
-⇒ **`callGalaxyAppendOntologyVersion` goes with the method rather than being re-homed** — the wrapper in all three
-clients, and the seven benchmark/e2e call sites re-point to the `callStarApplyOntology` that 68 sites already use.
+⇒ **The chromium lane re-points at `StarTest.applyOntologyForTest`**, which already exists (`test-apps/baseline/index.ts`, `@mesh(requireDominionHere)`, body `this.setOntology(compileOntologyVersion(versionConfig))`) and which `test/browser/smoke.test.ts` already calls. It compiles server-side in a test app that never deploys — the case § *Where there is no container* already licenses — so the browser gets a row without ever holding a compiler. No fixture generator, no committed test rows, no keying rule.
 
-**The one change this task actually forces is the compile inside that survivor.** It reads:
+**What is deleted rather than replaced:** `Galaxy.appendOntologyVersion`, the `callGalaxyAppendOntologyVersion` wrapper in all four clients that define it (`test-apps/baseline/index.ts`, `test/chromium/ontology-admin.ts`, `test/browser/harness-client.ts`, `test/browser/throughput-harness-client.ts`), and `star-ontology.test.ts`'s registry assertions — duplicate-label rejection, index listing, latest round-trip — which assert that method's own behaviour and cannot outlive it. Its invalid-label cases never reach a compile anyway, since `VERSION_LABEL_RE` rejects first. The benchmark and e2e call sites move to the Star initiator. `dev-studio.test.ts`'s append + lazy-pull suite and `galaxy-resource-surface.test.ts`'s surface freeze both ride `appendWorkspaceOntology`, which survives.
 
-```ts
-const row: OntologyVersionRow = compileOntologyVersion(versionConfig);   // ← the compiler, client-side
-const remote = this.ctn<Star>().setOntology(row);
-```
-
-and the four fixed test ontologies become committed precompiled rows instead. They are fixed at authoring time, not
-built per test — the 16 sites resolve to `TODO_TYPES`, `TODO_V2_TYPES`, `TEST_TYPES` and `ONTOLOGY`, each passed with a
-literal label — so the generator this task already owes for the chat seed and tool-args validator takes them as two
-more inputs. ⚠️ **Keyed by `(version, types)`, not types alone**, since `star-ontology.test.ts` appends `v1` and `v2` of
-one ontology to exercise the index. Freshness rides the same rebuild-and-diff `--check`.
-
-**`test/chromium/ontology-admin.ts` shrinks; it does not die.** Its galaxy specificity goes with the method, but its
-reason survives verbatim — `setOntology` is `@mesh(requireDominionHere)` too, so the chromium lane still needs a
-browser-safe admin client, and its header's *"a raw-RPC seed route can't carry that auth context"* is unchanged. What
-the browser lane cannot do is compile: that class exists because server code in a browser bundle *"pulls
-`cloudflare:workers` in and fails Vite resolution"*, and `ontology-compile.ts` declares itself NOT browser-safe from
-the other side. `test-apps/baseline/index.ts` is the one caller that could compile in place.
-
-**`appendOntologyVersion`'s registry coverage goes with the method** (decided with Larry 2026-08-29).
-`star-ontology.test.ts`'s duplicate-label rejection, index listing and latest round-trip assert that method's own
-behaviour; its invalid-label cases (`'has spaces'`, `'_index'`) never reach a compile because `VERSION_LABEL_RE`
-rejects them first. Porting them onto a survivor would keep a suite green while it asserted a mechanism that no longer
-exists. `dev-studio.test.ts`'s append + lazy-pull + content-addressing suite and `galaxy-resource-surface.test.ts`'s
-surface freeze both ride `appendWorkspaceOntology`, which survives.
+⚠️ **The coverage those deletions remove is accepted, then measured** (§ *Success*): the baseline is recorded, and every line that goes dark is either covered again or listed with a reason it needs nothing. `star-ontology.test.ts`'s lines going dark is the deletion working, not a regression.
 
 ### Where there is no container
 
@@ -231,7 +209,7 @@ Three environments have none, and the answer is the same in each: **the constrai
 | **The tsc-bearing surface leaves the Worker: `write_file` becomes a pure write and `build` does the checking** (§ *Where the compiling runs*, 2026-08-28) | Keeping the SFC gate in the Worker — it reaches `ts` through `checkTypeScript`, so the 8.91 MB bundle stays and the deploy stays blocked; there is no half-move. Folding the check into `vite build` as one exec, the earlier draft's shape — it assumed a turn that gates once per round, when `compileSource` runs per `write_file` and `build` is a separate model-chosen tool, so it would have put a container exec on every written file. |
 | **SFC Pass 1 is deleted, not kept and not moved** (2026-08-29) — `@vue/compiler-sfc` leaves the Worker with it | Keeping Pass 1 as a container-free write-time signal — it is genuinely tsc-free and would keep syntax fix-rounds free, but it lands the bundle near ~3.8 MB, inside the wake tier `nebula-pre-alpha.md` measures at 120 ms vs 1,256 ms on an identical bundle, and it optimises feedback for the error class a model rarely produces: models write valid Vue syntax, and what they get wrong is the API misuse Pass 2 exists to catch (`codegen-gate.ts`'s JSDoc cites the invented `op: 'set'`). Paying user-visible wake latency for model-visible convenience is the wrong trade. |
 | **`Galaxy.appendOntologyVersion` is deleted, not re-signatured** (2026-08-28) — its callers are re-homed per § *Installing an ontology in a lane with no compiler* | Giving it a pre-compiled-row signature — [nebula-ontology-history-file.md](nebula-ontology-history-file.md) already condemns it (scheme settled 2026-08-24: *"what dies … the four mesh methods `appendOntologyVersion` / `listOntologyVersions` / `getLatestOntologyVersion` / `getOntologyVersion`"*), so a new signature is an interim on a method scheduled for deletion, and its four call sites would change twice. Pulling all four forward — only this one compiles, and `getOntologyVersion` is the Star's live lazy-pull target. Sequencing behind that task — it has no phases and an open design question, while this one blocks every deploy. |
-| **The Galaxy test-install path is DELETED, not re-homed; lanes use the existing `Star.setOntology` initiator with committed precompiled rows, and the registry coverage dies with the method** (2026-08-29) | Re-homing `callGalaxyAppendOntologyVersion` — it was already vestigial: `callStarApplyOntology` has 68 callers to its 16, and the five benchmarks calling it already document that it installs nothing (*"the Star's index stays empty … correctly"*). Compiling test-side — three of the four callers are browser bundles and cannot: `ontology-admin.ts`'s header exists because server code in a browser bundle *"pulls `cloudflare:workers` in and fails Vite resolution"*, and `ontology-compile.ts` declares itself NOT browser-safe. A Worker-side test route that compiles on demand — it would reintroduce, for fixtures, the exact capability this task removes. Porting the registry assertions onto a survivor — they assert `appendOntologyVersion`'s own duplicate-label rejection and index listing, so a port leaves a green suite asserting a deleted mechanism. |
+| **The Galaxy test-install path is DELETED, not re-homed; only the chromium lane needs a compiler-free install, and `StarTest.applyOntologyForTest` already is one** (2026-08-29) | Committed precompiled fixture rows plus a generator taking test ontologies as inputs, which an earlier draft of this row specified — it was scoped to a constraint that exists in ONE lane: `vitest.config.js` puts `test/browser/**` on a **Node** project (*"Node-side vitest tests"*), and Node and workerd both carry a compiler because a test Worker never deploys. Rejecting a server-compiling test route as *"reintroducing the capability this task removes"* — `applyOntologyForTest` lives in `test-apps/`, outside the deployed graph, which § *Where there is no container* already licenses, and `smoke.test.ts` calls it today. Porting the registry assertions onto a survivor — they assert `appendOntologyVersion`'s own behaviour, so a port keeps a suite green while it means nothing. |
 | **`build` returns per-step outcomes; there is no global `ok`** (§ *What `build` returns*, 2026-08-28) | The `BuildOutcome` three-way union — one boolean forces every step to fold into it, and folding in the type check means deciding whether a finding is fatal, which is the judgement this design hands to the model. Its `retryable` flag also models a different STEP failing as a different KIND of failure. |
 | **A failing step carries a bounded RAW tail of the tool's own output, never a summarized `detail`** (2026-08-28) | Prose summaries — they discard the line/column numbers, snippets and error codes a model reads fluently, and we would be deciding in advance what mattered. `codegen-gate.ts`'s existing `MAX_ERROR_TAIL = 4000` is the pattern. Replacing the structured report with logs alone — its second consumer is the SYSTEM (`#buildAndAnnounce` decides publish, the loop decides fix-round vs retry-same-code, tests and `/live` assert), and "the container never started" and "your types are wrong" are the same prose to a grep. Writing the full log to the VFS behind a `read_file` tool — deferred to `backlog.md` § *Nebula*: no present consumer has hit the 4 KB tail, and unlike the usual case the general form costs materially more (a new tool, a non-committed workspace path since `writeSource` git-commits every write, and DO storage growth). |
 | **Publishing the preview is the model's call, overridable against type findings** (2026-08-28) | Publishing only on a findings-free build — a hard gate where this repo's stance is an advisory practice with an override, and it forecloses the judgement a developer makes routinely: this finding is real, that one the checker cannot see is safe. A standalone `publish` tool instead of an override — it adds a forget-to-publish path whose failure is a silently stale preview. |
