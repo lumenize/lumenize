@@ -224,9 +224,13 @@ Three environments have none, and the answer is the same in each: **the constrai
 
 ## Phases
 
-Ordered so the deploy stays broken until the last compile site is gone, then proven. Phases 1–3 each
-remove compile sites without changing behaviour; 4 builds the replacement beside the old path; 5 cuts
-over; 6 is the payoff.
+Ordered so the deploy stays broken until the last compile site is gone, then proven — and so **every
+phase can run its own criteria where it lands**. Phases 1–3 remove compile sites without changing
+behaviour; 4 puts the compiler in the image, claiming only what a local image build can show; 5 takes
+the last compile out of the Worker and cuts the barrel, which is what makes a deploy possible at all;
+6 deploys and drives it, and owns every criterion needing a real FUSE mount. ⚠️ **Nothing before 6 may
+claim mount behaviour** — local `wrangler dev` passes no `/dev/fuse`, so a real process there sees an
+empty `/workspace`.
 
 1. **The package stops forcing its consumers to take a compiler.** Split
    `@lumenize/ts-runtime-parser-validator` into a runtime entry (`facet-helper` + its types) and a
@@ -262,52 +266,61 @@ over; 6 is the payoff.
      **not replaced** — they assert a deleted method's own behaviour. Their lines going dark is recorded
      in phase 7's list, not repaired.
 
-4. **The container gains a compile job, beside the old path rather than replacing it.** Copy the
+4. **The image carries the compiler, and everything about it is checkable without a deploy.** Copy the
    package source and the four vendored `forks/typia/*` into the image behind a container-side manifest
-   that is NOT `container/app/package.json`; run `bundle-tsc.mjs` during the image build; wrap the
-   container's job so it runs EVERY step and reports each — ontology compile, type check, bundle —
-   returning `BuildReport` with per-step outcomes and the compiled row carried back host-side.
+   that is NOT `container/app/package.json`; run `bundle-tsc.mjs` during the image build; write the job
+   script so it runs EVERY step and reports each — ontology compile, type check, bundle — returning
+   `BuildReport`, with `version` and `wipeOnInstall` passed IN and the compiled row written where the
+   Galaxy reads it back.
    ⚠️ **No step gates another.** A type finding does not stop the bundle: `@vitejs/plugin-vue`
    transpiles rather than type-checks, so a `.vue` carrying a real `TS2339` still produces a `dist`,
    and stopping there would make the model's publish override unreachable by construction — the very
    hard gate § *Decisions* rejects. Only `bundle`'s own failure means there is no `dist`.
-   - **Success criteria:** an image build produces `deps.bundle.mjs` inside the image and editing a
-     fork source invalidates that layer; a driven build returns a `BuildReport` whose `typeCheck.checked`
-     names the files tsc looked at; **a `.vue` with a real type error yields `typeCheck.findings`
-     non-empty AND `bundle: { ran: true, ok: true }` with a `dist`** — the criterion that isolates the
-     no-gating property; the Galaxy reads the row back host-side and `git status` shows it untracked.
-   - **Mutation:** make the bundle conditional on a clean type check → the type-erroring build returns
-     no `dist` and the isolating criterion reds.
+   - **Success criteria (all LOCAL — this phase deliberately claims nothing that needs a mount):** an
+     image build produces `deps.bundle.mjs` inside the image; editing a `forks/typia/*` source
+     invalidates that layer and rebuilds it; the job script's own unit-level run over a fixture tree
+     returns a `BuildReport` with every step reporting, and a type-erroring `.vue` yields
+     `typeCheck.findings` non-empty **and** `bundle: { ran: true, ok: true }`.
+   - **Mutation:** make the bundle conditional on a clean type check → the type-erroring fixture
+     returns no `dist` and the isolating criterion reds.
    - ⚠️ **Prove `bundle-tsc.mjs` runs unmodified in the image** rather than reasoning about it — it
      resolves `typescript/package.json` and reads its `lib/` off disk.
+   - ⚠️ **Behaviour against a REAL FUSE mount is not claimed here** — local `wrangler dev` passes no
+     `/dev/fuse`, so a real process sees an empty `/workspace`. Those criteria are phase 6's.
 
-5. **The Worker cuts over and stops compiling.** `write_file` becomes a pure write; delete
-   `compileSource` from the request path, both SFC passes with it; re-point `sawError`/`fixMode` at the
-   report; rename `codegen.gate` to `codegen.build` and reshape it to `typeCheck.checked` + `findings`, regenerating the chat-seed
-   literal; rewrite the four prose surfaces (`write_file`, `mark_complete`, `build`,
-   `STUDIO_LOOP_SYSTEM_PROMPT`) and `harness/scenarios/build-box.ts`.
-   - **Success criteria:** a codegen turn that writes a type-erroring `.vue` still reaches
-     `mark_complete` — build, read findings, fix, rebuild — driven live, with rounds and container
-     cycles recorded; **no compiling, type-checking or gating survives in the Worker — in code OR in
-     the words that describe it**: the § *Every compiler call site* grep returns nothing under
-     `apps/nebula/src`, and no tool description or system-prompt line still tells the model a written
-     file "is compiled immediately" or that it should call `build` "when every file compiles cleanly";
-     `build-box.ts` discriminates shim from FUSE without `'buildError' in outcome`.
-   - **Mutation:** leave `sawError` unset for type findings → the loop never drops to `fixParams` and
-     the live convergence criterion reds.
+5. **The Worker stops compiling — every site, and the barrel with them.** `write_file` becomes a pure
+   write; delete `compileSource` from the request path with both SFC passes; **cut
+   `appendWorkspaceOntology` over to the container job** (`galaxy.ts`'s value import of
+   `compileOntologyVersion` is the Apply-click compile, and it is the last one); re-point
+   `sawError`/`fixMode` at the report; rename `codegen.gate` to `codegen.build`, reshape it to
+   `typeCheck.checked` + `findings` and regenerate the chat-seed literal; rewrite the four prose
+   surfaces (`write_file`, `mark_complete`, `build`, `STUDIO_LOOP_SYSTEM_PROMPT`) and
+   `harness/scenarios/build-box.ts`; cut the app-side barrel re-exports (`galaxy.ts` → `index.ts` →
+   `worker.ts`) and add the import-graph tripwire.
+   - **Success criteria (all LOCAL):** **no compiling, type-checking or gating survives in the Worker —
+     in code OR in the words that describe it**: the § *Every compiler call site* grep returns nothing
+     under `apps/nebula/src`, and no tool description or system-prompt line still tells the model a
+     written file "is compiled immediately" or that it should call `build` "when every file compiles
+     cleanly"; the tripwire passes, and reds when a value import of `compileOntologyVersion` is
+     re-added to `galaxy.ts`; `build-box.ts` discriminates shim from FUSE without
+     `'buildError' in outcome`; the suite is green.
+   - **Mutation:** leave `appendWorkspaceOntology` compiling in-Worker → the grep and the tripwire both
+     red, which is the pair phase 6's deploy depends on.
    - **Replacement obligation:** `codegen-loop.test.ts`'s *"compile error-tail round-trips"* block and
      its four `r.lastGate` assertions are rewritten against the build's findings, not deleted — the
      behaviour survives, only its trigger moves.
 
-6. **The deploy works, and cannot silently break again.** Cut the app-side barrel re-exports
-   (`galaxy.ts` → `index.ts` → `worker.ts`) so nothing reachable from the Worker entry imports the
-   compile entry; add the import-graph tripwire; deploy; re-measure.
-   - **Success criteria:** `npm run deploy:test` from `apps/nebula` completes and the self-check reports
-     `match:true`; the tripwire passes and reds when a `generateParseModule` import is reintroduced
-     anywhere in the entry graph; bundle and startup are recorded against 12,957 KiB / 362 ms;
-     `HARNESS_TARGET_URL=<url> npx tsx apps/nebula/harness/drive.ts build-box` reaches `world: 'fuse'`.
-   - **Mutation:** re-add `import { generateParseModule }` to `galaxy.ts` → the tripwire reds and the
-     deploy fails again, which is the whole point.
+6. **The deploy works, and the running system proves what no local run can.** Deploy, then drive it.
+   Everything needing a real FUSE mount lives here, because nothing before this phase can reach one.
+   - **Success criteria (all DEPLOY-ONLY, and marked so):** `npm run deploy:test` from `apps/nebula`
+     completes and the self-check reports `match:true`; bundle and startup are recorded against the
+     12,957 KiB / 362 ms baseline; `HARNESS_TARGET_URL=<url> npx tsx apps/nebula/harness/drive.ts
+     build-box` reaches `world: 'fuse'`; a driven build returns `typeCheck.checked` naming the files
+     tsc looked at and the Galaxy reads the compiled row back host-side, with `git status` in the
+     workspace showing it untracked; a codegen turn that writes a type-erroring `.vue` still reaches
+     `mark_complete` — build, read findings, fix, rebuild — with rounds and container cycles recorded.
+   - **Mutation:** leave `sawError` unset for type findings → the loop never drops to `fixParams` and
+     the convergence criterion reds.
 
 7. **The siblings stop carrying stale copies, and what went dark is listed.** Collapse the backlog row
    to a pointer; trim `nebula-pre-alpha.md`'s wipe item 2 and decide item 3 ("no split") on the
