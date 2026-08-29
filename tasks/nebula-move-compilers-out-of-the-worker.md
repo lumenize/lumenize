@@ -220,6 +220,104 @@ Three environments have none, and the answer is the same in each: **the constrai
 | **No latency threshold is pinned for the check; the per-round cost is measured and recorded, not gated** (2026-08-28) | A pass/fail budget as a success criterion — an 82% bundle cut is the outcome that matters, and a threshold invented before anyone has felt loop latency is a number to argue with later rather than evidence. |
 | **The precompiled chat + tool-args modules are checked in as source, kept honest by a Node-side `--check` that rebuilds and diffs, run ahead of vitest in `apps/nebula`'s `test` script** (2026-08-28) | A wrangler `build.command` — measured, `vitest-pool-workers` does not run it, so the suite would green against an artifact only the deploy has. Regeneration by convention, as `dist/deps.bundle.mjs` did before 2026-08-28 — fine for a pinned dependency version, wrong for constants someone edits by hand. |
 
+## Phases
+
+Ordered so the deploy stays broken until the last compile site is gone, then proven. Phases 1–3 each
+remove compile sites without changing behaviour; 4 builds the replacement beside the old path; 5 cuts
+over; 6 is the payoff.
+
+1. **The package stops forcing its consumers to take a compiler.** Split
+   `@lumenize/ts-runtime-parser-validator` into a runtime entry (`facet-helper` + its types) and a
+   compile entry, and move each consumer to the one it needs — `galaxy.ts`/`star.ts` to runtime,
+   `ontology-compile.ts`/`codegen-gate.ts` to compile.
+   - **Success criteria:** a module importing only the runtime entry type-checks and its bundle
+     contains no `typescript`; `npm test -w @lumenize/ts-runtime-parser-validator` stays green;
+     the published `exports` map lists both entries and no bare `"."`.
+   - **Mutation:** point `star.ts` back at the compile entry → the bundle check reds.
+   - ⚠️ Nothing is unblocked yet — the app barrel still re-exports the compile half (phase 6).
+
+2. **The two constant validators stop being compiled at runtime.** A one-shot generator emits the chat
+   seed's `OntologyVersionRow` and the tool-args validator module as committed literals; `--check`
+   rebuilds and diffs them ahead of vitest; register the generator in
+   `scripts/generated-artifact-hook.sh`'s `case` list.
+   - **Success criteria:** `chatOntologySeedRow` and `#ensureToolArgsFacet` contain no compiler call —
+     the § *Every compiler call site* grep no longer returns them; the `--check` exits non-zero after
+     editing `CHAT_MESSAGE_TYPES` without regenerating; `TOOL_ARGS_BUNDLE_ID` is unchanged, so the
+     Worker Loader cache is not invalidated.
+   - **Mutation:** edit one character of `TOOL_ARGS_TYPES` and run the suite → `--check` reds.
+   - **Replacement obligation:** none — this phase deletes no test.
+
+3. **The dead Galaxy test-install path goes.** Delete `Galaxy.appendOntologyVersion`, the
+   `callGalaxyAppendOntologyVersion` wrapper in all four clients that define it, and
+   `star-ontology.test.ts`'s registry assertions; re-point the benchmark and chromium call sites at
+   `callStarApplyOntology` / `StarTest.applyOntologyForTest`.
+   - **Success criteria:** `grep -rn 'appendOntologyVersion' apps/nebula` returns nothing outside this
+     task file; `galaxy-resource-surface.test.ts`'s frozen mesh surface no longer lists it and the test
+     is updated in the same commit; the `browser`, `browser-bench` and `chromium` lanes still install an
+     ontology and stay green.
+   - **Mutation:** leave one wrapper behind → the grep criterion reds.
+   - **Replacement obligation:** the duplicate-label, index-listing and latest-round-trip assertions are
+     **not replaced** — they assert a deleted method's own behaviour. Their lines going dark is recorded
+     in phase 7's list, not repaired.
+
+4. **The container gains a compile job, beside the old path rather than replacing it.** Copy the
+   package source and the four vendored `forks/typia/*` into the image behind a container-side manifest
+   that is NOT `container/app/package.json`; run `bundle-tsc.mjs` during the image build; wrap the
+   container's job so it type-checks first and builds only on a clean check, returning `BuildReport`
+   with per-step outcomes and the compiled row written to a named mount path.
+   - **Success criteria:** an image build produces `deps.bundle.mjs` inside the image and editing a
+     fork source invalidates that layer; a driven build returns a `BuildReport` whose `typeCheck.checked`
+     names the files tsc looked at; the Galaxy reads the row back with `ws.fs.readFile` and `git status`
+     in the workspace shows it untracked.
+   - **Mutation:** drop the type-check step → `typeCheck.ran` is false while `bundle.ok` is true, which
+     the criterion above reds on.
+   - ⚠️ **Prove `bundle-tsc.mjs` runs unmodified in the image** rather than reasoning about it — it
+     resolves `typescript/package.json` and reads its `lib/` off disk.
+
+5. **The Worker cuts over and stops compiling.** `write_file` becomes a pure write; delete
+   `compileSource` from the request path, both SFC passes with it; re-point `sawError`/`fixMode` at the
+   report; reshape `codegen.gate` to `typeCheck.checked` + `findings` and regenerate the chat-seed
+   literal; rewrite the four prose surfaces (`write_file`, `mark_complete`, `build`,
+   `STUDIO_LOOP_SYSTEM_PROMPT`) and `harness/scenarios/build-box.ts`.
+   - **Success criteria:** a codegen turn that writes a type-erroring `.vue` still reaches
+     `mark_complete` — build, read findings, fix, rebuild — driven live, with rounds and container
+     cycles recorded; no prose surface still says a written file "is compiled immediately";
+     `build-box.ts` discriminates shim from FUSE without `'buildError' in outcome`.
+   - **Mutation:** leave `sawError` unset for type findings → the loop never drops to `fixParams` and
+     the live convergence criterion reds.
+   - **Replacement obligation:** `codegen-loop.test.ts`'s *"compile error-tail round-trips"* block and
+     its four `r.lastGate` assertions are rewritten against the build's findings, not deleted — the
+     behaviour survives, only its trigger moves.
+
+6. **The deploy works, and cannot silently break again.** Cut the app-side barrel re-exports
+   (`galaxy.ts` → `index.ts` → `worker.ts`) so nothing reachable from the Worker entry imports the
+   compile entry; add the import-graph tripwire; deploy; re-measure.
+   - **Success criteria:** `npm run deploy:test` from `apps/nebula` completes and the self-check reports
+     `match:true`; the tripwire passes and reds when a `generateParseModule` import is reintroduced
+     anywhere in the entry graph; bundle and startup are recorded against 12,957 KiB / 362 ms;
+     `HARNESS_TARGET_URL=<url> npx tsx apps/nebula/harness/drive.ts build-box` reaches `world: 'fuse'`.
+   - **Mutation:** re-add `import { generateParseModule }` to `galaxy.ts` → the tripwire reds and the
+     deploy fails again, which is the whole point.
+
+7. **The siblings stop carrying stale copies, and what went dark is listed.** Collapse the backlog row
+   to a pointer; trim `nebula-pre-alpha.md`'s wipe item 2 and decide item 3 ("no split") on the
+   re-measured number; re-run coverage and account for the delta.
+   - **Success criteria:** no sibling restates this task's measurements; every line dark against the
+     recorded baseline is either covered again or listed with a stated reason it needs nothing.
+   - ⚠️ **This phase is last on purpose** — it edits standing guidance and sibling files describing an
+     end state only phases 1–6 produce, and the coverage delta is meaningless before then.
+
+## Non-goals
+
+- **Arbitrary in-container commands and a selective log-query tool** — `backlog.md` § *Nebula*, deferred
+  with its egress-choke security question.
+- **A real `CompilerHost` for cross-file type checking** — § *How the compiler reaches the container*'s
+  design consideration; it is also what would force the compile into its own container.
+- **The ontology history file and the KV registry's other three condemned methods** —
+  [nebula-ontology-history-file.md](nebula-ontology-history-file.md); only `appendOntologyVersion` moves
+  forward, because only it compiles.
+- **Raising coverage to a number.** The criterion is the list (§ *Success*); some lines should stay dark.
+
 ## Success, stated so it can fail
 
 - **`npm run deploy:test` (from `apps/nebula`) completes and the self-check reports `match:true`.** That is the whole point; everything else is a means. ⚠️ Not runnable at review time — it deploys.
