@@ -134,27 +134,46 @@ Three properties are deliberate. **`typeCheck` carries no `ok`**, so nothing can
 
 ### Installing an ontology in a lane with no compiler
 
-**The browser test lanes install from committed precompiled rows, generated the same way as the chat seed.** The
-ontologies they install are fixed at authoring time, not built per test — 16 call sites resolve to **four** constants
-(`TODO_TYPES`, `TODO_V2_TYPES`, `TEST_TYPES`, `ONTOLOGY`) passed with a literal label, e.g.
-`callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES })`. So the generator this task already
-owes for the chat seed and tool-args validator takes those constants as two more inputs and emits committed rows,
-which the lanes install through `Star.setOntology`. ⚠️ **The fixture is keyed by `(version, types)`, not types alone** —
-`star-ontology.test.ts` appends `v1` and `v2` of one ontology to exercise the index. Freshness rides the same
-rebuild-and-diff `--check`, so editing a constant without regenerating reds.
+**The Galaxy install path was already vestigial, and the survivor already exists.** `test-apps/baseline/index.ts`
+carries both initiators side by side, and the newer one says why: *"Apply an ontology directly to a Star (Phase 4: the
+Galaxy lazy-pull was retired, so tests install the compiled validator via `Star.setOntology` — the Galaxy's dev apply
+path)."* `callStarApplyOntology` has **68 callers**; `callGalaxyAppendOntologyVersion` has 16, and 8 of those are
+`star-ontology.test.ts`, the one suite testing the registry *as a registry*.
 
-**What the browser lane cannot do is compile**, which is why the row is the deliverable rather than the types:
-`test/chromium/ontology-admin.ts` exists solely because a browser bundle carrying server code *"pulls
-`cloudflare:workers` in and fails Vite resolution"*, and `ontology-compile.ts` declares itself NOT browser-safe on the
-other side. `test-apps/baseline/index.ts` is a Worker app and is the one caller that could compile in place.
+**The benchmarks calling the Galaxy path already document that it does not install anything.** They carry the
+same note — *"The one built install path is the dev-loop PUSH (`DevStudio` → `Star.setOntology`) … So the Star's index
+stays empty and the warmup gets `{kind:'ontology-stale', currentVersion:''}` — correctly."* They call it, and narrate
+an empty index as the right outcome.
+
+⇒ **`callGalaxyAppendOntologyVersion` goes with the method rather than being re-homed** — the wrapper in all three
+clients, and the seven benchmark/e2e call sites re-point to the `callStarApplyOntology` that 68 sites already use.
+
+**The one change this task actually forces is the compile inside that survivor.** It reads:
+
+```ts
+const row: OntologyVersionRow = compileOntologyVersion(versionConfig);   // ← the compiler, client-side
+const remote = this.ctn<Star>().setOntology(row);
+```
+
+and the four fixed test ontologies become committed precompiled rows instead. They are fixed at authoring time, not
+built per test — the 16 sites resolve to `TODO_TYPES`, `TODO_V2_TYPES`, `TEST_TYPES` and `ONTOLOGY`, each passed with a
+literal label — so the generator this task already owes for the chat seed and tool-args validator takes them as two
+more inputs. ⚠️ **Keyed by `(version, types)`, not types alone**, since `star-ontology.test.ts` appends `v1` and `v2` of
+one ontology to exercise the index. Freshness rides the same rebuild-and-diff `--check`.
+
+**`test/chromium/ontology-admin.ts` shrinks; it does not die.** Its galaxy specificity goes with the method, but its
+reason survives verbatim — `setOntology` is `@mesh(requireDominionHere)` too, so the chromium lane still needs a
+browser-safe admin client, and its header's *"a raw-RPC seed route can't carry that auth context"* is unchanged. What
+the browser lane cannot do is compile: that class exists because server code in a browser bundle *"pulls
+`cloudflare:workers` in and fails Vite resolution"*, and `ontology-compile.ts` declares itself NOT browser-safe from
+the other side. `test-apps/baseline/index.ts` is the one caller that could compile in place.
 
 **`appendOntologyVersion`'s registry coverage goes with the method** (decided with Larry 2026-08-29).
 `star-ontology.test.ts`'s duplicate-label rejection, index listing and latest round-trip assert that method's own
 behaviour; its invalid-label cases (`'has spaces'`, `'_index'`) never reach a compile because `VERSION_LABEL_RE`
-rejects them first. Deleting the method deletes what they assert, so the tests go too rather than being ported onto a
-survivor that would keep them green while meaning nothing. `dev-studio.test.ts`'s append + lazy-pull + content-
-addressing suite and `galaxy-resource-surface.test.ts`'s surface freeze both ride `appendWorkspaceOntology`, which
-survives.
+rejects them first. Porting them onto a survivor would keep a suite green while it asserted a mechanism that no longer
+exists. `dev-studio.test.ts`'s append + lazy-pull + content-addressing suite and `galaxy-resource-surface.test.ts`'s
+surface freeze both ride `appendWorkspaceOntology`, which survives.
 
 ### Where there is no container
 
@@ -186,7 +205,7 @@ Three environments have none, and the answer is the same in each: **the constrai
 | **Both branches of the gate leave the Worker: `write_file` becomes a pure write and `build` does the checking** (§ *Where the compiling should happen*, 2026-08-28) | Keeping the SFC gate in the Worker — it reaches `ts` through `checkTypeScript`, so the 8.91 MB bundle stays and the deploy stays blocked; there is no half-move. Folding the check into `vite build` as one exec, the earlier draft's shape — it assumed a turn that gates once per round, when `compileSource` runs per `write_file` and `build` is a separate model-chosen tool, so it would have put a container exec on every written file. |
 | **SFC Pass 1 is deleted, not kept and not moved** (2026-08-29) — `@vue/compiler-sfc` leaves the Worker with it | Keeping Pass 1 as a container-free write-time signal — it is genuinely tsc-free and would keep syntax fix-rounds free, but it lands the bundle near ~3.8 MB, inside the wake tier `nebula-pre-alpha.md` measures at 120 ms vs 1,256 ms on an identical bundle, and it optimises feedback for the error class a model rarely produces: models write valid Vue syntax, and what they get wrong is the API misuse Pass 2 exists to catch (`codegen-gate.ts`'s JSDoc cites the invented `op: 'set'`). Paying user-visible wake latency for model-visible convenience is the wrong trade. |
 | **`Galaxy.appendOntologyVersion` is deleted, not re-signatured** (2026-08-28) — its callers are re-homed per § *Installing an ontology in a lane with no compiler* | Giving it a pre-compiled-row signature — [nebula-ontology-history-file.md](nebula-ontology-history-file.md) already condemns it (scheme settled 2026-08-24: *"what dies … the four mesh methods `appendOntologyVersion` / `listOntologyVersions` / `getLatestOntologyVersion` / `getOntologyVersion`"*), so a new signature is an interim on a method scheduled for deletion, and its four call sites would change twice. Pulling all four forward — only this one compiles, and `getOntologyVersion` is the Star's live lazy-pull target. Sequencing behind that task — it has no phases and an open design question, while this one blocks every deploy. |
-| **Test lanes install from COMMITTED precompiled rows, and `appendOntologyVersion`'s registry coverage dies with the method** (2026-08-29) | Compiling test-side, which the row previously said — three of the four callers are browser bundles and cannot: `ontology-admin.ts`'s header exists because server code in a browser bundle *"pulls `cloudflare:workers` in and fails Vite resolution"*, and `ontology-compile.ts` declares itself NOT browser-safe. A Worker-side test route that compiles on demand — it would reintroduce, for fixtures, the exact capability this task removes. Porting the registry assertions onto a survivor — they assert `appendOntologyVersion`'s own duplicate-label rejection and index listing, so a port leaves a green suite asserting a deleted mechanism. |
+| **The Galaxy test-install path is DELETED, not re-homed; lanes use the existing `Star.setOntology` initiator with committed precompiled rows, and the registry coverage dies with the method** (2026-08-29) | Re-homing `callGalaxyAppendOntologyVersion`, which an earlier draft of this row proposed — it was already vestigial: `callStarApplyOntology` has 68 callers to its 16, and the five benchmarks calling it already document that it installs nothing (*"the Star's index stays empty … correctly"*). Compiling test-side — three of the four callers are browser bundles and cannot: `ontology-admin.ts`'s header exists because server code in a browser bundle *"pulls `cloudflare:workers` in and fails Vite resolution"*, and `ontology-compile.ts` declares itself NOT browser-safe. A Worker-side test route that compiles on demand — it would reintroduce, for fixtures, the exact capability this task removes. Porting the registry assertions onto a survivor — they assert `appendOntologyVersion`'s own duplicate-label rejection and index listing, so a port leaves a green suite asserting a deleted mechanism. |
 | **`build` returns per-step outcomes; there is no global `ok`** (§ *Where the compiling should happen*, 2026-08-28) | The `BuildOutcome` three-way union — one boolean forces every step to fold into it, and folding in the type check means deciding whether a finding is fatal, which is the judgement this design hands to the model. Its `retryable` flag also models a different STEP failing as a different KIND of failure. |
 | **A failing step carries a bounded RAW tail of the tool's own output, never a summarized `detail`** (2026-08-28) | Prose summaries — they discard the line/column numbers, snippets and error codes a model reads fluently, and we would be deciding in advance what mattered. `codegen-gate.ts`'s existing `MAX_ERROR_TAIL = 4000` is the pattern. Replacing the structured report with logs alone — its second consumer is the SYSTEM (`#buildAndAnnounce` decides publish, the loop decides fix-round vs retry-same-code, tests and `/live` assert), and "the container never started" and "your types are wrong" are the same prose to a grep. Writing the full log to the VFS behind a `read_file` tool — deferred to `backlog.md` § *Nebula*: no present consumer has hit the 4 KB tail, and unlike the usual case the general form costs materially more (a new tool, a non-committed workspace path since `writeSource` git-commits every write, and DO storage growth). |
 | **Publishing the preview is the model's call, overridable against type findings** (2026-08-28) | Publishing only on a findings-free build — a hard gate where this repo's stance is an advisory practice with an override, and it forecloses the judgement a developer makes routinely: this finding is real, that one the checker cannot see is safe. A standalone `publish` tool instead of an override — it adds a forget-to-publish path whose failure is a silently stale preview. |
