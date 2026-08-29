@@ -7,6 +7,7 @@
 - **[nebula-pre-alpha.md](nebula-pre-alpha.md)** — the batched wipe+redeploy gate cannot run until this lands. Its wipe item carries superseded numbers and a stale "no task file yet"; trim both to target-shape plus a pointer here, in this task.
 - **[nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)** — its deploy-staged criteria (the build-box FUSE limbs, the `ui-smoke` codegen test, preview-survives-redeploys) are the work this unblocks finishing and archiving.
 - **[backlog.md](backlog.md)** — its row restates these measurements and claims the async ripple reaches "a module-scope constant" in `chat-ontology.ts`, which this file refutes (it is a function). Collapse the row to a one-line pointer HERE, in this task, rather than at build: success criterion 2 re-measures the numbers, so every copy is falsified on build day.
+- **[nebula-ontology-history-file.md](nebula-ontology-history-file.md)** — condemns the KV registry and four mesh methods; this task pulls exactly one of them forward (§ *Decisions*). Its tabled question, *where compiled validator bundles live*, stays ITS to settle — but where the compile runs, decided here, constrains the answer.
 - **[on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md)** — the codegen loop is what the SFC gate serves; a latency change is felt there first.
 
 ## Context
@@ -63,16 +64,22 @@ Moving only the compile-time call sites reduced the bundle size by only **1.5 MB
 
 **The split is easier than it sounds, because the runtime side already has no compiler in it.** `getParserValidatorFacet` (`facet-helper.ts`) takes a `WorkerLoader` and loads the **generated** validator module into a facet — the source it loads is stored on the ontology row. It never calls tsc. So the two halves are already disjoint in fact; they are only joined by the barrel.
 
-### Two more compiles hide behind the two obvious ones
+### Every tsc call site in the Worker, and what becomes of each
 
-`codegen-gate.ts` and `ontology-compile.ts` are not the only tsc call sites in the Worker. Two more reach `generateParseModule`, and both compile source that never varies:
+**The inventory is a construct, not a count.** `grep -rn 'compileOntologyVersion(\|generateParseModule(\|extractTypeMetadata(\|checkTypeScript(' apps/nebula/src` returns six call sites (2026-08-28), and a seventh appearing later inherits the same obligation rather than falsifying a tally:
 
-- **`chatOntologySeedRow()`** (`chat-ontology.ts`) compiles the constant `CHAT_MESSAGE_TYPES` at a constant version label, lazily on a Galaxy's first chat touch via `#ensureChatFacet`, then durable in KV.
-- **`Galaxy.#ensureToolArgsFacet`** compiles `TOOL_ARGS_TYPES` for the codegen loop's tool-args validator, under a `TOOL_ARGS_BUNDLE_ID` its JSDoc deliberately shares across tenants.
+| site | what it compiles | becomes |
+|---|---|---|
+| `codegen-gate.ts:196` | `checkTypeScript` — the SFC semantic pass | the `typeCheck` step of `build` |
+| `codegen-gate.ts:220` | the `.d.ts` branch's full `compileOntologyVersion` | the `ontology` step of `build` |
+| `galaxy.ts:527` `appendWorkspaceOntology` | the Workspace `.d.ts`, at the Apply click | the `ontology` step of `build` — already `async` |
+| `galaxy.ts:428` `appendOntologyVersion` | a caller-supplied types string | **deleted**, see § *Decisions* |
+| `chat-ontology.ts:33` `chatOntologySeedRow` | the constant `CHAT_MESSAGE_TYPES` | a precompiled data literal |
+| `galaxy.ts:1417` `#ensureToolArgsFacet` | the constant `TOOL_ARGS_TYPES` | a precompiled data literal |
 
-Neither takes user input, neither varies by tenant, and both emit the same bytes in every Galaxy forever. ⇒ **They do not belong in the container either — they should stop being runtime compiles.** Precompiling both at publish and shipping the result as a data literal (for the chat seed, the whole `OntologyVersionRow`) removes the last tsc reference from the Worker. Sending them to the container instead would put a cold start on a Galaxy's first chat message and on the loop's first tool call, both interactive.
+**The last two compile source that never varies.** Neither takes user input, neither varies by tenant, and both emit the same bytes in every Galaxy forever — so they should stop being runtime compiles rather than move anywhere. Sending them to the container would put a cold start on a Galaxy's first chat message and on the loop's first tool call, both interactive.
 
-⚠️ **These are the consumers the ablation's stubs hid.** § *The prize, measured* reached 2,294 KiB by stubbing the compile surface, so nothing forced these two to resolve. Move only the two named compiles and tsc stays in the bundle for these, with the deploy still blocked.
+⚠️ **These are the consumers the ablation's stubs hid.** § *The prize, measured* reached 2,294 KiB by stubbing the compile surface, so nothing forced any of these six to resolve. Move only the gate and the deploy stays blocked by the rest.
 
 ### Keeping a precompiled artifact honest
 
@@ -150,6 +157,7 @@ Making the compile remote makes it async, and that propagates. Measured by attem
 | Decision | Rejected alternative — why |
 |---|---|
 | **Both branches of the gate leave the Worker: `write_file` becomes a pure write and `build` does the checking** (§ *Where the compiling should happen*, 2026-08-28) | Keeping the SFC gate in the Worker — it reaches `ts` through `checkTypeScript`, so the 8.91 MB bundle stays and the deploy stays blocked; there is no half-move. Folding the check into `vite build` as one exec, the earlier draft's shape — it assumed a turn that gates once per round, when `compileSource` runs per `write_file` and `build` is a separate model-chosen tool, so it would have put a container exec on every written file. |
+| **`Galaxy.appendOntologyVersion` is deleted, not re-signatured** (2026-08-28) — its four harness callers move to `Star.setOntology` with rows compiled test-side | Giving it a pre-compiled-row signature — [nebula-ontology-history-file.md](nebula-ontology-history-file.md) already condemns it (scheme settled 2026-08-24: *"what dies … the four mesh methods `appendOntologyVersion` / `listOntologyVersions` / `getLatestOntologyVersion` / `getOntologyVersion`"*), so a new signature is an interim on a method scheduled for deletion, and its four call sites would change twice. Pulling all four forward — only this one compiles, and `getOntologyVersion` is the Star's live lazy-pull target. Sequencing behind that task — it has no phases and an open design question, while this one blocks every deploy. |
 | **`build` returns per-step outcomes; there is no global `ok`** (§ *Where the compiling should happen*, 2026-08-28) | The `BuildOutcome` three-way union — one boolean forces every step to fold into it, and folding in the type check means deciding whether a finding is fatal, which is the judgement this design hands to the model. Its `retryable` flag also models a different STEP failing as a different KIND of failure. |
 | **Publishing the preview is the model's call, overridable against type findings** (2026-08-28) | Publishing only on a findings-free build — a hard gate where this repo's stance is an advisory practice with an override, and it forecloses the judgement a developer makes routinely: this finding is real, that one the checker cannot see is safe. A standalone `publish` tool instead of an override — it adds a forget-to-publish path whose failure is a silently stale preview. |
 | **The container bakes `typescript` + `typia` + `@typia/transform`; the shipped `deps.bundle.mjs` stays a workerd artifact** (2026-08-28) | Delivering the bundle into the image (widened build context, or publishing a compile subpath) — the bundle exists only because workerd has no module resolution, so a container that has resolution needs no delivery mechanism at all. This is also what the Worker Loader cannot say: the Loader is workerd and would owe exactly that delivery. |
