@@ -1,15 +1,18 @@
 /**
- * Phase 2–3 — the self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md).
+ * Phase 2–3 — the self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md;
+ * the per-write compile died with tasks/nebula-move-compilers-out-of-the-worker.md —
+ * a `write_file` is a pure write, and the container `build`'s per-step report is the
+ * self-correction signal).
  *
  * Two layers, both container-free, no AI binding (the `dev-studio` project):
  *  - **Loop-logic unit tests** drive `runCodegenLoop` directly with injected fake
  *    deps + a synthetic model script — the bound (D4), loop-detection (D4, each
  *    operand mutated independently), the m2 malformed-envelope cases, path safety
- *    (D5a), and the user-layer error-tail round-trip (D1/D7/D8).
+ *    (D5a), and the user-layer build-report feedback round-trip (D1/D7/D8's successor).
  *  - **Galaxy integration tests** go through the real node (the `GalaxyLoopProbe`
  *    whose `callModel` replays a script): the real typia arg-validator facet (D5) and
- *    the **secure-by-default D2 guard** — a hostile ontology `write_file` compiles but
- *    the `.dev` Star is never installed/wiped.
+ *    the **secure-by-default D2 guard** — a written ontology never installs/wipes the
+ *    `.dev` Star.
  *
  * @see tasks/archive/nebula-codegen-loop.md § Phases 2–3
  */
@@ -20,12 +23,29 @@ import {
   assembleCodegenPrompt,
   parseModelTurn,
   DEFAULT_LOOP_CONFIG,
+  type BuildReport,
   type CodegenLoopDeps,
   type CodegenLoopConfig,
   type ChatMessage,
   type ModelParams,
 } from '../../../src/codegen-loop';
 import { unwrapWorkersAiRest } from '../../../src/galaxy';
+
+/** A clean build report, shaped exactly as the host composes it. */
+const cleanReport = (over: Partial<BuildReport> = {}): BuildReport => ({
+  container: { ran: true, ok: true },
+  ontology: { ran: false, why: 'no ontology change (host passed no version)' },
+  typeCheck: { ran: true, checked: ['src/App.vue'], findings: [] },
+  bundle: { ran: true, ok: true },
+  publish: { done: true, why: 'clean build' },
+  ...over,
+});
+
+/** A report carrying type findings (advisory — bundle still ok, dist produced). */
+const findingsReport = (findings: string[]): BuildReport => cleanReport({
+  typeCheck: { ran: true, checked: ['src/App.vue'], findings },
+  publish: { done: false, why: 'type findings — publish withheld by default (the model may override)' },
+});
 
 // ─── Fake-model + deps scaffolding (unit layer) ──────────────────────────
 
@@ -77,14 +97,14 @@ function harness(script: unknown[], over: Partial<CodegenLoopDeps> = {}): Harnes
     },
     writeFile: async (path, content) => { writes.push({ path, content }); return { oid: `oid${writes.length}`, path }; },
     validateToolArgs: async () => ({ ok: true }),
-    build: async () => ({ ok: true }),
+    build: async () => cleanReport(),
     ...over,
   };
   return { deps, writes, paramsSeen, messagesSeen };
 }
 
 describe('Phase 2 — loop driver: stop conditions (D4)', () => {
-  it('write_file (clean) then mark_complete → stop=complete, file written once, gate ok', async () => {
+  it('write_file then mark_complete → stop=complete, file written once, PURE write (no check ran)', async () => {
     const h = harness([
       resp([toolCall('write_file', { path: 'src/App.vue', content: GOOD_APP })]),
       resp([toolCall('mark_complete', {})]),
@@ -92,7 +112,10 @@ describe('Phase 2 — loop driver: stop conditions (D4)', () => {
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('complete');
     expect(h.writes).toEqual([{ path: 'src/App.vue', content: GOOD_APP }]);
-    expect(r.lastGate).toEqual({ ok: true });
+    // A write does no work at all: its tool result confirms the save and nothing else,
+    // and no build ran, so there is no report.
+    expect(r.toolCalls[0]).toEqual({ name: 'write_file', args: { path: 'src/App.vue', content: GOOD_APP }, result: { written: 'src/App.vue' } });
+    expect(r.lastBuild).toBeUndefined();
     expect(r.appliedPaths).toEqual(['src/App.vue']);
   });
 
@@ -171,7 +194,7 @@ describe('Phase 2 — malformed envelopes + tool errors (m2), captured not crash
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('complete');
     expect(r.toolCalls[0].error).toContain('disk boom');
-    expect(r.lastGate).toBeUndefined(); // compile gate never reached after the throw
+    expect(r.appliedPaths).toEqual([]); // a throwing write never counts as applied
   });
 
   it('invalid tool-call args (typia reject) → tool error, never dispatched', async () => {
@@ -203,22 +226,64 @@ describe('Phase 2 — path safety (D5a) before writeSource', () => {
   });
 });
 
-describe('Phase 2 — the compile error-tail round-trips into the next round (D1/D7/D8)', () => {
-  it('a failing ontology write pushes its error-tail into the next round\'s user layer', async () => {
+describe('Phase 2 — the build report round-trips into the next round (D1/D7/D8\'s successor)', () => {
+  it('a build with findings pushes findings-plus-touched-files into the next round\'s user layer', async () => {
+    const FINDING = "src/App.vue(3,7): error TS2339: Property 'frobnicate' does not exist on type 'Client'.";
     const h = harness([
-      resp([toolCall('write_file', { path: 'src/ontology.d.ts', content: BROKEN_ONTOLOGY })]),
-      resp([toolCall('mark_complete', {})]),
-    ]);
+      resp([toolCall('write_file', { path: 'src/App.vue', content: GOOD_APP }, 'w1')]),
+      resp([toolCall('build', {}, 'b1')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], { build: async () => findingsReport([FINDING]) });
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('complete');
-    const tail = r.lastGate?.errorTail;
-    expect(tail).toBeTruthy();
-    // The round-2 transcript (what the model saw next) carries the error-tail in a
-    // user-role message — the self-correction signal.
+    expect(r.lastBuild?.typeCheck.findings).toEqual([FINDING]);
+    // The round-3 transcript (what the model saw after the build) carries the findings
+    // AND the files written this turn in a user-role message — the self-correction
+    // signal, no single file's source re-echoed (the diagnostics carry file + line).
+    const round3 = h.messagesSeen[2];
+    const userFeedback = round3.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+    expect(userFeedback).toContain('The build reported problems');
+    expect(userFeedback).toContain(FINDING);
+    expect(userFeedback).toContain('Files written this turn: src/App.vue');
+  });
+
+  it('a failed ontology step round-trips its tail the same way (each operand of the fix trigger)', async () => {
+    const h = harness([
+      resp([toolCall('build', {}, 'b1')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], {
+      build: async () => cleanReport({
+        ontology: { ran: true, ok: false, tail: 'Ontology type name "_Bad" starts with "_"' },
+        publish: { done: false, why: 'ontology compile failed — publish withheld by default' },
+      }),
+    });
+    const r = await runCodegenLoop(INITIAL, h.deps);
     const round2 = h.messagesSeen[1];
     const userFeedback = round2.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
-    expect(userFeedback).toContain('did not compile');
-    expect(userFeedback).toContain(tail!);
+    expect(userFeedback).toContain('ontology step failed');
+    expect(userFeedback).toContain('starts with "_"');
+    expect(r.stop).toBe('complete');
+  });
+
+  it('a failed container step round-trips its tail the same way', async () => {
+    const h = harness([
+      resp([toolCall('build', {}, 'b1')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], {
+      build: async () => cleanReport({
+        container: { ran: true, ok: false, tail: 'build job killed (failed, exit 137) — likely the 180000 ms build timeout' },
+        ontology: { ran: false, why: 'the build job did not run' },
+        typeCheck: { ran: false, checked: [], findings: [] },
+        bundle: { ran: false, why: 'the build job did not run' },
+        publish: { done: false, why: 'the build job did not run' },
+      }),
+    });
+    const r = await runCodegenLoop(INITIAL, h.deps);
+    const round2 = h.messagesSeen[1];
+    const userFeedback = round2.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+    expect(userFeedback).toContain('container step failed');
+    expect(userFeedback).toContain('build timeout');
+    expect(r.stop).toBe('complete');
   });
 });
 
@@ -239,11 +304,13 @@ describe('Phase 3 — prompt assembly (D7) + per-call params (D6)', () => {
     expect(user.content).toContain('<template>X</template>');
   });
 
-  it('per-call params: round 1 uses generate params; the round after a compile error uses fix params (D6)', async () => {
+  it('per-call params: round 1 uses generate params; the round after a findings build uses fix params (D6)', async () => {
+    // The old trigger (a per-write compile error) died with the Worker-side gate —
+    // fixMode's successor fires on ANY failed step or non-empty findings.
     const h = harness([
-      resp([toolCall('write_file', { path: 'src/App.vue', content: '<template><p>{{ x.}}</p></template>' })]), // broken
-      resp([toolCall('mark_complete', {})]),
-    ]);
+      resp([toolCall('build', {}, 'b1')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], { build: async () => findingsReport(['src/App.vue(1,1): error TS2322: broken']) });
     const cfg: CodegenLoopConfig = {
       maxToolDepth: 8,
       generateParams: { temperature: 0.7, max_tokens: 100 },
@@ -251,7 +318,7 @@ describe('Phase 3 — prompt assembly (D7) + per-call params (D6)', () => {
     };
     await runCodegenLoop(INITIAL, h.deps, cfg);
     expect(h.paramsSeen[0]).toEqual(cfg.generateParams);
-    expect(h.paramsSeen[1]).toEqual(cfg.fixParams); // dropped to fix after the error
+    expect(h.paramsSeen[1]).toEqual(cfg.fixParams); // dropped to fix after the findings
   });
 });
 
@@ -306,19 +373,21 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
     expect(result.appliedPaths).toEqual([]);
   });
 
-  it('D2 SECURE-BY-DEFAULT: a hostile ontology write_file compiles but NEVER installs/wipes the .dev Star', async () => {
+  it('D2 SECURE-BY-DEFAULT: a hostile ontology write_file NEVER installs/wipes the .dev Star', async () => {
     const dev = uniqueGalaxyScope();
     const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
       'add a Todo type',
       [aiResp([tc('write_file', { path: 'src/ontology.d.ts', content: VALID_ONTOLOGY })]), aiResp([tc('mark_complete', {})])],
     ))) as any;
     expect(result.stop).toBe('complete');
-    // The ontology was written to the Workspace and compiled clean…
+    // The ontology was written to the Workspace (a pure write — the container `build`
+    // is where compiling happens now, and this turn never called it)…
     expect(await inDO(env.GALAXY, dev, (s) => s.readSource('src/ontology.d.ts'))).toBe(VALID_ONTOLOGY);
-    expect(result.lastGate).toEqual({ ok: true });
-    // …but it was NEVER installed on the derived .dev Star (no setOntology /
+    expect(result.lastBuild).toBeUndefined();
+    // …and it was NEVER installed on the derived .dev Star (no setOntology /
     // compileAndInstallOntology) and nothing was wiped. Capable-of-failing: an install
-    // would leave a version in the Star's index.
+    // would leave a version in the Star's index. Only the dominion-gated
+    // appendWorkspaceOntology appends; the loop cannot reach it.
     expect(await inDO(env.STAR, `${dev}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
   });
 
@@ -339,49 +408,89 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
 // REST swap silently no-ops (zero tool_calls → loop "stops"). Cheap + deterministic
 // (no fetch); only REST exercises the unwrap (the binding path returns the inner shape
 // directly), so the ui-smoke GHA lane — which uses the binding — can't catch this.
-describe('Phase 3 — the build TOOL (three-way outcome as a tool result)', () => {
-  it('build ok round-trips as the tool result and the loop CONTINUES to mark_complete', async () => {
-    const buildCalls: number[] = [];
+describe('Phase 3 — the build TOOL (the per-step report as a tool result)', () => {
+  it('a clean report round-trips as the tool result and the loop CONTINUES to mark_complete', async () => {
+    const buildCalls: unknown[] = [];
     const h = harness([
       resp([toolCall('build', {}, 'b1')]),
       resp([toolCall('mark_complete', {}, 'c1')]),
-    ], { build: async () => { buildCalls.push(1); return { ok: true }; } });
+    ], { build: async (opts) => { buildCalls.push(opts); return cleanReport(); } });
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('complete');
-    expect(buildCalls).toHaveLength(1);
+    expect(buildCalls).toEqual([{}]); // one cycle, no publish override passed
     const rec = r.toolCalls.find((t) => t.name === 'build');
-    expect(rec?.result).toEqual({ ok: true });
-    // The outcome went BACK TO THE MODEL as a tool message (the model reads it).
+    expect(rec?.result).toEqual(cleanReport());
+    expect(r.lastBuild).toEqual(cleanReport());
+    // The report went BACK TO THE MODEL as a tool message (the model reads every step).
     const toolMsg = r.messages.find((m) => m.role === 'tool' && m.tool_call_id === 'b1');
-    expect(toolMsg?.content).toContain('"ok":true');
+    expect(toolMsg?.content).toContain('"container"');
+    expect(toolMsg?.content).toContain('"publish"');
+    expect(toolMsg?.content).toContain('"why":"clean build"');
   });
 
-  it('a buildError is a FIX round, and a repeated build call is EXEMPT from the loop detector', async () => {
-    // fix-then-rebuild legitimately repeats `build` with identical (empty) args — the
-    // identical-call detector must not abort the turn on the second call.
-    const outcomes: unknown[] = [
-      { ok: false, buildError: 'Rollup failed: src/App.vue (3:7)' },
-      { ok: true },
-    ];
+  it('the model\'s publish override rides BuildArgs through to deps.build', async () => {
+    const buildCalls: unknown[] = [];
+    const h = harness([
+      resp([toolCall('build', { publish: true }, 'b1')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], { build: async (opts) => { buildCalls.push(opts); return cleanReport(); } });
+    await runCodegenLoop(INITIAL, h.deps);
+    expect(buildCalls).toEqual([{ publish: true }]);
+  });
+
+  it('a failed bundle step is a FIX round, and a repeated build call is EXEMPT from the loop detector', async () => {
+    // fix-then-rebuild legitimately repeats `build` — the identical-call detector must
+    // not abort the turn on the second call.
+    const bundleFailed = cleanReport({
+      bundle: { ran: true, ok: false, tail: 'Rollup failed: src/App.vue (3:7)' },
+      publish: { done: false, why: 'bundle failed — there is no dist to publish' },
+    });
+    const reports: BuildReport[] = [bundleFailed, cleanReport()];
     const h = harness([
       resp([toolCall('build', {}, 'b1')]),
       resp([toolCall('write_file', { path: 'src/App.vue', content: GOOD_APP }, 'w1')]),
       resp([toolCall('build', {}, 'b2')]),
       resp([toolCall('mark_complete', {}, 'c1')]),
-    ], { build: async () => outcomes.shift() as never });
+    ], { build: async () => reports.shift()! });
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('complete');
     const builds = r.toolCalls.filter((t) => t.name === 'build');
     expect(builds).toHaveLength(2);
-    expect(builds[0]!.result).toEqual({ ok: false, buildError: 'Rollup failed: src/App.vue (3:7)' });
-    expect(builds[1]!.result).toEqual({ ok: true });
-    // The buildError dropped the NEXT round into fix params (sawError → fixMode), like a
-    // compile error (per-round: the clean write round after it restores generateParams).
+    expect(builds[0]!.result).toEqual(bundleFailed);
+    expect(builds[1]!.result).toEqual(cleanReport());
+    // The failed bundle dropped the NEXT round into fix params (sawError → fixMode);
+    // per-round: the clean write round after it restores generateParams.
     expect(h.paramsSeen[1]).toEqual(DEFAULT_LOOP_CONFIG.fixParams);
     expect(h.paramsSeen[2]).toEqual(DEFAULT_LOOP_CONFIG.generateParams);
   });
 
-  it('a THROWING deps.build is captured as retryable — never an uncaught crash', async () => {
+  it('m2a on build: malformed arguments JSON → captured tool error, the box never starts', async () => {
+    const buildCalls: unknown[] = [];
+    const h = harness([
+      resp([malformedToolCall('build', '{publish: yes')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], { build: async () => { buildCalls.push(1); return cleanReport(); } });
+    const r = await runCodegenLoop(INITIAL, h.deps);
+    expect(r.stop).toBe('complete');
+    expect(buildCalls).toEqual([]); // never dispatched
+    expect(r.toolCalls[0].error).toContain('malformed tool arguments');
+  });
+
+  it('typia-rejected build args → captured tool error, the box never starts', async () => {
+    const buildCalls: unknown[] = [];
+    const h = harness([
+      resp([toolCall('build', { publish: 'yes' }, 'b1')]),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], {
+      build: async () => { buildCalls.push(1); return cleanReport(); },
+      validateToolArgs: async () => ({ ok: false, error: 'invalid build args — $input.publish: expected (boolean | undefined)' }),
+    });
+    const r = await runCodegenLoop(INITIAL, h.deps);
+    expect(buildCalls).toEqual([]); // never dispatched
+    expect(r.toolCalls[0].error).toContain('invalid build args');
+  });
+
+  it('a THROWING deps.build is captured as a container-step failure — never an uncaught crash', async () => {
     const h = harness([
       resp([toolCall('build', {}, 'b1')]),
       resp([], { content: 'giving up' }),
@@ -389,7 +498,15 @@ describe('Phase 3 — the build TOOL (three-way outcome as a tool result)', () =
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('no-tool-calls'); // the turn survived the throw
     const rec = r.toolCalls.find((t) => t.name === 'build');
-    expect(rec?.result).toEqual({ ok: false, retryable: true, detail: 'capnweb session tore' });
+    // The job never ran: `container` failed with the thrown message, and every other
+    // step honestly says it did not run (the shape's own rule — never absent).
+    expect(rec?.result).toEqual({
+      container: { ran: true, ok: false, tail: 'capnweb session tore' },
+      ontology: { ran: false, why: 'the build job did not run' },
+      typeCheck: { ran: false, checked: [], findings: [] },
+      bundle: { ran: false, why: 'the build job did not run' },
+      publish: { done: false, why: 'the build job did not run' },
+    });
   });
 });
 
@@ -415,5 +532,38 @@ describe('Phase 2 — Workers-AI REST envelope unwrap feeds parseModelTurn', () 
   it('throws on `success: false` rather than returning an undefined result (no silent empty turn)', () => {
     expect(() => unwrapWorkersAiRest({ result: null, success: false, errors: [{ message: 'boom' }] }))
       .toThrow(/success=false/);
+  });
+});
+
+// ─── The publish decision (every arm — pure, exported for exactly this) ─────────
+import { decidePublish } from '../../../src/galaxy';
+
+describe('decidePublish — default publish-on-clean; the model may override; a failed bundle is structural', () => {
+  it('clean build → publishes by default', () => {
+    expect(decidePublish(cleanReport())).toEqual({ done: true, why: 'clean build' });
+  });
+
+  it('findings → withheld by default; override true publishes; override false declines a CLEAN build', () => {
+    const withFindings = findingsReport(['src/App.vue(1,1): error TS2322: x']);
+    expect(decidePublish(withFindings).done).toBe(false);
+    expect(decidePublish(withFindings).why).toContain('type findings');
+    expect(decidePublish(withFindings, true)).toEqual({ done: true, why: "published on the model's override" });
+    expect(decidePublish(cleanReport(), false)).toEqual({ done: false, why: 'the model declined to publish' });
+  });
+
+  it('a failed ontology step withholds by default (override still wins)', () => {
+    const ontologyFailed = cleanReport({ ontology: { ran: true, ok: false, tail: 'boom' } });
+    expect(decidePublish(ontologyFailed).done).toBe(false);
+    expect(decidePublish(ontologyFailed).why).toContain('ontology compile failed');
+    expect(decidePublish(ontologyFailed, true).done).toBe(true);
+  });
+
+  it('no dist is STRUCTURAL — even override:true cannot publish a failed or never-run bundle', () => {
+    const bundleFailed = cleanReport({ bundle: { ran: true, ok: false, tail: 'rolldown died' } });
+    expect(decidePublish(bundleFailed, true)).toEqual({ done: false, why: 'bundle failed — there is no dist to publish' });
+    const bundleSkipped = cleanReport({ bundle: { ran: false, why: 'the build job did not run' } });
+    const skipped = decidePublish(bundleSkipped, true);
+    expect(skipped.done).toBe(false);
+    expect(skipped.why).toContain('bundle did not run');
   });
 });

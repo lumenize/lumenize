@@ -30,14 +30,14 @@
     "@lumenize/debug": "^0.26.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@vitest/coverage-istanbul": "4.1.10",
     "typescript": "^5.9.2",
     "vitest": "4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "vitest": "4.1.10"
   },
   "keywords": [

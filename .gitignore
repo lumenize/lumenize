@@ -71,3 +71,4 @@ coverage
 durable-objects/coverage
 __screenshots__
 vitest.config.*.timestamp-*.mjs
+.wrangler-deploy-test.jsonc

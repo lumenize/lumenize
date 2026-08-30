@@ -10,13 +10,17 @@ import { checkTypeScript } from '../src/virtual-ts-host';
 describe('checkTypeScript', () => {
   it('valid TypeScript → { ok: true, messages: [] }', () => {
     const r = checkTypeScript({ files: { '/a.ts': 'const x: number = 1; export {};' }, rootNames: ['/a.ts'] });
-    expect(r).toEqual({ ok: true, messages: [] });
+    expect(r).toEqual({ ok: true, messages: [], findings: [] });
   });
 
   it('a type error → { ok: false } with the flattened diagnostic', () => {
     const r = checkTypeScript({ files: { '/a.ts': "const x: number = 'nope'; export {};" }, rootNames: ['/a.ts'] });
     expect(r.ok).toBe(false);
     expect(r.messages.join('\n')).toMatch(/not assignable/);
+    // `findings` is the location-bearing form a build report persists: one line per
+    // diagnostic, `file(line,col): error TSxxxx: text`, path without the leading slash.
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0]).toMatch(/^a\.ts\(1,7\): error TS2322: /);
   });
 
   it('resolves a relative import against a sibling virtual file (the SFC Pass-2 shape)', () => {
@@ -27,7 +31,7 @@ describe('checkTypeScript', () => {
       },
       rootNames: ['/main.ts'],
     });
-    expect(ok).toEqual({ ok: true, messages: [] });
+    expect(ok).toEqual({ ok: true, messages: [], findings: [] });
 
     const bad = checkTypeScript({
       files: {
@@ -44,6 +48,6 @@ describe('checkTypeScript', () => {
       files: { '/a.ts': 'const id: string = crypto.randomUUID(); const n = Object.keys({}).length; export {};' },
       rootNames: ['/a.ts'],
     });
-    expect(r).toEqual({ ok: true, messages: [] });
+    expect(r).toEqual({ ok: true, messages: [], findings: [] });
   });
 });

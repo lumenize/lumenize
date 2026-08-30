@@ -37,7 +37,7 @@ export class ThroughputHarnessClient extends NebulaClient {
     this.#settleSingle(r);
   }
 
-  // Sequential Galaxy ontology registration uses the explicit-callback pattern.
+  // Sequential ontology installs use the explicit-callback pattern.
   handleResult(r: any): void {
     this.#settleSingle(r);
   }
@@ -49,11 +49,13 @@ export class ThroughputHarnessClient extends NebulaClient {
     });
   }
 
-  callGalaxyAppendOntologyVersion(galaxyName: string, cfg: { version: string; types: string }): Promise<void> {
+  /** Install an ontology version directly on `starName` — `StarTest.applyOntologyForTest`
+   *  compiles server-side in the test app (the Galaxy test-install path is deleted). */
+  callStarApplyOntology(starName: string, cfg: { version: string; types: string }): Promise<void> {
     return new Promise((resolve, reject) => {
       this.#singleSlot = { resolve, reject };
-      const remote = (this.ctn() as any).appendOntologyVersion(cfg);
-      this.lmz.call('GALAXY', galaxyName, remote, (this.ctn() as any).handleResult(remote));
+      const remote = (this.ctn() as any).applyOntologyForTest(cfg);
+      this.lmz.call('STAR', starName, remote, (this.ctn() as any).handleResult(remote));
     });
   }
 

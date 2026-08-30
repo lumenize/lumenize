@@ -306,8 +306,9 @@ describe('parse-validate throughput', () => {
         await new Promise((r) => globalThis.setTimeout(r, 25));
       }
 
-      // 3. Register ontology.
-      await client.callGalaxyAppendOntologyVersion(galaxyScope, {
+      // 3. Install the ontology on the target Star (the Galaxy test-install path is
+      //    deleted — installs land per-Star via StarTest.applyOntologyForTest).
+      await client.callStarApplyOntology(warmStar, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

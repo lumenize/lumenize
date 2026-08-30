@@ -23,7 +23,7 @@
 
 import { debug } from '@lumenize/debug';
 import type { CallContext } from '@lumenize/mesh';
-import type { ParserValidator, TypeMetadata } from '@lumenize/ts-runtime-parser-validator';
+import type { ParserValidator, TypeMetadata } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { InviteSummary, InviteeError } from '@lumenize/nebula-auth';
 import type { PermissionTier } from './dag-ops';
 import { DagTree } from './dag-tree';

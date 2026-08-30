@@ -85,19 +85,21 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
     sender[Symbol.dispose](); coach[Symbol.dispose]();
   });
 
-  it('CODEGEN CORPUS: an agent turn round-trips codegen.gate + codegen.appliedPaths intact; a human message has no codegen', async () => {
+  it('CODEGEN CORPUS: an agent turn round-trips codegen.build + codegen.appliedPaths intact; a human message has no codegen', async () => {
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
 
     const u1 = await client.postUserMessage('add a ping button');
     // The folded corpus record — the value-object EMBED (never an ADR-006 by-id rewrite),
-    // shaped like Galaxy.chat's real write. In-lane the model is unreachable (wrangler-dev
-    // only), so the commit initiator carries the record; the live end-to-end producer is
-    // the studio-codegen-rest /live scenario.
+    // shaped like Galaxy.chat's real write (`build` replaced the per-write `gate` when
+    // the compilers left the Worker: `checked` + `findings` at build granularity).
+    // In-lane the model is unreachable (wrangler-dev only), so the commit initiator
+    // carries the record; the live end-to-end producer is the studio-codegen-rest
+    // /live scenario.
     const codegen = {
       model: 'test-model', rounds: 1, stop: 'complete',
       appliedPaths: ['src/App.vue', 'src/ping.ts'],
-      gate: { ok: true },
+      build: { checked: ['src/App.vue'], findings: [] },
       toolCalls: [{ name: 'write_file', args: { path: 'src/ping.ts' } }],
     };
     const a1 = crypto.randomUUID();
@@ -107,7 +109,7 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
 
     const agent = await client.resources.read('Message', a1) as Snapshot;
     const cg = (agent.value as { codegen?: typeof codegen }).codegen;
-    expect(cg?.gate).toEqual({ ok: true });
+    expect(cg?.build).toEqual({ checked: ['src/App.vue'], findings: [] });
     expect(cg?.appliedPaths).toEqual(['src/App.vue', 'src/ping.ts']);
     // The HUMAN message carries no codegen — the field marks the agent's corpus record only.
     const human = await client.resources.read('Message', u1) as Snapshot;

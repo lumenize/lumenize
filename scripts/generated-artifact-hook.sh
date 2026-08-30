@@ -51,6 +51,15 @@ case "$rel" in
     exec node apps/nebula/scripts/gen-scaffold.mjs --check
     ;;
 
+  # The precompiled validator literals (src/validator-seeds.ts). Inputs are the two
+  # constant-type leaves, the ontology compiler that unions the platform types in, the
+  # generator itself, and the parser-validator package whose emitter produces the bytes
+  # — an edit to any of them silently stales the committed literals. (A dependency bump
+  # touches no watched path; the package-test `--check` owns that case.)
+  apps/nebula/src/chat-constants.ts|apps/nebula/src/tool-args-constants.ts|apps/nebula/src/ontology-compile.ts|apps/nebula/scripts/gen-validator-seeds.ts|packages/ts-runtime-parser-validator/src/*)
+    exec npx tsx apps/nebula/scripts/gen-validator-seeds.ts --check
+    ;;
+
   # The committed worker-configuration.d.ts beside each wrangler.jsonc. Scoped to
   # packages/ + apps/ for the same reason generate-types.sh is: experiments/ are
   # point-in-time spikes we explicitly do not maintain (workflow.md § Experiments), so a

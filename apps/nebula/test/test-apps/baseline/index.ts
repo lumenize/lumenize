@@ -44,10 +44,12 @@ import {
   NebulaClient,
   requireDominionHere,
   ROOT_NODE_ID,
-  compileOntologyVersion,
 } from '@lumenize/nebula';
+// The compile fn left the barrel with the Worker's compilers — a test Worker may
+// still carry it (this app never deploys), imported from the leaf directly.
+import { compileOntologyVersion } from '../../../src/ontology-compile';
 import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload } from '@lumenize/nebula';
-import type { ChatMessage, ModelParams, BuildOutcome } from '../../../src/codegen-loop';
+import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -359,8 +361,16 @@ export class GalaxyTest extends Galaxy {
       return next;
     }
   }
-  protected override build(): Promise<BuildOutcome> {
-    return Promise.resolve({ ok: true });
+  protected override build(): Promise<BuildReport> {
+    // A clean report, shaped exactly as the real job's (publish is the layer above's
+    // decision — the seam's placeholder, overwritten by #buildAndAnnounce).
+    return Promise.resolve({
+      container: { ran: true, ok: true },
+      ontology: { ran: false, why: 'no ontology change (host passed no version)' },
+      typeCheck: { ran: true, checked: ['src/App.vue'], findings: [] },
+      bundle: { ran: true, ok: true },
+      publish: { done: false, why: 'not decided at the build layer' },
+    });
   }
 
   /** Pin the discriminator (no model call, deterministic fork) — the verdict's own
@@ -1017,15 +1027,10 @@ export class NebulaClientTest extends NebulaClient {
 
   // --- Galaxy test initiators ---
 
-  callGalaxyAppendOntologyVersion(galaxyName: string, versionConfig: OntologyVersionConfig): void {
-    this.resetResults();
-    const remote = this.ctn<Galaxy>().appendOntologyVersion(versionConfig);
-    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
-  }
-
-  /** Apply an ontology directly to a Star (Phase 4: the Galaxy lazy-pull was retired,
-   *  so tests install the compiled validator via `Star.setOntology` — the Galaxy's dev
-   *  apply path). Compiles client-side via the pure `compileOntologyVersion`. */
+  /** Apply an ontology directly to a Star via `Star.setOntology` — the Galaxy's dev
+   *  apply path hands Stars compiled rows the same way. Compiles client-side via the
+   *  pure `compileOntologyVersion` (a test Worker may carry the compiler; the deployed
+   *  Worker never does). */
   callStarApplyOntology(starName: string, versionConfig: OntologyVersionConfig): void {
     this.resetResults();
     const row: OntologyVersionRow = compileOntologyVersion(versionConfig);
@@ -1036,12 +1041,6 @@ export class NebulaClientTest extends NebulaClient {
   callGalaxyGetLatestOntologyVersion(galaxyName: string): void {
     this.resetResults();
     const remote = this.ctn<Galaxy>().getLatestOntologyVersion();
-    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
-  }
-
-  callGalaxyListOntologyVersions(galaxyName: string): void {
-    this.resetResults();
-    const remote = this.ctn<Galaxy>().listOntologyVersions();
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 

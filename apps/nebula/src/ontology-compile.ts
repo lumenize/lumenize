@@ -1,15 +1,19 @@
 /**
  * Ontology compilation — the pure half of the ontology pipeline, in a leaf module with NO mesh or
- * `cloudflare:workers` imports so it loads in plain Node too (the `/live` harness compiles an
- * ontology row to install on a running Star via `setOntology`; in-Worker callers are Galaxy,
- * Galaxy and the platform-fixed chat ontology). `galaxy.ts` re-exports everything here, so
- * existing import sites are untouched.
+ * `cloudflare:workers` imports so it loads in plain Node. ⚠️ NO in-Worker caller compiles anymore
+ * (tasks/nebula-move-compilers-out-of-the-worker.md — the deployed Worker orchestrates and stores;
+ * `scripts/check-worker-graph.mjs` reds if this module's value graph re-enters the entry graph).
+ * The live callers are all outside that graph: the container build job
+ * (`container/compiler/job.ts` — the ONE production compile), `scripts/gen-validator-seeds.ts`
+ * (the committed literals), the `/live` harness (compiles rows to install via `setOntology`), the
+ * offline check surface (`test/offline/codegen-gate.ts`), and the test lanes (a test Worker never
+ * deploys). `galaxy.ts` re-exports only the TYPES (erased — no value edge).
  *
  * ⚠️ NOT browser-safe — `generateParseModule` pulls the bundled tsc/typia deps (multi-MB, Node/
  * workerd only). Keep it out of `client-index.ts`.
  */
-import { extractTypeMetadata, generateParseModule } from '@lumenize/ts-runtime-parser-validator';
-import type { TypeMetadata } from '@lumenize/ts-runtime-parser-validator';
+import { extractTypeMetadata, generateParseModule } from '@lumenize/ts-runtime-parser-validator/compile';
+import type { TypeMetadata } from '@lumenize/ts-runtime-parser-validator/compile';
 
 export interface OntologyVersionConfig {
   version: string;

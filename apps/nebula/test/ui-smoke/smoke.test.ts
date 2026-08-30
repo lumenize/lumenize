@@ -186,15 +186,13 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
   });
 
-  // ⛔ SKIPPED — needs a deploy to Cloudflare (NOT the old login blocker, which is fixed above).
-  // The assertion is the preview's ?t= bump, which rides the BUILD-COMPLETION reload push — and a
-  // build succeeds only where computerd's FUSE mount is real. Local `wrangler dev` has no kernel
-  // FUSE mount (the collapse's shim-world finding: pushes land in computerd's store, invisible to
-  // real processes), so the build fails with the shim signature and the push never fires. Runs at
-  // the wipe-gate deploy alongside `harness/scenarios/build-box.ts`'s FUSE-world limbs. ⚠️ When
-  // un-skipping there: the inner waitForFunction budget (180s) exceeds the 120s test timeout —
-  // raise the test timeout too.
-  it.skip('prompt → Galaxy chat codegen loop + build updates the preview (env.AI + Docker)', async () => {
+  // Un-skipped 2026-08-29: the "no kernel FUSE locally so the build can't run" premise was
+  // FALSE — it was the root-level VFS seeding bug observed locally (the mount serves the
+  // VFS's /workspace SUBTREE; local computerd materializes it onto the container's real
+  // disk, so real processes see it). With WS_ROOT paths the full build runs under local
+  // `wrangler dev` + Docker — harness/scenarios/build-box.ts passes its whole contract
+  // locally. Timeout 240s: the inner waitForFunction budget is 180s.
+  it('prompt → Galaxy chat codegen loop + build updates the preview (env.AI + Docker)', { timeout: 240_000 }, async () => {
     expect(authed, 'login step must have established a session').not.toBeNull();
     const { page } = authed!;
 
@@ -206,8 +204,9 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     await page.getByPlaceholder('Describe a change…').fill('Make a simple counter with an increment button');
     await page.getByPlaceholder('Describe a change…').press('Enter');
 
-    // The model call + Rung-1 compile gate + the ephemeral container build can take a
-    // while (cold container + FUSE mount on the first build). Generous timeout.
+    // The model call + the ephemeral container build job (ontology compile + type
+    // check + vite build — every check runs in the box now) can take a while (cold
+    // container + FUSE mount on the first build). Generous timeout.
     await page.waitForFunction(
       (prev) => {
         const src = document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '';

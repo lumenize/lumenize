@@ -418,9 +418,15 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
       );
       console.log(`[multi] all ${M_MAX} clients connected in ${Date.now() - wsStart}ms`);
 
-      // Register ontology + pre-warm bundle. Use clients[0] for both.
-      console.log('[multi] registering ontology + pre-warming bundle');
-      await allClients[0].callGalaxyAppendOntologyVersion(galaxyScope, {
+      // Install the ontology on the Stars this bench drives + pre-warm the bundle.
+      // Use clients[0] for both. (Per-Star installs — the Galaxy test-install path
+      // is deleted.)
+      console.log('[multi] installing ontology + pre-warming bundle');
+      await allClients[0].callStarApplyOntology(`${galaxyScope}.tenant-warmup`, {
+        version: ONTOLOGY_VERSION,
+        types: TEST_TYPES,
+      });
+      await allClients[0].callStarApplyOntology(warmStar, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

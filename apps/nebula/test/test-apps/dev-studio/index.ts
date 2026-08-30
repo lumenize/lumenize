@@ -14,10 +14,17 @@ import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
 import { Star } from '../../../src/star';
 import { requireDominionHere } from '../../../src/nebula-do';
-import { DEFAULT_LOOP_CONFIG, TOOL_ARGS_BUNDLE_ID, TOOL_ARGS_TYPES } from '../../../src/codegen-loop';
+import { DEFAULT_LOOP_CONFIG } from '../../../src/codegen-loop';
+import { TOOL_ARGS_BUNDLE_ID } from '../../../src/tool-args-constants';
+import { TOOL_ARGS_VALIDATOR_MODULE } from '../../../src/validator-seeds';
+import { ROW_PATH, wsPath } from '../../../src/build-report';
+import type { BuildReport } from '../../../src/build-report';
+// A test Worker never deploys, so compiling here is licensed — the probe's faked
+// build seam compiles in place of the container.
+import { compileOntologyVersion } from '../../../src/ontology-compile';
 import type { ChatMessage, ModelParams, CodegenLoopConfig, LoopResult } from '../../../src/codegen-loop';
-import { getParserValidatorFacet, generateParseModule } from '@lumenize/ts-runtime-parser-validator';
-import type { ParseResult } from '@lumenize/ts-runtime-parser-validator';
+import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator/runtime';
+import type { ParseResult } from '@lumenize/ts-runtime-parser-validator/runtime';
 
 /**
  * The GALAXY class under test — a Galaxy whose `callModel` replays a **synthetic
@@ -41,6 +48,44 @@ export class GalaxyLoopProbe extends Galaxy {
     const next = this.#script[this.#scriptIdx++];
     if (next === undefined) throw new Error('fake model script exhausted');
     return next;
+  }
+
+  /**
+   * The BUILD SEAM, faked faithfully: no container exists under pool-workers, so the
+   * probe compiles IN PLACE (a test Worker may carry the compiler) and writes the row
+   * exactly where the real job does — an fs write at ROW_PATH via `workspaceFs()`,
+   * never `writeSource` (the mount does not git-commit). `appendWorkspaceOntology`'s
+   * host-side read-back, version check and append-only transaction then run
+   * UNCHANGED, which is what the registry + lazy-pull suite exercises.
+   */
+  protected override async build(
+    opts: { ontology?: { version: string; wipe: boolean } } = {},
+  ): Promise<BuildReport> {
+    let ontology: BuildReport['ontology'];
+    if (!opts.ontology) {
+      ontology = { ran: false, why: 'no ontology change (host passed no version)' };
+    } else {
+      try {
+        const types = await this.workspaceFs().readFile(wsPath('src/ontology.d.ts'), 'utf8');
+        const row = compileOntologyVersion({
+          version: opts.ontology.version,
+          types,
+          ...(opts.ontology.wipe ? { wipeOnInstall: true } : {}),
+        });
+        await this.workspaceFs().mkdir(wsPath('.nebula'), { recursive: true });
+        await this.workspaceFs().writeFile(wsPath(ROW_PATH), JSON.stringify(row));
+        ontology = { ran: true, ok: true, rowPath: ROW_PATH };
+      } catch (e) {
+        ontology = { ran: true, ok: false, tail: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    return {
+      container: { ran: true, ok: true },
+      ontology,
+      typeCheck: { ran: true, checked: [], findings: [] },
+      bundle: { ran: true, ok: true },
+      publish: { done: false, why: 'not decided at the build layer' },
+    };
   }
 
   /** Seed the fake-model script (subclass-reachable — the `#` fields are class-private). */
@@ -79,7 +124,7 @@ export class GalaxyLoopProbe extends Galaxy {
   async parseChatMessageForTest(typeName: string, value: unknown): Promise<ParseResult> {
     // If the chat bundleId collided with the tool-args id, the facet below would serve
     // THIS validator and a valid Message would fail to parse.
-    getParserValidatorFacet(this.ctx, this.env.LOADER, TOOL_ARGS_BUNDLE_ID, () => generateParseModule(TOOL_ARGS_TYPES));
+    getParserValidatorFacet(this.ctx, this.env.LOADER, TOOL_ARGS_BUNDLE_ID, () => TOOL_ARGS_VALIDATOR_MODULE);
     return this.chatOntology().facet.parse(value, typeName);
   }
 

@@ -9,11 +9,12 @@ export { Galaxy } from './galaxy';
 export { Star } from './star';
 export type { NodeInvitee, NodeInviteAck } from './resource-data-plane';
 
-// Ontology
+// Ontology — TYPES only. The compile fn is deliberately NOT re-exported: this barrel
+// reaches `src/worker.ts`, and the compiler must stay out of the deployed Worker's
+// import graph (tasks/nebula-move-compilers-out-of-the-worker.md;
+// scripts/check-worker-graph.mjs is the tripwire). A test lane that genuinely
+// compiles imports `./ontology-compile` directly.
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
-// Pure compile fn (`.d.ts` → validator row). Used by the Galaxy (dev apply) + test
-// helpers that apply an ontology via `Star.setOntology` without a Galaxy round-trip.
-export { compileOntologyVersion } from './galaxy';
 
 // Resources
 export { Resources, END_OF_TIME } from './resources';

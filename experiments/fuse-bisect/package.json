@@ -1,0 +1,19 @@
+{
+  "name": "experiment-fuse-bisect",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "//": "Throwaway DEPLOYED bisect (2026-08-29): computer-vfs-build's exact wiring shape (withWorkspaceContainer + withWorkspace + getWorkspace, computerd 0.1.1) redeployed fresh, to discriminate PLATFORM drift vs Galaxy WIRING for the deployed-FUSE-mount-serves-zero-entries finding (tasks/backlog.md § Nebula, the 🚨 row). Tear down from the DASHBOARD (a project-delete also removes the DO namespaces); `wrangler delete` leaves them orphaned.",
+  "scripts": {
+    "types": "wrangler types",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/computer": "^0.1.1",
+    "@platformatic/vfs": "^0.4.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.124.0",
+    "@cloudflare/vitest-pool-workers": "^0.22.0"
+  }
+}

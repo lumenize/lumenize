@@ -1,92 +1,116 @@
 /**
- * The ephemeral build-box drive — the deterministic verification of the Phase-3
- * container contract, riding the admin-gated `Galaxy.buildNow()` (the model's own
- * `build` tool calls are not deterministically drivable; same latch, same cycle).
+ * The ephemeral build-box drive — the deterministic verification of the container
+ * contract, riding the admin-gated `Galaxy.buildNow()` (the model's own `build` tool
+ * calls are not deterministically drivable; same latch, same cycle). `buildNow`
+ * returns the per-step `BuildReport` (tasks/nebula-move-compilers-out-of-the-worker.md
+ * § *What `build` returns*) — there is no global `ok`, so every limb here reads
+ * STEPS.
  *
- * ⚠️ TWO WORLDS, detected at run time from build 1's outcome:
+ * ONE contract, BOTH venues — local `wrangler dev` + Docker, and deployed. The venues
+ * differ only in transport: deployed, computerd kernel-mounts the Galaxy's VFS at
+ * `/workspace` through real FUSE; locally there is no `/dev/fuse`, and computerd
+ * materializes the synced tree onto the container's real disk instead. The contract is
+ * identical either way, because both serve the VFS's `/workspace` SUBTREE
+ * (build-report.ts § WS_ROOT — the 2026-08-29 bisect, `experiments/fuse-bisect`).
  *
- *  - **Deployed (real FUSE)**: `/dev/fuse` exists, computerd kernel-mounts the Galaxy's
- *    VFS at `/workspace`, and the FULL contract runs — build ok, dist READBACK through
- *    the ungated serve (`<base>` + `nebula-scope` + caching pin), sequential + overlap +
- *    buildError-vs-retryable + last-good-serves.
- *
- *  - **Local (`wrangler dev` + Docker)**: no `/dev/fuse`, so computerd degrades to its
- *    userspace store — the pushed bytes are in computerd's OWN object store, and a real
- *    process (vite) sees an EMPTY `/workspace`. That is structural, not a bug to fix
- *    locally (verified 2026-08-28: the exec's push bracket ran, `mount` showed no
- *    workspace mount, `ls /workspace` was empty while the DO-side VFS held all 9
- *    scaffold files). The build then fails DETERMINISTICALLY with vite's
- *    `Cannot resolve entry module index.html` at exit 1 — which this scenario uses as
- *    the local DRIVE contract: a full container cycle completes (boot → exec → exit-1
- *    classified as buildError, never a hang, never retryable), a SECOND cycle on the
- *    same Galaxy works (the missing-`monitor()` wedge shape), and two OVERLAPPING
- *    cycles both settle (the promise-chain latch). The mount-dependent limbs are
- *    logged as DEPLOY-ONLY and skipped.
+ * ⚠️ The old "two worlds" framing — a deterministic local `Cannot resolve entry module`
+ * failure treated as the shim venue's expected outcome — was FALSE, an artifact of
+ * root-level VFS seeding observed in both venues. That signature now means one thing
+ * anywhere it appears: the mount served nothing, which is a REGRESSION this scenario
+ * exists to red on (the assertion message carries the failed bundle's tail).
  */
 import assert from 'node:assert/strict';
 import type { Galaxy } from '@lumenize/nebula';
+import type { BuildReport } from '../../src/build-report';
 import type { DevStack } from '../lib/harness';
 import { connectDriver } from '../lib/harness';
 
 /** The build box is the whole subject. */
 export const needsContainer = true;
 
-const SCOPE = 'claude.buildbox';
-/** A container cold start + vite build fits well inside this; a hang reds the scenario. */
+// Per-run unique: a deployed target's state is durable (deploy-test.sh's model is
+// fresh scopes per run), a second run at a fixed scope dies at the already-claimed
+// universe, and the ontology limb needs a FRESH Galaxy — cycle 1 must find the seed
+// ontology pending.
+const SCOPE = `claude-${crypto.randomUUID().slice(0, 8)}.buildbox`;
+/** A container cold start + the build job fits well inside this; a hang reds the scenario. */
 const BUILD_CALL_TIMEOUT_MS = 240_000;
 
-type BuildOutcome =
-  | { ok: true }
-  | { ok: false; buildError: string }
-  | { ok: false; retryable: true; detail: string };
+const bundleOk = (r: BuildReport): boolean => r.bundle.ran && r.bundle.ok === true;
+const bundleTail = (r: BuildReport): string =>
+  r.bundle.ran && r.bundle.ok === false ? r.bundle.tail : '';
 
-const SHIM_SIGNATURE = 'Cannot resolve entry module';
-
-function assertCycleOutcome(tag: string, outcome: BuildOutcome, world: 'fuse' | 'shim'): void {
-  if (world === 'fuse') {
-    assert.deepEqual(outcome, { ok: true }, `${tag}: expected ok on the mounted world, got ${JSON.stringify(outcome).slice(0, 300)}`);
-  } else {
-    // The shim world's deterministic outcome: the command RAN and exited 1 — a
-    // buildError, never a retryable and never a hang. This is exactly the
-    // classification limb: a retryable here means the drive mislabeled a completed
-    // non-zero exec as an infra failure.
-    assert.equal(outcome.ok, false, `${tag}: the shim world cannot build ok`);
-    assert.ok('buildError' in outcome, `${tag}: an exited non-zero build must be buildError (their code), got ${JSON.stringify(outcome).slice(0, 300)}`);
-    assert.ok(outcome.buildError.includes(SHIM_SIGNATURE), `${tag}: unexpected build failure: ${outcome.buildError.slice(0, 300)}`);
-  }
+function assertCycleReport(tag: string, report: BuildReport): void {
+  // The JOB itself must have run — a container-step failure here is the wedge/infra
+  // class the lifecycle limbs exist to catch.
+  assert.ok(report.container.ran && report.container.ok === true,
+    `${tag}: the container step must be ok, got ${JSON.stringify(report.container).slice(0, 300)}`);
+  assert.ok(bundleOk(report),
+    `${tag}: expected a clean bundle, got ${JSON.stringify(report.bundle).slice(0, 400)}`);
 }
 
 export async function run(stack: DevStack): Promise<void> {
+  console.log(`[build-box] scope: ${SCOPE}`); // durable state on a deployed target — printed so a later check can find it
   const driver = await connectDriver(stack, { scope: SCOPE, connectTimeoutMs: 60_000 });
   const { client } = driver;
   const buildNow = () =>
     client.lmz.callAsync(
       'GALAXY', SCOPE, client.ctn<Galaxy>().buildNow(),
       { timeoutMs: BUILD_CALL_TIMEOUT_MS },
-    ) as Promise<BuildOutcome>;
+    ) as Promise<BuildReport>;
 
   try {
-    // ── LIMB 1: the first cycle decides which world we are in ──
+    // ── LIMB 1: the first cycle runs the full job against a fresh Galaxy ──
     const b1 = await buildNow();
-    const world: 'fuse' | 'shim' =
-      b1.ok ? 'fuse'
-        : ('buildError' in b1 && b1.buildError.includes(SHIM_SIGNATURE)) ? 'shim'
-          : (() => { throw new assert.AssertionError({ message: `build 1 is neither the mounted-ok nor the shim signature: ${JSON.stringify(b1).slice(0, 400)}` }); })();
-    console.log(`[build-box] world: ${world}${world === 'shim' ? ' — mount-dependent limbs are DEPLOY-ONLY and skipped' : ''}`);
+    assert.ok(b1.container.ran && b1.container.ok === true,
+      `build 1's container step must be ok: ${JSON.stringify(b1.container).slice(0, 400)}`);
+    if (!bundleOk(b1)) {
+      // Print the job's own diagnostics before failing — a mount-serves-nothing
+      // regression rides the bundle tail, and the full report explains itself.
+      console.log(`[build-box] bundle tail: ${bundleTail(b1).slice(0, 600)}`);
+      console.log(`[build-box] full report: ${JSON.stringify(b1).slice(0, 1500)}`);
+      throw new assert.AssertionError({
+        message: `build 1's bundle failed — if the tail says 'Cannot resolve entry module', ` +
+          `the mount served nothing (the WS_ROOT contract in build-report.ts): ${bundleTail(b1).slice(0, 300)}`,
+      });
+    }
 
     // ── LIMB 2: a SECOND sequential cycle on the SAME Galaxy instance — catches the
-    //           missing-monitor wedge (`.running` stale-true → the second start throws).
-    assertCycleOutcome('build 2 (sequential)', await buildNow(), world);
+    //           missing-monitor wedge (`.running` stale-true → the second start throws,
+    //           which would surface as a container-step failure).
+    assertCycleReport('build 2 (sequential)', await buildNow());
 
     // ── LIMB 3: two OVERLAPPING cycles both settle correctly (the promise-chain latch
     //           queues them; neither a start() throw nor a sibling's destroy kills one).
     const [o1, o2] = await Promise.all([buildNow(), buildNow()]);
-    assertCycleOutcome('overlap A', o1, world);
-    assertCycleOutcome('overlap B', o2, world);
+    assertCycleReport('overlap A', o1);
+    assertCycleReport('overlap B', o2);
 
-    if (world === 'shim') return; // everything below needs the kernel mount — deployed only
+    // ── The job's own steps against the served mount ──
+    // The first cycle on this fresh Galaxy carried the seed ontology (not yet in the
+    // registry), so the ontology step ran and wrote the row into the mount; typeCheck
+    // names what tsc actually looked at.
+    assert.ok(b1.typeCheck.ran, 'typeCheck must run');
+    assert.ok(b1.typeCheck.checked.includes('src/App.vue'),
+      `typeCheck.checked should name the seed SFC, got ${JSON.stringify(b1.typeCheck.checked)}`);
+    assert.ok(b1.ontology.ran && b1.ontology.ok === true && b1.ontology.rowPath,
+      `the fresh Galaxy's pending seed ontology should compile in cycle 1, got ${JSON.stringify(b1.ontology)}`);
+    // The Galaxy reads the row back host-side — prove it is THERE and parseable…
+    const rowJson = await client.lmz.callAsync('GALAXY', SCOPE,
+      client.ctn<Galaxy>().readSource(b1.ontology.rowPath!)) as string;
+    const row = JSON.parse(rowJson) as { version: string; validatorBundle: string };
+    assert.ok(row.version.length > 0 && row.validatorBundle.length > 0,
+      'the mount-side row must carry version + validatorBundle');
+    // …and UNTRACKED: git's index stores tracked paths as plain bytes, so the row's
+    // filename must be absent while a genuinely committed path is present (the
+    // positive control that proves this read can find a tracked file at all).
+    const gitIndex = await client.lmz.callAsync('GALAXY', SCOPE,
+      client.ctn<Galaxy>().readSource('.git/index')) as string;
+    assert.ok(gitIndex.includes('src/App.vue'), 'positive control: the git index must list the committed seed SFC');
+    assert.ok(!gitIndex.includes('ontology-row.json'),
+      'the compiled row must stay UNTRACKED — git tracks only what git.add is handed');
 
-    // ── DEPLOYED-ONLY: the dist READBACK through the ungated serve ──
+    // ── The dist READBACK through the ungated serve ──
     const star = `${SCOPE}.dev`;
     const page = await fetch(`${stack.baseUrl}/app/${star}/`);
     assert.equal(page.status, 200, `the built app should serve, got ${page.status}`);
@@ -101,19 +125,24 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(asset.status, 200, `hashed asset should serve, got ${asset.status}`);
     assert.equal(asset.headers.get('cache-control'), 'public, max-age=31536000, immutable');
 
-    // ── DEPLOYED-ONLY: buildError is THEIR code, and last-good dist serves throughout ──
+    // ── A broken source fails the BUNDLE step (their code — never the container step),
+    //    publish says why, and last-good dist serves throughout ──
     await client.lmz.callAsync('GALAXY', SCOPE,
       client.ctn<Galaxy>().writeSource('src/App.vue', '<script setup>this is not vue</scr'));
     const bad = await buildNow();
-    assert.equal(bad.ok, false, 'a broken source must not build ok');
-    assert.ok('buildError' in bad && bad.buildError.length > 0,
-      `a compile break is a buildError (their code), got ${JSON.stringify(bad).slice(0, 300)}`);
+    assert.ok(bad.container.ran && bad.container.ok === true,
+      `a compile break must not fail the container step: ${JSON.stringify(bad.container).slice(0, 300)}`);
+    assert.ok(!bundleOk(bad) && bundleTail(bad).length > 0,
+      `a compile break is a bundle-step failure (their code), got ${JSON.stringify(bad.bundle).slice(0, 300)}`);
+    assert.equal(bad.publish.done, false, 'a failed bundle can never publish');
+    assert.ok(bad.publish.why.length > 0, 'a non-publish always says why');
     const stillServes = await fetch(`${stack.baseUrl}/app/${star}/`);
     assert.equal(stillServes.status, 200, 'last-good dist/ must keep serving through a failed build');
     await client.lmz.callAsync('GALAXY', SCOPE, client.ctn<Galaxy>().writeSource('src/App.vue',
       '<script setup lang="ts"></script>\n<template><main>fixed</main></template>\n'));
     const fixed = await buildNow();
-    assert.deepEqual(fixed, { ok: true }, `the fixed source should build, got ${JSON.stringify(fixed)}`);
+    assert.ok(bundleOk(fixed), `the fixed source should bundle, got ${JSON.stringify(fixed.bundle)}`);
+    assert.equal(fixed.publish.done, true, 'a clean rebuild publishes by default');
   } finally {
     driver.dispose();
   }

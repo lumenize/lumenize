@@ -60,11 +60,11 @@ const SCENARIOS: Record<string, Scenario> = {
   'identity-convergence': identityConvergence, // one address, two real logins → ONE profileId (no fixture)
   'revoke-is-total': revokeIsTotal,            // two real sessions → a real 401 from a real server
   'profile-takeover-refused': profileTakeoverRefused, // manufactured scope dominion buys nothing (no fixture)
-  'studio-codegen-rest': { ...studioCodegenRest, needsContainer: false }, // one real codegen turn over the Workers-AI REST transport — container-free since the collapse (the build tool returns in Phase 3)
+  'studio-codegen-rest': { ...studioCodegenRest, needsContainer: false }, // one real codegen turn over the Workers-AI REST transport — container-TOLERANT: a container-failed build step is a reported outcome, not a scenario failure
   'upward-invite-refused': upwardInviteRefused, // a real star admin's upward invite rejected by the facade's dominion message (no Docker)
   'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → founder stamp (no Docker)
   'node-invite-roundtrip': nodeInviteRoundtrip, // Star.invite → both planes → real email → invitee acts at the node (no Docker)
-  'build-box': buildBox,                   // Phase 3 — ephemeral build drive: sequential + overlap + buildError + serve readback (Docker)
+  'build-box': buildBox,                   // ephemeral build drive: per-step BuildReport, sequential + overlap + failed-bundle + serve readback (Docker)
   'four-party-chat': fourPartyChat,        // Phase 4 HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
 };
 
@@ -79,11 +79,14 @@ async function main(): Promise<void> {
   const needsContainer = scenario.needsContainer ?? true;
 
   // DEPLOYED target — run the very same scenarios against a real Worker instead of a
-  // local boot. This is the ONLY way to reach the mount-dependent limbs: local
-  // `wrangler dev` never passes `/dev/fuse` to the container it starts (verified by
-  // `docker inspect`: Devices=null, CapAdd=null), so `computerd` falls back to a
-  // userspace shim and a build can only fail. Deployed, the device is there and the
-  // kernel backend mounts. ⚠️ The target must carry the SAME JWT secrets as `.dev.vars`
+  // local boot. Both venues run the FULL contract, including the mount-dependent limbs:
+  // local `wrangler dev` never passes `/dev/fuse` to the container it starts (verified
+  // by `docker inspect`: Devices=null, CapAdd=null), so `computerd` materializes the
+  // synced /workspace subtree onto the container's real disk instead of kernel-mounting
+  // it — functionally equivalent for a build (corrected 2026-08-29; "a build can only
+  // fail locally" was the root-level-seeding bug, not the fallback). A deployed run
+  // still earns its keep as the real-FUSE + real-infra check.
+  // ⚠️ The target must carry the SAME JWT secrets as `.dev.vars`
   // — a scenario that mints (rung 3) signs with the local key, and every rung-1 login
   // rides the deployed worker's own issuer.
   //   npm run deploy:test && HARNESS_TARGET_URL=<url> npx tsx apps/nebula/harness/drive.ts build-box

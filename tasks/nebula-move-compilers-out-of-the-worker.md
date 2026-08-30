@@ -1,6 +1,6 @@
 # Move the compilers out of the Worker
 
-**Status:** Pass 1 (design intent) — hand-reviewed with Larry and taken through three `/review-task` Stage-1 panels, 2026-08-28/29. Every decision settled; phases not yet written. Not built. Nothing gates this; it gates everything else.
+**Status:** BUILT + PROVEN DEPLOYED 2026-08-29 (all seven phases; per-phase ✅ notes sit under each phase). **The deploy works** — `npm run deploy:test` completes with `match:true`, bundle 12,957 → 2,342.79 KiB, Cloudflare-measured startup 32–35 ms — **and the mount-dependent criteria now pass deployed**: `build-box` reaches `world: fuse` with every limb green (real container `vite build`, ontology row read back + untracked, dist served at `/app/{scope}.dev/`, failed-bundle-vs-container split, last-good serving), and `studio-codegen-rest` completes a real model turn with one container build cycle. The mount-serves-empty blocker was ours — the mount serves the VFS's `/workspace` SUBTREE and Galaxy seeded the root — bisected and fixed same day (`experiments/fuse-bisect/RESULTS.md`; phase-6 note below). Design was hand-reviewed with Larry through three `/review-task` Stage-1 panels + Stage 2, 2026-08-28/29.
 
 **Objective — every build-like step runs in the container. Compiling, type checking, bundling: the
 Worker orchestrates and stores, and does not build.**
@@ -200,7 +200,7 @@ Three environments have none, and the answer is the same in each: **the constrai
 
 - **The offline replay harness** (`on-hold/nebula-offline-prompt-harness.md`, which scores model output with `compileSource`) is a Node process, and `virtual-ts-host.ts` has no workerd-only imports — so it imports the compile half directly and stays seconds-fast with no Docker. `nebula-pre-alpha.md`'s "model + gate, seconds" tight loop is unaffected.
 - **pool-workers tests** keep testing the compile functions directly; a test Worker may carry tsc because it never deploys. What changes is that `codegen-gate.test.ts`'s 10 tests cover a function the Worker no longer calls on its request path, and `codegen-loop.test.ts` (23 tests, zero `compileSource` references) is untouched.
-- **Local `wrangler dev`** has no kernel FUSE mount, so the shim world serves an empty `/workspace` and a container build cannot be driven there at all. That is today's situation, not a regression: it is why the build-box criteria are deploy-only.
+- **Local `wrangler dev`** has no kernel FUSE mount — ⚠️ **and the rest of this bullet's original claim was FALSE** (corrected 2026-08-29): "the shim world serves an empty `/workspace`" was the root-level VFS seeding bug observed locally, the same defect as the deployed blocker. With `WS_ROOT` paths the local fallback materializes the synced tree onto the container's real disk and the FULL build contract runs under `wrangler dev` + Docker — `build-box` passes its whole contract locally, and the `ui-smoke` codegen test is un-skipped and green. The build-box criteria are no longer deploy-only.
 
 ## Constraints
 
@@ -241,8 +241,9 @@ phase can run its own criteria where it lands**. Phases 1–3 remove compile sit
 behaviour; 4 puts the compiler in the image, claiming only what a local image build can show; 5 takes
 the last compile out of the Worker and cuts the barrel, which is what makes a deploy possible at all;
 6 deploys and drives it, and owns every criterion needing a real FUSE mount. ⚠️ **Nothing before 6 may
-claim mount behaviour** — local `wrangler dev` passes no `/dev/fuse`, so a real process there sees an
-empty `/workspace`.
+claim mount behaviour** — local `wrangler dev` passes no `/dev/fuse`. (The clause that used to follow —
+"so a real process there sees an empty `/workspace`" — was the root-seeding bug, corrected 2026-08-29;
+see § *Where there is no container* and the phase-6 note. It did not change what phase 6 owned at build time.)
 
 1. **The package stops forcing its consumers to take a compiler.** Split
    `@lumenize/ts-runtime-parser-validator` into a runtime entry (`facet-helper` + its types) and a
@@ -265,6 +266,15 @@ empty `/workspace`.
      ⚠️ Do NOT use "`npm run test:doc` stays green" for the docs — `check-examples` strips imports
      before matching and `test-doc.sh` is `set +e … exit 0`, so it cannot fail.
    - ⚠️ Nothing is unblocked yet — the app barrel still re-exports the compile half (phase 6).
+   - ✅ Built 2026-08-29. Runtime-only probe bundles to **622 bytes**, zero compiler markers
+     (positive control: the marker grep hits the compile bundle). `prepare-for-publish.sh` now
+     walks every exports entry (nested condition maps included) — verified by running its verbatim
+     logic then `npm pack --dry-run`; the `['.']`-only mutation reds the pack check. `typia`
+     dropped from devDependencies (lockfile updated). Docs' five bare specifiers repointed.
+     Package suite 210/210; root type-check green. Pre-existing found, spun off as its own task:
+     `packages/email` is publish-discovered but has no `tsconfig.build.json`, so
+     `build-packages.sh` cannot complete — the pack criterion was run against this package's own
+     build, produced by the same per-package commands.
 
 2. **The two constant validators stop being compiled at runtime.** A one-shot generator emits the chat
    seed's `OntologyVersionRow` and the tool-args validator module as committed literals; `--check`
@@ -280,6 +290,14 @@ empty `/workspace`.
      `getParserValidatorFacet` caches by id, so a changed module under a reused id serves the stale
      validator, and nothing catches a stale id the way `--check` catches a stale literal.
    - **Replacement obligation:** none — this phase deletes no test.
+   - ✅ Built 2026-08-29. Committed literal size, per § *Keeping a precompiled artifact honest*:
+     `src/validator-seeds.ts` is **52,868 bytes** (chat row's `validatorBundle` 30,755 chars,
+     tool-args module 18,093) — noise against the 2,294 KiB target. `TOOL_ARGS_TYPES` +
+     `TOOL_ARGS_BUNDLE_ID` moved to the Node-safe leaf `src/tool-args-constants.ts` (the generator
+     imports them under tsx; `codegen-loop.ts`'s import chain reaches `cloudflare:workers`).
+     Mutations run: input edits red the `--check` (both constants); a corrupted committed literal
+     reds 3 real-facet tests; regeneration restores green. Also fixed in passing: the dev-studio
+     surface-freeze pin still listed the reload methods `cb1e878` deliberately deleted.
 
 3. **The dead Galaxy test-install path goes.** Delete `Galaxy.appendOntologyVersion`, the
    `callGalaxyAppendOntologyVersion` wrapper in all four clients that define it, and
@@ -293,6 +311,15 @@ empty `/workspace`.
    - **Replacement obligation:** the duplicate-label, index-listing and latest-round-trip assertions are
      **not replaced** — they assert a deleted method's own behaviour. Their lines going dark is recorded
      in phase 7's list, not repaired.
+   - ✅ Built 2026-08-29. The grep runs clean (it returned 30+ hits before the edits, so the
+     instrument can produce output). Also deleted as fallout: `callGalaxyListOntologyVersions`
+     (zero callers once the registry block died — `listOntologyVersions` itself survives; its
+     behaviour coverage goes on phase 7's list). The five benchmarks re-pointed at per-Star
+     installs, with comments retensed: the transactions bench's cold block now measures a fresh
+     Star's FIRST data op with its ontology pre-installed — the cache-miss + Galaxy-hop path is
+     not seedable from a bench once the registry write is workspace-only. baseline+dev-studio
+     470/470 (+1 skip), browser 4/4 (+2 skip); chromium's only touched test is `it.skip` and the
+     lane compiles under the root type-check.
 
 4. **The image carries the compiler, and everything about it is checkable without a deploy.** Copy the
    package source and the four vendored `forks/typia/*` into the image behind a container-side manifest
@@ -327,6 +354,21 @@ empty `/workspace`.
      must be present wherever it runs.
    - ⚠️ **Behaviour against a REAL FUSE mount is not claimed here** — local `wrangler dev` passes no
      `/dev/fuse`, so a real process sees an empty `/workspace`. Those criteria are phase 6's.
+   - ✅ Built 2026-08-29, all criteria run against the real image (docker, fixture workspace
+     mounted at `/workspace`): `deps.bundle.mjs` built in-image by an UNMODIFIED
+     `bundle-tsc.mjs`; a fork edit cache-missed exactly at the forks COPY and rebundled; the
+     job (`/build/job.cjs`, esbuild-bundled in-image from `container/compiler/job.ts`) returned
+     every step, with the type-erroring fixture yielding one `src/App.vue(5,18): error TS2339`
+     finding AND `bundle: { ran: true, ok: true }` + a real `dist/`; the in-image
+     `validatorBundle` is byte-identical to the host compile (both resolve typescript 5.9.3).
+     Mutation run: gating the bundle on a clean check reds the isolating criterion. Context
+     mechanism: **widened to the repo root** (`image_build_context: "../../"` + a root
+     allowlist `.dockerignore`); staging-copy rejected in the Dockerfile header. Two finds:
+     **the `@lumenize/nebula/frontend` vendoring the scaffold's own header promises was never
+     in the image** — the first real mounted `vite build` (this fixture; the deployed criteria
+     never ran) failed to resolve it, so the Dockerfile now vendors the frontend graph's seven
+     source-form packages; and `checkTypeScript` gained a location-bearing `findings` field
+     (`file(line,col): error TSxxxx: …`), since `messages` drops file/line.
 
 5. **The Worker stops compiling — every site, and the barrel with them.** `write_file` becomes a pure
    write; delete `compileSource` from the request path with both SFC passes; **cut
@@ -364,6 +406,25 @@ empty `/workspace`.
      THROWS — today that path synthesizes `retryable` — and distinguish a timeout-killed step from an
      infra failure, since a step killed at `BUILD_TIMEOUT_MS` exits `>= 128` and would be read as
      retryable, telling the model to rebuild unchanged until `GENERATION_DEADLINE_MS` kills the turn.
+   - ✅ Built 2026-08-29. The shapes live in the shared leaf `src/build-report.ts` (job + Worker
+     import it; the shim signature rides `bundle.tail`); `codegen-gate.ts` moved to
+     `test/offline/` (the criterion grep demands an empty `src/`, and the phase licensed the
+     move) with the SFC contract DTS extracted to `src/sfc-contract.ts`, ONE home for both
+     checkers. The tripwire is `scripts/check-worker-graph.mjs`, in the `test` script ahead of
+     vitest — ⓘ its mutation must be a REACHABLE import: an unused one is elided by TS
+     semantics (and costs the deploy nothing), verified both ways. A throwing `deps.build()`
+     reports `container` failed + every other step `ran:false`; a kill ≥128/cancelled names the
+     `BUILD_TIMEOUT_MS` budget in its tail.
+   - ✅ Verification: full `npm test` 725/725; `/live` `build-box` PASSED (60.6s, shim world)
+     through the real container + real job, wrangler's own repo-root-context image build
+     included. The probe fakes the build SEAM by compiling in place and writing the row at
+     `ROW_PATH` via the new protected `workspaceFs()` (an fs write, never a commit), so
+     `appendWorkspaceOntology`'s read-back/append runs unchanged in-lane. Extra find: the
+     `problems` compound's ontology operand had no isolating test — added; each operand
+     mutation-verified (findings-off reds 2, ontology-off reds exactly 1). Supersession
+     recorded in the collapse file's 🔒 pin. ⓘ `docker-credential-desktop` hangs headless
+     (keychain); the drive ran under a `DOCKER_CONFIG` clone minus `credsStore` (keep
+     `cli-plugins`, or `docker build --load` loses buildx).
 
 6. **The deploy works, and the running system proves what no local run can.** Deploy, then drive it.
    Everything needing a real FUSE mount lives here, because nothing before this phase can reach one.
@@ -377,7 +438,43 @@ empty `/workspace`.
      **against `GENERATION_DEADLINE_MS` (300 s, the whole turn) and `BUILD_TIMEOUT_MS` (180 s, one
      exec)**, stating whether either needs re-deriving now that a fix round costs a container cycle.
    - **Mutation:** leave `sawError` unset for type findings → the loop never drops to `fixParams` and
-     the convergence criterion reds.
+     the convergence criterion reds. (Run in-lane at phase 5 — the findings-off mutation reds the two
+     fix-mode tests; the live convergence limb is blocked below.)
+   - ✅/⚠️ Built 2026-08-29 — **the deploy works**: `npm run deploy:test` completes, self-check
+     `match:true` at `https://test-nebula.transformation.workers.dev`. Recorded against the
+     baseline: bundle **12,957 → 2,342.79 KiB**; startup **362 ms/210 samples → 36.8 ms/11
+     samples** local, and Cloudflare's own deploy-time measure says **Worker Startup Time
+     32–35 ms**. The deployed drive runs the REAL container + REAL job end to end — container
+     step ok, per-step report and `publish.why` flow, the second-cycle and overlap limbs pass.
+   - ✅ **The mount-serves-empty blocker was OURS, and is fixed (2026-08-29, same day).** The
+     `experiments/fuse-bisect` bisect (RESULTS.md there carries the walk) proved the mount
+     serves the VFS's `/workspace` SUBTREE at the same absolute path on both sides — the
+     Aug-03 experiment's own `FUSE_APP = "/workspace/app"` constant had carried the prefix
+     all along, and Galaxy seeded the VFS root, so computerd stored every pushed entry
+     (`pushed: 47` read healthy) and served none. Fix: `WS_ROOT`/`wsPath()` in
+     `build-report.ts`, applied at every host-side `ws.fs` path + `dir: WS_ROOT` on every
+     git op in `galaxy.ts`; the repo roots at `/workspace` so `.git` rides the mount.
+     Contract in `containers.md` § *There is NO source-push step*; the resolved backlog row
+     keeps the operational notes. Suite after the fix: 731 passed / 3 skipped, totals
+     unchanged.
+   - ✅ **Deployed proof (2026-08-29):** `build-box` PASSED at `world: fuse` in 68 s — real
+     container `vite build`, second-cycle + overlap latching, the fresh Galaxy's seed
+     ontology compiled in cycle 1 (after fixing the seed itself: `Item.done` carried
+     `@default` on a required field, a policy nothing in-lane ever compiled — now
+     `done?: boolean`), row read back + parseable + untracked with the tracked-SFC
+     positive control, dist served at `/app/{scope}.dev/` (`<base>`, scope meta, immutable
+     hashed assets), a compile break fails the BUNDLE step with `publish.done: false` while
+     last-good dist keeps serving, and the fixed source publishes. `studio-codegen-rest`
+     PASSED in 24.2 s: a real REST-lane model turn — 3 rounds, 1 build cycle,
+     `checked=["src/App.vue"]`, 0 findings, the agent `Message` observed on the
+     subscription in 20.1 s. Its scope is now per-run unique like `build-box`'s (a fixed
+     scope replays an already-claimed universe + a stale magic link on a durable target).
+   - ⓘ Three operational finds, recorded at their sites: a test deploy STEALS the prod custom
+     domain unless routes are stripped (deploy-test.sh now deploys from a generated
+     routes-less config; the domain was re-attached to prod by API the same hour); container
+     image rollouts are STAGED by default (wrangler.jsonc now pins
+     `rollout_step_percentage: [100]`); and a drive run before image propagation completes
+     can hit old-daemon/new-JS wire skew (the backlog row carries it).
 
 7. **The siblings stop carrying stale copies, and what went dark is listed.** Collapse the backlog row
    to a pointer; trim `nebula-pre-alpha.md`'s wipe item 2 and decide item 3 ("no split") on the
@@ -391,6 +488,52 @@ empty `/workspace`.
      of the ENTRY GRAPH, which does not require them in `src/`.
    - ⚠️ **This phase is last on purpose** — it edits standing guidance and sibling files describing an
      end state only phases 1–6 produce, and the coverage delta is meaningless before then.
+   - ✅ Built 2026-08-29. Siblings trimmed: the backlog's deploy-blocked row collapsed to a ✅
+     pointer; `nebula-pre-alpha.md`'s banner retensed (the deploy works; the FUSE-serve question
+     is the surviving, narrower blocker), wipe item 2 marked built, **item 3 DECIDED: no split**
+     (2,342.79 KiB is inside the cheap tier; the tripwire is the guard, not a number). Standing
+     guidance the diff never touched but the build falsified: `containers.md`'s mount paragraph
+     carries a dated open-contradiction caveat, and the `cloudflare-computer-adoption` memory the
+     0.2.1 + FUSE update. Closing suite: **731 passed / 0 failed / 3 skipped** (+6 = exactly the
+     tests this phase added; the 3-error tally is the known class-B teardown noise, none from
+     changed files).
+   - **The dark-lines account** (aggregate lines 91.87% → 91%, branches 78.32% → 77.7%):
+     `star-ontology.test.ts`'s registry block going dark IS the deletion working;
+     `codegen-gate.ts` left `src/` so coverage no longer MEASURES it (its 10 tests still run from
+     `test/offline/`; its exports name the offline-prompt-harness consumer in the module JSDoc —
+     the reverse criterion); `ontology-compile.ts`'s non-test callers are the generator, the
+     container job and the /live harness. New darkness that DESERVED coverage got it here:
+     `decidePublish` extracted pure + every arm tested (the override-beats-structure mutation
+     reds), and the build tool's m2a/typia-reject captures got their two tests. What stays dark
+     needs nothing in-lane: `#buildOnce`'s exec/classification path, the teardown arms and the
+     REST lane are deploy-only by construction (no `ctx.container` under pool-workers) and are
+     exactly what the live drives exercised — including, involuntarily, the crash classifier.
+
+## Verifier panel (2026-08-29, post-build)
+
+Seven phase-verifiers, 5 conform / 2 fail; every finding triaged, the real ones fixed pre-commit:
+
+- **Major (phase 3, the panel's best catch):** `fanout.benchmark.ts` Phase 1 installed the ontology
+  on the bare-galaxyScope Star while the M=2 harness transacts on `${galaxyScope}.tenant-fanout` —
+  the old comment claimed they were the same Star and the re-point inherited the claim
+  (`calibration.md` §7's shape exactly). Fixed: both Stars get installs, the false comment
+  corrected. Text-outside-the-diff, again: pre-phase the GALAXY registry seed made the claim
+  irrelevant, so no read of the diff alone could red it.
+- **Major (phase 7):** the collapse file's intro still said the deploy was blocked and restated
+  "82%"; retensed to the FUSE-serve blocker. **Major (phase 7):** the on-hold folded-shape pin
+  still pinned `gate: { ok, errorTail }` — the reshape this file twice promised to land "in THIS
+  task's trim"; the pin now carries `build: { checked, findings }` with the why.
+- **Minors fixed:** `ontology-compile.ts`'s header taught the deleted model; `deploy-test.sh`'s
+  opening sentence contradicted its own body and its JSONC stripper's escape branch was dead;
+  `drive.ts` registry comments carried `buildError`-era vocabulary; the conflict-modal skip
+  banner's justification had expired (re-derived, un-skip owed to the next chromium run);
+  ADR-006's evidence pointer named `galaxy.ts` for a symbol now in `ontology-compile.ts`; this
+  file's own § *Success* last bullet described the rejected committed-rows design; the deployed
+  `build-box` drive now REDS on a shim verdict (escape: `HARNESS_ALLOW_SHIM=1`, named in the 🚨
+  row) so a post-fix regression cannot pass on a log line. **Accepted as-is:** the package keeps
+  dev-mode `main`/`types` per `packaging.md`; the hook's forks/dist immediacy gap is the layering
+  the hook's header already states; `src/validator-seeds.ts` is untracked until the build commit
+  (stage it explicitly — the `--check` fails loudly on any fresh checkout if missed).
 
 ## Non-goals
 
@@ -421,5 +564,5 @@ empty `/workspace`.
 
   Reproduce with `COVERAGE=true npx vitest --run --coverage --coverage.reportOnFailure --project unit --project frontend --project baseline --project dev-studio --project browser` from `apps/nebula`. ⚠️ **The criterion is the LIST, never the percentage.** A number as the target buys tests that execute lines while asserting nothing, which is the defect this file's own review kept finding; and some lines *should* stay dark — `star-ontology.test.ts` covers a method that will not exist, so its going dark is the deletion working. A reviewer can check a list-and-justify; a percentage cannot tell a restored guarantee from a restored line.
 - **The loop still converges, measured on both sides.** A prompt that produces a broken `.vue` reaches `mark_complete` — build, read `typeCheck.findings`, fix, rebuild — with **rounds and container cycles per turn recorded before and after**, since the error path moves from zero cycles to one per fix. Driven live (or by the `ui-smoke` codegen test this task unblocks), never asserted from unit tests: the whole change is about what the real loop does.
-- **The RESOURCE path is untouched** — a Galaxy and a Star still load the generated validator through the facet, and the resource suites stay green without changes to what they assert. ⚠️ The **ontology-registry** suites do change, and saying so is the point: `star-ontology.test.ts`'s registry assertions are deleted with the method they cover, and the browser lanes install committed rows instead of compiling (§ *Installing an ontology in a lane with no compiler*).
+- **The RESOURCE path is untouched** — a Galaxy and a Star still load the generated validator through the facet, and the resource suites stay green without changes to what they assert. ⚠️ The **ontology-registry** suites do change, and saying so is the point: `star-ontology.test.ts`'s registry assertions are deleted with the method they cover, and the browser lanes install per-Star through the Star apply initiators — `StarTest.applyOntologyForTest`, compiling server-side in the test app (§ *Installing an ontology in a lane with no compiler*; the committed-fixture-rows alternative this sentence once described is the one § *Decisions* rejects).
 

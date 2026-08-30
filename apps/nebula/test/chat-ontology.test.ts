@@ -18,7 +18,10 @@
  * derivation, not discipline; galaxy-resource-surface.test.ts covers the mount.)
  */
 import { describe, it, expect } from 'vitest';
-import { compileOntologyVersion, CHAT_MESSAGE_TYPES, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { CHAT_MESSAGE_TYPES, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+// The compile fn left the barrel with the Worker's compilers — imported from the leaf
+// (a test lane may compile; the deployed Worker never does).
+import { compileOntologyVersion } from '../src/ontology-compile';
 
 describe('platform Chat/Message ontology', () => {
   const row = compileOntologyVersion({

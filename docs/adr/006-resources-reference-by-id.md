@@ -3,7 +3,7 @@
 **Date**: 2026-06-15
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: `packages/ts-runtime-parser-validator/src/extract-type-metadata.ts` (`writeShapeTypeDefinitions` — relationship refs rewritten to `string` / `string[]`), `apps/nebula/src/galaxy.ts` (`compileOntologyVersion`), `packages/ts-runtime-parser-validator/src/generate-parse-module.ts` (`__enrichRelationshipErrors` — the loud warning), `apps/nebula/src/resources.ts` (`transaction` = atomic multi-op), ADR-010 (random opaque keys — client-minted UUIDs), ADR-004 (per-resource snapshot sequences)
+**Evidence**: `packages/ts-runtime-parser-validator/src/extract-type-metadata.ts` (`writeShapeTypeDefinitions` — relationship refs rewritten to `string` / `string[]`), `apps/nebula/src/ontology-compile.ts` (`compileOntologyVersion`), `packages/ts-runtime-parser-validator/src/generate-parse-module.ts` (`__enrichRelationshipErrors` — the loud warning), `apps/nebula/src/resources.ts` (`transaction` = atomic multi-op), ADR-010 (random opaque keys — client-minted UUIDs), ADR-004 (per-resource snapshot sequences)
 
 ## Context
 

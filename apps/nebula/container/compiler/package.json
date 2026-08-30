@@ -1,0 +1,16 @@
+{
+  "name": "nebula-container-compiler",
+  "private": true,
+  "type": "module",
+  "//": "The CONTAINER-SIDE compiler manifest — installed at /build in the image (see container/Dockerfile), NEVER locally (not a workspace; the file: paths resolve only against the image's /build layout, where the Dockerfile COPYs the package + forks to matching relative paths). Deliberately NOT container/app/package.json: that manifest is the generated app's baked dep tree at /, and the compiler toolchain must not leak into what a user app can resolve. Versions mirror the in-repo pins: typescript+esbuild from packages/ts-runtime-parser-validator/package.json devDependencies, @vue/compiler-sfc from apps/nebula/package.json.",
+  "dependencies": {
+    "typescript": "^5.9.2",
+    "esbuild": "^0.24.0",
+    "@vue/compiler-sfc": "^3.5.13",
+    "@lumenize/ts-runtime-parser-validator": "file:./packages/ts-runtime-parser-validator",
+    "@typia/core": "file:./packages/ts-runtime-parser-validator/forks/typia/core",
+    "@typia/transform": "file:./packages/ts-runtime-parser-validator/forks/typia/transform",
+    "@typia/interface": "file:./packages/ts-runtime-parser-validator/forks/typia/interface",
+    "@typia/utils": "file:./packages/ts-runtime-parser-validator/forks/typia/utils"
+  }
+}

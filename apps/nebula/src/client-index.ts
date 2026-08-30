@@ -75,7 +75,8 @@ export type {
   EdgeKey as OrgTreeEdgeKey,
 } from './dag-ops';
 
-// Ontology config types — shape contract for callGalaxyAppendOntologyVersion.
+// Ontology config types — shape contract for the test lanes' Star apply initiators
+// (callStarApplyOntology / StarTest.applyOntologyForTest).
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
 
 // Chat identity + the platform chat-ontology version label (pure strings — the value a

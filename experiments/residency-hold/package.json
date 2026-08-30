@@ -8,6 +8,6 @@
     "drive": "node scripts/drive.mjs"
   },
   "devDependencies": {
-    "wrangler": "^4.114.0"
+    "wrangler": "4.124.0"
   }
 }

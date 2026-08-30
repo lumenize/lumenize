@@ -16,6 +16,6 @@
     "@platformatic/vfs": "^0.4.0"
   },
   "devDependencies": {
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   }
 }

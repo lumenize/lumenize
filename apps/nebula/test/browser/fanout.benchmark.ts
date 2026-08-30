@@ -150,15 +150,23 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
         if (Date.now() - start > 10_000) throw new Error('setup WS did not connect within 10s');
         await new Promise((r) => globalThis.setTimeout(r, 25));
       }
-      await setupClient.callGalaxyAppendOntologyVersion(galaxyScope, {
+      // Install on BOTH Stars this run drives (the Galaxy test-install path is
+      // deleted, so installs are per-Star): the setupClient's own activeScope Star
+      // (the bare galaxyScope — the warmup create below lands there) AND the
+      // `${galaxyScope}.tenant-fanout` Star the M=2 harness transacts on. The old
+      // comment claimed they were the same Star; they are not — the harness clients
+      // carry `activeScope: starName`, and the public API routes to activeScope.
+      await setupClient.callStarApplyOntology(galaxyScope, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });
-      // Warm the bundle for this galaxy via the public API. This goes to the
-      // setupClient's activeScope Star (the bare galaxyScope), which is also
-      // the Star the M=2 harness will eventually hit — so the warmup also
-      // primes the test Star directly. Public API is deploy-agnostic; it
-      // doesn't care whether deployed Star takes 2 or 3 positional args.
+      await setupClient.callStarApplyOntology(`${galaxyScope}.tenant-fanout`, {
+        version: ONTOLOGY_VERSION,
+        types: TEST_TYPES,
+      });
+      // Warm the bundle via the public API (the setupClient's activeScope Star).
+      // Public API is deploy-agnostic; it doesn't care whether deployed Star takes
+      // 2 or 3 positional args.
       const warmupOutcome = await setupClient.resources.transaction(
         {
           [crypto.randomUUID()]: {
@@ -570,12 +578,11 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
       );
       console.log(`[fanout-bench Phase 3] all ${M_MAX} clients connected in ${Date.now() - wsStart}ms`);
 
-      // Register ontology + pre-warm bundle via the public API. The warmup
-      // create lands on `allClients[0]`'s activeScope Star (the bare
-      // galaxyScope) — same Star each ramp step uses, so this primes both
-      // the bundle cache AND the test Star directly. Public API is
-      // deploy-agnostic.
-      await allClients[0].callGalaxyAppendOntologyVersion(galaxyScope, {
+      // Install the ontology directly on `allClients[0]`'s activeScope Star (the
+      // bare galaxyScope) — same Star each ramp step uses, so the warmup create
+      // below primes both the bundle cache AND the test Star directly. (Per-Star
+      // install — the Galaxy test-install path is deleted.)
+      await allClients[0].callStarApplyOntology(galaxyScope, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

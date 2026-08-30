@@ -20,7 +20,7 @@ import type {
   ParserValidator,
   ParseRequest,
   ValidationError,
-} from '@lumenize/ts-runtime-parser-validator';
+} from '@lumenize/ts-runtime-parser-validator/runtime';
 import { stringify, parse } from '@lumenize/structured-clone';
 import type { DagTree } from './dag-tree';
 import type { PermissionTier } from './dag-ops';

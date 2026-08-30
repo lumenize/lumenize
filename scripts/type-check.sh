@@ -22,10 +22,11 @@ errors=0
 # is not gated here. Revisit if @lumenize/nebula gains browser-type-safe entries.
 SKIP_PACKAGES=("nebula-studio-ui")
 
-# Find all packages with tsconfig.json. apps/nebula/harness is a nested standalone config
-# (plain-Node + Workers types for the live self-verification harness) — listed explicitly
-# since the `apps/*/tsconfig.json` glob doesn't reach it.
-for tsconfig in packages/*/tsconfig.json apps/*/tsconfig.json apps/nebula/harness/tsconfig.json tooling/*/tsconfig.json; do
+# Find all packages with tsconfig.json. apps/nebula/harness and apps/nebula/container/compiler
+# are nested standalone configs (plain-Node type envs — the live self-verification harness and
+# the container build job) — listed explicitly since the `apps/*/tsconfig.json` glob doesn't
+# reach them.
+for tsconfig in packages/*/tsconfig.json apps/*/tsconfig.json apps/nebula/harness/tsconfig.json apps/nebula/container/compiler/tsconfig.json tooling/*/tsconfig.json; do
   pkg_dir="$(dirname "$tsconfig")"
   pkg_name="$(basename "$pkg_dir")"
 

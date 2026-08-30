@@ -22,8 +22,8 @@ import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import {
   getParserValidatorFacet,
-} from '@lumenize/ts-runtime-parser-validator';
-import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
+} from '@lumenize/ts-runtime-parser-validator/runtime';
+import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runtime';
 import { NebulaDO, requireDominionHere } from './nebula-do';
 import type { DagTree } from './dag-tree';
 import { ROOT_NODE_ID } from './dag-ops';

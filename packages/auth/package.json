@@ -31,14 +31,14 @@
   "author": "Lumenize",
   "license": "MIT",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@lumenize/email-test": "*",
     "@lumenize/testing": "^0.26.0",
     "@vitest/coverage-istanbul": "4.1.10",
     "hono": "^4.11.9",
     "typescript": "^5.9.2",
     "vitest": "4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   },
   "dependencies": {
     "@lumenize/crypto": "^0.26.0",
@@ -47,7 +47,7 @@
     "@lumenize/routing": "^0.26.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "vitest": "4.1.10"
   }
 }

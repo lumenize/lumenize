@@ -27,21 +27,15 @@ import { proxyBaseUrl, uniqueStar, ADMIN_EMAIL } from './factory-harness';
 const ONTOLOGY = `interface todo { title: string; description?: string; status?: 'open' | 'done'; }`;
 
 describe('async-modal conflict handler (real chromium, real WS + dialog)', () => {
-  // ⏭️ SKIPPED 2026-07-25 — the auth half is FIXED (this lane's `claim-star` re-grounding); what
-  // remains is a missing PRODUCTION capability, not a test problem.
-  //
-  // The test appends the ontology to the GALAXY and then transacts on the STAR. Nothing carries it
-  // across: `grep -rn 'getLatestOntologyVersion' apps packages --include='*.ts'` matches only
-  // `galaxy.ts` (the definition) and test code — **no `src/` consumer exists**, and `Star` makes no
-  // `lmz.call('GALAXY', …)` at all. The only built install path is the dev-loop PUSH
-  // (`DevStudio` → `Star.setOntology`), whose own JSDoc calls itself "the dev analog of the prod
-  // lazy-pull from Galaxy (Flow 2b)" — i.e. the prod pull is acknowledged as not built. So the Star's
-  // ontology index stays empty, `#currentVersion()` returns '', and the transaction is correctly
-  // `ontology-stale`. The sibling `factory-lifecycle-browser.test.ts` passes because it never needs a
-  // Galaxy-installed ontology.
-  //
-  // Un-skip when the prod lazy-pull lands. Assertions left INTACT — the conflict-modal/use-this
-  // verdict contract they encode is unaffected and is what should be re-verified then.
+  // ⏭️ SKIPPED — but the ORIGINAL blocker has expired (re-derived 2026-08-29). The 2026-07-25
+  // banner argued the prod lazy-pull was unbuilt so a Galaxy-appended ontology never reached the
+  // Star; since then the lazy-pull LANDED (`Star.#pullOntology` → `getOntologyVersion`) AND the
+  // seed below was re-pointed to install directly on the STAR via `StarTest.applyOntologyForTest`
+  // (the Galaxy test-install path is deleted — nebula-move-compilers-out-of-the-worker.md phase 3),
+  // so the ontology-stale failure the old banner predicted should no longer occur. What is still
+  // owed is a chromium-lane RUN confirming the test passes as edited — un-skip on the next run of
+  // this lane, not blind. Assertions left INTACT — the conflict-modal/use-this verdict contract
+  // they encode is what that run re-verifies.
   it.skip('opens a real <dialog> on conflict; the user choice applies as a use-this verdict', async () => {
     const scope = uniqueStar();
     const baseUrl = proxyBaseUrl();
@@ -49,18 +43,19 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
 
     // Provision the tree and log in as the STAR's own admin (open `claim-star`), leaving cookies for
     // both the universe admin and the star-scoped admin in chromium's jar.
-    const { universe, galaxy: galaxyName } = await bootstrapAdmin({ baseUrl, scope, email: ADMIN_EMAIL, testToken });
+    const { universe } = await bootstrapAdmin({ baseUrl, scope, email: ADMIN_EMAIL, testToken });
 
     // Install the 'todo' ontology as the USER-DEVELOPER — i.e. authenticated at the UNIVERSE, whose
-    // universe admin's scope `{u}` covers the Galaxy. ⚠️ Not as the star-scoped admin: an exact-star pattern is
-    // inert at every ancestor (ADR-015), so `callGalaxyAppendOntologyVersion` from the tenant is
-    // correctly refused and the transaction below then fails `ontology-stale`. That separation is the
-    // real model — the app developer publishes the ontology, the tenant consumes it.
+    // universe admin's scope `{u}` covers the tenant star. ⚠️ Not as the star-scoped admin's own
+    // publish: the app developer owns the ontology, the tenant consumes it. The install lands
+    // directly on the STAR via `StarTest.applyOntologyForTest` (the Galaxy test-install path was
+    // deleted — tasks/nebula-move-compilers-out-of-the-worker.md phase 3), which also means the
+    // tenant's data ops below no longer depend on the unbuilt prod lazy-pull for THIS seed.
     const admin = new OntologyAdminClient({
-      baseUrl, authScope: universe, activeScope: galaxyName, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
+      baseUrl, authScope: universe, activeScope: scope, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
     });
     await vi.waitFor(() => expect(admin.connectionState).toBe('connected'), { timeout: 15000 });
-    admin.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v1', types: ONTOLOGY });
+    admin.callStarApplyOntology(scope, { version: 'v1', types: ONTOLOGY });
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true), { timeout: 10000 });
 
     // The factory client — the doc's `client` + `store`.

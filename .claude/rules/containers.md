@@ -46,13 +46,29 @@ can comfortably let its single container do everything that isn't a good fit for
 **`@cloudflare/computer`** (the successor to `@cloudflare/shell`; its migration doc renames
 `workspace.shell.exec` → `workspace.runtime.exec`) makes a `Workspace` a **SQLite-backed VFS living in
 the DO**, which an in-image `computerd` daemon **FUSE-mounts into the container**. The container's
-`/workspace` is not a copy of the DO's tree — it *is* the DO's tree, live in both directions.
+`/workspace` is the DO's tree, live in both directions — **its `/workspace` SUBTREE, at the same
+absolute path on both sides.** A host-side write MUST go to `/workspace/src/App.vue`, not
+`/src/App.vue`, and every `ws.git` op MUST pass `dir: '/workspace'`; the VFS root itself is never
+served. In Nebula the prefix has one home — `WS_ROOT`/`wsPath()` in `apps/nebula/src/build-report.ts`.
+**The contract holds in BOTH venues**: deployed, computerd kernel-mounts through real FUSE; under
+local `wrangler dev` there is no `/dev/fuse` and computerd MATERIALIZES the subtree onto the
+container's real disk instead — functionally equivalent for a build, so container builds run and MUST
+be verified locally (the 2026-08-28 "local serves empty — structural" finding was this same
+root-seeding bug observed locally, and is retracted).
+
+⚠️ A root-level write fails in the quietest shape available: the exec's sync bracket still reports the
+entries pushed (computerd stores them; serving is what is subtree-scoped), so the mount sits up and
+EMPTY while every count reads healthy. That was 2026-08-29's deploy blocker — bisected in
+`experiments/fuse-bisect` (the same seed under `/workspace/…` serves immediately, container recycle
+included), after the mapping shipped wrong on the collapse because the Aug-03 experiment carried the
+prefix inside a constant (`FUSE_APP = "/workspace/app"`) that read like a container path.
 
 ⇒ **File-shipping code MUST NOT be written.** An `applyChanges` / `syncToDevContainer` /
 bespoke-dist-readback shape is not something to port, optimize, or delta-encode — with a FUSE mount it
 **stops existing**.
-Writes land via `ws.fs.writeFile` on the DO side and are already visible in the container; build output
-returns on the exec's own sync bracket. If you catch yourself designing a transfer, re-read this.
+Writes land via `ws.fs.writeFile` on the DO side (under the prefix above) and are already visible in
+the container; build output returns on the exec's own sync bracket. If you catch yourself designing a
+transfer, re-read this.
 
 Measured 2026-08-03 on real Cloudflare hardware (`experiments/computer-vfs-build/RESULTS.md`):
 

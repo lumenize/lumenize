@@ -9,6 +9,6 @@
     "teardown": "wrangler delete --name container-cold-start-probe && wrangler containers delete container-cold-start-probe"
   },
   "devDependencies": {
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   }
 }

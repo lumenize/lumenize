@@ -18,6 +18,6 @@
     "isomorphic-git": "^1.38.4"
   },
   "devDependencies": {
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   }
 }

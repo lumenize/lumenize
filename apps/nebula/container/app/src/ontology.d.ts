@@ -14,5 +14,5 @@ export interface Item {
   /** @title Title */
   title: string;
   /** @default false */
-  done: boolean;
+  done?: boolean;
 }

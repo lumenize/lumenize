@@ -6,7 +6,11 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
-    ".": {
+    "./runtime": {
+      "import": "./src/facet-helper.ts",
+      "types": "./src/facet-helper.ts"
+    },
+    "./compile": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
     }
@@ -54,13 +58,12 @@
     "access": "public"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@typia/transform": "*",
     "@vitest/coverage-istanbul": "4.1.10",
     "esbuild": "^0.24.0",
     "typescript": "^5.9.2",
-    "typia": "^12.0.2",
     "vitest": "4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   }
 }

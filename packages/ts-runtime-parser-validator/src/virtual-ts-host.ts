@@ -85,6 +85,12 @@ export interface CheckResult {
   ok: boolean;
   /** Flattened `category: Error` diagnostic messages (empty when `ok`). */
   messages: string[];
+  /**
+   * The same diagnostics formatted one per line as `file(line,col): error TSxxxx: text`
+   * (position omitted when a diagnostic carries no file). The location-bearing form a
+   * build report persists — `messages` predates it and stays for existing consumers.
+   */
+  findings: string[];
 }
 
 /**
@@ -130,10 +136,23 @@ export function checkTypeScript(opts: {
 
   const diagnostics = (tsApi.getPreEmitDiagnostics(program) as Array<{
     category: number;
+    code: number;
     messageText: unknown;
+    file?: { fileName: string; getLineAndCharacterOfPosition(pos: number): { line: number; character: number } };
+    start?: number;
   }>).filter((d) => d.category === 1 /* Error */);
   const messages = diagnostics.map((d) =>
     tsApi.flattenDiagnosticMessageText(d.messageText, '\n'),
   );
-  return { ok: messages.length === 0, messages };
+  const findings = diagnostics.map((d) => {
+    const text = tsApi.flattenDiagnosticMessageText(d.messageText, '\n');
+    if (d.file && d.start !== undefined) {
+      const { line, character } = d.file.getLineAndCharacterOfPosition(d.start);
+      // fileName is the caller's virtual path; strip the leading slash so the line
+      // reads as a workspace-relative path.
+      return `${d.file.fileName.replace(/^\//, '')}(${line + 1},${character + 1}): error TS${d.code}: ${text}`;
+    }
+    return `error TS${d.code}: ${text}`;
+  });
+  return { ok: messages.length === 0, messages, findings };
 }

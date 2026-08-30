@@ -160,15 +160,19 @@ describe('echo latency (cold-start anatomy)', () => {
     }
 
     // --- Transaction-outcome PROBE (bonus; wrapped so it can't lose the echo numbers).
-    //     Same ontology setup as transactions.benchmark.ts, then a handful of COLD
-    //     transactions on fresh Stars: SUCCESS ⇒ real ontology/Galaxy path on cold;
-    //     ontology-stale ⇒ the transactions bench's cold block timed an error-after-wake. ---
+    //     Same ontology setup as transactions.benchmark.ts (per-Star installs — the
+    //     Galaxy test-install path is deleted), then a handful of first-data-op
+    //     transactions on fresh Stars: SUCCESS ⇒ the pre-installed cold path the
+    //     transactions bench times is real; ontology-stale ⇒ its cold block timed an
+    //     error-after-wake. ---
     const probe: Record<string, number> = {};
     try {
-      await client.callGalaxyAppendOntologyVersion(galaxyScope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
-      await client.callStarTransaction(`${galaxyScope}.tenant-warmup`, ONTOLOGY_VERSION, createOp());
+      const warmupStar = `${galaxyScope}.tenant-warmup`;
+      await client.callStarApplyOntology(warmupStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarTransaction(warmupStar, ONTOLOGY_VERSION, createOp());
       for (let i = 0; i < PROBE_ITERATIONS; i++) {
         const star = `${galaxyScope}.tenant-probe-${crypto.randomUUID().slice(0, 8)}`;
+        await client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
         let outcome: string;
         try {
           await client.callStarTransaction(star, ONTOLOGY_VERSION, createOp());

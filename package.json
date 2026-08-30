@@ -19,7 +19,8 @@
     "experiments/do-cold-start-bundle-ab",
     "experiments/wrangler-test-harness",
     "experiments/computer-vfs-build",
-    "experiments/residency-hold"
+    "experiments/residency-hold",
+    "experiments/fuse-bisect"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

@@ -61,6 +61,17 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v1';
  * `CodegenRecord` interface would flatten to a ref with nothing to reference — an
  * inline literal is the compiler's one value-object vehicle. (Named non-resource
  * value objects are a parser-validator feature gap — tracked as package feedback.)
+ *
+ * `codegen.build` replaced the per-write `gate` when the compilers left the Worker
+ * (tasks/nebula-move-compilers-out-of-the-worker.md): a write does no work at all now,
+ * and the container `build` reports instead — `checked` is what tsc actually looked
+ * at (a checked file absent from `findings` is KNOWN CLEAN), `findings` are raw
+ * diagnostic lines carrying file/line themselves. ⚠️ That change was made IN PLACE
+ * without bumping the version label below — a one-time licence, spent 2026-08-29:
+ * every Galaxy is fresh at the wipe and none has ever seeded a chat ontology, so no
+ * old facet exists to disagree; bumping on an already-seeded Galaxy would fail every
+ * client's version check with no re-seed path. Do not repeat in-place edits once any
+ * Galaxy has seeded.
  */
 export const CHAT_MESSAGE_TYPES = [
   'interface Chat { title: string }',
@@ -77,7 +88,7 @@ export const CHAT_MESSAGE_TYPES = [
       rounds: number;
       stop: string;
       appliedPaths: string[];
-      gate?: { ok: boolean; errorTail?: string };
+      build?: { checked: string[]; findings: string[] };
       toolCalls: Array<{ name: string; args?: unknown; result?: unknown; error?: string }>;
     };
   }`,

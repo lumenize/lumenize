@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 #
 # apps/nebula/scripts/deploy-test.sh — deploy the app under a TEST worker name, so the
-# deploy-only properties can actually be exercised. It reuses `wrangler.jsonc` verbatim
-# and overrides only `--name`, so the test target cannot drift from the real one.
+# deploy-only properties can actually be exercised. It deploys from a GENERATED config
+# that is `wrangler.jsonc` minus `routes` (custom domains are exclusive — see the ⚠️
+# below), overriding `--name` and the email-provider var; everything else cannot drift
+# from the real config because it is derived from it at run time.
 #
-# WHY THIS EXISTS: local `wrangler dev` never passes `/dev/fuse` to the container it
-# starts (verified 2026-08-28 by `docker inspect` on the running box: `Devices=null`,
-# `CapAdd=null`, `Privileged=false`; unchanged in wrangler 4.127, and `@cloudflare/computer`
-# exposes no FUSE surface at all). So `computerd`'s `FUSE_MOUNT=auto` falls back to a
-# userspace shim and a real build cannot succeed locally. Anything that needs the mount —
-# a real `vite build`, `dist` surviving a redeploy — is reachable ONLY deployed.
+# WHY THIS EXISTS: the DEPLOYED PASS (live.md § *Two venues, one registry*). Local
+# `wrangler dev` + Docker runs the full scenario contract, container builds included
+# (corrected 2026-08-29 — "a real build cannot succeed locally" was the root-level VFS
+# seeding bug), so this script is NOT the only road to the mount. What it alone can
+# exercise is the deploy-only failure class: the startup CPU limit (error 10021),
+# custom-domain claiming, image-rollout/propagation skew, real kernel FUSE (local has
+# no `/dev/fuse`; computerd materializes the subtree instead), persist-before-abort,
+# and the stuck-flag race. Run it at milestones and after container/vendor/toolchain
+# changes — not in the inner loop.
 #
 #   npm run deploy:test                      # deploys `test-nebula`
 #   TEST_WORKER_NAME=test-nebula-foo npm run deploy:test
@@ -30,20 +35,21 @@
 #     printf '%b' "$V" | wrangler secret put "$s" --name test-nebula
 #   done
 # (The `%b` + quote-strip is load-bearing for the multi-line PEM keys — see deploy.sh.)
-# ⚠️ BLOCKED AS OF 2026-08-28 — this script is correct, the WORKER will not deploy. Two
-# blockers surfaced on the first deploy attempt since 2026-07-04, both invisible until
-# someone tried:
-#   1. ✅ FIXED — `kv_namespaces` carried a literal `REPLACE_WITH_REAL_KV_NAMESPACE_ID_AT_PHASE_4`,
-#      so EVERY deploy died on `KV namespace ... is not valid [code: 10042]`. A real
-#      namespace is provisioned and wrangler.jsonc now names it.
-#   2. OPEN — `Script startup exceeded CPU time limit [code: 10021]`. The bundle is
-#      12,957 KiB and its startup profile is the work-at-import signature `workflow.md`
-#      describes: ~25% GC, ~45% anonymous top-level init, 4.3% in `__name` wrappers. It
-#      stacks the pre-bundled tsc (~9 MB of chunks) with the collapse's computer/VFS/git
-#      stack (`@platformatic/vfs`, `pako`, `isomorphic-git`, `capnweb`). A DO pays for its
-#      whole Worker's import graph, so subpaths do not help while the importers share a
-#      Worker. Tracked in `tasks/backlog.md`; until it is fixed nothing deploys — prod
-#      included.
+# The 2026-08-28 deploy blockers are both FIXED (first successful deploy 2026-08-29):
+#   1. `kv_namespaces` carried a placeholder id (`code: 10042`) — a real namespace is
+#      provisioned and wrangler.jsonc names it.
+#   2. `Script startup exceeded CPU time limit [code: 10021]` — the two compilers (tsc
+#      ~9 MB + @vue/compiler-sfc) did their table-building at module scope. They left
+#      the Worker for the container build job (tasks/nebula-move-compilers-out-of-the-worker.md);
+#      the bundle went 12,957 → ~2,343 KiB, and `scripts/check-worker-graph.mjs` (in the
+#      package `test` script) reds if a compiler import ever reaches the entry graph again.
+#
+# ⚠️ CUSTOM DOMAINS ARE EXCLUSIVE, so this deploys from a GENERATED config that is the
+# real one minus `routes`: a deploy under ANY name claims every route in its config, and
+# the first successful test deploy (2026-08-29) STOLE `nebula.lumenize.com` from prod
+# until an API PUT re-attached it. The generated file sits BESIDE wrangler.jsonc so every
+# relative path (main, container image, assets, .dev.vars) resolves identically; only
+# `routes` differs, which is exactly the field that MUST differ.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,9 +80,33 @@ fi
 echo "▸ Building the Studio SPA (vite build → ../nebula-studio-ui/dist)"
 ( cd ../nebula-studio-ui && npx vite build )
 
-echo "▸ wrangler deploy --name ${WORKER_NAME} (worker bundle + build-box image)"
+# The routes-stripped config (see the header: custom domains are exclusive, and a test
+# deploy must never claim prod's). A real JSONC state machine, not a regex — the config's
+# strings contain `//` (URLs), which a naive comment strip would truncate.
+TEST_CONFIG="$APP_DIR/.wrangler-deploy-test.jsonc"
+node -e '
+  const fs = require("fs");
+  const src = fs.readFileSync(process.argv[1], "utf8");
+  let out = "", i = 0;
+  while (i < src.length) {
+    const c = src[i], n = src[i + 1];
+    if (c === "\"") { // string — copy verbatim through the closing quote
+      out += c; i++;
+      while (i < src.length && src[i] !== "\"") { out += src[i]; if (src[i] === "\\") { out += src[i + 1]; i++; } i++; }
+      out += src[i]; i++;
+    } else if (c === "/" && n === "/") { while (i < src.length && src[i] !== "\n") i++; }
+    else if (c === "/" && n === "*") { i += 2; while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++; i += 2; }
+    else { out += c; i++; }
+  }
+  const cfg = JSON.parse(out.replace(/,\s*([}\]])/g, "$1"));
+  delete cfg.routes; // the ONE deliberate difference from the real config
+  fs.writeFileSync(process.argv[2], JSON.stringify(cfg, null, 2) + "\n");
+' "$APP_DIR/wrangler.jsonc" "$TEST_CONFIG"
+trap 'rm -f "$TEST_CONFIG"' EXIT
+
+echo "▸ wrangler deploy --config .wrangler-deploy-test.jsonc --name ${WORKER_NAME} (worker bundle + build-box image; NO routes)"
 DEPLOY_LOG="$(mktemp)"
-wrangler deploy --name "$WORKER_NAME" --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}" 2>&1 | tee "$DEPLOY_LOG"
+wrangler deploy --config "$TEST_CONFIG" --name "$WORKER_NAME" --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}" 2>&1 | tee "$DEPLOY_LOG"
 
 TEST_URL="$(grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' "$DEPLOY_LOG" | head -1)"
 rm -f "$DEPLOY_LOG"
@@ -93,5 +123,5 @@ case "$VERSION_JSON" in
 esac
 
 echo ""
-echo "▸ Drive the deploy-only scenarios against it:"
+echo "▸ Drive the scenario registry against it (the deployed pass — live.md § Two venues, one registry):"
 echo "    HARNESS_TARGET_URL=${TEST_URL} npx tsx apps/nebula/harness/drive.ts build-box"

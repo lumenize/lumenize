@@ -33,8 +33,8 @@
     "@lumenize/testing": "*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "vitest": "4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   }
 }

@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { compileTemplate, parse, compileScript } from '@vue/compiler-sfc';
-import { compileSource, compileVueSfc } from '../../../src/codegen-gate';
+import { compileSource, compileVueSfc } from '../../offline/codegen-gate';
 
 const ONTOLOGY_GOOD = `interface Todo { title: string; done: boolean; }`;
 // Missing field type — a parse/type error generateParseModule surfaces as a throw.

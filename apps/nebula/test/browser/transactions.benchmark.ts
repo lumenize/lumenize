@@ -32,9 +32,11 @@
  *               isolates the parse-validate work.
  *   - warm    — same Star across iterations, hot Handler 1 cache, no Galaxy
  *               hop. Steady-state cost of one transaction on a hot DO.
- *   - cold    — fresh Star per iteration (varies tenant segment only).
- *               Galaxy + bundle stay warm; Star pays a cache miss + Galaxy
- *               hop. Common real-world cold path.
+ *   - cold    — fresh Star per iteration (varies tenant segment only), its
+ *               ontology pre-installed. Bundle stays warm; the measured op is
+ *               the Star's FIRST data transaction (install-state read + facet
+ *               mount). The old cache-miss + Galaxy-hop path is not seedable
+ *               from a bench since the Galaxy test-install was deleted.
  *
  * Replaces the old `transactions.bench.ts` (vi.bench-based, single-number
  * per block). Why the switch: vi.bench measures one number per `bench()`
@@ -279,17 +281,16 @@ describe('transactions latency (decomposed)', () => {
         await new Promise((r) => globalThis.setTimeout(r, 25));
       }
 
-      // Register ontology and pre-warm bundle. Pre-warm pattern matches the
-      // throwaway tenant approach in the old transactions.bench.ts: hits
-      // any Star under the galaxy to populate Worker Loader cache for
-      // `<galaxy>/<version>` so cold-block iteration 1 doesn't pay the
-      // ~262 ms one-time bundle load.
-      console.log('[transactions-bench] registering ontology + pre-warming bundle');
-      await client.callGalaxyAppendOntologyVersion(galaxyScope, {
-        version: ONTOLOGY_VERSION,
-        types: TEST_TYPES,
-      });
-      await client.callStarTransaction(`${galaxyScope}.tenant-warmup`, ONTOLOGY_VERSION, createOp());
+      // Install the ontology on the Stars this bench drives and pre-warm the bundle.
+      // (The Galaxy registry write is workspace-only now — the test-install path is
+      // deleted — so each Star gets its row directly via applyOntologyForTest; the
+      // Worker Loader cache is keyed per bundle, so the warmup transaction still
+      // saves cold-block iteration 1 the ~262 ms one-time bundle load.)
+      console.log('[transactions-bench] installing ontology + pre-warming bundle');
+      const warmupStar = `${galaxyScope}.tenant-warmup`;
+      await client.callStarApplyOntology(warmupStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarApplyOntology(warmStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarTransaction(warmupStar, ONTOLOGY_VERSION, createOp());
 
       // Warmup iterations on the warm Star — gets the harness, the WS, and
       // Handler 1's cache hot before measurement starts.
@@ -308,16 +309,26 @@ describe('transactions latency (decomposed)', () => {
         client.callStarTransaction(warmStar, ONTOLOGY_VERSION, createOp()),
       );
 
+      // Cold block: each Star gets its ontology installed up front (the install is
+      // what CREATES the DO now, so "cold" measures a fresh Star's first data
+      // transaction — Handler-1 install-state read + facet mount — with no Galaxy
+      // hop: the lazy-pull path needs a workspace-published registry row, which a
+      // bench can no longer seed).
       console.log(`[transactions-bench] cold block (${COLD_ITERATIONS} iterations, fresh Star per iter)`);
-      const coldSamples = await runSequentialBlock('cold', COLD_ITERATIONS, () => {
-        const star = `${galaxyScope}.tenant-cold-${crypto.randomUUID().slice(0, 8)}`;
-        return client.callStarTransaction(star, ONTOLOGY_VERSION, createOp());
-      });
+      const coldStars = Array.from({ length: COLD_ITERATIONS },
+        () => `${galaxyScope}.tenant-cold-${crypto.randomUUID().slice(0, 8)}`);
+      for (const star of coldStars) {
+        await client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      }
+      let coldIdx = 0;
+      const coldSamples = await runSequentialBlock('cold', COLD_ITERATIONS, () =>
+        client.callStarTransaction(coldStars[coldIdx++], ONTOLOGY_VERSION, createOp()),
+      );
 
       const blocks: BlockSummary[] = [
         summarizeBlock('ping (no-op handler)', pingSamples),
         summarizeBlock('warm transaction (hot Star)', warmSamples),
-        summarizeBlock('cold transaction (fresh Star, cache miss + Galaxy hop)', coldSamples),
+        summarizeBlock('cold transaction (fresh Star, first data op, ontology pre-installed)', coldSamples),
       ];
 
       console.log('\n==================== transactions-bench results ====================');

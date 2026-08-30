@@ -1,0 +1,44 @@
+# Context filter for the ONE repo-root-context image build: apps/nebula's build-box
+# (wrangler.jsonc `image_build_context` → repo root; see container/Dockerfile's header
+# for why the context is the root). Allowlist style — everything out, then exactly
+# what that Dockerfile COPYs back in. A new COPY there needs a matching `!` here, or
+# the build fails loudly on a missing path.
+*
+!apps/nebula/container
+!apps/nebula/container/**
+!apps/nebula/package.json
+!apps/nebula/src
+!apps/nebula/src/**
+!packages/ts-runtime-parser-validator/package.json
+!packages/ts-runtime-parser-validator/src
+!packages/ts-runtime-parser-validator/src/**
+!packages/ts-runtime-parser-validator/scripts
+!packages/ts-runtime-parser-validator/scripts/**
+!packages/ts-runtime-parser-validator/forks
+!packages/ts-runtime-parser-validator/forks/**
+# The vendored @lumenize frontend graph (see the Dockerfile's vendor stage).
+!packages/mesh/package.json
+!packages/mesh/src
+!packages/mesh/src/**
+!packages/crypto/package.json
+!packages/crypto/src
+!packages/crypto/src/**
+!packages/debug/package.json
+!packages/debug/src
+!packages/debug/src/**
+!packages/nebula-auth/package.json
+!packages/nebula-auth/src
+!packages/nebula-auth/src/**
+!packages/routing/package.json
+!packages/routing/src
+!packages/routing/src/**
+!packages/structured-clone/package.json
+!packages/structured-clone/src
+!packages/structured-clone/src/**
+
+# Never ship dep trees or build output into the context (re-excludes them under the
+# re-included dirs above — last match wins).
+**/node_modules
+**/dist
+**/.wrangler
+**/coverage

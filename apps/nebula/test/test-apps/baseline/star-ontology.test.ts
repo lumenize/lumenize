@@ -1,15 +1,19 @@
 /**
  * Ontology integration tests
  *
- * Tests Galaxy ontology management, Star cache hit/miss, version mismatch,
- * validation integration, and the full continuation-based flow
- * (Client → Star → Galaxy → Star → Client).
+ * Tests Star cache hit/miss, version mismatch, and validation integration through
+ * `callStarApplyOntology` (client-side compile → `Star.setOntology`). The old
+ * "Galaxy ontology" registry block died with the Galaxy's test-install method
+ * (tasks/nebula-move-compilers-out-of-the-worker.md phase 3) — its duplicate-label /
+ * index-listing / latest-round-trip assertions covered that method's own behaviour
+ * and cannot outlive it; the surviving registry write path is the dev Apply
+ * (`appendWorkspaceOntology`), covered in the dev-studio project.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult, TransactionError, OntologyState } from '@lumenize/nebula';
-import { adminClientAt, universeAdminClient, browserLogin, createSubject } from '../../test-helpers';
+import type { Snapshot, TransactionResult, TransactionError } from '@lumenize/nebula';
+import { adminClientAt, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -46,22 +50,6 @@ async function adminClient(star: string) {
   return adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
 }
 
-/**
- * A client that can write the GALAXY's ontology.
- *
- * ⚠️ `appendOntologyVersion` is `@mesh(requireDominionHere)` **on the Galaxy**, so a star-scoped admin is
- * correctly refused ("Admin access required for …") — its exact-star pattern is inert at every
- * ancestor (ADR-015). This is the real model, not a fixture detail: the app developer publishes the
- * ontology from the tier that owns it; a tenant only consumes it.
- *
- * The old universe-admin-for-everything fixture hid this distinction entirely — every one of these
- * tests passed a *star* scope while silently exercising *galaxy* dominion.
- */
-async function galaxyOntologyAdmin(star: string) {
-  const browser = new Browser();
-  return universeAdminClient(NebulaClientTest, browser, star, star, 'admin@example.com');
-}
-
 const TODO_TYPES = `
   interface Todo { title: string; done: boolean; }
   interface Person { name: string; email: string; }
@@ -76,104 +64,6 @@ const TODO_V2_TYPES = `
   }
   interface Person { name: string; email: string; phone?: string; }
 `;
-
-// ─── Galaxy Ontology Management ──────────────────────────────────────
-
-describe('Galaxy ontology', () => {
-
-  it('appendOntologyVersion + getLatestOntologyVersion round-trip', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await galaxyOntologyAdmin(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyGetLatestOntologyVersion(galaxy);
-    const state = await waitForSuccess(client) as OntologyState;
-    expect(state.row.version).toBe('v1');
-    expect(state.row.types).toBe(TODO_TYPES);
-    expect(typeof state.row.validatorBundle).toBe('string');
-    expect(state.row.validatorBundle.length).toBeGreaterThan(0);
-    expect(state.history).toEqual(['v1']);
-
-    client[Symbol.dispose]();
-  });
-
-  it('append-only enforcement — duplicate version label throws', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await galaxyOntologyAdmin(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V2_TYPES });
-    const error = await waitForError(client);
-    expect(error).toContain('already exists');
-
-    // Index unchanged
-    client.callGalaxyListOntologyVersions(galaxy);
-    const versions = await waitForSuccess(client) as string[];
-    expect(versions).toEqual(['v1']);
-
-    client[Symbol.dispose]();
-  });
-
-  it('eager validation — unparseable TypeScript throws', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await galaxyOntologyAdmin(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: 'interface Bad {' });
-    const error = await waitForError(client);
-    expect(error).toContain('parse');
-
-    client[Symbol.dispose]();
-  });
-
-  it('multiple versions appended in order', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await galaxyOntologyAdmin(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyListOntologyVersions(galaxy);
-    const versions = await waitForSuccess(client) as string[];
-    expect(versions).toEqual(['v1', 'v2']);
-
-    // Latest is v2; history reflects both versions in order
-    client.callGalaxyGetLatestOntologyVersion(galaxy);
-    const latest = await waitForSuccess(client) as OntologyState;
-    expect(latest.row.version).toBe('v2');
-    expect(latest.history).toEqual(['v1', 'v2']);
-
-    client[Symbol.dispose]();
-  });
-
-  it('invalid version label rejected', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await galaxyOntologyAdmin(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'has spaces', types: TODO_TYPES });
-    const error = await waitForError(client);
-    expect(error).toContain('Invalid ontology version label');
-    expect(error).toContain('has spaces');
-
-    // Underscore-prefixed labels collide with reserved keys
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: '_index', types: TODO_TYPES });
-    const error2 = await waitForError(client);
-    expect(error2).toContain('Invalid ontology version label');
-
-    client[Symbol.dispose]();
-  });
-});
 
 // ─── Star Cache & Galaxy Fetch ───────────────────────────────────────
 

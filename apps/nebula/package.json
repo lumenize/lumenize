@@ -25,7 +25,7 @@
   ],
   "scripts": {
     "dev": "mkdir -p ../nebula-studio-ui/dist && wrangler dev",
-    "test": "node scripts/gen-scaffold.mjs --check && vitest --run --project unit --project frontend --project baseline --project dev-studio --project browser",
+    "test": "node scripts/gen-scaffold.mjs --check && npx tsx scripts/gen-validator-seeds.ts --check && node scripts/check-worker-graph.mjs && vitest --run --project unit --project frontend --project baseline --project dev-studio --project browser",
     "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project dev-studio --project browser",
     "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project dev-studio --project browser",
     "bench": "vitest --run --project browser-bench transactions",
@@ -51,7 +51,7 @@
   "author": "Lumenize",
   "license": "UNLICENSED",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@lumenize/email-test": "*",
     "@lumenize/testing": "*",
     "@types/jsdom": "^21.1.7",
@@ -66,10 +66,10 @@
     "playwright": "^1.48.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   },
   "dependencies": {
-    "@cloudflare/computer": "^0.1.1",
+    "@cloudflare/computer": "^0.2.1",
     "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
@@ -87,7 +87,7 @@
     "vue": "^3.5.13"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "vitest": "4.1.10"
   }
 }

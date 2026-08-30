@@ -32,8 +32,11 @@ import type { Snapshot } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 
-/** A galaxy scope of this scenario's own (never shared — codegen writes source). */
-const SCOPE = 'claude.codegen';
+/** A galaxy scope of this scenario's own (never shared — codegen writes source).
+ *  Per-run unique for the same reason as `build-box.ts`: a deployed target's state is
+ *  durable, so a fixed scope replays an already-claimed universe and a stale magic-link
+ *  email on the second run. */
+const SCOPE = `claude-${crypto.randomUUID().slice(0, 8)}.codegen`;
 
 /** A cold model turn (discriminator + generation) lives inside this budget. */
 const TURN_TIMEOUT_MS = 240_000;
@@ -93,6 +96,16 @@ export async function run(stack: DevStack): Promise<void> {
     console.error(`[studio-codegen-rest] reply: ${v.content}`);
     // Reported, NOT asserted — model quality is a separate failure mode (see the header).
     console.error(`[studio-codegen-rest] thought (${(v.thought ?? '').length} chars): ${(v.thought ?? '').slice(0, 400)}`);
+    // The codegen record's loop economics — REPORTED for the compilers-move task's
+    // per-round cost bookkeeping (rounds; build tool calls = container cycles; the
+    // build-granularity check record). Never gated: a threshold invented before anyone
+    // has felt loop latency is a number to argue with, not evidence.
+    const cg = (agent.value as { codegen?: { rounds?: number; toolCalls?: Array<{ name: string }>; build?: { checked: string[]; findings: string[] } } }).codegen;
+    if (cg) {
+      const buildCalls = (cg.toolCalls ?? []).filter((t) => t.name === 'build').length;
+      console.error(`[studio-codegen-rest] rounds=${cg.rounds} buildCycles=${buildCalls} ` +
+        `checked=${JSON.stringify(cg.build?.checked ?? [])} findings=${(cg.build?.findings ?? []).length}`);
+    }
   } finally {
     driver.wipe();
     driver.dispose();

@@ -80,6 +80,34 @@ three separate times in one session: the harness's default login path was alread
 and the wrangler session were both present, and `needsContainer = false` already existed — none of it
 discovered until someone asked why the tier had been skipped.
 
+## Two venues, one registry — local is the default; deployed is a deliberate pass (2026-08-29)
+
+Every scenario in `apps/nebula/harness/drive.ts` runs unchanged in two venues: a fresh local
+`wrangler dev` (the default), or a deployed worker via `HARNESS_TARGET_URL=<url>`. **Local MUST be
+the default venue for writing and iterating on scenarios — container builds included.** Local
+`wrangler dev` + Docker runs the FULL contract: no `/dev/fuse` exists there, but computerd
+materializes the synced `/workspace` subtree onto the container's real disk, which is functionally
+equivalent for a build (`containers.md` § *There is NO source-push step* carries the subtree
+contract). Measured: a container-free scenario is ~13 s end to end; the full container `build-box`
+is ~110 s including the boot; a deployed iteration costs those same seconds PLUS a 4–8 minute
+deploy (docker build, push, rollout, propagation) on every code change.
+
+**A deployed pass MUST still run — at the wipe gate/milestones, and after changes to the container
+image, `@cloudflare/computer`, or the toolchain triple** (`bash apps/nebula/scripts/deploy-test.sh`,
+then the same drives with `HARNESS_TARGET_URL`). It is not the inner loop and MUST NOT be dropped
+either, because it alone catches the deploy-only failure class: the Worker startup CPU limit (error
+10021 — which shipped behind weeks of green local tiers, and is why the compilers task existed),
+custom-domain claiming, image-rollout/propagation skew, real kernel FUSE, persist-before-`abort`,
+and the stuck-flag race. `test-nebula` is the standing deployed target, redeployed in place under
+one stable name (deliberate — fresh names would strand a DO-namespace set per run; the script
+header carries the reasoning). Do not delete it as clutter.
+
+⚠️ The old belief this section replaces — "a real build needs the deployed mount; local serves
+empty" — was the root-level VFS seeding bug observed locally (bisected 2026-08-29,
+`experiments/fuse-bisect/RESULTS.md`), and held for a day as a "structural" fact nobody re-probed.
+It is the § *DO NOT ASSERT THAT YOU LACK THE ACCESS* failure shape wearing a measurement's costume:
+the probe was real, the conclusion was wrong because the fixture underneath it was.
+
 **Check what the harness CONSTRUCTS, not only what a scenario asserts.** A helper that builds
 the credential is a mock wearing a helper's name, and every scenario riding it asserts over a
 shape production cannot mint. `connectDriver`'s mint path sets `instanceName:

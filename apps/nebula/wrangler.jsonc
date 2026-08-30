@@ -121,6 +121,18 @@
       "max_instances": 10,
       "class_name": "Galaxy",
       "image": "./container/Dockerfile",
+      // Atomic image rollout — the DEFAULT is staged (a deploy leaves old-image
+      // instances serving for a window), which made a freshly-deployed job change
+      // invisible to the very drive run to verify it (2026-08-29). Ephemeral
+      // build-boxes hold no in-flight work worth a graceful window pre-alpha; the
+      // computer-vfs-build experiment pinned the same pair.
+      "rollout_step_percentage": [100],
+      "rollout_active_grace_period": 0,
+      // Repo root — the Dockerfile's compiler stages COPY
+      // packages/ts-runtime-parser-validator (outside this config's directory), so a
+      // config-dir context cannot build the image. The root `.dockerignore` allowlists
+      // what the COPYs need; the Dockerfile header carries the rationale.
+      "image_build_context": "../../",
       "instance_type": "standard-2"
     }
   ],

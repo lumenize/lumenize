@@ -123,9 +123,18 @@ The agent `Message` carries one optional value object, absent on human messages.
     appliedPaths: ['src/App.vue'],   // ← TurnRecord.appliedPath, but PLURAL: the loop has
                                      //   always produced `appliedPaths`, so the singular
                                      //   field was silently lossy on multi-file turns
-    gate: { ok: true },              // GateResult — ← TurnRecord.validate + .error, one
-                                     //   field instead of two. `{ ok: false, errorTail }`
-                                     //   on failure. ⭐ THE signal AI Gateway cannot see
+    build: {                         // ⭐ THE signal AI Gateway cannot see — REshaped
+      checked:  ['src/App.vue'],     //   2026-08-29 when the compilers left the Worker
+      findings: [],                  //   (nebula-move-compilers-out-of-the-worker.md):
+    },                               //   per-WRITE gate results ceased to exist (a write
+                                     //   does no work at all), so `gate: { ok, errorTail }`
+                                     //   became the container build's `typeCheck` at BUILD
+                                     //   granularity. Per-file credit assignment survives:
+                                     //   `checked` is what tsc actually looked at, so a
+                                     //   checked file absent from `findings` is KNOWN
+                                     //   CLEAN, and each finding line carries file+line
+                                     //   itself ("src/App.vue(42,7): error TS2339: …").
+                                     //   ← was TurnRecord.validate + .error
     toolCalls: [                     // ← unchanged in shape; every dispatched call
       { name: 'write_file', args: { path: 'src/App.vue', content: '…' } },
       { name: 'mark_complete', args: {} },
@@ -138,7 +147,7 @@ The agent `Message` carries one optional value object, absent on human messages.
 
 ⚠️ **Two implementation questions the pin does NOT answer** — both belong to the build, not the decision. (1) **Is `codegen` a value object or a related Resource?** It must embed, but ADR-006 rewrites a field typed as another *ontology* type into a by-id `string`, so the compiler's treatment of a nested non-resource interface has to be confirmed rather than assumed. (2) **The corpus read shape.** The eval driver currently gets a cheap sequential `getTurns({ since, limit })`; after the fold it needs "agent Messages across *all* sessions in this sandbox since T", which the per-session reactive query does not cover. That query is a deliverable of Phase 4, and if it turns out expensive, say so then — do not answer it by keeping the side table alive.
 
-⚠️ **Under-capture is the failure mode with no signal, which is why the shape is pinned now and not left to the build.** Nothing goes red if a turn omits its gate outcome; the corpus simply comes out thin months later, and **turns already written cannot be backfilled**. This is the same argument [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) made for the observation stamp ([ADR-019](../../docs/adr/019-derived-artifacts-record-observations.md), since withdrawn — this capture argument stands on its own) — same object, same write moment, same irreversibility. ⇒ **The two capture decisions MUST land in one pass**, and after the fold they are not merely adjacent but on the *same record*: the observation stamp rides immutable `Snapshot.meta` (server-derived, alongside the `profileId` stamp) while `codegen` rides the Message **body**. Different slots, one write — do not conflate them, and do not build them separately.
+⚠️ **Under-capture is the failure mode with no signal, which is why the shape is pinned now and not left to the build.** Nothing goes red if a turn omits its build outcome; the corpus simply comes out thin months later, and **turns already written cannot be backfilled**. This is the same argument [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) made for the observation stamp ([ADR-019](../../docs/adr/019-derived-artifacts-record-observations.md), since withdrawn — this capture argument stands on its own) — same object, same write moment, same irreversibility. ⇒ **The two capture decisions MUST land in one pass**, and after the fold they are not merely adjacent but on the *same record*: the observation stamp rides immutable `Snapshot.meta` (server-derived, alongside the `profileId` stamp) while `codegen` rides the Message **body**. Different slots, one write — do not conflate them, and do not build them separately.
 
 ⓘ **Both `TurnRecord` drifts noted on 2026-08-07 are dissolved by the fold, not fixed by it** — worth recording so nobody re-opens them as tasks: the epoch-`number` turn time is *deleted* (a snapshot's validity interval is the time), and the JSDoc still describing the one-shot regex path as current goes with the interface. Neither needs an edit; both need the fold.
 

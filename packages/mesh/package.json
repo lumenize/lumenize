@@ -52,7 +52,7 @@
     "ulid-workers": "^2.1.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@lumenize/auth": "^0.26.0",
     "@lumenize/debug": "*",
     "@lumenize/email-test": "*",
@@ -65,10 +65,10 @@
     "tsx": "^4.19.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "4.124.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "vitest": "4.1.10"
   },
   "gitHead": "59bf07ef73368b771a8fe9446bd8aa91ba96fd5c"

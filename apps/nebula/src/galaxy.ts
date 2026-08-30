@@ -3,8 +3,8 @@
  *
  * The collapse of three former nodes (Galaxy + DevStudio + DevContainer) into one class
  * (tasks/nebula-galaxy-collapse-and-chat.md). It owns:
- *  - the per-galaxy **ontology registry**: `appendOntologyVersion()` compiles a
- *    `validatorBundle` via @lumenize/ts-runtime-parser-validator and stores it as an
+ *  - the per-galaxy **ontology registry**: `appendWorkspaceOntology()` (the dev Apply)
+ *    compiles the Workspace's `.d.ts` to a `validatorBundle` row and stores it as an
  *    immutable per-version row; Stars fetch rows on cache miss.
  *  - the **git Workspace** (source of truth for the user-developer's app source) — a
  *    `@cloudflare/computer` SQLite-backed VFS in this DO's own storage, with host-side git
@@ -28,16 +28,18 @@ import { CloudflareContainerBackend, WorkspaceContainerAPI } from '@cloudflare/c
 import { createGitClient } from '@cloudflare/computer/git';
 import git from 'isomorphic-git';
 import {
-  generateParseModule,
   getParserValidatorFacet,
   type ParserValidator,
-} from '@lumenize/ts-runtime-parser-validator';
+} from '@lumenize/ts-runtime-parser-validator/runtime';
 import { NEBULA_SUB, ACCESS_TOKEN_TTL } from '@lumenize/nebula-auth';
 import { NebulaDO, requireDominionHere } from './nebula-do';
-// The pure compile half lives in the Node-safe leaf `./ontology-compile` (the /live harness
-// compiles rows to install via `setOntology`); re-exported here so import sites are unchanged.
-import { compileOntologyVersion } from './ontology-compile';
-import type { OntologyVersionConfig, OntologyVersionRow } from './ontology-compile';
+// Types only — the COMPILE itself runs in the container build job
+// (tasks/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
+// stores, and does not build). No value import of the compile half may return here;
+// scripts/check-worker-graph.mjs is the tripwire.
+import type { OntologyVersionRow } from './ontology-compile';
+import { stepFailed, REPORT_MARKER, ROW_PATH, WS_ROOT, wsPath } from './build-report';
+import type { BuildReport, StepResult } from './build-report';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget, NodeInvitee, NodeInviteAck } from './resource-data-plane';
 import type { PermissionTier } from './dag-ops';
@@ -54,13 +56,13 @@ import type { NebulaClient } from './nebula-client';
 // module's value graph.
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
+import { TOOL_ARGS_BUNDLE_ID } from './tool-args-constants';
+import { TOOL_ARGS_VALIDATOR_MODULE } from './validator-seeds';
 import {
   runCodegenLoop,
   parseModelTurn,
   assembleCodegenPrompt,
   CODEGEN_TOOLS,
-  TOOL_ARGS_TYPES,
-  TOOL_ARGS_BUNDLE_ID,
   TOOL_ARG_TYPE,
   DEFAULT_LOOP_CONFIG,
   type CodegenLoopConfig,
@@ -68,10 +70,12 @@ import {
   type ChatMessage,
   type ModelParams,
   type LoopResult,
-  type BuildOutcome,
 } from './codegen-loop';
 
-export { compileOntologyVersion, PLATFORM_RESOURCE_TYPES } from './ontology-compile';
+// Type-only re-exports survive (erased — no value edge to the compile half); the old
+// VALUE re-exports (`compileOntologyVersion`, `PLATFORM_RESOURCE_TYPES`) are the
+// barrel edge that kept tsc in every consumer's bundle — import them from
+// `./ontology-compile` directly where a test lane genuinely compiles.
 export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-compile';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -92,7 +96,6 @@ export interface OntologyState {
 
 // ─── Constants ───────────────────────────────────────────────────────
 
-const VERSION_LABEL_RE = /^[A-Za-z0-9-]+$/;
 const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
 
@@ -123,9 +126,6 @@ const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
  *  Decisions row). Swappable like {@link STUDIO_MODEL}; never surfaced. */
 const DISCRIMINATOR_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
 
-/** A build hang is killed here and surfaces as `retryable` (BUILD_TIMEOUT + SIGKILL —
- *  the build-box contract). Generous: a heavy-lib vite 8 build measured seconds, not
- *  minutes (§ Relationships in the collapse task; re-tune from evidence, not fear). */
 /**
  * The default generation deadline, at module scope so a test can assert the
  * shipped value rather than a copy of it (see `Galaxy.generationDeadlineMs`,
@@ -133,7 +133,49 @@ const DISCRIMINATOR_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
  */
 export const GENERATION_DEADLINE_MS = 300_000;
 
+/** A hung build job is killed here; the report's `container` tail then NAMES the
+ *  timeout, so the model does not rebuild the same code until the turn deadline.
+ *  Generous: a heavy-lib vite 8 build measured seconds, not minutes (§ Relationships
+ *  in the collapse task; re-tune from evidence, not fear). */
+
 const BUILD_TIMEOUT_MS = 180_000;
+
+/** Per-cycle job options: the host-computed ontology work, when the `.d.ts` changed. */
+type BuildJobOpts = { ontology?: { version: string; wipe: boolean } };
+
+/** The seam's placeholder `publish` — {@link Galaxy.#buildAndAnnounce} overwrites it
+ *  with the real decision, so a faked `build()` never decides publishing either. */
+const PUBLISH_UNDECIDED = { done: false, why: 'not decided at the build layer' };
+
+/**
+ * The publish decision — default: reload only on a clean build; the MODEL may override
+ * to publish alongside findings it judges harmless (the task's
+ * publishing-is-the-model's-call decision). What it can never override is a failed (or
+ * never-run) bundle: there is no `dist`, so nothing to publish — structural, not
+ * policy. Pure and exported so every arm is unit-testable; the announce layer
+ * (`#buildAndAnnounce`) is its only production caller.
+ */
+export function decidePublish(report: BuildReport, override?: boolean): BuildReport['publish'] {
+  if (!(report.bundle.ran && report.bundle.ok === true)) {
+    const why = report.bundle.ran
+      ? 'bundle failed — there is no dist to publish'
+      : `bundle did not run (${(report.bundle as { why: string }).why}) — there is no new dist`;
+    return { done: false, why };
+  }
+  if (override === true) {
+    return { done: true, why: 'published on the model\'s override' };
+  }
+  if (override === false) {
+    return { done: false, why: 'the model declined to publish' };
+  }
+  if (stepFailed(report.ontology)) {
+    return { done: false, why: 'ontology compile failed — publish withheld by default' };
+  }
+  if (report.typeCheck.findings.length > 0) {
+    return { done: false, why: 'type findings — publish withheld by default (the model may override)' };
+  }
+  return { done: true, why: 'clean build' };
+}
 
 /** The env the in-container `vite build` runs under. Deps are baked at the image
  *  ROOT (never the FUSE mount — containers.md), so `vite` resolves from
@@ -209,9 +251,10 @@ export function isStuckFlagError(err: unknown): boolean {
  *  Model-agnostic (`studio-model-agnostic-naming`) — no vendor name appears. */
 const STUDIO_LOOP_SYSTEM_PROMPT = `You are Studio, an assistant that builds a small web app as a Vue 3 Single-File Component (src/App.vue).
 Use the provided tools — do not output code in your reply:
-- Call write_file with the COMPLETE new contents of a file. The file is compiled immediately and the result is returned; if it does not compile, read the error, fix it, and call write_file again.
-- When every file compiles cleanly, call build to produce the deployable bundle. If it returns a buildError, fix the code with write_file and call build again; if it returns retryable, call build again without changing the code.
-- When the build is ok and the app is done, call mark_complete.
+- Call write_file with the COMPLETE new contents of a file. It is a pure save — nothing is checked at write time — so write every file the change needs, then check them all with one build.
+- Call build to check and bundle the app. Read its per-step report: fix a failed ontology or bundle step with write_file and build again; a failed container step is infrastructure and may be retried unchanged — unless its tail says the job timed out, in which case simplify instead of retrying.
+- typeCheck findings are ADVISORY, and you are the judge: a finding may be a real bug a user would hit, or something the checker cannot see is safe. Fixing is not always the right call — shipping with a reasoned findings list is a legitimate outcome. The preview publishes by default only on a findings-free build; pass { "publish": true } to build to publish alongside findings you judge harmless. You can never publish when bundle failed (there is no dist).
+- When the app is done and the last build report is acceptable, call mark_complete.
 Rules:
 - Vue 3 with <script setup lang="ts"> and a <template>.
 - Style ONLY with Tailwind utility classes and DaisyUI component classes (both are already available).
@@ -279,15 +322,20 @@ export class Galaxy extends NebulaDO {
     if (!this.ctx.storage.kv.get(GIT_INITED_KEY)) {
       // Seed the framework scaffold (container/app/, embedded at generation time) so the
       // tree is a COMPLETE vite project from birth — the build box mounts this very tree
-      // at /workspace, so seeding the VFS is the whole delivery (no push step).
+      // at /workspace, so seeding the VFS is the whole delivery (no push step). Every
+      // host-side path lives under WS_ROOT: the mount serves that SUBTREE of the VFS,
+      // never its root (build-report.ts § WS_ROOT). The repo roots there too, so `.git`
+      // rides the mount like a normal checkout.
+      await this.#ws.fs.mkdir(WS_ROOT, { recursive: true });
       for (const [rel, content] of Object.entries(SCAFFOLD_FILES)) {
-        const dir = rel.includes('/') ? '/' + rel.slice(0, rel.lastIndexOf('/')) : '/';
-        if (dir !== '/') await this.#ws.fs.mkdir(dir, { recursive: true });
-        await this.#ws.fs.writeFile('/' + rel, content);
+        if (rel.includes('/')) {
+          await this.#ws.fs.mkdir(wsPath(rel.slice(0, rel.lastIndexOf('/'))), { recursive: true });
+        }
+        await this.#ws.fs.writeFile(wsPath(rel), content);
       }
-      await this.#ws.git.init({ defaultBranch: 'main' });
-      await this.#ws.git.add({ paths: Object.keys(SCAFFOLD_FILES) });
-      await this.#ws.git.commit({ message: 'scaffold' });
+      await this.#ws.git.init({ dir: WS_ROOT, defaultBranch: 'main' });
+      await this.#ws.git.add({ dir: WS_ROOT, paths: Object.keys(SCAFFOLD_FILES) });
+      await this.#ws.git.commit({ dir: WS_ROOT, message: 'scaffold' });
       this.ctx.storage.kv.put(GIT_INITED_KEY, true);
     }
     // Compose the resource data-plane — the chat Chat/Message host. The ontology
@@ -404,34 +452,8 @@ export class Galaxy extends NebulaDO {
   }
 
   // ─── Ontology registry ───────────────────────────────────────────────
-
-  /**
-   * Append a new immutable version. Validates label, compiles eagerly so
-   * malformed types reject at submit time, and writes the row + index in a
-   * single sync transaction.
-   */
-  @mesh(requireDominionHere)
-  appendOntologyVersion(versionConfig: OntologyVersionConfig) {
-    if (!VERSION_LABEL_RE.test(versionConfig.version)) {
-      throw new Error(
-        `Invalid ontology version label '${versionConfig.version}': must match /^[A-Za-z0-9-]+$/ (alphanumerics and dashes only).`,
-      );
-    }
-
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-    if (index.includes(versionConfig.version)) {
-      throw new Error(
-        `Ontology version '${versionConfig.version}' already exists — versions are append-only`,
-      );
-    }
-
-    const row = compileOntologyVersion(versionConfig);
-
-    this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.kv.put(rowKey(row.version), row);
-      this.ctx.storage.kv.put(INDEX_KEY, [...index, row.version]);
-    });
-  }
+  // The one WRITE path is `appendWorkspaceOntology` (the dev Apply); the deleted
+  // caller-supplied-types append was a test-install path with no production caller.
 
   /**
    * Latest row + full ordered version history, or `null` if no versions have
@@ -473,11 +495,12 @@ export class Galaxy extends NebulaDO {
   @mesh(requireDominionHere)
   async writeSource(path: string, content: string): Promise<{ oid: string; path: string }> {
     const rel = path.replace(/^\/+/, '');
-    const dir = rel.includes('/') ? '/' + rel.slice(0, rel.lastIndexOf('/')) : '/';
-    if (dir !== '/') await this.#ws.fs.mkdir(dir, { recursive: true });
-    await this.#ws.fs.writeFile('/' + rel, content);
-    await this.#ws.git.add({ paths: [rel] });
-    const { oid } = await this.#ws.git.commit({ message: `edit ${rel}` });
+    if (rel.includes('/')) {
+      await this.#ws.fs.mkdir(wsPath(rel.slice(0, rel.lastIndexOf('/'))), { recursive: true });
+    }
+    await this.#ws.fs.writeFile(wsPath(rel), content);
+    await this.#ws.git.add({ dir: WS_ROOT, paths: [rel] });
+    const { oid } = await this.#ws.git.commit({ dir: WS_ROOT, message: `edit ${rel}` });
     debug('nebula.Galaxy.writeSource').debug('commit', {
       instanceName: this.lmz.instanceName,
       path: rel,
@@ -489,14 +512,14 @@ export class Galaxy extends NebulaDO {
   /** Local read — the LLM hot path (read relevant files into context). */
   @mesh(requireDominionHere)
   async readSource(path: string): Promise<string> {
-    return this.#ws.fs.readFile('/' + path.replace(/^\/+/, ''), 'utf8');
+    return this.#ws.fs.readFile(wsPath(path), 'utf8');
   }
 
   /** Read the ontology source + its content-addressed version (`hashBlob` of the
    *  `.d.ts`). The SINGLE source of the version label for the dev apply path, so a
    *  Star's lazy-pull and the client's pinned version agree by construction. */
   async #readOntology(): Promise<{ types: string; version: string }> {
-    const types = await this.#ws.fs.readFile('/' + ONTOLOGY_PATH, 'utf8');
+    const types = await this.#ws.fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8');
     const { oid: version } = await git.hashBlob({ object: types });
     return { types, version };
   }
@@ -510,6 +533,14 @@ export class Galaxy extends NebulaDO {
    * upward passage is free for every member, so it works under any claims (the auth
    * story the eager push never had), and dev unifies with the prod (Flow 2b) design.
    *
+   * The COMPILE runs in the container build job (one ephemeral cycle, shared with
+   * `vite build` — the Worker never compiles); the row rides the mount at `ROW_PATH`
+   * and is read back HOST-side here. `version` + `wipeOnInstall` are host-computed and
+   * passed IN, never read back out of the container — `version` keys the Star's
+   * Worker Loader cache, and the wipe bit is decided under this method's dominion
+   * check. The Galaxy keeps the append-only check, the write and the
+   * `transactionSync` unchanged — only the compile moved.
+   *
    * The WIPE decision is made (and dominion-checked, via this method's guard) HERE, in
    * the turn that changed the ontology, and rides the row as `wipeOnInstall` — written
    * once, immutable, never consumed-and-cleared. A Star pulling this version from an
@@ -521,10 +552,26 @@ export class Galaxy extends NebulaDO {
    */
   @mesh(requireDominionHere)
   async appendWorkspaceOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
-    const { types, version } = await this.#readOntology();
+    const { version } = await this.#readOntology();
     const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
     if (index.includes(version)) return { version }; // unchanged source → already appended
-    const row = compileOntologyVersion({ version, types, wipeOnInstall: wipe });
+    const report = await this.#buildAndAnnounce({ ontology: { version, wipe } });
+    if (!(report.ontology.ran && report.ontology.ok === true)) {
+      const detail = stepFailed(report.ontology)
+        ? (report.ontology as { tail: string }).tail
+        : stepFailed(report.container)
+          ? `build job failed: ${(report.container as { tail: string }).tail}`
+          : 'the ontology step did not run';
+      throw new Error(`Ontology compile failed:\n${detail}`);
+    }
+    const rowJson = await this.#ws.fs.readFile(wsPath(ROW_PATH), 'utf8');
+    const row = JSON.parse(rowJson) as OntologyVersionRow;
+    if (row.version !== version) {
+      // A stale row file from an earlier cycle — never append it under this label:
+      // the Star's Worker Loader cache keys on the version, and a content-address
+      // disagreeing with its source serves a STALE validator forever.
+      throw new Error(`Ontology row/version drift: expected '${version}', mount holds '${row.version}'`);
+    }
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.kv.put(rowKey(row.version), row);
       this.ctx.storage.kv.put(INDEX_KEY, [...index, row.version]);
@@ -577,7 +624,7 @@ export class Galaxy extends NebulaDO {
       { directory: '/dist', not_found_handling: 'single-page-application', base: `/app/${star}/` },
       async (path) => {
         try {
-          const stream = await this.#ws.fs.readFile(path);
+          const stream = await this.#ws.fs.readFile(wsPath(path));
           return new Uint8Array(await new Response(stream).arrayBuffer());
         } catch {
           return null; // any read failure is a miss — the SPA fallback owns it
@@ -617,82 +664,181 @@ export class Galaxy extends NebulaDO {
   /**
    * One serialized build cycle — the loop's `build` TOOL. The promise-chain latch
    * queues overlapping builds on the one `ctx.container` (each caller gets its own
-   * outcome; a predecessor's failure never poisons the chain).
+   * report; a predecessor's failure never poisons the chain).
    *
    * This is the overridable SEAM (a test double fakes the container here), so it owns
-   * the build and nothing else — {@link #buildAndAnnounce} owns the reload push, one
-   * level up, where a faked success announces exactly like a real one.
+   * the build and nothing else — {@link #buildAndAnnounce} owns the publish decision
+   * and the reload push, one level up, where a faked success announces exactly like a
+   * real one. The seam's report carries a placeholder `publish` the layer above
+   * overwrites.
    */
-  protected build(): Promise<BuildOutcome> {
-    const run = this.#buildChain.then(() => this.#buildOnce());
+  protected build(opts: BuildJobOpts = {}): Promise<BuildReport> {
+    const run = this.#buildChain.then(() => this.#buildOnce(opts));
     this.#buildChain = run.catch(() => { /* the next cycle starts clean */ });
     return run;
   }
 
   /**
-   * A build plus its announcement — **the only way callers should build.** A successful
-   * build tells whoever asked for it (see {@link announceBuildToRequester}), and that
-   * belongs to the EVENT (new `dist` in the VFS) rather than to whichever caller
-   * produced it: the codegen loop's `build` tool and the admin `buildNow()` both go
-   * through here, so a manual rebuild no longer leaves a stale preview the way the old
-   * loop-derived signal did.
+   * A build plus its publish decision + announcement — **the only way callers should
+   * build.** A published build tells whoever asked for it (see
+   * {@link announceBuildToRequester}), and that belongs to the EVENT (new `dist` in
+   * the VFS) rather than to whichever caller produced it: the codegen loop's `build`
+   * tool, the admin `buildNow()` and the dev Apply all go through here.
+   *
+   * When the caller passes no explicit ontology job, the Workspace's own pending
+   * ontology change rides along (compiled for FEEDBACK — the row is written to the
+   * mount but NOT appended to the registry; only {@link appendWorkspaceOntology}, the
+   * dominion-gated Apply, appends — the secure-by-default D2 line).
    *
    * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
    * `build()` made every faked build silently stop announcing — the suite caught it.
    */
-  async #buildAndAnnounce(): Promise<BuildOutcome> {
-    const outcome = await this.build();
-    if (outcome.ok) this.announceBuildToRequester();
-    return outcome;
+  async #buildAndAnnounce(opts: BuildJobOpts & { publish?: boolean } = {}): Promise<BuildReport> {
+    const jobOpts: BuildJobOpts = {
+      ontology: opts.ontology ?? await this.#pendingOntology(),
+    };
+    const report = await this.build(jobOpts);
+    let publish = decidePublish(report, opts.publish);
+    // A clean report does not prove the dist ARRIVED: the vendor's post-exec pull
+    // swallows its own failure (outcome resolves `status: "pending"`, applied 0, no
+    // throw), and local materialize-mode change detection can miss vite's last writes
+    // on the bracket — either way the serve would 404 behind a "clean build". The
+    // DELIVERY fix is upstream: {@link #buildOnce} verifies arrival and re-pulls
+    // before its teardown, while the container's store still exists. This gate is the
+    // backstop that keeps the residual loss loud instead of a silent 404. Only where a
+    // container actually ran — pool-workers' faked builds have no dist.
+    if (publish.done && this.ctx.container && !(await this.#distArrived())) {
+      publish = {
+        done: false,
+        why: 'the built dist did not arrive back from the container (sync pull incomplete) — retry the build',
+      };
+    }
+    if (publish.done) this.announceBuildToRequester();
+    return { ...report, publish };
   }
 
   /**
-   * One ephemeral container build: exec `vite build` against the FUSE-mounted
-   * workspace, then destroy — a fresh container per build, so the stuck state is
-   * designed away rather than recovered from. The backend owns start + readiness
-   * (health-probed, never `.running`-gated) + the `monitor()` attach on every start
-   * (`WorkspaceContainerAPI.start` installs it — the homework `containers.md` demands,
-   * done by the vendor). Liveness is bounded twice: the backend's health probe at
-   * connect, and `timeoutMs` on the exec itself — a hang is killed and surfaces as
-   * `retryable` on a fresh container.
+   * The Workspace's pending ontology change, if any — the content-addressed version
+   * (`git.hashBlob` of `src/ontology.d.ts`) when it is not yet in the registry index.
+   * Rides every default build so the model gets compile feedback on an ontology it
+   * just wrote; the wipe bit is always false here (wipe is the Apply's
+   * dominion-checked decision, never the loop's).
+   */
+  async #pendingOntology(): Promise<{ version: string; wipe: boolean } | undefined> {
+    let version: string;
+    try {
+      ({ version } = await this.#readOntology());
+    } catch {
+      return undefined; // no ontology file yet
+    }
+    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
+    return index.includes(version) ? undefined : { version, wipe: false };
+  }
+
+  /**
+   * One ephemeral container cycle running the BUILD JOB (`node /build/job.cjs` — the
+   * image-bundled `container/compiler/job.ts`): ontology compile, SFC type check and
+   * `vite build`, every step reported, no step gating another. Then destroy — a fresh
+   * container per build, so the stuck state is designed away rather than recovered
+   * from. The backend owns start + readiness (health-probed, never `.running`-gated)
+   * + the `monitor()` attach on every start (`WorkspaceContainerAPI.start` installs
+   * it — the homework `containers.md` demands, done by the vendor). Liveness is
+   * bounded twice: the backend's health probe at connect, and `timeoutMs` on the exec
+   * itself.
+   *
+   * The job prints its steps on one `REPORT_MARKER` stdout line and exits 0 even when
+   * steps failed (step outcomes ride the report) — so the exec's own failure IS the
+   * `container` step: exit 1–127 means the job itself crashed; a kill (>= 128,
+   * `cancelled`, or no exit event) is the box or the {@link BUILD_TIMEOUT_MS} budget,
+   * and the tail SAYS so, because a model that reads "timed out" must not rebuild
+   * unchanged until the turn deadline kills it.
    *
    * Teardown ordering: `handle.result()` resolves the post-exec sync bracket (dist is
-   * already in this DO's VFS at that moment), and only THEN is the container
-   * destroyed — destroying earlier fails the request with a capnweb 1006. The destroy
+   * normally in this DO's VFS at that moment), then — because a failed pull resolves
+   * SILENTLY as pending, and the data is only recoverable while this container lives —
+   * arrival is verified and re-pulled via no-op exec brackets before the container is
+   * destroyed. Destroying earlier fails the request with a capnweb 1006; the destroy
    * itself tolerates that same 1006 shape on the way out (the session it tears is the
    * one being discarded).
    */
-  async #buildOnce(): Promise<BuildOutcome> {
+  async #buildOnce(opts: BuildJobOpts): Promise<BuildReport> {
+    const skipped = (why: string): BuildReport => ({
+      container: { ran: true, ok: false, tail: why },
+      ontology: { ran: false, why: 'the build job did not run' },
+      typeCheck: { ran: false, checked: [], findings: [] },
+      bundle: { ran: false, why: 'the build job did not run' },
+      publish: PUBLISH_UNDECIDED,
+    });
     if (!this.ctx.container) {
-      return { ok: false, retryable: true, detail: 'no build container attached (local test config)' };
+      return skipped('no build container attached (local test config)');
     }
     try {
-      // `cwd` is the mount root: the workspace IS the app project.
-      const handle = await this.#ws.runtime.exec('vite build', {
+      // `cwd` is the mount root: the workspace IS the app project. `version` +
+      // `wipeOnInstall` are HOST-computed and passed IN via env, never read back out.
+      const handle = await this.#ws.runtime.exec('node /build/job.cjs', {
         cwd: '/workspace',
         encoding: 'utf8',
-        env: BUILD_ENV,
+        env: {
+          ...BUILD_ENV,
+          ...(opts.ontology
+            ? { ONTOLOGY_VERSION: opts.ontology.version, WIPE_ON_INSTALL: opts.ontology.wipe ? '1' : '0' }
+            : {}),
+        },
         timeoutMs: BUILD_TIMEOUT_MS,
       });
       const result = await handle.result();
-      this.#destroyBuildContainer();
-      // Status semantics (verified against the shipped runtime): `completed` = exit 0
-      // exactly; any non-zero exit is `failed`; a cancellation exit is `cancelled`. So
-      // the buildError/retryable split rides the EXIT CODE: 1–127 means the command RAN
-      // and their code failed (deterministic — the model fixes it); a signal death
-      // (>= 128 — the timeout's kill), a cancellation, or no exit event at all (-1) is
-      // the box's problem — retryable on a fresh container.
       if (result.status === 'completed' && result.exitCode === 0) {
-        debug('nebula.Galaxy.build').info('build ok', { pushed: result.pushed, pulled: result.pulled });
-        return { ok: true };
+        const line = result.stdout.split('\n').find((l: string) => l.startsWith(REPORT_MARKER));
+        if (!line) {
+          this.#destroyBuildContainer();
+          return skipped(`job printed no report: ${tail(`${result.stderr}\n${result.stdout}`, 1000)}`);
+        }
+        const steps = JSON.parse(line.slice(REPORT_MARKER.length)) as {
+          ontology: BuildReport['ontology'];
+          typeCheck: BuildReport['typeCheck'];
+          bundle: StepResult;
+        };
+        // The bracket's pull can fail SILENTLY (the vendor resolves it `status:
+        // "pending"` without throwing) or miss late writes (local materialize-mode
+        // change detection) — and the data is only recoverable while THIS container
+        // lives, since a fresh pull reads its store. So before the teardown, when the
+        // job says a dist exists, confirm it arrived host-side; on a miss, a no-op
+        // exec re-runs the whole sync bracket, which is the retry.
+        if (steps.bundle.ran && steps.bundle.ok === true) {
+          // Budget 5: a naturally-occurring miss (2026-08-30, local loop run 6) consumed
+          // all of a 3-attempt budget before the pull delivered — 3 was exactly enough,
+          // which is no margin at all. The loop exits at first arrival, so a healthy
+          // bracket pays one readFile and zero execs.
+          for (let attempt = 0; attempt < 5 && !(await this.#distArrived()); attempt++) {
+            debug('nebula.Galaxy.build').warn('dist not in the VFS after the bracket — re-pulling', { attempt });
+            try {
+              await (await this.#ws.runtime.exec('true', { cwd: '/workspace', timeoutMs: 30_000 })).result();
+            } catch { break; /* session dead — the publish gate reports the loss */ }
+          }
+        }
+        this.#destroyBuildContainer();
+        debug('nebula.Galaxy.build').info('job report', {
+          ontology: steps.ontology.ran, findings: steps.typeCheck.findings.length,
+          bundleOk: steps.bundle.ran && steps.bundle.ok === true,
+          pushed: result.pushed, pulled: result.pulled,
+          // "pending" = the pull attempt THREW and is over (misleading name; retried
+          // only under the opt-in retryScheduler). "complete" + pulled 0 is ambiguous:
+          // nothing-to-sync AND detection-missed-everything both look like it — which
+          // is why arrival is verified by reading the file, not by this field.
+          syncStatus: (result as { sync?: { status?: string; error?: string } }).sync?.status,
+          syncError: (result as { sync?: { status?: string; error?: string } }).sync?.error,
+        });
+        return { container: { ran: true, ok: true }, ...steps, publish: PUBLISH_UNDECIDED };
       }
-      if (result.exitCode > 0 && result.exitCode < 128) {
-        return { ok: false, buildError: tail(`${result.stderr}\n${result.stdout}`, 2000) };
-      }
-      return {
-        ok: false, retryable: true,
-        detail: `build ${result.status} (exit ${result.exitCode}): ${tail(result.stderr, 600)}`,
-      };
+      this.#destroyBuildContainer();
+      // The job exits 0 by design, so any other exit is the CONTAINER step's failure.
+      // A kill (>= 128 / cancelled / no exit event) is most likely the build-timeout
+      // budget — say so, or the model blind-retries the same code until the turn dies.
+      const killed = result.exitCode >= 128 || result.exitCode === -1 || result.status === 'cancelled';
+      const why = killed
+        ? `build job killed (${result.status}, exit ${result.exitCode}) — likely the ${BUILD_TIMEOUT_MS} ms build timeout; retrying the same code will time out again`
+        : `build job crashed (exit ${result.exitCode})`;
+      return skipped(`${why}: ${tail(`${result.stderr}\n${result.stdout}`, 1000)}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       // The cloud-only stuck signature — EVIDENCE only (expect zero); never a recovery
@@ -701,7 +847,19 @@ export class Galaxy extends NebulaDO {
         debug('nebula.Galaxy.build').error('stuck-flag signature observed', { message });
       }
       this.#destroyBuildContainer();
-      return { ok: false, retryable: true, detail: message };
+      return skipped(message);
+    }
+  }
+
+  /** Did the built `dist` land in this DO's VFS? The delivery check behind the
+   *  pre-teardown re-pull in {@link #buildOnce} and the publish gate in
+   *  {@link #buildAndAnnounce}. */
+  async #distArrived(): Promise<boolean> {
+    try {
+      await this.#ws.fs.readFile(wsPath('dist/index.html'));
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -750,15 +908,26 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
+   * The Workspace's raw fs — the container's side of the build seam, for TEST doubles:
+   * a probe's faked `build()` writes the compiled row exactly where the real job does
+   * (an fs write into the mount — never `writeSource`, which git-commits; the mount
+   * does not). `protected` like the other seams; production code outside this class
+   * never touches it.
+   */
+  protected workspaceFs(): Workspace['fs'] {
+    return this.#ws.fs;
+  }
+
+  /**
    * Run one build cycle on demand — the manual-rebuild affordance (an admin recovering
-   * from a `retryable` without spending a model turn), and the drive-verification
+   * from an infra failure without spending a model turn), and the drive-verification
    * surface (`harness/scenarios/build-box.ts` proves the sequential/overlap/teardown
    * contract through it — the model's own `build` calls are not deterministically
-   * drivable). Same latch, same ephemeral cycle as the loop's tool; the outcome
+   * drivable). Same latch, same ephemeral cycle as the loop's tool; the report
    * returns to the caller's `callAsync`.
    */
   @mesh(requireDominionHere)
-  buildNow(): Promise<BuildOutcome> {
+  buildNow(): Promise<BuildReport> {
     return this.#buildAndAnnounce();
   }
 
@@ -922,7 +1091,7 @@ export class Galaxy extends NebulaDO {
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
     let sourceCommit: string | undefined;
-    try { sourceCommit = (await this.#ws.git.log({ depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
+    try { sourceCommit = (await this.#ws.git.log({ dir: WS_ROOT, depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
       (step) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, step, CHAT_NODE_ID, userMessageId),
@@ -953,17 +1122,23 @@ export class Galaxy extends NebulaDO {
       }
     }
     const files = [...new Set(result.appliedPaths)];
-    const compile = result.lastGate
-      ? (result.lastGate.ok ? 'compiled ✓' : `compile error:\n${result.lastGate.errorTail}`)
-      : 'no files written';
+    // The thought panel's check line, written from the LAST build's typeCheck (the
+    // per-write gate is gone — a write does no work at all).
+    const check = result.lastBuild
+      ? (result.lastBuild.typeCheck.findings.length === 0
+          ? `checked clean (${result.lastBuild.typeCheck.checked.join(', ') || 'nothing to check'})`
+          : `type findings:\n${result.lastBuild.typeCheck.findings.join('\n')}`)
+      : 'no build this turn';
     const parts: string[] = [];
     if (result.reasoning) parts.push(`🧠 Reasoning\n\n${result.reasoning}`);
     if (result.output) parts.push(`📄 ${result.output}`);
     for (const [path, content] of written) parts.push(`📝 ${path}\n\`\`\`\n${content}\n\`\`\``);
-    parts.push(`🔧 ${result.detail ?? result.stop}\nFiles: ${files.join(', ') || '(none)'} — ${compile}`);
+    parts.push(`🔧 ${result.detail ?? result.stop}\nFiles: ${files.join(', ') || '(none)'} — ${check}`);
     const thought = parts.join('\n\n— — —\n\n');
     // The folded codegen corpus record (the deleted Turns table's successor — the
-    // field-by-field pin is nebula-studio-self-improvement.md § The folded shape).
+    // field-by-field pin is nebula-studio-self-improvement.md § The folded shape;
+    // `build` replaced the per-write `gate` when the compilers left the Worker —
+    // per-FILE credit assignment survives at build granularity via `checked`).
     // `scaffold` stays absent until the scaffold store exists (Part B).
     const codegen: Record<string, unknown> = {
       model: STUDIO_MODEL,
@@ -971,7 +1146,9 @@ export class Galaxy extends NebulaDO {
       rounds: result.rounds,
       stop: result.stop,
       appliedPaths: [...new Set(result.appliedPaths)],
-      ...(result.lastGate ? { gate: result.lastGate } : {}),
+      ...(result.lastBuild
+        ? { build: { checked: result.lastBuild.typeCheck.checked, findings: result.lastBuild.typeCheck.findings } }
+        : {}),
       toolCalls: result.toolCalls,
     };
     // The DURABLE agent Message — the source of truth, fanned to every chat subscriber
@@ -1067,7 +1244,9 @@ export class Galaxy extends NebulaDO {
     debug('nebula.Galaxy.warm').info('container warm fired (codegen verdict)');
     if (!this.ctx.container) return;
     try {
-      void (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)).start({}).catch((e: unknown) => {
+      // enableInternet=false mirrors the backend's own start (its default egress is
+      // `{ mode: 'none' }` in 0.2.x — deps are fully baked, nothing needs the net).
+      void (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)).start({}, false).catch((e: unknown) => {
         debug('nebula.Galaxy.warm').warn('warm start failed (non-fatal — exec will retry)', {
           error: e instanceof Error ? e.message : String(e),
         });
@@ -1405,16 +1584,17 @@ export class Galaxy extends NebulaDO {
 
   // ─── The codegen loop (model call + tool validation) ─────────────────
 
-  /** Mount (or reuse) the tool-args typia validator facet — derived from
-   *  {@link TOOL_ARGS_TYPES} via `generateParseModule` (ADR-001: TS types are the
-   *  schema). Shared bundle id across tenants (the tool surface is not tenant data). */
+  /** Mount (or reuse) the tool-args typia validator facet — the COMMITTED precompiled
+   *  module (`validator-seeds.ts`, generated from `TOOL_ARGS_TYPES`; ADR-001: TS types
+   *  are the schema — the generator compiled them, the Worker never does). Shared
+   *  bundle id across tenants (the tool surface is not tenant data). */
   #ensureToolArgsFacet(): ParserValidator {
     if (!this.#toolArgsFacet) {
       this.#toolArgsFacet = getParserValidatorFacet(
         this.ctx,
         this.env.LOADER,
         TOOL_ARGS_BUNDLE_ID,
-        () => generateParseModule(TOOL_ARGS_TYPES),
+        () => TOOL_ARGS_VALIDATOR_MODULE,
       );
     }
     return this.#toolArgsFacet;
@@ -1526,9 +1706,9 @@ export class Galaxy extends NebulaDO {
     onProgress?: (step: string) => void,
   ): Promise<LoopResult> {
     let currentSource = '';
-    try { currentSource = await this.#ws.fs.readFile('/src/App.vue', 'utf8'); } catch { /* none yet */ }
+    try { currentSource = await this.#ws.fs.readFile(wsPath('src/App.vue'), 'utf8'); } catch { /* none yet */ }
     let ontologyDts: string | undefined;
-    try { ontologyDts = await this.#ws.fs.readFile('/' + ONTOLOGY_PATH, 'utf8'); } catch { /* none yet */ }
+    try { ontologyDts = await this.#ws.fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8'); } catch { /* none yet */ }
 
     const initial = assembleCodegenPrompt({
       systemBundles: [STUDIO_LOOP_SYSTEM_PROMPT],
@@ -1540,7 +1720,9 @@ export class Galaxy extends NebulaDO {
       callModel: (m, p) => this.callModel(m, p),
       writeFile: (path, content) => this.writeSource(path, content),
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
-      build: () => this.#buildAndAnnounce(),
+      // The model's publish override passes through; the pending-ontology job rides
+      // by default (compiled for feedback, never appended — the Apply appends).
+      build: (opts) => this.#buildAndAnnounce({ publish: opts?.publish }),
       onProgress,
     };
     return runCodegenLoop(initial, deps, config);
