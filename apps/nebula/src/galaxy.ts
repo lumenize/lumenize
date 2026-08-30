@@ -96,8 +96,25 @@ export interface OntologyState {
 
 // ─── Constants ───────────────────────────────────────────────────────
 
-const INDEX_KEY = 'ontology:_index';
-const rowKey = (version: string) => `ontology:${version}`;
+/**
+ * The workspace ontology REGISTRY is a DIRECTORY OF FILES, not keyed storage: the
+ * compiled row is born as a file (the job writes it at {@link ROW_PATH}), and the
+ * Apply moves it to `.nebula/ontology/<version>.json` — reading the registry means
+ * reading those files, the same way reading the ontology means reading
+ * `src/ontology.d.ts`. There is no index and no "latest" pointer to keep in sync;
+ * the applied head is DERIVED per read ({@link #appliedHead}). Untracked, like
+ * {@link ROW_PATH}: git tracks only what `git.add` is handed.
+ */
+const REGISTRY_DIR = '.nebula/ontology';
+/** A version is a `git.hashBlob` oid — 40 hex — and it becomes a FILENAME, so every
+ *  read-by-label door MUST refuse anything else (a remote caller's version string
+ *  must never traverse the VFS). */
+const VERSION_RE = /^[0-9a-f]{40}$/;
+const registryPath = (version: string) => `${REGISTRY_DIR}/${version}.json`;
+/** The stored file: the compiled row plus the append-time stamp that orders the
+ *  registry (ISO 8601 UTC — ADR-011). `appliedAt` is an APPLY fact, so the Galaxy
+ *  stamps it at append; the job never writes it. */
+type RegistryFile = OntologyVersionRow & { appliedAt: string };
 
 // The Galaxy's OWN chat plane installs its ontology into a PARALLEL keyspace — never the
 // app-ontology registry above, whose latest row is what Stars pull (a chat version in that
@@ -469,27 +486,63 @@ export class Galaxy extends NebulaDO {
    */
   @mesh()
   async getCurrentOntology(): Promise<OntologyVersionRow | null> {
+    return this.#appliedHead();
+  }
+
+  /** One registry row file, parsed — `null` for an unapplied (or malformed) label.
+   *  The sanitize is load-bearing: `version` becomes a FILENAME and arrives from
+   *  remote callers via {@link getOntologyVersion}. */
+  async #registryRow(version: string): Promise<RegistryFile | null> {
+    if (!VERSION_RE.test(version)) return null;
+    try {
+      return JSON.parse(await this.#ws.fs.readFile(wsPath(registryPath(version)), 'utf8')) as RegistryFile;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Every registry row file, parsed, oldest applied first. */
+  async #registryRows(): Promise<RegistryFile[]> {
+    let names: string[];
+    try {
+      names = (await this.#ws.fs.readdir(wsPath(REGISTRY_DIR))).map((d) => d.name);
+    } catch {
+      return []; // no registry directory yet — nothing has been applied
+    }
+    const rows = await Promise.all(names
+      .filter((n) => n.endsWith('.json'))
+      .map((n) => this.#registryRow(n.slice(0, -'.json'.length))));
+    return (rows.filter(Boolean) as RegistryFile[])
+      .sort((a, b) => a.appliedAt.localeCompare(b.appliedAt) || a.version.localeCompare(b.version));
+  }
+
+  /** The row tenants run NOW — file-first: the workspace ontology file's own hash
+   *  answers when that version has been applied; while the file is a mid-draft whose
+   *  hash has no row yet, the most recently APPLIED row answers instead. The serve's
+   *  scope meta and {@link getCurrentOntology} both derive from here, so there is
+   *  exactly one definition of "current". */
+  async #appliedHead(): Promise<RegistryFile | null> {
     try {
       const { version } = await this.#readOntology();
-      const fromFile = this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(version));
+      const fromFile = await this.#registryRow(version);
       if (fromFile) return fromFile;
-    } catch { /* no ontology file yet — fall through to the applied head */ }
-    const applied = this.#currentWorkspaceVersion();
-    return applied ? this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(applied)) ?? null : null;
+    } catch { /* no ontology file yet — fall through to the applied rows */ }
+    return (await this.#registryRows()).at(-1) ?? null;
   }
 
   /** Specific row by label, or `null` if absent. Bare `@mesh()` on purpose: a Star's
    *  lazy-pull is an UPWARD call — every member of a descendant scope has passage here. */
   @mesh()
-  getOntologyVersion(version: string): OntologyVersionRow | null {
-    return this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(version)) ?? null;
+  async getOntologyVersion(version: string): Promise<OntologyVersionRow | null> {
+    return this.#registryRow(version);
   }
 
-  /** Ordered version labels (oldest → newest). Registry introspection — deliberately
-   *  NOT `@mesh` (nothing remote needs the history; the in-DO registry tests read it,
-   *  and a future Studio admin surface would re-expose it as a decision, not a leftover). */
-  listOntologyVersions(): string[] {
-    return this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
+  /** Ordered version labels (oldest applied → newest). Registry introspection —
+   *  deliberately NOT `@mesh` (nothing remote needs the history; the in-DO registry
+   *  tests read it, and a future Studio admin surface would re-expose it as a
+   *  decision, not a leftover). */
+  async listOntologyVersions(): Promise<string[]> {
+    return (await this.#registryRows()).map((r) => r.version);
   }
 
   // ─── Source of truth: the git Workspace ─────────────────────────────
@@ -562,8 +615,7 @@ export class Galaxy extends NebulaDO {
   @mesh(requireDominionHere)
   async appendWorkspaceOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
     const { version } = await this.#readOntology();
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-    if (index.includes(version)) return { version }; // unchanged source → already appended
+    if (await this.#registryRow(version)) return { version }; // unchanged source → already applied
     const report = await this.#buildAndAnnounce({ ontology: { version, wipe } });
     if (!(report.ontology.ran && report.ontology.ok === true)) {
       const detail = stepFailed(report.ontology)
@@ -581,10 +633,12 @@ export class Galaxy extends NebulaDO {
       // disagreeing with its source serves a STALE validator forever.
       throw new Error(`Ontology row/version drift: expected '${version}', mount holds '${row.version}'`);
     }
-    this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.kv.put(rowKey(row.version), row);
-      this.ctx.storage.kv.put(INDEX_KEY, [...index, row.version]);
-    });
+    // The registry write IS a file write — the row was born as one (ROW_PATH); the
+    // Apply gives it its durable name and the append-time stamp that orders the
+    // directory. One write, no index to keep consistent with it.
+    await this.#ws.fs.mkdir(wsPath(REGISTRY_DIR), { recursive: true });
+    const stored: RegistryFile = { ...row, appliedAt: new Date().toISOString() };
+    await this.#ws.fs.writeFile(wsPath(registryPath(row.version)), JSON.stringify(stored));
     debug('nebula.Galaxy.appendWorkspaceOntology').debug('appended', { version, wipeOnInstall: wipe });
     return { version };
   }
@@ -648,7 +702,9 @@ export class Galaxy extends NebulaDO {
       const scopeMeta = JSON.stringify({
         activeScope: star,
         authScope: `${segs[0]}.${segs[1]}`,
-        ontologyVersion: this.#currentWorkspaceVersion() ?? '',
+        // The SAME derivation getCurrentOntology serves — one definition of "current",
+        // so the version a client pins here is always one a Star can pull.
+        ontologyVersion: (await this.#appliedHead())?.version ?? '',
       }).replace(/'/g, '&#39;'); // the meta rides a single-quoted attribute
       return new HTMLRewriter()
         .on('head', {
@@ -661,12 +717,6 @@ export class Galaxy extends NebulaDO {
     return res;
   }
 
-  /** The workspace ontology registry's CURRENT version — the last appended entry
-   *  (append-only index; no stored "latest" pointer exists or is needed). */
-  #currentWorkspaceVersion(): string | undefined {
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-    return index.at(-1);
-  }
 
   // ─── The build box (ephemeral — fresh container per build) ──────────
 
@@ -740,8 +790,7 @@ export class Galaxy extends NebulaDO {
     } catch {
       return undefined; // no ontology file yet
     }
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-    return index.includes(version) ? undefined : { version, wipe: false };
+    return (await this.#registryRow(version)) ? undefined : { version, wipe: false };
   }
 
   /**

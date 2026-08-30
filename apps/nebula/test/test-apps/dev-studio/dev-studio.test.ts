@@ -112,6 +112,12 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
     const reverted = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
     expect(reverted?.version).toBe(applied);
+    // The version sanitize is LOAD-BEARING, not hygiene: a version is a filename under
+    // `.nebula/ontology/`, `getOntologyVersion` is @mesh (remote input), and the job's
+    // pending row sits one directory up at ROW_PATH — so without the oid check,
+    // '../ontology-row' resolves to it and serves the UNAPPLIED draft as if applied
+    // (a Star would install it). Mutation: drop VERSION_RE → this returns the row → red.
+    expect(await inDO(env.GALAXY, galaxy, (s) => s.getOntologyVersion('../ontology-row'))).toBeNull();
   });
 
   it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version; unchanged is a no-op', async () => {
