@@ -153,7 +153,9 @@ describe('@lumenize/nebula-auth — Integration', () => {
 
       // The current star-creation path is create-star (admin, in-session) — a Scopes row, no admin identity,
       // no email, managed from the admin's `${u}` scope. (Open star self-signup is a future flow.)
-      const starId = `${galaxyId}.dev`;
+      // A NON-dev slug on purpose: `.dev` is born WITH the galaxy (createGalaxy bundles it),
+      // so creating it here would be the duplicate 409, not the create-star path under test.
+      const starId = `${galaxyId}.tenant`;
       const createStar = await browser.fetch(authUrl('create-star'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },

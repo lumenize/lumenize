@@ -535,8 +535,7 @@ async function addGalaxy(universe: string) {
   if (!slug || busy.value) return;
   busy.value = true;
   try {
-    await nebula.value!.client.scopes.createGalaxy(universe, slug);
-    await nebula.value!.client.scopes.createDevWorkspace(`${universe}.${slug}`); // its dev workspace, implicit
+    await nebula.value!.client.scopes.createGalaxy(universe, slug); // its .dev workspace is born with it
     addChildFor.value = null;
     addChildSlug.value = "";
     await loadScopes();
@@ -627,8 +626,7 @@ async function createApp(name: string) {
   if (!slug || !universe || busy.value) return;
   busy.value = true;
   try {
-    await nebula.value!.client.scopes.createGalaxy(universe, slug);
-    await nebula.value!.client.scopes.createDevWorkspace(`${universe}.${slug}`);
+    await nebula.value!.client.scopes.createGalaxy(universe, slug); // its .dev workspace is born with it
   } catch (e) {
     log("error", `Could not create app: ${(e as Error).message}`);
     busy.value = false;

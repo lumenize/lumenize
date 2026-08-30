@@ -139,7 +139,10 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         // rejects. A squatter here would 409 the user-developer's own Studio forever AND clear
         // resetDevData's requireDominionHere, i.e. they could wipe it.
         expect((await resp.json() as any).error).toBe('reserved_slug');
-        expect(await rowsFor(devStar)).toEqual({ scopes: 0, links: 0 });
+        // ONE scopes row and zero links: the row is the legitimate `.dev` born WITH the
+        // galaxy (createGalaxy bundles it), and the refused claim added nothing — no
+        // squatter membership, no link. The property is "the claim wrote NOTHING".
+        expect(await rowsFor(devStar)).toEqual({ scopes: 1, links: 0 });
       });
 
       it('rejects run in the PINNED order — first failure wins', async () => {

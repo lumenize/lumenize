@@ -652,9 +652,16 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO identity minted + NO email. The
+   * Create a galaxy IN-SESSION — admin-gated, `Scopes` rows only, NO identity minted + NO email. The
    * parent-Universe admin manages the new galaxy via their dominion from `{u}` (§Founder — no local
    * admin stamped). Caller (Worker) pre-verifies the JWT and passes the verified access claim.
+   *
+   * **Every galaxy is BORN WITH its `{galaxy}.dev` workspace star** — both rows in one
+   * synchronous body, so a galaxy without a dev workspace is structurally impossible.
+   * (It used to be two client calls, `createGalaxy` then create-star, with a client-side
+   * lazy repair for the window where the second never landed — the first-app-is-broken
+   * failure shape.) Deliberately NO membership at `.dev`: the creator's dominion from the
+   * parent IS the access; a founding row would copy structural authority.
    */
   createGalaxy(universeGalaxyId: string, callerAccess: AccessEntry): { instanceName: string } {
     const log = debug('nebula-auth.Registry.createGalaxy');
@@ -673,8 +680,11 @@ export class NebulaAuthRegistry extends DurableObject {
     if (!this.checkSlugAvailable(universeGalaxyId)) {
       throw new RegistryError(409, 'slug_taken', `Galaxy "${universeGalaxyId}" is already claimed`);
     }
-    this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyId);
-    log.info('Galaxy created', { universeGalaxyId, callerAccessId: callerAccess.authScope });
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyId);
+      this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', `${universeGalaxyId}.dev`);
+    });
+    log.info('Galaxy created with its .dev workspace', { universeGalaxyId, callerAccessId: callerAccess.authScope });
     return { instanceName: universeGalaxyId };
   }
 

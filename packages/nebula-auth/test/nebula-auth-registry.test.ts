@@ -146,7 +146,12 @@ describe('NebulaAuthRegistry', () => {
       const result = await r.createGalaxy('gal-univ.my-galaxy', ADMIN_OVER('gal-univ'));
       expect(result.instanceName).toBe('gal-univ.my-galaxy');
       expect(await r.checkSlugAvailable('gal-univ.my-galaxy')).toBe(false);
-      // wildcard-managed: no identity minted in the galaxy.
+      // Born WITH its `.dev` workspace star — both rows from the one synchronous method,
+      // so a galaxy without a dev workspace is structurally impossible (this used to be a
+      // second client call with a client-side lazy repair for the missed-call window).
+      expect(await r.checkSlugAvailable('gal-univ.my-galaxy.dev')).toBe(false);
+      // wildcard-managed: no identity minted in the galaxy OR its `.dev` (the creator's
+      // dominion from the universe IS the access) — discover stays exactly the universe row.
       expect(await r.discover('admin@example.com')).toEqual([{ universeGalaxyStarId: 'gal-univ', scopeAdmin: true }]);
     });
 
@@ -169,13 +174,15 @@ describe('NebulaAuthRegistry', () => {
       await r.createGalaxy(`${u}.app`, ADMIN_OVER(u));
     }
 
-    it('creates a .dev star Scopes row in-session — NO email round-trip', async () => {
+    it('creates a star Scopes row in-session — NO email round-trip (`.dev` itself is born with the galaxy)', async () => {
       const r = freshRegistry();
       await galaxy(r, 'cs-ok');
-      const result = await r.createStar('cs-ok.app.dev', ADMIN_OVER('cs-ok'));
-      expect(result).toEqual({ instanceName: 'cs-ok.app.dev' });
+      const result = await r.createStar('cs-ok.app.tenant', ADMIN_OVER('cs-ok'));
+      expect(result).toEqual({ instanceName: 'cs-ok.app.tenant' });
       expect((result as any).magicLinkUrl).toBeUndefined();
-      expect(await r.checkSlugAvailable('cs-ok.app.dev')).toBe(false);
+      expect(await r.checkSlugAvailable('cs-ok.app.tenant')).toBe(false);
+      // The bundled `.dev` already exists, so re-creating it is the duplicate 409.
+      await expect(r.createStar('cs-ok.app.dev', ADMIN_OVER('cs-ok'))).rejects.toThrow(/already claimed/);
     });
 
     it('rejects non-galaxy-admin / nonexistent parent / non-star tier', async () => {
@@ -188,8 +195,7 @@ describe('NebulaAuthRegistry', () => {
 
     it('myScopeTree returns the universe + descendants (tier + isDev); [] for a non-admin; scoped to the caller', async () => {
       const r = freshRegistry();
-      await galaxy(r, 'cs-tree');
-      await r.createStar('cs-tree.app.dev', ADMIN_OVER('cs-tree'));
+      await galaxy(r, 'cs-tree'); // the `.dev` star is born with the galaxy
       const tree = await r.myScopeTree(ADMIN_OVER('cs-tree'));
       expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
       expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual({ instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
@@ -209,9 +215,7 @@ describe('NebulaAuthRegistry', () => {
     it('enumeration honours WHOLE segment boundaries — a universe does not cover a prefix sibling', async () => {
       const r = freshRegistry();
       await galaxy(r, 'bnd');
-      await galaxy(r, 'bnd-2');            // a legal slug that `bnd` merely prefixes
-      await r.createStar('bnd.app.dev', ADMIN_OVER('bnd'));
-      await r.createStar('bnd-2.app.dev', ADMIN_OVER('bnd-2'));
+      await galaxy(r, 'bnd-2');            // a legal slug that `bnd` merely prefixes; both `.dev`s born bundled
 
       const tree = await r.myScopeTree(ADMIN_OVER('bnd'));
       expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['bnd', 'bnd.app', 'bnd.app.dev']);
