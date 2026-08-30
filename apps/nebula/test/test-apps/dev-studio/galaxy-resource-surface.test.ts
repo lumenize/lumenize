@@ -52,8 +52,9 @@ describe('Galaxy @mesh surface freeze (m5)', () => {
     expect(meshMethods(false)).toEqual(
       [
         // Ontology-registry reads — passage-gated only; getOntologyVersion is the
-        // Star's UPWARD lazy-pull target (every member of a descendant scope reaches it).
-        'getGalaxyConfig', 'getLatestOntologyVersion', 'getOntologyVersion', 'listOntologyVersions',
+        // Star's UPWARD lazy-pull target and getCurrentOntology its first-touch arm
+        // (every member of a descendant scope reaches both).
+        'getCurrentOntology', 'getGalaxyConfig', 'getOntologyVersion',
         // The DagTree gate + the invite ENTRY (DAG-gated per-op inside the plane).
         'dagTree', 'invite',
         // The resource data-plane surface — chat participants are non-admin but DAG-granted.

@@ -456,18 +456,26 @@ export class Galaxy extends NebulaDO {
   // caller-supplied-types append was a test-install path with no production caller.
 
   /**
-   * Latest row + full ordered version history, or `null` if no versions have
-   * been appended yet. Single-call so Star captures a consistent snapshot of
-   * (current, history) without an interleaved append racing between two RPCs.
+   * The row a star with NO installed ontology should run — the server-originated
+   * first-touch arm of the lazy-pull (a client op always pins a version; a
+   * server-originated write like `Star.invite` has no client to pin one, so it asks
+   * for "current"). **The ontology IS the workspace file**: the version is derived
+   * here by READING `src/ontology.d.ts` and hashing it, never by trusting a stored
+   * pointer — storage holds only the immutable compiled row per version, keyed by
+   * that hash. A row exists only for an APPLIED version, so when the file is
+   * mid-draft (its hash has no row yet) the last APPLIED row answers instead —
+   * tenants run applied versions; the draft is Studio's alone. Bare `@mesh()` like
+   * {@link getOntologyVersion}: an upward call every descendant member has passage for.
    */
   @mesh()
-  getLatestOntologyVersion(): OntologyState | null {
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-    if (index.length === 0) return null;
-    const latest = index[index.length - 1];
-    const row = this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(latest));
-    if (!row) return null;
-    return { row, history: index };
+  async getCurrentOntology(): Promise<OntologyVersionRow | null> {
+    try {
+      const { version } = await this.#readOntology();
+      const fromFile = this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(version));
+      if (fromFile) return fromFile;
+    } catch { /* no ontology file yet — fall through to the applied head */ }
+    const applied = this.#currentWorkspaceVersion();
+    return applied ? this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(applied)) ?? null : null;
   }
 
   /** Specific row by label, or `null` if absent. Bare `@mesh()` on purpose: a Star's
@@ -477,8 +485,9 @@ export class Galaxy extends NebulaDO {
     return this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(version)) ?? null;
   }
 
-  /** Ordered version labels (oldest → newest). */
-  @mesh()
+  /** Ordered version labels (oldest → newest). Registry introspection — deliberately
+   *  NOT `@mesh` (nothing remote needs the history; the in-DO registry tests read it,
+   *  and a future Studio admin surface would re-expose it as a decision, not a leftover). */
   listOntologyVersions(): string[] {
     return this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
   }

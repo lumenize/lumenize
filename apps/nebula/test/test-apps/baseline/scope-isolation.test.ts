@@ -52,14 +52,14 @@ describe('structural scope isolation (Fix 1)', () => {
     );
 
     // Sibling A reads the (empty) shared ontology — accepted under both models.
-    clientA.callGalaxyGetLatestOntologyVersion(galaxy);
+    clientA.callGalaxyGetCurrentOntology(galaxy);
     await vi.waitFor(() => { expect(clientA.callCompleted).toBe(true); });
     expect(clientA.lastError).toBeUndefined();
     expect(clientA.lastResult).toBeNull();
 
     // Sibling B reads the SAME Galaxy with a different star-level aud.
     // TOFU: 'Active-scope mismatch' (RED). Structural: accepted (covered by `<galaxy>.*`).
-    clientB.callGalaxyGetLatestOntologyVersion(galaxy);
+    clientB.callGalaxyGetCurrentOntology(galaxy);
     await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
     expect(clientB.lastError).toBeUndefined();
     expect(clientB.lastResult).toBeNull();
@@ -83,11 +83,11 @@ describe('structural scope isolation (Fix 1)', () => {
       NebulaClientTest, browser, b.galaxy, b.starA, 'admin@example.com',
     );
 
-    clientA.callGalaxyGetLatestOntologyVersion(a.galaxy);
+    clientA.callGalaxyGetCurrentOntology(a.galaxy);
     await vi.waitFor(() => { expect(clientA.callCompleted).toBe(true); });
     expect(clientA.lastError).toBeUndefined();
 
-    clientB.callGalaxyGetLatestOntologyVersion(b.galaxy);
+    clientB.callGalaxyGetCurrentOntology(b.galaxy);
     await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
     expect(clientB.lastError).toBeUndefined(); // passes even under TOFU (different DOs)
 
@@ -386,11 +386,10 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
     // a reaper along with it. This list shrinking is the intended direction.
     expect(nonAdminMeshMethods(Galaxy)).toEqual([
       'dagTree',
+      'getCurrentOntology',
       'getGalaxyConfig',
-      'getLatestOntologyVersion',
       'getOntologyVersion',
       'invite',
-      'listOntologyVersions',
       'onBroadcastResult',
       'onQueryBroadcastResult',
       'onQuerySubscriberListBroadcastResult',

@@ -317,45 +317,25 @@ export class Star extends NebulaDO {
 
 
   /**
-   * Install a compiled ontology version directly — the **dev-loop apply path**
-   * (Decision 9/11). The Galaxy compiles the ontology `.d.ts` to a validator
-   * (`compileOntologyVersion`) and pushes the resulting row here; the Star NEVER
-   * compiles. This is the dev analog of the prod lazy-pull from Galaxy (Flow 2b) —
-   * the same `#installState` path, applied eagerly from a pushed row instead of a
-   * Galaxy fetch. It REPLACES `DevStar.deployToDev`'s Galaxy round-trip (deleted in
-   * Phase 4); do not route dev compile through the Galaxy DO.
-   *
-   * `@mesh(requireDominionHere)`: like the other bespoke `@mesh` mutators it does NOT pass
-   * through the DAG `requirePermission` checks, and `onBeforeCall` proves only
-   * tenant *scope* (and `<id>.*` widening admits descendant non-admins) — so it
-   * carries its own admin gate. An unguarded remote ontology-install would let any
-   * in-scope caller swap the validator — so this is the SOLE ontology-install entry,
-   * `@mesh(requireDominionHere)`-gated and frozen in the `Star.prototype` `@mesh`-surface test.
+   * Install a compiled ontology row — the INTERNAL install primitive, the one door
+   * every install path goes through: the lazy-pull handler ({@link onOntologyPulled})
+   * for both the client-pinned and first-touch pulls, and the test subclasses'
+   * `applyOntologyForTest` (which compile in a test Worker and call this on `this`).
+   * **Deliberately NOT `@mesh`** — the deleted eager-push flow was the only remote
+   * caller, and a remote entry would let an in-scope admin hand this Star an arbitrary
+   * validator bundle outside the Galaxy registry, the one source. Absence of `@mesh`
+   * IS the not-remotely-callable boundary (mesh.md); visibility stays public for the
+   * subclass callers.
    *
    * `row.version` MUST be content-unique (the Galaxy derives it via `git.hashBlob` of
    * the ontology source): the Worker Loader caches the validator bundle by
    * `bundleId = galaxyId/version`, so a reused label silently serves a STALE
    * validator (durable-objects.md § Worker Loader cache).
    */
-  @mesh(requireDominionHere)
   setOntology(row: OntologyVersionRow): void {
     const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
     const history = prevIndex.includes(row.version) ? prevIndex : [...prevIndex, row.version];
     this.#installState({ row, history });
-  }
-
-  /**
-   * Atomic wipe-then-install (ADR-006): the `.dev`-loop's `resetDevData` + `setOntology`
-   * pair collapsed into ONE mesh method so the Galaxy fires a single fire-and-forget
-   * `call()` (continuation-only model — no awaited callRaw) and the wipe-before-install
-   * ordering is guaranteed here rather than across two racing hops. `wipe` runs the same
-   * `.dev`-guarded reset (`resetDevData` throws off the `.dev` Star), so the guard is
-   * preserved. (The preview reload rides the Galaxy's build-completion push, not this install.)
-   */
-  @mesh(requireDominionHere)
-  async installOntology(row: OntologyVersionRow, opts?: { wipe?: boolean }): Promise<void> {
-    if (opts?.wipe) await this.resetDevData();
-    this.setOntology(row);
   }
 
   /**
@@ -370,6 +350,19 @@ export class Star extends NebulaDO {
     this.lmz.call('GALAXY', this.galaxyId,
       this.ctn<Galaxy>().getOntologyVersion(version),
       this.ctn<Star>().onOntologyPulled(version));
+  }
+
+  /**
+   * The server-originated first-touch arm: pull whatever the parent Galaxy says is
+   * CURRENT (its workspace ontology file's applied row — `Galaxy.getCurrentOntology`).
+   * Only for a Star with no install at all, where no client ever pinned a version —
+   * a client op always pulls its pinned version via {@link #pullOntology} instead.
+   * Same traveling handler; the empty expected-version means "accept what current is".
+   */
+  #pullOntologyCurrent(): void {
+    this.lmz.call('GALAXY', this.galaxyId,
+      this.ctn<Galaxy>().getCurrentOntology(),
+      this.ctn<Star>().onOntologyPulled(''));
   }
 
   /**
@@ -398,7 +391,10 @@ export class Star extends NebulaDO {
         log.warn('ontology pull returned no row — version unknown to the registry', { version });
         return;
       }
-      if (row.version !== version) {
+      // An empty expected version is the first-touch pull-current arm ({@link
+      // #pullOntologyCurrent}) — whatever the Galaxy answered IS current, so there is
+      // no label to enforce. A pinned pull still refuses a mismatched row.
+      if (version !== '' && row.version !== version) {
         log.error('ontology pull returned a DIFFERENT version — not installing', { version, got: row.version });
         return;
       }
@@ -500,6 +496,15 @@ export class Star extends NebulaDO {
    */
   @mesh()
   async invite(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {
+    // A server-originated write with no client-pinned version: on a Star that has never
+    // installed an ontology (an admin inviting people before anyone has used the app),
+    // fire the first-touch pull-current at the parent Galaxy and answer `installing` —
+    // the same retry contract every data op carries. Nothing partial happened: the gate
+    // sits before any invite work.
+    if ((this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? []).length === 0) {
+      this.#pullOntologyCurrent();
+      throw new OntologyStaleError('', '', { installing: true });
+    }
     return this.#dataPlane.invite(nodeId, invitees, (valid) =>
       this.lmz.call(
         'NEBULA_AUTH_FACADE', undefined,

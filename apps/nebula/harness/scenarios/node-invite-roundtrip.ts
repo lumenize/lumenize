@@ -7,10 +7,15 @@
  * Six limbs; the isolating mutations for the shared code paths live in the in-lane twin
  * (`apps/nebula/test/test-apps/baseline/node-invite.test.ts`, mutation-checked per criterion —
  * grant write, already-member heal, validation, the no-bit cap, convergence, the flip). What only
- * THIS tier adds is fixture-freedom + the real mail: the ontology is installed on a running Star,
- * the letter is the one that actually arrived, and the login is a real click.
+ * THIS tier adds is fixture-freedom + the real mail: the ontology arrives by the REAL path —
+ * the dev Apply on the parent Galaxy (a container compile of the seed ontology) and then the
+ * Star's server-originated FIRST-TOUCH pull-current, exercised by inviting before anyone has
+ * ever used the app (the invite answers `installing` and the retry converges) — the letter is
+ * the one that actually arrived, and the login is a real click.
  *
- *  1. The ack returns synchronously from `callAsync` with `{ accepted, errors: [] }`.
+ *  1. The ack returns from `callAsync` with `{ accepted, errors: [] }` — after the first-touch
+ *     install converges, which is this limb's other half: a fresh Star with no client op ever
+ *     seen installs the Galaxy's current ontology because an INVITE needed it.
  *  2. The REAL letter arrives — `invite-new`-shaped, tagged with the STAR scope (the membership's
  *     scope, not the node), carrying the accept-invite link.
  *  3. Clicking THAT link logs in AT the star; the JWT carries `authScope = star` and NO
@@ -22,20 +27,19 @@
  *  6. A negative control: a SECOND real member of the star with no node invite is refused the same
  *     write — proving limb 4 was the grant, not an open node.
  *
- * `needsContainer = false` — auth + resources only, never a build, so the boot skips Docker.
+ * `needsContainer = true` — the Apply compiles the seed ontology in the build container.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
-import type { Star, NodeInviteAck } from '@lumenize/nebula';
+import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
 import { provisionAndLogin, pointLinkAt, refreshAccessToken } from '../../test/lib/email-login';
-import { compileOntologyVersion } from '../../src/ontology-compile';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
-export const needsContainer = false;
+export const needsContainer = true;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
@@ -55,20 +59,38 @@ export async function run(stack: DevStack): Promise<void> {
       session: { accessToken: adminSession.accessToken, sub: adminSession.sub },
     });
 
-    // A running Star needs an installed ontology for ANY resource write (a production Star always
-    // has its app's) — compiled here in Node off the same leaf the Worker uses, installed through
-    // the admin-gated mesh entry. _InviteStatus rides every version (platform-unioned).
-    const row = compileOntologyVersion({
-      version: `live-${suffix}`,
-      types: 'interface TestResource { title: string }',
-    });
-    await admin.client.lmz.callAsync('STAR', star, admin.client.ctn<Star>().setOntology(row));
+    // A running Star needs an installed ontology for ANY resource write — and it arrives by the
+    // REAL path, never a direct set. The dev Apply on the parent Galaxy compiles the SEED
+    // ontology in the build container and appends it to the registry (`provisionAndLogin`'s
+    // identity is a UNIVERSE admin, so dominion covers the galaxy); the Star then has NOTHING
+    // installed until the invite itself triggers the first-touch pull-current below.
+    // _InviteStatus rides every version (platform-unioned).
+    const galaxy = star.split('.').slice(0, 2).join('.');
+    const appended = await admin.client.lmz.callAsync(
+      'GALAXY', galaxy, admin.client.ctn<Galaxy>().appendWorkspaceOntology(),
+      { timeoutMs: 240_000 },
+    ) as { version: string };
+    assert.ok(appended.version.length > 0, 'the Apply should return the appended seed version');
 
-    // ── LIMB 1: the synchronous ack ───────────────────────────────────────────────────────────
-    const ack: NodeInviteAck = await admin.client.lmz.callAsync(
-      'STAR', star,
-      admin.client.ctn<Star>().invite(ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
-    );
+    // ── LIMB 1: the ack, via the first-touch install ──────────────────────────────────────────
+    // The FIRST invite lands on a Star that has never seen a client op: the gate answers
+    // `installing` (structured-clone keeps name + props across the mesh) and fires the
+    // pull-current at the Galaxy; the retry converges once the row installs. A non-`installing`
+    // error is a real failure and rethrows.
+    let ack: NodeInviteAck | undefined;
+    for (let attempt = 0; attempt < 20 && !ack; attempt++) {
+      try {
+        ack = await admin.client.lmz.callAsync(
+          'STAR', star,
+          admin.client.ctn<Star>().invite(ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
+        );
+      } catch (e) {
+        const stale = (e as Error)?.name === 'OntologyStaleError' && (e as { installing?: boolean }).installing;
+        if (!stale) throw e;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    assert.ok(ack, 'invite never converged — the first-touch pull-current did not install the seed ontology');
     assert.deepEqual(ack, { accepted: 1, errors: [] }, `node invite ack: ${JSON.stringify(ack)}`);
 
     // ── LIMB 2: the real letter — tagged with the STAR (the membership's scope) ────────────────
@@ -99,7 +121,7 @@ export async function run(stack: DevStack): Promise<void> {
       baseUrl: stack.baseUrl,
       authScope: star,
       activeScope: star,
-      ontologyVersion: `live-${suffix}`,
+      ontologyVersion: appended.version,
       accessToken: inviteeSession.accessToken,
       instanceName: `${inviteeSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
       fetch: inviteeBrowser.fetch,
@@ -112,7 +134,7 @@ export async function run(stack: DevStack): Promise<void> {
     while (Date.now() < deadline && !committed) {
       const outcome = await invitee.resources.transaction({
         [crypto.randomUUID()]: {
-          op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID,
+          op: 'create', typeName: 'Item', nodeId: ROOT_NODE_ID,
           value: { title: 'written under the invite-time grant' },
         },
       });
@@ -159,7 +181,7 @@ export async function run(stack: DevStack): Promise<void> {
       baseUrl: stack.baseUrl,
       authScope: star,
       activeScope: star,
-      ontologyVersion: `live-${suffix}`,
+      ontologyVersion: appended.version,
       accessToken: outsiderSession.accessToken,
       instanceName: `${outsiderSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
       fetch: outsiderBrowser.fetch,
@@ -169,7 +191,7 @@ export async function run(stack: DevStack): Promise<void> {
     try {
       const refused = await outsider.resources.transaction({
         [crypto.randomUUID()]: {
-          op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'should be denied' },
+          op: 'create', typeName: 'Item', nodeId: ROOT_NODE_ID, value: { title: 'should be denied' },
         },
       });
       assert.equal(

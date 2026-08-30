@@ -162,6 +162,31 @@ describe('Star.invite — scenario 5 end to end', () => {
   });
 });
 
+describe('Star.invite — the first-touch gate (no ontology installed)', () => {
+  // The pure half of the server-originated first-touch arm: a Star that has NEVER installed
+  // an ontology answers an invite with the same `installing` retry contract every data op
+  // carries, instead of the raw "No ontology cached" throw from deeper in the plane. The
+  // CONVERGENCE half (the pull-current actually installing the Galaxy's applied row and the
+  // retry succeeding) is the live tier's: `harness/scenarios/node-invite-roundtrip.ts` limb 1
+  // — in this lane the baseline Galaxy has no applied row, so converging is not constructible.
+  // Mutation: comment the gate out of `Star.invite` → the raw plane error (name `Error`)
+  // replaces the typed signal → both assertions red.
+  it('an invite on a fresh Star answers the installing stale signal, never the raw plane throw', async () => {
+    const star = uniqueStar();
+    const browser = new Browser();
+    const admin = await adminClientAt(NebulaClientTest, browser, star, star, em('fresh'));
+    try {
+      const err = await nodeInvite(admin.client, ROOT_NODE_ID, [{ email: em('inv'), tier: 'write' }])
+        .then(() => { throw new Error('invite on an ontology-less Star must not succeed'); },
+          (e: unknown) => e as Error & { installing?: boolean });
+      expect(err.name).toBe('OntologyStaleError');
+      expect(err.installing).toBe(true);
+    } finally {
+      admin.client.dispose();
+    }
+  });
+});
+
 describe('Star.invite — the validation boundary', () => {
   it('a malformed email joins the per-invitee errors without failing the batch', async () => {
     const star = uniqueStar();

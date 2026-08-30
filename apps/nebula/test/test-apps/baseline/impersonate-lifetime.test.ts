@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
-import { childCount, isTornDown } from '../../../src/impersonation';
+import { childrenOf, isTornDown } from '../../../src/impersonation';
 
 const ORIGIN = 'http://localhost'; // must match test-helpers.ts's ORIGIN — the clients' real baseUrl
 /** Outside the 30s refresh-ahead window — construction will not re-mint. */
@@ -69,7 +69,7 @@ describe('lifetime — the cascade', () => {
       // Mutation: hook the cascade on `[Symbol.dispose]()` only → the `using` case stays green
       // while both others red.
       expect(child.connectionState, `door: ${door}`).toBe('disconnected');
-      expect(childCount(admin), `door: ${door}`).toBe(0);
+      expect(childrenOf(admin).length, `door: ${door}`).toBe(0);
     }
   });
 
@@ -97,12 +97,12 @@ describe('lifetime — the cascade', () => {
     // indistinguishable from correct and this criterion could not red on it.
     expect(child.connectionState).toBe('connected');
     expect(isTornDown(admin)).toBe(false);
-    expect(childCount(admin)).toBe(1);
+    expect(childrenOf(admin).length).toBe(1);
 
     // And it really is transient — the parent comes back, with its child still attached.
     await vi.waitFor(() => expect(admin.connectionState).toBe('connected'), { timeout: 10_000 });
     expect(child.connectionState).toBe('connected');
-    expect(childCount(admin)).toBe(1);
+    expect(childrenOf(admin).length).toBe(1);
     child.disconnect();
     admin.disconnect();
   });
@@ -159,7 +159,7 @@ describe('lifetime — child logout() is child-only teardown', () => {
     await child.logout();
 
     expect(child.connectionState).toBe('disconnected');
-    expect(childCount(admin)).toBe(0);
+    expect(childrenOf(admin).length).toBe(0);
 
     // ⚠️ **THE discriminating assertion — the other three cannot red on this defect.** The harm is
     // revocation of the ADMIN's 30-day refresh cookie, invisible to all of them: the admin's socket
@@ -410,7 +410,7 @@ describe('lifetime — re-minting through the parent', () => {
     // `disconnected` → reds. (That was a real defect until the verifier panel caught it.)
     await vi.waitFor(() => expect(child.connectionState).toBe('disconnected'));
     expect(loginRequiredFired).toBe(false);
-    expect(childCount(admin)).toBe(0);
+    expect(childrenOf(admin).length).toBe(0);
 
     // ── Fixture guard, and it has to be a REAL one ────────────────────────────────────────────────
     // A bare `expect(typeof loginRequiredFired).toBe('boolean')` proves nothing — the local is

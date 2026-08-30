@@ -80,6 +80,40 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     expect(await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
   });
 
+  // getCurrentOntology is FILE-FIRST (the ontology IS the workspace file — the version is
+  // derived by reading + hashing it, never a stored pointer), with the last APPLIED row as
+  // the fallback while the file is a mid-draft whose hash has no row yet. Both arms:
+  // mutation for arm 1 = answer from the applied index without reading the file → the
+  // applied-and-current case still passes but proves nothing; the DRAFT case below is what
+  // pins file-reading + fallback apart (skip the file read → null; skip the fallback → null).
+  it('getCurrentOntology: the applied file version answers; a mid-draft file falls back to the last APPLIED row', async () => {
+    const galaxy = uniqueGalaxyScope();
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
+    }, { timeout: 15000 });
+    const applied = ((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[])[0];
+    // Arm 1 — file == applied head: the row comes back keyed by the FILE's hash.
+    const current = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
+    expect(current?.version).toBe(applied);
+    // Arm 2 — edit the file WITHOUT applying: its hash has no row, so the last applied
+    // row still answers (tenants run applied versions; the draft is Studio's alone).
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
+    const drafted = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
+    expect(drafted?.version).toBe(applied);
+    // Arm 3 — the DISCRIMINATOR (arms 1–2 pass under an index-head-only impl too): apply
+    // v2, then revert the FILE to v1's content without applying. File-first answers v1's
+    // row — the file IS the ontology — where an index-head read would answer v2.
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
+    }, { timeout: 15000 });
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    const reverted = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
+    expect(reverted?.version).toBe(applied);
+  });
+
   it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version; unchanged is a no-op', async () => {
     const galaxy = uniqueGalaxyScope();
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));

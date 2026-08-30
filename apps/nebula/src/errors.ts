@@ -113,10 +113,3 @@ export class NodeIdCollisionError extends Error {
   }
 }
 
-export function isNodeIdCollisionError(err: unknown): err is NodeIdCollisionError {
-  return (
-    err instanceof Error &&
-    err.name === 'NodeIdCollisionError' &&
-    typeof (err as { nodeId?: unknown }).nodeId === 'string'
-  );
-}

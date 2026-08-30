@@ -125,15 +125,13 @@ export class StarTest extends Star {
 
   /**
    * Test-only (smoke/browser harness): compile + install an ontology version
-   * directly on this Star — the post-Phase-4 dev apply path (Decision 9: the
-   * Galaxy lazy-pull was removed, so the validator must be PUSHED via
-   * `setOntology`, never fetched on a cache miss). The browser smoke test's
-   * `HarnessNebulaClient` runs in Node and imports from `@lumenize/nebula/client`,
-   * so it can't call the Worker-only `compileOntologyVersion` itself (the main
-   * entry pulls in `cloudflare:workers`, unimportable in Node). This server-side
-   * method compiles the row and hands it to `setOntology`, mirroring
-   * `NebulaClientTest.callStarApplyOntology` (which compiles client-side from a
-   * pool-workers test). Same admin gate as the real `setOntology`.
+   * directly on this Star — the TEST-APP install door. Production installs arrive
+   * only by lazy-pull from the Galaxy registry (`Star.setOntology` is internal, not
+   * `@mesh`); tests pin a Star's ontology without a Galaxy loop through this entry
+   * instead. The browser smoke test's `HarnessNebulaClient` runs in Node and imports
+   * from `@lumenize/nebula/client`, so it can't call the Worker-only
+   * `compileOntologyVersion` itself (the main entry pulls in `cloudflare:workers`,
+   * unimportable in Node) — this method compiles server-side and installs internally.
    */
   @mesh(requireDominionHere)
   applyOntologyForTest(versionConfig: OntologyVersionConfig): void {
@@ -1027,20 +1025,21 @@ export class NebulaClientTest extends NebulaClient {
 
   // --- Galaxy test initiators ---
 
-  /** Apply an ontology directly to a Star via `Star.setOntology` — the Galaxy's dev
-   *  apply path hands Stars compiled rows the same way. Compiles client-side via the
-   *  pure `compileOntologyVersion` (a test Worker may carry the compiler; the deployed
-   *  Worker never does). */
+  /** Seed a Star with an ontology for a test — via the test subclass's
+   *  `applyOntologyForTest` entry, which compiles server-side (a test Worker may carry
+   *  the compiler; the deployed Worker never does) and installs through the internal
+   *  `setOntology`. Production installs arrive ONLY by lazy-pull from the Galaxy
+   *  registry; this initiator exists so a test can pin a Star's ontology without a
+   *  Galaxy loop, and goes through the test-app door rather than any production entry. */
   callStarApplyOntology(starName: string, versionConfig: OntologyVersionConfig): void {
     this.resetResults();
-    const row: OntologyVersionRow = compileOntologyVersion(versionConfig);
-    const remote = this.ctn<Star>().setOntology(row);
+    const remote = this.ctn<StarTest>().applyOntologyForTest(versionConfig);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callGalaxyGetLatestOntologyVersion(galaxyName: string): void {
+  callGalaxyGetCurrentOntology(galaxyName: string): void {
     this.resetResults();
-    const remote = this.ctn<Galaxy>().getLatestOntologyVersion();
+    const remote = this.ctn<Galaxy>().getCurrentOntology();
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 

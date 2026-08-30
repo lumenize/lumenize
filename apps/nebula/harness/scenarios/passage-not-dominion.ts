@@ -15,7 +15,7 @@
  *
  * Three limbs:
  *  1. **Upward passage confers no dominion.** A star-scoped member reaches its parent Galaxy:
- *     `Galaxy.getLatestOntologyVersion` (bare `@mesh()`) RETURNS, while `Galaxy.setGalaxyConfig`
+ *     `Galaxy.getCurrentOntology` (bare `@mesh()`) RETURNS, while `Galaxy.setGalaxyConfig`
  *     (`@mesh(requireDominionHere)`) REFUSES. Collapse either direction and exactly one flips.
  *  2. **Downward is total for an admin.** The Galaxy admin's own `setGalaxyConfig` succeeds, so
  *     limb 1's refusal is about the CALLER's dominion rather than a method nobody can call.
@@ -49,7 +49,7 @@ export const needsContainer = false;
  */
 interface GalaxyMethods {
   /** Bare `@mesh()` — reachable on upward PASSAGE alone. */
-  getLatestOntologyVersion(): unknown;
+  getCurrentOntology(): unknown;
   /** `@mesh(requireDominionHere)` — needs DOMINION, which upward passage does not confer. */
   setGalaxyConfig(key: string, value: unknown): void;
 }
@@ -118,12 +118,12 @@ export async function run(stack: DevStack): Promise<void> {
 
   try {
     // ── LIMB 1a: upward PASSAGE — the bare `@mesh()` method RETURNS ─────────────────────────────
-    // A Star member calling its parent Galaxy. `getLatestOntologyVersion` returns `null` when no
+    // A Star member calling its parent Galaxy. `getCurrentOntology` returns `null` when no
     // ontology has been appended, which is a RETURN, not a refusal — the distinction this limb is
     // about. Asserting "did not throw" is therefore the correct assertion, and asserting a
     // particular value would make it about the ontology instead of about passage.
     const read = member.client.lmz.callAsync(
-      'GALAXY', galaxy, member.client.ctn<GalaxyMethods>().getLatestOntologyVersion(),
+      'GALAXY', galaxy, member.client.ctn<GalaxyMethods>().getCurrentOntology(),
     );
     assert.equal(
       await refusal(read), null,

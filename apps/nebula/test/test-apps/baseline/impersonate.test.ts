@@ -20,7 +20,7 @@ import { NebulaClientTest } from './index';
 import {
   universeAdminClient, createInvitedClient, createSubject, browserLogin,
 } from '../../test-helpers';
-import { ImpersonationChainError, ImpersonationMintError, childCount } from '../../../src/impersonation';
+import { ImpersonationChainError, ImpersonationMintError, childrenOf } from '../../../src/impersonation';
 
 const ORIGIN = 'http://localhost'; // must match test-helpers.ts's ORIGIN — the clients' real baseUrl
 /** Comfortably outside the client's 30s refresh-ahead window, so construction does not re-mint. */
@@ -159,7 +159,7 @@ describe('impersonate() — the mint', () => {
   ])('a failed FIRST mint (%s) rejects cleanly and leaves no half-registered child',
     async (_label, expectedStatus, expectedMessage) => {
       const { star, admin, adminPayload } = await adminAndMember();
-      expect(childCount(admin)).toBe(0);
+      expect(childrenOf(admin).length).toBe(0);
 
       const target = expectedStatus === 403
         ? { sub: crypto.randomUUID(), scope: star }   // absent subject → the collapsed 403
@@ -177,7 +177,7 @@ describe('impersonate() — the mint', () => {
       // a wrong scope is an EXPECTED caller error. A half-registered child would hold an open socket,
       // the exact leak the `Set<WeakRef>` rejection argues GC cannot close.
       // Mutation: register the child before the mint resolves → a failed mint leaves it → reds.
-      expect(childCount(admin)).toBe(0);
+      expect(childrenOf(admin).length).toBe(0);
       admin.disconnect();
     });
 });
@@ -203,7 +203,7 @@ describe('impersonate() — two children coexist', () => {
     expect(c1.lmz.instanceName).not.toBe(c2.lmz.instanceName);
     expect(c1.claims.sub).toBe(m1.sub);
     expect(c2.claims.sub).toBe(m2.sub);
-    expect(childCount(admin)).toBe(2);
+    expect(childrenOf(admin).length).toBe(2);
     c1.disconnect(); c2.disconnect(); admin.disconnect();
   });
 

@@ -28,7 +28,7 @@ import { inviteViaMesh, readDevVar } from '../lib/harness';
 import { provisionStarAdmin, loginViaEmail, refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
-  ImpersonationChainError, ImpersonationMintError, childCount, isTornDown,
+  ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
 } from '../../src/impersonation';
 
 export const needsContainer = false;
@@ -221,7 +221,7 @@ export async function run(stack: DevStack): Promise<void> {
   // Two refusals with different statuses: one status could be satisfied by a build that hard-codes
   // it. The 403 is the mint's COLLAPSED refusal — an absent subject answers identically to one the
   // caller may not act for (no `sub`-existence oracle); the 400 is the pre-lookup self-narrow.
-  const childrenBefore = childCount(adminClient);
+  const childrenBefore = childrenOf(adminClient).length;
   await assert.rejects(
     () => adminClient.impersonate(crypto.randomUUID(), star, { ttlSeconds: SAFE_TTL }),
     (e: unknown) => e instanceof ImpersonationMintError && (e as ImpersonationMintError).status === 403
@@ -234,7 +234,7 @@ export async function run(stack: DevStack): Promise<void> {
       && /must be a different sub/.test((e as Error).message),
     'a self-narrow must 400 before the lookup',
   );
-  assert.equal(childCount(adminClient), childrenBefore, 'a refused mint must leave NO child registered');
+  assert.equal(childrenOf(adminClient).length, childrenBefore, 'a refused mint must leave NO child registered');
 
   // ── 4. Readiness follows the CREDENTIAL, not the CONNECTION ─────────────────────────────────────
   // The direct regression guard for a shipped bug: hooking teardown on `disconnect()` made this
@@ -259,7 +259,7 @@ export async function run(stack: DevStack): Promise<void> {
     whileDisconnected.lmz.instanceName, adminClient.lmz.instanceName,
     'a child must never share the parent Gateway name',
   );
-  assert.ok(childCount(adminClient) >= 2, 'the parent must hold its live children');
+  assert.ok(childrenOf(adminClient).length >= 2, 'the parent must hold its live children');
 
   // ── 6. child.logout() is CHILD-ONLY teardown — the admin's cookie must survive ─────────────────
   // 🛑 **The SAME-SCOPE shape, which is the only one where the guard is load-bearing.** With the
@@ -294,7 +294,7 @@ export async function run(stack: DevStack): Promise<void> {
   await until('the children to be torn down', () => child.connectionState === 'disconnected'
     && whileDisconnected.connectionState === 'disconnected');
   assert.equal(isTornDown(adminClient), true, 'an end-of-session door must mark the parent');
-  assert.equal(childCount(adminClient), 0, 'teardown must clear the parent’s children');
+  assert.equal(childrenOf(adminClient).length, 0, 'teardown must clear the parent’s children');
   await assert.rejects(
     () => adminClient.impersonate(subject.sub, star, { ttlSeconds: SAFE_TTL }),
     /torn down/i,

@@ -229,11 +229,6 @@ export function childrenOf(parent: object): object[] {
   return [...(CHILDREN.get(parent) ?? [])];
 }
 
-/** Test/diagnostic view: how many children a parent currently holds. */
-export function childCount(parent: object): number {
-  return CHILDREN.get(parent)?.size ?? 0;
-}
-
 // ── teardown ─────────────────────────────────────────────────────────────────────────────────────
 
 /**
