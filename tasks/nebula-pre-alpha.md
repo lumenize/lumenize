@@ -131,6 +131,11 @@ someone other than Larry is reading the output — or building against it. Where
 full reasoning, the rejected shortcut, and the fix direction live there; follow the link rather than
 re-deriving here.
 
+- **Cover the UI create-app flow — the first thing a day-1 user does has ZERO automated coverage.**
+  No ui-smoke case or `/live` scenario drives either creation path; the 2026-08-30
+  `createGalaxy`-bundles-`.dev` change shipped with nothing able to red its App.vue edits →
+  [backlog.md](backlog.md) § Nebula, *The UI create-app flow has ZERO automated coverage*. Natural
+  home: the login-prove-then-choose + consent-UI build, which reworks the adjacent screens.
 - **Give the scope/admin gates typed errors**, so a tester reporting "it's broken" is distinguishable
   from one who was simply refused → [backlog.md](backlog.md) § Nebula, *The scope/admin gates throw bare
   `Error`*. ⚠️ The obvious shortcut — reusing `PermissionDeniedError` — is rejected there, for reasons
