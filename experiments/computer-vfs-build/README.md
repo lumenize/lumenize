@@ -1,7 +1,7 @@
 # computer-vfs-build — can `@cloudflare/computer`'s FUSE VFS carry our real `vite build`?
 
 Throwaway, deployed spike. Gates the design of
-[nebula-galaxy-collapse-and-chat.md](../../tasks/nebula-galaxy-collapse-and-chat.md): if the
+[nebula-galaxy-collapse-and-chat.md](../../tasks/archive/nebula-galaxy-collapse-and-chat.md): if the
 FUSE mount carries the build, that task should **not write a source-push at all** — the
 container's `/workspace` *is* Galaxy's tree and `applyChanges` stops existing rather than
 getting ported. If it doesn't, the task proceeds exactly as designed.

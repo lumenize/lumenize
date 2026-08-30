@@ -1,6 +1,6 @@
 /**
  * The self-correcting codegen loop driver (tasks/archive/nebula-codegen-loop.md Phases
- * 2–3; per-write compiling removed by tasks/nebula-move-compilers-out-of-the-worker.md).
+ * 2–3; per-write compiling removed by tasks/archive/nebula-move-compilers-out-of-the-worker.md).
  * The model emits `tool_calls`, this driver runs them, and repeats until
  * `mark_complete` or a bound trips. A `write_file` is a PURE WRITE — every build-like
  * step (ontology compile, SFC type check, `vite build`) runs in the container when the

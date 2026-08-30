@@ -4,7 +4,7 @@
  * Tests Star cache hit/miss, version mismatch, and validation integration through
  * `callStarApplyOntology` (client-side compile → `Star.setOntology`). The old
  * "Galaxy ontology" registry block died with the Galaxy's test-install method
- * (tasks/nebula-move-compilers-out-of-the-worker.md phase 3) — its duplicate-label /
+ * (tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 3) — its duplicate-label /
  * index-listing / latest-round-trip assertions covered that method's own behaviour
  * and cannot outlive it; the surviving registry write path is the dev Apply
  * (`appendWorkspaceOntology`), covered in the dev-studio project.

@@ -1,6 +1,6 @@
 # The ontology history is one committed file
 
-**Status:** Design intent only, phases NOT written — **follow-on #2 to the Galaxy collapse** ([nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)), after [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md), **before the pre-alpha wipe**. Scheme settled with Larry 2026-08-24; the sequencing is § *Why this timing*. **Migrations are AUTHORED under this design but EXECUTED post-pre-alpha** — the walker is a later task.
+**Status:** Design intent only, phases NOT written — **follow-on #2 to the Galaxy collapse** ([nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)), after [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md), **before the pre-alpha wipe**. Scheme settled with Larry 2026-08-24; the sequencing is § *Why this timing*. **Migrations are AUTHORED under this design but EXECUTED post-pre-alpha** — the walker is a later task.
 
 **Objective: the ontology's whole history — every version's label, types, and migration — lives in ONE committed file in the Workspace repo, and the latest version always carries all of it.** Reading the file top to bottom IS reading the schema's evolution, which is what makes writing migration *n* easy: every prior shape and every prior migration is in the same read.
 

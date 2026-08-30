@@ -63,7 +63,7 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v1';
  * value objects are a parser-validator feature gap — tracked as package feedback.)
  *
  * `codegen.build` replaced the per-write `gate` when the compilers left the Worker
- * (tasks/nebula-move-compilers-out-of-the-worker.md): a write does no work at all now,
+ * (tasks/archive/nebula-move-compilers-out-of-the-worker.md): a write does no work at all now,
  * and the container `build` reports instead — `checked` is what tsc actually looked
  * at (a checked file absent from `findings` is KNOWN CLEAN), `findings` are raw
  * diagnostic lines carrying file/line themselves. ⚠️ That change was made IN PLACE

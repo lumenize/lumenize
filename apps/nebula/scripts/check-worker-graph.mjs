@@ -1,4 +1,4 @@
-// The import-graph tripwire (tasks/nebula-move-compilers-out-of-the-worker.md
+// The import-graph tripwire (tasks/archive/nebula-move-compilers-out-of-the-worker.md
 // § Success): asserts that NO module reachable from src/worker.ts — the deployed
 // Worker's entry — imports the parser-validator's COMPILE entry or
 // `@vue/compiler-sfc`. Stated over the ENTRY GRAPH, never a directory and never a
@@ -55,7 +55,7 @@ if (hits.length > 0) {
     '  (Script startup exceeded CPU time limit) while every suite stays green:\n' +
     hits.map((h) => `    ${h}`).join('\n') +
     '\n  Trace the importer chain with: npx esbuild src/worker.ts --bundle --metafile=meta.json' +
-    '\n  (tasks/nebula-move-compilers-out-of-the-worker.md § Success — the tripwire)',
+    '\n  (tasks/archive/nebula-move-compilers-out-of-the-worker.md § Success — the tripwire)',
   );
   process.exit(1);
 }

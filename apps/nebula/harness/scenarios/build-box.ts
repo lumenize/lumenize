@@ -2,7 +2,7 @@
  * The ephemeral build-box drive — the deterministic verification of the container
  * contract, riding the admin-gated `Galaxy.buildNow()` (the model's own `build` tool
  * calls are not deterministically drivable; same latch, same cycle). `buildNow`
- * returns the per-step `BuildReport` (tasks/nebula-move-compilers-out-of-the-worker.md
+ * returns the per-step `BuildReport` (tasks/archive/nebula-move-compilers-out-of-the-worker.md
  * § *What `build` returns*) — there is no global `ok`, so every limb here reads
  * STEPS.
  *

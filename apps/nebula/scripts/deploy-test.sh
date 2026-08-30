@@ -40,7 +40,7 @@
 #      provisioned and wrangler.jsonc names it.
 #   2. `Script startup exceeded CPU time limit [code: 10021]` — the two compilers (tsc
 #      ~9 MB + @vue/compiler-sfc) did their table-building at module scope. They left
-#      the Worker for the container build job (tasks/nebula-move-compilers-out-of-the-worker.md);
+#      the Worker for the container build job (tasks/archive/nebula-move-compilers-out-of-the-worker.md);
 #      the bundle went 12,957 → ~2,343 KiB, and `scripts/check-worker-graph.mjs` (in the
 #      package `test` script) reds if a compiler import ever reaches the entry graph again.
 #

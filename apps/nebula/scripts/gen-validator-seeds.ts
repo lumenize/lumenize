@@ -3,7 +3,7 @@
 // seed row (CHAT_MESSAGE_TYPES @ CHAT_MESSAGE_ONTOLOGY_VERSION) and the codegen
 // tool-args module (TOOL_ARGS_TYPES). Neither input takes user data or varies by
 // tenant, so compiling them at runtime bought nothing and held the multi-MB compiler in
-// the Worker bundle (tasks/nebula-move-compilers-out-of-the-worker.md). Run
+// the Worker bundle (tasks/archive/nebula-move-compilers-out-of-the-worker.md). Run
 // `npx tsx scripts/gen-validator-seeds.ts` after editing an input; the OUTPUT IS
 // COMMITTED. One-shot generator, not a build step — nothing in the dev loop runs it
 // (no-build-in-dev); `--check` (wired into the package `test` script ahead of vitest)

@@ -32,7 +32,7 @@
 /**
  * Freeze-time count of registered DO classes: NebulaClientGateway, Universe, Galaxy, Star,
  * NebulaAuthRegistry, Profile — 6. (DevStudio + DevContainer collapsed INTO Galaxy —
- * tasks/nebula-galaxy-collapse-and-chat.md; the per-scope `NebulaAuth` DO was dissolved
+ * tasks/archive/nebula-galaxy-collapse-and-chat.md; the per-scope `NebulaAuth` DO was dissolved
  * earlier — tasks/nebula-auth-surrogate-sub.md.)
  * The gate is a one-way-door tripwire, so when the registry LEGITIMATELY changes (a DO class added or
  * removed), bump this DELIBERATELY in the same change that edits bindings + exports + worker.ts — that

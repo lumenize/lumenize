@@ -1,7 +1,7 @@
 /**
  * The OFFLINE compile checks — ⚠️ NOT on any deployed path. The Worker-side per-write
  * gate died when the compilers left the Worker
- * (tasks/nebula-move-compilers-out-of-the-worker.md): a `write_file` is a pure write
+ * (tasks/archive/nebula-move-compilers-out-of-the-worker.md): a `write_file` is a pure write
  * now, and the LIVE checking runs in the container build job
  * (`container/compiler/job.ts` + `sfc-check.ts`, against the same
  * `src/sfc-contract.ts` this file mounts). What survives here, and why:

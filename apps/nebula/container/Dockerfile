@@ -94,7 +94,7 @@ COPY packages/routing/src /node_modules/@lumenize/routing/src
 COPY packages/structured-clone/package.json /node_modules/@lumenize/structured-clone/package.json
 COPY packages/structured-clone/src /node_modules/@lumenize/structured-clone/src
 
-# ── The compiler (tasks/nebula-move-compilers-out-of-the-worker.md phase 4) ─────────
+# ── The compiler (tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 4) ─────────
 # The tsc-bearing surface lives HERE now — the Worker orchestrates and stores, and does
 # not build. The package's distribution bundle is built IN the image, from source
 # copied out of the tree: a Docker COPY layer invalidates when its source changes, so

@@ -30,5 +30,5 @@ The one case the server cannot see: **different email, same person, same browser
 
 ## Relationships
 - **Depends on** [archive/nebula-invite.md](../archive/nebula-invite.md) §3 (`profileId` join at verification) — this is the *remainder* of that model, covering only the case email-match cannot see.
-- **Would supply** the collapse task's blocking profile-completion modal with a second branch ([nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) § profile-completion). That modal has **no link branch today**, and adding one is part of this work, not a prerequisite of it.
+- **Would supply** the collapse task's blocking profile-completion modal with a second branch ([nebula-galaxy-collapse-and-chat.md](../archive/nebula-galaxy-collapse-and-chat.md) § profile-completion). That modal has **no link branch today**, and adding one is part of this work, not a prerequisite of it.
 - **Lineage:** was `icebox/nebula-profile-p2-global-person.md` (parked 2026-07-15) → un-iced + merged into the identity-mint task 2026-07-19 → cut back out the same day when the panel showed the mechanism unbuildable. The `#mintIdentity` email-match half **stayed** in the identity-mint task; only the breadcrumb/linking half is here.

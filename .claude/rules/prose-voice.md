@@ -148,7 +148,7 @@ in a phase is therefore the across-files case above rather than the backward one
 separates a good copy from a bad one is which half of the sentence travels:
 
 - **The phase carries the INSTRUCTION**, and MUST stand alone for someone transcribing it.
-  `tasks/nebula-galaxy-collapse-and-chat.md` § *Phase 3* restates the container drive
+  `tasks/archive/nebula-galaxy-collapse-and-chat.md` § *Phase 3* restates the container drive
   sequence — `destroy()` → `start()` → readiness probe → build → `destroy()` — which
   § *Decisions locked* already pins. Both earn their place; keep them.
 - **Pass 1 carries the RATIONALE**, and a phase re-deriving it MUST cite the section by

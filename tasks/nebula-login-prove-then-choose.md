@@ -122,7 +122,7 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
    there is no scope at consume, so either **(a)** the value becomes "where *everyone* lands to choose" and the tier
    branch moves **after** the pick, or **(b)** the picker gets its own route and the value keeps its current meaning
    for the post-pick hop. ⚠️ **Time-sensitive, not merely open:**
-   [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) Phase 3 sets that env value `/app` →
+   [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md) Phase 3 sets that env value `/app` →
    `/studio`, which is what makes the tier branch visible for the first time. Whichever file lands second inherits the
    other's assumption, so decide it here — that phase owns only the swap of the value, never what it means.
 
@@ -133,6 +133,6 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 - **Independent of** [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) — that changes what a token carries; this changes when a person is told what they hold. Neither reads the other's surface, so the queue order is free.
 - **Answers a Super-admin building-block gap** in [nebula-pre-alpha.md](nebula-pre-alpha.md) — its ⚠️ note that nobody has driven superuser → discover → select the platform scope end to end is this file's open question 3 plus its superuser criterion.
 - **Touches** [archive/nebula-invite.md](archive/nebula-invite.md) only at the boundary: invites keep scoped links, so its mechanism is unaffected by the scope-less default.
-- ⚠️ **Shares a seam with** [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md): its Phase 3 sets `NEBULA_AUTH_REDIRECT` to `/studio` at every config site, while this file changes *when* the redirect target is known. **Do not interleave the two edits** — a concurrency note, not an ordering one; that file carries the reciprocal. Open question 4 is the decision they share.
+- ⚠️ **Shares a seam with** [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md): its Phase 3 sets `NEBULA_AUTH_REDIRECT` to `/studio` at every config site, while this file changes *when* the redirect target is known. **Do not interleave the two edits** — a concurrency note, not an ordering one; that file carries the reciprocal. Open question 4 is the decision they share.
 - **Keeps scoped deep links OUT of the picker.** `InviteTokens` rows carry their scope and an explicit deep link bypasses discovery — that stays true after the re-order. ⚠️ **But the PATH in that sentence does not:** once the collapse's Phase 3 ships the prefix move, a galaxy- or universe-tier invitee's link lands under `/studio`, not `/app`. Say "the scoped deep link", never `/app/{scope}`, or this goes stale the day the collapse ships. The picker is the destination for the **bare** login flow, never for an arrival that already names where it is going.
 - **Documentation** — `website/docs/nebula/auth-flows.md` describes the current flows and is the other surface that changes.

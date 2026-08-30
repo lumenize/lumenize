@@ -11,7 +11,7 @@ export type { NodeInvitee, NodeInviteAck } from './resource-data-plane';
 
 // Ontology — TYPES only. The compile fn is deliberately NOT re-exported: this barrel
 // reaches `src/worker.ts`, and the compiler must stay out of the deployed Worker's
-// import graph (tasks/nebula-move-compilers-out-of-the-worker.md;
+// import graph (tasks/archive/nebula-move-compilers-out-of-the-worker.md;
 // scripts/check-worker-graph.mjs is the tripwire). A test lane that genuinely
 // compiles imports `./ontology-compile` directly.
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';

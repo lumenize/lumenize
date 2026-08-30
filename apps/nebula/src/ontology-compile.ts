@@ -1,7 +1,7 @@
 /**
  * Ontology compilation — the pure half of the ontology pipeline, in a leaf module with NO mesh or
  * `cloudflare:workers` imports so it loads in plain Node. ⚠️ NO in-Worker caller compiles anymore
- * (tasks/nebula-move-compilers-out-of-the-worker.md — the deployed Worker orchestrates and stores;
+ * (tasks/archive/nebula-move-compilers-out-of-the-worker.md — the deployed Worker orchestrates and stores;
  * `scripts/check-worker-graph.mjs` reds if this module's value graph re-enters the entry graph).
  * The live callers are all outside that graph: the container build job
  * (`container/compiler/job.ts` — the ONE production compile), `scripts/gen-validator-seeds.ts`

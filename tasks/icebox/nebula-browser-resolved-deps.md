@@ -230,7 +230,7 @@ Load-bearing claims, stated so review can falsify them:
      `.claude/rules/workflow.md` § Architecture commitments — an ADR without an index line is invisible.
    - Repoint the three live statements of the retired plan: the REFRAME bullet in `tasks/backlog.md`
      (*"what's missing is the decision to let a tenant container reach the npm registry"*), the out-of-scope entry
-     in `tasks/nebula-galaxy-collapse-and-chat.md` (*"runtime dependency installs (gated on container EGRESS…)"*),
+     in `tasks/archive/nebula-galaxy-collapse-and-chat.md` (*"runtime dependency installs (gated on container EGRESS…)"*),
      and the twin comments in `apps/nebula/container/Dockerfile` and `container/app/package.json`. The
      **instruction** in those comments survives — deps stay baked — but the **reason** changes from "for the demo"
      to a standing commitment; per `calibration.md` § 4 a comment with a dead justification misleads even when its

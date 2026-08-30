@@ -250,7 +250,7 @@ describe('Galaxy command surface is admin-gated (requireDominionHere)', () => {
 
 // (The `Turns` recorder describe that lived here is DELETED with the apparatus — an agent
 // `Message` IS a codegen turn; the corpus folds into its `codegen` value object in Phase 2
-// of tasks/nebula-galaxy-collapse-and-chat.md.)
+// of tasks/archive/nebula-galaxy-collapse-and-chat.md.)
 
 describe('Galaxy turn runner — single-flight latch + generation deadline', () => {
   // The criterion the deadline exists for: a NEVER-RESOLVING model call must not wedge the

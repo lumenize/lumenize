@@ -1,6 +1,6 @@
 # Every Resources guard lives in the Resources plane
 
-**Status:** Pass 1 — design intent only, phases NOT written. **The Resources leg of the security-legibility work**, after `docs/vision/auth.md`, [ADR-015](../docs/adr/015-passage-and-dominion.md)'s passage/dominion vocabulary, and the Registry routing rewrite that put its guards in one readable table. **Sequenced AFTER [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)** (decided with Larry 2026-08-23) — § *Transition* says why, and names the one interim that task carries in the meantime. Judge this as a change to how the access-control model is reasoned about, not as a refactor.
+**Status:** Pass 1 — design intent only, phases NOT written. **The Resources leg of the security-legibility work**, after `docs/vision/auth.md`, [ADR-015](../docs/adr/015-passage-and-dominion.md)'s passage/dominion vocabulary, and the Registry routing rewrite that put its guards in one readable table. **Sequenced AFTER [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)** (decided with Larry 2026-08-23) — § *Transition* says why, and names the one interim that task carries in the meantime. Judge this as a change to how the access-control model is reasoned about, not as a refactor.
 
 **Objective — answering *"who is allowed to do this to a resource?"* takes reading one bounded region of code.**
 

@@ -2,7 +2,7 @@
  * Galaxy — the app-level brain, one DO per galaxy (instanceName = `{u}.{g}`, e.g. "acme.app").
  *
  * The collapse of three former nodes (Galaxy + DevStudio + DevContainer) into one class
- * (tasks/nebula-galaxy-collapse-and-chat.md). It owns:
+ * (tasks/archive/nebula-galaxy-collapse-and-chat.md). It owns:
  *  - the per-galaxy **ontology registry**: `appendWorkspaceOntology()` (the dev Apply)
  *    compiles the Workspace's `.d.ts` to a `validatorBundle` row and stores it as an
  *    immutable per-version row; Stars fetch rows on cache miss.
@@ -34,7 +34,7 @@ import {
 import { NEBULA_SUB, ACCESS_TOKEN_TTL } from '@lumenize/nebula-auth';
 import { NebulaDO, requireDominionHere } from './nebula-do';
 // Types only — the COMPILE itself runs in the container build job
-// (tasks/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
+// (tasks/archive/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
 // stores, and does not build). No value import of the compile half may return here;
 // scripts/check-worker-graph.mjs is the tripwire.
 import type { OntologyVersionRow } from './ontology-compile';

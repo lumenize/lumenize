@@ -1,6 +1,6 @@
 /**
  * The container-side SFC type check — both passes of the old in-Worker codegen gate,
- * now living where the compiling runs (tasks/nebula-move-compilers-out-of-the-worker.md:
+ * now living where the compiling runs (tasks/archive/nebula-move-compilers-out-of-the-worker.md:
  * every build-like step runs in the container; the Worker orchestrates and stores).
  *
  * Pass 1 transpiles with `@vue/compiler-sfc` (syntax + template errors, and the

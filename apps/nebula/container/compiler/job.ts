@@ -1,6 +1,6 @@
 /**
  * The in-container build job — every build-like step runs HERE, and the Worker only
- * orchestrates and stores (tasks/nebula-move-compilers-out-of-the-worker.md, the prime
+ * orchestrates and stores (tasks/archive/nebula-move-compilers-out-of-the-worker.md, the prime
  * directive). Bundled to `/build/job.cjs` at image build; the Galaxy execs
  * `node /build/job.cjs` against the FUSE-mounted `/workspace` and parses the report
  * line off stdout.

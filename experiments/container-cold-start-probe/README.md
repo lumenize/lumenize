@@ -20,7 +20,7 @@ This probe measures the real thing: CF's own x64 hardware, real instance acquisi
 
 ## What it measures
 
-The build-box sequence from `tasks/nebula-galaxy-collapse-and-chat.md` — the container is a stateless
+The build-box sequence from `tasks/archive/nebula-galaxy-collapse-and-chat.md` — the container is a stateless
 `build(source) → dist` box, **not** a vite dev server (the probe stops the image's vite child so it
 does not compete for the limited vCPU):
 

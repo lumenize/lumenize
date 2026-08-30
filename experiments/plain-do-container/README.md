@@ -1,6 +1,6 @@
 # Spike: plain-DO + raw `ctx.container` (no `extends Container`)
 
-**For:** `tasks/nebula-galaxy-collapse-and-chat.md` Open **Q7** — should the collapsed `Galaxy`
+**For:** `tasks/archive/nebula-galaxy-collapse-and-chat.md` Open **Q7** — should the collapsed `Galaxy`
 node `extends Container` (→ loses `svc`) or be a plain `NebulaDO` that drives the build container
 via the **raw `ctx.container` API** (→ keeps `svc.broadcast`/`svc.alarms`, uniformity, and — maybe —
 pool-workers testability)?

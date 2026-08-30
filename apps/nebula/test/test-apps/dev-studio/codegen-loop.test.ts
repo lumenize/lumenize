@@ -1,6 +1,6 @@
 /**
  * Phase 2–3 — the self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md;
- * the per-write compile died with tasks/nebula-move-compilers-out-of-the-worker.md —
+ * the per-write compile died with tasks/archive/nebula-move-compilers-out-of-the-worker.md —
  * a `write_file` is a pure write, and the container `build`'s per-step report is the
  * self-correction signal).
  *
@@ -393,7 +393,7 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
 
   // (The two m4 recorder tests died with the `Turns` apparatus — an agent `Message` IS a
   // codegen turn; the corpus folds into its `codegen` value object in Phase 2 of
-  // tasks/nebula-galaxy-collapse-and-chat.md.)
+  // tasks/archive/nebula-galaxy-collapse-and-chat.md.)
 
   // (The `response_format: json_schema` Workers-AI capability probe was a one-off
   // investigation, not a regression — the shipping path is the typia post-validate of

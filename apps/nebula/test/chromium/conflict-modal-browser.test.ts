@@ -49,7 +49,7 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
     // universe admin's scope `{u}` covers the tenant star. ⚠️ Not as the star-scoped admin's own
     // publish: the app developer owns the ontology, the tenant consumes it. The install lands
     // directly on the STAR via `StarTest.applyOntologyForTest` (the Galaxy test-install path was
-    // deleted — tasks/nebula-move-compilers-out-of-the-worker.md phase 3), which also means the
+    // deleted — tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 3), which also means the
     // tenant's data ops below no longer depend on the unbuilt prod lazy-pull for THIS seed.
     const admin = new OntologyAdminClient({
       baseUrl, authScope: universe, activeScope: scope, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
