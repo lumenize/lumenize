@@ -1,157 +1,177 @@
-# Login proves the mailbox, then you choose — and that screen carries the data-use notice
+# Move active scope choice until after authentication
 
-**Status:** Active child — two ⚠️ GATE bullets in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Invite-gated* (the login re-order + the data-use consent notice), designed and built together as ONE screen because the notice's screen is the one the re-order rebuilds. The login flow is what every pre-alpha user meets first, and Larry wants it tested with them (2026-08-09). **Unblocked 2026-08-28:** the Galaxy collapse landed its half of the shared `consumeAndLogin` seam — `NEBULA_AUTH_REDIRECT` is `/studio` and `landingBase`'s tier split is live — so this file inherits that shipped state, and the old do-not-interleave caution is discharged.
+**Status:** Active child — the login re-order and the data-use consent notice, one task. Design settled 2026-08-31 through a fresh `-alt` restart (increment-by-increment with Larry; the superseded draft lives in git history at this path). One open question remains (`acceptedAt` timing); everything else is in § *Decisions*. Every pre-alpha user meets this flow first, which is what makes it invite-gated.
 
-> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input.
+> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: resolve open question 1 → `/review-task` **Stage 1** → edit → phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input.
 
-**Objective — one email, then a picker, with the product's data-use notice on it.** You type your address and get a link. Clicking it proves the mailbox; *then* the server tells you which workspaces that address reaches, and you choose one — or, holding none, claim a fresh Universe on that same click's proof. Discovery stops answering anyone who has not proved they hold the address, and the choose screen renders the short informational data-use notice that must exist before anyone but Larry uses the product.
+**Objective:** give users a way to select an active scope and be routed to it whenever they complete a login cycle — or whenever they pick "Scopes" from their avatar menu. Discovery stops answering anyone who has not proved they hold the address, and the data-use notice renders where a user commits.
 
 ## Relationships
 
-- **Discharges** the *data-use consent UI* and *login: prove the mailbox, then choose the workspace* bullets named in the Status line. Both flip ✅ when this lands; the consent bullet's requirements are pinned in § *One screen, two faces* below, which becomes their design home.
-- **Supersedes** the `discover(email)` oracle row in [backlog.md](backlog.md) § *Nebula Auth* — that row filed this exact re-order as the proper fix and accepted the leak as a pre-alpha residual; the row goes when this lands.
-- **Inherits the collapse's half of the shared seam** — [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md) Phase 3 shipped `NEBULA_AUTH_REDIRECT` = `/studio`, so `landingBase`'s tier branch is visible for the first time: a star-tier scope lands under `/app/{scope}`, everything else under `/studio/{scope}`. What that value *means* once the scope is chosen after the click is open question 4, now this file's alone to answer.
-- **Answers a Super-admin building-block gap** in [nebula-pre-alpha.md](nebula-pre-alpha.md) — its ⚠️ *Still owed* note on driving superuser → discover → select the platform scope → impersonate as one `/live` scenario. The discover half's shape is this file's open question 3 plus its superuser criterion; the impersonate half stays the master plan's.
-- **Natural home for the create-app-flow coverage debt** — [backlog.md](backlog.md) § *Nebula* records that the UI create-app flow has zero automated coverage and names this build as the fix's natural home: the screens are adjacent and the ui-smoke plumbing is shared. Whether its case lands here is a Pass-2 phase decision, recorded so it is not lost.
-- **Touches** [archive/nebula-invite.md](archive/nebula-invite.md) only at the boundary: invites keep scoped links, which never pass the picker — an arrival that already names where it is going does not choose. The scoped consume arm, including the `.dev` dual-cookie co-mint it gained 2026-08-30, carries over untouched.
-- **Documentation** — `website/docs/nebula/auth-flows.md` describes the current flows and is the other surface that changes; [docs/vision/auth.md](../docs/vision/auth.md) gains § *Discovery* (see § *Constraints*).
+- **Discharges** the merged ⚠️ GATE bullet in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Invite-gated* — the login re-order and the consent notice, which land before the first non-Larry invite.
+- **Supersedes** the `discover(email)` enumeration-oracle row in [backlog.md](backlog.md) § *Nebula Auth* — that row filed this re-order as the proper fix; the row goes when this lands.
+- **Answers a hand-off** from [backlog.md](backlog.md) § *Nebula Auth*'s self-narrowing row: working below one's membership is `activeScope` on the membership's session, never a dominion-justified session mint — see § *Decisions*.
+- **Answers the Super-admin building-block gap** in [nebula-pre-alpha.md](nebula-pre-alpha.md) — the superuser arrives through the front door and their tree renders under the node budget; the impersonate half of that `/live` chain stays the master plan's.
+- **Natural home for the create-app-flow coverage debt** ([backlog.md](backlog.md) § *Nebula*) — now firmer than "adjacent": the notice's create-Galaxy render touches that exact flow, and the ui-smoke case is a Pass-2 candidate criterion.
+- **Touches** [archive/nebula-invite.md](archive/nebula-invite.md) only at the consume helper: invites keep their scoped arrival and never pass the Scopes screen; the consume joins mint-all, and the `.dev` co-mint rides along unchanged.
+- **Documentation** — [docs/vision/auth.md](../docs/vision/auth.md) § *activeScope*'s Today-differs block describes this screen's absence and closes when it ships; the doc also gains § *Discovery*, and `website/docs/nebula/auth-flows.md` changes.
+- **Backlog rows created with this design** (all in [backlog.md](backlog.md)): multi-email add-address + profile-merge; the Scopes-screen search box; the coming-soon durable-sink hand-off.
 
 ## Context and current state
 
-**Built already** — re-verified against disk 2026-08-30, after the collapse and the `createGalaxy`-bundles-`.dev` landings; each entry states its fate under this task:
+**Built already** — verified against disk 2026-08-30/31; each entry states its fate:
 
-- **`discover(email)`** on the registry returns one entry per `Memberships` row for an address, each carrying `scopeAdmin`. It is unauthenticated, `sub`-free by design, and Turnstile-gated (the CF rate limiter keys on a verified `sub`, so the connection limiter and Turnstile are its only bounds). Its route-table row is already marked TERMINAL: the comment says the row survives only because the login page cannot yet live without it, and that its limiter bounds the *volume* of the recorded enumeration oracle while retiring the leak belongs to this task. **Fate: retired** — the route goes; its two non-production callers are in § *Claims this rests on*.
-- **The schema already separates the two proofs.** `getAndVerifyIdentity` flips `Emails.emailVerified` — whose own comment states it is proof of the **mailbox**, global to the address, set once and never re-proved per scope — and separately sets `Memberships.acceptedAt`, which is per-membership. Both are guarded on the value they change from, because this is the registry's highest-volume write path. **Fate: carried unchanged** — this pair is the design's spine.
-- **`requestMagicLink`** inserts a scope-bound `MagicLinks` row (token hashed) and sends, **minting no identity**: a link for a scope the address holds no membership in is issued, delivered, and then rejected at consume. Its one exception is the bootstrap superuser mint — an **unauthenticated** request naming the reserved scope with a configured bootstrap address writes that platform membership. **Fate: adapted** — it gains the scope-less form, and the bootstrap mint moves behind proof.
-- **`consumeAndLogin`** hashes the one-time token, generates the refresh token, calls the consume RPC, sets the cookie, and redirects — tier-split by `landingBase` (star → `/app/{scope}`, else → `/studio/{scope}`), with the scope carried as a path segment so the landing SPA auto-connects with no local state. The invite arm co-mints a second `.dev`-session cookie (2026-08-30), and its JSDoc pins the scanner placement invariant that § *Claims this rests on* transfers to the prove step. **Fate: split** — the scoped consume (invites, deep links) carries over; the bare magic-link consume divides into prove (scope-less) and choose (scoped login).
-- **`refreshCookie`** is path-scoped — `Path={prefix}/{scope}`, `HttpOnly`, `Secure`, `SameSite=Strict`, fixed TTL. Sessions at different scopes are separated by that path and nothing else. **Fate: carried unchanged.**
-- **The Studio login** (`App.vue`) calls `discover` on the typed address and branches on the count: one entry sends a link, zero opens the claim prompt with a suggested slug, and **more than one logs an error saying the picker is a later feature**. An explicit `/studio/{scope}` URL bypasses discovery. **Fate: rebuilt** — the count branch dies; the URL bypass carries over.
-- **`claimUniverse`** writes the scope row and an admin membership with the mailbox unproved, then issues its own magic link; the click is what proves it. **Fate: adapted** — its own second link is deleted; § *What the re-order buys* carries the collapsed shape.
-- **Scoped links are a separate, working path.** `InviteTokens` rows carry their scope, and an explicit deep link bypasses discovery entirely. **Fate: carried unchanged.**
+- **`discover(email)`** returns one entry per membership for an address — unauthenticated, Turnstile-gated, and already marked TERMINAL in its own route-table comment, kept only because the login page cannot yet live without it. **Fate: retired** — the route goes; the harness `turnstile-canary`, its one non-production caller besides tests, re-points at another open endpoint.
+- **The schema separates the two proofs.** `getAndVerifyIdentity` flips `Emails.emailVerified` — proof of the mailbox, per-address, set once — and separately sets `Memberships.acceptedAt`, per-membership. **Fate: carried — this pair is the design's spine.** When `acceptedAt` flips under mint-all is open question 1.
+- **`requestMagicLink`** inserts a scope-bound `MagicLinks` row and sends, minting no identity — except the bootstrap superuser arm, where an unauthenticated request naming the reserved scope with a configured bootstrap address writes that platform membership. **Fate: adapted** — it gains the scope-less form, and the bootstrap mint moves to the consume, behind proof.
+- **`consumeAndLogin`** hashes the token, generates the refresh token, calls the consume RPC, sets the cookie — two on the invite arm (`devSession`) — and 302s tier-split. Its JSDoc pins the scanner invariant: links are multi-use within TTL because corporate scanners fetch them, and the click first-touches no per-user DO. **Fate: adapted, not split** — one consume mints N cookies (the dual-cookie arm generalized), and the 302 target comes from per-link-purpose code.
+- **`refreshCookie`** — `Path={prefix}/{scope}`, `HttpOnly`, `Secure`, `SameSite=Strict`, fixed TTL. **Fate: carried unchanged.**
+- **`handleRefreshToken`** exchanges the path-matched cookie for a JWT (pure KV read) and confines the requested `activeScope` to what the session reaches. **Fate: carried — it becomes the Scopes page's bootstrap and the below-membership work path.** `NebulaClient` already writes a per-workspace localStorage hint on token acquisition; that hint carries as the authScope hand-off (§ *The Scopes screen*).
+- **The Studio login** lives inside `App.vue`: `discover` on the typed address, branch on the count, dead-end past one. **Fate: extracted** — the count branch dies and `App.vue` sheds its login code entirely; the login form moves to the auth SPA.
+- **`claimUniverse`** writes the scope row and an unproved admin membership, reserves the slug, sends the link; the click proves and logs in, with three-way contested-slug resolution. **Fate: carried nearly intact** — it becomes the "Create a new workspace" affordance's engine, reached by user choice instead of by a pre-proof discovery result.
+- **Scoped links** (invites, deep links) bypass discovery entirely. **Fate: carried.**
 
 **Missing:**
 
-1. **The picker does not exist.** A person with two memberships reaches a dead end in the UI, so the multi-workspace case — the one the whole discovery step exists to serve — is unbuilt.
-2. **Discovery answers before anyone proves anything.** Any caller learns which scopes an address belongs to and which it administers. Dropping `scopeAdmin` from the response does not close it: at Galaxy and Universe tiers membership *is* admin-ship, and at the reserved platform scope membership *is* superuser-ship, where there is no field left to drop.
-3. **The new-user path costs two emails.** Discovery returns nothing, the claim prompt appears, the claim sends a second link, and only that click opens a session — on open self-signup, which is a pinned business decision and the highest-value funnel we have.
-4. **The superuser cannot arrive through the front door.** Their membership is minted *by* the request for a platform-scoped link, so before their first login discovery returns nothing and the UI offers them a Universe claim. The way in is a hand-typed URL.
-5. **The flow forces a scope onto a proof the schema says is scope-independent.** `emailVerified` is a property of the address, but the only path that sets it is a consume that requires a membership at a named scope — so proving your mailbox demands you first name somewhere you already belong.
-6. **The data-use notice exists nowhere.** No surface tells a user that product usage is captured to improve the product — and the screen the master plan pins it to is the claim prompt this task relocates behind the click.
+1. **The Scopes screen does not exist.** A person with two memberships dead-ends in the UI.
+2. **Discovery answers before anyone proves anything.** Any caller learns which scopes an address holds — and at Galaxy/Universe tiers membership *is* admin-ship, at the platform scope superuser-ship, so narrowing the response cannot close it.
+3. **The newbie path is routed by the oracle.** The claim prompt appears only because `discover` answered zero — the exact pre-proof read this design deletes.
+4. **The superuser cannot arrive through the front door.** Their membership is minted *by* the platform-link request, so first-login discovery returns nothing and the way in is a hand-typed URL.
+5. **The flow forces a scope onto a scope-independent proof.** `emailVerified` belongs to the address, but the only path setting it demands a membership at a named scope.
+6. **The data-use notice exists nowhere**, and its master-plan placement (the claim prompt) is a screen this task relocates.
+7. **No auth SPA exists** — session-lifecycle UI lives inside Studio's product bundle.
 
 ## Design intent, constraints, and future state
 
-### The target
+### Getting to the Scopes screen
 
-Three steps, and the scope is chosen in the last one:
+- System learns the email of a user that needs to sign in, by self-signup or invite. (Invite is the scoped arrival — its membership exists before the click, it lands directly in the workspace, and it never passes this screen. Self-signup is the zero-membership arrival — § *Decisions*, the newbie flow.)
+- System sends them an email with a magic link.
+- User clicks the link. The response sets their cookies — one per membership of that address, each at its own authScope path — in a 302 to `/auth/{authScope}/scopes`, the segment filled with one of the scopes just minted. **The screen they are taken to is what this task builds.** No other identifier rides the URL: the page bootstraps a JWT at the segment scope's refresh endpoint, and the claims key everything after that.
+- Alternatively, the user picks "Scopes" from their avatar menu; the app builds the URL's scope segment from its current claims.
 
-1. **Request.** You type an address. A **scope-less** magic link is sent, and the response is identical whether or not the address is known to us.
-2. **Prove.** You click. The consume flips `emailVerified` on that address and returns the scopes it holds memberships in, together with a short-lived **proof credential**.
-3. **Choose.** You pick one. The proof is spent at the scoped login, which sets `acceptedAt` on that membership and the path-scoped refresh cookie, exactly as today.
+### The Scopes screen
 
-**The two flags map onto the two steps, and that is the whole design.** `emailVerified` is proven at the click, `acceptedAt` at the choice. The schema already draws that line and already documents why; this flow stops fighting it.
+If the user's only authScope is a single Star, the screen forwards to that Star with `activeScope == authScope`, showing a spinner while that round trip resolves.
 
-### One screen, two faces, and the notice rides it
+**Sections.** The **first section** shows the current email address — a dropdown once an address can be plural, with a small "use an unlisted email" link to the email-management screen (a coming-soon stub for now). The **main section** is the scope tree. **Bottom buttons:** "Logout all", with a quieter per-scope logout beside it.
 
-The choose step is one screen. An address holding memberships sees the **picker face** — one row per membership, unaccepted ones included. An address holding none sees the **claim face** — the suggested-slug Universe claim, today's prompt relocated behind the click. Both faces render the **data-use notice**, whose requirements were the master plan's consent-UI GATE bullet and are pinned here as that bullet's design home:
+**The main section.** The chosen email drives the tree; switching re-renders locally from data already fetched. The UI is scalable but friendly for folks with two Star scopes — it decides how to render from the quantity at each expanded level (say 20 or fewer, show them all). Jennifer, a Universe scopeAdmin with 5 Galaxies of 5–50 Stars each: her Universe row renders unclickable (no universe UI yet — eventually that is where she manages Galaxies), her 5 Galaxies beneath it unexpanded and clickable. Clicking a Galaxy takes her to its Studio; expanding one shows its Stars.
 
-- **Short and informational.** A sentence or two of plain text on the screen — not a modal, not a step.
-- **No functional gating.** Nothing waits on it: there is no accept control, and proceeding never consults it.
-- **No stored value.** It gates nothing, so there is nothing to remember; it simply always renders there.
-- **Generic "improve the product" framing.** Never Nebula- or Studio-specific, and never naming the underlying model — wording that survives surface changes without per-change review.
-
-Building the notice inside this rebuild is what the pairing buys: shipped separately first, it would land on the pre-click claim prompt — a screen this same task deletes.
+**The hand-off to the destination.** A clicked scope's surface must refresh at the *membership's* path (`/auth/acme/refresh-token`) while working at the clicked scope (`activeScope: acme.crm`) — and it cannot read cookies to find that path. The Scopes screen knows each subtree's owning membership, so it writes the per-workspace hint `NebulaClient` already reads (the shipped localStorage mechanism) before navigating. A destination that cannot mint — no hint, expired session — redirects to `/auth/login`, and the post-login landing is this screen again.
 
 ### Discovery reads a proven address, never a claimed one
 
-This is the invariant, stated so it does not decay into "discovery is Turnstile-gated" or "we dropped the admin bit". Neither is the property. The property is that the response is derived from an address whose holder answered mail at it.
+One property is what this section exists to keep, stated so it does not decay into "discovery is Turnstile-gated" or "we dropped the admin bit" — neither is it. What must stay true: scope information is only ever returned to a caller holding a session — and every session is born from a click on mail delivered to the address.
 
-⚠️ **The proof credential is forced by the cookie, not chosen for convenience.** The refresh cookie's `Path` is `{prefix}/{scope}` and that path is the only thing separating one session from another, so at consume time — when no scope has been chosen — there is no path to set it at. Something has to carry proof from step 2 to step 3.
+### How the screen is served and bootstrapped
 
-⚠️ **The obvious shortcut is a decision this repo has already rejected.** Widening the cookie to `Path={prefix}/` is scope-less global refresh, and `authScope` never comes from the cookie (`security.md`). The proof must therefore live elsewhere: a short-TTL bearer returned in the response, or a cookie at a fixed non-scope path that the choose-step spends and clears.
+One assets bundle serves every page (`assets.directory` in `apps/nebula/wrangler.jsonc`). `/studio/*` is Workers-Assets-served by being unlisted in `run_worker_first`; `/auth/*` is worker-first, so the Scopes GET row in nebula-auth's table serves the built page in one line — `env.ASSETS.fetch` rewritten to the page's file — with caching/ETag headers passing through untouched, and the hashed `/assets/*` chunks bypassing the Worker entirely. The row is a **Worker-handled terminal, never a registry forward**: the singleton sits in one colo, and a page load never pays that RTT. The auth pages join the existing vite build as additional HTML entries, sharing one dist.
 
-### What the re-order buys
+Bootstrap, in order: document GET (edge, static) → `POST /auth/{segment}/refresh-token` (path-matched cookie, one KV read) → JWT held in memory → Bearer on the data calls, validated locally. A 401 at bootstrap degrades to the login form in the same SPA — a made-up scope produces a cookieless request, indistinguishable from a real scope with no session, so a typed URL learns nothing.
 
-- **The picker becomes buildable, and honest.** It lists memberships, which is exactly the set of scopes a session can be started at — a magic link consumes against a membership or it fails. Reach is the wrong answer here and always was: an admin reaches scopes they hold no membership in and cannot log in at.
-- **The claim collapses to one email.** Proof precedes the slug choice, so the claim mints an already-proved address and opens the session directly. Proving the mailbox before knowing what will be claimed does not weaken the proof, because the claim is made *by* the proven address.
-- **The superuser stops being a special case.** On a proven address in the bootstrap list, the platform membership is ensured and appears in the list like any other entry. This also tightens today's behaviour, where an unauthenticated request is what writes that row.
-- **The unauthenticated surface shrinks by one endpoint and gains none.** `discover` leaves the open set. The request endpoint is already open, already Turnstile-gated, and already mails any address named at it, so scope-less sending introduces no mail-amplification vector that scope-bound sending did not already have.
-- **Rate limiting can finally cover discovery**, keyed on the proof credential rather than on a `sub` that does not exist before login.
+### The data contract
+
+The summary returns the person's emails, each fully fleshed — memberships, and beneath admin memberships descendant levels breadth-first until a node budget (~50, configurable) is spent; a node past that frontier arrives as `childCount` only, and `expand(scope)` fetches one more level with its authz re-derived server-side. For Jennifer:
+
+```jsonc
+{
+  "emails": [
+    { "email": "jennifer@acme.com",   // marked current from the JWT's sub
+      "current": true,
+      "memberships": [
+        { "scope": "acme", "tier": "universe", "scopeAdmin": true,
+          "children": [               // first level under an admin root, eagerly
+            { "scope": "acme.crm", "tier": "galaxy", "childCount": 12 },
+            { "scope": "acme.hr",  "tier": "galaxy", "childCount": 5 }
+          ] } ] },
+    { "email": "jen@gmail.com",       // cross-email: no cookies in this browser, ever
+      "memberships": [
+        { "scope": "beta.tools.stars-r-us", "tier": "star", "scopeAdmin": false } ] }
+  ]
+}
+```
+
+Session state derives client-side from the mint-together clock: the bootstrap session being live means every same-address cookie in this browser is live too, so the current email's whole tree is "click goes straight in" and a non-session email's section carries one banner — "signing in here emails jen@gmail.com". The single-Star fast-forward decides itself from this response; the ≤20 thresholds live client-side.
 
 ### Claims this rests on, stated so review can falsify them
 
-- **The cookie path and the redirect are `consumeAndLogin`'s only two uses of the resolved scope, and both belong after the choice.** The redirect is `landingBase`'s tier split — visible since the collapse shipped `/studio`, so the choose flow decides between real, different destinations rather than two arms that happen to agree.
-- **Sending to an unknown address is already the posture**, established by `requestMagicLink`'s no-mint invariant — so the uniform response in step 1 changes what a caller *learns*, not what we *send*.
-- **`MagicLinks` rows are ephemeral** (minutes), so nothing durable changes shape and this is **not wipe-gated**.
-- **`discover`'s only production consumer is the Studio login.** The shared `email-login.ts` helpers never call it — they go straight to the scoped request — and the one other live caller is the harness `turnstile-canary`, which uses it as a side-effect-free Turnstile probe and re-points when the route dies.
-- **The scanner invariant transfers to the prove step, and it forces repeatability.** Links are multi-use within TTL because corporate scanners fetch them and follow the redirect, and the click first-touches no per-user DO (`consumeAndLogin`'s JSDoc carries the placement argument — a DO is permanently placed near its first request). The prove step inherits both properties: a scanner consuming the link before the human must leave the human able to click through, so every click within TTL must be able to yield a fresh proof. This is open question 1's strongest input.
-- **The invite dual-cookie co-mint sits outside this change.** The `devSession` second cookie rides only the `consumeInvite` arm, which the bare login flow never takes.
+- **Multiple `Set-Cookie` headers ride one 302** — the shipped invite `devSession` arm is this exact code path with N=2, so mint-all is a generalization, not a new capability.
+- **Sending to an unknown address is already the standing behavior**, established by `requestMagicLink`'s no-mint invariant — the uniform response changes what a caller *learns*, not what we *send*.
+- **Nothing durable changes shape, so this is not wipe-gated.** `MagicLinks` rows are ephemeral, the signup ticket is a cookie, mint-all writes existing row types, and open question 1 needs no schema either way.
+- **`discover`'s only production consumer is the Studio login.** The shared `email-login.ts` helpers never call it; `turnstile-canary` uses it as a side-effect-free probe and re-points when the route dies.
+- **The scanner invariant transfers.** Links stay multi-use within TTL and the click still first-touches no per-user DO; a scanner's extra fetches strand N orphan sessions per fetch instead of one, swept like any others.
+- **`activeScope` confinement already supports working below a membership** — the refresh endpoint confines the requested `activeScope` to what the session reaches, and "authenticate at the universe, name the galaxy in `activeScope`" is how prod already works.
+- **The per-workspace localStorage hint exists** — `NebulaClient` writes it on every token acquisition; the hand-off rides a shipped mechanism.
 
 ### Constraints
 
-- **[ADR-009](../docs/adr/009-real-auth-path.md)** — real email login is the default path and stays rung 1. The flow gains a step, so `provisionAndLogin` / `loginViaEmail` in the shared `email-login.ts` and the vitest test-helpers both change shape: the click lands on the picker rather than on an open session.
-- **`security.md`** — scope-less global refresh is on the never-reintroduce list, which is what makes the proof credential a separate artifact rather than a wider cookie.
-- **`router.ts`'s Turnstile set** carries a standing invariant that every unauthenticated registry endpoint is listed there, because the set is the only bound on them. Removing `discover` from the open set must leave that invariant true rather than quietly narrowing what it covers.
-- **[ADR-012](../docs/adr/012-global-profile-visibility.md)** — per-membership acceptance is its manufacture defense, so the picker lists memberships **regardless of `acceptedAt`**. Listing an unaccepted membership is correct: consuming a link is how one becomes accepted.
-- **[`docs/vision/auth.md`](../docs/vision/auth.md) — `status: accepted`, and it has no § on discovery at all.** This task fills a gap rather than contradicting the doc, and the section it adds must describe the target flow. ⚠️ **The two pickers must be named apart in that section**: this one lists **memberships of the proven address** (candidate `authScope`s, pre-session), while the in-app switcher lists the **person's** scopes (`profileId`-keyed, from `myScopeTree`). Conflating them is what makes "show the discovered scopes" ambiguous in the first place.
-- **`ui-theming.md`** — every face of this screen uses daisyUI semantic classes, and per the design-deferral stance the components are stock on the placeholder theme: this task authors no design.
-- **Pre-alpha** — no users, so there is no compatibility problem and no migration. Larry wants pre-alpha users to meet this flow, which is what makes it invite-gated rather than a residual.
+- **[ADR-009](../docs/adr/009-real-auth-path.md)** — real email login stays rung 1. The click now lands on the Scopes screen (or in the claimed universe), so `provisionAndLogin` / `loginViaEmail` and the vitest helpers change shape.
+- **`security.md`** — no scope-less global refresh and no slide: cookies stay path-scoped per scope, the signup ticket refreshes nothing, and minting happens only at the click. The derived-session rule is untouched by "Logout all".
+- **`router.ts`'s Turnstile set** — every unauthenticated registry endpoint stays listed there; the scope-less request form and the claim affordance's request both join it, and removing `discover` must leave the invariant true.
+- **[ADR-012](../docs/adr/012-global-profile-visibility.md)** — the tree lists memberships regardless of `acceptedAt`, and the scoped-admin profile branch keeps gating on ACCEPTED. Open question 1 must preserve that manufacture defense: minting a cookie for an unaccepted invite must not itself flip acceptance.
+- **[ADR-017](../docs/adr/017-the-url-is-the-view-state.md)** — the URL carries the bootstrap scope and nothing else: no email, no credential; authz is re-evaluated on arrival, and a shared Scopes URL shows the recipient their own worlds.
+- **[ADR-018](../docs/adr/018-singleton-is-the-scarce-resource.md)** — the summary and expand reads land on the registry singleton at human frequency (per visit, per click), the `my-scopes` cadence; the node budget is what keeps the superuser's response bounded.
+- **`ui-theming.md`** — color through the daisyUI theme on every face; the theme decisions in the table are Larry's palette calls, placeholder-tier by the design-deferral stance.
+- **Pre-alpha** — no users, no compatibility problem, no migration.
 
 ### Future state
 
-- ⚠️ **Design consideration:** the picker is the natural home for switching between simultaneous sessions later — `authScope` sessions already coexist by cookie path, and nothing in the UI surfaces that today.
-- ⚠️ **Design consideration:** `myScopeTree`'s platform arm selects every scope in the system, so the **in-app** switcher has an unbounded-list problem for a superuser (search rather than a rendered tree). That is the other picker and not this task's; it is named here only so the two are not merged while this one is being built.
-- ⚠️ **Design consideration:** scoped-link arrivals — invitees and deep links — never pass the choose screen, so they never see the notice. The requirement of record names only this screen, and pre-invite Larry is the only subject; if the notice must ever reach the invite path, that is a different surface earning its own task.
+- ⚠️ **Design consideration:** the email strip and plural data contract are the ready seam for multi-email profiles (add-address and merge are backlogged); nothing here forecloses them.
+- ⚠️ **Design consideration:** Jennifer's unclickable Universe row is the placeholder for universe-level management UI — the row exists so universe management has a door when it earns one.
+- ⚠️ **Design consideration:** the Scopes screen is the natural home for multi-session visibility later; sessions already coexist by cookie path, and this is the first surface that could show them.
 
 ## Decisions
 
 | Decision | Rejected alternative — why |
 |---|---|
-| **Discovery runs after the click, on a proven address** | Narrowing what `discover` returns — dropping `scopeAdmin`, or filtering the reserved platform row. At Galaxy and Universe tiers membership *is* admin-ship and at `nebula-platform` it *is* superuser-ship, so the scope name alone carries the sensitive bit; each filter is a guard on one symptom of a mechanism that should not answer strangers at all. |
-| **A separate short-lived proof credential carries step 2 → step 3** | Widening the refresh cookie's `Path` to cover every scope — that is scope-less global refresh, already rejected, and it would make `authScope` a property of the cookie. |
-| **The picker lists memberships** | Listing reach — an admin reaches scopes they hold no membership in, and a magic link cannot be consumed at one, so the picker would offer places you cannot log in. |
-| **The claim path collapses to one email** | Keeping the second link — it exists only because the claim happens before any proof, which this re-order reverses. |
-| **The bootstrap mint moves behind proof** | Keeping it on the unauthenticated request — it is the one place an unauthenticated call writes a membership, and after the re-order it has no reason to. |
-| **Scoped links stay first-class** | Making every link scope-less — invites carry their scope by design, and a scoped deep link already knows where it is going; forcing those through a picker would add a step to the paths that need it least. |
-| **The notice is informational: no gate, no stored value** | An accept control or a persisted has-seen flag — a gate adds friction on the highest-value funnel against `calibration.md` § 1's wedge argument, and a stored flag is schema for something that changes no behavior. Pre-invite, Larry is the only subject and owns the responsibility. |
-| **Generic "improve the product" wording** | Naming Studio, the capture mechanism, or the model — specific wording goes stale with every surface change, and the model name never surfaces anywhere in the product. |
-| **The notice ships inside this rebuild, as part of one screen** | Shipping it first on today's claim prompt — that prompt moves behind the click in this same build, so the notice would land on a screen this file deletes. The master plan carried this exact warning. |
+| **The consume mints cookies for ALL the address's memberships, on one 302** — the invite dual-cookie arm generalized. The click stays the only minting moment: the screen is read-only, so the fixed 30-day clock runs from mailbox proof and nothing on the avatar-menu path extends it. One clock per address: one login renews the set; a dead mailbox takes every scope within 30 days of the last click. | **(a)** scoped links — resurrects the pre-proof oracle and the dead end. **(c)** one designated membership, others need another email — the original disease, milder. **(d)** lazy minting from the screen — a second minting site with a new authz rule for identical exposure, and exactly the capability that would let a monthly visit keep sessions alive without fresh proof. |
+| **Working below a membership rides `activeScope` on that membership's session** — Jennifer enters `acme.crm` on her `acme` session; the refresh endpoint already confines `activeScope` to reach. Closes the hand-off in backlog § *Nebula Auth*'s self-narrowing row. | A dominion-justified refresh minted at a scope with no membership — a third minting site; sessions stay membership-anchored, and narrowing is `activeScope`'s job (token-level self-narrowing stays that backlog row's own question). |
+| **This file owns the self-signup (claim) screen** — the zero-membership face of the same arrival. | A sibling task — it would take this file's consume contract as its central input mid-design. |
+| **Newbie: a self-declared fast path plus a fallback slug screen.** "Create a new workspace" expands the login form to email + name; today's `claimUniverse` engine carries, and the click lands in the new universe — one form, one email, one click. The undeclared newbie's zero-membership consume lands on a post-click slug screen authorized by a **signup-ticket cookie** at a fixed non-scope path — spendable only at claim, short TTL, the proof credential's one surviving remnant — which also recovers a contested slug. | Forwarding the one-time token into the signup URL — a live credential in a browser-visible URL one hop past the email. Fallback-only — matches today's interaction count where the affordance beats it for nearly free. |
+| **`NEBULA_AUTH_REDIRECT` is deleted; destinations live in code** — per-link-purpose routing: bare → Scopes, zero-membership → slug screen, claim/invite → what the link names, tier-split star vs above. | Keeping the knob — a fossil of the `@lumenize/auth` fork; one deployment, never a second value, and `landingBase` already hardcodes the star arm. |
+| **nebula-auth owns the feature; the page lives at `/auth/{authScope}/scopes`** — a GET row in nebula-auth's table serving the built page via the host's ASSETS binding; § *How the screen is served* carries the mechanics and the bootstrap. | **NebulaClient / the facade** — session lifecycle is HTTP (`auth.md`), and mesh entry needs the very bootstrap this page performs. **JWT embedded in the HTML** — per-user, uncacheable, a credential in the document. **An apex intercept row** — splits `/auth/*` across two tables. **Bare `/scopes?s=`** — loses the segment idiom and the namespace. **Passed over, not disproven: a router-shell `index.html`** with lazy route chunks — zero server code, but URL ownership moves into frontend router config; revisit if the page family grows. |
+| **The auth screens are their own small SPA** — login, Scopes, signup fallback; source owned auth-side; `App.vue` sheds its login code. Folder mechanics are a phases decision. | Staying in the studio bundle — a session-lifecycle surface embedded in a product surface, today's mislocation preserved. |
+| **Tree data: a summary with a node budget plus `expand`, built now** — § *The data contract*. | One-shot now, budget backlogged — the same shape minus counts saves ~a phase, and the row comes due exactly when the first big tenant arrives. An unbounded superuser response — every universe in one singleton read. |
+| **All emails fully fleshed; the UI keeps the two-section layout.** Today `profileId`→email is 1:1, so the plural shape costs nothing, and dropdown switches re-render locally. | Emails as tree roots — one dead level for every single-email user, worst for the two-Star person we prioritized. Thin single-email data — the same bytes today, a refetch tomorrow. |
+| **Session state per-SECTION, derived client-side** from the mint-together clock (§ *The data contract*). | Serving refresh records — they prove a session on SOME device, mis-badging every new laptop. |
+| **The notice leaves the login page; it renders where a user commits** — the claim affordance, the fallback slug screen, and Studio's create-Galaxy flow. One component, three renders, all owned here; informational, no gate, no stored value; generic improve-the-product wording, never naming Studio or the model. | Every login page — Universe/Galaxy owners own their tenants' data relationship; a per-tenant notice is the user-dev's call, and we only want data to improve Nebula. An accept-gate or stored flag — friction on the funnel, schema for a decoration. Splitting the create-Galaxy render out — a gate sliver with a deadline and no file. |
+| **Logout: "Logout all" plus a quieter per-scope logout** — all revokes every refresh record for the address and expires all its cookies on one response, the mint-all's symmetric twin; both actions also land in avatar menus. | Per-scope only — not what "log out" means on a shared machine once cookies mint together. |
+| **The invite consume joins mint-all** — same helper; an invitee's whole session set renews on accept; the `.dev` co-mint rides along. | A bespoke dual-cookie-only invite arm — per-path reasoning to maintain forever. |
+| **Coming-soon component logs to `@lumenize/debug` now; durable later via the observability pipeline** — a distinctive event tag, and the hand-off is a backlog row, not a bespoke store. | A registry table — product telemetry in the identity domain, for a component that will render on non-auth surfaces. AE / R2 / a platform data plane — too much now, or does not exist. |
+| **UI tech: Vue + Tailwind + daisyUI.** | — |
+| **Theme: one shared neutral base — greyish beige — that Studio sub-classes with brand color.** A warm neutral receives the orange sub-class cleanly; the accent stays neutral in the base; user-dev apps extend colors and leave spacing/corners/shadows alone. Placeholder-tier: one OKLCH variable, revisited when design gets real attention. | Brown — heavy and dated as a full surface. Cool grey — warm/cool tension under Studio's accents. Per-surface bespoke themes — the restyle cost theming exists to avoid. |
+| **Small dispositions:** the email-management stub gets its own auth-SPA route rendering coming-soon; `/auth/login` is the fresh-visitor entry once `App.vue` sheds its form; the screen and menu item are named "Scopes". | — |
 
 ## Acceptance criteria — input to Pass 2, not yet decomposed into phases
 
-- 🔒 **An unproven address learns nothing.** A request naming an address with memberships and one naming an address with none produce identical responses, and no unauthenticated route returns scope names for an address. *Reds against keeping any pre-proof discovery route, including a narrowed one.*
-- **The picker works for more than one membership.** An address with two memberships clicks one link and is offered both, and choosing either opens a session at that scope. *Reds against the current count-branching dead end.*
-- **One email claims a Universe.** A brand-new address types it once, clicks once, and lands in a claimed Universe with the mailbox recorded proven. *Reds against retaining the claim's own second link.*
-- 🔒 **The proof credential cannot start a session outside the proven address's memberships.** Spending it at a scope the address holds no membership in is refused. *Reds against treating the credential as an authorization rather than as proof of identity.*
-- 🔒 **The refresh cookie is still path-scoped per chosen scope.** A session started at one scope produces a cookie that is not sent to another scope's auth routes. *Reds against the scope-less global refresh shortcut — the one failure here that would look like success at every other criterion.*
-- **A superuser arrives through the front door.** A configured bootstrap address that has never logged in types it, clicks, and is offered the platform entry. *Reds against leaving the mint on the unauthenticated request path.*
-- **Unaccepted memberships are offered.** An invited-but-unaccepted address sees that scope in the picker and accepting it sets `acceptedAt`. *Reds against filtering the picker on acceptance, which would make an invitation unusable.*
-- **Scoped links still work end to end.** An invite link and a scoped deep link both reach a session without passing through the picker — and the invite consume still sets its second `.dev` cookie. *Reds against replacing the scoped consume rather than adding beside it.*
-- **The notice renders on both faces of the choose screen.** The picker and the claim prompt each carry the generic data-use notice. *Reds against pre-fix code, where no surface renders one, and against a build that covers only one face.*
-- **The notice gates nothing and stores nothing.** Completing either face requires no interaction with it, and the diff adds no storage — client or server — for its display state. *Reds against an accept control or a has-seen flag.*
-- 🌐 **The same, driven as a `/live` scenario.** Real logins, real mail: one address with two memberships picks each in turn, and a fresh address claims a Universe on a single email. ⚠️ **Fidelity, not capability** — the thing only a real run proves is that the mail actually sent in step 1 carries a link the consume accepts without a scope in it.
-- **No unauthenticated route answers a question about an address.** ⚠️ State it structurally over `router.ts`'s open and Turnstile sets rather than as a list of endpoint names, which goes stale as the diff grows.
-- **`docs/vision/auth.md` gains a § *Discovery*** naming the two pickers apart, and `grep -n '^> \*\*Today' docs/vision/auth.md` gains no entry for it — the section describes the shipped flow, not a target.
-- *(Candidate — Pass 2 decides the phase.)* **The ui-smoke create-app case** from the backlog's zero-coverage row lands in this build, since the login rebuild already drives the adjacent screens through rendered ui-smoke.
+- 🔒 **An unproven address learns nothing.** Requests naming a member address and a stranger address produce identical responses, and no unauthenticated route returns scope names for an address. *Reds against keeping any pre-proof discovery route, including a narrowed one.*
+- **One click, all sessions.** An address with two memberships clicks one link and receives both cookies on one 302; each scope on the Scopes screen opens without further email. *Reds against single-cookie minting.*
+- **The Jennifer tree renders by the rules.** An admin membership shows its first level clickable; a galaxy click lands in that Studio via the authScope hand-off; expansion past the frontier fetches one level. *Reds against reach-less rendering and against a broken hand-off.*
+- **One email claims a Universe** via the affordance, landing directly in the claimed universe with the mailbox recorded proven. *Reds against a second link.*
+- 🔒 **The signup ticket is spendable only at claim.** It starts no session and reads no data; the fallback slug screen is its only consumer. *Reds against the ticket acting as a general credential.*
+- 🔒 **The refresh cookie stays path-scoped per scope.** A session at one scope produces a cookie never sent to another scope's auth routes. *Reds against the global-refresh shortcut — the failure that would look like success everywhere else.*
+- **A superuser arrives through the front door.** A configured bootstrap address that has never logged in types it, clicks, and sees the platform root in their tree. *Reds against leaving the mint on the unauthenticated request.*
+- **Unaccepted memberships are offered**, and acceptance lands per open question 1's resolution without weakening ADR-012's accepted-membership gate. *Reds against filtering the tree on acceptance.*
+- **Scoped links still work end to end** — an invite lands in its workspace with the `.dev` cookie and the invitee's other sessions renewed. *Reds against replacing the scoped consume.*
+- **The notice renders at all three placements** — claim affordance, fallback slug screen, create-Galaxy — and gates nothing, stores nothing. *Reds against a missed render, an accept control, or a has-seen flag.*
+- **Logout all revokes everything for the address** — every refresh record dead, every cookie expired, in one response; per-scope logout still works. *Reds against a logout that leaves a sibling session alive.*
+- 🌐 **The same, driven as `/live` scenarios.** Real logins, real mail: a two-membership address enters both scopes off one email; a fresh address claims via the affordance; a superuser walks the front door. ⚠️ Fidelity, not capability — only a real run proves the mail carries a link the scope-less consume accepts.
+- **No unauthenticated route answers a question about an address** — stated structurally over `router.ts`'s open and Turnstile sets, never as an endpoint list.
+- **`docs/vision/auth.md` closes and gains** — § *activeScope*'s Today-differs block about the missing picker closes; § *Discovery* is added; `grep -n '^> \*\*Today' docs/vision/auth.md` gains no new entry.
+- *(Candidate — Pass 2 decides the phase.)* **The ui-smoke create-app case** from the backlog's zero-coverage row lands here, driving the same screens the notice and login rebuild touch.
 
 ## Non-goals
 
-- **The in-app scope switcher** (`myScopeTree`, `activeScope`) — a different picker with a different source, named in § *Future state* only so the two stay apart.
-- **Multi-session switching UI** — the picker makes it possible; building it is later.
-- **Turnstile policy.** It stays exactly where it is; this changes which endpoints need to be behind it, not how it works.
-- **The invite mechanism** → [archive/nebula-invite.md](archive/nebula-invite.md). Invites keep their scoped links.
-- **Anything about reach or the claims shape** → [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md).
-- **Consent machinery beyond the notice** — no consent records, no accept flow, no policy page, no per-user data controls. The notice is informational by pinned decision; anything more is post-pre-alpha product surface with no current home.
+- **Universe-level management UI** — Jennifer's Universe row renders unclickable; what sits behind it is future work with no task yet.
+- **Multi-email add-address and profile-merge** → backlog § *Nebula Auth*; the email strip and plural contract are the ready seam.
+- **The Scopes-screen search box** → backlog § *Nebula Auth*.
+- **Email management** — a coming-soon stub only.
+- **Turnstile policy** — unchanged; this changes which endpoints sit behind it, not how it works.
+- **The invite mechanism** → [archive/nebula-invite.md](archive/nebula-invite.md); invites keep scoped links.
+- **Anything about reach or the claims shape** → [archive/nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md).
+- **Consent machinery beyond the notice** — no records, no accept flow, no policy page, no per-user data controls.
 
 ## Open questions
 
-1. **Is the proof credential single-use, or reusable within its TTL?** `docs/vision/auth.md` § *`authScope` (sessions)* says logging in at a second scope starts another session without ending the first. Single-use makes that cost a second email; reusable within a few minutes lets one click open sessions at two scopes. **Lean: reusable within a short TTL** — it is already gated on proven mailbox control, the TTL is the bound, and the scanner claim above forces the prove step to be repeatable within the link's TTL anyway, so single-use would be strictness the mechanism cannot deliver.
-
-2. **Where does the proof live — a bearer in the response, or a cookie at a fixed non-scope path?** This decides whether the picker survives a reload or a tab close, and whether the credential is reachable by script. The two are not equivalent on either axis, and the cookie variant needs a path that cannot collide with a scope segment.
-
-3. **How is the platform entry presented, and what happens when it is chosen?** It is a membership like any other, so it appears in the picker — but no node is named `nebula-platform`, the mesh boundary refuses every call to one, and `activeScope` defaults to `authScope` for every other entry. So choosing it cannot land in Studio the way a workspace does. **Lean: present it as a mode rather than a workspace, and have it land on the in-app scope switcher.** This is the question that started the thread, it gates the picker's shape, and the master plan's superuser `/live` scenario waits on its answer.
-
-4. **What does `NEBULA_AUTH_REDIRECT` MEAN once the scope is chosen after the click?** Today it is "where a
-   user-developer lands" — since the collapse it reads `/studio`, and `landingBase` tier-splits against it, so the
-   sequencing half of this question is settled and this file inherits the shipped value. What remains is the meaning:
-   either **(a)** the value becomes "where *everyone* lands to choose" and the tier branch moves **after** the pick,
-   or **(b)** the picker gets its own route and the value keeps its current meaning for the post-pick hop.
+1. **When does `acceptedAt` flip under mint-all?** Today the scoped consume sets it for the membership the link names. A bare scope-less consume names none — and it must NOT flip acceptance on every membership, or an attacker-admin's guessed-address invite would become "accepted" by the victim's unrelated login, dissolving ADR-012's manufacture defense. **Lean: acceptance flips on a membership's first successful refresh** — first actual use, which is what acceptance means — with scoped consumes (invite, claim) keeping their explicit flip. Gates the build: the consume, the refresh path, and the ADR-012 criterion all read it.

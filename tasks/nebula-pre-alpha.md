@@ -1,6 +1,6 @@
 # Nebula — Pre-alpha (master plan)
 
-**Status (2026-08-20):** prod `nebula.lumenize.com` is **still at `ada3f31`**, deployed 2026-07-04. ⚠️ **Everything since is UNDEPLOYED** — it all waits on the **single batched wipe+redeploy gate** below (deliberate: one CF-dashboard worker-delete + redeploy, not two), so **do not read prod as evidence of current behaviour** — and F&F invites stay paused until the ⚠️ items under **[Remaining → Invite-gated](#invite-gated-needed-before-the-first-ff-invite)** land. **Sequence (decided 2026-08-19):** ① ✅ profile accepted-membership gate → [archive/nebula-profile-accepted-membership-gate.md](archive/nebula-profile-accepted-membership-gate.md); ② wipe item 6 (`actingToken`) — built directly from its own bullet, no child task file; ③ in any order: [nebula-registry-scope-in-url.md](nebula-registry-scope-in-url.md) · ~~[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)~~ **moved AFTER the collapse** (pinned 2026-08-24 — the shared `consumeAndLogin` seam; the collapse's half is one env value; see that file's Status) **built together with** the consent-UI gate (same screen) · the `createGalaxy`-bundles-`.dev` item · [nebula-same-origin-guard.md](nebula-same-origin-guard.md)'s verdict; ④ the **Galaxy collapse** — its whole-file review is **deliberately deferred to just before its build** (Larry, 2026-08-19), and the two gates that ride it (preview-survives-redeploys, capture-live) wait with it; the ③ items are themselves invite gates or invite-adjacent, so working them first does not lengthen the critical path. Sole open mesh threads = the `callAsync`-inventory follow-ups — `#pendingTurns` (chat) homed in [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md); `#pendingSubscribes` + the m6 abort-commit for-docs proof in [backlog.md](backlog.md).
+**Status (2026-08-20):** prod `nebula.lumenize.com` is **still at `ada3f31`**, deployed 2026-07-04. ⚠️ **Everything since is UNDEPLOYED** — it all waits on the **single batched wipe+redeploy gate** below (deliberate: one CF-dashboard worker-delete + redeploy, not two), so **do not read prod as evidence of current behaviour** — and F&F invites stay paused until the ⚠️ items under **[Remaining → Invite-gated](#invite-gated-needed-before-the-first-ff-invite)** land. **Sequence (decided 2026-08-19):** ① ✅ profile accepted-membership gate → [archive/nebula-profile-accepted-membership-gate.md](archive/nebula-profile-accepted-membership-gate.md); ② wipe item 6 (`actingToken`) — built directly from its own bullet, no child task file; ③ in any order: [nebula-registry-scope-in-url.md](nebula-registry-scope-in-url.md) · [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) (**design settled 2026-08-31** via a fresh `-alt` restart; the consent-UI gate folded into the same task) · the `createGalaxy`-bundles-`.dev` item · [nebula-same-origin-guard.md](nebula-same-origin-guard.md)'s verdict; ④ the **Galaxy collapse** — its whole-file review is **deliberately deferred to just before its build** (Larry, 2026-08-19), and the two gates that ride it (preview-survives-redeploys, capture-live) wait with it; the ③ items are themselves invite gates or invite-adjacent, so working them first does not lengthen the critical path. Sole open mesh threads = the `callAsync`-inventory follow-ups — `#pendingTurns` (chat) homed in [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md); `#pendingSubscribes` + the m6 abort-commit for-docs proof in [backlog.md](backlog.md).
 
 **This is the living master plan** — the plan at design detail, plus only what still bears on remaining work. Child task files are written **ONE AT A TIME**; on completion the child is **archived** (never left in `tasks/`, never pre-created as a stub), and history stays in the archive — decision history survives only in a Decisions table (alternatives rejected + why). The code is the authority for anything built. See [[feedback_task_file_one_at_a_time]].
 
@@ -107,21 +107,17 @@ The remaining provisioning / capture / inspection work builds on these (the code
   fanout the user's `Message` Resources → local JSON corpus the assistant reads to answer Larry's
   questions. Its API/inspection client is folded into the live-verification harness
   ([claude-live-verification.md](archive/claude-live-verification.md)) — build once, there.
-- ⚠️ **GATE — data-use consent UI (NOT built).** A short, **informational** notice (no functional gating,
-  no stored value), **generic "improve the product" framing** — never `nebula`/`studio`-specific —
-  rendered at the slug-pick / claim-universe prompt in **`nebula-studio-ui`**. Must ship **before the
-  first non-Larry user is invited** (Larry owns + accepts responsibility; pre-invite he's the only
-  subject). ⚠️ **The screen it renders on is being re-ordered** — the claim/slug-pick prompt moves behind
-  the magic-link click, so build together with the login gate below or this notice ships into a flow
-  that no longer exists.
-- ⚠️ **GATE — login: prove the mailbox, then choose the workspace (NOT built).** Studio calls
-  `discover(email)` **before** anyone proves anything; three costs fall out: a multi-membership address
-  hits a dead end, a new user spends **two** emails to claim a Universe, and any caller can ask which
-  scopes an address belongs to and administers (at Galaxy/Universe tiers membership *is* admin-ship; at
-  `nebula-platform` it *is* superuser-ship). Target: one scope-less link → the click proves the mailbox →
-  *then* the scopes come back and you choose one. Every pre-alpha user meets this screen first, which is
-  why it lands before invites. → design intent, decisions, open questions:
-  **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)** § *The target*.
+- ⚠️ **GATE — login re-order + data-use notice, ONE task (design settled 2026-08-31; NOT built).**
+  Studio calls `discover(email)` **before** anyone proves anything — any caller can ask which scopes an
+  address belongs to and administers (at Galaxy/Universe tiers membership *is* admin-ship; at
+  `nebula-platform` it *is* superuser-ship), and a multi-membership address dead-ends. Target: one
+  scope-less link → the click proves the mailbox and mints every membership's session → the Scopes
+  screen routes the choice. The consent notice ships in the same task — short, informational, no
+  stored value, generic "improve the product" framing — rendered where a user commits: the claim
+  affordance, the fallback slug screen, and the create-Galaxy flow (the placement invitees actually
+  meet on day 1). Must land **before the first non-Larry user is invited** (Larry owns + accepts
+  responsibility; pre-invite he's the only subject). → design intent, decisions table, the open
+  question: **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)**.
 - ✅ **GATE — preview survives redeploys: discharged structurally by the collapse; the deploy-only confirm ran 2026-08-29** (same pre-redeploy hashed asset served post-redeploy on `test-nebula`) — record in [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)'s status banner.
 
 ### Consider before invites (NOT gates)
