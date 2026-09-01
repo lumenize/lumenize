@@ -29,6 +29,7 @@
     "types": "./scripts/generate-types.sh",
     "audit:test-mode": "./scripts/audit-test-mode.sh",
     "audit:prose": "node scripts/check-prose.mjs",
+    "audit:ui-copy": "node scripts/check-ui-copy.mjs",
     "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",

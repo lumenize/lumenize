@@ -92,15 +92,17 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     try {
       await page.goto(`${viteBaseUrl}/studio/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
-      // Capable-of-failing: each waitFor auto-waits and THROWS (fails the test) if the
-      // element never appears — reds if the SPA fails to mount (build/bundle break) or
-      // the shell doesn't render. The send-magic-link control (email field + "Send magic
-      // link" submit) is the DISCRIMINATING unauthenticated marker — the post-login chat
-      // ALSO renders a <form>+<input>, so "a form exists" would be vacuous. Its presence
-      // confirms auto-connect correctly FAILED with no cookie (the auth-path negative control).
+      // Capable-of-failing: each waitFor auto-waits and THROWS if the element never appears —
+      // reds if the SPA fails to mount (build/bundle break) or the shell doesn't render.
+      //
+      // ⚠️ The DISCRIMINATING unauthenticated marker is now the "Sign in" button, not a login
+      // form: Studio no longer HAS a login form — the auth SPA owns every front door — so the old
+      // email-field probe would red for the wrong reason. Its presence still confirms what it
+      // always did: auto-connect correctly FAILED with no cookie (the auth-path negative control).
       await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
-      await page.getByPlaceholder('you@example.com').waitFor({ state: 'visible' });
-      await page.getByRole('button', { name: /Send magic link/ }).waitFor({ state: 'visible' });
+      await page.getByRole('button', { name: /Sign in/ }).waitFor({ state: 'visible' });
+      // And the login form is GONE from Studio — reds if a login block is ever reintroduced here.
+      expect(await page.getByPlaceholder('you@example.com').count()).toBe(0);
       // The preview iframe is correctly ABSENT pre-login: the stage is the help/intro until you
       // connect AND open a dev workspace (it's `v-else` after help/manage). A `1` here would mean a
       // preview leaked into the unauthenticated shell. (Was `1` before the help/manage/preview stage
@@ -111,7 +113,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     }
   });
 
-  it('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
+  it('real-email login through the auth SPA → Home → into the app workspace', async () => {
     // 0. PROVISION through the real claim path (API): claims `test-u0` for ADMIN_EMAIL and
     //    creates the workspace galaxy beneath it — global-setup wipes `.wrangler/state`, so
     //    every run claims fresh. Login never mints; this is what creates the membership the
@@ -121,45 +123,48 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
-    // 1. Load the Studio at the UNIVERSE (where the membership lives — the form targets
-    //    the URL scope). ui-smoke covers the FORM WIRING, not App.vue's discovery-resolve
-    //    branch (discovery's automated coverage is the deferred random-scope-per-run
-    //    upgrade, backlog.md § Testing & Quality). Don't over-credit this as discovery cover.
-    await page.goto(`${viteBaseUrl}/studio/${TEST_UNIVERSE}`, { waitUntil: 'domcontentloaded' });
+    // 1. The front door is SCOPE-LESS now, and it is not in Studio. Nothing about the address is
+    //    known before the click, so the form names no scope and the page is the auth SPA's.
+    await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
 
-    // 2. Arm the email waiter BEFORE driving the form (listen first, then send), then DRIVE the
-    //    real-email login form — type the email + click "Send magic link" — in place of the old
-    //    Node-side fetch POST. This gives the form capable-of-failing coverage under vite-dev.
-    const waiter = waitForEmail({ testToken, instance: TEST_UNIVERSE });
+    // 2. Arm the email waiter BEFORE driving the form (listen first, then send). ⚠️ The instance
+    //    tag is `_scopeless`, not the universe — a scope-less request cannot name a scope, so a
+    //    waiter filtered on TEST_UNIVERSE would hang for its full timeout and read as a slow boot.
+    const waiter = waitForEmail({ testToken, instance: '_scopeless' });
     let link: string;
     try {
       await page.getByPlaceholder('you@example.com').fill(ADMIN_EMAIL);
-      await page.getByRole('button', { name: /Send magic link/ }).click();
-      // The "sent" confirmation only renders if the POST succeeded (sendMagicLink sets it on the
-      // 2xx path only) — reds if the form misfired or the magic-link POST 4xx'd.
-      await page.getByText(/Magic link sent to/).waitFor({ state: 'visible', timeout: 30_000 });
+      await page.getByRole('button', { name: /Email me a link/ }).click();
+      // The confirmation only renders on the 2xx path — reds if the form misfired or the POST 4xx'd.
+      await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
       link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
     }
 
-    // 3. Navigate the magic link THROUGH the vite origin (not the worker host) so the
-    //    Set-Cookie lands on the Studio origin. context.request shares the context's
-    //    cookie jar, so the refresh cookie is captured without loading a page.
+    // 3. Navigate the magic link THROUGH the vite origin (not the worker host) so the Set-Cookie
+    //    lands on the Studio origin. `context.request` shares the context's cookie jar, so the
+    //    refresh cookies are captured without loading a page. One click, one cookie per membership.
     const u = new URL(link);
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
-    // 4. Reload at the universe → auto-connect → nudgeNextStep sees exactly ONE galaxy and
-    //    opens its workspace, where the chat input renders — the real post-collapse journey.
-    await page.goto(`${viteBaseUrl}/studio/${TEST_UNIVERSE}`, { waitUntil: 'domcontentloaded' });
+    // 4. HOME is where the click lands, and where the person chooses. The admin holds ONE accepted
+    //    membership — the universe — so no fast-forward fires and the tree renders with the galaxy
+    //    beneath it. Clicking that row is the hand-off into Studio.
+    await page.goto(`${viteBaseUrl}/auth/${TEST_UNIVERSE}/home`, { waitUntil: 'domcontentloaded' });
+    const galaxyRow = page.getByRole('button', { name: new RegExp(TEST_SCOPE.replace('.', '\\.')) });
+    await galaxyRow.waitFor({ state: 'visible', timeout: 30_000 });
+    await galaxyRow.click();
 
-    // Capable-of-failing: reds if the shell fails to render or the /gateway connect never
-    // completes. The chat input ("Describe a change…") only renders when `connected` (the v-else
-    // form), AND the send-magic-link control is gone (count==0). The count==0 is load-bearing: the
-    // email-login form sits in the SAME `v-if="!connected"` slot, so a failed connect would leave
-    // it present — removing that gate (mutation) would red this.
+    // 5. Studio, entered from Home. Capable-of-failing: reds if the shell fails to render or the
+    //    /gateway connect never completes — and specifically reds if the HAND-OFF HINT is wrong,
+    //    because the cookie lives at `/auth/test-u0` while this page is `/studio/test-u0.test-g0`,
+    //    so without the hint Studio refreshes against a path holding no cookie.
+    await page.waitForURL(new RegExp(`/studio/${TEST_SCOPE.replace('.', '\\.')}`), { timeout: 30_000 });
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
-    expect(await page.getByRole('button', { name: /Send magic link/ }).count()).toBe(0);
+    // The sign-in control sits in the SAME `v-if="!connected"` slot, so a failed connect leaves it
+    // present — count==0 is what makes the assertion above non-vacuous.
+    expect(await page.getByRole('button', { name: /^Sign in$/ }).count()).toBe(0);
 
     // 4b. PROFILE COMPLETION — a fresh identity (every run: state is wiped) has an empty
     //     Profile, so the blocking name modal is up; complete it the way a person would.
@@ -184,6 +189,86 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     );
 
     authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
+  });
+
+  it('create an app from the manage panel — the flow with zero automated coverage until now', async () => {
+    // ⚠️ **This is the create-app flow `backlog.md` § *Nebula* recorded as having NO automated
+    // coverage.** It is reachable only by hand through the avatar menu, so nothing exercised it and
+    // a break would have surfaced as a user-developer unable to make their second app.
+    expect(authed, 'login step must have established a session').not.toBeNull();
+    const { page } = authed!;
+
+    // Open the manage panel from the avatar menu, the way a person does.
+    await page.getByRole('button', { name: 'Account' }).click();
+    await page.getByRole('button', { name: 'Manage my account' }).click();
+    await page.getByRole('heading', { name: 'Manage my account' }).waitFor({ state: 'visible' });
+
+    // ⚠️ **Target the row by NAME, never `.first()`.** A bootstrap address holds an UNACCEPTED
+    // `nebula-platform` membership that sorts above every real one, so `.first()` picked the platform
+    // row and tried to create an app in the platform ROOT — which is how the unaccepted-row
+    // affordance bug was found. Both halves are asserted now: the unaccepted row offers no button,
+    // and the right row is addressed explicitly.
+    //
+    // ⚠️ Unconditional, because the row is GUARANTEED here: `global-setup.ts` pins
+    // `--var NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io`, and every consume by a bootstrap address
+    // mints that platform membership UNACCEPTED. Guarding this behind `if (count)` would let it pass
+    // silently on a build where the row stopped rendering at all.
+    const platformRow = page.locator('.rounded-box').filter({ hasText: 'nebula-platform' }).first();
+    await platformRow.getByText('Not accepted').waitFor({ state: 'visible', timeout: 15_000 });
+    // Reds against offering superuser actions on a membership nobody consented to.
+    expect(await platformRow.getByRole('button', { name: /^App$/ }).count()).toBe(0);
+    expect(await platformRow.getByRole('button', { name: /Delete/ }).count()).toBe(0);
+
+    // Opening the right row reveals the name field AND the data-use notice — the notice's SECOND
+    // placement, which nothing else asserts renders.
+    const universeRow = page.locator('.rounded-box')
+      .filter({ has: page.getByText(TEST_UNIVERSE, { exact: true }) }).first();
+    await universeRow.getByRole('button', { name: /^App$/ }).click();
+    const nameField = page.getByPlaceholder('name your app');
+    await nameField.waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByTestId('data-use-notice').waitFor({ state: 'visible' });
+
+    // A fresh name per run — global-setup wipes state, but a retry inside one run must not 409.
+    const appName = `smoke-app-${Date.now().toString(36).slice(-6)}`;
+    await nameField.fill(appName);
+    await page.getByRole('button', { name: /^Add$/ }).click();
+
+    // ⚠️ The ROW is the assertion, not the absence of an error. `create-galaxy` treats 409 as
+    // success elsewhere, and a silently-failed create leaves the panel looking fine — so this reds
+    // only if the scope was really created and the tree really re-read.
+    //
+    // ⚠️ Racing the row against the error bubble turns a bare 30 s timeout into a DIAGNOSIS. A
+    // create that fails logs into the chat; without this the failure reads "element never
+    // appeared", which is true of both a broken create and a broken render and distinguishes
+    // neither.
+    const row = page.getByText(`${TEST_UNIVERSE}.${appName}`);
+    const errorBubble = page.locator('.chat-bubble-error').last();
+    await Promise.race([
+      row.waitFor({ state: 'visible', timeout: 30_000 }),
+      errorBubble.waitFor({ state: 'visible', timeout: 30_000 }).then(async () => {
+        const claims = await page.evaluate(async () => {
+          const hints = Object.fromEntries(Object.entries(localStorage)
+            .filter(([k]) => k.startsWith('nebula.authScope:')));
+          const authScope = Object.values(hints)[0] as string | undefined;
+          if (!authScope) return { hints, note: 'no auth hint written' };
+          const r = await fetch(`/auth/${authScope}/refresh-token`, {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ activeScope: location.pathname.split('/')[2] }),
+          });
+          if (!r.ok) return { hints, refresh: r.status, body: (await r.text()).slice(0, 200) };
+          const { access_token } = await r.json() as { access_token: string };
+          return { hints, payload: JSON.parse(atob(access_token.split('.')[1])) };
+        });
+        throw new Error(`create-app reported: ${await errorBubble.innerText()}\nDIAG ${JSON.stringify(claims)}`);
+      }),
+    ]);
+    await row.waitFor({ state: 'visible' });
+
+    // ⚠️ Leave the stage as we found it. The codegen case that follows shares this page and reads
+    // the preview iframe, which is `v-else` after the manage panel — so a panel left open makes
+    // THAT test fail for a reason that has nothing to do with it. (It did, on the first run.)
+    await page.getByRole('button', { name: /Back/ }).click();
+    await page.locator('iframe[title="Preview"]').waitFor({ state: 'visible', timeout: 15_000 });
   });
 
   // Un-skipped 2026-08-29: the "no kernel FUSE locally so the build can't run" premise was

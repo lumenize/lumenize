@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  modalFlavorFor, canAccept, surfaceFor, rendersExpanded, fastForwardTarget, crossEmailNotice,
+  modalFlavorFor, canAccept, surfaceFor, rendersExpanded, fastForwardTarget, crossEmailNotice, authHintFor,
   RENDER_ALL_THRESHOLD, PLATFORM_SCOPE, type ScopeNode, type ScopeSummary,
 } from '../../../nebula-studio-ui/src/auth/home-logic';
 
@@ -130,6 +130,23 @@ describe('the single-Star fast-forward', () => {
         { email: 'b@example.com', memberships: [node({ scope: 'd.e.f', tier: 'star', accepted: true })] },
       ],
     })).toBeUndefined();
+  });
+});
+
+describe('the hand-off hint', () => {
+  it('keys on the DESTINATION and carries the AUTH scope', () => {
+    // ⚠️ Reversing these is silent: it writes a real entry Studio reads, and Studio then refreshes
+    // against a path holding no cookie. Jennifer entering a Galaxy from her Universe session is the
+    // live case — her cookie is at `acme`, the destination is `acme.crm`.
+    expect(authHintFor('acme.crm', 'acme')).toEqual({
+      key: 'nebula.authScope:acme.crm', value: 'acme',
+    });
+  });
+
+  it('matches the key App.vue actually reads', () => {
+    // The prefix is Studio's, not ours — asserted literally so a rename there reds here rather than
+    // silently orphaning every hand-off.
+    expect(authHintFor('x.y', 'x').key).toBe('nebula.authScope:x.y');
   });
 });
 

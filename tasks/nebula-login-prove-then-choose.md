@@ -228,6 +228,32 @@ Numbering equals executable order — one branch, sequential (`workflow.md`). Ea
 8. **Studio integration.** `App.vue` sheds its login block; the avatar menu gains Home, Logout all, per-scope logout, and the email-management stub; the create-Galaxy flow renders the notice (the second placement); the manage-panel copy retrofit (Account/App/Tenant/Home); the create-app ui-smoke case lands. The scope-copy instrument is DEFINED here — extract user-facing strings (template text nodes plus quoted UI strings), run it pre-retrofit to prove it reds on "Manage my scopes" ×3 and "Loading your scopes…", and paste both runs as evidence.
    - **Success criteria:** owns the create-Galaxy render of the notice criterion, *"scope" appears in no user-facing string* (per the instrument defined here), and the *ui-smoke create-app* criterion; `App.vue` contains no login code (scoped grep).
    - **Mutation note:** reintroduce "Manage my scopes" → the instrument reds; break `onCreateApp`'s flow → the ui-smoke case reds.
+   - **The instrument, and both runs.** `scripts/check-ui-copy.mjs` (`npm run audit:ui-copy`) reads
+     template text nodes plus UI-surfacing strings (`log`/`alert`/`confirm` arguments,
+     `placeholder`/`title`/`aria-label`/`alt`), stripping `{{ }}` and `${ }` alike — an interpolation
+     renders a VALUE, so `Could not open ${galaxy}` is not the word reaching a screen.
+     **PRE-retrofit: exit 1, 18 findings**, including the four predicted here — "Manage my scopes" at
+     `App.vue:886`, `:915`, `:921` and "Loading your scopes…" at `:954` — plus the help panel's whole
+     Universe/Galaxy/Star explainer. **POST-retrofit: exit 0, clean over 16 files.** Reintroducing the
+     phrase reds it at the right line.
+   - ⚠️ **Its first cut reported the wrong LINES**, guessing each finding's position by searching for
+     its text, which put all three "Manage my scopes" hits on a comment 100 lines above the template.
+     Now it blanks noise rather than cutting it, so offsets stay true. A wrong line number is what
+     teaches people to ignore a check.
+   - 🐛 **The live drive found a real bug, and it is the kind only a running system shows.** Studio's
+     manage panel rendered an UNACCEPTED membership with full "+ App" and Delete affordances — and for
+     a bootstrap address that row is `nebula-platform`, sorted to the top, offering to create an app in
+     the platform ROOT. An unaccepted membership confers nothing (ADR-012), so the click answered 403
+     and read as a product bug rather than as consent working. Fixed: `flattenSummary` carries
+     `accepted`, and a row whose value is explicitly `false` shows a "Not accepted" badge with a link
+     to Home instead of actions. ⚠️ **Absence is not `false`** — a descendant carries no flag and stays
+     actionable, because the membership above it was accepted.
+   - **Copy settled:** "Manage my account", "Log out of this app" / "Log out everywhere", and the help
+     panel teaching account/app/tenant rather than the internal nouns.
+   - ⚠️ **Noticed, not acted on:** `test/ui-smoke/delete-scope.test.ts`'s two `it.skip`s cite "pending a
+     login path into a `.dev` scope" as their blocker. Home now renders `.dev` Stars as clickable rows,
+     so that blocker looks discharged — but un-skipping is a coverage decision for a sweep, not a
+     silent side effect of this phase.
 9. **Retirements and the parallel-survival sweep.** `discover` (route row, registry method, Turnstile entry), `getAndVerifyIdentity` (orphaned by Phase 2's `resolveConsume`, which reads every membership and does the same guarded mailbox flip — zero production callers as of the Phase-5 sweep; its two unit tests re-point to the consume path), the scoped `email-magic-link` request row, and every other member of the deletion set go; the ~21 `discover` probe sites across six test files re-point to durable probes — ⚠️ **`getScopesForProfile` is not a substitute**: it filters on acceptance, so a positive assertion swapped onto it becomes an all-empty pass — each keeping its capable-of-failing property under its original mutation; `turnstile-canary` re-points to a post-gate-failing probe; the ADR-009 helpers take their final scope-less shape.
    - **Success criteria:** owns 🔒 *An unproven address learns nothing* (consume half), *No unauthenticated route answers a question about an address* (structural over the router sets), and *Nothing replaced survives in parallel* — every retired symbol's grep, scoped to `apps packages tooling website` and excluding frozen `tasks/archive/**`, returns nothing and is pasted as evidence; each re-pointed probe still reds under its original mutation.
    - **Mutation note:** re-add any retired route row → the structural router-set assertion reds; the sweep greps red on any surviving symbol by construction.

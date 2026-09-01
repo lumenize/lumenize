@@ -121,6 +121,21 @@ export function fastForwardTarget(summary: ScopeSummary): string | undefined {
 }
 
 /**
+ * The hand-off hint Home leaves for Studio: which cookie to spend at a destination.
+ *
+ * ⚠️ **The KEY is where you are going and the VALUE is where your session lives**, and getting them
+ * the wrong way round is silent — it writes a real entry that Studio reads and then refreshes
+ * against a path holding no cookie. Studio owns this key (`App.vue`'s `authHint`), which is why the
+ * shape is pinned here rather than spelled inline at the call site.
+ *
+ * Not derivable at the destination: `/studio/acme.crm` cannot know the session was established at
+ * `acme`, because a person's cookie sits at whatever scope their link named.
+ */
+export function authHintFor(destinationScope: string, authScope: string): { key: string; value: string } {
+  return { key: `nebula.authScope:${destinationScope}`, value: authScope };
+}
+
+/**
  * The banner a non-session email's section carries, or `undefined` for the current one.
  *
  * Every address on the identity is listed, but this browser only holds cookies for the one it signed

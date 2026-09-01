@@ -21,7 +21,7 @@
 import { ref, onMounted, computed } from 'vue';
 import ConsentModal from './ConsentModal.vue';
 import {
-  modalFlavorFor, surfaceFor, rendersExpanded, fastForwardTarget, crossEmailNotice,
+  modalFlavorFor, surfaceFor, rendersExpanded, fastForwardTarget, crossEmailNotice, authHintFor,
   type ScopeSummary, type ScopeNode, type EmailScopes,
 } from './home-logic';
 
@@ -71,15 +71,27 @@ function openOrEnter(node: ScopeNode) {
 }
 
 /**
- * Navigate into a scope's own surface.
+ * Navigate into a scope's own surface, leaving the destination the one fact it cannot derive.
  *
- * ⚠️ **The hand-off hint is written BEFORE the navigation, not after.** The destination boots with no
- * knowledge of which scope the person chose, and reading it from the URL there would re-derive
- * something already decided here. Written first, it is present the moment the next page's script
- * runs; written after, the navigation has already begun.
+ * ⚠️ **The hint says WHICH COOKIE to spend, and that is not guessable from the destination URL.**
+ * Studio at `/studio/acme.crm` knows the scope it is working in; it does not know that the refresh
+ * cookie authorizing it sits at `/auth/acme`, because a person's session is established at whatever
+ * scope their link named — which here is the segment this very page bootstrapped from. Without the
+ * hint Studio falls back to trying the active scope as its own auth scope, and for anyone who
+ * entered below their membership that refresh is sent to a path holding no cookie.
+ *
+ * ⚠️ **The key and store are Studio's, not ours to choose** — `localStorage`, under
+ * `nebula.authScope:{activeScope}`, which is what `App.vue`'s `authHint` reads. `NebulaClient`
+ * rewrites the same entry on every successful token acquisition, so this is a seed for the first
+ * load rather than a second source of truth.
+ *
+ * ⚠️ **Written BEFORE the navigation.** Written after, the navigation has already begun.
  */
 function enter(node: ScopeNode, surface: string) {
-  try { sessionStorage.setItem('nebula.handoff.scope', node.scope); } catch { /* private mode */ }
+  try {
+    const hint = authHintFor(node.scope, props.scope);
+    localStorage.setItem(hint.key, hint.value);
+  } catch { /* private mode — Studio falls back to trying the active scope */ }
   window.location.assign(surface);
 }
 

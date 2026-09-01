@@ -18,6 +18,7 @@
  */
 import { ref, computed } from 'vue';
 import { canAccept } from './home-logic';
+import DataUseNotice from '../DataUseNotice.vue';
 
 const props = defineProps<{
   flavor: 'invite' | 'self';
@@ -40,19 +41,21 @@ const enabled = computed(() => canAccept(checked.value) && !props.busy);
       </h3>
 
       <div v-if="flavor === 'invite'" class="py-3 space-y-2">
+        <!-- ⚠️ The name is attributed to the SENDER in the sentence itself, not merely rendered.
+             The adversary this modal defends against is the person who typed it — an unattributed
+             free-text name presented as the consent's only identity is a phishing surface
+             ("IT Security"). The target, which the inviter cannot choose, sits beside it. -->
         <p>
           <span class="font-medium">{{ invitedByName || 'Someone' }}</span>
-          <span class="text-base-content/70"> (name provided by the sender)</span>
-          invited you to
+          <span class="text-base-content/70">(supplied by the sender)</span>
+          invited you to collaborate in
           <span class="font-mono">{{ scope }}</span>.
         </p>
       </div>
 
       <div v-else class="py-3 space-y-2">
         <p class="font-medium">Only accept if you initiated this signup.</p>
-        <p class="text-base-content/70 text-sm" data-testid="data-use-notice">
-          We collect usage data to improve the product.
-        </p>
+        <DataUseNotice />
       </div>
 
       <label class="label cursor-pointer justify-start gap-3 py-2">

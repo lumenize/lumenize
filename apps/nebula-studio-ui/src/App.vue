@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
-import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
+import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
+import DataUseNotice from "./DataUseNotice.vue";
 import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
 import type { TurnLiveness } from "@lumenize/nebula/frontend";
 import type { ProfileGate, ProfileSlot } from "@lumenize/nebula/frontend";
@@ -178,17 +179,13 @@ const previewSrc = ref("");
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
 // login
-const email = ref("");
-const sentTo = ref<string | null>(null);
-const needsClaim = ref(false);
 const sessionExpired = ref(false); // a mid-session terminal auth failure flipped us back to login
-const claimSlug = ref("");
 
 // account / hierarchy
 const menuOpen = ref(false);
 const manageOpen = ref(false);
 const accountEmail = ref<string | null>(null);
-type Scope = { instanceName: string; tier: string; isDev: boolean };
+type Scope = { instanceName: string; tier: string; isDev: boolean; accepted?: boolean };
 const scopes = ref<Scope[]>([]);
 
 /**
@@ -203,7 +200,12 @@ const scopes = ref<Scope[]>([]);
 function flattenSummary(summary: { emails: { memberships: any[] }[] }): Scope[] {
   const out: Scope[] = [];
   const walk = (n: any) => {
-    out.push({ instanceName: n.scope, tier: n.tier, isDev: n.scope.endsWith('.dev') } as Scope);
+    // ⚠️ `accepted` is carried, and its ABSENCE means something different from `false`. A membership
+    // row states it; a descendant reached THROUGH one does not carry it at all, and is actionable
+    // because the membership above it was accepted — that is what let the server return it.
+    out.push({
+      instanceName: n.scope, tier: n.tier, isDev: n.scope.endsWith('.dev'), accepted: n.accepted,
+    } as Scope);
     (n.children ?? []).forEach(walk);
   };
   summary.emails.forEach((e) => e.memberships.forEach(walk));
@@ -252,99 +254,22 @@ function reloadPreview() {
   if (activeScope.value) previewSrc.value = `/app/${previewStar(activeScope.value)}/?t=${Date.now()}`;
 }
 
-// ── Universe-slug suggestion ─────────────────────────────────────────────────
-// Company domain → the domain (john@acme.com → acme-com); a common/shared personal domain → the
-// local part (cassidy.perkins@lumenize.com → cassidy-perkins). Sanitized to a valid slug.
-const COMMON_DOMAINS = new Set([
-  "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com", "aol.com", "live.com",
-  "msn.com", "proton.me", "protonmail.com", "me.com",
-  "maccherone.com", "lumenize.com", // alpha-user shared domains → treat like personal
-]);
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-+/g, "-");
-}
-function suggestUniverseSlug(emailAddr: string): string {
-  const [local, domain] = emailAddr.toLowerCase().split("@");
-  if (!domain) return slugify(local ?? "");
-  return COMMON_DOMAINS.has(domain) ? slugify(local ?? "") : slugify(domain);
-}
+// ── session ──────────────────────────────────────────────────────────────────
+// ⚠️ **There is deliberately no login code here.** Signing in lives in the auth SPA at
+// `/auth/login`, which serves every tier — a Tenant who never sees Studio needs the same front door,
+// and a person with no session should not have to load Studio's whole bundle to find a form. Studio
+// only ever ARRIVES authenticated; all that remains is where to send someone who is not.
 
-// ── login ────────────────────────────────────────────────────────────────────
-// `discover` returns `universeGalaxyStarId` per scope (renamed from `instanceName` when identity
-// moved to the registry-minted surrogate `sub` — tasks/nebula-auth-surrogate-sub.md; `sub`-free).
-async function discover(emailAddr: string): Promise<{ universeGalaxyStarId: string; isAdmin: boolean }[]> {
-  const res = await fetch(`/auth/discover`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: emailAddr }),
-  });
-  if (!res.ok) throw new Error(`discover ${res.status}: ${await res.text().catch(() => "")}`);
-  return (await res.json()) as { universeGalaxyStarId: string; isAdmin: boolean }[];
-}
+/** The front door, and where a chosen Account/App/Tenant is picked. */
+const AUTH_LOGIN = "/auth/login";
+const homeFor = (s: string) => `/auth/${encodeURIComponent(s)}/home`;
 
-function rememberAuthScope(s: string) {
-  authScope.value = s;
-  activeScope.value = s;
-  // No localStorage write here — NebulaClient writes the per-workspace hint on every
-  // successful token acquisition (the authoritative, self-healing moment).
-}
+function goToLogin() { window.location.assign(AUTH_LOGIN); }
 
-async function sendMagicLink() {
-  const e = email.value.trim();
-  if (!e || busy.value) return;
-  busy.value = true;
-  try {
-    let target = urlScope; // an explicit `/studio/{scope}` (the post-login redirect / ui-smoke) bypasses discovery
-    if (!target) {
-      const entries = await discover(e);
-      if (entries.length === 1) {
-        target = entries[0]!.universeGalaxyStarId;
-      } else if (entries.length === 0) {
-        claimSlug.value = suggestUniverseSlug(e); // prefill the suggestion
-        needsClaim.value = true;
-        return;
-      } else {
-        log("error", `${entries.length} workspaces for ${e} — the picker is a later feature. Open the per-workspace link for now.`);
-        return;
-      }
-    }
-    rememberAuthScope(target);
-    const res = await fetch(`/auth/${target}/email-magic-link`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email: e }),
-    });
-    if (!res.ok) throw new Error(`magic-link ${res.status}: ${await res.text().catch(() => "")}`);
-    sentTo.value = e;
-  } catch (err) {
-    log("error", `Login failed: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function claimUniverse() {
-  const slug = claimSlug.value.trim();
-  const e = email.value.trim();
-  if (!slug || !e || busy.value) return;
-  busy.value = true;
-  try {
-    const res = await fetch(`/auth/claim-universe`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ slug, email: e }),
-    });
-    if (!res.ok) throw new Error(`claim ${res.status}: ${await res.text().catch(() => "")}`);
-    rememberAuthScope(slug);
-    needsClaim.value = false;
-    sentTo.value = e;
-  } catch (err) {
-    log("error", `Claim failed: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
+/** Back to Home to pick a different Account, App or Tenant. */
+function goHome() {
+  menuOpen.value = false;
+  window.location.assign(authScope.value ? homeFor(authScope.value) : AUTH_LOGIN);
 }
 
 /** A terminal auth failure (refresh token expired/invalid) on an ALREADY-connected tab — fired
@@ -528,7 +453,7 @@ async function openManage() {
   try {
     await loadScopes();
   } catch (e) {
-    log("error", `Could not load scopes: ${(e as Error).message}`);
+    log("error", `Could not load your account: ${(e as Error).message}`);
   } finally {
     busy.value = false;
   }
@@ -549,6 +474,20 @@ const hasDevStar = (galaxy: string) => scopes.value.some((s) => s.instanceName =
 /** Tree rows = the hierarchy WITHOUT the `.dev` development workspaces — those aren't tenants and
  *  aren't shown as rows; you reach one via a galaxy's "Develop" button. */
 const treeScopes = computed(() => scopes.value.filter((s) => !s.isDev));
+
+/**
+ * Whether this row's actions are live.
+ *
+ * ⚠️ **An unaccepted membership confers nothing** (ADR-012), so offering "+ App" or Delete on one is
+ * an affordance for authority its holder has not taken up — it answers 403 and reads as a bug in the
+ * product rather than as consent working. Found by driving the running app: a bootstrap address gets
+ * an UNACCEPTED `nebula-platform` membership on any login, it sorts to the top of this list, and its
+ * "+ App" button offered to create an app in the platform root.
+ *
+ * Only an explicit `false` disables — a descendant carries no flag and is reachable precisely
+ * because the membership above it was accepted.
+ */
+const isActionable = (s: Scope) => s.accepted !== false;
 
 async function addGalaxy(universe: string) {
   const slug = addChildSlug.value.trim();
@@ -724,10 +663,29 @@ function resetToLoggedOut() {
   activeScope.value = undefined;
   previewSrc.value = "";
   messages.value = [];
-  sentTo.value = null;
-  needsClaim.value = false;
   accountEmail.value = null;
   scopes.value = [];
+}
+
+/**
+ * End every session this address holds, not just this one.
+ *
+ * ⚠️ **The symmetric twin of mint-all.** One click on a link minted a cookie per membership, so
+ * "log out" meaning only THIS app would leave the others live — a genuine surprise on a shared
+ * machine, where the plain reading of the words is "not still signed in over there". The server
+ * expires each cookie at its own path; this side only has to stop using the session.
+ */
+async function logoutEverywhere() {
+  menuOpen.value = false;
+  const scope = authScope.value;
+  try {
+    if (scope) {
+      await fetch(`/auth/${scope}/logout-all`, { method: "POST", credentials: "include" }).catch(() => {});
+    }
+  } finally {
+    resetToLoggedOut();
+    goToLogin();
+  }
 }
 
 async function logout() {
@@ -814,35 +772,20 @@ async function logout() {
       </div>
 
       <footer class="p-4 border-t border-base-300">
-        <!-- Unauthenticated: email magic-link login (+ a first-run Universe claim). -->
+        <!-- Unauthenticated: Studio has no login of its own — the auth SPA owns every front door. -->
         <div v-if="!connected" class="flex flex-col gap-2">
-          <!-- Post-magic-link auto-connect in flight — don't flash the login form. -->
+          <!-- Post-magic-link auto-connect in flight — don't flash a sign-in prompt. -->
           <div v-if="connecting" class="flex items-center gap-2 text-sm opacity-80 py-2">
             <Loader2 class="size-4 animate-spin" /> Signing you in…
           </div>
           <template v-else>
-            <p v-if="sessionExpired && !sentTo" class="text-sm text-warning">
+            <p v-if="sessionExpired" class="text-sm text-warning">
               Your session expired — please sign in again.
             </p>
-            <p v-if="sentTo" class="text-sm opacity-80">
-              Magic link sent to <span class="font-mono">{{ sentTo }}</span> — check your email to finish signing in.
-            </p>
-            <template v-else>
-              <form v-if="!needsClaim" class="flex flex-col gap-2" @submit.prevent="sendMagicLink">
-                <input v-model="email" type="email" class="input input-bordered" placeholder="you@example.com" :disabled="busy" />
-                <button class="btn btn-primary" :disabled="busy || !email.trim()">
-                  <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Send magic link
-                </button>
-              </form>
-              <form v-else class="flex flex-col gap-2" @submit.prevent="claimUniverse">
-                <p class="text-sm opacity-80">Name your <span class="font-medium">Universe</span> (see the guide on the right):</p>
-                <input v-model="claimSlug" class="input input-bordered font-mono" placeholder="your-universe-slug" :disabled="busy" />
-                <button class="btn btn-primary" :disabled="busy || !claimSlug.trim()">
-                  <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Claim &amp; send magic link
-                </button>
-              </form>
-            </template>
-            <!-- Logout escape hatch even with no avatar (stale cookie / half-finished login). -->
+            <button class="btn btn-primary" @click="goToLogin">
+              <LogIn class="size-4" /> Sign in
+            </button>
+            <!-- Escape hatch with no avatar (stale cookie / half-finished sign-in). -->
             <button v-if="hasSession" type="button" class="btn btn-ghost btn-xs self-start opacity-70" @click="logout">
               <LogOut class="size-3.5" /> Log out
             </button>
@@ -882,9 +825,15 @@ async function logout() {
           <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
           <span class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
         </button>
-        <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-52 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
-          <button class="btn btn-sm btn-ghost justify-start" @click="openManage">Manage my scopes</button>
-          <button class="btn btn-sm btn-ghost justify-start" @click="logout"><LogOut class="size-4" /> Log out</button>
+        <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
+          <button class="btn btn-sm btn-ghost justify-start" @click="goHome"><Home class="size-4" /> Home</button>
+          <button class="btn btn-sm btn-ghost justify-start" @click="openManage">Manage my account</button>
+          <a class="btn btn-sm btn-ghost justify-start" href="/auth/emails"><Mail class="size-4" /> Email addresses</a>
+          <div class="divider my-0"></div>
+          <!-- Two logouts, because they mean different things on a shared machine: one ends this
+               app's session, the other ends every session this address holds anywhere. -->
+          <button class="btn btn-sm btn-ghost justify-start" @click="logout"><LogOut class="size-4" /> Log out of this app</button>
+          <button class="btn btn-sm btn-ghost justify-start text-error" @click="logoutEverywhere"><LogOut class="size-4" /> Log out everywhere</button>
         </div>
       </div>
 
@@ -895,30 +844,30 @@ async function logout() {
           <p class="opacity-80">You build inside a simple three-level hierarchy. You'll create it yourself, one level at a time.</p>
           <div class="flex flex-col gap-4">
             <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">🌌 Universe — that's you</p>
-              <p class="text-sm opacity-80 mt-1">Your top-level space. If you have a company or a brand, that's probably the best choice for your Universe slug. If you're a solopreneur, you might use your name.</p>
+              <p class="font-medium">🌌 Your account — that's you</p>
+              <p class="text-sm opacity-80 mt-1">Your top-level space. If you have a company or a brand, that's probably the best name for it. If you're a solopreneur, you might use your own.</p>
             </div>
             <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">✨ Galaxy — an app</p>
-              <p class="text-sm opacity-80 mt-1">Each app you build is a Galaxy in your Universe. You can have as many as you like.</p>
+              <p class="font-medium">✨ An app</p>
+              <p class="text-sm opacity-80 mt-1">Each app you build lives in your account. You can have as many as you like.</p>
             </div>
             <div class="border border-base-300 rounded-box p-4">
               <p class="font-medium">🧪 Development workspace — where you build</p>
               <p class="text-sm opacity-80 mt-1">While you build an app it has a private development workspace: you describe changes, see them live, and fill it with throwaway test data.</p>
             </div>
             <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">⭐ Star — a tenant (later)</p>
-              <p class="text-sm opacity-80 mt-1">When your app goes live, each of your end-customers gets their own isolated Star — their private copy of the app with their own data. You don't create these by hand; they arrive via sign-up or invite.</p>
+              <p class="font-medium">⭐ A tenant (later)</p>
+              <p class="text-sm opacity-80 mt-1">When your app goes live, each of your end-customers gets their own isolated tenant — a private copy of the app with their own data. You don't create these by hand; they arrive via sign-up or invite.</p>
             </div>
           </div>
-          <p v-if="!connected" class="opacity-80">Claim your Universe on the left to get started.</p>
-          <p v-else class="opacity-80">Next: just type a name for your app in the chat on the left and I'll set it up — or open <span class="font-medium">Manage my scopes</span> (top right) to build it by hand.</p>
+          <p v-if="!connected" class="opacity-80">Sign in on the left to get started.</p>
+          <p v-else class="opacity-80">Next: just type a name for your app in the chat on the left and I'll set it up — or open <span class="font-medium">Manage my account</span> (top right) to build it by hand.</p>
         </div>
 
         <!-- Hierarchy manager. -->
         <div v-else-if="stageMode === 'manage'" class="p-6 flex flex-col gap-4 max-w-2xl">
           <div class="flex items-center justify-between">
-            <h2 class="text-lg font-bold">Manage my scopes</h2>
+            <h2 class="text-lg font-bold">Manage my account</h2>
             <button class="btn btn-sm btn-ghost" @click="closeManage"><ChevronLeft class="size-4" /> Back</button>
           </div>
           <p v-if="accountEmail" class="text-sm opacity-70">Signed in as <span class="font-mono">{{ accountEmail }}</span></p>
@@ -951,31 +900,43 @@ async function logout() {
           <!-- Hierarchy tree. -->
           <div v-else class="flex flex-col gap-2">
             <p v-if="busy && !scopes.length" class="text-sm opacity-60 flex items-center gap-2">
-              <Loader2 class="size-4 animate-spin" /> Loading your scopes…
+              <Loader2 class="size-4 animate-spin" /> Loading…
             </p>
-            <p v-else-if="!scopes.length" class="text-sm opacity-60">No scopes yet.</p>
+            <p v-else-if="!scopes.length" class="text-sm opacity-60">Nothing here yet.</p>
             <template v-for="s in treeScopes" :key="s.instanceName">
               <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :style="{ marginLeft: depth(s) * 20 + 'px' }">
                 <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
                 <span class="text-xs opacity-40">{{ s.tier === "galaxy" ? "app" : s.tier }}</span>
 
-                <button v-if="s.tier === 'galaxy'" class="btn btn-xs btn-primary" :disabled="busy" @click="develop(s.instanceName)" title="Open this app's private development workspace to build &amp; test it">
-                  <Hammer class="size-3.5" /> Develop
-                </button>
-                <button v-else-if="s.tier === 'universe'" class="btn btn-xs btn-ghost" :disabled="busy" @click="addChildFor = addChildFor === s.instanceName ? null : s.instanceName">
-                  <Plus class="size-3.5" /> Galaxy
-                </button>
+                <!-- Not yet taken up: no actions, and a pointer to where consent is given. -->
+                <template v-if="!isActionable(s)">
+                  <span class="badge badge-warning badge-sm">Not accepted</span>
+                  <a class="btn btn-xs btn-ghost" :href="`/auth/${authScope}/home`">Review</a>
+                </template>
+                <template v-else>
+                  <button v-if="s.tier === 'galaxy'" class="btn btn-xs btn-primary" :disabled="busy" @click="develop(s.instanceName)" title="Open this app's private development workspace to build &amp; test it">
+                    <Hammer class="size-3.5" /> Develop
+                  </button>
+                  <button v-else-if="s.tier === 'universe'" class="btn btn-xs btn-ghost" :disabled="busy" @click="addChildFor = addChildFor === s.instanceName ? null : s.instanceName">
+                    <Plus class="size-3.5" /> App
+                  </button>
 
-                <button class="btn btn-xs btn-ghost text-error" :disabled="busy" title="Delete" @click="openDeleteConfirm(s.instanceName)">
-                  <Trash2 class="size-3.5" />
-                </button>
+                  <button class="btn btn-xs btn-ghost text-error" :disabled="busy" title="Delete" @click="openDeleteConfirm(s.instanceName)">
+                    <Trash2 class="size-3.5" />
+                  </button>
+                </template>
               </div>
               <!-- inline "name a Galaxy" input under a Universe row -->
-              <form v-if="addChildFor === s.instanceName" class="flex gap-2 items-center" :style="{ marginLeft: (depth(s) + 1) * 20 + 'px' }" @submit.prevent="addGalaxy(s.instanceName)">
-                <input v-model="addChildSlug" class="input input-bordered input-sm flex-1 font-mono" placeholder="galaxy-slug (your app)" :disabled="busy" />
-                <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">
-                  <Loader2 v-if="busy" class="size-3.5 animate-spin" /> Add
-                </button>
+              <!-- The notice's SECOND placement: creating an app is a commit, so it renders here as
+                   well as in the self-signup consent modal. One component, two renders. -->
+              <form v-if="addChildFor === s.instanceName" class="flex flex-col gap-2" :style="{ marginLeft: (depth(s) + 1) * 20 + 'px' }" @submit.prevent="addGalaxy(s.instanceName)">
+                <div class="flex gap-2 items-center">
+                  <input v-model="addChildSlug" class="input input-bordered input-sm flex-1 font-mono" placeholder="name your app" :disabled="busy" />
+                  <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">
+                    <Loader2 v-if="busy" class="size-3.5 animate-spin" /> Add
+                  </button>
+                </div>
+                <DataUseNotice />
               </form>
             </template>
           </div>
