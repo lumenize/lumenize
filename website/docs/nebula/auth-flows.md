@@ -46,31 +46,36 @@ sequenceDiagram
     participant KV as Workers KV
     participant GW as Gateway DO
 
-    rect rgba(200, 220, 240, 0.3)
-        Note over UI,R: 1. Discovery returns nothing for a brand-new email
-        UI->>W: POST /auth/discover { email }
-        W->>R: discover(email)
-        R-->>W: [] (no scopes)
-        W-->>UI: empty — offer to found a Universe
-    end
-
     rect rgba(220, 220, 255, 0.3)
-        Note over UI,R: 2. Claim a Universe — MINTS the claiming admin identity
+        Note over UI,R: 1. Name the account — MINTS the claiming admin identity
+        Note over UI: Nothing is asked about the address first
         UI->>W: POST /auth/claim-universe { slug, email, cf-turnstile-response }
         W->>R: claimUniverse(slug, email)
-        Note over R: register Scope + mint admin membership<br/>(scopeAdmin, not yet taken up) + create MagicLink
+        Note over R: register Scope + mint admin membership<br/>(scopeAdmin, NOT yet taken up) + create MagicLink
         R-->>W: send magic-link email
         W-->>UI: Show "Check your email"
     end
 
     rect rgba(240, 220, 200, 0.3)
-        Note over UI,KV: 3. Click magic link — verify + issue the refresh token
+        Note over UI,KV: 2. Click the link — prove the mailbox, place the session
         UI->>W: GET /auth/{slug}/magic-link?one_time_token=...
-        W->>R: consumeMagicLink(tokenHash, refreshTokenHash, expiresAt)
-        Note over R: find-and-flip that Identity<br/>write RefreshTokenIndex (sync) THEN
-        R->>KV: put refresh:{tokenHash} = { sub, scope, scopeAdmin, expiresAt }
-        R-->>W: { sub, universeGalaxyStarId }
-        W-->>UI: Set-Cookie (path /auth/{slug}) + 302 to /app/{slug}
+        W->>R: resolveConsume(kind, tokenHash)
+        Note over R: prove the mailbox once, globally<br/>return EVERY membership this address holds
+        R-->>W: plan (memberships, link scope)
+        W->>R: recordSessions(hashes, expiresAt)
+        R->>KV: put refresh:{tokenHash} per membership
+        W-->>UI: one Set-Cookie per membership + 302 to /auth/{slug}/home
+    end
+
+    rect rgba(255, 235, 200, 0.3)
+        Note over UI,R: 3. Consent — the cookie is INERT until this
+        Note over UI: Home renders the self-signup modal:<br/>"Only accept if you initiated this signup" + the data-use notice
+        UI->>W: POST /auth/{slug}/pending-membership
+        W-->>UI: the modal's inputs (no access token exists yet)
+        UI->>W: POST /auth/{slug}/accept-membership
+        W->>R: acceptMembership(sub)
+        Note over R: stamp acceptedAt + converge the KV record
+        W-->>UI: accepted
     end
 
     rect rgba(200, 240, 200, 0.3)
@@ -91,7 +96,7 @@ sequenceDiagram
 
 :::note[Joining an existing scope]
 
-An invited user follows the same shape but via `GET /auth/{scope}/accept-invite?invite_token=...` — the invite (single-use) is consumed, the pre-created invitee identity is flipped verified, and the same refresh cookie is issued. `email-magic-link` is only for **re-logging-in an identity that already exists** — it cannot create membership.
+An invited user follows the same shape but via `GET /auth/{scope}/accept-invite?invite_token=...` — the invite (single-use) is consumed, the mailbox is proved, and the same inert cookie is issued. They land on the same Home screen, where the modal names who invited them rather than warning them off. `email-magic-link` never creates membership; it proves an address and hands back whatever that address already holds.
 
 :::
 
@@ -109,12 +114,14 @@ sequenceDiagram
     participant GW as Gateway DO
 
     rect rgba(200, 220, 240, 0.3)
-        Note over UI,R: 1. Discovery
-        UI->>W: POST /auth/discover { email }
-        W->>R: discover(email)
-        R-->>W: [{ universeGalaxyStarId, scopeAdmin }, ...]
-        W-->>UI: Scope list
-        Note over UI: User selects scope
+        Note over UI,R: 1. Pick where to go — AFTER the session exists
+        Note over UI: The cookie is already in the browser, so no email is needed
+        UI->>W: POST /auth/{scope}/refresh-token (bootstrap)
+        UI->>W: POST /auth/scope-summary (Bearer)
+        W->>R: getScopeSummary(profileId, sub)
+        R-->>W: every address on this identity + the tree beneath each
+        W-->>UI: the Home tree
+        Note over UI: User picks an account, app or tenant
     end
 
     rect rgba(200, 240, 200, 0.3)
@@ -163,9 +170,9 @@ sequenceDiagram
     Note over NC1: Currently connected to<br/>acme.app.tenant-a<br/>(aud: "acme.app.tenant-a")
 
     rect rgba(200, 220, 240, 0.3)
-        Note over UI,W: 1. User navigates to login page and runs discovery
-        UI->>W: POST /auth/discover { email }
-        W-->>UI: [{ universeGalaxyStarId, scopeAdmin }, ...]
+        Note over UI,W: 1. User opens Home and picks a different tenant
+        UI->>W: POST /auth/scope-summary (Bearer, person-scoped)
+        W-->>UI: every address on this identity + the tree beneath each
         Note over UI: User selects "acme.app.tenant-b"<br/>(can back out here — old client stays alive)
     end
 

@@ -37,7 +37,7 @@ Slugs are lowercase letters, digits, and hyphens (`[a-z0-9][a-z0-9-]*`), no lead
 Every route takes one of exactly two shapes — the rule is in [`.claude/rules/raw-comm.md`](../../.claude/rules/raw-comm.md) § "Edge Worker fronting a DO":
 
 - **Forwarded to the registry's `fetch()`** when the endpoint's job *is* the DO's data operation (claim / create / query / delete on registry storage). The Worker does only the cross-cutting pre-checks that need env + secrets and produce **trusted claims** — Turnstile, JWT verify — then injects `verifiedAccess` (and `callerSub` for deletes) into the body and forwards. Because `request.url` is preserved, the DO reads `url.origin` itself, and it converts its own `RegistryError` to a `Response` in-process, so `status`/`errorCode` survive.
-- **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a `302`, reading a token from the query string, or a pure-KV read. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `consumeMagicLink`, `consumeInvite`, …). (`issueInvites` is not on this list: its caller is the mesh facade, never the router.)
+- **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a `302`, reading a token from the query string, or a pure-KV read. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `resolveConsume`, `recordSessions`, …). (`issueInvites` is not on this list: its caller is the mesh facade, never the router.)
 
 **Every route is registered in the route-pipeline table** (`buildAuthRouteTable` in `router.ts`) —
 each entry is `{ path, method, steps }`, and the ordered step list IS the route's complete
@@ -64,7 +64,7 @@ Identity is keyed by a registry-minted opaque `sub` (UUID), **one per `(email, s
 | `requestMagicLink` at `nebula-platform` for a configured bootstrap email | platform-admin `Identity` (idempotent, scope-gated) |
 | `createGalaxy` / `createStar` (admin) | `Scopes` row **only** — no identity, no email; the parent admin manages via wildcard reach |
 
-**Login never mints.** `resolveConsume` *finds* every membership on the address and flips `emailVerified`, resolving to an empty set when the address holds none. That is the load-bearing invariant: **an `Identity` row means an authorized member**, which is what let the old `adminApproved` flag and its edge gate be retired outright rather than re-homed. A stranger who requests a magic link for a scope they were never minted into gets a link that fails at consume.
+**Login never mints, and a consume never enrols.** `resolveConsume` *finds* every membership on the address and flips `emailVerified` — proof of the MAILBOX, set once and globally — resolving to an empty set when the address holds none. It does **not** write `acceptedAt`: proving an address and agreeing to hold a membership are different acts, and the only writer of the second is `accept-membership`, reached from behind a consent modal. So the cookies a click places are INERT until their holder consents; `refresh-token` answers `401 membership_not_accepted` until then. A stranger who requests a link for a scope they were never minted into proves their mailbox and gets nowhere to go.
 
 ### The refresh path is a pure KV read
 
@@ -96,7 +96,7 @@ The gate lands in three places depending on the surface:
 |---|---|
 | Path parse + `parseId` validation | All (invalid scope id → `400 invalid_instance`); on pipeline routes this is the `parseScopeGuard` step |
 | CORS policy (`@lumenize/routing`) | All, per `RouteNebulaAuthOptions.cors` |
-| Turnstile | `email-magic-link`, `claim-universe`, `claim-star`, `discover` — i.e. every UNAUTHENTICATED endpoint (see the note below the registry table) |
+| Turnstile | Derived from the CREDENTIAL a route presents, not from a list: every route presenting none — no Bearer, no path-scoped cookie, no one-time token — carries `turnstileGuard`. Today that is `email-magic-link` (both forms), `claim-universe` and `claim-star`. Two deliberate exemptions present nothing and are un-gated: the GETs that serve the auth SPA's static HTML, and `coming-soon`. `test/turnstile-by-credential.test.ts` derives the set from the route table, so a new row must state which side it falls on |
 | JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated endpoints (`verifyJwtGuard`, Bearer-only) |
 | Per-`sub` rate limit (`subRateLimitGuard`) | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
 
@@ -112,7 +112,7 @@ All auth routes share a single prefix (`/auth`):
 
 ```
 https://host/auth/{universeGalaxyStarId}/[endpoint]   -> Worker token layer
-https://host/auth/discover                            -> forwarded to the registry
+https://host/auth/scope-summary                       -> forwarded to the registry
 https://host/auth/claim-universe                      -> forwarded to the registry
 https://host/auth/create-galaxy                       -> forwarded to the registry
 https://host/auth/create-star                         -> forwarded to the registry
@@ -134,7 +134,10 @@ Every path is matched against the route table's `URLPattern`s — the scope-less
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
 | `/auth/{scope}/email-magic-link` | POST | Turnstile | Worker | Request a login magic link. Validates email format at the edge, then `requestMagicLink` inserts a hashed `MagicLinks` row and sends the mail. **Mints no identity.** |
-| `/auth/{scope}/magic-link?one_time_token=…` | GET | none | Worker | Consume the link: `consumeMagicLink` validates + find-and-flips the identity and records the refresh token. Sets the path-scoped cookie, `302`s to `{NEBULA_AUTH_REDIRECT}/{scope}` |
+| `/auth/magic-link?one_time_token=…` | GET | none | Worker | The scope-less click. `resolveConsume` validates the link, proves the mailbox once and globally, and returns EVERY membership the address holds; the Worker mints a session per membership and sets one path-scoped cookie each. `302`s to `/auth/{scope}/home` — or `/auth/signup` when the address holds nothing yet, carrying a short-lived signup ticket |
+| `/auth/{scope}/magic-link?one_time_token=…` | GET | none | Worker | The same consume, reached by a link that named a scope (a claim). Identical behaviour; the named scope is minted first |
+| `/auth/{scope}/pending-membership` | POST | path-scoped cookie | Worker | The consent modal's inputs for the membership that cookie names — acceptance state and the sender-supplied name. Exists because a refresh REFUSES an unaccepted membership, which is exactly the one the modal is for |
+| `/auth/{scope}/accept-membership` | POST | path-scoped cookie | Worker | **The one writer of `acceptedAt`.** Reached from behind the consent modal; converges the KV record and any co-minted `.dev` sibling |
 | `/auth/{scope}/accept-invite?invite_token=…` | GET | none | Worker | Same, via `consumeInvite` — the invite row is reusable within its TTL (scanner-safe, like magic links; swept at expiry, never deleted on consume) |
 | `/auth/{scope}/refresh-token` | POST | none (cookie) | Worker | Pure KV read → mint the access token. Requires `{ activeScope }` JSON body. Re-sets no cookie |
 | `/auth/{scope}/logout` | POST | none (cookie) | Worker | `revokeRefreshToken` deletes the KV record + index entry; clears the cookie |
@@ -150,7 +153,6 @@ Every path is matched against the route table's `URLPattern`s — the scope-less
 
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
-| `/auth/discover` | POST | Turnstile | → registry `fetch()` | Email-based scope discovery. Returns `{ universeGalaxyStarId, isAdmin }[]` — deliberately `sub`-free |
 | `/auth/claim-universe` | POST | Turnstile | → registry `fetch()` (raw) | Open self-signup: register the `Scopes` row, mint the claiming admin identity, send a magic link |
 | `/auth/claim-star` | POST | Turnstile | → registry `fetch()` (raw) | **Open Star self-signup.** Body `{ universeGalaxyStarId, email }`. Registers the `Scopes` row, mints the star-scoped admin at the **3-segment star id** (`isAdmin`, `emailVerified: 0` → an **exact-star** pattern), and sends a claim link — all in one `transactionSync`. No admin in the loop |
 | `/auth/create-galaxy` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a galaxy — `Scopes` row only |
@@ -230,12 +232,14 @@ sequenceDiagram
     Note over C,KV: Step 2 - click the link
     C->>W: GET /auth/{scope}/magic-link?one_time_token=...
     W->>W: generate the raw refresh token, hash both tokens
-    W->>R: consumeMagicLink(linkHash, refreshHash, refreshExpiresAt)
-    R->>R: validate the MagicLinks row, then find-and-flip the Identity
+    W->>R: resolveConsume(kind, linkHash)
+    R->>R: validate the MagicLinks row, prove the mailbox (emailVerified)
+    R-->>W: every membership this address holds, or null
+    W->>W: choose which get a cookie, mint a raw token each
+    W->>R: recordSessions(hashes, expiresAt)
     R->>R: INSERT RefreshTokenIndex (index FIRST)
     R->>KV: put refresh:{tokenHash} with a fixed 30-day TTL
-    R-->>W: { sub, universeGalaxyStarId }, or null
-    W-->>C: 302 to the redirect + Set-Cookie (path-scoped refresh)
+    W-->>C: 302 to /auth/{scope}/home + one Set-Cookie per membership
 ```
 
 Index-first is a seam invariant: an eviction at the awaited KV put leaves at worst a revocable index-entry-without-record, never a live-but-unindexed token that nothing can revoke. Magic links stay reusable within their TTL (scanner-safe) and are swept on DO wake rather than deleted on consume.
@@ -292,7 +296,7 @@ sequenceDiagram
     R-->>W: 200 { message }
     W-->>C: 200
 
-    Note over C,R: The claimer proves the address by clicking, which find-and-flips emailVerified
+    Note over C,R: The click proves the address (emailVerified) and places an INERT session<br/>Accepting on Home is what takes the membership up
 ```
 
 ### Galaxy / Star creation (admin only)
@@ -315,7 +319,13 @@ sequenceDiagram
 
 `create-star` is the same shape one tier down, gated on the parent **galaxy**. Neither mints an identity — the creating admin already reaches the new scope through their wildcard pattern.
 
-### Discovery
+### Discovery — after the proof, never before
+
+`POST /auth/discover` is **retired**. It answered, to anyone who asked and with no proof of the
+address, which scopes an address belonged to and which it administered — and at galaxy and universe
+tiers a membership generally IS administration, while at `nebula-platform` it is superuser-ship, so
+narrowing the response could never have closed it. The whole login order changed instead: one
+scope-less link, the click proves the mailbox, and only then is the person shown what they reach.
 
 ```mermaid
 sequenceDiagram
@@ -323,14 +333,17 @@ sequenceDiagram
     participant W as Worker
     participant R as Registry DO
 
-    C->>W: POST /auth/discover { email }
-    W->>W: Turnstile gate
-    W->>R: forward the request to the DO fetch()
-    R->>R: SELECT universeGalaxyStarId, isAdmin FROM Identities WHERE email = ?
-    R-->>W: 200 [{ universeGalaxyStarId, isAdmin }, ...]
-    W-->>C: 200
+    Note over C,W: No scope is named — nothing is known about the address yet
+    C->>W: POST /auth/email-magic-link { email }
+    W-->>C: 200, identical whatever address was named
 
-    Note over C,R: The client then tries refresh first, falling back to a magic link
+    Note over C,W: ... the person clicks the link in their mail ...
+
+    C->>W: POST /auth/scope-summary (Bearer, from the session the click placed)
+    W->>R: getScopeSummary(profileId, sub)
+    R->>R: every address on this identity, and the tree beneath each ACCEPTED admin membership
+    R-->>W: budget-bounded nested summary
+    W-->>C: 200
 ```
 
 ### Scope deletion
@@ -565,7 +578,6 @@ Admin-created child scopes stamp **no local admin** — the creating admin manag
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret (optional — absent skips the gate) |
 | `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN` | Authorized bypass token for the `x-lumenize-turnstile-bypass` header (optional, secret — never logged) |
 | `NEBULA_AUTH_BOOTSTRAP_EMAIL` | Comma-separated platform super-admin emails (optional) |
-| `NEBULA_AUTH_REDIRECT` | Post-login redirect base; the consume handler appends `/{scope}` |
 | `AUTH_EMAIL_FROM` | From-address for `NebulaEmailSender` (defaults to `noreply@lumenize.io`) |
 | `NEBULA_AUTH_TEST_MODE` | Returns raw magic-link/invite URLs instead of sending. It does NOT skip Turnstile — an absent/empty `TURNSTILE_SECRET_KEY` is what does (the vitest configs bind `''` explicitly). ⚠️ Set **only** in vitest `miniflare.bindings` — never in `wrangler.jsonc` or `.dev.vars` |
 

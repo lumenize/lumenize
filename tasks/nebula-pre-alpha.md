@@ -107,17 +107,15 @@ The remaining provisioning / capture / inspection work builds on these (the code
   fanout the user's `Message` Resources → local JSON corpus the assistant reads to answer Larry's
   questions. Its API/inspection client is folded into the live-verification harness
   ([claude-live-verification.md](archive/claude-live-verification.md)) — build once, there.
-- ⚠️ **GATE — login re-order + data-use notice, ONE task (design settled 2026-08-31; NOT built).**
-  Studio calls `discover(email)` **before** anyone proves anything — any caller can ask which scopes an
-  address belongs to and administers (at Galaxy/Universe tiers membership *is* admin-ship; at
-  `nebula-platform` it *is* superuser-ship), and a multi-membership address dead-ends. Target: one
-  scope-less link → the click proves the mailbox and mints every membership's session → the Home
-  screen routes the choice. The consent notice ships in the same task — short, informational, no
-  stored value, generic "improve the product" framing — rendered where a user commits: the claim
-  affordance, the fallback slug screen, and the create-Galaxy flow (the placement invitees actually
-  meet on day 1). Must land **before the first non-Larry user is invited** (Larry owns + accepts
-  responsibility; pre-invite he's the only subject). → design intent and decisions table:
-  **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)**.
+- ✅ **Login re-order + data-use notice, ONE task — BUILT 2026-09-01, undeployed (rides the wipe).**
+  `discover(email)` is **deleted** — route row, registry method, dispatch arm, type and export — so
+  nothing is answered about an address before someone proves they hold it. One scope-less link; the
+  click proves the mailbox and mints a session per membership; the Home screen routes the choice, and
+  every membership is taken up behind a consent modal (the cookies are inert until then). The notice
+  renders at both commit points: the self-signup modal and the create-App flow. The multi-membership
+  dead end and the two-email signup are both gone — each newbie arm costs exactly one email, asserted
+  by counting real mail. → **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)**.
+  ⚠️ **Not deployed**, like everything on this branch; the wipe gate is what makes it real.
 - ✅ **GATE — preview survives redeploys: discharged structurally by the collapse; the deploy-only confirm ran 2026-08-29** (same pre-redeploy hashed asset served post-redeploy on `test-nebula`) — record in [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)'s status banner.
 
 ### Consider before invites (NOT gates)

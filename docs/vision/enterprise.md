@@ -91,7 +91,7 @@ The enterprise tier is **governance and assurance layered on top of the one secu
 
 ### Identity is a commodity; align with WorkOS (added 2026-08-10)
 
-Enterprise identity is settled, and it has one consensus winner — [WorkOS](https://workos.com), what Vercel, Replit, Cursor, Perplexity, OpenAI and Anthropic all run. **We do not fight that and we do not rebuild it, because none of our value sits on that side of the line.** SSO/SAML is a third login channel reaching the same `getAndVerifyIdentity` call `consumeMagicLink` and `consumeInvite` already do; SCIM is the enterprise form of `issueInvites`. Nothing downstream moves.
+Enterprise identity is settled, and it has one consensus winner — [WorkOS](https://workos.com), what Vercel, Replit, Cursor, Perplexity, OpenAI and Anthropic all run. **We do not fight that and we do not rebuild it, because none of our value sits on that side of the line.** SSO/SAML is a third login channel reaching the same consume the magic-link and invite clicks already do; SCIM is the enterprise form of `issueInvites`. Nothing downstream moves.
 
 **Which is the answer to "why not just use WorkOS for all of it?"** What they sell stops at the app's front door — authentication plus an org directory. Everything Nebula claims is on the far side of it: authorization *inside* the data model ([`auth.md`](auth.md), [ADR-008](../adr/008-full-org-tree-visibility.md)). Note who is on that customer list: WorkOS makes **Replit-the-company** enterprise-ready and does nothing whatsoever for the security of the app a domain expert builds **on** Replit. That gap is our wedge — evidenced by a competitor's own procurement choice.
 
