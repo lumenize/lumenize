@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { requestMagicLink, platformLogin } from './test-helpers';
+import { requestMagicLink, platformLogin, expectNoSession } from './test-helpers';
 import { PLATFORM_SCOPE } from '../src/types';
 
 const SECOND_BOOTSTRAP = 'second-bootstrap@example.com'; // the config entry is mixed-case + leading space
@@ -46,6 +46,6 @@ describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
     // control asserts is the absent membership and the absent session.
     const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
     expect(clickResp.headers.get('Location')).toBe('/auth/signup');
-    expect(clickResp.headers.get('Set-Cookie')).toBeNull();
+    expectNoSession(clickResp);
   });
 });

@@ -167,6 +167,29 @@ CREATE TABLE IF NOT EXISTS MagicLinks (
 ) WITHOUT ROWID
 `;
 
+/**
+ * Signup tickets — the fallback slug screen's authorization, and nothing else's.
+ *
+ * A consume that resolves to zero memberships has PROVED the address and has nowhere to send it, so
+ * it issues one of these and 302s to the slug screen. The screen's claim then spends the ticket
+ * instead of sending a second link: the mailbox was proved seconds ago by the click that issued
+ * this row, and re-proving it would be the second email this whole design exists to delete.
+ *
+ * ⚠️ **The address is a COLUMN here because it is the ticket's whole point.** The claim derives the
+ * address it is claiming for from this row, never from the request body — a body-supplied address
+ * would let anyone holding any ticket claim a workspace in someone else's name.
+ *
+ * Stored HASHED like every other one-time token, so a leaked read of this table spends nothing.
+ * Short TTL: the screen it authorizes is the very next navigation.
+ */
+export const SIGNUP_TICKETS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS SignupTickets (
+  ticketHash TEXT PRIMARY KEY,
+  email      TEXT NOT NULL,
+  expiresAt  TEXT NOT NULL
+) WITHOUT ROWID
+`;
+
 /** Invite login channel. Token stored HASHED. Single-use (deleted on claim), 7d TTL.
  *
  *  ⚠️ Holds the BARE ADDRESS for the same two reasons as `MagicLinks`, and the fail-closed half matters
@@ -213,4 +236,5 @@ export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
   { idMonotonicInc: 19, description: 'Memberships.invitedBySub (consent-modal attribution)', sql: MEMBERSHIPS_INVITED_BY_SUB },
   { idMonotonicInc: 20, description: 'Memberships.invitedByName (inviter-asserted, display-only)', sql: MEMBERSHIPS_INVITED_BY_NAME },
   { idMonotonicInc: 21, description: 'Memberships.invitedByProfileId (consent-modal attribution)', sql: MEMBERSHIPS_INVITED_BY_PROFILE_ID },
+  { idMonotonicInc: 22, description: 'SignupTickets table (fallback slug screen, hashed, short TTL)', sql: SIGNUP_TICKETS_SCHEMA },
 ];

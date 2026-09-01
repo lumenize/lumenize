@@ -279,3 +279,18 @@ export async function adminRequest(
     method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
   }));
 }
+
+/**
+ * No SESSION was minted by this click — the invariant every "not an identity" test asserts.
+ *
+ * ⚠️ **Not "no `Set-Cookie` at all", which is what these used to check.** A member-less but PROVED
+ * address now receives a `signup-ticket` cookie on its way to the slug screen, and that is not a
+ * session: it mints no token, reaches no scope, and expires in minutes. Asserting the absence of any
+ * cookie conflated "you got nothing" with "you got nowhere to go", and the second is a legitimate
+ * outcome of the front door. What must stay true is that no REFRESH cookie was set.
+ */
+export function expectNoSession(resp: Response): void {
+  const all = (resp.headers as any).getSetCookie?.() as string[] | undefined
+    ?? [resp.headers.get('Set-Cookie')].filter((c): c is string => c !== null);
+  expect(all.filter((c) => c.startsWith('refresh-token='))).toEqual([]);
+}

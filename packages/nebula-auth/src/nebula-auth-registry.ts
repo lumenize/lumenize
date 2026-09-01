@@ -32,7 +32,7 @@ import { REGISTRY_MIGRATIONS } from './schemas';
 import {
   NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, instanceAuthUrl, scopelessAuthUrl,
   SCOPELESS_INSTANCE_TAG, MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
-  SCOPE_TREE_NODE_BUDGET,
+  SCOPE_TREE_NODE_BUDGET, SIGNUP_TICKET_TTL,
 } from './types';
 import type {
   AccessEntry, DiscoveryEntry, EmailMessage, InviteMintResult, InviteeError, InviteeMintResult,
@@ -43,6 +43,14 @@ import type {
 import { parseId, isValidSlug, isPlatformScope, hasDominionOver } from './parse-id';
 import { projectActingToken } from './access-claims';
 import { reportUnconfiguredProtections } from './router';
+
+/**
+ * What a ticket-backed claim answers with. Refusals are values rather than throws — see
+ * {@link NebulaAuthRegistry.claimUniverseWithTicket} for why the RPC boundary requires it.
+ */
+export type TicketClaimResult =
+  | { ok: true; sub: string; universeGalaxyStarId: string }
+  | { ok: false; reason: 'invalid_ticket' | 'invalid_slug' | 'reserved_slug' | 'slug_taken' };
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
 export interface AffectedScope {
@@ -162,6 +170,7 @@ export class NebulaAuthRegistry extends DurableObject {
     // periodic scan is far cheaper than an index write on every insert.
     this.ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE expiresAt < ?', nowIso);
     this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE expiresAt < ?', nowIso);
+    this.ctx.storage.sql.exec('DELETE FROM SignupTickets WHERE expiresAt < ?', nowIso);
     this.ctx.storage.sql.exec('DELETE FROM RefreshTokenIndex WHERE expiresAt < ?', nowIso);
     // Un-awaited on purpose: a DO storage write needs no await (the output gate orders it), and this
     // is called from a synchronous constructor. Re-armed unconditionally so the chain cannot lapse —
@@ -535,6 +544,91 @@ export class NebulaAuthRegistry extends DurableObject {
     log.info('Universe claimed', { slug, email: lc });
 
     return this.#deliverMagicLink(link.rawToken, lc, slug, origin);
+  }
+
+  /**
+   * Issue a signup ticket for an address whose mailbox was just proved.
+   *
+   * Called from the consume when the plan resolves to zero memberships: the person is new, so there
+   * is nothing to enter and nowhere to send them but the slug screen. The ticket is what makes that
+   * screen's claim legal without a second email.
+   *
+   * Returns the RAW ticket — the only time it exists in plaintext, exactly as the magic-link and
+   * invite channels do. The caller puts it in a short-lived cookie and never stores it.
+   */
+  async issueSignupTicket(email: string): Promise<string> {
+    const rawTicket = generateRandomString(32);
+    const ticketHash = await hashString(rawTicket);
+    const expiresAt = new Date(Date.now() + SIGNUP_TICKET_TTL * 1000).toISOString();
+    this.ctx.storage.sql.exec(
+      'INSERT OR REPLACE INTO SignupTickets (ticketHash, email, expiresAt) VALUES (?, ?, ?)',
+      ticketHash, normalizeEmail(email), expiresAt,
+    );
+    debug('nebula-auth.Registry.signup.ticketIssued').info('Signup ticket issued', { email: normalizeEmail(email) });
+    return rawTicket;
+  }
+
+  /**
+   * Claim a universe by spending a signup ticket — the fallback slug screen's engine.
+   *
+   * ⚠️ **This claim SENDS NO LINK, and that is the point.** `claimUniverse` mails one because it is
+   * reached by a stranger who has proved nothing. Here the ticket *is* the proof: it was issued
+   * minutes ago to a click on mail that reached this address, so mailing again would be the second
+   * email the prove-then-choose design exists to delete. The identity is minted and the caller mints
+   * a session against the returned `sub` directly.
+   *
+   * ⚠️ **The address comes from the TICKET ROW, never from a parameter** — there is deliberately no
+   * `email` argument to get wrong. A body-supplied address would let anyone holding any ticket claim
+   * a workspace in someone else's name, which is the whole attack this shape forecloses.
+   *
+   * Single-use: the row is deleted in the same transaction as the claim, so a replayed ticket finds
+   * nothing. A slug already claimed by this same address resolves rather than conflicting — reachable
+   * when a person holding two tickets submits the same name from two tabs — while a different address
+   * still gets the conflict.
+   *
+   * ⚠️ **Refusals are RETURNED, never thrown, and that is not a style choice.** This is called over
+   * raw Workers RPC, which drops a custom error's own properties — `name` and `message` survive, a
+   * `status` does not — so a thrown `RegistryError` reaches the Worker stripped of everything that
+   * distinguishes "this ticket expired" from "the database is on fire", and the router's catch-all
+   * answers 500 for both. `raw-comm.md` § *Errors over raw Workers RPC* states the rule: expected
+   * client-errors come back as values and the Worker maps them to statuses; a throw here means a
+   * genuine 500. Bit during this method's own first run — every negative test returned 500.
+   */
+  async claimUniverseWithTicket(ticketHash: string, slug: string): Promise<TicketClaimResult> {
+    const log = debug('nebula-auth.Registry.claimUniverseWithTicket');
+    const rows = this.#sql`
+      SELECT email, expiresAt FROM SignupTickets WHERE ticketHash = ${ticketHash}`;
+    // One refusal for absent and expired alike: both mean "this ticket buys nothing", and telling
+    // them apart would let a caller probe which hashes exist.
+    if (rows.length === 0 || (rows[0].expiresAt as string) < new Date().toISOString()) {
+      return { ok: false, reason: 'invalid_ticket' };
+    }
+    const lc = rows[0].email as string;
+
+    if (!isValidSlug(slug)) return { ok: false, reason: 'invalid_slug' };
+    if (slug === PLATFORM_SCOPE) return { ok: false, reason: 'reserved_slug' };
+    if (!this.checkSlugAvailable(slug)) {
+      // The same-address resume `claimUniverse` grew, minus the re-send it has no link for: this
+      // caller already holds the pending claim, so hand back its identity and let them in.
+      const mine = this.#sql`
+        SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+        WHERE e.email = ${lc} AND m.universeGalaxyStarId = ${slug}`;
+      if (mine.length > 0) {
+        this.ctx.storage.sql.exec('DELETE FROM SignupTickets WHERE ticketHash = ?', ticketHash);
+        log.info('Signup claim resumed by its own claimer', { slug, email: lc });
+        return { ok: true, sub: mine[0].sub as string, universeGalaxyStarId: slug };
+      }
+      return { ok: false, reason: 'slug_taken' };
+    }
+
+    let sub!: string;
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', slug);
+      sub = this.#mintIdentity(lc, slug, /* scopeAdmin */ true).sub;
+      this.ctx.storage.sql.exec('DELETE FROM SignupTickets WHERE ticketHash = ?', ticketHash);
+    });
+    log.info('Universe claimed via signup ticket', { slug, email: lc });
+    return { ok: true, sub, universeGalaxyStarId: slug };
   }
 
   /**

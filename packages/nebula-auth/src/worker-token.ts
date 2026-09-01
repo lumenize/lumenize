@@ -27,8 +27,10 @@ import { verifyNebulaAccessToken } from './verify';
 import {
   NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME, PLATFORM_SCOPE, MINT_ALL_COOKIE_CAP,
   ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, MAGIC_LINK_TTL, RECOMMENDED_MIN_TTL_SECONDS,
+  SIGNUP_TICKET_TTL, SIGNUP_TICKET_COOKIE, COMING_SOON_TAGS,
 } from './types';
-import type { ConsumeMembership, ConsumePlan, NebulaJwtPayload, RefreshTokenKV } from './types';
+import type { ComingSoonTag, ConsumeMembership, ConsumePlan, NebulaJwtPayload, RefreshTokenKV } from './types';
+import type { TicketClaimResult } from './nebula-auth-registry';
 import { landingBase, homePath, SIGNUP_PATH } from './landing';
 
 // ── error helpers ──────────────────────────────────────────────────────────────────────────────
@@ -61,6 +63,22 @@ function registry(env: Env): any {
 /** Path-scoped refresh cookie: `Path={prefix}/{scope}`, `Max-Age` = the FIXED refresh TTL (no slide). */
 function refreshCookie(scope: string, token: string): string {
   return `refresh-token=${token}; Path=${NEBULA_AUTH_PREFIX}/${scope}; HttpOnly; Secure; SameSite=Strict; Max-Age=${REFRESH_TOKEN_TTL}`;
+}
+
+/**
+ * The signup ticket's cookie — `Path=/auth`, because there is no scope yet.
+ *
+ * Same hardening as the refresh cookie (`HttpOnly; Secure; SameSite=Strict`), so the slug screen's
+ * own JavaScript cannot read it and the browser presents it only on a same-site navigation to the
+ * claim. Short-lived by {@link SIGNUP_TICKET_TTL}.
+ */
+function signupTicketCookie(rawTicket: string): string {
+  return `${SIGNUP_TICKET_COOKIE}=${rawTicket}; Path=${NEBULA_AUTH_PREFIX}; HttpOnly; Secure; SameSite=Strict; Max-Age=${SIGNUP_TICKET_TTL}`;
+}
+
+/** The ticket cookie, expired — set once it is spent so a stale one cannot linger for the next visit. */
+function expiredSignupTicketCookie(): string {
+  return `${SIGNUP_TICKET_COOKIE}=; Path=${NEBULA_AUTH_PREFIX}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }
 
 /** The same cookie, expired — what a logout sets so the browser drops it. */
@@ -254,9 +272,14 @@ async function consumeAndLogin(
   const chosen = selectSessionsToMint(plan);
 
   // A proved address with nothing to enter is a new user: send them to sign up rather than to a
-  // Home screen that would render empty.
+  // Home screen that would render empty. The ticket rides along so that screen's claim can spend
+  // the proof THIS click just established instead of mailing a second link.
   if (chosen.length === 0) {
-    return new Response(null, { status: 302, headers: { Location: SIGNUP_PATH } });
+    const rawTicket = await registry(env).issueSignupTicket(plan.email);
+    return new Response(null, {
+      status: 302,
+      headers: new Headers({ Location: SIGNUP_PATH, 'Set-Cookie': signupTicketCookie(rawTicket) }),
+    });
   }
 
   // ── Mint N raw tokens Worker-side (only this side ever holds them), then RPC 2 records hashes. ─
@@ -377,6 +400,91 @@ export async function handleAcceptMembership(request: Request, env: Env): Promis
   if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
   const result = await registry(env).acceptMembership(record.sub) as { accepted: string[] };
   return Response.json({ accepted: result.accepted.length > 0, scope: record.universeGalaxyStarId });
+}
+
+// ── signup (spend the ticket, claim, log in) ─────────────────────────────────────────────────────
+
+/** What each ticket-claim refusal tells the person, kept beside the mapping that uses it. */
+const SIGNUP_REFUSALS: Record<Exclude<TicketClaimResult, { ok: true }>['reason'], string> = {
+  invalid_ticket: 'Signup ticket is missing or expired',
+  invalid_slug: 'Invalid universe slug format',
+  reserved_slug: 'That name is reserved',
+  slug_taken: 'That name is already claimed',
+};
+
+/**
+ * The fallback slug screen's claim: spend the signup ticket, claim the universe, mint the session.
+ *
+ * ⚠️ **No link is sent and no address is read from the body.** The ticket the browser presents was
+ * issued minutes ago to a click on mail that reached this address, so the mailbox is already proved
+ * and the registry derives the claimer from the ticket row. `slug` is the only thing the caller
+ * supplies, and it is the only thing they are entitled to choose.
+ *
+ * The membership is minted UNACCEPTED like every other one — the Home screen's self-flavor modal is
+ * what takes it up — so the cookie set here grants nothing until its holder consents.
+ */
+export async function handleSignupClaim(request: Request, env: Env): Promise<Response> {
+  const rawTicket = extractCookie(request.headers.get('Cookie') || '', SIGNUP_TICKET_COOKIE);
+  if (!rawTicket) return errorResponse(401, 'invalid_ticket', 'No signup ticket provided');
+
+  let slug: unknown;
+  try { ({ slug } = await request.json() as { slug?: unknown }); } catch { /* handled below */ }
+  if (typeof slug !== 'string' || slug.length === 0) {
+    return errorResponse(400, 'invalid_request', 'Missing slug');
+  }
+
+  const ticketHash = await hashString(rawTicket);
+  const claimed = await registry(env).claimUniverseWithTicket(ticketHash, slug) as TicketClaimResult;
+  if (!claimed.ok) {
+    // The registry answers with a REASON, not a status — an HTTP code is this side's business, and
+    // a thrown status would not survive the RPC hop anyway (`raw-comm.md`).
+    const status = claimed.reason === 'slug_taken' ? 409
+      : claimed.reason === 'invalid_ticket' ? 403
+        : 400;
+    return errorResponse(status, claimed.reason, SIGNUP_REFUSALS[claimed.reason]);
+  }
+
+  const rawRefreshToken = generateRandomString(32);
+  await registry(env).recordSessions(
+    [{ sub: claimed.sub, tokenHash: await hashString(rawRefreshToken) }],
+    new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
+  );
+
+  const headers = new Headers();
+  headers.append('Set-Cookie', refreshCookie(claimed.universeGalaxyStarId, rawRefreshToken));
+  // The ticket is spent server-side; expire the browser's copy too so a stale one cannot ride along
+  // to a later visit and read as live.
+  headers.append('Set-Cookie', expiredSignupTicketCookie());
+  headers.set('Content-Type', 'application/json');
+  return new Response(
+    JSON.stringify({ scope: claimed.universeGalaxyStarId, home: homePath(claimed.universeGalaxyStarId) }),
+    { status: 200, headers },
+  );
+}
+
+// ── coming-soon (demand signal for an unbuilt surface) ───────────────────────────────────────────
+
+/**
+ * Record that someone reached for a surface that does not exist yet, and answer 204.
+ *
+ * ⚠️ **The `@lumenize/debug` write is a PLACEHOLDER, not the design.** A log line is not queryable,
+ * not aggregatable, and is dropped whenever `DEBUG` is off, so this records demand only in the loose
+ * sense that someone could grep for it later. The durable sink this wants is tracked in
+ * `tasks/backlog.md` § *Nebula*, row *"Coming-soon demand log needs a durable sink"* — cited by name
+ * because line numbers move. Until that lands, treat the counts here as anecdotes.
+ *
+ * ⚠️ **The tag is validated against a closed server-side set** ({@link COMING_SOON_TAGS}). This route
+ * is unauthenticated, so free text would make it a log-injection faucet with unbounded cardinality;
+ * an unrecognised tag is a client bug and is refused rather than written.
+ */
+export async function handleComingSoon(request: Request, _env: Env): Promise<Response> {
+  let tag: unknown;
+  try { ({ tag } = await request.json() as { tag?: unknown }); } catch { /* handled below */ }
+  if (typeof tag !== 'string' || !(COMING_SOON_TAGS as readonly string[]).includes(tag)) {
+    return errorResponse(400, 'invalid_request', 'Unrecognised coming-soon tag');
+  }
+  debug('nebula-auth.comingSoon').info('Coming-soon surface requested', { tag: tag as ComingSoonTag });
+  return new Response(null, { status: 204 });
 }
 
 // ── refresh-token (pure KV read → mint JWT) ──────────────────────────────────────────────────────

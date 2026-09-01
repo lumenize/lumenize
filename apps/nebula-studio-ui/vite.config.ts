@@ -63,8 +63,51 @@ const appSpaFallback = {
 // with NEBULA_WORKER_URL if wrangler picked a different port. See README.md.
 const WORKER = process.env.NEBULA_WORKER_URL || "http://localhost:8787";
 
+// The auth SPA's navigations, served by vite in dev exactly as the Worker serves them in prod.
+//
+// ⚠️ **This MUST run BEFORE the proxy, which is why it is not written like `appSpaFallback`.**
+// `/auth` is proxied to the Worker for the API, and returning a function from `configureServer`
+// registers a POST middleware — after vite's internal ones, proxy included — so a post-hook would
+// never see these paths. Registering directly makes it a PRE middleware, which gets first refusal;
+// everything it does not match falls through to the proxy untouched.
+//
+// ⚠️ **Only GET navigations, and only the four screen paths.** `/auth/{scope}/home` is a screen and
+// `/auth/{scope}/refresh-token` is an API call one segment away, so matching loosely here would
+// swallow the API and break login in dev with a page of HTML where JSON belongs.
+const AUTH_SCREEN_PATHS = /^\/auth\/(login|signup|emails)$|^\/auth\/[^/]+\/home$/;
+const authAppRoutes = {
+  name: "auth-app-routes",
+  configureServer(server: import("vite").ViteDevServer) {
+    server.middlewares.use(async (req, res, next) => {
+      const path = (req.url ?? "").split("?")[0];
+      if (req.method !== "GET" || !AUTH_SCREEN_PATHS.test(path)) return next();
+      try {
+        const { readFile } = await import("node:fs/promises");
+        const { resolve } = await import("node:path");
+        const html = await readFile(resolve(server.config.root, "auth-app.html"), "utf-8");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/html");
+        res.end(await server.transformIndexHtml(req.url!, html));
+      } catch (e) {
+        next(e);
+      }
+    });
+  },
+};
+
 export default defineConfig({
-  plugins: [vue(), swcPlugin, tailwindcss(), appSpaFallback],
+  plugins: [vue(), swcPlugin, tailwindcss(), appSpaFallback, authAppRoutes],
+  // TWO entries, one dist. Studio's `index.html` is served by the assets layer directly; the auth
+  // app's `auth-app.html` is fetched through the ASSETS binding by nebula-auth's router, because
+  // `/auth/*` is in `run_worker_first` and so never reaches the assets layer on its own.
+  build: {
+    rollupOptions: {
+      input: {
+        index: "index.html",
+        "auth-app": "auth-app.html",
+      },
+    },
+  },
   // Keep the DECORATED @lumenize source out of vite's dep-prebundle so the SWC plugin
   // above transforms it as source. The prebundler is rolldown/oxc under vite 8 (it was
   // esbuild under vite 6) — the package changed, the hazard did not: neither transforms

@@ -569,6 +569,40 @@ export const MAGIC_LINK_TTL = 1800;
 /** Invite token lifetime in seconds (7 days) */
 export const INVITE_TTL = 604800;
 
+/**
+ * Signup-ticket lifetime in seconds (15 minutes).
+ *
+ * Deliberately far shorter than {@link MAGIC_LINK_TTL}: a magic link has to survive sitting in a
+ * mailbox, whereas a ticket authorizes the screen the browser is being redirected to right now. The
+ * only thing it has to outlast is a person choosing a name for their workspace.
+ */
+export const SIGNUP_TICKET_TTL = 900;
+
+/**
+ * The cookie carrying a signup ticket to the slug screen.
+ *
+ * `Path=/auth` rather than the per-scope path the refresh cookies use — there is no scope yet, which
+ * is the entire situation the ticket exists for.
+ */
+export const SIGNUP_TICKET_COOKIE = 'signup-ticket';
+
+/**
+ * What a coming-soon affordance may report, as a closed set.
+ *
+ * ⚠️ **A fixed server-side enum, never free text.** The value is written to a log by an
+ * unauthenticated route, so accepting arbitrary strings would make it a log-injection faucet and an
+ * unbounded-cardinality one. A tag this list does not contain is refused rather than recorded — an
+ * unrecognised stub is a client bug worth a 400, not a datapoint worth keeping.
+ */
+export const COMING_SOON_TAGS = [
+  'universe-management',
+  'email-management',
+  'billing',
+  'team-settings',
+] as const;
+
+export type ComingSoonTag = (typeof COMING_SOON_TAGS)[number];
+
 /** How often the registry sweeps its expired token rows (1 hour).
  *
  *  ⚠️ This period tracks STORAGE ACCUMULATION, never a correctness deadline — every row the sweep

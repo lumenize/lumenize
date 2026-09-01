@@ -12,6 +12,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import {
   foundUniverse, inviteAndLogin, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse,
   registryUrl, url, acceptMembership, claimUniverse, claimStar, createGalaxy, platformLogin,
+  expectNoSession,
 } from './test-helpers';
 
 /** vitest.config's `NEBULA_AUTH_BOOTSTRAP_EMAIL`, entry 0. */
@@ -60,7 +61,7 @@ describe('Identity authority — mint only at authority points', () => {
     const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
     expect(clickResp.status).toBe(302);
     expect(clickResp.headers.get('Location')).toBe('/auth/signup');
-    expect(clickResp.headers.get('Set-Cookie')).toBeNull();                     // NO refresh cookie
+    expectNoSession(clickResp);                                                 // NO refresh cookie
 
     // Negative control at a protected route: the stranger has no identity, so discover finds nothing.
     const disc = await getRegistry().discover('stranger@example.com');
@@ -248,7 +249,7 @@ describe('Identity authority — adminApproved retired, enforced at MINT (edge g
     const mlResp = await requestMagicLink(SELF, uni, 'ghost@example.com');
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
     const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
-    expect(clickResp.headers.get('Set-Cookie')).toBeNull();    // no token minted (no cookie)
+    expectNoSession(clickResp);                                // no token minted
     // And no refresh KV record was written for this scope — the mint never happened. (The click set no
     // cookie, so we can't derive a tokenHash; assert directly that consume left the KV token-space empty
     // of any record for a ghost by confirming no RefreshTokenIndex row exists for the scope's ghost.)

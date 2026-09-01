@@ -24,8 +24,19 @@ import {
   handleAcceptInvite,
   handleRefreshToken,
   handleLogout,
+  handleSignupClaim,
+  handleComingSoon,
   mintNarrowerToken,
 } from './worker-token';
+
+/**
+ * The built auth-SPA entry, and the origin the assets fetch is addressed to.
+ *
+ * The origin is arbitrary — Workers Assets routes on the PATH and ignores the host — but `fetch`
+ * requires an absolute URL, so this supplies one that can never collide with a real route.
+ */
+const AUTH_APP_ORIGIN = 'https://assets.invalid';
+const AUTH_APP_ENTRY = '/auth-app.html';
 
 /** Options for {@link routeNebulaAuthRequest}. */
 export interface RouteNebulaAuthOptions {
@@ -178,6 +189,34 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
     env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
 
   /**
+   * Serve the auth SPA's HTML for a GET navigation.
+   *
+   * ⚠️ **The Worker has to do this, unlike Studio.** `/auth/*` is listed in `run_worker_first`, so
+   * the assets layer never gets first refusal on these paths the way it does for `/studio/*` — a
+   * navigation to `/auth/login` reaches this table or it reaches nothing. That is also why every auth
+   * screen is one HTML entry: the SPA reads `location.pathname` and renders login, signup, home or
+   * emails from it, so the serving rows differ only in their guards.
+   *
+   * ⚠️ **Under `wrangler dev` the assets layer is EMPTY by design** (the dev loop builds no dist —
+   * the lanes `mkdir` it and the browser is served by vite instead), so this returns a 503 rather
+   * than a confusing 404. A rendered check against a Worker-served page belongs in a lane that
+   * built the dist.
+   */
+  const serveAuthApp: Step = async () => {
+    const assets = (env as Env & { ASSETS?: Fetcher }).ASSETS;
+    if (!assets) return jsonError(503, 'assets_unavailable', 'No ASSETS binding is configured');
+    // A fixed asset path, not the request URL: the request path is a route (`/auth/u.g/home`), and
+    // asking the assets layer for that would 404. The built entry is what we want, every time.
+    const resp = await assets.fetch(new Request(`${AUTH_APP_ORIGIN}${AUTH_APP_ENTRY}`));
+    if (!resp.ok) return jsonError(503, 'assets_unavailable', 'The auth app has not been built');
+    // Rebuilt so the status is ours and the body streams through untouched.
+    return new Response(resp.body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  };
+
+  /**
    * Injects the verified `profileId` + `sub` — the person-scoped reads' input.
    *
    * ⚠️ **Refuses a token carrying `act`.** These answer for a PERSON across every address and scope
@@ -251,6 +290,9 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   const handleAcceptMembershipStep: Step<ScopeState> = (request) => handleAcceptMembership(request, env);
   /** Same shape as accept: the segment picks the cookie, the handler re-resolves it server-side. */
   const handleLogoutAllStep: Step<ScopeState> = (request) => handleLogoutAll(request, env);
+  /** The ticket rides in a cookie, so the handler needs nothing from the route state. */
+  const handleSignupClaimStep: Step = (request) => handleSignupClaim(request, env);
+  const handleComingSoonStep: Step = (request) => handleComingSoon(request, env);
 
   // THE TABLE — the registration itself: a route cannot exist without a guard list, an absent
   // entry 404s reaching no handler, and a known path under a wrong verb answers 405 from the
@@ -312,6 +354,27 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       // cookie — because a scope-less path would receive no cookie at all and would have to take the
       // address from the client, which must never decide whose sessions end.
       { path: `${P}/:scope/logout-all`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleLogoutAllStep] },
+      // ── The auth SPA's navigations — one HTML entry, four addresses ─────────────────────────
+      // GETs that render a page and read nothing. They present no credential, and they carry no
+      // `turnstileGuard`: there is nothing to protect, since serving static HTML mints nothing,
+      // sends nothing and touches no singleton (the assets layer answers, not the Registry).
+      { path: `${P}/login`, method: 'GET', steps: [serveAuthApp] },
+      { path: `${P}/signup`, method: 'GET', steps: [serveAuthApp] },
+      { path: `${P}/emails`, method: 'GET', steps: [serveAuthApp] },
+      // The scope segment is format-validated so a malformed one 400s here rather than rendering a
+      // shell that will fail its own bootstrap; the page's data still comes from `scope-summary`,
+      // which re-derives everything server-side.
+      { path: `${P}/:scope/home`, method: 'GET', steps: [parseScopeGuard, serveAuthApp] },
+      // The fallback slug screen's claim. Credentialed by the signup-ticket cookie — issued to a
+      // click on mail that reached this address — so no Turnstile, on the same footing as the
+      // other cookie routes.
+      { path: `${P}/signup`, method: 'POST', steps: [connectionRateLimitGuard, handleSignupClaimStep] },
+      // Demand signal for an unbuilt surface: a closed enum of tags in, a 204 out, nothing written
+      // but a log line. ⚠️ It presents no credential yet carries no `turnstileGuard` — the one
+      // deliberate exception to the credential rule, because a challenge here would cost a real
+      // interaction to protect a route that mints nothing, sends nothing and stores nothing. The
+      // connection limiter is what bounds it.
+      { path: `${P}/coming-soon`, method: 'POST', steps: [connectionRateLimitGuard, handleComingSoonStep] },
       // There is deliberately NO `/auth/:scope/invite` row: every invite enters mesh-side through
       // the NebulaAuthFacade (`@lumenize/nebula-auth/facade`), which owns the eligibility verdicts
       // and the bit cap. Only the session lifecycle stays HTTP — the accept-invite CLICK above is

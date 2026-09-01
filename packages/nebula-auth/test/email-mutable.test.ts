@@ -13,7 +13,9 @@
 import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
-import { foundUniverse, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, url } from './test-helpers';
+import {
+  foundUniverse, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, url, expectNoSession,
+} from './test-helpers';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
@@ -70,7 +72,7 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     const oldMl = await requestMagicLink(SELF, u, 'old@example.com');
     const { magicLinkUrl: oldUrl } = await oldMl.json() as { magicLinkUrl: string };
     const oldClick = await SELF.fetch(new Request(oldUrl, { redirect: 'manual' }));
-    expect(oldClick.headers.get('Set-Cookie')).toBeNull(); // rejected — old email no longer an identity
+    expectNoSession(oldClick); // rejected — old email no longer an identity
   });
 
   /**
@@ -129,7 +131,7 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     expect(await registry.changeEmail(await subForEmail(old, u), moved, ACTING())).toBe(true);
 
     const click = await SELF.fetch(new Request(link, { redirect: 'manual' }));
-    expect(click.headers.get('Set-Cookie')).toBeNull(); // refused — no membership resolves the old address
+    expectNoSession(click); // refused — no membership resolves the old address
   });
 
   it('discover is sub-FREE and reads the UNIQUE(email, scope) index', async () => {
