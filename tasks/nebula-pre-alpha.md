@@ -39,10 +39,10 @@ The remaining provisioning / capture / inspection work builds on these (the code
   downward rule applied from the top — one branch inside `isAtOrAbove`, never a special arm at a call
   site. **Seed = set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.** Driven end to end by
   the `superuser-end-to-end` `/live` scenario.
-  - ⚠️ **Still owed: one `/live` scenario driving superuser → discover → select the platform scope →
-    impersonate a pre-alpha user in one go** (the coaching use case). The discover half's gap is owned by
-    [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) (the platform membership is
-    minted *by* the request for a platform-scoped link, so first-login discovery returns nothing); the
+  - ⚠️ **Still owed: one `/live` scenario driving superuser login → Home → the platform scope →
+    impersonate a pre-alpha user in one go** (the coaching use case). The front-door half is owned by
+    [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) (the platform membership now
+    mints at consume, behind proof — that task moved it off the unauthenticated request); the
     impersonate half of that specific chain is undriven. If it turns up gaps, that is when a child task
     file earns its existence, and not before.
 - **Impersonation core** — `POST {prefix}/mint-narrower-token` (RFC-8693 `act.sub`, recursive chain,
@@ -111,13 +111,13 @@ The remaining provisioning / capture / inspection work builds on these (the code
   Studio calls `discover(email)` **before** anyone proves anything — any caller can ask which scopes an
   address belongs to and administers (at Galaxy/Universe tiers membership *is* admin-ship; at
   `nebula-platform` it *is* superuser-ship), and a multi-membership address dead-ends. Target: one
-  scope-less link → the click proves the mailbox and mints every membership's session → the Scopes
+  scope-less link → the click proves the mailbox and mints every membership's session → the Home
   screen routes the choice. The consent notice ships in the same task — short, informational, no
   stored value, generic "improve the product" framing — rendered where a user commits: the claim
   affordance, the fallback slug screen, and the create-Galaxy flow (the placement invitees actually
   meet on day 1). Must land **before the first non-Larry user is invited** (Larry owns + accepts
-  responsibility; pre-invite he's the only subject). → design intent, decisions table, the open
-  question: **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)**.
+  responsibility; pre-invite he's the only subject). → design intent and decisions table:
+  **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)**.
 - ✅ **GATE — preview survives redeploys: discharged structurally by the collapse; the deploy-only confirm ran 2026-08-29** (same pre-redeploy hashed asset served post-redeploy on `test-nebula`) — record in [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)'s status banner.
 
 ### Consider before invites (NOT gates)
