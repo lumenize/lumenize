@@ -134,6 +134,76 @@ describe('Phase 2 — one click, a session per membership', () => {
   });
 });
 
+describe('Phase 10 — the consent modal can be rendered before any session exists', () => {
+  /**
+   * ⚠️ **This endpoint exists because a refresh REFUSES an unaccepted membership**, which is exactly
+   * the membership Home renders a modal for — so without it the screen that takes consent could
+   * never learn what it was taking consent for. Found by driving the rendered page
+   * (`harness/scenarios/auth-pages-render.ts`), not by any suite.
+   */
+  const card = (scope: string, token: string) => SELF.fetch(new Request(url(scope, 'pending-membership'), {
+    method: 'POST', headers: { Cookie: `refresh-token=${token}`, 'Content-Type': 'application/json' },
+  }));
+
+  it('answers the modal inputs for an UNACCEPTED membership, with no access token anywhere', async () => {
+    const claimer = addr();
+    const u = uni();
+    const { tokenFor } = await clickLink(SELF, await claimUniverse(SELF, u, claimer));
+
+    const resp = await card(u, tokenFor(u));
+    expect(resp.status).toBe(200);
+    expect(await resp.json()).toMatchObject({ universeGalaxyStarId: u, accepted: false });
+  });
+
+  it('marks an INVITED membership `invited`, even when the sender supplied NO name', async () => {
+    // ⚠️ **The discriminator is `invited`, NOT the attribution fields, and this fixture is why.**
+    // `issueInvitesAs` passes no inviter name, so `invitedByName` is null — and `JSON.stringify`
+    // drops undefined keys, so a card keyed on the name alone came back byte-identical to a
+    // self-claim. The invitee would then meet "Only accept if you initiated this signup" for
+    // something a third party initiated. Reds against going back to the attribution fields.
+    const u = uni();
+    const admin = await foundUniverse(SELF, u, addr());
+    const invitee = addr();
+    const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
+    const { tokenFor } = await clickLink(SELF, mint.results[0].inviteUrl);
+    const invited = await (await card(u, tokenFor(u))).json() as any;
+    expect(invited.invited).toBe(true);
+    expect(invited).not.toHaveProperty('invitedByName'); // the fixture supplied none
+
+    // A self-claim carries no stamp at all — the other half, without which the assertion above
+    // would pass on a build that marked EVERY membership invited.
+    const selfClaimer = addr();
+    const su = uni();
+    const self = await clickLink(SELF, await claimUniverse(SELF, su, selfClaimer));
+    const own = await (await card(su, self.tokenFor(su))).json() as any;
+    expect(own.invited).toBeUndefined();
+  });
+
+  it('answers about the COOKIE\'s membership, never the scope in the URL', async () => {
+    // ⚠️ The security property. Presenting scope A's cookie at scope B's path must describe A —
+    // otherwise a holder of any cookie could read the modal inputs of any membership they name.
+    const person = addr();
+    const a = uni(); const b = uni();
+    await foundUniverse(SELF, a, person);
+    await claimUniverse(SELF, b, person);
+    const resp = await SELF.fetch(new Request('https://example.com/auth/email-magic-link', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: person }),
+    }));
+    const { tokenFor } = await clickLink(SELF, (await resp.json() as any).magicLinkUrl);
+
+    const answered = await (await card(b, tokenFor(a))).json() as any;
+    expect(answered.universeGalaxyStarId).toBe(a);
+    expect(answered.universeGalaxyStarId).not.toBe(b);
+  });
+
+  it('refuses a cookie-less request', async () => {
+    const resp = await SELF.fetch(new Request(url(uni(), 'pending-membership'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    }));
+    expect(resp.status).toBe(401);
+  });
+});
+
 describe('Phase 2 — a cookie is inert until its holder accepts', () => {
   it('an unaccepted membership refuses to mint, and accepting the SAME cookie makes it work', async () => {
     const u = uni();

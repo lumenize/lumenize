@@ -93,7 +93,7 @@ function cookieValue(setCookies: string[], name: string): string | undefined {
  * with history is some older scope. Each cookie's `Path` is `/auth/{scope}`, so the scope is read
  * back from there.
  */
-function refreshTokenForScope(headers: string[], scope: string): string | undefined {
+export function refreshTokenForScope(headers: string[], scope: string): string | undefined {
   for (const c of headers) {
     if (!c.startsWith('refresh-token=')) continue;
     const path = /Path=([^;]+)/.exec(c)?.[1] ?? '';
@@ -121,7 +121,7 @@ export async function acceptMembership(
 }
 
 /** Read Set-Cookie across runtimes — `getSetCookie()` in Node/workerd, single header elsewhere. */
-function setCookieHeaders(res: Response): string[] {
+export function setCookieHeaders(res: Response): string[] {
   const multi = res.headers.getSetCookie?.();
   if (multi && multi.length > 0) return multi;
   const single = res.headers.get('Set-Cookie');

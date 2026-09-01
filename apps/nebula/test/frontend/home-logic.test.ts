@@ -23,16 +23,17 @@ const node = (over: Partial<ScopeNode> & { scope: string; tier: ScopeNode['tier'
 describe('which consent modal a row needs', () => {
   it('an unaccepted INVITED membership gets the invite flavor', () => {
     expect(modalFlavorFor(node({
-      scope: 'acme.crm', tier: 'galaxy', accepted: false, invitedByName: 'Dana',
+      scope: 'acme.crm', tier: 'galaxy', accepted: false, invited: true, invitedByName: 'Dana',
     }))).toBe('invite');
   });
 
-  it('an unaccepted membership with an inviter but NO name is still an invitation', () => {
-    // The name is sender-supplied and optional; the attribution stamp is what marks an invitation.
-    // Reds against keying the flavor on the display name, which would show a stranger the
-    // "you started this" warning for something they did not start.
+  it('an unaccepted invitation with NO name and NO profileId is still an invitation', () => {
+    // ⚠️ The case that broke it. Both attribution fields are optional, so an inviter who supplied no
+    // display name on a token carrying no `profileId` yields a stamped row with every stamp null —
+    // and `JSON.stringify` drops undefined keys, so the wire shape equalled a self-claim. Keying on
+    // `invited` is what fixes it; this reds against going back to the attribution fields.
     expect(modalFlavorFor(node({
-      scope: 'acme.crm', tier: 'galaxy', accepted: false, invitedByProfileId: 'p-123',
+      scope: 'acme.crm', tier: 'galaxy', accepted: false, invited: true,
     }))).toBe('invite');
   });
 

@@ -419,6 +419,8 @@ export async function inviteViaMesh(
   session: { accessToken: string; sub: string },
   targetScope: string,
   invitees: Array<{ email: string; scopeAdmin?: boolean }>,
+  /** Sender-supplied display name — what the invitee's consent modal attributes to them. */
+  inviterName?: string,
 ): Promise<InviteSummary> {
   const claims = parseJwtUnsafe(session.accessToken)!.payload as unknown as NebulaJwtPayload;
   const browser = new Browser();
@@ -437,7 +439,7 @@ export async function inviteViaMesh(
   });
   try {
     await waitForConnected(client, 30_000);
-    return await client.invite(targetScope, invitees);
+    return await client.invite(targetScope, invitees, inviterName);
   } finally {
     try { client[Symbol.dispose](); } catch { /* already disposed */ }
     ctx.close();

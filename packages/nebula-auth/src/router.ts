@@ -25,6 +25,7 @@ import {
   handleRefreshToken,
   handleLogout,
   handleSignupClaim,
+  handlePendingMembership,
   handleComingSoon,
   mintNarrowerToken,
 } from './worker-token';
@@ -292,6 +293,8 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   const handleLogoutAllStep: Step<ScopeState> = (request) => handleLogoutAll(request, env);
   /** The ticket rides in a cookie, so the handler needs nothing from the route state. */
   const handleSignupClaimStep: Step = (request) => handleSignupClaim(request, env);
+  /** Same shape as accept: the segment picks the cookie, the handler re-resolves it server-side. */
+  const handlePendingMembershipStep: Step<ScopeState> = (request) => handlePendingMembership(request, env);
   const handleComingSoonStep: Step = (request) => handleComingSoon(request, env);
 
   // THE TABLE — the registration itself: a route cannot exist without a guard list, an absent
@@ -354,6 +357,9 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       // Acceptance — the ONE writer, credentialed by the membership's own path-scoped cookie (so no
       // Turnstile: the cookie is a credential, and it reached this browser only via a proved mailbox).
       { path: `${P}/:scope/accept-membership`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleAcceptMembershipStep] },
+      // The consent modal's inputs, for a membership that has no session yet — same cookie, same
+      // server-side re-resolution as accept. Without it Home cannot render the modal it exists for.
+      { path: `${P}/:scope/pending-membership`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handlePendingMembershipStep] },
       { path: `${P}/:scope/logout`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleLogoutStep] },
       // Logout everywhere for this address. Same credential as `logout` — the calling scope's own
       // cookie — because a scope-less path would receive no cookie at all and would have to take the

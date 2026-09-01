@@ -18,6 +18,8 @@ export interface ScopeNode {
   tier: Tier;
   scopeAdmin?: boolean;
   accepted?: boolean;
+  /** True iff the membership was INVITE-minted — the flavour discriminator. See `modalFlavorFor`. */
+  invited?: boolean;
   invitedByName?: string;
   invitedByProfileId?: string;
   children?: ScopeNode[];
@@ -48,18 +50,25 @@ export const RENDER_ALL_THRESHOLD = 20;
 /**
  * Which consent modal a row needs, or `undefined` if it needs none.
  *
- * ⚠️ **Acceptance is the trigger, and the INVITER is the discriminator.** A membership someone was
- * invited into carries an attribution stamp; one they created for themselves does not. The two
- * flavors say materially different things — an invitation names who sent it, a self-signup warns the
- * person that nobody should be here unless they started it — so reading the wrong one is a real
- * failure, not a cosmetic one.
+ * ⚠️ **Acceptance is the trigger, and `invited` is the discriminator.** The two flavours say
+ * materially different things — an invitation names who sent it, a self-signup warns the person that
+ * nobody should be here unless they started it — so reading the wrong one is a real failure, not a
+ * cosmetic one.
+ *
+ * ⚠️ **It keys on `invited`, NOT on the attribution fields, and that is a correction.** It used to
+ * read `invitedByName || invitedByProfileId`; both are optional, so an inviter who supplied no
+ * display name on a token carrying no `profileId` produced a stamped row with every stamp field
+ * null — and since `JSON.stringify` drops undefined keys, the wire shape was byte-identical to a
+ * self-claim. The invitee then met "Only accept if you initiated this signup" for something a third
+ * party initiated. `invited` is a boolean derived server-side from `invitedBySub`, which an invite
+ * always has.
  *
  * A row with no `accepted` field is not a membership at all (it is a descendant reached through
  * one), and descendants are never consented to individually.
  */
 export function modalFlavorFor(node: ScopeNode): 'invite' | 'self' | undefined {
   if (node.accepted !== false) return undefined;
-  return node.invitedByName || node.invitedByProfileId ? 'invite' : 'self';
+  return node.invited === true ? 'invite' : 'self';
 }
 
 /**

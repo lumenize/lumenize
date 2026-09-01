@@ -53,6 +53,9 @@ const CLASSIFICATION: Record<string, Credential> = {
   // ── Presents a cookie that a proved mailbox put there ──────────────────────────────────────────
   'POST /auth/:scope/refresh-token': 'cookie',
   'POST /auth/:scope/accept-membership': 'cookie',
+  // The consent modal's inputs, for a membership with no session yet. Same cookie, same server-side
+  // re-resolution as accept — it answers about the membership the COOKIE names, never the URL's.
+  'POST /auth/:scope/pending-membership': 'cookie',
   'POST /auth/:scope/logout': 'cookie',
   'POST /auth/:scope/logout-all': 'cookie',
   'POST /auth/signup': 'cookie', // the signup ticket, issued to a click minutes earlier

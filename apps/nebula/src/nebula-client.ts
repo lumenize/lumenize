@@ -960,11 +960,19 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    *
    * The summary reports MINT outcomes; mail finishes server-side after it returns. In test mode
    * (server-configured) `links` carries the raw invite URLs; production summaries never do.
+   *
+   * ⚠️ **`inviterName` is text the INVITER supplies, and it is rendered as their claim.** The
+   * invitee's consent modal shows it as "{name} (supplied by the sender)" — attributed, never
+   * presented as verified fact, because the adversary that copy defends against is the person who
+   * typed it. The facade caps its length and strips control characters; omit it and the modal says
+   * "Someone". It is deliberately not derived server-side from the caller's Profile: a display name
+   * the sender chose for this invitation is the thing being attributed, and silently substituting a
+   * verified one would make the attribution a lie in the safe direction.
    */
-  invite(targetScope: string, invitees: InviteeRequest[]): Promise<InviteSummary> {
+  invite(targetScope: string, invitees: InviteeRequest[], inviterName?: string): Promise<InviteSummary> {
     return this.lmz.callAsync(
       'NEBULA_AUTH_FACADE', undefined,
-      this.ctn<NebulaAuthFacade>().invite(targetScope, invitees),
+      this.ctn<NebulaAuthFacade>().invite(targetScope, invitees, inviterName),
     );
   }
 

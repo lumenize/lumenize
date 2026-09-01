@@ -323,6 +323,38 @@ export class NebulaAuthRegistry extends DurableObject {
   /** Resolve a `sub` → its scope + admin bit + `profileId`. `null` if unknown. Used by the refresh
    *  KV-miss self-heal, the `scopeAdmin` convergence re-put, and mint-narrower-token — each threads
    *  `profileId` into the record it rebuilds so the claim survives. */
+  /**
+   * The consent modal's inputs for ONE membership, by its `sub`.
+   *
+   * ⚠️ **Home cannot get these from the summary, and that is the whole reason this exists.** The
+   * summary needs a Bearer token; a token needs a refresh; and a refresh REFUSES an unaccepted
+   * membership by design — which is precisely the membership the modal is for. A claim or invite 302
+   * lands on Home holding exactly one inert cookie, so without this the screen that exists to take
+   * consent could never render the thing it takes consent for. (The bootstrap order in the design
+   * predates inert-until-accepted; the two clauses collide, and this is the seam.)
+   *
+   * Deliberately NARROW: the flavour discriminator and the sender-supplied display name, nothing
+   * else. The caller is authenticated by the membership's own path-scoped cookie, which reached that
+   * browser only via a click on mail delivered to the address — so it tells its holder only what the
+   * modal is about to show them.
+   */
+  getMembershipCard(sub: string):
+    { universeGalaxyStarId: string; accepted: boolean; invited?: boolean; invitedByName?: string } | null {
+    const rows = this.#sql`
+      SELECT universeGalaxyStarId, acceptedAt, invitedBySub, invitedByName
+      FROM Memberships WHERE sub = ${sub}`;
+    if (rows.length === 0) return null;
+    return {
+      universeGalaxyStarId: rows[0].universeGalaxyStarId as string,
+      accepted: rows[0].acceptedAt != null,
+      // `invited` is the flavour discriminator and is a BOOLEAN on purpose — see `ScopeNode.invited`.
+      // The name is decoration on top of it and may legitimately be absent.
+      ...(rows[0].invitedBySub != null
+        ? { invited: true, invitedByName: (rows[0].invitedByName as string | null) ?? undefined }
+        : {}),
+    };
+  }
+
   getIdentityScope(sub: string): { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null {
     // Entry marker: a refused-at-the-edge caller must never reach this read (the mint's non-admin
     // refusal happens before dispatch), and a 403 looks identical either way — tests assert the
@@ -863,6 +895,7 @@ export class NebulaAuthRegistry extends DurableObject {
       const node: ScopeNode = {
         scope, tier: this.#tierOf(scope), scopeAdmin: Boolean(r.scopeAdmin), accepted,
         ...(r.invitedBySub != null ? {
+          invited: true,
           invitedByName: (r.invitedByName as string | null) ?? undefined,
           invitedByProfileId: (r.invitedByProfileId as string | null) ?? undefined,
         } : {}),
@@ -918,26 +951,45 @@ export class NebulaAuthRegistry extends DurableObject {
    * off an unbounded scan, which is the shape ADR-018 is about; here the singleton's work is
    * bounded too.
    */
+  /**
+   * One level of children beneath `parent`, bounded.
+   *
+   * ⚠️ **The reserved platform scope needs its own arm, because containment there is NOT a string
+   * prefix.** Every other parent finds its children with `LIKE 'parent.%'`; `nebula-platform` is a
+   * reserved SIBLING of every universe, not their textual ancestor, so that predicate matches
+   * nothing and a superuser's tree renders as one bare row. `isPlatformScope` is what makes
+   * `isAtOrAbove` true for it (ADR-015 — the platform scope is the ROOT of the tree), and this is
+   * the read-side counterpart of that: the platform root's children are the universes.
+   *
+   * The retired `myScopeTree` carried the same arm, coupled to the reserved value by hand; dropping
+   * it when the summary replaced that method cost a superuser their whole tree, silently — every
+   * in-lane fixture is a single tenancy, so nothing reddened. `harness/scenarios/superuser-front-door.ts`
+   * limb 4 is what caught it, and is what keeps it caught.
+   */
   #childLevel(
     parent: string, budget: number, after?: string,
   ): { children: ScopeNode[]; spent: number; truncated: boolean } {
-    const depth = parent.split('.').length;
+    const depth = isPlatformScope(parent) ? 0 : parent.split('.').length;
     if (depth >= 3) return { children: [], spent: 0, truncated: false }; // a star has no descendants
-    // `after` is the keyset cursor: resume strictly past the last scope the caller already has.
+    // Universes for the platform root; the prefixed subtree for everyone else. `after` is the keyset
+    // cursor in both arms: resume strictly past the last scope the caller already has.
+    const like = isPlatformScope(parent) ? '%' : `${parent}.%`;
     const rows = after === undefined
       ? this.#sql`
         SELECT universeGalaxyStarId AS scope FROM Scopes
-        WHERE universeGalaxyStarId LIKE ${parent + '.%'}
+        WHERE universeGalaxyStarId LIKE ${like}
         ORDER BY universeGalaxyStarId
         LIMIT ${budget + 1}`
       : this.#sql`
         SELECT universeGalaxyStarId AS scope FROM Scopes
-        WHERE universeGalaxyStarId LIKE ${parent + '.%'} AND universeGalaxyStarId > ${after}
+        WHERE universeGalaxyStarId LIKE ${like} AND universeGalaxyStarId > ${after}
         ORDER BY universeGalaxyStarId
         LIMIT ${budget + 1}`;
     // Direct children only — the LIKE also matches grandchildren, and a level is what the screen
     // renders. (A separate count would be a second scan; filtering the bounded read is not.)
-    const direct = rows.map(r => r.scope as string).filter(s => s.split('.').length === depth + 1);
+    // ⚠️ The platform root is excluded from its own children: `LIKE '%'` matches it too.
+    const direct = rows.map(r => r.scope as string)
+      .filter(s => s.split('.').length === depth + 1 && !isPlatformScope(s));
     const children = direct.slice(0, budget).map(scope => ({
       scope, tier: this.#tierOf(scope),
       ...(scope.split('.').length < 3 ? { childCount: this.#directChildCount(scope) } : {}),
@@ -953,12 +1005,15 @@ export class NebulaAuthRegistry extends DurableObject {
    * most `budget + 1`, which is the whole point: an exact count of a superuser's descendants is the
    * unbounded scan this design removed. The client renders it as "at least N".
    */
+  /** The frontier marker's value. Same platform arm as {@link NebulaAuthRegistry.prototype} `#childLevel` — see its JSDoc. */
   #directChildCount(parent: string): number {
-    const depth = parent.split('.').length;
+    const depth = isPlatformScope(parent) ? 0 : parent.split('.').length;
+    const like = isPlatformScope(parent) ? '%' : `${parent}.%`;
     const rows = this.#sql`
       SELECT universeGalaxyStarId AS scope FROM Scopes
-      WHERE universeGalaxyStarId LIKE ${parent + '.%'} LIMIT ${SCOPE_TREE_NODE_BUDGET + 1}`;
-    return rows.map(r => r.scope as string).filter(s => s.split('.').length === depth + 1).length;
+      WHERE universeGalaxyStarId LIKE ${like} LIMIT ${SCOPE_TREE_NODE_BUDGET + 1}`;
+    return rows.map(r => r.scope as string)
+      .filter(s => s.split('.').length === depth + 1 && !isPlatformScope(s)).length;
   }
 
   #tierOf(scope: string): Tier {

@@ -29,6 +29,11 @@ import * as inviteRoundtrip from './scenarios/invite-roundtrip';
 import * as nodeInviteRoundtrip from './scenarios/node-invite-roundtrip';
 import * as buildBox from './scenarios/build-box';
 import * as fourPartyChat from './scenarios/four-party-chat';
+import * as loginTwoMemberships from './scenarios/login-two-memberships';
+import * as signupOneEmail from './scenarios/signup-one-email';
+import * as inviteConsent from './scenarios/invite-consent';
+import * as superuserFrontDoor from './scenarios/superuser-front-door';
+import * as authPagesRender from './scenarios/auth-pages-render';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -66,6 +71,12 @@ const SCENARIOS: Record<string, Scenario> = {
   'node-invite-roundtrip': nodeInviteRoundtrip, // Star.invite → both planes → real email → invitee acts at the node (no Docker)
   'build-box': buildBox,                   // ephemeral build drive: per-step BuildReport, sequential + overlap + failed-bundle + serve readback (Docker)
   'four-party-chat': fourPartyChat,        // Phase 4 HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
+  // ── prove-then-choose: the login re-order, driven end to end on real mail (no Docker) ──────────
+  'login-two-memberships': loginTwoMemberships, // one email → a session per membership; the multi-membership dead end is gone
+  'signup-one-email': signupOneEmail,           // both newbie arms cost exactly ONE email — asserted by counting real mail
+  'invite-consent': inviteConsent,              // an invitation is an OFFER: Home, modal, consent — pre-accept + decline limbs
+  'superuser-front-door': superuserFrontDoor,   // the superuser logs in like anyone else and consents to the platform root
+  'auth-pages-render': authPagesRender,         // the auth screens RENDER — content, never a status code (browser)
 };
 
 async function main(): Promise<void> {

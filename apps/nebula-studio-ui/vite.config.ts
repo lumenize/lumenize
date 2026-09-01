@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
@@ -103,8 +104,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        index: "index.html",
-        "auth-app": "auth-app.html",
+        // ⚠️ Absolute, resolved from THIS file. Relative entry names resolve against the process
+        // cwd, and the harness boots vite from the repo root — where the dep scanner then fails to
+        // resolve them and skips pre-bundling with a warning that reads like a broken config.
+        index: fileURLToPath(new URL("./index.html", import.meta.url)),
+        "auth-app": fileURLToPath(new URL("./auth-app.html", import.meta.url)),
       },
     },
   },

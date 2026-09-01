@@ -406,6 +406,34 @@ export async function handleAcceptMembership(request: Request, env: Env): Promis
   return Response.json({ accepted: result.accepted.length > 0, scope: record.universeGalaxyStarId });
 }
 
+// ── pending-membership (the consent modal's inputs, before any session exists) ────────────────────
+
+/**
+ * What the consent modal needs, for the membership this cookie names.
+ *
+ * ⚠️ **This exists because a refresh REFUSES an unaccepted membership**, which is exactly the
+ * membership Home renders a modal for. A claim or invite 302 lands there holding one inert cookie
+ * and no token, so the screen that takes consent had no way to learn what it was taking consent for.
+ * Same credential and same resolution as {@link handleAcceptMembership} — the cookie is resolved to
+ * ITS OWN membership through the registry, never to the scope named in the URL.
+ *
+ * Narrow on purpose: acceptance state, and the sender-supplied name when the membership was
+ * invite-minted. Nothing about any other membership, and nothing a holder is not about to be shown.
+ */
+export async function handlePendingMembership(request: Request, env: Env): Promise<Response> {
+  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
+  if (!refreshToken) return errorResponse(401, 'invalid_token', 'No refresh token provided');
+  const tokenHash = await hashString(refreshToken);
+  // Through the registry rather than the KV record: an UNACCEPTED session is the case this serves,
+  // and the KV read path refuses those.
+  const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+  if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
+  const card = await registry(env).getMembershipCard(record.sub) as
+    { universeGalaxyStarId: string; accepted: boolean; invited?: boolean; invitedByName?: string } | null;
+  if (!card) return errorResponse(404, 'not_found', 'No such membership');
+  return Response.json(card);
+}
+
 // ── signup (spend the ticket, claim, log in) ─────────────────────────────────────────────────────
 
 /** What each ticket-claim refusal tells the person, kept beside the mapping that uses it. */

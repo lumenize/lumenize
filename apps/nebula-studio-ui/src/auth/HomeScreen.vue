@@ -45,13 +45,39 @@ async function bootstrap() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activeScope: props.scope }),
   });
-  if (!resp.ok) {
-    // An unaccepted membership refuses to mint, which is the design working — but it means this
-    // browser cannot read the summary, so there is nothing to render but a way back to the door.
-    throw new Error('needs-login');
-  }
+  if (!resp.ok) throw new Error('needs-login');
   const { access_token } = await resp.json() as { access_token: string };
   accessToken.value = access_token;
+}
+
+/**
+ * The consent modal's inputs when there is no session to read a summary with.
+ *
+ * ⚠️ **This is the ONLY path for a brand-new arrival, and missing it made the screen useless for
+ * exactly the case it exists for.** A claim or invite 302 lands here holding one INERT cookie: the
+ * refresh above refuses an unaccepted membership by design, so the bootstrap fails, so the summary
+ * is unreachable, so the modal never renders — the person is told to sign in again on the screen
+ * that was supposed to let them in. Found by driving it (`harness/scenarios/auth-pages-render.ts`);
+ * the bootstrap order in the design predates inert-until-accepted and the two clauses collide.
+ *
+ * The endpoint is credentialed by the same cookie and resolves it server-side to its own membership.
+ */
+async function loadPendingCard(): Promise<ScopeNode | undefined> {
+  const resp = await fetch(`/auth/${encodeURIComponent(props.scope)}/pending-membership`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  });
+  if (!resp.ok) return undefined;
+  const card = await resp.json() as
+    { universeGalaxyStarId: string; accepted: boolean; invited?: boolean; invitedByName?: string };
+  if (card.accepted) return undefined; // already taken up — nothing to consent to
+  const depth = card.universeGalaxyStarId.split('.').length;
+  return {
+    scope: card.universeGalaxyStarId,
+    tier: depth === 1 ? 'universe' : depth === 2 ? 'galaxy' : 'star',
+    accepted: false,
+    ...(card.invited ? { invited: true } : {}),
+    ...(card.invitedByName !== undefined ? { invitedByName: card.invitedByName } : {}),
+  };
 }
 
 async function loadSummary(): Promise<ScopeSummary> {
@@ -105,10 +131,14 @@ async function accept() {
     });
     if (!resp.ok) { error.value = 'Could not accept that. Try again.'; return; }
 
-    // Re-fetch rather than patch — see the header.
+    // Re-fetch rather than patch — see the header. This is also the moment a first-time arrival
+    // gets a session at all: the cookie was inert until the Accept above, so the bootstrap that
+    // failed on arrival succeeds now.
     accessToken.value = '';
     await bootstrap();
     summary.value = await loadSummary();
+    selectedEmail.value = summary.value.emails.find((e) => e.current)?.email
+      ?? summary.value.emails[0]?.email ?? selectedEmail.value;
     pending.value = undefined;
 
     const surface = surfaceFor(node);
@@ -143,9 +173,15 @@ onMounted(async () => {
       .find((m) => m.scope === props.scope && modalFlavorFor(m));
     if (needsConsent) pending.value = needsConsent;
   } catch (e) {
-    error.value = (e as Error).message === 'needs-login'
-      ? 'This session needs to be signed in again.'
-      : 'Could not load your accounts.';
+    if ((e as Error).message === 'needs-login') {
+      // The likeliest reason a bootstrap is refused is the one this screen exists for: a membership
+      // that has not been taken up yet. Ask for its consent card before concluding anything.
+      const card = await loadPendingCard().catch(() => undefined);
+      if (card) { pending.value = card; loading.value = false; return; }
+      error.value = 'This session needs to be signed in again.';
+    } else {
+      error.value = 'Could not load your accounts.';
+    }
   } finally {
     loading.value = false;
   }

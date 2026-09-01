@@ -306,6 +306,37 @@ Numbering equals executable order — one branch, sequential (`workflow.md`). Ea
 10. **The `/live` scenarios.** Five container-free scenarios in `drive.ts`: a two-membership address enters both scopes off one email; a fresh address claims via the affordance — the click lands on the self-modal, one Accept enters the universe; the same on the fallback arm, asserting one email total; an invite → click → Home-with-modal → Accept → workspace, with a pre-accept limb (`acceptedAt` NULL, and the destination refusing to connect) and a Decline limb; a superuser walks the front door through the self flavor to the platform root. The rendered serving checks from Phase 6 ride these. Real mail, rung 1, per-limb mutation checks (`live.md`).
     - **Success criteria:** owns 🌐 *The same, driven as `/live` scenarios* — each limb isolated by its own mutation with a positive control per `live.md`'s multi-limb rule; the invite scenario is the one that reds on a modal bypass, a direct-landing 302, or a connectable unaccepted destination.
     - **Mutation note:** per limb, named in the scenario files at write time.
+    - **As built.** Five container-free scenarios, all rung 1 on real mail:
+      `login-two-memberships` (4 limbs, ~4 s), `signup-one-email` (5 limbs, ~19 s — the slow one, and
+      deliberately: two arms each wait out a window a second letter would land in),
+      `invite-consent` (5 limbs, ~3 s), `superuser-front-door` (5 limbs, ~3 s), and the browser-driven
+      `auth-pages-render` (6 limbs, ~4 s) carrying Phase 6's deferred rendered checks.
+    - **Per-limb mutations, run.** Direct-landing 302 → invite limb 1; connectable unaccepted
+      destination → invite limb 2; consume-time acceptance → invite limb 2 (the three failure modes
+      this phase names). Mint-only-the-link's-scope → two-membership limb 2. A second link sent from
+      the ticket claim → signup limb 5, with limbs 1–4 staying green. The remaining two reddened
+      naturally, before their fixes existed — see below.
+    - 🐛 **The superuser's summary showed ONE ROW.** Phase 4's descent finds children by string prefix
+      (`LIKE 'parent.%'`), but the platform root is a reserved SIBLING of every universe rather than
+      their textual ancestor — so the predicate matched nothing and a superuser saw only their own
+      row. The retired `myScopeTree` carried a dedicated platform arm; the replacement dropped it, and
+      nothing reddened because every in-lane fixture is a single tenancy. `#childLevel` and
+      `#directChildCount` have the arm back, and limb 4 is what keeps it.
+    - 🐛 **Home could never render the modal it exists for.** It bootstraps by refreshing; a refresh
+      REFUSES an unaccepted membership; so a claim or invite 302 — landing with exactly one inert
+      cookie — failed its bootstrap and told the person to sign in again, on the screen meant to let
+      them in. The bootstrap order in § *How the screen is served and bootstrapped* predates the
+      inert-until-accepted decision and the two clauses collide. Fixed with
+      `POST /auth/{scope}/pending-membership`: same cookie and same server-side re-resolution as
+      accept, answering only the modal's inputs for the membership that cookie names.
+    - 🐛 **The modal's flavour discriminator could not survive the wire.** It read
+      `invitedByName || invitedByProfileId`, both optional — so an inviter who supplied no display
+      name on a token carrying no `profileId` produced a stamped row with every stamp field null, and
+      `JSON.stringify` drops undefined keys. The wire shape equalled a self-claim, and the invitee
+      met *"Only accept if you initiated this signup"* for something a third party initiated.
+      `ScopeNode.invited` is now a boolean derived from `invitedBySub`, which an invite always has.
+    - ⚠️ **`NebulaClient.invite` could not supply an inviter name at all** — the facade took one and
+      nothing could reach it, so `invitedByName` was never set in production. Threaded through.
 11. **Documentation and cross-file lands.** `docs/vision/auth.md` gains § *Discovery*, narrows § *activeScope*'s Today-differs block, rewrites the three consume-time-acceptance sentences (both greps pasted), and restates line 76's scope-less-route sentence and line 116's `myScopeTree` sentence STRUCTURALLY rather than by count; a retired-symbol grep runs over the governed docs. `packages/nebula-auth/README.md` — named nowhere until now — updates its four falsified surfaces: the Turnstile enumeration, the `discover`/`my-scopes` route rows, `NEBULA_AUTH_REDIRECT`, and the consume-flips-acceptance mermaid sequences (run the mermaid `;`/`#` render check after editing; its pre-existing `Identities`-era schema section is out of scope). ADR-012's writer sentence updates to the modal-backed accept endpoint; `website/docs/nebula/auth-flows.md` follows; the backlog rows retire or re-ground per § *Relationships*; the master plan's GATE bullet flips ✅.
     - **Success criteria:** owns *`docs/vision/auth.md` narrows, gains, and stops asserting the old model*; the README carries no retired symbol and no consume-time-acceptance sequence; every § *Relationships* obligation executed and linked; prose gates pass on every governed file touched.
     - **Mutation note:** leave any of the three auth.md sentences unrewritten → the content grep reds; leave a retired symbol in a governed doc or the README → the doc grep reds.

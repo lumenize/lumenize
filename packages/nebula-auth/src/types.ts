@@ -460,6 +460,17 @@ export interface ScopeNode {
   scopeAdmin?: boolean;
   /** Present on a membership row: whether its holder has taken it up. */
   accepted?: boolean;
+  /**
+   * Whether this membership was INVITE-minted — the consent modal's flavour discriminator.
+   *
+   * ⚠️ **A boolean, because the attribution fields cannot carry this.** The flavour used to be read
+   * off `invitedByName`/`invitedByProfileId`, and both are optional: an inviter who supplied no
+   * display name, on a token carrying no `profileId`, produced a stamped row whose every stamp field
+   * was null — and `JSON.stringify` drops undefined keys, so the wire shape was byte-identical to a
+   * self-claim. The invitee would then meet "Only accept if you initiated this signup" for something
+   * a third party initiated: the wrong warning, silently. This says the fact directly.
+   */
+  invited?: boolean;
   /** Present on an INVITED membership — the consent modal's inputs (ADR-013 attribution). */
   invitedByName?: string;
   invitedByProfileId?: string;
