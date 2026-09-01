@@ -27,7 +27,12 @@ async function browserFoundUniverse(browser: Browser, slug: string, email: strin
   });
   expect(claim.status).toBe(200);
   const { magicLinkUrl } = await claim.json() as { magicLinkUrl: string };
-  await browser.fetch(magicLinkUrl); // browser captures the path-scoped refresh cookie
+  await browser.fetch(magicLinkUrl); // browser captures the path-scoped refresh cookie(s)
+  // Consent, through the browser's own cookie jar — a cookie mints nothing until its holder accepts.
+  const accept = await browser.fetch(authUrl(`${slug}/accept-membership`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  });
+  expect(accept.status).toBe(200);
   const refresh = await browser.fetch(authUrl(`${slug}/refresh-token`), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activeScope: slug }),
@@ -98,6 +103,10 @@ describe('@lumenize/nebula-auth — Integration', () => {
       // The member accepts + logs in — non-admin, exact star pattern.
       const memberBrowser = new Browser();
       await memberBrowser.fetch(link!);
+      const memberAccept = await memberBrowser.fetch(authUrl(`${star}/accept-membership`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      });
+      expect(memberAccept.status).toBe(200); // the invitee consents at the modal before any session works
       const memberRefresh = await memberBrowser.fetch(authUrl(`${star}/refresh-token`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activeScope: star }),

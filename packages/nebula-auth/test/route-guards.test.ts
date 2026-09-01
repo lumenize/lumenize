@@ -197,7 +197,7 @@ describe('per-request state', () => {
 });
 
 describe('the rate limiter survives the decomposition', () => {
-  it('repeated my-scopes POSTs under one sub loop past the declared limit and answer 429 rate_limited', async () => {
+  it('repeated scope-summary POSTs under one sub loop past the declared limit and answer 429 rate_limited', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
     // The shared binding is 100/60 (test wrangler.jsonc) — deliberately NOT lowered, since six
@@ -206,7 +206,7 @@ describe('the rate limiter survives the decomposition', () => {
     // the requests across two windows — 250 guarantees 101+ land in ONE window either way.
     let limited: Response | undefined;
     for (let i = 0; i < 250; i++) {
-      const resp = await SELF.fetch(new Request('http://localhost/auth/my-scopes', {
+      const resp = await SELF.fetch(new Request('http://localhost/auth/scope-summary', {
         method: 'POST',
         headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
         body: '{}',

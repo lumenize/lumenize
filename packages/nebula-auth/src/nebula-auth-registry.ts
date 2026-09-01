@@ -10,10 +10,10 @@
  *
  * Two callers:
  * - **Worker router (`fetch` endpoints)**: discover / claim-universe / create-galaxy / create-star /
- *   my-scopes / delete-scope(-plan). The router pre-verifies JWT/Turnstile and injects the verified
+ *   scope-summary / expand-scope / delete-scope(-plan). The router pre-verifies JWT/Turnstile and injects the verified
  *   `access` claim + caller `sub`.
- * - **Worker token layer (raw RPC)**: requestMagicLink / issueInvites / consumeMagicLink /
- *   consumeInvite / revokeRefreshToken / getIdentityScope / setIdentityAdmin — the login-channel +
+ * - **Worker token layer (raw RPC)**: requestMagicLink / issueInvites / resolveConsume /
+ *   recordSessions / acceptMembership / revokeRefreshToken / getIdentityScope / setIdentityAdmin — the login-channel +
  *   refresh-token lifecycle. The Worker generates the raw refresh token (cookie) and passes only its
  *   hash; this DO writes the index + KV.
  *
@@ -30,12 +30,15 @@ import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import { generateRandomString, hashString } from '@lumenize/crypto';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
-  NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, instanceAuthUrl,
-  MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
+  NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, instanceAuthUrl, scopelessAuthUrl,
+  SCOPELESS_INSTANCE_TAG, MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
+  SCOPE_TREE_NODE_BUDGET,
 } from './types';
 import type {
   AccessEntry, DiscoveryEntry, EmailMessage, InviteMintResult, InviteeError, InviteeMintResult,
-  InviteeRequest, NebulaJwtPayload, RefreshTokenKV,
+  ConsumeMembership, ConsumePlan, EmailScopes, InviteeRequest, InvitedByStamp, MagicLinkPurpose,
+  ScopeNode, ScopeSummary, Tier,
+  NebulaJwtPayload, RefreshTokenKV, SessionRecord,
 } from './types';
 import { parseId, isValidSlug, isPlatformScope, hasDominionOver } from './parse-id';
 import { projectActingToken } from './access-claims';
@@ -219,8 +222,9 @@ export class NebulaAuthRegistry extends DurableObject {
    * row's CURRENT state (the mint never touches either — promotion is `issueInvites`' explicit,
    * guarded call to {@link setIdentityAdmin}, never a side effect here).
    */
-  #mintIdentity(email: string, universeGalaxyStarId: string, scopeAdmin: boolean):
-    { sub: string; created: boolean; scopeAdmin: boolean; accepted: boolean } {
+  #mintIdentity(
+    email: string, universeGalaxyStarId: string, scopeAdmin: boolean, invitedBy?: InvitedByStamp,
+  ): { sub: string; created: boolean; scopeAdmin: boolean; accepted: boolean } {
     const lc = normalizeEmail(email);
     const nowIso = new Date().toISOString();
 
@@ -255,10 +259,17 @@ export class NebulaAuthRegistry extends DurableObject {
     const sub = crypto.randomUUID();
     // `acceptedAt` stays NULL: minting a membership is not taking it up. That NULL is what the Profile
     // DO's scoped-admin authz check keys on (ADR-012), so it is load-bearing, not bookkeeping.
+    //
+    // The `invitedBy*` columns are written HERE and never again — ADR-013's write-time-pinned
+    // attribution. Their presence is also the consent modal's flavor discriminator: a stamped row was
+    // created FOR this person by someone else, an unstamped one they created themselves.
     this.ctx.storage.sql.exec(
-      `INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt)
-       VALUES (?, ?, ?, ?, NULL, ?)`,
+      `INSERT INTO Memberships
+         (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt,
+          invitedBySub, invitedByName, invitedByProfileId)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
       sub, emailId, universeGalaxyStarId, scopeAdmin ? 1 : 0, nowIso,
+      invitedBy?.sub ?? null, invitedBy?.name ?? null, invitedBy?.profileId ?? null,
     );
     debug('nebula-auth.Registry.identity.minted').info('Membership minted', {
       sub, emailId, universeGalaxyStarId, email: lc, scopeAdmin,
@@ -298,13 +309,9 @@ export class NebulaAuthRegistry extends DurableObject {
     if (proved.rowsWritten > 0) {
       debug('nebula-auth.Registry.identity.mailboxProved').info('Mailbox proved', { sub });
     }
-    // Taking up THIS membership — per-membership, and distinct from the line above.
-    const accepted = this.ctx.storage.sql.exec(
-      'UPDATE Memberships SET acceptedAt = ? WHERE sub = ? AND acceptedAt IS NULL', new Date().toISOString(), sub,
-    );
-    if (accepted.rowsWritten > 0) {
-      debug('nebula-auth.Registry.identity.membershipAccepted').info('Membership accepted', { sub });
-    }
+    // ⚠️ **Acceptance is NOT written here.** Proving the mailbox and taking up a membership are
+    // different acts, and consuming a link is only the first. `acceptMembership` — reached solely
+    // through the consent modal — is the one writer; see its JSDoc.
     return { sub, universeGalaxyStarId, scopeAdmin: Boolean(rows[0].scopeAdmin), profileId: rows[0].profileId as string };
   }
 
@@ -377,6 +384,10 @@ export class NebulaAuthRegistry extends DurableObject {
     const record: RefreshTokenKV = {
       sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin: scope.scopeAdmin, expiresAt,
       profileId: scope.profileId, // writer (c): self-heal must carry profileId or the claim vanishes for the token's life
+      // ⚠️ DERIVED from the membership row, never carried over from a stale copy and never written
+      // back into `Memberships`. This arm is a reader: it reconstructs what the KV record should say,
+      // so acceptance keeps exactly one writer on both the hit and the miss path.
+      accepted: this.#isAccepted(sub),
     };
     await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), { expirationTtl: kvTtlSeconds(expiresAt) });
     debug('nebula-auth.Registry.token.kvSelfHeal').info('refresh KV record reconstructed on miss', { sub });
@@ -393,7 +404,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * *global* object: claim a Universe (unauthenticated, Turnstile only) → invite any address you can
    * guess → you now "administer a scope that profile touches" → the Profile DO's scoped-admin branch
    * hands you write on their public fields and read/write on their private ones. `acceptedAt` is
-   * written only by `getAndVerifyIdentity`, reached solely by consuming a magic link or invite
+   * written only by {@link acceptMembership}, reached solely through the consent modal
    * delivered to the address — so it is proof of the mailbox, which no attacker can forge for someone
    * else's address. An invited-but-never-accepted membership has no value there, so it confers nothing.
    *
@@ -482,6 +493,19 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_SCOPE}" is reserved`);
     }
     if (!this.checkSlugAvailable(slug)) {
+      // ⚠️ **The same-address RESUME, which `claimStar` has always had and this path did not.** The
+      // affordance names the workspace and derives the slug from that name, so a double-click posts
+      // the SAME slug twice — and a bare 409 would tell a brand-new user their workspace is "already
+      // claimed" by themselves. Resuming re-sends the link to an unfinished claim's own claimer; a
+      // DIFFERENT address still gets the conflict, so a pending claim cannot be taken over. (m6's
+      // convergence covers the other double-submit shape: two different slugs.)
+      if (this.#resumeClaimIfOwner(slug, normalizeEmail(email), link, origin, log)) {
+        // The link row is written and (outside test mode) the mail is on its way — answer exactly as
+        // a first claim does, so the caller cannot tell a resume from an original.
+        return this.#isTestMode
+          ? { message: 'Magic link generated (test mode)', magicLinkUrl: this.#magicLinkUrl(link.rawToken, slug, origin) }
+          : { message: 'Check your email for the magic link' };
+      }
       throw new RegistryError(409, 'slug_taken', `Universe "${slug}" is already claimed`);
     }
 
@@ -506,7 +530,7 @@ export class NebulaAuthRegistry extends DurableObject {
       // MINT the claiming admin identity (mint point). A bootstrap email founding `nebula-platform` is
       // the reserved platform-admin path — same scopeAdmin stamp, distinguished only by the reserved slug.
       this.#mintIdentity(email, slug, /* scopeAdmin */ true);
-      this.#insertMagicLinkRow(link.tokenHash, lc, slug, link.expiresAt);
+      this.#insertMagicLinkRow(link.tokenHash, lc, slug, 'claim', link.expiresAt);
     });
     log.info('Universe claimed', { slug, email: lc });
 
@@ -587,7 +611,7 @@ export class NebulaAuthRegistry extends DurableObject {
       // what the token's `authScope` becomes, so this row is the whole of the admin's dominion.
       // Passing `parsed.universe` here would silently hand them the entire Universe.
       this.#mintIdentity(lc, universeGalaxyStarId, /* scopeAdmin */ true);
-      this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
+      this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, 'claim', link.expiresAt);
     });
     log.info('Star claimed', { universeGalaxyStarId, email: lc });
 
@@ -629,16 +653,16 @@ export class NebulaAuthRegistry extends DurableObject {
     link: { rawToken: string; tokenHash: string; expiresAt: string },
     origin: string,
     log: ReturnType<typeof debug>,
-  ): void {
+  ): boolean {
     const claimer = [...this.ctx.storage.sql.exec(
       `SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
        WHERE e.email = ? AND m.universeGalaxyStarId = ? AND m.scopeAdmin = 1 AND m.acceptedAt IS NULL`,
       lcEmail, universeGalaxyStarId,
     )];
-    if (claimer.length === 0) return; // not the unverified claimer — an ordinary slug_taken, no mail
+    if (claimer.length === 0) return false; // not the unverified claimer — an ordinary slug_taken, no mail
 
-    this.#insertMagicLinkRow(link.tokenHash, lcEmail, universeGalaxyStarId, link.expiresAt);
-    if (this.#isTestMode) return; // same short-circuit as #deliverMagicLink; never leak the URL here
+    this.#insertMagicLinkRow(link.tokenHash, lcEmail, universeGalaxyStarId, 'claim', link.expiresAt);
+    if (this.#isTestMode) return true; // same short-circuit as #deliverMagicLink; never leak the URL here
     void this.#sendEmail({
       type: 'magic-link',
       to: lcEmail,
@@ -649,6 +673,7 @@ export class NebulaAuthRegistry extends DurableObject {
         universeGalaxyStarId, error: err instanceof Error ? err.message : String(err),
       });
     });
+    return true;
   }
 
   /**
@@ -715,41 +740,11 @@ export class NebulaAuthRegistry extends DurableObject {
     return { instanceName: universeGalaxyStarId };
   }
 
-  /**
-   * The caller's manageable scope tree — every scope under their dominion (Universe +
-   * descendants), for the Scopes hierarchy view. Keyed on the verified admin SCOPE, NOT email:
-   * `createGalaxy`/`createStar` register a scope with no member, so `discover` (email-keyed) wouldn't
-   * surface a galaxy you just created; this reads `Scopes` directly. Flat list; the client nests by id.
-   */
-  myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
-    // ✅ SELF-CONFINING — the bare bit is safe here because it is not the dominion decision; the
-    // QUERY is. Both branches below are BOUNDED BY `authScope`, so the result set can never exceed
-    // the caller's own dominion no matter what `scopeAdmin` says. The bit only decides "is this
-    // principal an admin at all", and a non-admin gets `[]`. Confining it against a node would be
-    // meaningless: this method has no callee node — it spans the caller's whole subtree.
-    //
-    // ⚠️ **ALLOW-LISTED off the shared predicate, deliberately** (`scopeAdmin` bit test + SQL
-    // containment). The query IS the bound: routing per row through `hasDominionOver` would require
-    // first fetching every scope in the table, which is the work this method exists to avoid. That
-    // is why the containment is spelled twice — once as the root identity test, once as SQL.
-    // ⚠️ The `.%` in the LIKE is load-bearing and matches `isAtOrAbove`'s whole-segment contract:
-    // a dot-dropped `LIKE ${authScope}%` would return `{u}-2`'s scopes to a `{u}` admin. Slugs are
-    // `[a-z0-9-]`, so no LIKE-wildcard widening via `_`/`%` is possible.
-    if (!callerAccess?.scopeAdmin) return [];
-    const authScope = callerAccess.authScope;
-    // The reserved platform scope is the ROOT of the tree, so its subtree is every scope. An IDENTITY
-    // test rather than the predicate, for the same work-avoidance reason as the branches below.
-    // ⚠️ **Set-identical to the three-branch form this replaced, at every tier — but the STAR tier
-    // holds only via an invariant stated elsewhere.** For a star `authScope`, `LIKE '{u}.{g}.{s}.%'`
-    // can match only a ≥4-segment id, and no such row can exist because every INSERT into `Scopes`
-    // is grammar-bounded upstream by `parseId` / `isValidSlug`. If that ever stops being true, this
-    // arm widens silently rather than erroring.
-    const rows = isPlatformScope(authScope)
-      ? this.#sql`SELECT universeGalaxyStarId FROM Scopes`
-      : this.#sql`SELECT universeGalaxyStarId FROM Scopes
-          WHERE universeGalaxyStarId = ${authScope} OR universeGalaxyStarId LIKE ${authScope + '.%'}`;
-    return rows.map(r => this.#toAffected(r.universeGalaxyStarId as string));
-  }
+  // ⚠️ `myScopeTree` lived here and is GONE, absorbed by `getScopeSummary` above — which reads the
+  // same `Scopes` table (so a member-less new galaxy still surfaces, the property this method's
+  // JSDoc defended) while bounding the READ, which it never did: its platform arm selected every
+  // scope in the system.
+
 
   // ============================================
   // Login channel — magic link (request + issue) + invites (issue)
@@ -757,35 +752,490 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Request a login magic link (called by the Worker on `email-magic-link`, Turnstile-gated). Inserts
-   * a `MagicLinks` row (token stored HASHED) for `(email, scope)` and sends the email. **Does NOT mint
-   * an identity** — the load-bearing invariant: the unauthenticated login-request path must never
-   * create membership. A stranger who requests a link for a scope they were never minted into gets a
-   * link that fails at consume (`getAndVerifyIdentity` → no row → reject).
+   * a `MagicLinks` row (token stored HASHED) and sends the email. `universeGalaxyStarId` is absent on
+   * the scope-less front door, where the click proves the mailbox and the scope is chosen afterward.
+   *
+   * **Mints nothing, and reads nothing about the address** — one invariant now, where there used to
+   * be an exception. The no-mint half is the older rule: an unauthenticated request must never create
+   * membership, so a link for a scope its address was never minted into is issued, delivered, and
+   * then refused at consume. The no-read half is what makes the answer uniform for member, stranger
+   * and configured bootstrap address alike — any divergence would rebuild, in the response shape, the
+   * enumeration oracle that retiring `discover` exists to close.
    */
-  async requestMagicLink(email: string, universeGalaxyStarId: string, origin: string):
+  async requestMagicLink(email: string, universeGalaxyStarId: string | undefined, origin: string):
     Promise<{ message: string; magicLinkUrl?: string }> {
     // The Worker validates the email format before this RPC (Workers RPC drops custom Error props, so
     // client-error gates stay Worker-side) — here we just normalize + create the row.
     const lc = normalizeEmail(email);
-    // Bootstrap mint point (the ONLY email-magic-link mint): a configured bootstrap email at the
-    // reserved `nebula-platform` scope is minted platform-admin (idempotent) so it can log in and get a
-    // platform token. Gated to (bootstrap-config email, nebula-platform) — a NON-bootstrap email requesting
-    // a link for nebula-platform gets NO mint, so stranger-self-join stays closed. `isBootstrap` is thus
-    // scope-gated (§Blast radius).
-    if (universeGalaxyStarId === PLATFORM_SCOPE && this.#bootstrapEmails.includes(lc)) {
-      // Hash FIRST, then all three writes atomically — the same ordering as the two claim paths.
-      // Both writes here are idempotent, so this branch self-heals either way; it is wrapped for
-      // consistency with its siblings, not to fix a live bug.
-      const link = await this.#prepareMagicLink();
-      this.ctx.storage.transactionSync(() => {
-        this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_SCOPE);
-        this.#mintIdentity(lc, PLATFORM_SCOPE, /* scopeAdmin */ true);
-        this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
-      });
-      return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
+    // ⚠️ **No branch reads the address.** Whether it holds memberships, holds none, or is a configured
+    // bootstrap address, the work and the answer are identical: one link row, one send. That is what
+    // makes the response uniform, and the uniformity is the point — this endpoint is unauthenticated,
+    // so any divergence here is an oracle telling a stranger what an address reaches. The platform
+    // membership used to be minted on THIS path; it now rides the consume, behind mailbox proof.
+    return this.#createMagicLinkAndSend(lc, universeGalaxyStarId, 'login', origin);
+  }
+
+  /**
+   * **The Home screen's one read** — every address this person holds, every membership on each, and
+   * enough of the tree beneath their ADMIN memberships to choose from.
+   *
+   * Keyed on `profileId`, so it spans addresses: the screen is about a PERSON, and one person's
+   * memberships can hang off several of their addresses (ADR-013's `Emails.profileId`).
+   *
+   * ⚠️ **Replaces `my-scopes`/`myScopeTree`, and is a superset of it.** The subtree beneath an admin
+   * membership is read from `Scopes`, not from `Memberships`, which preserves the one property that
+   * method's JSDoc defended: a galaxy someone just created has no member yet, and an email-keyed
+   * read would not surface it. What the old method did NOT have is any bound — its platform arm was
+   * `SELECT … FROM Scopes` entire — which is why the budget below is on the READ.
+   *
+   * ⚠️ **Eager descent requires an ACCEPTED admin membership.** An unaccepted one renders as a bare
+   * badged row: until its holder has agreed to take it up, it confers nothing (ADR-012), and
+   * fleshing a subtree under it would be answering with authority nobody has accepted.
+   */
+  getScopeSummary(profileId: string, currentSub: string): ScopeSummary {
+    const rows = this.#sql`
+      SELECT e.email AS email, m.sub AS sub, m.universeGalaxyStarId AS scope, m.scopeAdmin AS scopeAdmin,
+             m.acceptedAt AS acceptedAt, m.invitedByName AS invitedByName,
+             m.invitedByProfileId AS invitedByProfileId, m.invitedBySub AS invitedBySub
+      FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+      WHERE e.profileId = ${profileId}
+      ORDER BY e.email, m.universeGalaxyStarId`;
+
+    let budget = SCOPE_TREE_NODE_BUDGET - rows.length; // the membership rows themselves count
+    const byEmail = new Map<string, EmailScopes>();
+    for (const r of rows) {
+      const email = r.email as string;
+      if (!byEmail.has(email)) byEmail.set(email, { email, memberships: [] });
+      const scope = r.scope as string;
+      const accepted = r.acceptedAt != null;
+      const node: ScopeNode = {
+        scope, tier: this.#tierOf(scope), scopeAdmin: Boolean(r.scopeAdmin), accepted,
+        ...(r.invitedBySub != null ? {
+          invitedByName: (r.invitedByName as string | null) ?? undefined,
+          invitedByProfileId: (r.invitedByProfileId as string | null) ?? undefined,
+        } : {}),
+      };
+      if (r.sub === currentSub) byEmail.get(email)!.current = true;
+      // Only an accepted admin membership opens its subtree.
+      if (node.scopeAdmin && accepted && budget > 0) {
+        budget -= this.#descend(node, budget);
+      }
+      byEmail.get(email)!.memberships.push(node);
     }
-    // The normal login path — one write (the link row), trivially atomic, no transaction needed.
-    return this.#createMagicLinkAndSend(lc, universeGalaxyStarId, origin);
+    return { emails: [...byEmail.values()] };
+  }
+
+  /**
+   * Fill `root`'s subtree BREADTH-FIRST until `budget` nodes are spent, and report what it cost.
+   *
+   * ⚠️ **Breadth-first, not depth-first, and that is a product decision rather than a taste one.**
+   * The screen renders a level at a time, so a budget spent depth-first would hand someone every
+   * tenant of their first app and nothing about the other four. Level order means the budget buys
+   * the widest useful picture, and whatever it could not reach is marked with a `childCount` the
+   * client renders as "N more" — so the frontier is visible rather than silently missing.
+   */
+  #descend(root: ScopeNode, budget: number): number {
+    let spent = 0;
+    let frontier = [root];
+    while (frontier.length > 0 && spent < budget) {
+      const next: ScopeNode[] = [];
+      for (const node of frontier) {
+        if (spent >= budget) break;
+        const { children, spent: cost, truncated } = this.#childLevel(node.scope, budget - spent);
+        spent += cost;
+        if (children.length > 0) {
+          node.children = children;
+          // ⚠️ A parent whose level was CUT SHORT keeps a `childCount`, and that is the frontier the
+          // client renders as "N more". Without it the tree looks complete while silently missing
+          // everything past the budget — the failure mode a bounded read exists to make visible.
+          if (truncated) node.childCount = this.#directChildCount(node.scope);
+          else delete node.childCount;
+          next.push(...children);
+        }
+      }
+      frontier = next;
+    }
+    return spent;
+  }
+
+  /**
+   * One level of `Scopes` beneath `parent`, bounded by `budget`.
+   *
+   * ⚠️ **`LIMIT budget + 1`, and the +1 is the point** — it is what tells the caller a frontier
+   * exists without reading past it. Trimming a full read after the fact would serve a small body
+   * off an unbounded scan, which is the shape ADR-018 is about; here the singleton's work is
+   * bounded too.
+   */
+  #childLevel(
+    parent: string, budget: number, after?: string,
+  ): { children: ScopeNode[]; spent: number; truncated: boolean } {
+    const depth = parent.split('.').length;
+    if (depth >= 3) return { children: [], spent: 0, truncated: false }; // a star has no descendants
+    // `after` is the keyset cursor: resume strictly past the last scope the caller already has.
+    const rows = after === undefined
+      ? this.#sql`
+        SELECT universeGalaxyStarId AS scope FROM Scopes
+        WHERE universeGalaxyStarId LIKE ${parent + '.%'}
+        ORDER BY universeGalaxyStarId
+        LIMIT ${budget + 1}`
+      : this.#sql`
+        SELECT universeGalaxyStarId AS scope FROM Scopes
+        WHERE universeGalaxyStarId LIKE ${parent + '.%'} AND universeGalaxyStarId > ${after}
+        ORDER BY universeGalaxyStarId
+        LIMIT ${budget + 1}`;
+    // Direct children only — the LIKE also matches grandchildren, and a level is what the screen
+    // renders. (A separate count would be a second scan; filtering the bounded read is not.)
+    const direct = rows.map(r => r.scope as string).filter(s => s.split('.').length === depth + 1);
+    const children = direct.slice(0, budget).map(scope => ({
+      scope, tier: this.#tierOf(scope),
+      ...(scope.split('.').length < 3 ? { childCount: this.#directChildCount(scope) } : {}),
+    } as ScopeNode));
+    const truncated = direct.length > budget;
+    return { children, spent: children.length + (truncated ? 1 : 0), truncated };
+  }
+
+  /**
+   * How many direct children a scope has — the frontier marker the client renders as "N more".
+   *
+   * ⚠️ **Bounded like everything else, so it is a FLOOR rather than an exact count.** It reads at
+   * most `budget + 1`, which is the whole point: an exact count of a superuser's descendants is the
+   * unbounded scan this design removed. The client renders it as "at least N".
+   */
+  #directChildCount(parent: string): number {
+    const depth = parent.split('.').length;
+    const rows = this.#sql`
+      SELECT universeGalaxyStarId AS scope FROM Scopes
+      WHERE universeGalaxyStarId LIKE ${parent + '.%'} LIMIT ${SCOPE_TREE_NODE_BUDGET + 1}`;
+    return rows.map(r => r.scope as string).filter(s => s.split('.').length === depth + 1).length;
+  }
+
+  #tierOf(scope: string): Tier {
+    const n = scope.split('.').length;
+    return n === 1 ? 'universe' : n === 2 ? 'galaxy' : 'star';
+  }
+
+  /**
+   * One more level of the tree, on demand — what the Home screen calls when someone opens a
+   * collapsed node.
+   *
+   * ⚠️ **Authorization is re-derived here, from the caller's own memberships** — never trusted from
+   * the request. The caller must hold an ACCEPTED admin membership at or above `parent`, which is
+   * the same rule the eager descent applies, asked again because this is a separate entry point.
+   */
+  expandScope(profileId: string, parent: string, after?: string): { children: ScopeNode[]; nextCursor?: string } {
+    const admins = this.#sql`
+      SELECT m.universeGalaxyStarId AS scope FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+      WHERE e.profileId = ${profileId} AND m.scopeAdmin = 1 AND m.acceptedAt IS NOT NULL`;
+    const covered = admins.some(a => {
+      const s = a.scope as string;
+      return isPlatformScope(s) || s === parent || parent.startsWith(`${s}.`);
+    });
+    if (!covered) return { children: [] };
+    const { children, truncated } = this.#childLevel(parent, SCOPE_TREE_NODE_BUDGET, after);
+    // ⚠️ **KEYSET pagination, not OFFSET.** The cursor is the last scope returned and the next page
+    // asks for rows ordered after it, so page N costs what page 1 costs — an `OFFSET` would re-scan
+    // everything before it, which is the unbounded read this design exists to keep off the
+    // singleton. Scope ids are unique and lexically ordered, so they are their own stable cursor and
+    // no server-side paging state is needed. Absent `nextCursor` means the level is exhausted.
+    return {
+      children,
+      ...(truncated && children.length > 0
+        ? { nextCursor: children[children.length - 1].scope }
+        : {}),
+    };
+  }
+
+  /**
+   * **Logout everywhere for this ADDRESS** — every membership it holds, every session on each.
+   *
+   * The caller proves one membership (its path-scoped cookie, resolved to `sub` by the Worker); the
+   * address behind it, and the sibling memberships, are resolved HERE. Nothing about which scopes to
+   * clear comes from the request: a client that could name them could clear someone else's.
+   *
+   * ⚠️ Scoped to one ADDRESS, not to the person's `profileId`. Two addresses that happen to share a
+   * profile are two mailboxes with two sets of cookies, and only the one that proved itself is
+   * signed out — "log out everywhere" means this browser's credentials for this address, which is
+   * what someone on a shared machine is asking for.
+   *
+   * Returns the scopes cleared so the Worker can expire exactly those cookie `Path`s.
+   */
+  async revokeAllForAddress(sub: string, callerClaims?: NebulaJwtPayload): Promise<{ scopes: string[] }> {
+    const owner = this.#sql`SELECT emailId FROM Memberships WHERE sub = ${sub}`;
+    if (owner.length === 0) return { scopes: [] };
+    const siblings = this.#sql`
+      SELECT sub, universeGalaxyStarId AS scope FROM Memberships WHERE emailId = ${owner[0].emailId}`;
+    for (const s of siblings) {
+      await this.#invalidateRefreshTokensForSub(s.sub as string, 'logout-all', callerClaims);
+    }
+    return { scopes: siblings.map((s: any) => s.scope as string) };
+  }
+
+  /** Is this membership taken up? The one read behind every `accepted` copy — so the flag has one
+   *  source, and a stale copy can never outvote the row. */
+  #isAccepted(sub: string): boolean {
+    const rows = this.#sql`SELECT acceptedAt FROM Memberships WHERE sub = ${sub}`;
+    return rows.length > 0 && rows[0].acceptedAt != null;
+  }
+
+  /** Every membership an address holds, newest first — mint-all's input. */
+  #membershipsForAddress(lcEmail: string): ConsumeMembership[] {
+    const rows = this.#sql`
+      SELECT m.sub AS sub, m.universeGalaxyStarId AS scope, m.scopeAdmin AS scopeAdmin,
+             m.acceptedAt AS acceptedAt, e.profileId AS profileId
+      FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+      WHERE e.email = ${lcEmail}
+      ORDER BY m.createdAt DESC`;
+    return rows.map((r: any) => ({
+      sub: r.sub as string,
+      universeGalaxyStarId: r.scope as string,
+      scopeAdmin: Boolean(r.scopeAdmin),
+      profileId: r.profileId as string,
+      accepted: r.acceptedAt != null,
+    }));
+  }
+
+  /**
+   * RPC 1 of a consume: validate the login-channel token, prove the mailbox, and return everything
+   * the Worker needs to mint cookies — WITHOUT minting any itself.
+   *
+   * ⚠️ **The split is forced by where the raw tokens live.** Under mint-all the number of sessions is
+   * not known until the address resolves, so the Worker cannot pre-generate them the way the old
+   * single-session consume did; it needs this answer first, then mints N raw values (which only it
+   * ever holds, for the cookies) and records their hashes through {@link recordSessions}. An eviction
+   * between the two calls leaves a proved mailbox and zero sessions — harmless, and healed by
+   * re-clicking a link that is multi-use within its TTL.
+   *
+   * Returns `null` for an unknown, expired, or address-less token; the Worker maps that to its
+   * ordinary error redirect.
+   */
+  async resolveConsume(kind: 'magic-link' | 'invite', tokenHash: string): Promise<ConsumePlan | null> {
+    const table = kind === 'magic-link' ? 'MagicLinks' : 'InviteTokens';
+    const rows = kind === 'magic-link'
+      ? this.#sql`SELECT email, universeGalaxyStarId, purpose, expiresAt FROM MagicLinks WHERE tokenHash = ${tokenHash}`
+      : this.#sql`SELECT email, universeGalaxyStarId, expiresAt FROM InviteTokens WHERE tokenHash = ${tokenHash}`;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    if (new Date().toISOString() > (row.expiresAt as string)) return null;
+    const lc = normalizeEmail(row.email as string);
+
+    // Mailbox proof has landed. A configured bootstrap address gets its platform membership here —
+    // purpose-agnostic, so whichever route carried the click, and UNACCEPTED like every other mint.
+    this.#ensureBootstrapMembership(lc);
+
+    // The address's mailbox is proved once and globally (`Emails.emailVerified`), which is what makes
+    // it safe to hand back every membership it holds rather than only the one a scope named.
+    const proved = this.ctx.storage.sql.exec(
+      'UPDATE Emails SET emailVerified = 1 WHERE email = ? AND emailVerified = 0', lc,
+    );
+    if (proved.rowsWritten > 0) debug('nebula-auth.Registry.identity.mailboxProved').info('Mailbox proved', { email: lc });
+
+    const linkScope = (row.universeGalaxyStarId as string | null) ?? undefined;
+    const purpose: MagicLinkPurpose = kind === 'invite'
+      ? 'login' // an invite lands on Home with the invite-flavor modal; its scope is the link's
+      : ((row.purpose as MagicLinkPurpose | undefined) ?? 'login');
+    debug('nebula-auth.Registry.login.resolved').info('Consume resolved', { table, purpose, linkScope });
+    return { email: lc, purpose, linkScope, memberships: this.#membershipsForAddress(lc) };
+  }
+
+  /**
+   * RPC 2 of a consume: record the sessions whose raw tokens the Worker just minted. Index row first,
+   * then the KV record, per the index-first invariant `#revokeByHashes` documents.
+   *
+   * Each record carries the membership's CURRENT acceptance, and an unaccepted one mints a cookie
+   * that refuses to produce a token until the consent modal flips it — the cookie is placed, inert.
+   */
+  async recordSessions(records: SessionRecord[], expiresAt: string): Promise<void> {
+    for (const r of records) {
+      const scope = this.getIdentityScope(r.sub);
+      if (!scope) continue; // membership vanished between the two calls — nothing to record
+      await this.#recordRefreshToken(
+        r.sub, scope.universeGalaxyStarId, scope.scopeAdmin, scope.profileId, r.tokenHash, expiresAt,
+        this.#isAccepted(r.sub),
+      );
+    }
+  }
+
+  /**
+   * **The one writer of `acceptedAt`** — reached only through the consent modal's Accept, and
+   * authenticated by the membership's own path-scoped cookie, which the Worker resolves to `sub`
+   * before calling. Taking up a membership is a deliberate act by the person it belongs to, and this
+   * is where that act is recorded.
+   *
+   * ⚠️ **Why no consume writes it.** A link click is not consent: corporate mail scanners fetch and
+   * follow links, so a consume-time flip lets a stranger's guessed-address invite be "accepted" by
+   * the victim's own mail gateway — and ADR-012 hands an admin of any scope a profile touches
+   * read/write over that profile's private fields. Acceptance behind a form submit cannot be forged
+   * by any fetch, redirect-follow, or JS render.
+   *
+   * An invited membership's Accept also takes up the `.dev` sibling minted alongside it: they arrived
+   * as one act from one inviter, so consenting to the invitation consents to the workspace it came
+   * with. Every affected session's KV record is converged, so the cookies stop being inert.
+   */
+  async acceptMembership(sub: string, callerClaims?: NebulaJwtPayload): Promise<{ accepted: string[] }> {
+    const rows = this.#sql`
+      SELECT m.emailId AS emailId, m.universeGalaxyStarId AS scope, m.invitedBySub AS invitedBySub
+      FROM Memberships m WHERE m.sub = ${sub}`;
+    if (rows.length === 0) return { accepted: [] };
+    const emailId = rows[0].emailId as string;
+    const scope = rows[0].scope as string;
+    const invited = rows[0].invitedBySub != null;
+
+    // The sibling: an invite into a galaxy co-mints `{galaxy}.dev` for the same address.
+    const subs = [sub];
+    if (invited) {
+      const sibling = this.#sql`
+        SELECT sub FROM Memberships
+        WHERE emailId = ${emailId} AND universeGalaxyStarId = ${`${scope}.dev`} AND acceptedAt IS NULL`;
+      if (sibling.length > 0) subs.push(sibling[0].sub as string);
+    }
+
+    const nowIso = new Date().toISOString();
+    const flipped: string[] = [];
+    for (const s of subs) {
+      const res = this.ctx.storage.sql.exec(
+        'UPDATE Memberships SET acceptedAt = ? WHERE sub = ? AND acceptedAt IS NULL', nowIso, s,
+      );
+      if (res.rowsWritten > 0) flipped.push(s);
+    }
+    if (flipped.length === 0) return { accepted: [] }; // already accepted — idempotent
+
+    // Converge every live session for the affected memberships: the cookies exist already and are
+    // inert until this lands. Re-applies each token's ORIGINAL absolute expiry, never a fresh TTL.
+    for (const s of flipped) {
+      const identity = this.getIdentityScope(s);
+      if (!identity) continue;
+      const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${s}`;
+      for (const tk of tokens) {
+        const record: RefreshTokenKV = {
+          sub: s, universeGalaxyStarId: identity.universeGalaxyStarId, scopeAdmin: identity.scopeAdmin,
+          accepted: true, expiresAt: tk.expiresAt as string, profileId: identity.profileId,
+        };
+        await this.#refreshKv.put(`refresh:${tk.tokenHash as string}`, JSON.stringify(record), {
+          expirationTtl: kvTtlSeconds(tk.expiresAt as string),
+        });
+      }
+    }
+
+    // ADR-016: acceptance moves authority — it is what `getScopesForProfile` counts, so it decides
+    // who administers a profile. The acting principal is the membership's own holder, authenticated
+    // by the cookie the Worker resolved; `callerClaims` is absent on that cookie-credentialed path,
+    // and `projectActingToken` is given whatever the caller did present rather than a fabricated one.
+    debug('nebula-auth.Registry.identity.membershipAccepted').info('Membership accepted', {
+      subjectSub: sub, accepted: flipped, actingToken: callerClaims ? projectActingToken(callerClaims) : undefined,
+    });
+
+    // m6 — the pending-signup single-flight, fired by the ACCEPT and nothing else.
+    // ⚠️ **AFTER the flip above, and that ordering is what protects the accepted scope.** The target
+    // set below matches on `acceptedAt IS NULL`, so this membership excludes itself by having just
+    // been taken up. Move this call above the flip and the accept deletes its own Universe — which
+    // is why an explicit "not this scope" conjunct was removed rather than kept as a second guard:
+    // it made the ordering look optional while duplicating what it already guarantees. The
+    // "accepted claim wins" assertion in `identity-mint-point.test.ts` reds if the order changes.
+    await this.#convergePendingClaims(sub, emailId, scope, invited);
+    return { accepted: flipped };
+  }
+
+  /**
+   * **m6: one address, one Universe.** Taking up a self-created Universe retires the address's OTHER
+   * pending Universe claims — the "changed my mind about the name" case, which self-signup admits
+   * because a claim mints the scope itself, so `Memberships`' `UNIQUE (emailId, scope)` cannot
+   * backstop a second submission at a different slug.
+   *
+   * ⚠️ **Both sides carry the SAME conjuncts, and that symmetry is the whole safety argument.**
+   * A bare `acceptedAt IS NULL` is a STANDING state under this design — every unaccepted invitation
+   * and the never-entered bootstrap membership match it — so an unqualified predicate on either side
+   * destroys other people's live scopes. Hence, on both the trigger and the targets:
+   *
+   *  - **unstamped** (`invitedBySub IS NULL`) — self-created, never an invitation someone sent you;
+   *  - **universe-tier** — a `claimStar` take-up must not retire a pending Universe;
+   *  - **`scopeAdmin = 1`** — the claimant's own founding membership, not a peer seat;
+   *  - **not the platform scope** — the superuser's first login destroys nothing;
+   *  - and on the target side additionally **unaccepted** — which is also what excludes the scope
+   *    being accepted, since its flip commits first — and **within its claim link's TTL**, because an
+   *    older pending claim whose link can no longer be consumed is nobody's live intention.
+   *
+   * ⚠️ **No transaction spans this.** Revoking a session awaits KV deletes, and `transactionSync`
+   * takes a SYNCHRONOUS closure — an async one type-checks and commits before the writes land (the
+   * pin above `#prepareMagicLink` documents the same trap). So: sync SELECT of the sibling set,
+   * `await` the revokes OUTSIDE any transaction, then the sync deletes in one `transactionSync`.
+   * `executeScopeDeletion` is the live precedent and this mirrors its body, link and invite rows
+   * included — a slug freed by deleting only its `Scopes` row would leave a consumable login channel
+   * pointed at a scope that no longer exists.
+   */
+  async #convergePendingClaims(
+    acceptedSub: string, emailId: string, acceptedScope: string, invited: boolean,
+  ): Promise<void> {
+    // ── The TRIGGER side. Anything but a self-created universe-tier founding membership converges
+    // nothing at all — this is where a `claimStar` take-up and the bootstrap login stop.
+    if (invited || acceptedScope === PLATFORM_SCOPE) return;
+    if (acceptedScope.includes('.')) return; // universe-tier is the one-segment case
+    const self = this.#sql`SELECT scopeAdmin FROM Memberships WHERE sub = ${acceptedSub}`;
+    if (self.length === 0 || !self[0].scopeAdmin) return;
+
+    // ── The TARGET side, same conjuncts + unaccepted + live-link + not-self.
+    const nowIso = new Date().toISOString();
+    const siblings = this.#sql`
+      SELECT m.sub AS sub, m.universeGalaxyStarId AS scope
+      FROM Memberships m
+      WHERE m.emailId = ${emailId}
+        AND m.universeGalaxyStarId != ${PLATFORM_SCOPE}
+        AND m.invitedBySub IS NULL
+        AND m.scopeAdmin = 1
+        AND m.acceptedAt IS NULL
+        AND m.universeGalaxyStarId NOT LIKE '%.%'
+        AND EXISTS (
+          SELECT 1 FROM MagicLinks l
+          WHERE l.universeGalaxyStarId = m.universeGalaxyStarId AND l.expiresAt > ${nowIso}
+        )`;
+    if (siblings.length === 0) return;
+
+    // Revoke first, OUTSIDE any transaction — these await KV. A session minted from a superseded
+    // claim must not outlive it: the slug is about to be free for someone else to take.
+    for (const s of siblings) {
+      await this.#invalidateRefreshTokensForSub(s.sub as string, 'pending-claim-superseded');
+    }
+
+    this.ctx.storage.transactionSync(() => {
+      for (const s of siblings) {
+        const name = s.scope as string;
+        this.ctx.storage.sql.exec('DELETE FROM Memberships WHERE universeGalaxyStarId = ?', name);
+        this.ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE universeGalaxyStarId = ?', name);
+        this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE universeGalaxyStarId = ?', name);
+        this.ctx.storage.sql.exec('DELETE FROM Scopes WHERE universeGalaxyStarId = ?', name);
+      }
+    });
+
+    // ADR-016. The actor is SERVER-COMPOSED and syntactically not a human: nobody presented a token
+    // for this — the platform executed a convergence the accept implied. Naming the address as the
+    // actor would be ADR-016's own failure shape, a record that names the person acted upon.
+    debug('nebula-auth.Registry.claim.converged').info('Pending claims superseded', {
+      actor: 'agent:nebula', keptScope: acceptedScope,
+      retired: siblings.map((s: any) => s.scope as string),
+    });
+  }
+
+  /**
+   * Ensure the reserved platform membership for a configured bootstrap address — called from the
+   * SHARED consume, so it fires on whatever route carried the click and every existing scoped
+   * bootstrap path keeps working unchanged.
+   *
+   * ⚠️ **Behind mailbox proof, and UNACCEPTED.** Minting used to happen on the unauthenticated link
+   * REQUEST, which meant an unauthenticated call wrote a membership at the most powerful scope in the
+   * system. Here the caller has already produced a token delivered to that address. The membership is
+   * left un-taken-up like every other mint: entering the platform scope still passes the consent
+   * modal, and until then `getScopesForProfile` does not count it.
+   *
+   * ⚠️ **The `#bootstrapEmails` conjunct is the whole gate** — it is what stands between any stranger
+   * and platform `scopeAdmin`. It is deliberately NOT paired with a scope test here (the caller has
+   * no scope to test on a bare login), which is exactly why mint-all excludes this membership from
+   * the cookies it sets unless the consumed link itself named the platform scope.
+   */
+  #ensureBootstrapMembership(lcEmail: string): void {
+    if (!this.#bootstrapEmails.includes(lcEmail)) return;
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_SCOPE);
+      this.#mintIdentity(lcEmail, PLATFORM_SCOPE, /* scopeAdmin */ true);
+    });
   }
 
   // ── The magic-link helper, split into three by await-ness ───────────────────────────────────
@@ -823,26 +1273,37 @@ export class NebulaAuthRegistry extends DurableObject {
    * `email` must already be `normalizeEmail`d: it has to match the `Emails` normalization or
    * consume-time verification won't find the row.
    */
-  #insertMagicLinkRow(tokenHash: string, lcEmail: string, universeGalaxyStarId: string, expiresAt: string): void {
+  #insertMagicLinkRow(
+    tokenHash: string, lcEmail: string, universeGalaxyStarId: string | undefined,
+    purpose: MagicLinkPurpose, expiresAt: string,
+  ): void {
     this.ctx.storage.sql.exec(
-      'INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES (?, ?, ?, ?)',
-      tokenHash, lcEmail, universeGalaxyStarId, expiresAt,
+      'INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, purpose, expiresAt) VALUES (?, ?, ?, ?, ?)',
+      tokenHash, lcEmail, universeGalaxyStarId ?? null, purpose, expiresAt,
     );
   }
 
-  /** The link a `rawToken` resolves to. Synchronous; the DO reads `origin` off the forwarded request. */
-  #magicLinkUrl(rawToken: string, universeGalaxyStarId: string, origin: string): string {
-    return instanceAuthUrl(origin, universeGalaxyStarId, 'magic-link', { one_time_token: rawToken });
+  /** The link a `rawToken` resolves to. Synchronous; the DO reads `origin` off the forwarded request.
+   *  A scope-less link takes the shorter route — there is no scope segment to put in it. */
+  #magicLinkUrl(rawToken: string, universeGalaxyStarId: string | undefined, origin: string): string {
+    return universeGalaxyStarId === undefined
+      ? scopelessAuthUrl(origin, 'magic-link', { one_time_token: rawToken })
+      : instanceAuthUrl(origin, universeGalaxyStarId, 'magic-link', { one_time_token: rawToken });
   }
 
   /** Send (or, in test mode, return) the link. **Async** — call AFTER the transaction commits. */
-  async #deliverMagicLink(rawToken: string, lcEmail: string, universeGalaxyStarId: string, origin: string):
-    Promise<{ message: string; magicLinkUrl?: string }> {
+  async #deliverMagicLink(
+    rawToken: string, lcEmail: string, universeGalaxyStarId: string | undefined, origin: string,
+  ): Promise<{ message: string; magicLinkUrl?: string }> {
     const magicLinkUrl = this.#magicLinkUrl(rawToken, universeGalaxyStarId, origin);
     if (this.#isTestMode) {
       return { message: 'Magic link generated (test mode)', magicLinkUrl };
     }
-    await this.#sendEmail({ type: 'magic-link', to: lcEmail, instanceName: universeGalaxyStarId, magicLinkUrl });
+    // `instanceName` is what routes the mail for `waitForEmail` and is required on every variant, so a
+    // scope-less link reports the one thing that IS true of it — it belongs to no instance.
+    await this.#sendEmail({
+      type: 'magic-link', to: lcEmail, instanceName: universeGalaxyStarId ?? SCOPELESS_INSTANCE_TAG, magicLinkUrl,
+    });
     return { message: 'Check your email for the magic link' };
   }
 
@@ -853,11 +1314,12 @@ export class NebulaAuthRegistry extends DurableObject {
    * mint an identity alongside the link must NOT use this: they compose the three halves above inside
    * a `transactionSync` themselves (see `claimUniverse` / `claimStar`).
    */
-  async #createMagicLinkAndSend(email: string, universeGalaxyStarId: string, origin: string):
-    Promise<{ message: string; magicLinkUrl?: string }> {
+  async #createMagicLinkAndSend(
+    email: string, universeGalaxyStarId: string | undefined, purpose: MagicLinkPurpose, origin: string,
+  ): Promise<{ message: string; magicLinkUrl?: string }> {
     const lc = normalizeEmail(email);
     const link = await this.#prepareMagicLink();
-    this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
+    this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, purpose, link.expiresAt);
     return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
   }
 
@@ -888,7 +1350,7 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   async issueInvites(
     universeGalaxyStarId: string, invitees: InviteeRequest[], origin: string,
-    callerClaims: NebulaJwtPayload,
+    callerClaims: NebulaJwtPayload, inviterName?: string,
   ): Promise<InviteMintResult> {
     const results: InviteeMintResult[] = [];
     const errors: InviteeError[] = [];
@@ -915,8 +1377,16 @@ export class NebulaAuthRegistry extends DurableObject {
       }
       const requestedBit = entry.scopeAdmin === true;
       try {
+        // Who is doing the inviting, pinned at mint for the invitee's consent modal. `sub` and
+        // `profileId` come from the caller's VERIFIED claims; the name is what that caller asserted
+        // about themselves (capped and stripped at the facade), which is why the modal attributes it
+        // as sender-supplied rather than vouching for it.
+        const invitedBy: InvitedByStamp = {
+          sub: callerClaims?.sub, name: inviterName, profileId: callerClaims?.profileId,
+        };
+
         // Pre-create the invitee identity (idempotent on (email, scope)) — the mint point.
-        const minted = this.#mintIdentity(email, universeGalaxyStarId, requestedBit);
+        const minted = this.#mintIdentity(email, universeGalaxyStarId, requestedBit, invitedBy);
 
         // The workspace SECOND HALF (galaxy-tier invites only): a galaxy collaborator is
         // ALSO enrolled in the `.dev` workspace Star, so she can work in the preview
@@ -933,7 +1403,11 @@ export class NebulaAuthRegistry extends DurableObject {
         // only if they have it. Idempotent like the primary.
         let galaxyTier = false;
         try { galaxyTier = parseId(universeGalaxyStarId).tier === 'galaxy'; } catch { /* not a scope id */ }
-        if (galaxyTier) this.#mintIdentity(email, `${universeGalaxyStarId}.dev`, dominion);
+        // ⚠️ The sibling carries the SAME stamps, written in the same statement-pair as the primary.
+        // It is a membership a third party created for this person exactly as the primary is, so an
+        // unstamped one would render the self-flavor consent modal — "only accept if you initiated
+        // this signup" — over a row they had nothing to do with.
+        if (galaxyTier) this.#mintIdentity(email, `${universeGalaxyStarId}.dev`, dominion, invitedBy);
 
         let outcome: InviteeMintResult['outcome'] = minted.created ? 'invited' : 'already-member';
         if (!minted.created && requestedBit && !minted.scopeAdmin) {
@@ -975,102 +1449,30 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   // ============================================
-  // Token consume (Worker RPC) — validate login channel, write index + KV
+  // Token consume (Worker RPC) — see `resolveConsume` + `recordSessions` above
   // ============================================
+  //
+  // ⚠️ The single-session `consumeMagicLink` / `consumeInvite` pair that lived here is GONE, not
+  // moved: under mint-all one click mints a session per membership of the address, so the number of
+  // raw tokens is unknown until the address resolves and the old "Worker pre-generates one hash and
+  // passes it in" shape cannot express it. Their work is split across the two RPCs above.
 
   /**
-   * Consume a magic link (Worker-driven, on the click). Validates the `MagicLinks` row by hash,
-   * find-and-flips the identity (rejects if none — the stranger-self-join guard), then records the
-   * refresh token: `RefreshTokenIndex` FIRST (sync SQLite, single-writer), THEN the KV record
-   * (index-first invariant M3 — an eviction at the awaited KV put leaves at worst a revocable
-   * index-entry-without-KV-record, never a live-but-unindexed unrevocable token). The Worker supplies
-   * the already-hashed refresh token (it holds the raw for the cookie). Magic links are reusable
-   * within their TTL (scanner-safe) — not deleted on consume.
+   * Record one session: `RefreshTokenIndex` FIRST (sync SQLite, single-writer), THEN the KV record —
+   * the index-first invariant `#revokeByHashes` documents, so an eviction at the awaited put leaves
+   * at worst a revocable index-row-without-record, never a live-but-unindexed token.
    *
-   * @returns `{ sub, universeGalaxyStarId }` on success, or `null` when the link is invalid/expired or
-   * no identity exists (the Worker maps `null` to a login-error redirect).
+   * Writer (a) of `profileId` into the KV record (the login funnel), and writer (a) of `accepted`.
    */
-  async consumeMagicLink(
-    magicLinkTokenHash: string, refreshTokenHash: string, refreshExpiresAt: string,
-  ): Promise<ConsumeResult | null> {
-    const rows = this.#sql`
-      SELECT email, universeGalaxyStarId, expiresAt FROM MagicLinks WHERE tokenHash = ${magicLinkTokenHash}
-    `;
-    if (rows.length === 0) return null;
-    const link = rows[0];
-    if (new Date().toISOString() > (link.expiresAt as string)) return null;
-
-    const identity = this.getAndVerifyIdentity(link.email as string, link.universeGalaxyStarId as string);
-    if (!identity) {
-      debug('nebula-auth.Registry.login.rejected').warn('Magic link for non-member', {
-        universeGalaxyStarId: link.universeGalaxyStarId, reason: 'no_identity',
-      });
-      return null;
-    }
-    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.scopeAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
-    debug('nebula-auth.Registry.login.succeeded').info('Magic link login', { targetSub: identity.sub });
-    return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
-  }
-
-  /**
-   * Consume an invite (Worker-driven, on the click). Validates the `InviteTokens` row by hash,
-   * find-and-flips the pre-created invitee identity (rejects if none), records the refresh token
-   * (index-first, then KV). Same shape as {@link consumeMagicLink}, including the lifetime rule:
-   * **reusable within its TTL, deleted only by the expiry sweep — never on consume.** The same
-   * scanner-safety rationale applies identically: a corporate link-scanner (SafeLinks, Mimecast)
-   * prefetches the GET, and single-use would burn the token before the human clicks — making
-   * `invalid_token` the invitee's first contact with the product.
-   */
-  async consumeInvite(
-    inviteTokenHash: string, refreshTokenHash: string, refreshExpiresAt: string,
-    devRefreshTokenHash?: string,
-  ): Promise<ConsumeResult | null> {
-    const rows = this.#sql`
-      SELECT email, universeGalaxyStarId, expiresAt FROM InviteTokens WHERE tokenHash = ${inviteTokenHash}
-    `;
-    if (rows.length === 0) return null;
-    const invite = rows[0];
-    if (new Date().toISOString() > (invite.expiresAt as string)) return null;
-
-    const identity = this.getAndVerifyIdentity(invite.email as string, invite.universeGalaxyStarId as string);
-    if (!identity) {
-      debug('nebula-auth.Registry.login.rejected').warn('Invite for non-member', {
-        universeGalaxyStarId: invite.universeGalaxyStarId, reason: 'no_identity',
-      });
-      return null;
-    }
-    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.scopeAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
-
-    // The workspace SECOND SESSION (the co-minted `.dev` membership, galaxy-tier invites
-    // only): the SAME acceptance click takes it up and seeds its own refresh session, so
-    // the browser leaves holding cookies for BOTH scopes the invite enrolled — the
-    // preview's data plane needs a token whose authScope is the `.dev` Star, and its
-    // Path-scoped cookie can come from nowhere else. Deliberately minimal (the
-    // test-personas future supersedes this wholesale).
-    let devSession: ConsumeResult['devSession'];
-    let galaxyTier = false;
-    try { galaxyTier = parseId(invite.universeGalaxyStarId as string).tier === 'galaxy'; } catch { /* not a scope id */ }
-    if (devRefreshTokenHash && galaxyTier) {
-      const devIdentity = this.getAndVerifyIdentity(invite.email as string, `${invite.universeGalaxyStarId}.dev`);
-      if (devIdentity) {
-        await this.#recordRefreshToken(devIdentity.sub, devIdentity.universeGalaxyStarId, devIdentity.scopeAdmin, devIdentity.profileId, devRefreshTokenHash, refreshExpiresAt);
-        devSession = { universeGalaxyStarId: devIdentity.universeGalaxyStarId };
-      }
-    }
-    debug('nebula-auth.Registry.login.succeeded').info('Invite accepted', { targetSub: identity.sub });
-    return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId, ...(devSession ? { devSession } : {}) };
-  }
-
-  /** Index-first refresh-token record: `RefreshTokenIndex` (sync) FIRST, then the KV record (M3).
-   *  Writer (a) of `profileId` into the KV record (the login funnel). */
   async #recordRefreshToken(
-    sub: string, universeGalaxyStarId: string, scopeAdmin: boolean, profileId: string, tokenHash: string, expiresAt: string,
+    sub: string, universeGalaxyStarId: string, scopeAdmin: boolean, profileId: string, tokenHash: string,
+    expiresAt: string, accepted: boolean,
   ): Promise<void> {
     this.ctx.storage.sql.exec(
       'INSERT OR REPLACE INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES (?, ?, ?)',
       tokenHash, sub, expiresAt,
     );
-    const record: RefreshTokenKV = { sub, universeGalaxyStarId, scopeAdmin, expiresAt, profileId };
+    const record: RefreshTokenKV = { sub, universeGalaxyStarId, scopeAdmin, accepted, expiresAt, profileId };
     await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), {
       expirationTtl: kvTtlSeconds(expiresAt),
     });
@@ -1184,6 +1586,7 @@ export class NebulaAuthRegistry extends DurableObject {
       const record: RefreshTokenKV = {
         sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin, expiresAt: t.expiresAt as string,
         profileId: scope.profileId, // writer (b): re-put must carry profileId forward or the claim vanishes after an admin change
+        accepted: this.#isAccepted(sub), // likewise — a re-put that dropped this would silently deaden the session
       };
       // Re-apply the ORIGINAL absolute expiry as the ttl — never a fresh TTL (M4).
       await this.#refreshKv.put(`refresh:${t.tokenHash as string}`, JSON.stringify(record), {
@@ -1318,7 +1721,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
     // Down: the target + all registered descendants.
     // ⚠️ **ALLOW-LISTED off the shared predicate** — `isAtOrAbove` computed in SQL, for the same
-    // reason `myScopeTree`'s query is: routing per row would mean fetching every scope first. The
+    // reason the scope-tree read's query is: routing per row would mean fetching every scope first. The
     // `.%` matches the predicate's whole-segment contract, and here a dot-dropped `LIKE ${target}%`
     // would widen a DESTRUCTIVE operation to a prefix-colliding sibling (`{u}` deleting `{u}-2`).
     const down = this.#sql`
@@ -1490,12 +1893,21 @@ export class NebulaAuthRegistry extends DurableObject {
           }
           return Response.json(this.createStar(universeGalaxyStarId, verifiedAccess), { status: 201 });
         }
-        case 'my-scopes': {
-          const { verifiedAccess } = await request.json() as { verifiedAccess?: AccessEntry };
-          if (!verifiedAccess) {
-            return Response.json({ error: 'invalid_request', error_description: 'Missing verified access claim' }, { status: 400 });
+        case 'scope-summary': {
+          const { verifiedProfileId, verifiedSub } = await request.json() as
+            { verifiedProfileId?: string; verifiedSub?: string };
+          if (!verifiedProfileId || !verifiedSub) {
+            return Response.json({ error: 'invalid_request', error_description: 'Missing verified identity' }, { status: 400 });
           }
-          return Response.json({ scopes: this.myScopeTree(verifiedAccess) });
+          return Response.json(this.getScopeSummary(verifiedProfileId, verifiedSub));
+        }
+        case 'expand-scope': {
+          const { verifiedProfileId, parent, after } = await request.json() as
+            { verifiedProfileId?: string; parent?: string; after?: string };
+          if (!verifiedProfileId || typeof parent !== 'string') {
+            return Response.json({ error: 'invalid_request', error_description: 'Missing verified identity or parent' }, { status: 400 });
+          }
+          return Response.json(this.expandScope(verifiedProfileId, parent, typeof after === 'string' ? after : undefined));
         }
         case 'delete-scope-plan': {
           const { target, verifiedAccess, callerSub } = await request.json() as {

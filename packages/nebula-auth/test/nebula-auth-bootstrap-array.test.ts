@@ -1,8 +1,11 @@
 /**
  * Bootstrap-ARRAY (the `nebula-platform` superuser) — the comma-separated `NEBULA_AUTH_BOOTSTRAP_EMAIL` list.
  *
- * In the dissolved-DO model (tasks/nebula-auth-surrogate-sub.md) bootstrap is **scope-gated to
- * `nebula-platform`** and is the ONLY email-magic-link mint (§Blast radius). This targets what the
+ * Bootstrap membership is minted at CONSUME by the shared registry consume — behind mailbox proof,
+ * gated on the ADDRESS being configured, and left UNACCEPTED. The link REQUEST mints nothing at all.
+ * (The old scope-gated mint on the request arm is gone; what bounds the blast radius now is that
+ * mint-all excludes the platform membership unless the consumed link itself named that scope.)
+ * This targets what the
  * ARRAY widening adds: a SECOND listed email (beyond index 0), with a leading space + mixed case in
  * the config, is recognized ONLY because the getter normalizes PER ELEMENT — a raw `String.includes`
  * on the joined value, or a scalar index-0 getter, reds these.
@@ -38,8 +41,11 @@ describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
     const ml = await requestMagicLink(SELF, PLATFORM_SCOPE, 'random@example.com');
     expect(ml.status).toBe(200);
     const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
+    // The click proves their mailbox and mints NOTHING — the `#bootstrapEmails` conjunct is the whole
+    // gate. A proved address with no memberships is a new user, so they land on signup; what this
+    // control asserts is the absent membership and the absent session.
     const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
-    expect(clickResp.headers.get('Location')).toContain('error=invalid_token'); // no identity minted
+    expect(clickResp.headers.get('Location')).toBe('/auth/signup');
     expect(clickResp.headers.get('Set-Cookie')).toBeNull();
   });
 });

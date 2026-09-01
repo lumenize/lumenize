@@ -190,6 +190,25 @@ const manageOpen = ref(false);
 const accountEmail = ref<string | null>(null);
 type Scope = { instanceName: string; tier: string; isDev: boolean };
 const scopes = ref<Scope[]>([]);
+
+/**
+ * Flatten the person-scoped summary into the flat list this screen still renders.
+ *
+ * ⚠️ **A flat list cannot express a frontier.** The summary is budget-bounded and marks what it did
+ * not descend into with `childCount`, so anything past the budget is absent here rather than merely
+ * collapsed. That is acceptable for the two consumers below — a galaxy count and the manage tree of
+ * a pre-alpha user, who is nowhere near the budget — and it is why the Home screen reads the NESTED
+ * form instead. Anything that must be complete has to walk `children` and honour `childCount`.
+ */
+function flattenSummary(summary: { emails: { memberships: any[] }[] }): Scope[] {
+  const out: Scope[] = [];
+  const walk = (n: any) => {
+    out.push({ instanceName: n.scope, tier: n.tier, isDev: n.scope.endsWith('.dev') } as Scope);
+    (n.children ?? []).forEach(walk);
+  };
+  summary.emails.forEach((e) => e.memberships.forEach(walk));
+  return out;
+}
 const addChildFor = ref<string | null>(null); // a Universe row whose "name a Galaxy" input is open
 const addChildSlug = ref("");
 // The SHARED wire type — never hand-copy it: this package has no `vue-tsc` and is the sole
@@ -386,7 +405,7 @@ async function nudgeNextStep() {
   }
   let galaxies: Scope[] = [];
   try {
-    const list = await nebula.value!.client.scopes.list();
+    const list = flattenSummary(await nebula.value!.client.scopes.summary());
     scopes.value = list.sort((a, b) => a.instanceName.localeCompare(b.instanceName));
     galaxies = list.filter((s) => s.tier === "galaxy");
   } catch {
@@ -495,7 +514,8 @@ async function loadScopes() {
   if (!client) return;
   accountEmail.value = (client.claims as { email?: string } | null)?.email ?? accountEmail.value;
   // Render order: parents before children, so the indent reads as a tree.
-  scopes.value = (await client.scopes.list()).sort((a, b) => a.instanceName.localeCompare(b.instanceName));
+  scopes.value = flattenSummary(await client.scopes.summary())
+    .sort((a, b) => a.instanceName.localeCompare(b.instanceName));
 }
 
 async function openManage() {

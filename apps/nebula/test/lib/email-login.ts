@@ -85,6 +85,41 @@ function cookieValue(setCookies: string[], name: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The `refresh-token` cookie a click set FOR A GIVEN SCOPE.
+ *
+ * ⚠️ **A click sets one cookie per membership of the address (mint-all), so "the first cookie" is
+ * not something a caller can rely on** — the set is ordered accepted-first, which for an address
+ * with history is some older scope. Each cookie's `Path` is `/auth/{scope}`, so the scope is read
+ * back from there.
+ */
+function refreshTokenForScope(headers: string[], scope: string): string | undefined {
+  for (const c of headers) {
+    if (!c.startsWith('refresh-token=')) continue;
+    const path = /Path=([^;]+)/.exec(c)?.[1] ?? '';
+    if (decodeURIComponent(path.split('/').pop() ?? '') === scope) return c.split(';')[0].split('=')[1];
+  }
+  return undefined;
+}
+
+/**
+ * Take up a membership — the consent modal's endpoint, driven the way its holder drives it.
+ *
+ * ⚠️ **Not optional.** A cookie minted at the click is INERT until its holder accepts, so a login
+ * that skipped this would 401 at its first refresh. Acceptance is a deliberate act by design (a link
+ * click is not consent — mail scanners click links), and a test identity is not exempt from it.
+ */
+export async function acceptMembership(
+  baseUrl: string, refreshToken: string, scope: string, fetchImpl: FetchLike = fetch,
+): Promise<void> {
+  const origin = baseUrl.replace(/\/$/, '');
+  const res = await fetchImpl(`${origin}/auth/${scope}/accept-membership`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${refreshToken}` },
+  });
+  if (!res.ok) throw new Error(`accept-membership ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
 /** Read Set-Cookie across runtimes — `getSetCookie()` in Node/workerd, single header elsewhere. */
 function setCookieHeaders(res: Response): string[] {
   const multi = res.headers.getSetCookie?.();
@@ -262,13 +297,14 @@ export async function provisionStarAdmin(
       link = pointLinkAt(origin, rawLink);
     }
     const linkRes = await fetchImpl(link, { redirect: 'manual' });
-    const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
+    const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), scope);
     if (!refreshToken) {
       throw new Error(
-        `claim-star magic-link GET (${linkRes.status}) set no refresh-token cookie — ` +
+        `claim-star magic-link GET (${linkRes.status}) set no refresh-token cookie for "${scope}" — ` +
         `Location=${linkRes.headers.get('Location') ?? '(none)'}`,
       );
     }
+    await acceptMembership(origin, refreshToken, scope, fetchImpl); // the claimer consents
     session = { refreshToken, authScope: scope, email, savedAt: new Date().toISOString() };
   } finally {
     waiter?.cleanup();
@@ -305,7 +341,7 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
     const link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
     // `manual` so we can read Set-Cookie: the 302 Location is a client-side route.
     const linkRes = await fetchImpl(link, { redirect: 'manual' });
-    const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
+    const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), authScope);
     if (!refreshToken) {
       // Say WHY, not just "no cookie". `Location` carries the auth layer's own error code
       // when the link was REJECTED (`?error=invalid_token` = the token was not found or was
@@ -318,6 +354,10 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
         `origin=${new URL(origin).origin}`,
       );
     }
+
+    // The consent step — see `acceptMembership`. Without it this session's first refresh 401s,
+    // because mint-all places cookies before anyone has agreed to enter the scope.
+    await acceptMembership(origin, refreshToken, authScope, fetchImpl);
 
     return { refreshToken, authScope, email, savedAt: new Date().toISOString() };
   } finally {
@@ -410,13 +450,14 @@ export async function provisionAndLogin(
       link = pointLinkAt(origin, rawLink);
     }
     const linkRes = await fetchImpl(link, { redirect: 'manual' });
-    const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
+    const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), universe);
     if (!refreshToken) {
       throw new Error(
-        `claim-universe magic-link GET (${linkRes.status}) set no refresh-token cookie — ` +
+        `claim-universe magic-link GET (${linkRes.status}) set no refresh-token cookie for "${universe}" — ` +
         `Location=${linkRes.headers.get('Location') ?? '(none)'}`,
       );
     }
+    await acceptMembership(origin, refreshToken, universe, fetchImpl); // the claimer consents
     session = { refreshToken, authScope: universe, email, savedAt: new Date().toISOString() };
   } finally {
     waiter?.cleanup();

@@ -87,6 +87,25 @@ CREATE TABLE IF NOT EXISTS Memberships (
 ) WITHOUT ROWID
 `;
 
+/** Who invited this membership, pinned at mint — the consent modal's inputs, and the discriminator
+ *  that decides which flavor it renders (stamped → someone invited you; absent → you created it
+ *  yourself, so the modal says "only accept if you initiated this signup").
+ *
+ *  ⚠️ **Display-only, never keyed, never re-resolved.** ADR-013's write-time-pinned attribution case:
+ *  the handles come from the inviter's verified claims, `invitedByName` is a value the inviter
+ *  ASSERTED about themselves, and none of the three ever changes after the row is written.
+ *  `invitedByName` is therefore attacker-chosen text — capped and stripped at the facade, and the
+ *  modal attributes it as sender-supplied rather than presenting it as an identity we vouch for. */
+export const MEMBERSHIPS_INVITED_BY_SUB = `
+ALTER TABLE Memberships ADD COLUMN invitedBySub TEXT
+`;
+export const MEMBERSHIPS_INVITED_BY_NAME = `
+ALTER TABLE Memberships ADD COLUMN invitedByName TEXT
+`;
+export const MEMBERSHIPS_INVITED_BY_PROFILE_ID = `
+ALTER TABLE Memberships ADD COLUMN invitedByProfileId TEXT
+`;
+
 /** Live refresh-token index → reliable invalidation. The single-writer looks tokens up by `tokenHash`
  *  (logout) and enumerates by `sub` (scopeAdmin-convergence / revocation), so PK `tokenHash` + a secondary
  *  index on `sub`. `expiresAt` is the token's absolute expiry, re-applied to the KV record on a
@@ -120,6 +139,30 @@ CREATE TABLE IF NOT EXISTS MagicLinks (
   tokenHash            TEXT PRIMARY KEY,
   email                TEXT NOT NULL,
   universeGalaxyStarId TEXT NOT NULL,
+  expiresAt            TEXT NOT NULL
+) WITHOUT ROWID
+`;
+
+/** The scope-less rebuild (migration 18; 17 drops the shape above).
+ *
+ *  Two changes, and both are what "prove the mailbox, THEN choose" needs:
+ *
+ *  - **`universeGalaxyStarId` is NULLABLE.** A bare login link names no scope — the address proves
+ *    its mailbox and the Home screen offers whatever memberships that address holds. A scope is
+ *    present only when the link's own purpose named one (a claim, or the reserved platform scope).
+ *  - **`purpose` is explicit, never inferred from the scope's presence.** It decides where the
+ *    consume's 302 lands, and inference would tie routing to a column that is about to hold NULL
+ *    for the common case. `'login'` → the Home screen; `'claim'` → Home with the self-consent modal
+ *    over the scope just claimed.
+ *
+ *  ⚠️ A NOT NULL cannot be dropped by `ALTER TABLE`, so this arrives as DROP + CREATE rather than an
+ *  alter — free here because a link is a 30-minute ephemeron, so no row is worth preserving. */
+export const MAGIC_LINKS_SCHEMA_V2 = `
+CREATE TABLE IF NOT EXISTS MagicLinks (
+  tokenHash            TEXT PRIMARY KEY,
+  email                TEXT NOT NULL,
+  universeGalaxyStarId TEXT,
+  purpose              TEXT NOT NULL CHECK (purpose IN ('login', 'claim')),
   expiresAt            TEXT NOT NULL
 ) WITHOUT ROWID
 `;
@@ -165,4 +208,9 @@ export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
   { idMonotonicInc: 14, description: 'RefreshTokenIndex(sub) index', sql: REFRESH_TOKEN_INDEX_SUB_INDEX },
   { idMonotonicInc: 15, description: 'MagicLinks table (login channel, hashed)', sql: MAGIC_LINKS_SCHEMA },
   { idMonotonicInc: 16, description: 'InviteTokens table (login channel, hashed, single-use)', sql: INVITE_TOKENS_SCHEMA },
+  { idMonotonicInc: 17, description: 'Drop MagicLinks (30m ephemera; rebuilt scope-less at 18)', sql: 'DROP TABLE IF EXISTS MagicLinks' },
+  { idMonotonicInc: 18, description: 'MagicLinks rebuilt — nullable scope + explicit purpose', sql: MAGIC_LINKS_SCHEMA_V2 },
+  { idMonotonicInc: 19, description: 'Memberships.invitedBySub (consent-modal attribution)', sql: MEMBERSHIPS_INVITED_BY_SUB },
+  { idMonotonicInc: 20, description: 'Memberships.invitedByName (inviter-asserted, display-only)', sql: MEMBERSHIPS_INVITED_BY_NAME },
+  { idMonotonicInc: 21, description: 'Memberships.invitedByProfileId (consent-modal attribution)', sql: MEMBERSHIPS_INVITED_BY_PROFILE_ID },
 ];

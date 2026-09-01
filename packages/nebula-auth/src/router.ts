@@ -3,7 +3,7 @@
  *
  * Since tasks/archive/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this router
  * handles the token/login flows IN THE WORKER (see `worker-token.ts`) over Workers KV + registry RPC,
- * and forwards the registry endpoints (discover / claim / create / my-scopes / delete-scope) to the
+ * and forwards the registry endpoints (claim / create / scope-summary / delete-scope) to the
  * singleton `NebulaAuthRegistry` DO after Turnstile / JWT gating.
  *
  * @see tasks/archive/nebula-auth-surrogate-sub.md § The seam
@@ -18,6 +18,8 @@ import type { NebulaJwtPayload } from './types';
 import { verifyNebulaAccessToken } from './verify';
 import {
   handleEmailMagicLink,
+  handleAcceptMembership,
+  handleLogoutAll,
   handleMagicLinkClick,
   handleAcceptInvite,
   handleRefreshToken,
@@ -175,9 +177,31 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   const forwardRaw: Step = (request) =>
     env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
 
+  /**
+   * Injects the verified `profileId` + `sub` — the person-scoped reads' input.
+   *
+   * ⚠️ **Refuses a token carrying `act`.** These answer for a PERSON across every address and scope
+   * they hold, and an impersonation token deliberately carries the SUBJECT's `profileId`
+   * (`mint-narrower-token`) — so without this an admin impersonating someone would receive every
+   * tenancy that person holds anywhere, including scopes the admin has no reach into. Presence
+   * only, never identity, per `security.md`'s delegation rule: the licensed test is that
+   * impersonation would otherwise grant the actor something they could not do themselves, and
+   * reading another organization's tenancy list is exactly that.
+   */
+  const forwardWithSubject: Step<ClaimsState> = async (request, routeState) => {
+    if (routeState.claims.act) {
+      return jsonError(403, 'forbidden', 'This view answers for a person and is not available under impersonation');
+    }
+    const body = (await readJsonBody(request)) ?? {};
+    // ⚠️ Trust boundary — ASSIGN, never merge (see forwardWithAccess).
+    body.verifiedProfileId = routeState.claims.profileId;
+    body.verifiedSub = routeState.claims.sub;
+    return forwardToRegistry(request, env, body);
+  };
+
   /** Injects the verified `access` claim (a rebuild, which is what licenses it). */
   const forwardWithAccess: Step<ClaimsState> = async (request, routeState) => {
-    const body = (await readJsonBody(request)) ?? {}; // my-scopes carries no body
+    const body = (await readJsonBody(request)) ?? {}; // some of these carry no body
     // ⚠️ Trust boundary — ASSIGN, never merge (no `??=`, no spread): the carrier is a
     // client-supplied JSON body, and the registry's guards are presence-only, so they cannot tell
     // an injected value from a client-supplied one.
@@ -212,13 +236,21 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   // no access token*).
   const handleMagicLinkClickStep: Step<ScopeState> = (request, routeState) =>
     handleMagicLinkClick(request, env, routeState.scope);
+  /** The same click handler with no scope segment to pass — the link named none. */
+  const handleScopelessMagicLinkClickStep: Step = (request) => handleMagicLinkClick(request, env);
   const handleAcceptInviteStep: Step<ScopeState> = (request, routeState) =>
     handleAcceptInvite(request, env, routeState.scope);
   const handleEmailMagicLinkStep: Step<ScopeState> = (request, routeState) =>
     handleEmailMagicLink(request, env, routeState.scope);
+  /** The same handler with no scope to pass — see the scope-less row's comment in the table. */
+  const handleScopelessMagicLinkStep: Step = (request) => handleEmailMagicLink(request, env);
   const handleRefreshTokenStep: Step = (request) => handleRefreshToken(request, env);
   const handleLogoutStep: Step<ScopeState> = (request, routeState) =>
     handleLogout(request, env, routeState.scope);
+  /** The scope segment selects which cookie the browser sends; the handler re-resolves it server-side. */
+  const handleAcceptMembershipStep: Step<ScopeState> = (request) => handleAcceptMembership(request, env);
+  /** Same shape as accept: the segment picks the cookie, the handler re-resolves it server-side. */
+  const handleLogoutAllStep: Step<ScopeState> = (request) => handleLogoutAll(request, env);
 
   // THE TABLE — the registration itself: a route cannot exist without a guard list, an absent
   // entry 404s reaching no handler, and a known path under a wrong verb answers 405 from the
@@ -240,7 +272,11 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       { path: `${P}/claim-star`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, forwardRaw] },
       // The scope on these arrives in the BODY, deliberately (moving it onto the URL is a separate
       // task); the Registry DO keeps its own dominion checks, so their edge list ends at identity.
-      { path: `${P}/my-scopes`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithAccess] },
+      // The Home screen's one read, and `expand` for a node opened past the frontier. Both are
+      // person-scoped (`profileId`-keyed), so neither carries a target scope for R2/R5 to decide
+      // about — the answer IS the set, exactly as the retired `my-scopes` was.
+      { path: `${P}/scope-summary`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithSubject] },
+      { path: `${P}/expand-scope`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithSubject] },
       { path: `${P}/create-galaxy`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithAccess] },
       { path: `${P}/create-star`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithAccess] },
       { path: `${P}/delete-scope`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithClaims] },
@@ -255,11 +291,27 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       // The two GET navigations carry a hashed one-time token; consuming one is a singleton
       // lookup, so a garbage token in a URL is the same faucet as a forged cookie — hence the
       // connection limiter on every row here.
+      // The scope-less click — the other half of the front door. It presents a one-time token, which
+      // is a credential, so no Turnstile: the token IS the proof that mail reached this address.
+      { path: `${P}/magic-link`, method: 'GET', steps: [connectionRateLimitGuard, handleScopelessMagicLinkClickStep] },
       { path: `${P}/:scope/magic-link`, method: 'GET', steps: [parseScopeGuard, connectionRateLimitGuard, handleMagicLinkClickStep] },
       { path: `${P}/:scope/accept-invite`, method: 'GET', steps: [parseScopeGuard, connectionRateLimitGuard, handleAcceptInviteStep] },
+      // The SCOPE-LESS login request — the front door. It names no scope because nothing is known
+      // about the address yet: the click proves the mailbox and Home offers whatever it reaches.
+      // Presents no credential of any kind, so it carries `turnstileGuard` like its scoped sibling.
+      // ⚠️ Its answer is uniform for member, stranger and bootstrap address alike — the divergence
+      // is what would make it an oracle, so nothing downstream may branch on the address.
+      { path: `${P}/email-magic-link`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, handleScopelessMagicLinkStep] },
       { path: `${P}/:scope/email-magic-link`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, turnstileGuard, handleEmailMagicLinkStep] },
       { path: `${P}/:scope/refresh-token`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleRefreshTokenStep] },
+      // Acceptance — the ONE writer, credentialed by the membership's own path-scoped cookie (so no
+      // Turnstile: the cookie is a credential, and it reached this browser only via a proved mailbox).
+      { path: `${P}/:scope/accept-membership`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleAcceptMembershipStep] },
       { path: `${P}/:scope/logout`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleLogoutStep] },
+      // Logout everywhere for this address. Same credential as `logout` — the calling scope's own
+      // cookie — because a scope-less path would receive no cookie at all and would have to take the
+      // address from the client, which must never decide whose sessions end.
+      { path: `${P}/:scope/logout-all`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleLogoutAllStep] },
       // There is deliberately NO `/auth/:scope/invite` row: every invite enters mesh-side through
       // the NebulaAuthFacade (`@lumenize/nebula-auth/facade`), which owns the eligibility verdicts
       // and the bit cap. Only the session lifecycle stays HTTP — the accept-invite CLICK above is

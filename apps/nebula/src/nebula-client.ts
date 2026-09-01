@@ -16,6 +16,7 @@ import { LumenizeClient, mesh, LoginRequiredError } from '@lumenize/mesh/client'
 import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
 import type {
   NebulaJwtPayload, AffectedScope, ScopeDeletionPlan, InviteeRequest, InviteSummary,
+  ScopeSummary, ScopeNode,
 } from '@lumenize/nebula-auth';
 // Type-only, so nothing of the facade's mesh-server chain reaches this Node/browser-safe module —
 // it types the continuation below and is erased at compile.
@@ -794,8 +795,11 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    *
    * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
    */
-  async logout(): Promise<void> {
+  async logout(options: { everywhere?: boolean } = {}): Promise<void> {
     if (this.#mintedFrom) {
+      // ⚠️ `everywhere` changes NOTHING here, and that is the point: a derived session holds no
+      // refresh cookie of its own, so either endpoint would spend the ORIGINATOR's. Ending an
+      // impersonation is teardown, whichever button was pressed (`security.md` § derived sessions).
       await this.dispose();
       return;
     }
@@ -814,7 +818,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const baseUrl = this.#baseUrl
       ?? (typeof window !== 'undefined' ? window.location.origin : '');
     try {
-      await this.#fetchFn(`${baseUrl}/auth/${this.#authScope}/logout`, {
+      // `logout-all` ends every session this ADDRESS holds — the shared-machine meaning of the
+      // word, and the symmetric twin of a login that mints one cookie per membership.
+      const endpoint = options.everywhere ? 'logout-all' : 'logout';
+      await this.#fetchFn(`${baseUrl}/auth/${this.#authScope}/${endpoint}`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -983,9 +990,24 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       return res.json();
     };
     return {
-      /** The caller's manageable instance tree (Universe + descendants). */
-      list: async (): Promise<AffectedScope[]> =>
-        ((await post('my-scopes')) as { scopes: AffectedScope[] }).scopes,
+      /**
+       * Everything this PERSON reaches — their addresses, each membership on them, and the tree
+       * beneath their accepted admin memberships, budget-bounded with a `childCount` frontier.
+       *
+       * ⚠️ Nested, not the flat list `my-scopes` returned: a flat shape cannot carry a frontier, so
+       * flattening a budget-truncated tree would silently drop everything past it. Consumers walk
+       * `children` and render `childCount` as "N more".
+       */
+      summary: async (): Promise<ScopeSummary> => (await post('scope-summary')) as ScopeSummary,
+      /**
+       * One more level beneath `parent` — what a collapsed node opens. Authz re-derived server-side.
+       *
+       * Pass the previous call's `nextCursor` as `after` to continue past the budget; its absence
+       * means the level is exhausted. Keyset, so each page costs the same as the first.
+       */
+      expand: async (parent: string, after?: string): Promise<{ children: ScopeNode[]; nextCursor?: string }> =>
+        (await post('expand-scope', { parent, ...(after ? { after } : {}) })) as
+          { children: ScopeNode[]; nextCursor?: string },
       /** Create a Galaxy `{universe}.{galaxySlug}` (admin over the universe). */
       createGalaxy: (universe: string, galaxySlug: string): Promise<{ instanceName: string }> =>
         post('create-galaxy', { universeGalaxyId: `${universe}.${galaxySlug}` }) as Promise<{ instanceName: string }>,

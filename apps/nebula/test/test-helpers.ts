@@ -189,6 +189,7 @@ export async function foundStarAndLogin(
   }));
   expect(link).toBeDefined();
   await browser.fetch(link!);
+  await acceptMembershipVia(browser, star); // the star claimer consents
 
   const { accessToken, payload } = await refreshToken(browser, star, activeScope ?? star);
   return { accessToken, payload, authScope: star };
@@ -210,8 +211,10 @@ export async function bootstrapAdmin(
   const universe = universeOf(scope);
   const claimLink = await claimUniverse(browser, universe, email);
   if (claimLink) {
-    // Click magic link — browser captures Set-Cookie at Path=/auth/{universe}
+    // Click magic link — browser captures a Set-Cookie per membership, this one at
+    // Path=/auth/{universe} — then consents, because a cookie is inert until it does.
     await browser.fetch(claimLink);
+    await acceptMembershipVia(browser, universe);
     return;
   }
   // Already claimed (this admin backing a second client, or a second Browser for the same
@@ -221,6 +224,9 @@ export async function bootstrapAdmin(
   });
   expect(magicLinkUrl).toBeDefined();
   await browser.fetch(magicLinkUrl!);
+  // Idempotent: this identity may already have consented on an earlier Browser, and accepting
+  // twice writes nothing new.
+  await acceptMembershipVia(browser, universe);
 }
 
 /**
@@ -276,6 +282,22 @@ export async function createSubject(
   expect(mlResp.status).toBe(200);
   const { magicLinkUrl } = await mlResp.json() as any;
   await browser.fetch(magicLinkUrl);
+  await acceptMembershipVia(browser, authScope);
+}
+
+/**
+ * Take up a membership through the consent endpoint, using the browser's own cookie jar.
+ *
+ * ⚠️ **Not optional.** Mint-all places a path-scoped cookie for every membership of the address at
+ * the click, and each is INERT until its holder accepts — so a login that skipped this 401s at its
+ * first refresh. A link click is not consent (mail scanners click links), which is exactly why the
+ * write moved behind a form submit; a test identity consents like anyone else.
+ */
+export async function acceptMembershipVia(browser: Browser, authScope: string): Promise<void> {
+  const resp = await browser.fetch(authUrl(`${authScope}/accept-membership`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  });
+  expect(resp.status).toBe(200);
 }
 
 /**
@@ -328,8 +350,9 @@ export async function browserLogin(
   });
   expect(magicLinkUrl).toBeDefined();
 
-  // Click magic link — browser captures Set-Cookie with path scope
+  // Click magic link — browser captures a path-scoped Set-Cookie per membership
   await browser.fetch(magicLinkUrl!);
+  await acceptMembershipVia(browser, authScope); // inert until consent
 
   // Refresh to get JWT
   return refreshToken(browser, authScope, activeScope ?? authScope);

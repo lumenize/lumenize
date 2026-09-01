@@ -107,9 +107,9 @@ describe('registry dispatch edge cases (malformed body / missing JWT)', () => {
     const resp = await post('delete-scope', 'not json{', { Authorization: `Bearer ${admin.access_token}` });
     expect(resp.status).toBe(400);
   });
-  it('create-star / my-scopes without a JWT → 401', async () => {
+  it('create-star / scope-summary without a JWT → 401', async () => {
     expect((await post('create-star', { universeGalaxyStarId: 'a.b.c' })).status).toBe(401);
-    expect((await post('my-scopes', {})).status).toBe(401);
+    expect((await post('scope-summary', {})).status).toBe(401);
   });
   it('delete-scope-plan through the Worker returns the read-only plan (200)', async () => {
     const { foundUniverse } = await import('./test-helpers');
@@ -121,19 +121,25 @@ describe('registry dispatch edge cases (malformed body / missing JWT)', () => {
     expect(plan.affectedUsers).toEqual({ total: 0, sample: [] });
     expect(plan.affected.map((a: any) => a.instanceName)).toContain(scope);
   });
-  it('my-scopes for a platform admin lists every scope (the scope-tree ROOT branch)', async () => {
-    const { foundUniverse } = await import('./test-helpers');
+  it("the superuser's scope-summary reaches the platform root and stays BUDGET-BOUNDED", async () => {
+    const { foundUniverse, platformLogin } = await import('./test-helpers');
+    const { SCOPE_TREE_NODE_BUDGET } = await import('../src/types');
     const scope = u();
     await foundUniverse(SELF, scope, 'someone@example.com');
-    // Mint a platform-admin token directly (no login) to exercise the root scope-tree branch.
-    const { createNebulaTestToken } = await import('../src/create-nebula-test-token');
-    const { env } = await import('cloudflare:test');
-    const platform = await createNebulaTestToken({
-      privateKey: (env as any).JWT_PRIVATE_KEY_BLUE, instanceName: 'nebula-platform', activeScope: 'nebula-platform', scopeAdmin: true,
-    })();
-    const resp = await post('my-scopes', {}, { Authorization: `Bearer ${platform.access_token}` });
+
+    // ⚠️ A REAL bootstrap login, not a synthetic mint: the summary answers for a PERSON, so it needs
+    // an accepted membership rather than a hand-built claim. This is also what the old assertion
+    // could not express — it drove a token with no membership behind it at all.
+    const platform = await platformLogin(SELF, 'bootstrap-admin@example.com');
+    const resp = await post('scope-summary', {}, { Authorization: `Bearer ${platform.access_token}` });
     expect(resp.status).toBe(200);
-    const { scopes } = await resp.json() as any;
-    expect(scopes.map((s: any) => s.instanceName)).toContain(scope);
+    const { emails } = await resp.json() as any;
+    const flat = (n: any): any[] => [n, ...(n.children ?? []).flatMap(flat)];
+    const nodes = emails.flatMap((e: any) => e.memberships.flatMap(flat));
+    expect(nodes.map((n: any) => n.scope)).toContain('nebula-platform');
+    // ⚠️ **The bound is the point.** The retired `myScopeTree` answered a platform admin with
+    // `SELECT … FROM Scopes` entire — every scope in the system, unbounded, on the one singleton.
+    // Reds if the descent stops honouring the budget.
+    expect(nodes.length).toBeLessThanOrEqual(SCOPE_TREE_NODE_BUDGET);
   });
 });

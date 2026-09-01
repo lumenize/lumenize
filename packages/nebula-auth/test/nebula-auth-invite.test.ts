@@ -21,6 +21,7 @@ import { sendInviteEmails, summarizeInvites } from '../src/invite-entry';
 import type { EmailMessage, InviteMintResult, NebulaJwtPayload } from '../src/types';
 import {
   foundUniverse, issueInvitesAs, clickLink, refreshAndParse, url, createGalaxy, inviteAndLogin,
+  acceptMembership,
 } from './test-helpers';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
@@ -37,7 +38,11 @@ function linkFor(mint: InviteMintResult, email: string): string {
 
 /** Accept an invite link and refresh at `scope` → the parsed JWT payload (the ADR-009 path). */
 async function acceptAndParse(link: string, scope: string): Promise<NebulaJwtPayload> {
-  const { refreshToken } = await clickLink(SELF, link);
+  // The consent step is not optional: a cookie minted at the click is inert until its holder
+  // accepts, so a click-then-refresh 401s — which is the design, not a fixture detail.
+  const { tokenFor } = await clickLink(SELF, link);
+  const refreshToken = tokenFor(scope);
+  await acceptMembership(SELF, scope, refreshToken);
   const { parsed } = await refreshAndParse(SELF, scope, refreshToken);
   return parsed as NebulaJwtPayload;
 }
@@ -71,6 +76,9 @@ describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () =>
 
     // The galaxy session mints NO admin bit (the collaborator is a peer there)…
     const galaxyToken = galaxyCookie.split(';')[0]!.split('=')[1]!;
+    // ONE consent covers the bundle the invite arrived as: accepting the galaxy takes up the
+    // co-minted `.dev` sibling too, so the second session below needs no second Accept.
+    await acceptMembership(SELF, galaxy, galaxyToken);
     const { parsed: gp } = await refreshAndParse(SELF, galaxy, galaxyToken);
     expect(gp.access.authScope).toBe(galaxy);
     expect(gp.access.scopeAdmin).toBeUndefined();
@@ -117,6 +125,9 @@ describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () =>
     // … but the workspace session carries NO admin bit, because the inviter had none to give.
     const devCookie = cookies.find((c) => c.includes(`Path=/auth/${galaxy}.dev;`))!;
     const devToken = devCookie.split(';')[0]!.split('=')[1]!;
+    // Consent first — the invitee accepts the galaxy, which takes up its `.dev` sibling with it.
+    const galaxyToken2 = cookies.find((c) => c.includes(`Path=/auth/${galaxy};`))!.split(';')[0]!.split('=')[1]!;
+    await acceptMembership(SELF, galaxy, galaxyToken2);
     const { parsed: dp } = await refreshAndParse(SELF, `${galaxy}.dev`, devToken);
     expect(dp.access.authScope).toBe(`${galaxy}.dev`);
     expect(dp.access.scopeAdmin).toBeUndefined();
@@ -225,7 +236,9 @@ describe('Invite Flow (per-invitee primitive)', () => {
 
       // Establish a real non-admin session and HOLD its refresh cookie.
       const first = await issueInvitesAs(admin.access_token, u, [{ email: member }]);
-      const { refreshToken } = await clickLink(SELF, linkFor(first, member));
+      const { tokenFor } = await clickLink(SELF, linkFor(first, member));
+      const refreshToken = tokenFor(u);
+      await acceptMembership(SELF, u, refreshToken); // a live session needs a taken-up membership
       const before = await refreshAndParse(SELF, u, refreshToken);
       expect(before.parsed.access.scopeAdmin).toBeUndefined();
 
@@ -359,7 +372,6 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
 
       const envStub = {
-        NEBULA_AUTH_REDIRECT: '/studio',
         AUTH_EMAIL_SENDER: { send: () => Promise.reject(new Error('provider exploded')) },
       };
       // Reds against dropping the per-invitee catch: the rejection would surface here.
@@ -391,7 +403,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const reinvite = await issueInvitesAs(admin.access_token, u, [{ email: acceptedMember }, { email: pendingInvitee }]);
       const captured: EmailMessage[] = [];
       await sendInviteEmails(
-        { NEBULA_AUTH_REDIRECT: '/studio', AUTH_EMAIL_SENDER: { send: async (m: EmailMessage) => { captured.push(m); } } },
+        { AUTH_EMAIL_SENDER: { send: async (m: EmailMessage) => { captured.push(m); } } },
         { instanceName: u, origin: 'http://localhost', invitees: reinvite.results },
       );
       expect(captured).toHaveLength(2);

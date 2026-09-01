@@ -58,7 +58,6 @@
     }
   ],
   "vars": {
-    "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app"
+    "PRIMARY_JWT_KEY": "BLUE"
   }
 }

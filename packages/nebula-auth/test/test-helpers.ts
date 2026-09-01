@@ -76,16 +76,53 @@ export async function requestMagicLink(self: Fetcher, instanceName: string, emai
   }));
 }
 
-/** Click a magic/invite link → `{ setCookie, refreshToken }`. Asserts the success redirect + cookie. */
-export async function clickLink(self: Fetcher, linkUrl: string): Promise<{ setCookie: string; refreshToken: string }> {
+/**
+ * Click a magic/invite link → the cookie set it produced. Asserts the Home redirect.
+ *
+ * ⚠️ **A click now sets one cookie PER MEMBERSHIP of the address (mint-all), so "the first cookie"
+ * is not a thing a caller can rely on** — the set is ordered accepted-first, which for an address
+ * with history is some older scope rather than the one this link named. Callers say which scope
+ * they want; `refreshToken` is the one for the link's own landing scope, which is what every login
+ * helper wants. Each cookie's `Path` is `/auth/{scope}`, so the scope is read back from there.
+ */
+export async function clickLink(
+  self: Fetcher, linkUrl: string,
+): Promise<{ setCookie: string; refreshToken: string; tokenFor: (scope: string) => string; landedAt: string }> {
   const resp = await self.fetch(new Request(linkUrl, { redirect: 'manual' }));
   expect(resp.status).toBe(302);
-  expect(resp.headers.get('Location')).toMatch(/^\/app(\/|$)/); // login success → /app/{scope}
-  const setCookie = resp.headers.get('Set-Cookie')!;
-  expect(setCookie).toContain('refresh-token=');
-  const refreshToken = setCookie.split(';')[0].split('=')[1];
-  return { setCookie, refreshToken };
+  const location = resp.headers.get('Location')!;
+  expect(location).toMatch(/^\/auth\/[^/]+\/home$/); // every arrival lands on Home to choose + consent
+  const landedAt = decodeURIComponent(location.split('/')[2]);
+
+  const all = (resp.headers as any).getSetCookie?.() as string[] | undefined
+    ?? [resp.headers.get('Set-Cookie')!];
+  const byScope = new Map<string, string>();
+  for (const c of all) {
+    expect(c).toContain('refresh-token=');
+    const path = /Path=([^;]+)/.exec(c)?.[1] ?? '';
+    byScope.set(decodeURIComponent(path.split('/').pop()!), c.split(';')[0].split('=')[1]);
+  }
+  const tokenFor = (scope: string) => {
+    const tok = byScope.get(scope);
+    expect(tok, `no cookie was set for "${scope}" (got: ${[...byScope.keys()].join(', ')})`).toBeDefined();
+    return tok!;
+  };
+  return { setCookie: all[0], refreshToken: tokenFor(landedAt), tokenFor, landedAt };
 }
+
+/**
+ * Take up a membership the way its holder does — through the consent modal's endpoint, with that
+ * membership's own path-scoped cookie. Every login helper below runs this, because a cookie mints
+ * nothing until it does: acceptance is a deliberate act, and the tests are not exempt from it.
+ */
+export async function acceptMembership(self: Fetcher, instanceName: string, refreshToken: string): Promise<void> {
+  const resp = await self.fetch(new Request(url(instanceName, 'accept-membership'), {
+    method: 'POST',
+    headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+  }));
+  expect(resp.status).toBe(200);
+}
+
 /** Alias kept for call-site familiarity. */
 export const clickMagicLink = clickLink;
 
@@ -108,6 +145,7 @@ export async function refreshAndParse(
 export async function foundUniverse(self: Fetcher, slug: string, email: string) {
   const magicLink = await claimUniverse(self, slug, email);
   const { refreshToken, setCookie } = await clickLink(self, magicLink);
+  await acceptMembership(self, slug, refreshToken); // the claimer consents, then the cookie mints
   const { parsed, access_token } = await refreshAndParse(self, slug, refreshToken);
   return { magicLink, refreshToken, setCookie, parsed, access_token };
 }
@@ -120,11 +158,13 @@ export async function foundUniverse(self: Fetcher, slug: string, email: string) 
  * the Registry primitive is the unit.
  */
 export async function issueInvitesAs(
-  callerToken: string, scope: string, invitees: InviteeRequest[],
+  callerToken: string, scope: string, invitees: InviteeRequest[], inviterName?: string,
 ): Promise<InviteMintResult> {
   const claims = parseJwtUnsafe(callerToken)!.payload as unknown as NebulaJwtPayload;
   const registry = (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-  return await registry.issueInvites(scope, invitees, 'http://localhost', claims) as InviteMintResult;
+  // ⚠️ Straight to the registry, so `inviterName` arrives UNSANITIZED — the facade is what caps and
+  // strips it, and a test asserting that sanitization must drive the facade instead.
+  return await registry.issueInvites(scope, invitees, 'http://localhost', claims, inviterName) as InviteMintResult;
 }
 
 /**
@@ -139,6 +179,7 @@ export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: s
   const link = mint.results[0]?.inviteUrl;
   expect(link).toBeDefined();
   const { refreshToken, setCookie } = await clickLink(self, link!);
+  await acceptMembership(self, scope, refreshToken); // the invitee consents at the modal
   const { parsed, access_token } = await refreshAndParse(self, scope, refreshToken);
   return { link, refreshToken, setCookie, parsed, access_token };
 }
@@ -166,6 +207,7 @@ export async function foundStarAndLogin(
   const { magicLinkUrl } = await resp.json() as { magicLinkUrl?: string };
   expect(magicLinkUrl).toBeDefined();
   const { refreshToken, setCookie } = await clickLink(self, magicLinkUrl!);
+  await acceptMembership(self, star, refreshToken); // the star claimer consents
   const { parsed, access_token } = await refreshAndParse(self, star, refreshToken, activeScope);
   return { refreshToken, setCookie, parsed, access_token };
 }
@@ -174,7 +216,8 @@ export async function foundStarAndLogin(
  * Log in the configured **platform bootstrap admin** at `nebula-platform` → an `authScope: 'nebula-platform'`
  * identity, the widest principal there is.
  *
- * The bootstrap mint at `nebula-platform` is the ONLY email-magic-link mint, so this is a real rung-1
+ * A configured bootstrap address is minted its platform membership at CONSUME (the shared registry
+ * consume ensures it, behind mailbox proof), so this is a real rung-1
  * login. Keyed to an email bound in `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL`; passing an
  * unlisted address mints nothing and the login is rejected.
  */
@@ -184,6 +227,7 @@ export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, acti
   const { magicLinkUrl } = await ml.json() as { magicLinkUrl?: string };
   expect(magicLinkUrl).toBeDefined();
   const { refreshToken } = await clickLink(self, magicLinkUrl!);
+  await acceptMembership(self, PLATFORM_SCOPE, refreshToken); // the superuser consents like anyone else
   return refreshAndParse(self, PLATFORM_SCOPE, refreshToken, activeScope);
 }
 

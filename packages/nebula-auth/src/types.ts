@@ -211,6 +211,16 @@ export interface RefreshTokenKV {
   sub: string;
   universeGalaxyStarId: string;
   scopeAdmin: boolean;
+  /**
+   * Whether this membership has been ACCEPTED — the gate that makes a cookie inert until its holder
+   * consents. `handleRefreshToken` refuses to mint on `false`, so a session minted at consume grants
+   * nothing until the consent modal's accept endpoint flips the membership and converges this flag
+   * (the same way `scopeAdmin` converges).
+   *
+   * ⚠️ Read as a REFUSAL input only. Acceptance itself is written in exactly one place — the accept
+   * endpoint — and this copy is the self-healing denormalization ADR-013 licenses, never a writer.
+   */
+  accepted: boolean;
   expiresAt: string;
   /** The bearer's `profileId` — carried so the pure-KV refresh mint can emit the `profileId` JWT claim
    *  without a registry read. Written by all three record writers (record/converge/self-heal);
@@ -383,6 +393,148 @@ export function instanceAuthUrl(
 ): string {
   const qs = new URLSearchParams(query).toString();
   return `${origin}${NEBULA_AUTH_PREFIX}/${instanceName}/${route}${qs ? `?${qs}` : ''}`;
+}
+
+/**
+ * What a `MagicLinks` row was issued FOR — read at consume to decide where the 302 lands.
+ * `'login'` → the Home screen, where the prover chooses among whatever memberships the address
+ * holds; `'claim'` → Home with the self-consent modal over the scope the link just claimed.
+ * Explicit rather than inferred from the scope column, which is NULL for the common case.
+ */
+export type MagicLinkPurpose = 'login' | 'claim';
+
+/**
+ * Who created a membership FOR someone else, captured at mint and never rewritten (ADR-013's
+ * write-time-pinned attribution). The handles come from the inviter's verified claims; `name` is a
+ * value they asserted about themselves, so it is display-only and attributed as sender-supplied
+ * wherever it renders. Absent entirely on a membership its holder created themselves.
+ */
+export interface InvitedByStamp {
+  sub?: string;
+  name?: string;
+  profileId?: string;
+}
+
+/**
+ * What the Worker needs from RPC 1 of a consume, to decide which cookies to mint and where to land.
+ * The registry validates the link and resolves the address's memberships; the Worker owns the token
+ * minting because it alone holds the raw values the cookies carry.
+ */
+export interface ConsumePlan {
+  email: string;
+  /** `'login'` (bare or scoped) or `'claim'` — decides the landing, never inferred from the scope. */
+  purpose: MagicLinkPurpose;
+  /** The scope the link itself named, if any. Absent on the bare front door. */
+  linkScope?: string;
+  /** Every membership the address holds, most recently created first. */
+  memberships: ConsumeMembership[];
+}
+
+/** One membership in a {@link ConsumePlan} — everything a refresh record needs, plus the acceptance
+ *  state that decides whether its cookie will mint anything. */
+export interface ConsumeMembership {
+  sub: string;
+  universeGalaxyStarId: string;
+  scopeAdmin: boolean;
+  profileId: string;
+  accepted: boolean;
+}
+
+/** One session the Worker asks the registry to record — the raw token stays Worker-side. */
+export interface SessionRecord {
+  sub: string;
+  tokenHash: string;
+}
+
+/**
+ * Most cookies one consume will set. A third party can grow a victim's membership count for free
+ * (`claimStar` is open self-signup, `issueInvites` is peer-reachable), so the fan-out is bounded
+ * rather than trusted; past the cap the Home tree still lists the scope, and clicking it sends a
+ * fresh scoped link. Chosen to sit far below any browser's per-domain cookie ceiling while being
+ * more memberships than a pre-alpha person plausibly holds.
+ */
+export const MINT_ALL_COOKIE_CAP = 24;
+
+/**
+ * A node in the Home screen's scope tree — a membership, or a scope beneath an admin membership.
+ * `children` is present only where the walk descended; `childCount` says how many lie past the
+ * frontier, so the client can render "12 more" without the server having read them.
+ */
+export interface ScopeNode {
+  scope: string;
+  tier: Tier;
+  /** Present on a membership row; absent on a descendant reached through one. */
+  scopeAdmin?: boolean;
+  /** Present on a membership row: whether its holder has taken it up. */
+  accepted?: boolean;
+  /** Present on an INVITED membership — the consent modal's inputs (ADR-013 attribution). */
+  invitedByName?: string;
+  invitedByProfileId?: string;
+  children?: ScopeNode[];
+  /** Descendants NOT included, whether because of the budget or because nothing was fetched. */
+  childCount?: number;
+}
+
+/** One address of the person, with everything they reach through it. */
+export interface EmailScopes {
+  email: string;
+  /** True for the address whose membership this session was established under. */
+  current?: boolean;
+  memberships: ScopeNode[];
+}
+
+/** What the Home screen renders from — one call, the whole picture. */
+export interface ScopeSummary {
+  emails: EmailScopes[];
+}
+
+/**
+ * Most tree nodes one summary reads. The bound is on the READ, not just the response: each level is
+ * fetched with `LIMIT budget + 1`, so a superuser — whose subtree is every scope in the system —
+ * costs the same as anyone else rather than scanning the table to serve a small body.
+ */
+export const SCOPE_TREE_NODE_BUDGET = 50;
+
+/** Longest inviter display name stamped on a membership. Generous for real names, short enough
+ *  that the consent modal's own copy cannot be pushed off screen by a hostile one. */
+export const INVITER_NAME_MAX = 64;
+
+/**
+ * Make an inviter-supplied display name safe to store and to render in the invitee's consent modal.
+ *
+ * ⚠️ **The adversary is the person who supplied it.** This value is the only identity that modal
+ * shows, and the modal exists to help someone decide whether they know who invited them — so a name
+ * is capped (a long one could push the modal's own copy off screen) and stripped of control
+ * characters (which could reflow that copy, or smuggle a second line that reads as ours). What it is
+ * NOT is validated for truthfulness: a display name is self-asserted at its source, which is why the
+ * modal attributes it as sender-supplied and pairs it with the target scope, a value the inviter
+ * cannot choose. Returns `undefined` for anything that survives as empty, so an unusable name simply
+ * yields no name rather than an empty-looking one.
+ */
+export function sanitizeInviterName(name: unknown): string | undefined {
+  if (typeof name !== 'string') return undefined;
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the whole point
+  return name.replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, INVITER_NAME_MAX) || undefined;
+}
+
+/** `instanceName` for mail carrying a link that names no scope. Leading `_` is unreachable for a
+ *  real slug — `parse-id`'s `SLUG_RE` requires `[a-z0-9]` first — so this can never collide. */
+export const SCOPELESS_INSTANCE_TAG = '_scopeless';
+
+/**
+ * The same URL for a link that names NO scope — the bare login link, whose whole point is that the
+ * mailbox is proved before any scope is chosen. One segment shorter than {@link instanceAuthUrl},
+ * and deliberately a separate function rather than an optional argument: a caller that has no scope
+ * to pass must not be able to reach the instance-bearing builder with `undefined` and produce
+ * `/auth/undefined/magic-link`.
+ */
+export function scopelessAuthUrl(
+  origin: string,
+  route: InstanceBearingRoute,
+  query: Record<string, string>,
+): string {
+  const qs = new URLSearchParams(query).toString();
+  return `${origin}${NEBULA_AUTH_PREFIX}/${route}${qs ? `?${qs}` : ''}`;
 }
 
 /** Access token lifetime in seconds (15 minutes) — the DEFAULT and the enforced ceiling. */

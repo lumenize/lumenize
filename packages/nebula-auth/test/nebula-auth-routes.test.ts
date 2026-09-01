@@ -10,9 +10,11 @@ import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME } from '../src/types';
+import { landingBase } from '../src/landing';
 import type { AccessEntry } from '../src/types';
 import {
   foundUniverse, requestMagicLink, clickLink, claimStar, createGalaxy, refreshAndParse, claimUniverse,
+  acceptMembership,
 } from './test-helpers';
 
 const PREFIX = NEBULA_AUTH_PREFIX;
@@ -105,7 +107,9 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         // Through the real claim link → login → inspect the MINTED token. This is the assertion that
         // makes open signup safe: a star-scoped `authScope` is inert at every ancestor (ADR-015), so
         // a squatter gains a slug and nothing else. Widen the mint to `{u}` and this reds.
-        const { refreshToken } = await clickLink(SELF, magicLinkUrl!);
+        const { tokenFor } = await clickLink(SELF, magicLinkUrl!);
+        const refreshToken = tokenFor(star);
+        await acceptMembership(SELF, star, refreshToken); // the claimer consents at their own modal
         const { parsed } = await refreshAndParse(SELF, star, refreshToken);
         expect(parsed.access.authScope).toBe(star);
         expect(parsed.access.scopeAdmin).toBe(true);
@@ -250,7 +254,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     // 🔒 This is a wire-level decision: it bakes into every emailed link, so it cannot be fixed after
     // the fact. A **star-scoped** admin is an end user and lands on the built-app surface (`/app`, which is
     // hardcoded because the routing scheme fixes it). Every other tier is a user-developer landing on
-    // their own control plane, and rides `NEBULA_AUTH_REDIRECT` — `/studio` in the deployed config
+    // their own control plane at `/studio` (hardcoded in `landing.ts`, like the star arm beside it)
     // since the Galaxy collapse flipped it.
     //
     // ⚠️ The binding is `/app` project-wide (test/wrangler.jsonc), which would make both branches
@@ -258,33 +262,36 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     // duration and restores it, so the branches genuinely diverge. Do NOT flip it project-wide:
     // `test-helpers.ts` `clickLink` asserts `/^\/app(\/|$)/` at its call sites throughout this suite.
     describe('login redirect tier split', () => {
-      async function withStudioRedirect<T>(fn: () => Promise<T>): Promise<T> {
-        const original = (env as any).NEBULA_AUTH_REDIRECT;
-        (env as any).NEBULA_AUTH_REDIRECT = '/studio';
-        try { return await fn(); } finally { (env as any).NEBULA_AUTH_REDIRECT = original; }
-      }
+      // ⚠️ **The success path no longer tier-splits — it lands on Home**, where the scope is chosen
+      // and consent given. The tier rule did not die with it: it decides the ERROR redirect (below,
+      // unchanged) and the POST-ACCEPT navigation, so it is asserted here as the unit `landingBase`
+      // rather than through a consume that no longer expresses it.
       const locationOf = async (linkUrl: string) =>
         (await SELF.fetch(new Request(linkUrl, { redirect: 'manual' }))).headers.get('Location');
 
-      it('a STAR-scoped admin lands on /app/{scope} even when the control plane has moved to /studio', async () => {
+      it('landingBase still splits by TIER — a star to /app, everything else to /studio', () => {
+        expect(landingBase('u.g.s')).toBe('/app');
+        expect(landingBase('u.g')).toBe('/studio');
+        expect(landingBase('u')).toBe('/studio');
+        expect(landingBase(undefined)).toBe('/studio'); // no scope to parse → the control plane
+      });
+
+      it('a STAR-scoped admin lands on HOME, not straight into the app', async () => {
         const u = uni();
         const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
         const galaxy = `${u}.app`;
         await createGalaxy(SELF, galaxy, access_token);
         const star = `${galaxy}.tenant`;
         const { magicLinkUrl } = await (await claimStar(SELF, star, 'scope-admin@example.com')).json() as any;
-
-        await withStudioRedirect(async () => {
-          expect(await locationOf(magicLinkUrl)).toBe(`/app/${encodeURIComponent(star)}`);
-        });
+        // Reds against a direct-landing consume — the consent modal stands on Home, so an arrival
+        // that skipped it would take up a membership nobody agreed to.
+        expect(await locationOf(magicLinkUrl)).toBe(`/auth/${encodeURIComponent(star)}/home`);
       });
 
-      it('a UNIVERSE-scoped admin rides NEBULA_AUTH_REDIRECT — /studio/{scope}', async () => {
+      it('a UNIVERSE-scoped admin lands on HOME too', async () => {
         const u = uni();
         const magicLinkUrl = await claimUniverse(SELF, u, `owner-${u}@example.com`);
-        await withStudioRedirect(async () => {
-          expect(await locationOf(magicLinkUrl)).toBe(`/studio/${u}`);
-        });
+        expect(await locationOf(magicLinkUrl)).toBe(`/auth/${u}/home`);
       });
 
       it('an EXPIRED/invalid star link errors to /app, not into the control plane', async () => {
@@ -297,16 +304,14 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         await createGalaxy(SELF, galaxy, access_token);
         const star = `${galaxy}.tenant`;
 
-        await withStudioRedirect(async () => {
-          const bad = `http://localhost${PREFIX}/${star}/magic-link?one_time_token=never-issued`;
-          expect(await locationOf(bad)).toBe('/app?error=invalid_token');
-          // The non-star tier still errors to the control plane.
-          const badUni = `http://localhost${PREFIX}/${u}/magic-link?one_time_token=never-issued`;
-          expect(await locationOf(badUni)).toBe('/studio?error=invalid_token');
-        });
+        const bad = `http://localhost${PREFIX}/${star}/magic-link?one_time_token=never-issued`;
+        expect(await locationOf(bad)).toBe('/app?error=invalid_token');
+        // The non-star tier still errors to the control plane.
+        const badUni = `http://localhost${PREFIX}/${u}/magic-link?one_time_token=never-issued`;
+        expect(await locationOf(badUni)).toBe('/studio?error=invalid_token');
       });
 
-      it('the TOKEN decides the tier, not the URL path', async () => {
+      it('the TOKEN decides the landing scope, not the URL path', async () => {
         // A universe-scope token consumed through a STAR-shaped URL must still land where the TOKEN
         // says. `parseScopeGuard` only format-validates that path segment and never cross-checks it
         // against the token (the registry keys on tokenHash alone), so keying the redirect off the URL
@@ -316,9 +321,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         const token = new URL(magicLinkUrl).searchParams.get('one_time_token')!;
         const starShapedUrl = `http://localhost${PREFIX}/${u}.fake.star/magic-link?one_time_token=${token}`;
 
-        await withStudioRedirect(async () => {
-          expect(await locationOf(starShapedUrl)).toBe(`/studio/${u}`);
-        });
+        expect(await locationOf(starShapedUrl)).toBe(`/auth/${u}/home`);
       });
     });
 

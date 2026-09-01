@@ -80,7 +80,7 @@ function buildInviteMessage(
   if (invitee.accepted) {
     // They can already log in — send them to the scope's landing page, same shape as the login
     // redirect (`consumeAndLogin`'s Location), made absolute for an email body.
-    const redirectUrl = `${origin}${landingBase(env, instanceName)}/${encodeURIComponent(instanceName)}`;
+    const redirectUrl = `${origin}${landingBase(instanceName)}/${encodeURIComponent(instanceName)}`;
     return { type: 'invite-existing', to: invitee.email, instanceName, redirectUrl };
   }
   return { type: 'invite-new', to: invitee.email, instanceName, inviteUrl: invitee.inviteUrl };

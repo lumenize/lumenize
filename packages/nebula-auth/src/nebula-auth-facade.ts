@@ -42,7 +42,7 @@
  */
 import { LumenizeWorker, mesh } from '@lumenize/mesh';
 import { hasDominionOver, parseId } from './parse-id';
-import { NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME } from './types';
+import { NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME, sanitizeInviterName } from './types';
 import type { InviteMintResult, InviteSummary, InviteeRequest, NebulaJwtPayload } from './types';
 import { sendInviteEmails, summarizeInvites } from './invite-entry';
 
@@ -61,7 +61,7 @@ export class NebulaAuthFacade extends LumenizeWorker {
    *   message, never a boolean.
    */
   @mesh()
-  async invite(targetScope: string, invitees: InviteeRequest[]): Promise<InviteSummary> {
+  async invite(targetScope: string, invitees: InviteeRequest[], inviterName?: string): Promise<InviteSummary> {
     // ── Fail closed on absent claims — a `newChain` continuation is the live producer of a
     // claims-less callContext, and an empty-but-truthy default here would hand it a verdict.
     // The framework's `callContext` getter THROWS outside a mesh dispatch (a raw RPC on the
@@ -110,11 +110,20 @@ export class NebulaAuthFacade extends LumenizeWorker {
             ...(entry.scopeAdmin === true && dominionHere ? { scopeAdmin: true as const } : {}) }
         : entry);
 
+    // ── The inviter's display name, sanitized HERE because this is the ADR-001 boundary and the
+    // value is the one thing on this call the CALLER asserts about themselves. It is stamped on the
+    // invitee's membership and rendered in their consent modal, where the adversary that modal
+    // defends against is the person supplying it — so it is capped, stripped of control characters
+    // (which could otherwise reflow the modal's own copy), and never presented as an identity we
+    // vouch for. The handles beside it (`sub`, `profileId`) come from verified claims and carry the
+    // accountability; this is decoration. An absent or unusable value simply yields no name.
+    const cleanName = sanitizeInviterName(inviterName);
+
     // The one raw hop: facade → Registry DO stub. `claims` rides whole into `callerClaims` so the
     // ADR-016 record carries the full verified acting chain.
     const registry = (this.env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
     const mint = await registry.issueInvites(
-      targetScope, capped, NEBULA_AUTH_ISSUER, claims,
+      targetScope, capped, NEBULA_AUTH_ISSUER, claims, cleanName,
     ) as InviteMintResult;
 
     const testMode = (this.env as any).NEBULA_AUTH_TEST_MODE === 'true';

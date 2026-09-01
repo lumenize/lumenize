@@ -25,11 +25,11 @@ import { buildNebulaJwtPayload } from './access-claims';
 import { hasDominionOver, isAtOrAbove, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';
 import {
-  NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME,
+  NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME, PLATFORM_SCOPE, MINT_ALL_COOKIE_CAP,
   ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, MAGIC_LINK_TTL, RECOMMENDED_MIN_TTL_SECONDS,
 } from './types';
-import type { NebulaJwtPayload, RefreshTokenKV } from './types';
-import { landingBase } from './landing';
+import type { ConsumeMembership, ConsumePlan, NebulaJwtPayload, RefreshTokenKV } from './types';
+import { landingBase, homePath, SIGNUP_PATH } from './landing';
 
 // ── error helpers ──────────────────────────────────────────────────────────────────────────────
 
@@ -63,16 +63,21 @@ function refreshCookie(scope: string, token: string): string {
   return `refresh-token=${token}; Path=${NEBULA_AUTH_PREFIX}/${scope}; HttpOnly; Secure; SameSite=Strict; Max-Age=${REFRESH_TOKEN_TTL}`;
 }
 
+/** The same cookie, expired — what a logout sets so the browser drops it. */
+function expiredRefreshCookie(scope: string): string {
+  return `refresh-token=; Path=${NEBULA_AUTH_PREFIX}/${scope}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+}
+
 /**
  * A failed login redirect, tier-split like the success path.
  *
  * ⚠️ The split matters most HERE. An **expired** claim link is the exact case the resumable claim
- * exists for, and with `NEBULA_AUTH_REDIRECT` at `/studio` (the Galaxy collapse), an unsplit error
+ * exists for: with the control plane at `/studio`, an unsplit error
  * branch lands a Star admin identity in the user-developer's control plane — the outcome the split
  * prevents.
  */
-function redirectWithError(env: Env, error: string, universeGalaxyStarId?: string): Response {
-  const redirect = landingBase(env, universeGalaxyStarId);
+function redirectWithError(_env: Env, error: string, universeGalaxyStarId?: string): Response {
+  const redirect = landingBase(universeGalaxyStarId);
   const separator = redirect.includes('?') ? '&' : '?';
   return new Response(null, { status: 302, headers: { Location: `${redirect}${separator}error=${error}` } });
 }
@@ -195,7 +200,9 @@ export async function mintAccessToken(
  * `MagicLinks` row + sends the email (or, in test mode, returns the raw URL). **No identity is minted**
  * — the login-request path must never create membership.
  */
-export async function handleEmailMagicLink(request: Request, env: Env, instanceName: string): Promise<Response> {
+export async function handleEmailMagicLink(
+  request: Request, env: Env, instanceName?: string,
+): Promise<Response> {
   let email: string;
   try {
     const body = await request.json() as { email?: string };
@@ -209,6 +216,8 @@ export async function handleEmailMagicLink(request: Request, env: Env, instanceN
   if (!isValidEmail(email)) return errorResponse(400, 'invalid_request', 'Valid email required');
 
   const origin = new URL(request.url).origin;
+  // `instanceName` is absent on the scope-less row — the link then names no scope, and the prover
+  // chooses among whatever memberships the address holds once the click lands them on Home.
   const result = await registry(env).requestMagicLink(email, instanceName, origin) as
     { message: string; magicLinkUrl?: string };
   return Response.json({ ...result, expires_in: MAGIC_LINK_TTL });
@@ -230,50 +239,144 @@ export async function handleEmailMagicLink(request: Request, env: Env, instanceN
 async function consumeAndLogin(
   env: Env,
   rawLoginToken: string,
-  consume: 'consumeMagicLink' | 'consumeInvite',
+  kind: 'magic-link' | 'invite',
   urlInstanceName?: string,
 ): Promise<Response> {
   const loginTokenHash = await hashString(rawLoginToken);
-  const rawRefreshToken = generateRandomString(32);
-  const refreshTokenHash = await hashString(rawRefreshToken);
-  const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString();
-  // The invite path may seed a SECOND session (the co-minted `.dev` workspace membership):
-  // generate its token up-front; the registry records it only when that membership exists,
-  // and the cookie is set only when the registry says it did.
-  const rawDevRefreshToken = generateRandomString(32);
-  const devRefreshTokenHash = consume === 'consumeInvite' ? await hashString(rawDevRefreshToken) : undefined;
 
-  const result = await registry(env)[consume](loginTokenHash, refreshTokenHash, refreshExpiresAt, devRefreshTokenHash) as
-    { sub: string; universeGalaxyStarId: string; devSession?: { universeGalaxyStarId: string } } | null;
+  // ── RPC 1: validate the link, prove the mailbox, learn what this address reaches. ─────────────
+  const plan = await registry(env).resolveConsume(kind, loginTokenHash) as ConsumePlan | null;
   // No token resolved, so there is no server-trusted scope — fall back to the URL segment purely to
   // pick a landing surface for the error page (it grants nothing; see `landingBase`).
-  if (!result) return redirectWithError(env, 'invalid_token', urlInstanceName);
+  if (!plan) return redirectWithError(env, 'invalid_token', urlInstanceName);
 
-  // Carry the scope on the redirect as a PATH segment (`/studio/{scope}`) so the landing SPA
-  // auto-connects with no local state (the magic link opens a fresh tab; localStorage can't be
-  // relied on). The base is tier-split off the TOKEN's scope, never the URL's.
-  const redirect = landingBase(env, result.universeGalaxyStarId);
-  const location = `${redirect}/${encodeURIComponent(result.universeGalaxyStarId)}`;
-  const headers = new Headers({ Location: location });
-  headers.append('Set-Cookie', refreshCookie(result.universeGalaxyStarId, rawRefreshToken));
-  // Two cookies with DIFFERENT Path scopes never collide — the browser holds one session
-  // per enrolled scope, which is exactly what the workspace preview's data plane needs.
-  if (result.devSession) {
-    headers.append('Set-Cookie', refreshCookie(result.devSession.universeGalaxyStarId, rawDevRefreshToken));
+  // ── Choose which memberships get a cookie. ────────────────────────────────────────────────────
+  const chosen = selectSessionsToMint(plan);
+
+  // A proved address with nothing to enter is a new user: send them to sign up rather than to a
+  // Home screen that would render empty.
+  if (chosen.length === 0) {
+    return new Response(null, { status: 302, headers: { Location: SIGNUP_PATH } });
+  }
+
+  // ── Mint N raw tokens Worker-side (only this side ever holds them), then RPC 2 records hashes. ─
+  const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString();
+  const minted = await Promise.all(chosen.map(async (m) => {
+    const rawRefreshToken = generateRandomString(32);
+    return { membership: m, rawRefreshToken, tokenHash: await hashString(rawRefreshToken) };
+  }));
+  await registry(env).recordSessions(
+    minted.map((x) => ({ sub: x.membership.sub, tokenHash: x.tokenHash })), refreshExpiresAt,
+  );
+
+  // ── One 302, one Set-Cookie per membership. Different `Path`s never collide, so the browser
+  // holds one session per enrolled scope — and an UNACCEPTED one mints nothing until its consent
+  // modal flips it, so placing the cookie grants no access on its own.
+  const headers = new Headers({ Location: landingFor(plan, chosen) });
+  for (const x of minted) {
+    headers.append('Set-Cookie', refreshCookie(x.membership.universeGalaxyStarId, x.rawRefreshToken));
   }
   return new Response(null, { status: 302, headers });
+}
+
+/**
+ * Which of an address's memberships get a cookie on this click, in priority order.
+ *
+ * ⚠️ **The platform membership is excluded unless the link itself named that scope.** A configured
+ * bootstrap address is minted its `nebula-platform` membership on any consume (behind mailbox proof),
+ * and mint-all would otherwise put a superuser cookie in that browser after, say, an unsolicited peer
+ * invite. Whether the LINK named the platform scope is the discriminator, because that is the one
+ * thing an attacker who mails a link cannot forge on the victim's behalf.
+ *
+ * ⚠️ **The set is capped**, because a third party can grow it: `claimStar` is open self-signup and
+ * `issueInvites` is peer-reachable, so an unbounded fan-out is an unbounded `Set-Cookie` list that a
+ * browser would silently start evicting — deadening a membership whose accept endpoint authenticates
+ * by the very cookie the jar dropped.
+ *
+ * ⚠️ **The scope THIS LINK NAMED is minted first, ahead of even an accepted membership**, and that
+ * ordering is load-bearing rather than a preference: it is the membership the click is *about*, and
+ * it is typically the one that has never been entered — so ranking acceptance above it means an
+ * address holding a capful of older memberships cannot complete a fresh claim or invite at all,
+ * because the one cookie the next step needs is the one that got dropped. Accepted memberships come
+ * next (a live session someone is using outranks one they have never opened), then most-recent.
+ */
+export function selectSessionsToMint(plan: ConsumePlan): ConsumeMembership[] {
+  const eligible = plan.memberships.filter(
+    (m) => m.universeGalaxyStarId !== PLATFORM_SCOPE || plan.linkScope === PLATFORM_SCOPE,
+  );
+  const rank = (m: ConsumeMembership) =>
+    (m.universeGalaxyStarId === plan.linkScope ? 0 : 2) + (m.accepted ? 0 : 1);
+  return [...eligible].sort((a, b) => rank(a) - rank(b)).slice(0, MINT_ALL_COOKIE_CAP);
+}
+
+/**
+ * Where the 302 lands — decided by the link's PURPOSE, never inferred from the scope column.
+ *
+ * Every arrival goes to Home: a claim and an invite land there with their consent modal front and
+ * center, and a bare login lands there to choose. The scope segment is what Home bootstraps its
+ * session at, so it names a membership this click actually minted a cookie for.
+ */
+function landingFor(plan: ConsumePlan, chosen: ConsumeMembership[]): string {
+  const named = chosen.find((m) => m.universeGalaxyStarId === plan.linkScope);
+  return homePath((named ?? chosen[0]).universeGalaxyStarId);
 }
 
 export async function handleMagicLinkClick(request: Request, env: Env, instanceName?: string): Promise<Response> {
   const token = new URL(request.url).searchParams.get('one_time_token');
   if (!token) return errorResponse(400, 'invalid_request', 'Missing one_time_token');
-  return consumeAndLogin(env, token, 'consumeMagicLink', instanceName);
+  return consumeAndLogin(env, token, 'magic-link', instanceName);
 }
 
 export async function handleAcceptInvite(request: Request, env: Env, instanceName?: string): Promise<Response> {
   const token = new URL(request.url).searchParams.get('invite_token');
   if (!token) return errorResponse(400, 'invalid_request', 'Missing invite_token');
-  return consumeAndLogin(env, token, 'consumeInvite', instanceName);
+  return consumeAndLogin(env, token, 'invite', instanceName);
+}
+
+/**
+ * `POST /auth/{scope}/logout-all` — end every session this ADDRESS holds, in one response.
+ *
+ * Credentialed by the calling scope's own path-scoped cookie, which is the only shape available:
+ * cookies are `Path={prefix}/{scope}`, so a scope-less route would receive none and would have to
+ * take the address from the client — precisely what must not decide whose sessions end. The sibling
+ * scopes come back from the registry and each gets a `Max-Age=0` cookie at its own `Path`.
+ *
+ * ⚠️ **A DERIVED session must never reach here.** An impersonated client holds no refresh cookie of
+ * its own, so this call would spend the ORIGINATOR's — `security.md` § *A DERIVED session MUST NOT
+ * revoke…*. The client-side guard is `NebulaClient.logout()`'s `#mintedFrom` branch, which ends an
+ * impersonation by teardown alone; this endpoint is unreachable from that path by construction.
+ */
+export async function handleLogoutAll(request: Request, env: Env): Promise<Response> {
+  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
+  if (!refreshToken) return errorResponse(401, 'invalid_token', 'No refresh token provided');
+  const tokenHash = await hashString(refreshToken);
+  const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+  if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
+
+  const { scopes } = await registry(env).revokeAllForAddress(record.sub) as { scopes: string[] };
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  for (const scope of scopes) headers.append('Set-Cookie', expiredRefreshCookie(scope));
+  return new Response(JSON.stringify({ scopes }), { status: 200, headers });
+}
+
+/**
+ * `POST /auth/{scope}/accept-membership` — the ONE writer of acceptance, behind the consent modal.
+ *
+ * Credentialed by that membership's OWN path-scoped refresh cookie, which is self-carrying proof:
+ * the browser only sends it to this scope's auth routes, so no cross-membership authorization rule
+ * exists to get wrong. The cookie is the same one the consume placed and left inert — accepting is
+ * what makes it mint.
+ */
+export async function handleAcceptMembership(request: Request, env: Env): Promise<Response> {
+  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
+  if (!refreshToken) return errorResponse(401, 'invalid_token', 'No refresh token provided');
+  const tokenHash = await hashString(refreshToken);
+  // Resolve through the registry rather than the KV record: an UNACCEPTED session is exactly the
+  // case this endpoint exists for, and the KV read path refuses those by design.
+  const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+  if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
+  const result = await registry(env).acceptMembership(record.sub) as { accepted: string[] };
+  return Response.json({ accepted: result.accepted.length > 0, scope: record.universeGalaxyStarId });
 }
 
 // ── refresh-token (pure KV read → mint JWT) ──────────────────────────────────────────────────────
@@ -304,6 +407,17 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
   }
   // Belt-and-suspenders: KV TTL already drops expired records, but a clock-skewed edge could serve one.
   if (new Date().toISOString() > record.expiresAt) return errorResponse(401, 'token_expired', 'Refresh token expired');
+
+  // ⚠️ **An unaccepted membership's cookie mints NOTHING.** Mint-all places a cookie for every
+  // membership the address holds, so a person can hold a session at a scope they have never agreed
+  // to enter — an invitation from a stranger, most importantly. Refusing here is what keeps the
+  // consent modal load-bearing rather than decorative: without it, a direct link to that scope's
+  // surface would connect and ADR-012's accepted-membership gate would be the only thing standing.
+  // The refusal is temporary by design — the accept endpoint converges this flag, and the same
+  // cookie then works.
+  if (!record.accepted) {
+    return errorResponse(401, 'membership_not_accepted', 'This membership has not been accepted yet');
+  }
 
   const contentType = request.headers.get('Content-Type');
   if (!contentType?.includes('application/json')) {

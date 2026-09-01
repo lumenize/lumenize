@@ -126,8 +126,15 @@ export async function run(stack: DevStack): Promise<void> {
   assert.ok(firstExp < nowSeconds, `fixture guard: the first token must really be expired (exp ${firstExp} < now ${nowSeconds})`);
 
   // Any operation forces the client through its refresh path, which is the mint helper.
-  const scopes = await child.scopes.list();
-  assert.ok(Array.isArray(scopes), 'the child must still be able to act after its token lapsed');
+  //
+  // ⚠️ **NOT a scope read.** `scopes.summary()` answers for a PERSON across every address and scope
+  // they hold, so it refuses an `act`-bearing token outright — an admin acting as someone must not
+  // receive that person's other tenancies. Reading the subject's own resources is what an
+  // impersonated support session actually does, and it exercises the same refresh path.
+  // A read the subject themselves could make; a missing resource answers `null` rather than
+  // throwing, so this exercises the refresh path without depending on any seeded data.
+  const read = await child.resources.read('Message', `probe-${Date.now()}`);
+  assert.ok(read === null || typeof read === 'object', 'the child must still act after its token lapsed');
 
   // ⚠️ THE assertion. `exp` ADVANCING proves a re-mint actually happened rather than a cached token
   // being reused, and `sub` holding proves the re-mint went through the parent's mint helper and NOT

@@ -4,7 +4,6 @@
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "vars": {
-    "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/studio"
+    "PRIMARY_JWT_KEY": "BLUE"
   }
 }

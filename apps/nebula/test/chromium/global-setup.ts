@@ -77,7 +77,6 @@ export default async function setup(project: TestProject) {
       '--persist-to', `${PERSIST_DIR}/state`,
       '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
-      '--var', 'NEBULA_AUTH_REDIRECT:/studio',
       // Surface auth/email-send failures in wrangler-dev stdout (otherwise
       // swallowed by LumenizeAuth's #sendEmail try/catch).
       '--var', 'DEBUG:auth,nebula-auth,nebula',

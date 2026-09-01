@@ -25,6 +25,8 @@ export { NebulaAuthRegistry } from './nebula-auth-registry';
 export type {
   AffectedScope, ScopeDeletionBlocker, ScopeDeletionAffectedUsers, ScopeDeletionPlan,
 } from './nebula-auth-registry';
+// The Home screen's tree shapes live in `types` with the rest of the wire vocabulary.
+export type { ScopeNode, EmailScopes, ScopeSummary } from './types';
 
 // Email sender (WorkerEntrypoint for service binding)
 export { NebulaEmailSender } from './nebula-email-sender';

@@ -79,8 +79,8 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     const past = '2020-01-01T00:00:00.000Z';
     const future = '9999-01-01T00:00:00.000Z';
     await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
-      ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('m-old','a@x','acme',?)", past);
-      ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('m-new','a@x','acme',?)", future);
+      ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, purpose, expiresAt) VALUES ('m-old','a@x','acme','login',?)", past);
+      ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, purpose, expiresAt) VALUES ('m-new','a@x','acme','login',?)", future);
       ctx.storage.sql.exec("INSERT INTO InviteTokens (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('i-old','a@x','acme',?)", past);
       ctx.storage.sql.exec("INSERT INTO InviteTokens (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('i-new','a@x','acme',?)", future);
       ctx.storage.sql.exec("INSERT INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES ('r-old','s1',?)", past);
@@ -147,11 +147,17 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     }));
     expect(survived).toEqual({ memberless: 1, claimedScope: 1, emails: 1, memberships: 1 });
 
-    // And the scope is still ENUMERABLE — one of the four readers that need the row, and the one a
-    // user-developer would notice: a Galaxy vanishing from their tree.
-    const tree = (await stub.myScopeTree({ authScope: 'nebula-platform', scopeAdmin: true }))
-      .map((s: any) => s.instanceName);
-    expect(tree).toContain('memberless.app');
+    // And the scope is still ENUMERABLE — the reader a user-developer would notice, because a Galaxy
+    // vanishing from their Home tree is what a wrongly-swept `Scopes` row looks like from outside.
+    // Read through `expandScope`, whose descent is the same `Scopes` walk the summary uses.
+    const seeded = await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
+      // A minimal accepted admin at the parent, so the descent is authorized to look.
+      ctx.storage.sql.exec("INSERT OR IGNORE INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES ('e-tree','tree@x','p-tree',1,'2020-01-01T00:00:00.000Z')");
+      ctx.storage.sql.exec("INSERT OR IGNORE INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES ('s-tree','e-tree','memberless',1,'2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z')");
+      return 'p-tree';
+    });
+    const { children } = await stub.expandScope(seeded, 'memberless');
+    expect(children.map((c: any) => c.scope)).toContain('memberless.app');
   });
 
   it('fresh path: a new NebulaAuthRegistry has the migrated schema (constructor wired the runner)', async () => {

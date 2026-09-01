@@ -50,11 +50,21 @@
  *
  * ⚠️ **A second class this grep is structurally blind to: containment computed BY VALUE.**
  * `b === a || b.startsWith(a + '.')` in TypeScript and `LIKE ${prefix + '.%'}` in SQL both compute
- * `isAtOrAbove` without spelling it. Two such sites are allow-listed, both in
- * `nebula-auth-registry.ts` (`myScopeTree`'s enumeration and `#computeDeletionPlan`'s cascade), each
- * with its reason at the site: the query **is** the bound, and routing per row would require
- * fetching every scope first — the work those arms exist to avoid. Sweep them with
- * `grep -rnE "startsWith\(.*'\.'|\. *%"`.
+ * `isAtOrAbove` without spelling it. The licensed sites all live in `nebula-auth-registry.ts` and
+ * share one reason, stated at each: **the query IS the bound.** Routing per row would mean fetching
+ * every scope first, which is the work those arms exist to avoid — `#computeDeletionPlan`'s cascade,
+ * and the scope-summary descent (`#childLevel`, `#directChildCount`, and `expandScope`'s own
+ * coverage check). That is a property, not a tally: an arm that bounds a read by prefix inherits the
+ * licence, and one that decides a principal's authority does not, whatever it is named.
+ *
+ * ⚠️ **Sweep with `grep -rnE "startsWith\(|LIKE " packages/nebula-auth/src/*.ts`, and do NOT
+ * narrow it back to a quoted `'.'`.** The earlier form here was `startsWith\(.*'\.'`, which returned
+ * **zero** against `parent.startsWith(\`${s}.\`)` — the template-literal spelling is the one the
+ * newest arm actually uses, so the instrument was blind to precisely what it existed to find. The
+ * wider grep is noisier by design: it also returns `isAtOrAbove` itself (the definition, not a
+ * bypass), two prefix tests on a header and a path, and `NOT LIKE '%.%'` in `#convergePendingClaims`
+ * (a tier test — "has no dot, so it is a universe" — not containment). Eyeball those; a grep that
+ * returns nothing here is far likelier to be broken than to be clean.
  */
 
 import type { AccessEntry, ParsedId, Tier } from './types';

@@ -187,7 +187,6 @@
   },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/studio",
     // Pre-alpha observability — @lumenize/debug gates ALL output (even errors) on this, so prod is
     // otherwise silent. SAFE to leave ON for pre-alpha (incl. real F&F) because no log statement may
     // emit a secret (security.md § Never log secrets — audited clean 2026-06-26: identifiers +

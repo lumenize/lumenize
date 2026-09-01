@@ -167,12 +167,32 @@ describe('NebulaAuthRegistry', () => {
     });
   });
 
-  // ── createStar (in-session, no email) + myScopeTree ─────────────────────────────────────────────
-  describe('createStar (in-session) + myScopeTree', () => {
+  // ── createStar (in-session, no email) + the scope-summary tree ──────────────────────────────────
+  describe('createStar (in-session) + the scope-summary tree', () => {
     async function galaxy(r: any, u: string) {
       await r.claimUniverse(u, 'owner@example.com', 'http://localhost');
       await r.createGalaxy(`${u}.app`, ADMIN_OVER(u));
     }
+
+    /**
+     * The founder's own accepted admin membership, and the summary read through it.
+     *
+     * ⚠️ **The summary is keyed on the PERSON (`profileId`), not on a synthetic `AccessEntry`** —
+     * which is why these no longer hand a hand-built claim to the method. It also descends only
+     * beneath an ACCEPTED admin membership, so the accept is part of the fixture rather than
+     * ceremony: without it the tree is a bare row and every assertion below would be vacuous.
+     */
+    async function summaryFor(r: any, u: string, email = 'owner@example.com') {
+      const rows = await (runInDurableObject as any)(r, (_i: any, c: any) => [...c.storage.sql.exec(
+        `SELECT m.sub AS sub, e.profileId AS profileId FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+         WHERE e.email = ? AND m.universeGalaxyStarId = ?`, email, u)]);
+      await r.acceptMembership(rows[0].sub);
+      const summary = await r.getScopeSummary(rows[0].profileId, rows[0].sub);
+      return summary.emails[0].memberships[0];
+    }
+    /** Every scope the tree reaches, flattened — the shape the old flat enumeration returned. */
+    const flatten = (node: any): string[] =>
+      [node.scope, ...(node.children ?? []).flatMap((c: any) => flatten(c))];
 
     it('creates a star Scopes row in-session — NO email round-trip (`.dev` itself is born with the galaxy)', async () => {
       const r = freshRegistry();
@@ -193,15 +213,25 @@ describe('NebulaAuthRegistry', () => {
       await expect(r.createStar('cs-bad.app', { authScope: 'nebula-platform', scopeAdmin: true })).rejects.toThrow(/3-segment/);
     });
 
-    it('myScopeTree returns the universe + descendants (tier + isDev); [] for a non-admin; scoped to the caller', async () => {
+    it('the tree returns the universe + descendants, with tiers; an UNACCEPTED admin gets no subtree', async () => {
       const r = freshRegistry();
       await galaxy(r, 'cs-tree'); // the `.dev` star is born with the galaxy
-      const tree = await r.myScopeTree(ADMIN_OVER('cs-tree'));
-      expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
-      expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual({ instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
-      expect(await r.myScopeTree({ authScope: 'cs-tree', scopeAdmin: false })).toEqual([]);
-      const exact = await r.myScopeTree({ authScope: 'cs-tree.app.dev', scopeAdmin: true });
-      expect(exact.map((s: any) => s.instanceName)).toEqual(['cs-tree.app.dev']);
+      const root = await summaryFor(r, 'cs-tree');
+      // ⚠️ The member-LESS galaxy and its `.dev` star are both here: the descent reads `Scopes`,
+      // never `Memberships`, which is the property the retired `myScopeTree` existed to provide.
+      expect(flatten(root).sort()).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
+      expect(root.tier).toBe('universe');
+      expect(root.children[0].tier).toBe('galaxy');
+
+      // An admin membership that has NOT been taken up renders bare — reds if the descent stops
+      // checking acceptance, which would answer with authority nobody has agreed to hold.
+      const r2 = freshRegistry();
+      await galaxy(r2, 'cs-bare');
+      const rows = await (runInDurableObject as any)(r2, (_i: any, c: any) => [...c.storage.sql.exec(
+        `SELECT m.sub AS sub, e.profileId AS profileId FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+         WHERE m.universeGalaxyStarId = 'cs-bare'`)]);
+      const bare = (await r2.getScopeSummary(rows[0].profileId, rows[0].sub)).emails[0].memberships[0];
+      expect(bare.children).toBeUndefined();
     });
 
     // 🔒 The SQL half of the whole-segment contract. `myScopeTree`'s containment is a `LIKE`, not a
@@ -210,21 +240,23 @@ describe('NebulaAuthRegistry', () => {
     // be asserted HERE, separately: nothing else in the suite registers prefix-colliding names, and
     // the enumeration test above passes under either spelling because `cs-tree` has no such sibling.
     //
-    // Mutation: drop the dot from `LIKE ${authScope + '.%'}` → `${authScope + '%'}` and a `bnd`
-    // admin enumerates all of `bnd-2`, while every other myScopeTree assertion stays green.
+    // Mutation: drop the dot from `LIKE ${parent + '.%'}` → `${parent + '%'}` and a `bnd` admin
+    // enumerates all of `bnd-2`, while every other tree assertion stays green.
     it('enumeration honours WHOLE segment boundaries — a universe does not cover a prefix sibling', async () => {
       const r = freshRegistry();
       await galaxy(r, 'bnd');
       await galaxy(r, 'bnd-2');            // a legal slug that `bnd` merely prefixes; both `.dev`s born bundled
 
-      const tree = await r.myScopeTree(ADMIN_OVER('bnd'));
-      expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['bnd', 'bnd.app', 'bnd.app.dev']);
+      const root = await summaryFor(r, 'bnd');
+      expect(flatten(root).sort()).toEqual(['bnd', 'bnd.app', 'bnd.app.dev']);
 
       // The star-tier form of the same collision: `s1` must not cover `s10`.
       await r.createStar('bnd.app.s1', ADMIN_OVER('bnd'));
       await r.createStar('bnd.app.s10', ADMIN_OVER('bnd'));
-      const star = await r.myScopeTree({ authScope: 'bnd.app.s1', scopeAdmin: true });
-      expect(star.map((s: any) => s.instanceName)).toEqual(['bnd.app.s1']);
+      const again = await summaryFor(r, 'bnd');
+      expect(flatten(again)).toContain('bnd.app.s1');
+      expect(flatten(again)).toContain('bnd.app.s10');
+      expect(flatten(again).filter((s: string) => s.startsWith('bnd-2'))).toEqual([]);
     });
   });
 

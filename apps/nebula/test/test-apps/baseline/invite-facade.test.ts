@@ -23,7 +23,7 @@ import type { NebulaClient } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
 import {
   universeAdminClient, adminClientAt, createInvitedClient, createSubject, createPlatformAdminClient,
-  browserLogin, pointAtOrigin, refreshToken, uniqueStar, universeOf,
+  browserLogin, pointAtOrigin, refreshToken, uniqueStar, universeOf, acceptMembershipVia,
 } from '../../test-helpers';
 
 function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0, 8)}@example.com`; }
@@ -38,12 +38,15 @@ function facadeInvite(
   );
 }
 
-/** Accept a facade-minted invite link (re-pointed at this lane's origin) and refresh at `scope` —
- *  the real-login path every persisted-bit assertion rides (ADR-009). The refresh succeeding IS
- *  the click assertion: without the cookie the click sets, it answers 401. */
+/** Accept a facade-minted invite link (re-pointed at this lane's origin), consent, and refresh at
+ *  `scope` — the real-login path every persisted-bit assertion rides (ADR-009). ⚠️ **The consent
+ *  step is the invitation being taken up**: the click mints a cookie that is inert until then, so
+ *  a refresh without it answers 401 by design. Both halves are assertions — no cookie, or no
+ *  consent, and the refresh below fails. */
 async function acceptInvite(link: string, scope: string): Promise<NebulaJwtPayload> {
   const browser = new Browser();
   await browser.fetch(pointAtOrigin(link));
+  await acceptMembershipVia(browser, scope);
   const { payload } = await refreshToken(browser, scope, scope);
   return payload;
 }

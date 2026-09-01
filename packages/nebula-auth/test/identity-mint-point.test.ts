@@ -9,7 +9,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { foundUniverse, inviteAndLogin, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, registryUrl, url } from './test-helpers';
+import {
+  foundUniverse, inviteAndLogin, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse,
+  registryUrl, url, acceptMembership, claimUniverse, claimStar, createGalaxy, platformLogin,
+} from './test-helpers';
+
+/** vitest.config's `NEBULA_AUTH_BOOTSTRAP_EMAIL`, entry 0. */
+const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
@@ -48,9 +54,12 @@ describe('Identity authority — mint only at authority points', () => {
     expect(mlResp.status).toBe(200);
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
 
+    // ⚠️ The CLICK proves their mailbox and mints NOTHING. It no longer errors: a proved address
+    // with no memberships is a new user, so they land on the signup screen — the property this test
+    // exists for is the absent mint and the absent session, and both still hold exactly.
     const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
     expect(clickResp.status).toBe(302);
-    expect(clickResp.headers.get('Location')).toContain('error=invalid_token'); // rejected, not logged in
+    expect(clickResp.headers.get('Location')).toBe('/auth/signup');
     expect(clickResp.headers.get('Set-Cookie')).toBeNull();                     // NO refresh cookie
 
     // Negative control at a protected route: the stranger has no identity, so discover finds nothing.
@@ -72,9 +81,148 @@ describe('Identity authority — mint only at authority points', () => {
   // double-submit (a fresh universeGalaxyStarId per attempt) — two clicked claim links for the same
   // email could spawn two Universes. The fix is a pending-signup single-flight keyed on email alone
   // (§Founder). Low-immediacy for pre-alpha (no real third-party signup yet); tracked, not built.
-  it.skip('BLOCKER (m6): two claimUniverse attempts for the same email converge to ONE Universe (needs the pending-signup single-flight)', async () => {
-    // When built: POST claim-universe twice for the same email (distinct slugs or a 1:1 email→Universe
-    // mapping) and assert discover(email) returns exactly one universe with one admin identity.
+  describe('m6 — one address, one Universe (the pending-signup single-flight)', () => {
+    /**
+     * ⚠️ **`getScopesForProfile` cannot serve as the probe here, and neither can anything else that
+     * filters on acceptance.** A superseded claim is unaccepted BY DEFINITION, so such a probe
+     * answers identically whether convergence ran or not — the "skip the retire" mutation would be
+     * dead against it and a no-op could ship green. These read the rows themselves.
+     */
+    const scopeRows = async (): Promise<string[]> => (runInDurableObject as any)(
+      getRegistry(), (_i: any, c: any) => [...c.storage.sql.exec('SELECT universeGalaxyStarId AS s FROM Scopes')]
+        .map((r: any) => r.s as string),
+    );
+    const membershipScopes = async (email: string): Promise<string[]> => (runInDurableObject as any)(
+      getRegistry(), (_i: any, c: any) => [...c.storage.sql.exec(
+        `SELECT m.universeGalaxyStarId AS s FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+         WHERE e.email = ?`, email)].map((r: any) => r.s as string),
+    );
+
+    it('the ACCEPTED claim wins; the superseded slug frees and its session dies', async () => {
+      const email = `m6-${crypto.randomUUID().slice(0, 8)}@example.com`;
+      const first = uniqueUniverse();
+      const second = uniqueUniverse();
+
+      // Two pending claims, different slugs — the changed-my-mind shape `UNIQUE (emailId, scope)`
+      // cannot backstop, because each claim mints its own scope.
+      const firstLink = await claimUniverse(SELF, first, email);
+      await claimUniverse(SELF, second, email);
+      expect(await scopeRows()).toEqual(expect.arrayContaining([first, second]));
+
+      // A click alone converges NOTHING — it is not consent. Reds against firing the retire at
+      // consume, where a mail scanner's prefetch would decide which claim survived.
+      const { tokenFor } = await clickLink(SELF, firstLink);
+      expect(await scopeRows()).toEqual(expect.arrayContaining([first, second]));
+      const secondToken = (await membershipScopes(email)).includes(second) ? true : false;
+      expect(secondToken).toBe(true);
+
+      // The Accept is what converges.
+      await acceptMembership(SELF, first, tokenFor(first));
+      const scopes = await scopeRows();
+      expect(scopes).toContain(first);      // the accepted claim wins...
+      expect(scopes).not.toContain(second); // ...and the superseded one is gone
+      expect(await membershipScopes(email)).toEqual([first]);
+      // The freed slug is genuinely re-claimable by anyone.
+      expect(await getRegistry().checkSlugAvailable(second)).toBe(true);
+    });
+
+    it('a session minted from the superseded claim no longer refreshes', async () => {
+      const email = `m6-${crypto.randomUUID().slice(0, 8)}@example.com`;
+      const keep = uniqueUniverse();
+      const drop = uniqueUniverse();
+      const dropLink = await claimUniverse(SELF, drop, email);
+      const keepLink = await claimUniverse(SELF, keep, email);
+
+      // Establish a real session at the claim that is about to be superseded.
+      const dropped = await clickLink(SELF, dropLink);
+      const droppedToken = dropped.tokenFor(drop);
+
+      const { tokenFor } = await clickLink(SELF, keepLink);
+      await acceptMembership(SELF, keep, tokenFor(keep));
+
+      // Probed same-scope per `security.md` — the cookie's own path, which is the only shape that
+      // can fail. Reds if the retire deletes rows without revoking sessions: the slug would be free
+      // for a stranger to claim while its previous holder still held a live admin token for it.
+      const resp = await SELF.fetch(new Request(url(drop, 'refresh-token'), {
+        method: 'POST',
+        headers: { Cookie: `refresh-token=${droppedToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: drop }),
+      }));
+      expect(resp.status).toBe(401);
+    });
+
+    it('CONTROL (trigger side): accepting a claimStar membership retires no pending Universe', async () => {
+      const email = `m6-${crypto.randomUUID().slice(0, 8)}@example.com`;
+      const pending = uniqueUniverse();
+      await claimUniverse(SELF, pending, email);
+
+      // A star, claimed by the SAME address — unstamped and scopeAdmin like a universe claim, so
+      // only the TIER conjunct separates them. Reds if the trigger is untiered.
+      const host = await foundUniverse(SELF, uniqueUniverse(), `host-${crypto.randomUUID().slice(0, 6)}@example.com`);
+      const galaxy = `${host.parsed.access.authScope}.app`;
+      await createGalaxy(SELF, galaxy, host.access_token);
+      const star = `${galaxy}.tenant`;
+      const starResp = await claimStar(SELF, star, email);
+      const { magicLinkUrl } = await starResp.json() as { magicLinkUrl: string };
+      const { tokenFor } = await clickLink(SELF, magicLinkUrl);
+      await acceptMembership(SELF, star, tokenFor(star));
+
+      expect(await scopeRows()).toContain(pending); // the pending Universe is untouched
+    });
+
+    it('CONTROL (trigger side): the bootstrap platform login retires no pending Universe', async () => {
+      const pending = uniqueUniverse();
+      await claimUniverse(SELF, pending, BOOTSTRAP_EMAIL);
+
+      // The platform membership is unstamped and scopeAdmin=1 — only the platform-scope conjunct
+      // stops it. Reds if that exclusion is dropped: a superuser's first login would destroy their
+      // own (and, at scale, anyone's) pending claims.
+      await platformLogin(SELF, BOOTSTRAP_EMAIL);
+      expect(await scopeRows()).toContain(pending);
+    });
+
+    it('CONTROL (target side): a standing unaccepted INVITED membership survives', async () => {
+      const email = `m6-${crypto.randomUUID().slice(0, 8)}@example.com`;
+      const inviter = await foundUniverse(SELF, uniqueUniverse(), `inv-${crypto.randomUUID().slice(0, 6)}@example.com`);
+      const invitedScope = inviter.parsed.access.authScope;
+      // ⚠️ **An ADMIN invite, deliberately — the dangerous shape.** A plain member's membership
+      // carries `scopeAdmin = 0`, so the target set's admin conjunct would save it and the origin
+      // stamp would go untested (verified: with a member fixture, deleting the stamp check reds
+      // nothing). An invited ADMIN matches every other conjunct a self-claim does, so the stamp is
+      // the only thing standing between this tenant's live universe and deletion.
+      await issueInvitesAs(inviter.access_token, invitedScope, [{ email, scopeAdmin: true }]);
+
+      // ⚠️ THE case the origin discriminator exists for: an unaccepted invitation is a STANDING
+      // state, so a bare `acceptedAt IS NULL` target set would delete another tenant's live scope
+      // the moment this address accepted a Universe of their own.
+      const own = uniqueUniverse();
+      const link = await claimUniverse(SELF, own, email);
+      const { tokenFor } = await clickLink(SELF, link);
+      await acceptMembership(SELF, own, tokenFor(own));
+
+      expect(await scopeRows()).toContain(invitedScope);
+      expect(await membershipScopes(email)).toEqual(expect.arrayContaining([own, invitedScope]));
+    });
+
+    it('CONTROL (target side): a pending claim whose link has EXPIRED survives', async () => {
+      const email = `m6-${crypto.randomUUID().slice(0, 8)}@example.com`;
+      const aged = uniqueUniverse();
+      await claimUniverse(SELF, aged, email);
+      // Age its link past MAGIC_LINK_TTL — the clock moves for the Worker AND the DO under
+      // pool-workers, so the row's own expiry check is what decides.
+      await (runInDurableObject as any)(getRegistry(), (_i: any, c: any) => {
+        c.storage.sql.exec("UPDATE MagicLinks SET expiresAt = '2020-01-01T00:00:00.000Z' WHERE universeGalaxyStarId = ?", aged);
+      });
+
+      const fresh = uniqueUniverse();
+      const link = await claimUniverse(SELF, fresh, email);
+      const { tokenFor } = await clickLink(SELF, link);
+      await acceptMembership(SELF, fresh, tokenFor(fresh));
+
+      // An un-consumable claim is nobody's live intention — retiring it would be destruction with
+      // no user act behind it at all. Reds if the TTL conjunct is dropped.
+      expect(await scopeRows()).toContain(aged);
+    });
   });
 });
 
@@ -366,7 +514,12 @@ describe('Scopes is the existence authority — existence is NOT derived from Id
     expect(createResp.status).toBe(201);
 
     expect(await registry.checkSlugAvailable(`${uni}.app`)).toBe(false); // exists (reds if derived from Identity)
-    const tree = (await registry.myScopeTree(admin.parsed.access)).map((s: any) => s.instanceName);
+    // The Home tree surfaces it although NOBODY is a member there — the descent reads `Scopes`, and
+    // that is the property this assertion has always been about (it outlived `myScopeTree`, whose
+    // JSDoc named the same reason: an email-keyed read would not find a galaxy just created).
+    const summary = await registry.getScopeSummary(admin.parsed.profileId, admin.parsed.sub);
+    const flat = (n: any): string[] => [n.scope, ...(n.children ?? []).flatMap(flat)];
+    const tree = summary.emails.flatMap((e: any) => e.memberships.flatMap(flat));
     expect(tree).toContain(`${uni}.app`);                                // discoverable though member-less
     // discover(the admin) does NOT surface the galaxy — the admin has no Identity there.
     const starAdminScopes = (await registry.discover('scope-admin@example.com')).map((d: any) => d.universeGalaxyStarId);
@@ -550,10 +703,13 @@ describe('verification is per-ADDRESS, acceptance is per-MEMBERSHIP', () => {
     expect(invC.errors).toHaveLength(0);
     expect((await state(email)).byScope[c]).toBeNull();
 
-    // Accept ONLY B's invite.
+    // Accept ONLY B's invite. ⚠️ The click alone no longer takes anything up — it proves the mailbox
+    // and mints (inert) cookies; the consent modal's endpoint is the one writer of acceptance. That
+    // split is what this test's scoping assertion now exercises.
     const inviteLink = inv.results[0]?.inviteUrl;
     expect(inviteLink).toBeTruthy();
-    await clickLink(SELF, inviteLink!);
+    const { tokenFor } = await clickLink(SELF, inviteLink!);
+    await acceptMembership(SELF, b, tokenFor(b));
 
     const afterAccept = await state(email);
     expect(afterAccept.byScope[b]).not.toBeNull();          // B is now taken up...
