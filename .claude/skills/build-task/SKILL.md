@@ -41,6 +41,18 @@ something landed — which your diff already shows you. Larry supplies it by han
 actually do now that we've adopted Y?"*, and it has repeatedly found a mechanism whose reason had
 quietly moved out from under it.
 
+**The displaced-walk has a blind arm: the OLD WAY the phase's new way replaces but the diff never
+touches.** A superseded route, read, or helper usually sits untouched beside its successor — green,
+compiling, referenced by nothing new — and historically it is found only when the NEXT task builds
+on the new way and hits the old one blocking it (Larry, 2026-09-01: *"we often don't find them
+until the next task sees them and flags them as stopping progress"*). So at each phase end, also ask
+the inverse question: **what did this phase's additions REPLACE, and does each replaced thing still
+exist?** For each survivor: if the task file names its retirement, delete it now — the work lives
+in the phase that caused it; if it does not, propose the removal to the human rather than leaving
+it for the next task to trip over. A task file can pre-empt this per-build by carrying a
+"nothing replaced survives in parallel" acceptance criterion that names the known retirements as a
+floor, not a cap — write one when the design visibly supersedes shipped code.
+
 **Why this and not the verifier panel:** the panel in step 3 checks each phase against its *success criteria*, and a confidently-worded false claim satisfies those. The discriminator is mechanical and was measured (2026-07-30, `nebula-impersonation-client` review): **every claim verified with a targeted tool call was right; every claim inferred from adjacent context was wrong** — five in one sitting. ⚠️ **"I already read that file" is NOT the check** — in the worst instance the disproving line was in the session's own earlier tool output, so the failure was not looking but failing to ask what the read implied. Per-*claim*, not per-file.
 
 ⚠️ **This bites hardest on the standing-guidance edits**, which are the ones no test can red: they ship always-loaded, and a wrong one misleads every future session. The task file is **not evidence for itself** — when a line you are writing is determined by a claim the task file already makes, verify that claim rather than inheriting it. (`✅ Checkable` in a task file means the claim was *shaped* to be falsifiable, **not** that anyone ran it; two such claims shipped false through several review passes precisely because the marker implied otherwise.)
