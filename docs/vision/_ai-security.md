@@ -153,8 +153,8 @@ The weak version of the opposing position is "keep a human in the loop," and it 
 because **the people making the strongest case against us have already abandoned it.** Chris Hughes's
 [*The Human-in-the-Loop Illusion*](https://www.resilientcyber.io/p/the-human-in-the-loop-illusion) (2026)
 concludes that HITL is *"not functioning as a meaningful safety control. It is a formality that users power
-through"* — citing Anthropic's own Claude Code data, where users approve **93%** of permission prompts and
-experienced users auto-approve in over 40% of sessions by 750 interactions.
+through"* — citing Anthropic's own [*Measuring AI Agent Autonomy in Practice*](https://www.anthropic.com/research/measuring-agent-autonomy) (millions of interactions across Claude Code and the API), where users approve **93%** of permission prompts and
+experienced users' use of full auto-approve climbs past **40%** by their 750th session.
 
 ⭐ **Take that as a gift rather than a rebuttal.** § *The part nobody wants to say out loud* predicts consent
 prompts decay into a checkbox nobody reads within about three years. Hughes has the measurement showing it
