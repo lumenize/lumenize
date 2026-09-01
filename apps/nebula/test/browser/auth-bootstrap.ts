@@ -41,7 +41,7 @@ interface BootstrapAdminOptions {
  * "the first email registered at a scope becomes its admin" — an admin-minting-on-login path that
  * was deliberately removed (identity mint is authority-point-only; the registry says outright *"NEVER
  * call from a login path"*). Between that removal and `claim-star` landing, this helper was simply
- * broken: the link was issued and emailed fine, then rejected on consumption — `getAndVerifyIdentity`
+ * broken: the link was issued and emailed fine, then rejected on consumption — `resolveConsume`
  * → null → `302 /app?error=invalid_token`, **no cookie** — which is what reddened this whole lane.
  *
  * `provisionStarAdmin` closes it by walking the path a real tenant walks: the universe + galaxy are

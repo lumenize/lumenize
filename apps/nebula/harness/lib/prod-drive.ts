@@ -4,7 +4,7 @@
  * Drives the *deployed* Nebula at `nebula.lumenize.com` (no local boot). The Turnstile gate on the
  * unauthenticated endpoints is skipped via the authorized bypass token
  * (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`, presented as the `x-lumenize-turnstile-bypass` header) —
- * used ONLY for the one-time login, since `refresh-token` / `my-scopes` / resource reads are already
+ * used ONLY for the one-time login, since `refresh-token` / `scope-summary` / resource reads are already
  * Turnstile-free. The login seeds a **stored refresh token** (Phase 3d) so subsequent runs refresh
  * headlessly. The refresh token is a `*`-admin credential — kept in a gitignored file, NEVER logged.
  *
@@ -111,13 +111,25 @@ export async function prodAccessToken(activeScope = PLATFORM_SCOPE): Promise<str
   return prodRefresh(session, activeScope);
 }
 
-/** POST /auth/my-scopes with a `*` token → the full scope tree (all Universes) the admin can reach. */
+/**
+ * POST /auth/scope-summary → the tree this admin reaches, budget-bounded.
+ *
+ * ⚠️ **Was `my-scopes`, which no longer exists.** That route returned a FLAT list with an unbounded
+ * platform arm — a superuser's call read every scope in the table. `scope-summary` is `profileId`-
+ * keyed and nested, descends only under ACCEPTED admin memberships, and marks what it did not
+ * descend into with `childCount` rather than reading it. A caller wanting past that frontier asks
+ * `expand-scope`.
+ *
+ * ⚠️ **This targets the POST-WIPE deployment**, like everything else on this branch: today's prod
+ * still runs the pre-wipe build, where this route does not exist and `my-scopes` does. That is not a
+ * regression to fix here — it is what the wipe gate is for.
+ */
 export async function prodEnumerate(accessToken: string): Promise<unknown> {
-  const res = await fetch(`${PROD_URL}/auth/my-scopes`, {
+  const res = await fetch(`${PROD_URL}/auth/scope-summary`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
     body: '{}',
   });
-  if (!res.ok) throw new Error(`my-scopes ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  return ((await res.json()) as { scopes: unknown }).scopes;
+  if (!res.ok) throw new Error(`scope-summary ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return ((await res.json()) as { emails: unknown }).emails;
 }

@@ -279,10 +279,10 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   const handleScopelessMagicLinkClickStep: Step = (request) => handleMagicLinkClick(request, env);
   const handleAcceptInviteStep: Step<ScopeState> = (request, routeState) =>
     handleAcceptInvite(request, env, routeState.scope);
-  const handleEmailMagicLinkStep: Step<ScopeState> = (request, routeState) =>
-    handleEmailMagicLink(request, env, routeState.scope);
   /** The same handler with no scope to pass — see the scope-less row's comment in the table. */
   const handleScopelessMagicLinkStep: Step = (request) => handleEmailMagicLink(request, env);
+  const handleEmailMagicLinkStep: Step<ScopeState> = (request, routeState) =>
+    handleEmailMagicLink(request, env, routeState.scope);
   const handleRefreshTokenStep: Step = (request) => handleRefreshToken(request, env);
   const handleLogoutStep: Step<ScopeState> = (request, routeState) =>
     handleLogout(request, env, routeState.scope);
@@ -306,10 +306,6 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
     const P = NEBULA_AUTH_PREFIX;
     return [
       // ── Scope-less registry paths — forwarded to the Registry DO after edge gating ──────────
-      // `discover` is TERMINAL (retired by the profileId-keyed sibling task); its row exists only
-      // because the login page cannot survive its removal yet. Its limiter bounds the VOLUME of
-      // the recorded enumeration oracle; retiring the leak is the sibling's.
-      { path: `${P}/discover`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, forwardRaw] },
       { path: `${P}/claim-universe`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, forwardRaw] },
       { path: `${P}/claim-star`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, forwardRaw] },
       // The scope on these arrives in the BODY, deliberately (moving it onto the URL is a separate
@@ -340,10 +336,19 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       { path: `${P}/:scope/accept-invite`, method: 'GET', steps: [parseScopeGuard, connectionRateLimitGuard, handleAcceptInviteStep] },
       // The SCOPE-LESS login request — the front door. It names no scope because nothing is known
       // about the address yet: the click proves the mailbox and Home offers whatever it reaches.
+      // ⚠️ Its answer is uniform for member, stranger and bootstrap address alike — the divergence
+      // is what would make it an oracle, so nothing downstream may branch on the address.
       // Presents no credential of any kind, so it carries `turnstileGuard` like its scoped sibling.
       // ⚠️ Its answer is uniform for member, stranger and bootstrap address alike — the divergence
       // is what would make it an oracle, so nothing downstream may branch on the address.
       { path: `${P}/email-magic-link`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, handleScopelessMagicLinkStep] },
+      // ⚠️ **RETIREMENT BLOCKED — a design conflict, not an oversight.** This row is in the deletion
+      // set (`tasks/nebula-login-prove-then-choose.md`, which expects "zero surviving consumers"),
+      // but mint-all's platform carve-out excludes the `nebula-platform` cookie unless the CONSUMED
+      // LINK NAMED that scope — and this is the only route that can produce such a link. Retiring it
+      // leaves a bootstrap address able to see its platform row on Home and unable to accept it,
+      // because the accept endpoint authenticates by a cookie mint-all refused to set. Resolving it
+      // means changing one of the two, which is a decision above this row.
       { path: `${P}/:scope/email-magic-link`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, turnstileGuard, handleEmailMagicLinkStep] },
       { path: `${P}/:scope/refresh-token`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleRefreshTokenStep] },
       // Acceptance — the ONE writer, credentialed by the membership's own path-scoped cookie (so no

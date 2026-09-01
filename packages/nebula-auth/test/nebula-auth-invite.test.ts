@@ -22,6 +22,7 @@ import type { EmailMessage, InviteMintResult, NebulaJwtPayload } from '../src/ty
 import {
   foundUniverse, issueInvitesAs, clickLink, refreshAndParse, url, createGalaxy, inviteAndLogin,
   acceptMembership,
+  membershipsOf,
 } from './test-helpers';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
@@ -454,7 +455,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
         getRegistry().issueInvites(u, [{ email: victim, scopeAdmin: true }], 'http://localhost', nonDominionClaims),
       ).rejects.toThrow(/invariant breach/);
       // And nothing was minted for the batch — the throw precedes every write.
-      const disc = await getRegistry().discover(victim);
+      const disc = await membershipsOf(getRegistry(), victim);
       expect(disc).toEqual([]);
     });
   });
@@ -496,7 +497,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const second = await issueInvitesAs(admin.access_token, u, [{ email: dup }]);
       expect(second.results[0].outcome).toBe('already-member');
       expect(second.results[0].sub).toBe(first.results[0].sub);
-      expect(await getRegistry().discover(dup)).toHaveLength(1);
+      expect(await membershipsOf(getRegistry(), dup)).toHaveLength(1);
     });
   });
 });

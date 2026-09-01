@@ -171,7 +171,7 @@ export async function run(stack: DevStack): Promise<void> {
   // The reference token can only be produced by the subject actually logging in — which is exactly
   // what `provisionStarAdmin` did (a real claim-star email loop), so nothing here is hand-written.
   // Fidelity, not capability: `authScope` and `scopeAdmin` are compared FIELD-FOR-FIELD against the
-  // subject's real token, and `my-scopes` must answer both tokens identically.
+  // subject's real token, and the summary must answer both tokens identically.
   // Per-limb mutation (live.md): hard-code the mint's `scopeAdmin` to false → the bit comparison
   // below reds while limb 1's sub/act/aud assertions stay green.
   {
@@ -195,18 +195,20 @@ export async function run(stack: DevStack): Promise<void> {
       "the derived token's scopeAdmin must MIRROR the subject's own bit");
     assert.equal(derived.aud, star, 'the requested scope becomes only the aud');
 
-    const myScopes = async (token: string) => {
-      const res = await browser.fetch(`${stack.baseUrl}/auth/my-scopes`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      });
-      assert.equal(res.status, 200, `my-scopes refused (${res.status})`);
-      const { scopes } = await res.json() as { scopes: Array<{ instanceName: string }> };
-      return scopes.map((s) => s.instanceName).sort();
-    };
-    assert.deepEqual(
-      await myScopes(derivedToken), await myScopes(subject.accessToken),
-      "the derived token's myScopeTree must return exactly what the subject's own token returns",
-    );
+    // ⚠️ **`scope-summary` REFUSES a token carrying `act`** — it answers for a PERSON across every
+    // scope they hold, and a derived token deliberately carries the SUBJECT's `profileId`, so
+    // answering would hand the admin every tenancy that person holds anywhere. That refusal IS the
+    // fidelity check now: the two tokens are distinguishable exactly here and nowhere else, which is
+    // the design, not a gap. (This limb compared `my-scopes` output field-for-field until that route
+    // was retired; the flat list it returned had no such refusal.)
+    const summaryStatus = async (token: string) => (await browser.fetch(
+      `${stack.baseUrl}/auth/scope-summary`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
+    )).status;
+    assert.equal(await summaryStatus(subject.accessToken), 200,
+      "the subject's OWN token must be able to read their summary — the positive control");
+    assert.equal(await summaryStatus(derivedToken), 403,
+      'a derived (act-bearing) token must be refused the person-scoped summary');
   }
 
   // ── 2. Impersonation does not chain, and makes no network call ──────────────────────────────────

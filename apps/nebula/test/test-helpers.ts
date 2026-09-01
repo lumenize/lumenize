@@ -102,7 +102,7 @@ export function universeOf(scope: string): string {
  * Returns the test-mode magic-link URL.
  *
  * ⚠️ Login NEVER mints. `requestMagicLink` creates a link for any email, but consuming it fails
- * unless a membership already exists (`getAndVerifyIdentity` → no row → reject). So an
+ * unless a membership already exists (`resolveConsume` → no memberships → no session). So an
  * identity must be established here (claim) or via `createSubject` (invite) *before* any login.
  */
 export async function claimUniverse(

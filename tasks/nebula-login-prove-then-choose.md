@@ -257,6 +257,36 @@ Numbering equals executable order — one branch, sequential (`workflow.md`). Ea
 9. **Retirements and the parallel-survival sweep.** `discover` (route row, registry method, Turnstile entry), `getAndVerifyIdentity` (orphaned by Phase 2's `resolveConsume`, which reads every membership and does the same guarded mailbox flip — zero production callers as of the Phase-5 sweep; its two unit tests re-point to the consume path), the scoped `email-magic-link` request row, and every other member of the deletion set go; the ~21 `discover` probe sites across six test files re-point to durable probes — ⚠️ **`getScopesForProfile` is not a substitute**: it filters on acceptance, so a positive assertion swapped onto it becomes an all-empty pass — each keeping its capable-of-failing property under its original mutation; `turnstile-canary` re-points to a post-gate-failing probe; the ADR-009 helpers take their final scope-less shape.
    - **Success criteria:** owns 🔒 *An unproven address learns nothing* (consume half), *No unauthenticated route answers a question about an address* (structural over the router sets), and *Nothing replaced survives in parallel* — every retired symbol's grep, scoped to `apps packages tooling website` and excluding frozen `tasks/archive/**`, returns nothing and is pasted as evidence; each re-pointed probe still reds under its original mutation.
    - **Mutation note:** re-add any retired route row → the structural router-set assertion reds; the sweep greps red on any surviving symbol by construction.
+   - **Retired, with the sweep's evidence.** `discover` (route row, registry method, dispatch arm,
+     open-endpoint set, `DiscoveryEntry`, its index export) and `getAndVerifyIdentity`. Live-code
+     greps over `apps packages tooling`, archive excluded: `auth/discover` **0**, `.discover(` **0**,
+     `DiscoveryEntry` **0**, `scopes.list` **0**, live `my-scopes` calls **0**. Three hits remain and
+     all three are deliberate TOMBSTONE comments naming what left and why — `getAndVerifyIdentity`
+     ×2, `NEBULA_AUTH_REDIRECT` ×1 — which is the shape this criterion wants, not a survivor.
+   - **The probes kept their teeth.** ~21 `discover` sites re-pointed to `membershipsOf`, a helper
+     that reads the `Memberships` row through `runInDurableObject`. ⚠️ **`getScopesForProfile` was
+     not used, exactly as this phase warned** — it filters on acceptance, so a positive assertion
+     moved onto it becomes an all-empty pass. Verified by mutation: making `#mintIdentity` write the
+     wrong scope reds six re-pointed assertions across two files. The route-level probes
+     (`route-guards`, `unconfigured-protections`, `entrypoint-routing-contract`, `turnstile-canary`)
+     moved to a **post-gate-failing** `claim-universe` — an invalid slug clears every edge check and
+     is refused by the DO's own grammar, so the probe proves admission without minting anything.
+   - 🐛 **The sweep's real catch: `my-scopes` had TWO LIVE CALLERS after Phase 4 retired it** —
+     `harness/scenarios/impersonation-lifecycle.ts` and `superuser-end-to-end.ts`, plus
+     `harness/lib/prod-drive.ts`. Nothing failed, because a retired route 404s and none of them
+     asserted a status that a 404 breaks. The impersonation limb re-points to the sharper property
+     the new endpoint has: `scope-summary` REFUSES an `act`-bearing token, so the two tokens are now
+     distinguishable exactly there. `turnstile-bypass.test.ts`'s hand-kept row list carried
+     `my-scopes` too, passing vacuously — a comment now says why that list rots and points at the
+     table-derived check that cannot.
+   - 🛑 **The scoped `email-magic-link` row is NOT retired — blocked on a design conflict, recorded
+     at the row.** This phase's own text expects it to go "with zero surviving consumers", but
+     mint-all's platform carve-out excludes the `nebula-platform` cookie *unless the consumed link
+     named that scope*, and this is the only route that can produce such a link. Retiring it leaves a
+     bootstrap address seeing its platform row on Home and unable to accept it, because the accept
+     endpoint authenticates by the very cookie mint-all refused to set — which contradicts
+     *A superuser arrives through the front door*. Two tests name both sides. Resolving it means
+     changing the carve-out or the retirement, which is a decision, not a build step.
 10. **The `/live` scenarios.** Five container-free scenarios in `drive.ts`: a two-membership address enters both scopes off one email; a fresh address claims via the affordance — the click lands on the self-modal, one Accept enters the universe; the same on the fallback arm, asserting one email total; an invite → click → Home-with-modal → Accept → workspace, with a pre-accept limb (`acceptedAt` NULL, and the destination refusing to connect) and a Decline limb; a superuser walks the front door through the self flavor to the platform root. The rendered serving checks from Phase 6 ride these. Real mail, rung 1, per-limb mutation checks (`live.md`).
     - **Success criteria:** owns 🌐 *The same, driven as `/live` scenarios* — each limb isolated by its own mutation with a positive control per `live.md`'s multi-limb rule; the invite scenario is the one that reds on a modal bypass, a direct-landing 302, or a connectable unaccepted destination.
     - **Mutation note:** per limb, named in the scenario files at write time.

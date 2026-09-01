@@ -44,18 +44,6 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
   });
 
   describe('registry dispatch', () => {
-    it('POST /auth/discover reaches the registry (returns universeGalaxyStarId entries)', async () => {
-      const u = uni();
-      await foundUniverse(SELF, u, 'discover@example.com');
-      const resp = await SELF.fetch(new Request(registryUrl('discover'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'discover@example.com' }),
-      }));
-      expect(resp.status).toBe(200);
-      const body = await resp.json() as any[];
-      expect(body.some(e => e.universeGalaxyStarId === u)).toBe(true);
-    });
-
     it('POST /auth/claim-universe creates; duplicate → 409', async () => {
       const u = uni();
       const first = await SELF.fetch(new Request(registryUrl('claim-universe'), {
@@ -239,7 +227,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         // ⚠️ A REGRESSION the raw forward introduces: the Worker used to `?? {}` a bad body, so the
         // registry never saw one. Now `await request.json()` would throw a SyntaxError — not a
         // RegistryError — and fall to the 500 fallback.
-        for (const endpoint of ['claim-star', 'claim-universe', 'discover']) {
+        for (const endpoint of ['claim-star', 'claim-universe']) {
           const resp = await SELF.fetch(new Request(registryUrl(endpoint), {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'not json{',
           }));
@@ -344,7 +332,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     });
 
     it('GET to a registry endpoint → 405', async () => {
-      expect((await SELF.fetch(new Request(registryUrl('discover'), { method: 'GET' }))).status).toBe(405);
+      expect((await SELF.fetch(new Request(registryUrl('claim-universe'), { method: 'GET' }))).status).toBe(405);
     });
   });
 

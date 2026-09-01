@@ -119,16 +119,23 @@ export async function run(stack: DevStack): Promise<void> {
   );
 
   // ── LIMB 4: enumeration returns the WHOLE tree, not one row ──────────────────────────────────
-  // `myScopeTree`'s platform arm is coupled to the claim by VALUE, so the compiler cannot see it.
-  // Break it and a superuser silently enumerates exactly one scope — this is the limb that catches it.
-  const scopesRes = await fetch(`${origin}/auth/my-scopes`, {
+  // The platform arm is coupled to the reserved scope by VALUE, so the compiler cannot see it. Break
+  // it and a superuser silently enumerates exactly one scope — this is the limb that catches it.
+  //
+  // ⚠️ Reads `scope-summary`, which replaced the retired `my-scopes`: NESTED and `profileId`-keyed,
+  // so the ids are gathered by walking `children` rather than reading a flat list. It is also
+  // BUDGET-BOUNDED — a node past the frontier arrives as a `childCount` and is absent here — which is
+  // why the assertion below checks for specific expected scopes rather than a total.
+  const scopesRes = await fetch(`${origin}/auth/scope-summary`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${platform.accessToken}`, 'Content-Type': 'application/json' },
     body: '{}',
   });
-  assert.equal(scopesRes.status, 200, `my-scopes ${scopesRes.status} for a superuser`);
-  const scopes = (await scopesRes.json() as { scopes?: { instanceName: string }[] }).scopes ?? [];
-  const ids = scopes.map((s) => s.instanceName);
+  assert.equal(scopesRes.status, 200, `scope-summary ${scopesRes.status} for a superuser`);
+  type Node = { scope: string; children?: Node[] };
+  const summary = await scopesRes.json() as { emails?: { memberships?: Node[] }[] };
+  const walk = (n: Node): string[] => [n.scope, ...(n.children ?? []).flatMap(walk)];
+  const ids = (summary.emails ?? []).flatMap((e) => (e.memberships ?? []).flatMap(walk));
   for (const expected of [someUniverse, `${someUniverse}.app`, `${someUniverse}.app.tenant`]) {
     assert.ok(
       ids.includes(expected),

@@ -59,9 +59,10 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }), gatedEnv);
 
-  // The four open rows — the ONLY bound on them besides the connection limiter: `checkRateLimit`
-  // keys on the verified `payload.sub`, so it never runs where there is no JWT.
-  it.each(['claim-star', 'claim-universe', 'discover'])(
+  // The open rows — the ONLY bound on them besides the connection limiter: `checkRateLimit`
+  // keys on the verified `payload.sub`, so it never runs where there is no JWT. (`discover` was a
+  // fourth until it was retired; the list is the table's, not a fixed count.)
+  it.each(['claim-star', 'claim-universe'])(
     'gates the open registry route %s (403 turnstile_required, before any siteverify)',
     async (endpoint) => {
       const resp = await post(endpoint, { email: 'x@example.com' });
@@ -69,8 +70,8 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
       expect((await resp!.json() as any).error).toBe('turnstile_required');
     });
 
-  it('gates email-magic-link (the open instance route)', async () => {
-    const resp = await post('some-scope/email-magic-link', { email: 'x@example.com' });
+  it('gates email-magic-link (the open scope-less route)', async () => {
+    const resp = await post('email-magic-link', { email: 'x@example.com' });
     expect(resp?.status).toBe(403);
     expect((await resp!.json() as any).error).toBe('turnstile_required');
   });
@@ -79,10 +80,16 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
     // Every remaining table row, driven token-less under the same gated env. Each refuses (or
     // 400s) for its OWN reason; a `turnstile_required` from any of them reds this — the direction
     // that catches a route GAINING the guard where it does not belong.
+    // ⚠️ **A hand-kept list, and it rots in the quiet direction.** It carried `my-scopes` for a while
+    // after that route was retired: a path with no row 404s, which is not `turnstile_required`, so
+    // the dead entry passed and the list looked exhaustive while covering one row less. If you retire
+    // a route, delete it here too — `turnstile-by-credential.test.ts` is the check that CANNOT rot
+    // this way, because it derives its set from the table itself.
     const posts = [
-      'my-scopes', 'create-galaxy', 'create-star', 'delete-scope', 'delete-scope-plan',
-      'mint-narrower-token',
-      'some-scope/refresh-token', 'some-scope/logout',
+      'scope-summary', 'expand-scope', 'create-galaxy', 'create-star', 'delete-scope',
+      'delete-scope-plan', 'mint-narrower-token', 'coming-soon', 'signup',
+      'some-scope/refresh-token', 'some-scope/logout', 'some-scope/logout-all',
+      'some-scope/accept-membership',
     ];
     for (const path of posts) {
       const resp = await post(path);

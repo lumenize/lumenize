@@ -68,7 +68,6 @@ export type {
   ParsedId,
   AccessEntry,
   NebulaJwtPayload,
-  DiscoveryEntry,
   InviteeRequest,
   InviteOutcome,
   InviteeSummary,

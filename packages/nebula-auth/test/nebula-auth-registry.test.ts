@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { membershipsOf } from './test-helpers';
 import type { AccessEntry, NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 /** A fresh, isolated registry stub (unique name → own migrated storage). */
@@ -56,16 +57,19 @@ const ACTING = (sub: string, u: string) =>
   ({ sub, access: ADMIN_OVER(u) } as unknown as NebulaJwtPayload);
 
 describe('NebulaAuthRegistry', () => {
-  // ── discover ──────────────────────────────────────────────────────────────────────────────────
-  describe('discover', () => {
+  // ── membership rows — what the mint/delete paths actually wrote ───────────────────────────────
+  // These asserted through the retired `discover` endpoint; the endpoint was only ever the READ.
+  // `membershipsOf` reads the same rows without an unauthenticated oracle in front of them, so every
+  // assertion below keeps the mutation it was written against.
+  describe('membership rows', () => {
     it('returns empty array for unknown email', async () => {
-      expect(await freshRegistry().discover('nobody@example.com')).toEqual([]);
+      expect(await membershipsOf(freshRegistry(), 'nobody@example.com')).toEqual([]);
     });
 
     it('returns { universeGalaxyStarId, scopeAdmin } for a claimed universe admin (sub-FREE)', async () => {
       const r = freshRegistry();
       await r.claimUniverse('acme', 'scope-admin@example.com', 'http://localhost');
-      const entries = await r.discover('scope-admin@example.com');
+      const entries = await membershipsOf(r, 'scope-admin@example.com');
       expect(entries).toEqual([{ universeGalaxyStarId: 'acme', scopeAdmin: true }]);
       expect(entries[0]).not.toHaveProperty('sub'); // never leak the surrogate identity key
     });
@@ -73,32 +77,22 @@ describe('NebulaAuthRegistry', () => {
     it('case-insensitive email lookup', async () => {
       const r = freshRegistry();
       await r.claimUniverse('caseu', 'FRANK@Example.COM', 'http://localhost');
-      expect(await r.discover('frank@example.com')).toHaveLength(1);
+      expect(await membershipsOf(r, 'frank@example.com')).toHaveLength(1);
     });
 
     it('returns all scopes for an email across universes', async () => {
       const r = freshRegistry();
       await r.claimUniverse('one', 'carol@example.com', 'http://localhost');
       await r.claimUniverse('two', 'carol@example.com', 'http://localhost');
-      const names = (await r.discover('carol@example.com')).map((e: any) => e.universeGalaxyStarId).sort();
+      const names = (await membershipsOf(r, 'carol@example.com')).map((e) => e.universeGalaxyStarId).sort();
       expect(names).toEqual(['one', 'two']);
     });
   });
 
-  // ── getAndVerifyIdentity — find-and-flip, reject if none ─────────────────────────────────────────
-  describe('getAndVerifyIdentity', () => {
-    it('returns null when no identity exists (login verify never mints)', async () => {
-      expect(await freshRegistry().getAndVerifyIdentity('ghost@example.com', 'acme')).toBeNull();
-    });
-
-    it('find-and-flips an existing identity → returns { sub, scope, scopeAdmin } and sets emailVerified', async () => {
-      const r = freshRegistry();
-      await r.claimUniverse('flipu', 'scope-admin@example.com', 'http://localhost'); // mints the admin identity (emailVerified=0)
-      const identity = await r.getAndVerifyIdentity('scope-admin@example.com', 'flipu');
-      expect(identity).toMatchObject({ universeGalaxyStarId: 'flipu', scopeAdmin: true });
-      expect(identity.sub).toBeDefined();
-    });
-  });
+  // ⚠️ `describe('getAndVerifyIdentity')` lived here and is GONE with the method. Both of its
+  // properties are asserted through the path that replaced it: the reject-if-none case by
+  // identity-mint-point.test.ts § *login verify NEVER mints*, and the find-and-flip by
+  // mint-all-and-acceptance.test.ts, which drives a real consume. Deleting them lost no coverage.
 
   // ── checkSlugAvailable (Scopes existence) ───────────────────────────────────────────────────────
   describe('checkSlugAvailable', () => {
@@ -117,7 +111,7 @@ describe('NebulaAuthRegistry', () => {
       const result = await r.claimUniverse('my-universe', 'scope-admin@example.com', 'http://localhost');
       expect(result.magicLinkUrl).toContain('/auth/my-universe/magic-link');
       expect(await r.checkSlugAvailable('my-universe')).toBe(false);
-      expect(await r.discover('scope-admin@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', scopeAdmin: true }]);
+      expect(await membershipsOf(r, 'scope-admin@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', scopeAdmin: true }]);
     });
 
     it('rejects duplicate / reserved / invalid slug / invalid email', async () => {
@@ -151,8 +145,8 @@ describe('NebulaAuthRegistry', () => {
       // second client call with a client-side lazy repair for the missed-call window).
       expect(await r.checkSlugAvailable('gal-univ.my-galaxy.dev')).toBe(false);
       // wildcard-managed: no identity minted in the galaxy OR its `.dev` (the creator's
-      // dominion from the universe IS the access) — discover stays exactly the universe row.
-      expect(await r.discover('admin@example.com')).toEqual([{ universeGalaxyStarId: 'gal-univ', scopeAdmin: true }]);
+      // dominion from the universe IS the access) — the membership set stays exactly the universe row.
+      expect(await membershipsOf(r, 'admin@example.com')).toEqual([{ universeGalaxyStarId: 'gal-univ', scopeAdmin: true }]);
     });
 
     it('rejects non-admin / nonexistent-parent / non-galaxy tier / wrong-scope / duplicate', async () => {
@@ -361,13 +355,13 @@ describe('NebulaAuthRegistry', () => {
       expect(plan.affectedUsers.sample.every((b: any) => b.instanceName === 'd8.app.dev')).toBe(true);
     });
 
-    it('execute: solo delete removes the rows (discover empty, slug free)', async () => {
+    it('execute: solo delete removes the rows (no memberships, slug free)', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d6.app.dev'], [{ sub: owner, scope: 'd6.app.dev', email: 'solo@x.com', scopeAdmin: true }]);
       const result = await r.executeScopeDeletion('d6.app.dev', owner, ADMIN_OVER('d6'), ACTING(owner, 'd6'));
       expect(result.affected.map((a: any) => a.instanceName)).toEqual(['d6.app.dev']);
-      expect(await r.discover('solo@x.com')).toEqual([]);
+      expect(await membershipsOf(r, 'solo@x.com')).toEqual([]);
       expect(await r.checkSlugAvailable('d6.app.dev')).toBe(true);
     });
 

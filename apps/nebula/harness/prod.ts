@@ -2,7 +2,7 @@
  * PROD drive entry — autonomous, NO local boot. Points at `nebula.lumenize.com`, uses the Turnstile
  * bypass token for a one-time login (then a stored refresh token), and runs a read-mostly command.
  *
- *   npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod Universes (my-scopes, * token)
+ *   npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod Universes (scope-summary, * token)
  *
  * Needs `.dev.vars` with NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN + TEST_TOKEN. No Docker, no wrangler dev.
  * @see tasks/archive/claude-live-verification.md — Phase 3b/3d

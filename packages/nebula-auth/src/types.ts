@@ -303,13 +303,6 @@ export interface InviteMintResult {
   errors: InviteeError[];
 }
 
-/** Discovery result returned by POST {prefix}/discover. `sub`-free by design — `discover` is
- *  unauthenticated/unthrottled, so it must never leak the surrogate identity key. */
-export interface DiscoveryEntry {
-  universeGalaxyStarId: string;
-  scopeAdmin: boolean;
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------

@@ -24,13 +24,15 @@ function protectionEntries(from: any[]): any[] {
 // sweep below carries the per-protection coverage.
 describe('the Registry constructor runs the check', () => {
   it('construction emits exactly the protections absent from THIS lane\'s env, at their declared levels', async () => {
-    // Touch the singleton so it constructs with the sink installed (discover forwards to the DO;
-    // this lane's explicit TURNSTILE_SECRET_KEY: '' binding is what skips the Turnstile gate).
-    const resp = await SELF.fetch(new Request(registryUrl('discover'), {
+    // Touch the singleton so it constructs with the sink installed. ⚠️ A post-gate-FAILING request:
+    // this only needs the DO entered, and every surviving open row mints or sends mail on success
+    // (`discover`, which wrote nothing, is retired). An invalid slug reaches the DO and is refused by
+    // its own grammar — construction still happens, which is the whole point.
+    const resp = await SELF.fetch(new Request(registryUrl('claim-universe'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'construct-probe@example.com' }),
+      body: JSON.stringify({ slug: 'Not A Valid Slug', email: 'construct-probe@example.com' }),
     }));
-    expect(resp.status).toBe(200);
+    expect(resp.status).toBe(400);
 
     // Expectation COMPUTED from env, not hard-coded: both limiter bindings are declared in this
     // lane's wrangler.jsonc (so no error is expected for them), while TURNSTILE_SECRET_KEY is

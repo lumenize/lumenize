@@ -252,11 +252,16 @@ describe('no request the edge is going to REFUSE reaches the singleton', () => {
   it('GET /auth/claim-universe answers 405 at the edge and the Registry is never entered', async () => {
     // Positive control FIRST: a request the edge admits does emit the entry marker — otherwise the
     // absence below is the marker being broken, not the singleton being protected.
-    const admitted = await SELF.fetch(new Request('http://localhost/auth/discover', {
+    // ⚠️ **A POST-GATE-FAILING request, and it has to be.** This probe wants "the edge admitted it
+    // and the singleton was entered" — nothing more — and every surviving open row MINTS or SENDS
+    // MAIL when it succeeds (`discover`, which answered 200 and wrote nothing, is retired). So the
+    // request passes every edge check and is refused by the DO's own slug grammar: the marker is
+    // emitted, and no universe is claimed. The STATUS is incidental here; the sink is the assertion.
+    const admitted = await SELF.fetch(new Request('http://localhost/auth/claim-universe', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'entry-probe@example.com' }),
+      body: JSON.stringify({ slug: 'Not A Valid Slug', email: 'entry-probe@example.com' }),
     }));
-    expect(admitted.status).toBe(200);
+    expect(admitted.status).toBe(400);
     expect(sink.filter((e) => e.namespace === 'nebula-auth.Registry.fetch').length).toBeGreaterThan(0);
 
     const mark = sink.length;
@@ -285,12 +290,14 @@ describe('each forward terminal preserves what its row is allowed to touch', () 
     // Header fidelity — reds against collapsing the terminals into one rebuild, which drops every
     // header but Content-Type while leaving every status-only assertion green.
     const mark = sink.length;
-    const withHeader = await SELF.fetch(new Request('http://localhost/auth/discover', {
+    // Same post-gate-failing shape as above: the header has to REACH the DO, which a raw forward
+    // does and a rebuild does not — whether the DO then likes the slug is beside the point.
+    const withHeader = await SELF.fetch(new Request('http://localhost/auth/claim-universe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forward-fidelity-probe': '1' },
-      body: JSON.stringify({ email: 'fidelity-probe@example.com' }),
+      body: JSON.stringify({ slug: 'Not A Valid Slug', email: 'fidelity-probe@example.com' }),
     }));
-    expect(withHeader.status).toBe(200);
+    expect(withHeader.status).toBe(400);
     const entries = sink.slice(mark).filter((e) => e.namespace === 'nebula-auth.Registry.fetch');
     expect(entries).toHaveLength(1);
     expect(entries[0].data.headerNames).toContain('x-forward-fidelity-probe');

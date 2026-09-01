@@ -64,7 +64,7 @@ Identity is keyed by a registry-minted opaque `sub` (UUID), **one per `(email, s
 | `requestMagicLink` at `nebula-platform` for a configured bootstrap email | platform-admin `Identity` (idempotent, scope-gated) |
 | `createGalaxy` / `createStar` (admin) | `Scopes` row **only** — no identity, no email; the parent admin manages via wildcard reach |
 
-**Login never mints.** `getAndVerifyIdentity` *finds* the `(email, scope)` row and flips `emailVerified`, returning `null` when no row exists. That is the load-bearing invariant: **an `Identity` row means an authorized member**, which is what let the old `adminApproved` flag and its edge gate be retired outright rather than re-homed. A stranger who requests a magic link for a scope they were never minted into gets a link that fails at consume.
+**Login never mints.** `resolveConsume` *finds* every membership on the address and flips `emailVerified`, resolving to an empty set when the address holds none. That is the load-bearing invariant: **an `Identity` row means an authorized member**, which is what let the old `adminApproved` flag and its edge gate be retired outright rather than re-homed. A stranger who requests a magic link for a scope they were never minted into gets a link that fails at consume.
 
 ### The refresh path is a pure KV read
 
@@ -88,7 +88,7 @@ The gate lands in three places depending on the surface:
 
 - **The invite facade** (`NebulaAuthFacade.invite`, mesh-side): eligibility = exact-scope membership ∨ `hasDominionOver(claims.access, targetScope)`, computed from `callContext.originAuth` — every member may invite non-admin peers into exactly their own scope; dominion additionally permits inviting downward and is the only thing that licenses a requested `scopeAdmin` (a peer's request caps to false). The registry re-asserts the cap in-method as an invariant (a `scopeAdmin: true` entry without dominion in `callerClaims` throws — a breach, never an expected client error).
 - **`/auth/mint-narrower-token`** (scope-less): the pipeline proves identity (`verifyJwtGuard` + `subRateLimitGuard`); authorization is the handler's single `canMintFor(callerClaims, subject)` call — dominion over the **subject's** scope, which no URL carries. Refusal and an absent subject answer identically (no `sub`-existence oracle), and the one containment check besides it is the `aud` validation, run after.
-- **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — its query is bounded by the caller's own `authScope`, so the result set can never exceed their dominion.
+- **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `getScopeSummary` is `profileId`-keyed and descends only under ACCEPTED admin memberships, and each level is read with `LIMIT budget+1` — so the READ is bounded, not merely the response.
 
 ### Worker gating pipeline
 
@@ -116,7 +116,7 @@ https://host/auth/discover                            -> forwarded to the regist
 https://host/auth/claim-universe                      -> forwarded to the registry
 https://host/auth/create-galaxy                       -> forwarded to the registry
 https://host/auth/create-star                         -> forwarded to the registry
-https://host/auth/my-scopes                           -> forwarded to the registry
+https://host/auth/scope-summary                       -> forwarded to the registry
 https://host/auth/delete-scope-plan                   -> forwarded to the registry
 https://host/auth/delete-scope                        -> forwarded to the registry
 ```
@@ -155,7 +155,8 @@ Every path is matched against the route table's `URLPattern`s — the scope-less
 | `/auth/claim-star` | POST | Turnstile | → registry `fetch()` (raw) | **Open Star self-signup.** Body `{ universeGalaxyStarId, email }`. Registers the `Scopes` row, mints the star-scoped admin at the **3-segment star id** (`isAdmin`, `emailVerified: 0` → an **exact-star** pattern), and sends a claim link — all in one `transactionSync`. No admin in the loop |
 | `/auth/create-galaxy` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a galaxy — `Scopes` row only |
 | `/auth/create-star` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a star — `Scopes` row only |
-| `/auth/my-scopes` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | The caller's manageable scope tree, keyed on the verified admin scope (not email) |
+| `/auth/scope-summary` | POST | JWT (+ verified `sub`/`profileId` injected; refuses an `act`-bearing token) + rate limit | → registry `fetch()` | Every address on the caller's identity and the tree beneath each accepted admin membership, budget-bounded |
+| `/auth/expand-scope` | POST | same as `scope-summary` | → registry `fetch()` | One more level beneath a node, keyset-paged past the budget |
 | `/auth/delete-scope-plan` | POST | JWT (+`verifiedAccess` + `callerSub` injected) + rate limit | → registry `fetch()` | Read-only cascade plan for the confirm screen |
 | `/auth/delete-scope` | POST | JWT (+`verifiedAccess` + `callerSub` injected) + rate limit | → registry `fetch()` | Execute the cascade; returns the affected set for the caller's platform-DO teardown fan-out |
 

@@ -26,14 +26,20 @@ const ORIGIN = 'http://localhost';
 describe('entrypoint routing contract — exhaustive + collision-free', () => {
   // Positive anchor 1: the Worker DOES route an API prefix — so the 404s below are a genuine
   // split, not a dead worker that 404s everything (guards against a vacuous all-404 pass).
-  it('an API prefix (/auth/discover) is routed to the auth router, not 404', async () => {
-    const res = await new Browser().fetch(`${ORIGIN}/auth/discover`, {
+  it('an API prefix (/auth/claim-universe) is routed to the auth router, not 404', async () => {
+    // ⚠️ A deliberately INVALID slug: this anchor only needs to prove the path reached the auth
+    // router rather than falling through to a 404, and every open row that SUCCEEDS mints a scope or
+    // sends mail. A 400 from the router's own grammar proves routing exactly as well as a 200 would,
+    // and leaves nothing behind. (`/auth/discover` served this role until it was retired.)
+    const res = await new Browser().fetch(`${ORIGIN}/auth/claim-universe`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'routing-contract@example.com' }),
+      body: JSON.stringify({ slug: 'Not A Valid Slug', email: 'routing-contract@example.com' }),
     });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
+    expect(res.status).toBe(400);
+    // The 404 this anchors against carries no JSON error body — so the SHAPE is what distinguishes
+    // "routed and refused" from "never routed at all".
+    expect((await res.json() as { error?: string }).error).toBeDefined();
   });
 
   // Positive anchor 2 — the /app/* serve, end to end: seed a dist into the Galaxy's VFS

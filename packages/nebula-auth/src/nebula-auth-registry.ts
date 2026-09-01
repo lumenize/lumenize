@@ -18,7 +18,7 @@
  *   hash; this DO writes the index + KV.
  *
  * Identity minting: `sub` is minted ONLY at mint points — Universe/Star claim + invite
- * issuance. Login **verify** (`getAndVerifyIdentity`) find-and-flips an EXISTING identity and REJECTS
+ * issuance. Login **verify** (`resolveConsume`) find-and-flips EXISTING memberships and REJECTS
  * if none, so a minted token proves authorized membership by construction (the retired `adminApproved`
  * gate).
  *
@@ -35,7 +35,7 @@ import {
   SCOPE_TREE_NODE_BUDGET, SIGNUP_TICKET_TTL,
 } from './types';
 import type {
-  AccessEntry, DiscoveryEntry, EmailMessage, InviteMintResult, InviteeError, InviteeMintResult,
+  AccessEntry, EmailMessage, InviteMintResult, InviteeError, InviteeMintResult,
   ConsumeMembership, ConsumePlan, EmailScopes, InviteeRequest, InvitedByStamp, MagicLinkPurpose,
   ScopeNode, ScopeSummary, Tier,
   NebulaJwtPayload, RefreshTokenKV, SessionRecord,
@@ -286,43 +286,11 @@ export class NebulaAuthRegistry extends DurableObject {
     return { sub, created: true, scopeAdmin, accepted: false };
   }
 
-  /**
-   * Login **verify** — find the membership for `(address, scope)`, record that the mailbox is proved and
-   * the membership taken up, and return `{ sub, universeGalaxyStarId, scopeAdmin, profileId }`. Returns
-   * `null` if **no membership exists** (the load-bearing "a row ⇒ authorized member" invariant — a
-   * stranger who requested a login link for a scope they were never minted into is rejected here).
-   * NEVER mints. Public so the token layer can drive it, but only reached via the consume RPCs.
-   *
-   * ⚠️ **Both flag UPDATEs are GUARDED on the value they change from, and that is a cost decision, not
-   * style.** SQLite writes the row whether or not the value actually changes, and this is the
-   * highest-volume write path in the registry (ADR-018) — unguarded, every returning login pays two
-   * writes to set values that are already set. Guarded, a repeat login writes nothing.
-   */
-  getAndVerifyIdentity(email: string, universeGalaxyStarId: string):
-    { sub: string; universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null {
-    const lc = normalizeEmail(email);
-    const rows = this.#sql`
-      SELECT m.sub AS sub, m.scopeAdmin AS scopeAdmin, m.emailId AS emailId, e.profileId AS profileId
-      FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
-      WHERE e.email = ${lc} AND m.universeGalaxyStarId = ${universeGalaxyStarId}
-    `;
-    if (rows.length === 0) return null;
-    const sub = rows[0].sub as string;
-
-    // Proof of the MAILBOX — global to the address, so it is set once and never re-proved per scope.
-    // The marker is emitted only when a write actually happened: a missing guard leaves the stored value
-    // byte-identical (1 overwritten with 1), so the wasted write is observable ONLY as a write.
-    const proved = this.ctx.storage.sql.exec(
-      'UPDATE Emails SET emailVerified = 1 WHERE emailId = ? AND emailVerified = 0', rows[0].emailId as string,
-    );
-    if (proved.rowsWritten > 0) {
-      debug('nebula-auth.Registry.identity.mailboxProved').info('Mailbox proved', { sub });
-    }
-    // ⚠️ **Acceptance is NOT written here.** Proving the mailbox and taking up a membership are
-    // different acts, and consuming a link is only the first. `acceptMembership` — reached solely
-    // through the consent modal — is the one writer; see its JSDoc.
-    return { sub, universeGalaxyStarId, scopeAdmin: Boolean(rows[0].scopeAdmin), profileId: rows[0].profileId as string };
-  }
+  // ⚠️ `getAndVerifyIdentity(email, scope)` lived here and is GONE. It looked up ONE membership and
+  // flipped the mailbox-proof flag; `resolveConsume` replaced it in the same build by reading EVERY
+  // membership of the address (mint-all needs the whole set) and doing the same guarded flip. It sat
+  // here afterwards compiling, green, and called by nothing but its own two unit tests — the shape
+  // that is normally found only when the next task trips over it.
 
   /**
    * Re-point an ADDRESS to a new one — a single-row, single-column UPDATE on `Emails`, however many
@@ -446,25 +414,15 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   // ============================================
-  // Discovery / existence
+  // Existence
   // ============================================
 
-  /**
-   * Email-based scope discovery. Unauthenticated. `sub`-FREE by design (§Phase 3): `discover` is
-   * unthrottled, so returning the surrogate identity key would widen the enumeration oracle. Returns
-   * `{ universeGalaxyStarId, scopeAdmin }` per scope the email belongs to.
-   * (Inherited + deferred oracle-narrowing — see backlog.md § Nebula Auth `discover(email)` oracle.)
-   */
-  discover(email: string): DiscoveryEntry[] {
-    const rows = this.#sql`
-      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.scopeAdmin AS scopeAdmin
-      FROM Emails e JOIN Memberships m ON m.emailId = e.emailId WHERE e.email = ${normalizeEmail(email)}
-    `;
-    return rows.map(r => ({
-      universeGalaxyStarId: r.universeGalaxyStarId as string,
-      scopeAdmin: Boolean(r.scopeAdmin),
-    }));
-  }
+  // ⚠️ `discover(email)` lived here and is GONE. It answered, to anyone who asked and without any
+  // proof of the address, which scopes an address belonged to and which it administered — and at the
+  // galaxy and universe tiers membership IS administration, while at `nebula-platform` it is
+  // superuser-ship. Nothing replaces it: the question is now answered only behind a session, by
+  // `getScopeSummary`, and a login no longer needs to ask it at all because the click proves the
+  // mailbox first.
 
   /** Whether a scope id is available (no `Scopes` row). Existence is a `Scopes` fact, NOT derived
    *  from membership — a parent-managed child scope has a row here and zero members. */
@@ -1423,7 +1381,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * the ENTRY dispatches the mail post-return via `invite-entry.ts`). Per invitee:
    *
    *  - MINT the identity (`emailVerified=0`, un-taken-up) — a mint point, pre-creating the
-   *    "authorized member" row `getAndVerifyIdentity` will later find-and-flip → `invited`;
+   *    "authorized member" row `resolveConsume` will later find-and-flip → `invited`;
    *  - an existing member is early-returned unchanged → `already-member` — EXCEPT when the capped
    *    bit is true and the row's bit is 0, which executes the promotion via
    *    {@link setIdentityAdmin} (flips the row AND converges every live KV refresh record, so open
@@ -1938,7 +1896,7 @@ export class NebulaAuthRegistry extends DurableObject {
     // and answer in the same `{ error, error_description }` shape as the six sibling 400s.
     // A non-object body (`null`, `"str"`, `[]`) is rejected the same way: every field read below would
     // otherwise TypeError into the 500 fallback, which is the very shape this guard exists to prevent.
-    const OPEN_ENDPOINTS = new Set(['discover', 'claim-universe', 'claim-star']);
+    const OPEN_ENDPOINTS = new Set(['claim-universe', 'claim-star']);
     let openBody: Record<string, any> | undefined;
     if (OPEN_ENDPOINTS.has(endpoint)) {
       let parsedBody: unknown;
@@ -1955,10 +1913,6 @@ export class NebulaAuthRegistry extends DurableObject {
 
     try {
       switch (endpoint) {
-        case 'discover': {
-          const { email } = openBody as { email: string };
-          return Response.json(this.discover(email));
-        }
         case 'claim-universe': {
           const { slug, email } = openBody as { slug: string; email: string };
           return Response.json(await this.claimUniverse(slug, email, url.origin));
@@ -2073,7 +2027,7 @@ function isValidEmail(email: string): boolean {
  * Canonical email normalization — lowercase AND trim. The single source of truth for the m1 invariant
  * (§The schema: "casing drift splits identities or fail-blocks a delete"). EVERY email that is stored,
  * looked up, or compared must pass through this: the registry compares email BINARY (UNIQUE(email,
- * scope), the getAndVerifyIdentity/discover WHERE clauses, the delete-scope caller-exclusion), so
+ * scope), the consume and summary WHERE clauses, the delete-scope caller-exclusion), so
  * a stray leading/trailing space at mint that a trimmed login can't match would silently split an
  * identity and lock the owner out. Lowercasing alone is not enough — trim too.
  */

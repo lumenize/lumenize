@@ -11,7 +11,7 @@
  *  - `inviteAndLogin` — an admin mints an invitee identity, then the invitee accepts + logs in (member).
  */
 import { expect } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env, runInDurableObject } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, REGISTRY_INSTANCE_NAME } from '../src/types';
 import type { InviteMintResult, InviteeRequest, NebulaJwtPayload } from '../src/types';
@@ -293,4 +293,35 @@ export function expectNoSession(resp: Response): void {
   const all = (resp.headers as any).getSetCookie?.() as string[] | undefined
     ?? [resp.headers.get('Set-Cookie')].filter((c): c is string => c !== null);
   expect(all.filter((c) => c.startsWith('refresh-token='))).toEqual([]);
+}
+
+/**
+ * Which memberships an address holds — the durable successor to the retired `discover` endpoint.
+ *
+ * `discover` was an unauthenticated endpoint that answered "which scopes does this address belong to,
+ * and which does it administer" to anyone who asked, which is the enumeration oracle the
+ * prove-then-choose design exists to close. It was also, incidentally, ~21 tests' membership probe.
+ * This is that probe without the endpoint: it reads the ROW, which is the persisted effect those
+ * tests were really about.
+ *
+ * ⚠️ **`getScopesForProfile` is NOT the substitute, and swapping it in here would be worse than
+ * deleting the assertions.** It filters on acceptance, so a positive assertion moved onto it turns
+ * into an all-empty pass the moment a fixture stops accepting — green, and asserting nothing. This
+ * reads every membership, accepted or not, exactly as `discover` did.
+ *
+ * Shape-compatible with what `discover` returned, so the call sites change and the assertions do not.
+ */
+export async function membershipsOf(
+  registry: any, email: string,
+): Promise<{ universeGalaxyStarId: string; scopeAdmin: boolean }[]> {
+  const lc = email.trim().toLowerCase();
+  return (runInDurableObject as any)(registry, (_i: any, c: any) => {
+    const rows = [...c.storage.sql.exec(
+      `SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.scopeAdmin AS scopeAdmin
+       FROM Emails e JOIN Memberships m ON m.emailId = e.emailId WHERE e.email = ?`, lc)];
+    return rows.map((r: any) => ({
+      universeGalaxyStarId: r.universeGalaxyStarId as string,
+      scopeAdmin: Boolean(r.scopeAdmin),
+    }));
+  });
 }

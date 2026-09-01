@@ -9,7 +9,8 @@ playing — see *Limitations* below.
 There is **no dev-only login shortcut**. Real users, tests, and you all log in the same way:
 
 1. **Enter your email → "Send magic link".** The Studio resolves your scope via **discovery**
-   (`/auth/discover`), then sends a magic link to your one scope. Click the link in your email →
+   at `/auth/login` (scope-less — nothing about the address is known before the click), then sends a
+   magic link. Click the link in your email → you land on Home and choose where to go →
    you land authenticated.
 2. **First run (no scope yet)** → the form offers to **claim a Universe slug**; claiming sends the
    magic link to the new scope. First access seeds you as its root admin.

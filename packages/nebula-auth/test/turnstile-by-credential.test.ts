@@ -36,7 +36,6 @@ type Credential = 'none' | 'bearer' | 'cookie' | 'one-time' | 'none-exempt';
 
 const CLASSIFICATION: Record<string, Credential> = {
   // ── Presents nothing: gated ────────────────────────────────────────────────────────────────────
-  'POST /auth/discover': 'none',
   'POST /auth/claim-universe': 'none',
   'POST /auth/claim-star': 'none',
   'POST /auth/email-magic-link': 'none',
@@ -121,6 +120,48 @@ describe('Phase 6 — Turnstile placement is derived from the credential, not fr
     // Reds if Turnstile is ever added to a cookie route or to coming-soon — the over-gating half,
     // which nothing else in the suite would notice because an extra challenge breaks no test.
     expect(overGated).toEqual([]);
+  });
+
+  /**
+   * 🔒 **No unauthenticated route answers a question about an address.**
+   *
+   * This is the property the whole prove-then-choose design exists to establish, and it is stated
+   * over the TABLE rather than as an endpoint list, so a future route inherits it instead of being
+   * forgotten. Every route reachable without a credential does one of four things — mints a scope,
+   * sends mail to an address, serves static HTML, or writes a log line — and crucially, **none of
+   * them RETURNS anything derived from which address was named.**
+   *
+   * `discover` was the exception and is retired: it answered, to anyone, which scopes an address
+   * belonged to and which it administered. At galaxy and universe tiers a membership generally IS
+   * administration, and at `nebula-platform` it is superuser-ship, so narrowing its response could
+   * never have closed it.
+   *
+   * The behavioural half — that a link request answers a member, a stranger and a bootstrap address
+   * identically — is `scopeless-request-and-stamps.test.ts`. Neither half is sufficient alone: this
+   * one cannot see what a handler returns, and that one cannot see a NEW route.
+   */
+  it('no un-credentialed route is a READ — each one mints, sends, serves, or logs', () => {
+    const EFFECT: Record<string, 'mints' | 'sends' | 'serves' | 'logs'> = {
+      'POST /auth/claim-universe': 'mints',
+      'POST /auth/claim-star': 'mints',
+      'POST /auth/email-magic-link': 'sends',
+      'POST /auth/:scope/email-magic-link': 'sends',
+      'POST /auth/coming-soon': 'logs',
+      'GET /auth/login': 'serves',
+      'GET /auth/signup': 'serves',
+      'GET /auth/emails': 'serves',
+      'GET /auth/:scope/home': 'serves',
+    };
+    const unCredentialed = table
+      .map(key)
+      .filter((k) => CLASSIFICATION[k] === 'none' || CLASSIFICATION[k] === 'none-exempt');
+
+    // Every un-credentialed route has a declared effect, and the declaration is what a reviewer
+    // reads. A new one with no entry fails here — which is the moment to ask whether it is a READ.
+    const undeclared = unCredentialed.filter((k) => !(k in EFFECT));
+    expect(undeclared, `declare the EFFECT of these un-credentialed routes: ${undeclared.join(', ')}`)
+      .toEqual([]);
+    expect(unCredentialed.length).toBeGreaterThan(0); // not vacuous
   });
 
   it('the un-gated exemptions are the FIVE we argued for, and no others', () => {

@@ -13,6 +13,7 @@ import {
   foundUniverse, inviteAndLogin, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse,
   registryUrl, url, acceptMembership, claimUniverse, claimStar, createGalaxy, platformLogin,
   expectNoSession,
+  membershipsOf,
 } from './test-helpers';
 
 /** vitest.config's `NEBULA_AUTH_BOOTSTRAP_EMAIL`, entry 0. */
@@ -63,17 +64,17 @@ describe('Identity authority — mint only at authority points', () => {
     expect(clickResp.headers.get('Location')).toBe('/auth/signup');
     expectNoSession(clickResp);                                                 // NO refresh cookie
 
-    // Negative control at a protected route: the stranger has no identity, so discover finds nothing.
-    const disc = await getRegistry().discover('stranger@example.com');
+    // Negative control at a protected route: the stranger has no identity, so no membership exists.
+    const disc = await membershipsOf(getRegistry(), 'stranger@example.com');
     expect(disc).toHaveLength(0); // no Identity row was created by the login-request path
   });
 
   it('NO sub is generated outside the registry — the login-request path creates no identity row', async () => {
     const uni = uniqueUniverse();
     await foundUniverse(SELF, uni, 'scope-admin@example.com');
-    const before = (await getRegistry().discover('nobody@example.com')).length;
+    const before = (await membershipsOf(getRegistry(), 'nobody@example.com')).length;
     await requestMagicLink(SELF, uni, 'nobody@example.com'); // request only — must not mint
-    const after = (await getRegistry().discover('nobody@example.com')).length;
+    const after = (await membershipsOf(getRegistry(), 'nobody@example.com')).length;
     expect(before).toBe(0);
     expect(after).toBe(0); // reds if email-magic-link minted an identity
   });
@@ -253,7 +254,7 @@ describe('Identity authority — adminApproved retired, enforced at MINT (edge g
     // And no refresh KV record was written for this scope — the mint never happened. (The click set no
     // cookie, so we can't derive a tokenHash; assert directly that consume left the KV token-space empty
     // of any record for a ghost by confirming no RefreshTokenIndex row exists for the scope's ghost.)
-    const disc = await getRegistry().discover('ghost@example.com');
+    const disc = await membershipsOf(getRegistry(), 'ghost@example.com');
     expect(disc).toHaveLength(0); // no identity → nothing to anchor a refresh record to
   });
 });
@@ -501,7 +502,7 @@ describe('delete-scope — sub-first, fail-closed (M2)', () => {
 });
 
 describe('Scopes is the existence authority — existence is NOT derived from Identity', () => {
-  it('an admin-created, member-LESS galaxy exists (slug unavailable + in myScopeTree) yet has zero identities', async () => {
+  it('an admin-created, member-LESS galaxy exists (slug unavailable + in the summary) yet has zero identities', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const registry = getRegistry();
@@ -522,8 +523,8 @@ describe('Scopes is the existence authority — existence is NOT derived from Id
     const flat = (n: any): string[] => [n.scope, ...(n.children ?? []).flatMap(flat)];
     const tree = summary.emails.flatMap((e: any) => e.memberships.flatMap(flat));
     expect(tree).toContain(`${uni}.app`);                                // discoverable though member-less
-    // discover(the admin) does NOT surface the galaxy — the admin has no Identity there.
-    const starAdminScopes = (await registry.discover('scope-admin@example.com')).map((d: any) => d.universeGalaxyStarId);
+    // The admin's membership set does NOT include the galaxy — they have no Identity there.
+    const starAdminScopes = (await membershipsOf(registry, 'scope-admin@example.com')).map((d) => d.universeGalaxyStarId);
     expect(starAdminScopes).not.toContain(`${uni}.app`);
   });
 });

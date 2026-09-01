@@ -1,6 +1,6 @@
 /**
  * `email` is a mutable attribute (the surrogate `sub` is the identity key), so a re-point is a single
- * one-row update with no cascade / re-key / token re-issue, and `discover` stays `sub`-free.
+ * one-row update with no cascade / re-key / token re-issue.
  *
  * ⚠️ **SCOPE: this file tests the registry PRIMITIVE `changeEmail`, never the email-change FLOW.**
  * `changeEmail(sub, newEmail)` has no production caller — no route reaches it — and it deliberately
@@ -15,6 +15,7 @@ import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
 import {
   foundUniverse, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, url, expectNoSession,
+  membershipsOf,
 } from './test-helpers';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
@@ -24,7 +25,7 @@ const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: 'nebu
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
 /** The `sub` for an address in a scope, read through the DO's own storage (no RPC exposes it — the
- *  surrogate key is deliberately absent from `discover`'s result to keep it a narrow oracle). */
+ *  surrogate key stays out of every membership read). */
 async function subForEmail(email: string, scope: string): Promise<string> {
   return (runInDurableObject as any)(getRegistry(), (_i: any, c: any) => [...c.storage.sql.exec(
     `SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
@@ -49,9 +50,9 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     // Change the email — a single-row update.
     expect(await registry.changeEmail(sub, 'new@example.com', ACTING())).toBe(true);
 
-    // discover: the NEW address resolves to the scope; the OLD no longer does.
-    expect((await registry.discover('new@example.com')).map((d: any) => d.universeGalaxyStarId)).toEqual([u]);
-    expect(await registry.discover('old@example.com')).toEqual([]);
+    // The NEW address resolves to the scope; the OLD no longer does.
+    expect((await membershipsOf(registry, 'new@example.com')).map((d) => d.universeGalaxyStarId)).toEqual([u]);
+    expect(await membershipsOf(registry, 'old@example.com')).toEqual([]);
 
     // The sub's refresh token is STILL valid — the KV record is sub-anchored, so a re-point re-keys
     // nothing. ⚠️ This is a fact about the PRIMITIVE, not a statement that surviving the change is the
@@ -90,14 +91,14 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     const first = await foundUniverse(SELF, a, old);
     await registry.claimUniverse(b, old, 'http://localhost');
     await registry.claimUniverse(c, old, 'http://localhost');
-    const before = (await registry.discover(old)).map((d: any) => d.universeGalaxyStarId).sort();
+    const before = (await membershipsOf(registry, old)).map((d) => d.universeGalaxyStarId).sort();
     expect(before).toEqual([a, b, c].sort());
 
     expect(await registry.changeEmail(first.parsed.sub, fresh, ACTING())).toBe(true);
 
     // Reds against a per-membership UPDATE: that would move ONE scope and strand the other two.
-    expect((await registry.discover(fresh)).map((d: any) => d.universeGalaxyStarId).sort()).toEqual(before);
-    expect(await registry.discover(old)).toEqual([]);
+    expect((await membershipsOf(registry, fresh)).map((d) => d.universeGalaxyStarId).sort()).toEqual(before);
+    expect(await membershipsOf(registry, old)).toEqual([]);
   });
 
   it('changeEmail returns false for an unknown sub', async () => {
@@ -123,7 +124,7 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     expect(link).toBeTruthy();
 
     // The invite really did mint a membership, so the click would otherwise succeed.
-    const invited = await registry.discover(old);
+    const invited = await membershipsOf(registry, old);
     expect(invited).toHaveLength(1);
 
     // Re-point the invitee's address before they ever click, through the registry's own primitive.
@@ -134,10 +135,10 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     expectNoSession(click); // refused — no membership resolves the old address
   });
 
-  it('discover is sub-FREE and reads the UNIQUE(email, scope) index', async () => {
+  it('a membership read is sub-FREE and reads the UNIQUE(email, scope) index', async () => {
     const u = uni();
     await foundUniverse(SELF, u, 'disc@example.com');
-    const entries = await getRegistry().discover('disc@example.com');
+    const entries = await membershipsOf(getRegistry(), 'disc@example.com');
     expect(entries).toEqual([{ universeGalaxyStarId: u, scopeAdmin: true }]);
     expect(entries[0]).not.toHaveProperty('sub');
   });

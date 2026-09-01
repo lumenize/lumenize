@@ -109,7 +109,7 @@ async function claimAndClick(
  * rely on "the first email registered at a scope becomes its admin" — a login-time mint that was
  * deliberately removed (identity mint is authority-point-only; the registry says outright *"NEVER
  * call from a login path"*). In between, the link was issued and emailed fine and then rejected on
- * consumption — `getAndVerifyIdentity` → null → `302 /app?error=invalid_token`, **no cookie** — which
+ * consumption — `resolveConsume` → no memberships → no session cookie — which
  * is what reddened this lane. `claim-star` mints the star-scoped admin and emails the link in one open call.
  *
  * The universe and galaxy above still have to exist and only their own admin may create them, so

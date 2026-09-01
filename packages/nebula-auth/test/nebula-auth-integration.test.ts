@@ -7,12 +7,14 @@
  * Grounding: rung 2 (test-mode issuance) through the real claim → magic-link → refresh → invite paths.
  */
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
+import { SELF, env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX } from '../src/types';
 import type { NebulaJwtPayload } from '../src/types';
-import { issueInvitesAs } from './test-helpers';
+import { issueInvitesAs, membershipsOf } from './test-helpers';
+
+const getRegistry = (): any => env.NEBULA_AUTH_REGISTRY.getByName('registry');
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 const ORIGIN = 'http://localhost';
@@ -119,8 +121,8 @@ describe('@lumenize/nebula-auth — Integration', () => {
     });
   });
 
-  describe('Self-signup + discovery', () => {
-    it('universe self-signup e2e: claim → magic link → founding admin; no email/adminApproved claims; discover records it', async () => {
+  describe('Self-signup', () => {
+    it('universe self-signup e2e: claim → magic link → founding admin; no email/adminApproved claims; the membership records it', async () => {
       const browser = new Browser();
       const slug = uni();
       const email = 'self-signup@example.com';
@@ -132,11 +134,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       expect((payload as any).email).toBeUndefined();          // email is NOT a claim
       expect((payload as any).adminApproved).toBeUndefined();  // adminApproved retired
 
-      const discover = await browser.fetch(authUrl('discover'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const entries = await discover.json() as Array<{ universeGalaxyStarId: string; scopeAdmin: boolean }>;
+      const entries = await membershipsOf(getRegistry(), email);
       expect(entries).toEqual([{ universeGalaxyStarId: slug, scopeAdmin: true }]);
       expect(entries[0]).not.toHaveProperty('sub');
 
@@ -175,15 +173,11 @@ describe('@lumenize/nebula-auth — Integration', () => {
 
       // No local admin identity was minted — the admin manages it from above (their `${u}` scope
       // token already covers the star).
-      const disc = await SELF.fetch(new Request(authUrl('discover'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'owner@example.com' }),
-      }));
-      const scopes = (await disc.json() as Array<{ universeGalaxyStarId: string }>).map(e => e.universeGalaxyStarId);
+      const scopes = (await membershipsOf(getRegistry(), 'owner@example.com')).map(e => e.universeGalaxyStarId);
       expect(scopes).toEqual([u]); // only the universe admin identity; no star-scoped admin
     });
 
-    it('discovery: two universes for one email → delete one scope → re-discover shows the other', async () => {
+    it('two universes for one email → delete one scope → the other membership remains', async () => {
       const email = 'multi@example.com';
       const a = uni();
       const b = uni();
@@ -192,13 +186,8 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const bB = new Browser();
       await browserFoundUniverse(bB, b, email);
 
-      const disc = async (): Promise<string[]> => {
-        const r = await SELF.fetch(new Request(authUrl('discover'), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        }));
-        return (await r.json() as Array<{ universeGalaxyStarId: string }>).map(e => e.universeGalaxyStarId).sort();
-      };
+      const disc = async (): Promise<string[]> =>
+        (await membershipsOf(getRegistry(), email)).map(e => e.universeGalaxyStarId).sort();
       expect(await disc()).toEqual([a, b].sort());
 
       // The B admin deletes universe B (solo scope → no blockers). Its identity is removed.
