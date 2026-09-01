@@ -55,6 +55,8 @@ An exception proposed against an ADR and **rejected on its merits** goes into **
 - **Before build** — that is when code starts depending on the commitment.
 - ⚠️ **Conditional, not a pipeline step.** Most task files exercise no `Proposed` ADR; a fixed stage would fire spuriously and get ignored, which is worse than not having it.
 
+> ⏳ **TEMPORARY — remove when pre-alpha ships.** **No ADR is ratified until after pre-alpha launches** (Larry, 2026-09-01), so this gate does not fire during pre-alpha: a task MAY exercise a `Proposed` ADR and build against it, a conflict with one is still a blocker, and ratification MUST NOT be proposed — Larry reads them himself. ADR-016's one-liner already records this footing for itself; it now holds for all of them.
+
 ## Forward-facing discipline
 
 ⚠️ **Where the body describes something the code has not reached, record it in a blockquote opening `**Today's code differs.**`** — never as a "today" or "currently" hedge inside the commitment itself. A hedge makes the decision read as provisional, which is the opposite of what an ADR is for; a blockquote states the commitment in the present tense and puts the divergence beside it, where it is enumerable: `grep -rn '^> \*\*Today' docs/adr/`. This is [`docs/vision/auth.md`](../vision/auth.md)'s convention and it works the same way here. It is also what makes ratifying **before** the work lands coherent — see § *The ratification gate*.
