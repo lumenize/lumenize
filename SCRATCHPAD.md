@@ -1,6 +1,5 @@
 # Scratchpad
 
-
 ## Cloudflare Links
 
 - DO lifecycle with diagram:
@@ -77,30 +76,13 @@ wrangler deploy --env preview
 # → https://project-a-preview.my-account.workers.dev   (its B binding resolves to project-b-preview)
 ```
 
-## Database/ORM Ideas
-
-We want to create a new kind of database/ORM
-
-JSON stored in SQLite
-
-### Indexes on JSON Fields
-
-```sql
-CREATE INDEX idx_users_age ON users (json_extract(data, '$.age'));
-SELECT * FROM users WHERE json_extract(data, '$.age') > 30;
-```
-
-One table with the same structure in SQL fields for meta like validFrom, validTo, etc., but different schemas in the actual content
-
-A separate JSON "type" field that is an array so rows can be more than one thing (e.g. defect and ticket, or story and ticket). All schemas are assumed to be partial. You only invalidate for extra fields against the union of all specified schemas. This allows for type inheritance or mixins.
-
-Partial indexes per type (or maybe just compound indexes where the type is the first thing?) so you can quickly query all defects for example.
-
 ## SQLite in Cloudflare
 
 ### DO SQLite Storage Engine
 
-DO SQLite Storage engine uses SQLite version 3.47 or later
+DO SQLite Storage engine uses SQLite version 3.47 or later.
+
+[This message](https://discord.com/channels/595317990191398933/992060581832032316/1544431556956004372) suggests the current version might be 3.53.4.
 
 It seems to now support JSONB (3.45) but not json_pretty (3.46). See the workerd allowlist to confirm what is actually available: https://github.com/cloudflare/workerd/blob/main/src/workerd/util/sqlite.c%2B%2B#L268
 
@@ -119,90 +101,6 @@ let size = ctx.storage.sql.databaseSize;
 ## JSON Merge Patch
 
 Use "application/merge-patch+json" as the media type for patched content... if we even both with Accept headers.
-
-## Access Control
-
-### ReBAC - Relationship-based Access Control
-
-Call what I'm doing ReBAC - Relationship-based Access Control
-
-## Svelte + Tailwind
-
-### TailwindCSS Container Queries
-
-Consider using TailwindCSS container queries:
-
-https://github.com/tailwindlabs/tailwindcss-container-queries
-
-### To Style Things with Svelte and Tailwind/Daisy
-
-As someone who used to be against tailwind because I believed it was used by people who didn't really understand CSS/SASS, I am now a huge fan of tailwind - especially with Svelte. The trick is to create shallow components for styling. You don't want to be repeating class lists in the same component or across your app.
-
-Example:
-
-**MyList.svelte**
-
-```svelte
-<ul class="...bunch of tw classes">
-  <li class="...bunch of other tw classes"> stuff </li>
-  ...
-</ul>
-```
-
-Even for simple components like the one above, create nested items like so:
-
-**List.svelte**
-
-```svelte
-<ul class="...bunch of classes">
-  <slot />
-</ul>
-```
-
-**ListItem.svelte**
-
-```svelte
-<li class="...bunch of other classes">
-  <slot />
-</li>
-```
-
-**MyList.svelte**
-
-```svelte
-<List>
-  <ListItem> stuff </ListItem>
-  ...
-</List>
-```
-
-Use these globally in your app as they are appropriate, and make generous use of Svelte's class merging capability via clsx. Example:
-
-**ListItem.svelte**
-
-```svelte
-<script lang="ts">
-  const { classList, ...rest } = $props()
-</script>
-
-<li class={["...bunch of other classes", classList]} {...$rest}> // ...$rest syntax not tested
-  <slot />
-</li>
-```
-
-Now you can extend them quite easily:
-
-```svelte
-<ListItem class="intellisense-will-work-here"> stuff </ListItem>
-```
-
-This does several advantages. It keeps your app consistent throughout. You might think it's similar to having a class, but actually it's way easier. When styling is literally in the markup, it just makes so much more sense. Second, it doesn't clutter the parts of your app that are actually processing UI logic. You can read semantically what each item is and its purpose. You also have the ability to refactor the html code for certain components
-
-IMO You should always abstract any repeated styled element into its own component with a slot. This has worked great for me and it's a way of staying organised especially as the app scales.
-
-### Svelte Handlers
-
-Handlers should always be arrow functions, never Class methods because the `this` will be the tag not the Class instance if you use regular Class methods. See: https://svelte.dev/docs/svelte/$state#Classes
 
 ## Miscellaneous
 
