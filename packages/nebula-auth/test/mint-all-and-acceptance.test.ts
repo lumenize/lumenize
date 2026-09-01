@@ -77,24 +77,41 @@ describe('Phase 2 — one click, a session per membership', () => {
     expect(cookieScopes(resp)).toEqual([a, b, c].sort());
   });
 
-  it('a bootstrap address consuming a NON-platform link gets no /auth/nebula-platform cookie', async () => {
-    // The consume ensures the platform membership (behind mailbox proof) — so it exists, and the
-    // question is only whether mint-all hands out a cookie for it.
+  it('a bootstrap address gets its platform cookie from the ORDINARY scope-less login', async () => {
+    // ⚠️ **This inverts a carve-out that used to live here (dropped 2026-09-01).** mint-all excluded
+    // the platform cookie unless the consumed link NAMED that scope — but the scope-less login is the
+    // only front door now, so that rule left a superuser able to see their platform row on Home and
+    // unable to accept it: the accept endpoint authenticates by the very cookie the rule withheld.
     const link = await scopelessLink(BOOTSTRAP);
     const resp = await SELF.fetch(new Request(link, { redirect: 'manual' }));
-    expect(await acceptedAt(BOOTSTRAP, PLATFORM_SCOPE)).toBeNull(); // minted, un-taken-up
-    // Reds against an unqualified mint-all: an ambient superuser cookie, spendable by any
-    // same-origin script, placed by an ordinary login.
-    expect(cookieScopes(resp)).not.toContain(PLATFORM_SCOPE);
+    expect(cookieScopes(resp)).toContain(PLATFORM_SCOPE);
   });
 
-  it('a bootstrap address consuming a link that NAMES the platform scope does get it', async () => {
-    const ml = await requestMagicLink(SELF, PLATFORM_SCOPE, BOOTSTRAP);
-    const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
-    const resp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
-    // The positive control for the carve-out above — without it, that assertion would pass on a
-    // build that never minted the platform cookie at all.
-    expect(cookieScopes(resp)).toContain(PLATFORM_SCOPE);
+  it('...and that cookie is INERT — the consent modal, not a carve-out, is what gates superuser-ship', async () => {
+    // The safety story the carve-out used to carry, asserted where it now lives. An ambient platform
+    // cookie grants NOTHING: it mints no token until its membership is accepted, and accepting means
+    // clicking through a modal that says "Only accept if you initiated this signup."
+    const link = await scopelessLink(BOOTSTRAP);
+    const resp = await SELF.fetch(new Request(link, { redirect: 'manual' }));
+    const token = (resp.headers as any).getSetCookie()
+      .find((c: string) => c.includes(`Path=${'/auth/'}${PLATFORM_SCOPE}`))!
+      .split(';')[0].split('=')[1];
+
+    expect(await acceptedAt(BOOTSTRAP, PLATFORM_SCOPE)).toBeNull(); // minted, un-taken-up
+    const minted = await SELF.fetch(new Request(url(PLATFORM_SCOPE, 'refresh-token'), {
+      method: 'POST', headers: { Cookie: `refresh-token=${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activeScope: PLATFORM_SCOPE }),
+    }));
+    // ⚠️ THE assertion. Reds against dropping inert-until-accepted, which is now the ONLY thing
+    // standing between an unsolicited invite click and a live superuser session.
+    expect(minted.status).toBe(401);
+    expect(await minted.text()).toContain('membership_not_accepted');
+
+    // Positive control: consent turns the same cookie live, so the 401 above is the gate working
+    // rather than the platform session being broken outright.
+    await acceptMembership(SELF, PLATFORM_SCOPE, token);
+    const after = await refreshAndParse(SELF, PLATFORM_SCOPE, token);
+    expect(after.parsed.access.authScope).toBe(PLATFORM_SCOPE);
   });
   it('past the cap, the scope the LINK NAMED is still minted — it is what the click is about', () => {
     // ⚠️ A unit test on the selector, because constructing 25+ real memberships is minutes of HTTP

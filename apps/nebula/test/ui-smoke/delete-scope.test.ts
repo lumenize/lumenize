@@ -21,15 +21,32 @@ import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { HAS_DOCKER } from './gates';
 import { resolveChromiumExecutable, loginToStudio, openScopeManager } from './helpers';
+import { provisionAndLogin } from '../lib/email-login';
 
-const TEST_SCOPE = 'test-u0.test-g0.dev';
+// ⚠️ The GALAXY, not its `.dev` star. Post-collapse, `/studio/{u}.{g}` IS the authoring workspace
+// (`App.vue`'s `isWorkspace` is two segments) and `{u}.{g}.dev` is the preview star it serves. The
+// three-segment form this lane used to carry was pre-collapse addressing.
+const TEST_SCOPE = 'test-u0.test-g0';
 const ADMIN_EMAIL = 'test@lumenize.io';
 /** The universe the admin owns — the parent under which the throwaway Galaxy is created. */
 const UNIVERSE = 'test-u0';
 /**
- * Both tests below are `it.skip` pending a login path into a `.dev` scope, so the `beforeAll` skips the expensive
- * browser + real-email login boot too (a failing hook would red the suite instead of showing
- * `↓ skipped`). Flip to `false` in the same commit that un-skips them.
+ * ⚠️ **The ORIGINAL blocker is discharged; a DIFFERENT one now holds this lane (2026-09-01).**
+ *
+ * It was skipped pending "a login path into a `.dev` scope", reasoning that a universe login's
+ * cookie is `Path=/auth/{universe}` and so never reaches `/auth/{u}.{g}…/refresh-token`. That is
+ * still true and was never the whole story: the refresh happens AT the universe with `activeScope`
+ * set deeper, and what was missing was anything telling Studio to do that for a scope it had not
+ * already entered. Home's hand-off hint supplies it, and `loginToStudio` now proves the journey —
+ * `smoke.test.ts` drives exactly it, green.
+ *
+ * What replaced the blocker: **fixture isolation between the two ui-smoke files.** Both provision
+ * `test-u0` against one shared `wrangler dev`, and running both reds whichever goes second. Everything
+ * else here was migrated and verified while briefly un-skipped — the scope-less login, Home entry,
+ * the profile-name modal, the post-collapse two-segment addressing, the `+ App` / "name your app"
+ * selectors, and a tree-scoped detach locator (the confirm panel renders the same name, so the old
+ * unscoped one was a strict-mode violation that read as a failed delete). ⇒ **Un-skipping needs a
+ * per-file universe, not more login work.**
  */
 const LANE_BLOCKED_ON_DEV_SCOPE_LOGIN = true;
 
@@ -39,6 +56,15 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
 
   beforeAll(async () => {
     if (LANE_BLOCKED_ON_DEV_SCOPE_LOGIN) return;
+    // ⚠️ **This lane provisions its OWN fixture.** It used to rely on `smoke.test.ts` having claimed
+    // `test-u0` first, which is a cross-file ordering dependency vitest makes no promise about — and
+    // it was invisible while both tests were skipped. Same real claim path a first visit takes.
+    await provisionAndLogin({
+      baseUrl: inject('workerBaseUrl'),
+      scope: TEST_SCOPE,
+      email: ADMIN_EMAIL,
+      testToken: inject('emailTestToken'),
+    });
     browser = await chromium.launch({ executablePath: resolveChromiumExecutable() });
     authed = await loginToStudio({
       browser,
@@ -76,8 +102,12 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
     await openScopeManager(page);
 
     // Create a throwaway Galaxy to delete (never the shared `.dev` workspace).
-    await page.getByRole('button', { name: /Galaxy/ }).first().click();
-    await page.getByPlaceholder('galaxy-slug (your app)').fill(slug);
+    // ⚠️ Scoped to the universe row, never `.first()`: a bootstrap address holds an unaccepted
+    // `nebula-platform` row that sorts above it (which is how the unaccepted-affordance bug surfaced).
+    const universeRow = page.locator('.rounded-box')
+      .filter({ has: page.getByText(UNIVERSE, { exact: true }) }).first();
+    await universeRow.getByRole('button', { name: /^App$/ }).click();
+    await page.getByPlaceholder('name your app').fill(slug);
     await page.getByRole('button', { name: /^Add$/ }).click();
     await page.getByText(target, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 
@@ -101,7 +131,20 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
     await confirmBtn.click();
 
     // The row is gone from the hierarchy → the delete round-tripped through the real Worker.
-    await page.getByText(target, { exact: true }).waitFor({ state: 'detached', timeout: 60_000 });
+    // ⚠️ Raced against the error bubble so a failure is a DIAGNOSIS, not a bare detach timeout —
+    // "the row is still there" is true of a refused delete and of a delete that never re-read.
+    // ⚠️ Scoped to the TREE LIST. The confirm panel renders the same name ("Delete {target}?"), so an
+    // unscoped locator resolves to two elements and Playwright refuses in strict mode — which reads
+    // as a delete failure and is really an ambiguous selector.
+    const gone = page.getByRole('list').getByText(target, { exact: true });
+    const errorBubble = page.locator('.chat-bubble-error').last();
+    await Promise.race([
+      gone.waitFor({ state: 'detached', timeout: 60_000 }),
+      errorBubble.waitFor({ state: 'visible', timeout: 60_000 }).then(async () => {
+        throw new Error(`delete reported: ${await errorBubble.innerText()}`);
+      }),
+    ]);
+    await gone.waitFor({ state: 'detached' });
     expect(await page.getByText(`Delete ${target}?`).count()).toBe(0);
   }, 180_000);
 
@@ -118,6 +161,9 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
   // equivalent IS covered today: `nebula-auth-registry.test.ts`
   // "warning: another user on the target is reported, and the delete still succeeds" +
   // `identity-mint-point.test.ts` "a genuinely shared scope is deleted, not refused".
+  // ⚠️ Still `it.skip`, and it MUST stay so while the body is empty: an un-skipped empty test is a
+  // vacuous green — it reports coverage for a scenario nobody wrote. (A blanket un-skip of this file
+  // briefly made it exactly that.)
   it.skip('deletes a scope WITH another user attached, showing the bounded warning', async () => {
     // Invite a second user into `target`, then assert: the confirm screen shows
     // "Warning — 1 other user will lose access: {target} (peer@…)", the Delete button is still

@@ -50,35 +50,66 @@ export async function loginToStudio(opts: {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 
-  await page.goto(`${viteBaseUrl}/studio/${scope}`, { waitUntil: 'domcontentloaded' });
+  // The front door is the auth SPA, and it is SCOPE-LESS: nothing about the address is known before
+  // the click, so the form names no scope and the email is tagged `_scopeless`.
+  await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
 
   // Arm the email waiter BEFORE driving the form (listen first, then send).
-  const waiter = waitForEmail({ testToken, instance: scope });
+  const waiter = waitForEmail({ testToken, instance: '_scopeless' });
   let link: string;
   try {
     await page.getByPlaceholder('you@example.com').fill(email);
-    await page.getByRole('button', { name: /Send magic link/ }).click();
-    await page.getByText(/Magic link sent to/).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByRole('button', { name: /Email me a link/ }).click();
+    await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
     link = extractMagicLink(await waiter.emailPromise);
   } finally {
     waiter.cleanup();
   }
 
-  // `context.request` shares the context's cookie jar, so the refresh cookie is captured
-  // without loading a page.
+  // `context.request` shares the context's cookie jar, so every refresh cookie the click sets is
+  // captured without loading a page — one per membership, under mint-all.
   const u = new URL(link);
   await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
-  // Reload → onMounted auto-connect uses the cookie.
-  await page.goto(`${viteBaseUrl}/studio/${scope}`, { waitUntil: 'domcontentloaded' });
+  // ⚠️ **Enter through HOME, which is what makes a below-the-membership scope reachable at all.**
+  // The cookie sits at `/auth/{universe}` and never travels to `/auth/{universe}.{galaxy}/…` (the
+  // first uncovered character is `.`, not `/`, so RFC 6265 path-matching refuses it). Studio learns
+  // which cookie to spend from the hand-off hint Home writes before navigating — which is precisely
+  // the capability this lane used to be blocked on.
+  const universe = scope.split('.')[0];
+  await page.goto(`${viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
+  const row = page.getByRole('button', { name: new RegExp(scope.replace(/\./g, '\\.')) });
+  await row.waitFor({ state: 'visible', timeout: 30_000 });
+  await row.click();
+
+  await page.waitForURL(new RegExp(`/studio/${scope.replace(/\./g, '\\.')}`), { timeout: 30_000 });
   await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
+
+  // ⚠️ **Clear the blocking profile-name modal, or every later click times out mysteriously.** A
+  // fresh identity has an empty Profile (state is wiped per run), so the modal is up — and a modal
+  // does not make what it covers *invisible*, it makes it unclickable. Playwright then reports
+  // "waiting for element to be visible, enabled and stable" against a control that is right there,
+  // which reads as a broken menu rather than as an overlay. Bit this lane on its first un-skipped run.
+  const modalBox = page.locator('dialog.modal .modal-box');
+  if (await modalBox.isVisible().catch(() => false)) {
+    await page.getByPlaceholder('Your name').fill('Scope Deleter');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await modalBox.waitFor({ state: 'hidden', timeout: 20_000 });
+  }
 
   return { ctx, page };
 }
 
-/** Open the account menu → "Manage my scopes" and wait for the hierarchy manager to render. */
+/** Open the account menu → "Manage my account" and wait for the hierarchy manager to render. */
 export async function openScopeManager(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /Account/ }).click();
-  await page.getByRole('button', { name: 'Manage my scopes' }).click();
-  await page.getByRole('heading', { name: 'Manage my scopes' }).waitFor({ state: 'visible' });
+  const heading = page.getByRole('heading', { name: 'Manage my account' });
+  // ⚠️ Idempotent: these tests share one page, so the panel may already be open from an earlier one.
+  // Clicking the avatar again would then wait on a control the open panel is covering — a 30s
+  // "visible, enabled and stable" timeout that reads as a broken menu rather than as state carried in.
+  if (await heading.isVisible().catch(() => false)) return;
+  // The avatar button is titled "Account"; scope by title so it cannot also match the menu's
+  // "Manage my account" item or the login screen's "Create account".
+  await page.locator('button[title="Account"]').click();
+  await page.getByRole('button', { name: 'Manage my account' }).click();
+  await heading.waitFor({ state: 'visible' });
 }

@@ -305,11 +305,17 @@ async function consumeAndLogin(
 /**
  * Which of an address's memberships get a cookie on this click, in priority order.
  *
- * ⚠️ **The platform membership is excluded unless the link itself named that scope.** A configured
- * bootstrap address is minted its `nebula-platform` membership on any consume (behind mailbox proof),
- * and mint-all would otherwise put a superuser cookie in that browser after, say, an unsolicited peer
- * invite. Whether the LINK named the platform scope is the discriminator, because that is the one
- * thing an attacker who mails a link cannot forge on the victim's behalf.
+ * ⚠️ **The platform membership is NOT special-cased, and that reversal is deliberate (2026-09-01).**
+ * An earlier cut excluded the `nebula-platform` cookie unless the consumed link itself named that
+ * scope, to keep an unsolicited peer invite from leaving an ambient superuser cookie in a bootstrap
+ * address's browser. Two things retired it. First, the carve-out and the front door were in direct
+ * conflict: the scope-less login is the ONLY door now, so a superuser could see their platform row on
+ * Home and never accept it — the accept endpoint authenticates by the very cookie the carve-out
+ * refused to set. Second, the risk it was written against was answered by a sibling decision in the
+ * same build: **a cookie is inert until its membership is accepted**, so an ambient one grants
+ * nothing, and taking it up requires clicking Accept past a modal that says "Only accept if you
+ * initiated this signup." The consent modal is the control; the carve-out was a second guard on a
+ * mechanism that no longer needs one.
  *
  * ⚠️ **The set is capped**, because a third party can grow it: `claimStar` is open self-signup and
  * `issueInvites` is peer-reachable, so an unbounded fan-out is an unbounded `Set-Cookie` list that a
@@ -324,9 +330,7 @@ async function consumeAndLogin(
  * next (a live session someone is using outranks one they have never opened), then most-recent.
  */
 export function selectSessionsToMint(plan: ConsumePlan): ConsumeMembership[] {
-  const eligible = plan.memberships.filter(
-    (m) => m.universeGalaxyStarId !== PLATFORM_SCOPE || plan.linkScope === PLATFORM_SCOPE,
-  );
+  const eligible = plan.memberships;
   const rank = (m: ConsumeMembership) =>
     (m.universeGalaxyStarId === plan.linkScope ? 0 : 2) + (m.accepted ? 0 : 1);
   return [...eligible].sort((a, b) => rank(a) - rank(b)).slice(0, MINT_ALL_COOKIE_CAP);

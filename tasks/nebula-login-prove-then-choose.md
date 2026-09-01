@@ -279,8 +279,24 @@ Numbering equals executable order — one branch, sequential (`workflow.md`). Ea
      distinguishable exactly there. `turnstile-bypass.test.ts`'s hand-kept row list carried
      `my-scopes` too, passing vacuously — a comment now says why that list rots and points at the
      table-derived check that cannot.
-   - 🛑 **The scoped `email-magic-link` row is NOT retired — blocked on a design conflict, recorded
-     at the row.** This phase's own text expects it to go "with zero surviving consumers", but
+   - ✅ **The carve-out conflict is RESOLVED (Larry, 2026-09-01): drop the carve-out.** mint-all no
+     longer special-cases `nebula-platform`, so a superuser gets that cookie from the ordinary
+     scope-less login and accepts it on Home like any other membership — the front door works for
+     them. The risk the carve-out was written against is carried by a sibling decision from the same
+     build: **a cookie is inert until accepted**, so an ambient one grants nothing, and taking it up
+     means clicking Accept past *"Only accept if you initiated this signup."* The two tests that
+     asserted the carve-out now assert that replacement, and the inert gate is mutation-checked —
+     it is the only thing between an unsolicited invite click and a live superuser session.
+   - ⚠️ **The reserved platform root gets no ACTIONS in the manage panel.** Once accepted it is an
+     ordinary-looking universe row, and a platform admin holds dominion everywhere — so "+ App" there
+     would genuinely succeed and create an app inside the platform scope. Delete is refused
+     server-side, but offering it reads as a product that will let you try. The row renders with a
+     "Platform" badge and nothing else; platform-level tools land behind it later.
+   - 🛑 **The scoped `email-magic-link` row is still NOT retired**, and the reason has changed: its
+     original blocker is gone with the carve-out, but every remaining caller (`email-login.ts`,
+     `test-helpers.ts`, two harness scenarios, `prod-drive.ts`) still names a scope. Converting them
+     is mechanical and belongs with the ADR-009 helper work this phase lists, not wedged in beside a
+     resolved design question. This phase's own text expects it to go "with zero surviving consumers", but
      mint-all's platform carve-out excludes the `nebula-platform` cookie *unless the consumed link
      named that scope*, and this is the only route that can produce such a link. Retiring it leaves a
      bootstrap address seeing its platform row on Home and unable to accept it, because the accept

@@ -489,6 +489,18 @@ const treeScopes = computed(() => scopes.value.filter((s) => !s.isDev));
  */
 const isActionable = (s: Scope) => s.accepted !== false;
 
+/**
+ * The reserved platform root — visible, never operated on from here.
+ *
+ * A platform admin holds dominion over everything, so "+ App" on this row would genuinely SUCCEED
+ * and create an app inside the platform scope; Delete is refused server-side ("cannot be deleted")
+ * but offering it at all reads as a product that will let you try. The row still renders, because
+ * seeing it is the point — platform-level tools will live behind it eventually — it simply carries
+ * no actions until there is something real to do there.
+ */
+const PLATFORM_ROOT = "nebula-platform";
+const isReservedRoot = (s: Scope) => s.instanceName === PLATFORM_ROOT;
+
 async function addGalaxy(universe: string) {
   const slug = addChildSlug.value.trim();
   if (!slug || busy.value) return;
@@ -912,6 +924,10 @@ async function logout() {
                 <template v-if="!isActionable(s)">
                   <span class="badge badge-warning badge-sm">Not accepted</span>
                   <a class="btn btn-xs btn-ghost" :href="`/auth/${authScope}/home`">Review</a>
+                </template>
+                <!-- The reserved platform root: shown, not operated on. -->
+                <template v-else-if="isReservedRoot(s)">
+                  <span class="badge badge-ghost badge-sm">Platform</span>
                 </template>
                 <template v-else>
                   <button v-if="s.tier === 'galaxy'" class="btn btn-xs btn-primary" :disabled="busy" @click="develop(s.instanceName)" title="Open this app's private development workspace to build &amp; test it">
