@@ -2,21 +2,237 @@
 /**
  * Home — where a proved address chooses what to enter, and consents to each membership.
  *
- * ⚠️ **PLACEHOLDER — the shell only.** Phase 6 built the SPA that serves this route; the screen
- * itself (the email strip, the tree with its ≤20 rules and badges, and the two consent-modal
- * flavors) is Phase 7 of `tasks/nebula-login-prove-then-choose.md`, and its acceptance criteria live
- * there. What is here renders the scope the URL names so the serving path is verifiable end to end,
- * and nothing more — in particular it fetches no summary and offers no Accept, so a membership
- * arriving here stays unaccepted and its cookie stays inert.
+ * The bootstrap is a plain refresh at the scope the URL names: the click that landed here set one
+ * cookie per membership, so exchanging the one for this scope gives a token that authenticates the
+ * summary read. Everything else on the page comes from that single read — the addresses, the tree,
+ * each row's acceptance state, and the inviter attribution the consent modal renders. There is no
+ * second call.
+ *
+ * ⚠️ **A row's decisions are NOT made in this template.** Which modal a row opens, whether it is
+ * clickable, and whether the whole screen fast-forwards all come from `home-logic.ts`, so they are
+ * assertable. See that file's header for why.
+ *
+ * ⚠️ **Accept re-fetches the summary before it navigates or re-renders.** Taking up a membership can
+ * change what the tree contains rather than just how one row looks — accepting the platform root
+ * reveals its first level of descendants, which were withheld while the membership was unaccepted —
+ * so patching the row in place would leave the screen showing a tree the server no longer agrees
+ * with.
  */
-defineProps<{ scope: string }>();
+import { ref, onMounted, computed } from 'vue';
+import ConsentModal from './ConsentModal.vue';
+import {
+  modalFlavorFor, surfaceFor, rendersExpanded, fastForwardTarget, crossEmailNotice,
+  type ScopeSummary, type ScopeNode, type EmailScopes,
+} from './home-logic';
+
+const props = defineProps<{ scope: string }>();
+
+const summary = ref<ScopeSummary | undefined>();
+const error = ref('');
+const loading = ref(true);
+const accessToken = ref('');
+const pending = ref<ScopeNode | undefined>(); // the row whose modal is open
+const accepting = ref(false);
+const selectedEmail = ref('');
+
+const sections = computed<EmailScopes[]>(() => summary.value?.emails ?? []);
+const activeSection = computed(() =>
+  sections.value.find((s) => s.email === selectedEmail.value) ?? sections.value[0]);
+
+async function bootstrap() {
+  const resp = await fetch(`/auth/${encodeURIComponent(props.scope)}/refresh-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activeScope: props.scope }),
+  });
+  if (!resp.ok) {
+    // An unaccepted membership refuses to mint, which is the design working — but it means this
+    // browser cannot read the summary, so there is nothing to render but a way back to the door.
+    throw new Error('needs-login');
+  }
+  const { access_token } = await resp.json() as { access_token: string };
+  accessToken.value = access_token;
+}
+
+async function loadSummary(): Promise<ScopeSummary> {
+  const resp = await fetch('/auth/scope-summary', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken.value}`, 'Content-Type': 'application/json' },
+  });
+  if (!resp.ok) throw new Error(`scope-summary ${resp.status}`);
+  return await resp.json() as ScopeSummary;
+}
+
+function openOrEnter(node: ScopeNode) {
+  const flavor = modalFlavorFor(node);
+  if (flavor) { pending.value = node; return; }
+  const surface = surfaceFor(node);
+  if (surface) enter(node, surface);
+}
+
+/**
+ * Navigate into a scope's own surface.
+ *
+ * ⚠️ **The hand-off hint is written BEFORE the navigation, not after.** The destination boots with no
+ * knowledge of which scope the person chose, and reading it from the URL there would re-derive
+ * something already decided here. Written first, it is present the moment the next page's script
+ * runs; written after, the navigation has already begun.
+ */
+function enter(node: ScopeNode, surface: string) {
+  try { sessionStorage.setItem('nebula.handoff.scope', node.scope); } catch { /* private mode */ }
+  window.location.assign(surface);
+}
+
+async function accept() {
+  if (!pending.value) return;
+  const node = pending.value;
+  accepting.value = true;
+  try {
+    const resp = await fetch(`/auth/${encodeURIComponent(node.scope)}/accept-membership`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    });
+    if (!resp.ok) { error.value = 'Could not accept that. Try again.'; return; }
+
+    // Re-fetch rather than patch — see the header.
+    accessToken.value = '';
+    await bootstrap();
+    summary.value = await loadSummary();
+    pending.value = undefined;
+
+    const surface = surfaceFor(node);
+    if (surface) enter(node, surface);
+  } catch {
+    error.value = 'Could not reach the server. Try again.';
+  } finally {
+    accepting.value = false;
+  }
+}
+
+onMounted(async () => {
+  try {
+    await bootstrap();
+    const loaded = await loadSummary();
+    summary.value = loaded;
+    selectedEmail.value = loaded.emails.find((e) => e.current)?.email ?? loaded.emails[0]?.email ?? '';
+
+    // One accepted Star and nothing else: they came to use an app, not to choose between one option.
+    const straightIn = fastForwardTarget(loaded);
+    if (straightIn) {
+      const only = loaded.emails.flatMap((e) => e.memberships)[0];
+      enter(only, straightIn);
+      return;
+    }
+
+    // A membership that arrived unaccepted opens its modal immediately — a claim or invite 302 lands
+    // here precisely so its consent can be taken, and making the person hunt for the row would be a
+    // step the redirect exists to remove.
+    const needsConsent = loaded.emails
+      .flatMap((e) => e.memberships)
+      .find((m) => m.scope === props.scope && modalFlavorFor(m));
+    if (needsConsent) pending.value = needsConsent;
+  } catch (e) {
+    error.value = (e as Error).message === 'needs-login'
+      ? 'This session needs to be signed in again.'
+      : 'Could not load your accounts.';
+  } finally {
+    loading.value = false;
+  }
+});
 </script>
 
 <template>
-  <div class="card bg-base-200 w-full max-w-md mx-auto">
-    <div class="card-body items-center text-center">
-      <h1 class="card-title">Home</h1>
-      <p class="text-base-content/70">Signed in at <span class="font-mono">{{ scope }}</span>.</p>
+  <div class="w-full max-w-2xl mx-auto space-y-4">
+    <p v-if="loading" class="text-center text-base-content/70">Loading…</p>
+
+    <div v-else-if="error" class="card bg-base-200">
+      <div class="card-body items-center text-center">
+        <p>{{ error }}</p>
+        <a class="btn btn-primary btn-sm" href="/auth/login">Sign in</a>
+      </div>
     </div>
+
+    <template v-else>
+      <!-- The email strip: every address on this identity, the signed-in one selected. -->
+      <div v-if="sections.length > 1" class="tabs tabs-boxed">
+        <button
+          v-for="s in sections" :key="s.email"
+          class="tab" :class="{ 'tab-active': s.email === activeSection?.email }"
+          @click="selectedEmail = s.email"
+        >
+          {{ s.email }}
+        </button>
+      </div>
+
+      <div v-if="activeSection" class="card bg-base-200">
+        <div class="card-body">
+          <p v-if="crossEmailNotice(activeSection)" class="alert alert-info text-sm">
+            {{ crossEmailNotice(activeSection) }}
+          </p>
+
+          <p v-if="activeSection.memberships.length === 0" class="text-base-content/70">
+            Nothing here yet.
+          </p>
+
+          <ul v-else class="space-y-1">
+            <li v-for="m in activeSection.memberships" :key="m.scope">
+              <button
+                class="btn btn-ghost btn-block justify-start"
+                :disabled="!modalFlavorFor(m) && !surfaceFor(m)"
+                @click="openOrEnter(m)"
+              >
+                <span class="font-mono">{{ m.scope }}</span>
+                <span v-if="modalFlavorFor(m)" class="badge badge-warning badge-sm">
+                  {{ modalFlavorFor(m) === 'invite' ? 'Invitation' : 'Confirm' }}
+                </span>
+                <span v-else-if="m.childCount" class="badge badge-ghost badge-sm">
+                  {{ m.childCount }}
+                </span>
+              </button>
+
+              <!-- Descendants, only for a membership that has been taken up (the server withholds
+                   them otherwise), and only expanded while the level is small enough to read. -->
+              <ul v-if="m.children && rendersExpanded(m.children)" class="pl-6 space-y-1">
+                <li v-for="c in m.children" :key="c.scope">
+                  <button
+                    class="btn btn-ghost btn-sm btn-block justify-start"
+                    :disabled="!surfaceFor(c)"
+                    @click="openOrEnter(c)"
+                  >
+                    <span class="font-mono">{{ c.scope }}</span>
+                    <span v-if="c.childCount" class="badge badge-ghost badge-xs">{{ c.childCount }}</span>
+                  </button>
+                </li>
+              </ul>
+              <details v-else-if="m.children" class="pl-6">
+                <summary class="cursor-pointer text-sm text-base-content/70">
+                  {{ m.children.length }} inside
+                </summary>
+                <ul class="space-y-1 pt-1">
+                  <li v-for="c in m.children" :key="c.scope">
+                    <button
+                      class="btn btn-ghost btn-sm btn-block justify-start"
+                      :disabled="!surfaceFor(c)"
+                      @click="openOrEnter(c)"
+                    >
+                      <span class="font-mono">{{ c.scope }}</span>
+                    </button>
+                  </li>
+                </ul>
+              </details>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </template>
+
+    <ConsentModal
+      v-if="pending"
+      :flavor="modalFlavorFor(pending)!"
+      :scope="pending.scope"
+      :invited-by-name="pending.invitedByName"
+      :busy="accepting"
+      @accept="accept"
+      @decline="pending = undefined"
+    />
   </div>
 </template>

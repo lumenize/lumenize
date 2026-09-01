@@ -207,6 +207,24 @@ Numbering equals executable order — one branch, sequential (`workflow.md`). Ea
 7. **The Home screen and both modal flavors.** Bootstrap via plain refresh at the segment scope; the email strip; the tree (≤20 rules, badges, the cross-email banner; unaccepted rows bare per Phase 4); the consent modal in both flavors sharing one control pattern — a checkbox, then an Accept disabled until it is checked. INVITE flavor: the inviter's name attributed as sender-supplied, beside the target scope. SELF flavor: *"Only accept if you initiated this signup."*, followed immediately by the data-use notice. Accept posts to the endpoint, **re-fetches the summary**, and navigates — or, for a row with no surface of its own (the platform root, an unclickable Account), stays on Home and re-renders it accepted. Decline stays, nothing written. Claim and invite 302s land here with the matching modal; a destination that refuses an unaccepted membership redirects here too. The single-ACCEPTED-Star fast-forward; the hand-off hint written before navigation.
    - **Success criteria:** owns the render halves of *The Jennifer tree renders by the rules* and *A superuser arrives through the front door* — the latter stated as the POST-Accept state: the platform root's first descendant level rendered, budget-bounded; *Scoped links still work end to end*; *One email claims a Universe* on both the affordance and fallback arms, each asserting that `waitForEmail` sees no second message; the modal arms of *every acceptance passes a modal*; the self-modal render of *The notice renders at both placements*.
    - **Mutation note:** navigate any unaccepted row without its modal → the modal arm reds; enable Accept with the box unchecked → the control criterion reds; skip the post-Accept re-fetch → the superuser criterion reds; drop the notice from the self flavor → the placement check reds; land a claim 302 directly in the universe → the claim criterion reds; break the hint write → the Jennifer galaxy-entry limb reds.
+   - **As built.** Every decision the screen makes — modal flavor, whether a row is clickable, the
+     ≤20 rule, the fast-forward, the cross-email banner — is a named function in
+     `apps/nebula-studio-ui/src/auth/home-logic.ts` rather than a template branch, and each is
+     asserted directly. The flavor keys on the ATTRIBUTION STAMP, not the display name: an inviter
+     who supplied no name still produces an invitation, where keying on the name would have shown a
+     stranger the "you started this" warning.
+   - ⚠️ **A dead guard was written and DELETED rather than covered.** `surfaceFor` first carried an
+     explicit `scope === PLATFORM_SCOPE` arm; no mutation could red it, because the server derives
+     tier from segment count, so the single-segment platform scope always arrives as a universe and
+     the universe arm already answers. Its JSDoc now records the obligation that comes due when a
+     universe gains a surface — at which point the incidental coverage ends and the guard must come
+     back WITH a test that can fail.
+   - ⚠️ **Verification is SPLIT with Phase 10, and this phase does not discharge its own criteria.**
+     What is built and asserted here is the logic; the criteria as written are behavioural — a
+     scoped link end to end, `waitForEmail` seeing no second message on either claim arm, the
+     superuser's post-Accept tree, the notice rendering — and each needs a running system. They land
+     with Phase 10's container-free scenarios; do not read this phase's green suites as satisfying
+     them.
 8. **Studio integration.** `App.vue` sheds its login block; the avatar menu gains Home, Logout all, per-scope logout, and the email-management stub; the create-Galaxy flow renders the notice (the second placement); the manage-panel copy retrofit (Account/App/Tenant/Home); the create-app ui-smoke case lands. The scope-copy instrument is DEFINED here — extract user-facing strings (template text nodes plus quoted UI strings), run it pre-retrofit to prove it reds on "Manage my scopes" ×3 and "Loading your scopes…", and paste both runs as evidence.
    - **Success criteria:** owns the create-Galaxy render of the notice criterion, *"scope" appears in no user-facing string* (per the instrument defined here), and the *ui-smoke create-app* criterion; `App.vue` contains no login code (scoped grep).
    - **Mutation note:** reintroduce "Manage my scopes" → the instrument reds; break `onCreateApp`'s flow → the ui-smoke case reds.
