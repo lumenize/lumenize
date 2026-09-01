@@ -2,7 +2,7 @@
 
 **Status:** Active child — the login re-order and the data-use consent notice, one task. Design settled 2026-08-31 through a fresh `-alt` restart; the acceptance model settled at the review gates (final 2026-09-01: ONE writer — every acceptance passes a consent modal). Zero open questions; § *Decisions* holds the full set. Every pre-alpha user's first contact passes through surfaces this task rebuilds, which is what makes it invite-gated.
 
-> 📐 **`/write-task` Pass 2 complete — design intent AND phases below.** Stage 1 ran twice (2026-08-31 framing; 2026-09-01 fresh pass post-gate) and is resolved; next: `/review-task` **Stage 2** (conformance) on this file. ⚠️ ADR-017 and ADR-018 are Proposed and exercised here — ratify between Stage 2 and `/build-task` (`docs/adr/README.md` § *Lifecycle*); ADR-016's ratification stays deferred per its own one-liner.
+> 📐 **REVIEWED — ready to build.** Stage 1 ran twice (2026-08-31; 2026-09-01 post-gate) and Stage 2 twice (2026-09-01, the second on the v3 acceptance model); all findings resolved. ⚠️ **ADR-017 and ADR-018 stay Proposed while this builds** — no ADR is ratified until after pre-alpha launches (Larry, 2026-09-01), the same footing ADR-016's one-liner already records. Exercising a Proposed ADR is expected here; do not ratify one at build.
 
 **Objective:** give users a way to select an active scope and be routed to it whenever they complete a login cycle — or whenever they pick "Home" from their avatar menu. Discovery stops answering anyone who has not proved they hold the address, and the data-use notice renders where a user commits.
 
