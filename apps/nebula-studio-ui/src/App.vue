@@ -327,32 +327,20 @@ async function connect() {
   await nudgeNextStep();
 }
 
-/** Route a returning builder from the SERVER tree (not local state — the magic link opens a fresh
- *  tab). Already in a `.dev` workspace → ready to author. Otherwise, by app count: none → nudge to
- *  create the first (chat composer = "name your app", "B"); exactly one → drop them straight into
- *  developing it; several → open the scopes manager to choose. */
+/** After connecting, prepare the view for the scope the URL named.
+ *
+ *  ⚠️ **No auto-forward — the URL is the view (ADR-017).** `/{universe}` IS the Universe page:
+ *  UniverseView renders the apps and the Create form, and *entering* an app is a URL navigation the
+ *  person makes (a click → `enterScope` → new URL). An earlier version dropped a lone-galaxy account
+ *  straight into that galaxy's Studio here, which meant `/{universe}` silently showed a galaxy — a
+ *  view the address did not name. All this does now is load the app list for UniverseView; a
+ *  workspace just confirms it is ready. */
 async function nudgeNextStep() {
   if (isWorkspace(activeScope.value)) {
     log("studio", "Connected. Describe the app you want to build.");
     return;
   }
-  let galaxies: Scope[] = [];
-  try {
-    const list = flattenSummary(await nebula.value!.client.scopes.summary());
-    scopes.value = list.sort((a, b) => a.instanceName.localeCompare(b.instanceName));
-    galaxies = list.filter((s) => s.tier === "galaxy");
-  } catch {
-    log("studio", "Welcome! Type a name for your first app below to get started.");
-    return;
-  }
-  if (galaxies.length === 0) {
-    log("studio", "Welcome! Let’s create your first app — type a name for it below and I’ll set it up for you.");
-  } else if (galaxies.length === 1) {
-    await develop(galaxies[0]!.instanceName); // one app → straight into building it
-  } else {
-    await openManage(); // several apps → choose in the scopes manager
-    log("studio", "Welcome back. Pick an app to develop, or type a name in the chat to create a new one.");
-  }
+  await loadScopes(); // populate UniverseView's app list; an empty list opens the Create form
 }
 
 onMounted(() => {
@@ -521,16 +509,18 @@ async function addGalaxy(universe: string) {
   }
 }
 
-/** Open a galaxy's private `.dev` development workspace to author it: switch the working scope +
- *  reconnect (authScope/cookie unchanged; our admin token reaches it). The workspace is created with
- *  the app (lazily here for older apps); it is never shown or deleted from the tree — only wiped. */
+/** Enter a galaxy's Studio to author it. Ensures its private `.dev` workspace exists (created with
+ *  the app, so this only fires for older apps that predate that), then NAVIGATES — a URL push, not
+ *  an in-place client swap. A full reload at `/{galaxy}` rebuilds the client exactly as `connect()`
+ *  does, so there is no second setup path to keep in sync, and the address always names the view
+ *  (ADR-017). authScope/cookie unchanged; `enterScope` seeds the hint so the reload knows the
+ *  universe cookie to spend. */
 async function develop(galaxy: string) {
   if (busy.value) return;
   if (!hasDevStar(galaxy)) {
     busy.value = true;
     try {
       await nebula.value!.client.scopes.createDevWorkspace(galaxy);
-      await loadScopes();
     } catch (e) {
       log("error", `Could not start the development workspace: ${(e as Error).message}`);
       busy.value = false;
@@ -538,58 +528,7 @@ async function develop(galaxy: string) {
     }
     busy.value = false;
   }
-  await openWorkspace(galaxy);
-}
-
-/** Enter an app's workspace to author it: the working scope becomes the GALAXY ({u}.{g} — chat,
- *  scopes, warmPreview all ride it), and the embedded preview is its `.dev` Star. authScope/cookie
- *  unchanged; our admin token reaches it. */
-async function openWorkspace(galaxy: string) {
-  if (busy.value) return;
-  busy.value = true;
-  try {
-    try {
-      await (nebula.value?.client as { disconnect?: () => unknown } | undefined)?.disconnect?.();
-    } catch {
-      /* old WS best-effort */
-    }
-    activeScope.value = galaxy;
-    const n = createNebulaClient({
-      authScope: authScope.value!,
-      activeScope: galaxy,
-      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
-      ...chatPair(galaxy),
-      // The build reply lands here: the Galaxy answers whoever asked for the build, so
-    // this one hook covers both the initial preview-ready cue and every rebuild. No
-    // `onReload` — that gates the Star's parked publish channel, not this.
-    onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
-      onLoginRequired: onSessionExpired,
-    });
-    await n.ready;
-    n.client.setOnStreamChunk((messageId, text, replyTo) => {
-      // Render EVERY chunk — the thread is shared, so watching another participant's
-      // reply appear is the product working. But only MY turn's chunks are liveness for
-      // MY idle window: a message the single-flight latch skipped is never answered, and
-      // re-arming it from someone else's running generation is a hang with no banner.
-      streaming.value = { id: messageId, text };
-      if (turn.value && replyTo === lastPostedId.value) {
-        turn.value = signalTurn(turn.value, Date.now());
-      }
-    });
-    nebula.value = n;
-    messages.value = [];
-    manageOpen.value = false;
-    openChatThread(n.client);
-    previewSrc.value = `/app/${previewStar(galaxy)}/`; // render the stage NOW (Galaxy-served dist)
-    // The ready signal is immediate post-collapse (nothing to warm for viewing — the container is
-    // only engaged on a build); it survives a WS reconnect (addressed by instanceName). Build
-    // completions push their own reload; the manual Reload button stays as the fallback.
-    n.client.warmPreview();
-  } catch (e) {
-    log("error", `Could not open ${galaxy}: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
+  enterScope(galaxy);
 }
 
 /** Guided first-run ("B"): one app name → Galaxy + its `.dev` Star + open it, so a fresh user goes
@@ -693,9 +632,10 @@ async function confirmDelete() {
     cancelDelete();
     if (affected.some((a) => a.instanceName === authScope.value)) {
       resetToLoggedOut(); // deleted the scope we logged in at → clean first-run
+    } else if (affected.some((a) => a.instanceName === activeScope.value)) {
+      enterScope(authScope.value!); // deleted the app we're IN → navigate to the Universe page (URL push)
     } else {
-      if (affected.some((a) => a.instanceName === activeScope.value)) activeScope.value = authScope.value;
-      await loadScopes();
+      await loadScopes(); // deleted some other app while at the Universe page → just refresh the list
     }
   } catch (e) {
     log("error", `Delete failed: ${(e as Error).message}`);
