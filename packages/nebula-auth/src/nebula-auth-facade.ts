@@ -37,7 +37,7 @@
  * so there is no origin to read (the HTTP entries read `url.origin`; a client-supplied origin would
  * be an open-redirect vector into email). The issuer IS the app's canonical public origin, so
  * production links are right by construction; a harness driving a local stack re-points the host
- * (`pointLinkAt`'s existing job), and test lanes read the URL from test-mode `links` or the
+ * (`pointInviteLinkAt`'s existing job), and test lanes read the URL from test-mode `links` or the
  * captured message rather than from a browser bar.
  */
 import { LumenizeWorker, mesh } from '@lumenize/mesh';

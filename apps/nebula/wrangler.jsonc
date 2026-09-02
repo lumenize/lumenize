@@ -20,6 +20,10 @@
   // hostname on the `lumenize.com` zone (active on this account) at `wrangler deploy`. Magic-link
   // URLs follow the request origin, so hitting this domain brands them; the JWT issuer
   // (NEBULA_AUTH_ISSUER) is independently `https://nebula.lumenize.com` regardless.
+  // ⚠️ NEVER boot `wrangler dev` on this file directly: it infers the local upstream host from the
+  // FIRST route, so the Worker would see THIS hostname and email every local magic link to
+  // production (bit 2026-09-02). `npm run dev` and the /live harness boot a derived copy with
+  // `routes` stripped — `scripts/local-config.mjs` carries the why.
   "routes": [
     { "pattern": "nebula.lumenize.com", "custom_domain": true }
   ],

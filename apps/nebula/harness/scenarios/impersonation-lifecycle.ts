@@ -26,7 +26,7 @@ import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/cl
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
 import {
-  provisionStarAdmin, loginViaEmail, refreshAccessToken, pointLinkAt, acceptInviteAndLogin,
+  provisionStarAdmin, loginViaEmail, refreshAccessToken, pointInviteLinkAt, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
@@ -91,7 +91,7 @@ async function inviteAndLogin(
     const html = email_.html ?? '';
     const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
     assert.ok(href, `invite email carried no accept-invite link (subject: ${html.slice(0, 60)})`);
-    const link = pointLinkAt(stack.baseUrl, href.replace(/&amp;/g, '&'));
+    const link = pointInviteLinkAt(stack.baseUrl, href.replace(/&amp;/g, '&'));
     const { refreshToken } = await acceptInviteAndLogin({
       baseUrl: stack.baseUrl, inviteLink: link, scope, fetchImpl: browser.fetch,
     });

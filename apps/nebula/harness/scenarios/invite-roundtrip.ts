@@ -36,7 +36,7 @@ import { NebulaClient, ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, type OrgTree
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import {
-  provisionAndLogin, pointLinkAt, refreshAccessToken, acceptInviteAndLogin,
+  provisionAndLogin, pointInviteLinkAt, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
@@ -82,7 +82,7 @@ export async function run(stack: DevStack): Promise<void> {
     const html = mail.html ?? '';
     const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
     assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
-    const link = pointLinkAt(origin, href.replace(/&amp;/g, '&'));
+    const link = pointInviteLinkAt(origin, href.replace(/&amp;/g, '&'));
 
     // ── LIMB 3: the click IS the login, and the persisted bit rides the real path ────────────────
     const { refreshToken } = await acceptInviteAndLogin({

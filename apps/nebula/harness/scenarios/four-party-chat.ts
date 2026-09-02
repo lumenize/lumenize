@@ -25,7 +25,7 @@ import { waitForEmail } from '@lumenize/email-test/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import {
-  refreshAccessToken, pointLinkAt, acceptMembership, refreshTokenForScope, setCookieHeaders,
+  refreshAccessToken, pointInviteLinkAt, acceptMembership, refreshTokenForScope, setCookieHeaders,
 } from '../../test/lib/email-login';
 
 const uniqueTestEmail = () => `test-${crypto.randomUUID().slice(0, 8)}@lumenize.io`;
@@ -79,7 +79,7 @@ export async function run(stack: DevStack): Promise<void> {
         body: JSON.stringify({ email: COACH_EMAIL }),
       });
       const { extractMagicLink } = await import('@lumenize/email-test/client');
-      const link = pointLinkAt(origin, extractMagicLink(await coachWaiter.emailPromise));
+      const link = extractMagicLink(await coachWaiter.emailPromise);
       const clicked = await fetch(link, { redirect: 'manual' });
       // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all,
       // and pick the one Path-bound to the scope this session refreshes at.
@@ -110,7 +110,7 @@ export async function run(stack: DevStack): Promise<void> {
       const mail = await austenWaiter.emailPromise;
       const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(mail.html ?? '')?.[1];
       assert.ok(href, 'invite email carried no accept link');
-      const clicked = await fetch(pointLinkAt(origin, href!.replace(/&amp;/g, '&')), { redirect: 'manual' });
+      const clicked = await fetch(pointInviteLinkAt(origin, href!.replace(/&amp;/g, '&')), { redirect: 'manual' });
       const cookies = clicked.headers.getSetCookie?.() ?? [clicked.headers.get('set-cookie') ?? ''];
       // THE SECOND HALF: one acceptance click seeded BOTH Path-scoped sessions.
       const g = cookies.find((c) => c.includes(`Path=/auth/${SCOPE};`));

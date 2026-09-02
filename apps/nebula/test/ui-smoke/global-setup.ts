@@ -28,8 +28,13 @@ import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { HAS_DOCKER } from './gates';
 
-/** apps/nebula config — vitest cwd is the apps/nebula package dir. */
-const WRANGLER_CONFIG = './wrangler.jsonc';
+// ⚠️ NEVER `./wrangler.jsonc` directly: its `routes` entry makes `wrangler dev` present the
+// PRODUCTION host to the Worker, and magic-link URLs follow the request origin — so the login
+// helpers below (which follow the emailed link AS SENT since 2026-09-02) would consume it against
+// prod. The derived config strips `routes` (keeps `containers`; this lane drives the preview).
+// vitest cwd is the apps/nebula package dir, and the derived file sits beside the original.
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
+import { deriveLocalConfig } from '../../scripts/local-config.mjs';
 const STUDIO_UI_DIR = resolvePath(process.cwd(), '../nebula-studio-ui');
 
 /** DevContainer build-context root (the dir wrangler builds `./container/Dockerfile` from). */
@@ -110,7 +115,7 @@ export default async function setup(project: TestProject) {
   // `npm install` trusts the sandbox's TLS interception (no-op when not in such a sandbox).
   const unstageCa = stageContainerProxyCa();
   const { baseUrl: workerBaseUrl, cleanup } = await spawnWranglerDev({
-    configPath: WRANGLER_CONFIG,
+    configPath: deriveLocalConfig({ containers: true }),
     // The cold DevContainer image build (apt + the baked-UI-lib `npm install`) is markedly
     // slower in the hosted sandbox than on a GHA runner, where 120s suffices. Give the
     // hosted local boot generous headroom; GHA keeps the tighter budget.

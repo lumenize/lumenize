@@ -29,7 +29,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
 import {
-  provisionAndLogin, pointLinkAt, acceptMembership, refreshTokenForScope, setCookieHeaders,
+  provisionAndLogin, pointInviteLinkAt, acceptMembership, refreshTokenForScope, setCookieHeaders,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -83,7 +83,7 @@ export async function run(stack: DevStack): Promise<void> {
   // carries, and a link fetched with it intact silently 404s.
   const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(inviteHtml)?.[1];
   assert.ok(href, `invite email carried no accept-invite link (subject start: ${inviteHtml.slice(0, 60)})`);
-  const inviteLink = pointLinkAt(origin, href.replace(/&amp;/g, '&'));
+  const inviteLink = pointInviteLinkAt(origin, href.replace(/&amp;/g, '&'));
   const clicked = await fetch(inviteLink, { redirect: 'manual' });
   // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all, and
   // take the one for the scope this invite was into.

@@ -24,7 +24,7 @@
     "src/**/*"
   ],
   "scripts": {
-    "dev": "mkdir -p ../nebula-studio-ui/dist && wrangler dev",
+    "dev": "node scripts/local-config.mjs > /dev/null && mkdir -p ../nebula-studio-ui/dist && wrangler dev --config wrangler.local.jsonc",
     "test": "node scripts/gen-scaffold.mjs --check && npx tsx scripts/gen-validator-seeds.ts --check && node scripts/check-worker-graph.mjs && vitest --run --project unit --project frontend --project baseline --project dev-studio --project browser",
     "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project dev-studio --project browser",
     "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project dev-studio --project browser",

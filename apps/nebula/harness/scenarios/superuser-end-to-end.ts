@@ -32,7 +32,7 @@ import type { Profile } from '@lumenize/nebula-auth/profile';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import {
-  requestMagicLink, refreshAccessToken, pointLinkAt, provisionAndLogin,
+  requestMagicLink, refreshAccessToken, provisionAndLogin,
   acceptMembership, refreshTokenForScope, setCookieHeaders,
 } from '../../test/lib/email-login';
 
@@ -77,7 +77,7 @@ export async function run(stack: DevStack): Promise<void> {
     await requestMagicLink({
       baseUrl: origin, email: SUPERUSER_EMAIL,
     });
-    const link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
+    const link = extractMagicLink(await waiter.emailPromise);
     const linkRes = await fetch(link, { redirect: 'manual' });
     // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all,
     // and pick the one Path-bound to the platform scope.

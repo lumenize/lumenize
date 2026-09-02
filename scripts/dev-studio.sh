@@ -4,7 +4,9 @@
 #
 #   Tab "Nebula Worker" → apps/nebula            `wrangler dev` (:8787) + the DevContainer (Docker Desktop)
 #   Tab "Studio UI"     → apps/nebula-studio-ui  `vite` (:5174), same-origin proxy → the Worker
-#   → then open http://localhost:5174 and click "Log in (dev)".
+#   → then open http://localhost:5174 — the scope-less front door: one email field, the emailed
+#     link lands on :5174 (the Worker boots a derived config with `routes` stripped, and the vite
+#     proxy forwards the real Host — see apps/nebula/scripts/local-config.mjs), then Home.
 #
 # Prereqs:
 #   • macOS Accessibility permission for your terminal (ttab drives Terminal.app / iTerm via AppleScript):

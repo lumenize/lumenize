@@ -28,59 +28,18 @@ import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lumenize/crypto';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
+import { deriveLocalConfig } from '../../scripts/local-config.mjs';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
 const STUDIO_UI_DIR = resolve(NEBULA_DIR, '../nebula-studio-ui');
-/** apps/nebula config — the only one with the GALAXY container + AI bindings. */
-const WRANGLER_CONFIG = './wrangler.jsonc';
-/**
- * A derived, container-free copy of the config, for scenarios that never touch `ctx.container`.
- *
- * ⚠️ **Must live beside the original**: wrangler resolves `main`, `assets.directory` and every other
- * relative path against the CONFIG FILE's directory, so putting this under `.wrangler/` would break
- * all of them. Generated per boot and gitignored — never edit it, and never commit it.
- */
-const WRANGLER_CONFIG_NO_CONTAINER = './wrangler.harness-no-container.jsonc';
-
-/**
- * Comment out the `containers` block so `wrangler dev` does not build the image — the ONLY thing in
- * this stack that needs Docker.
- *
- * ⚠️ **Derived from the real config on every boot, never a second committed file.** A parallel config
- * would drift silently the first time someone edits bindings in one and not the other; deriving keeps
- * a single source of truth. It is a line-level comment-out rather than a JSONC re-serialisation
- * because no JSONC parser is available here and a regex comment-strip would corrupt any `//` inside a
- * string (an https URL, say).
- *
- * ⚠️ Only the image build is removed — the `GALAXY` binding and class are untouched. What a
- * scenario loses is `ctx.container`, which is exactly the capability it declared it does not need.
- *
- * Throws loudly if the config's shape has changed, rather than silently emitting a config that
- * differs from the original in ways nobody asked for.
- */
-function deriveContainerFreeConfig(): string {
-  const src = readFileSync(resolve(NEBULA_DIR, 'wrangler.jsonc'), 'utf8');
-  const lines = src.split('\n');
-  const start = lines.findIndex((l) => /^\s*"containers"\s*:\s*\[\s*$/.test(l));
-  if (start === -1) {
-    throw new Error(
-      'deriveContainerFreeConfig: no `"containers": [` line in apps/nebula/wrangler.jsonc. The config '
-      + 'shape changed — update this derivation instead of letting it emit a config nobody reviewed.',
-    );
-  }
-  let end = -1;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^\s*\],?\s*$/.test(lines[i])) { end = i; break; }
-  }
-  if (end === -1) {
-    throw new Error('deriveContainerFreeConfig: unterminated `containers` array in apps/nebula/wrangler.jsonc.');
-  }
-  for (let i = start; i <= end; i++) lines[i] = `// [harness: container build disabled] ${lines[i]}`;
-  const out = resolve(NEBULA_DIR, WRANGLER_CONFIG_NO_CONTAINER);
-  writeFileSync(out, lines.join('\n'));
-  return WRANGLER_CONFIG_NO_CONTAINER;
-}
+// The config a local boot uses is DERIVED from apps/nebula/wrangler.jsonc on every boot —
+// `routes` always stripped (otherwise wrangler presents the production Host and every emailed
+// magic link points at prod), `containers` stripped for scenarios that never touch
+// `ctx.container` (the only Docker-needing piece). `scripts/local-config.mjs` carries the
+// reasoning and is what `npm run dev` runs too, so the harness and a hand-driven stack boot the
+// SAME shape. Only the image build is removed — the `GALAXY` binding and class stay.
 
 /** A Docker daemon is reachable (`docker info` exits 0). Required for a with-container boot. */
 export const HAS_DOCKER: boolean = (() => {
@@ -179,7 +138,7 @@ export async function bootDevStack(
   // PRIMARY_JWT_KEY:BLUE so the worker verifies with the same key the local mint signs with. Broad
   // `DEBUG` is opt-in (HARNESS_WORKER_DEBUG) — flooding every DO onStart slows startup.
   const localMode = process.env.HARNESS_LOCAL === '1';
-  const configPath = withContainer ? WRANGLER_CONFIG : deriveContainerFreeConfig();
+  const configPath = deriveLocalConfig({ containers: withContainer });
   const { baseUrl, cleanup } = await spawnWranglerDev({
     configPath,
     cwd: NEBULA_DIR,

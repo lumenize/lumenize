@@ -38,7 +38,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { Profile } from '@lumenize/nebula-auth/profile';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { provisionAndLogin, pointLinkAt, acceptInviteAndLogin } from '../../test/lib/email-login';
+import { provisionAndLogin, pointInviteLinkAt, acceptInviteAndLogin } from '../../test/lib/email-login';
 
 export const needsContainer = false;
 
@@ -85,7 +85,7 @@ export async function run(stack: DevStack): Promise<void> {
       const html = (await waiter.emailPromise).html ?? '';
       const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
       assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
-      inviteLink = pointLinkAt(origin, href.replace(/&amp;/g, '&'));
+      inviteLink = pointInviteLinkAt(origin, href.replace(/&amp;/g, '&'));
     } finally {
       waiter.cleanup();   // a leaked waiter's WebSocket hangs the process AFTER the verdict prints
     }

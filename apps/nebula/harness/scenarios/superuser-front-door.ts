@@ -38,7 +38,7 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import {
-  provisionAndLogin, pointLinkAt, refreshTokenForScope, setCookieHeaders, acceptMembership,
+  provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership,
 } from '../../test/lib/email-login';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
@@ -73,7 +73,7 @@ export async function run(stack: DevStack): Promise<void> {
       body: JSON.stringify({ email: SUPERUSER }),
     });
     assert.equal(requested.status, 200, `the scope-less request was refused (${requested.status})`);
-    link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
+    link = extractMagicLink(await waiter.emailPromise);
   } finally {
     waiter.cleanup();
   }

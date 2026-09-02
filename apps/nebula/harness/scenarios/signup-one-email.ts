@@ -37,7 +37,7 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import {
-  requestUniverseClaim, pointLinkAt, refreshTokenForScope, setCookieHeaders, acceptMembership,
+  requestUniverseClaim, refreshTokenForScope, setCookieHeaders, acceptMembership,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -75,7 +75,7 @@ export async function run(stack: DevStack): Promise<void> {
     try {
       const claimed = await requestUniverseClaim({ baseUrl: origin, universe, email: person });
       assert.notEqual(claimed, null, 'the affordance claim was refused — the slug should be free');
-      link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
+      link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
     }
@@ -126,7 +126,7 @@ export async function run(stack: DevStack): Promise<void> {
         body: JSON.stringify({ email: person }),
       });
       assert.equal(requested.status, 200, `the scope-less request was refused (${requested.status})`);
-      link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
+      link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
     }

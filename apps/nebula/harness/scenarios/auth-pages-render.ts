@@ -39,13 +39,12 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
-import { requestUniverseClaim, pointLinkAt } from '../../test/lib/email-login';
+import { requestUniverseClaim } from '../../test/lib/email-login';
 
 export const needsContainer = false;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const origin = stack.baseUrl.replace(/\/$/, '');
   const universe = `render-${crypto.randomUUID().slice(0, 8)}`;
   const person = uniqueTestEmail();
 
@@ -72,13 +71,21 @@ export async function run(stack: DevStack): Promise<void> {
     const waiter = waitForEmail({ testToken, instance: universe, to: person, timeout: 60_000 });
     let link: string;
     try {
-      const claimed = await requestUniverseClaim({ baseUrl: origin, universe, email: person });
+      // ⚠️ Request the claim THROUGH vite — the same origin the page drives — never at the wrangler
+      // port directly. The Worker builds the emailed link from the request origin, so requesting
+      // where the page lives is what makes the link land there (the Studio proxy forwards the real
+      // Host). Until 2026-09-02 this requested at the wrangler port and a helper re-pointed the
+      // link at vite afterwards, which is exactly the compensating-helper shape that hid the
+      // links-point-at-prod bug from every lane; the link is now followed AS SENT.
+      const claimed = await requestUniverseClaim({ baseUrl: vite.viteBaseUrl, universe, email: person });
       assert.notEqual(claimed, null, 'the claim was refused — the slug should be free');
-      link = pointLinkAt(vite.viteBaseUrl, extractMagicLink(await waiter.emailPromise));
+      link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
     }
-    // Navigate the link THROUGH vite so the cookies land on the page's own origin.
+    assert.ok(link.startsWith(vite.viteBaseUrl),
+      `the emailed link must name the page's own origin as sent (got ${new URL(link).origin}, page is ${vite.viteBaseUrl})`);
+    // The click lands the cookies on the page's own origin because the link already names it.
     await page.goto(link, { waitUntil: 'domcontentloaded' });
 
     // ── LIMB 3: Home renders the consent modal, Accept disabled ────────────────────────────────

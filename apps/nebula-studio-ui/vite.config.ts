@@ -121,10 +121,17 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    // ⚠️ `changeOrigin: false` is load-bearing. The Worker builds every emailed magic-link URL from
+    // the request origin (`worker-token.ts`), so it has to see the browser's REAL `Host`
+    // (`localhost:5174`) — `changeOrigin: true` would rewrite it to the proxy target and every
+    // link a hand-driven login emailed would land on `:8787`, whose `dist/` is an empty
+    // placeholder, instead of here. wrangler dev routes by path, never by Host, so nothing on
+    // the other side needs the rewrite. (Its sibling fix: `apps/nebula/scripts/local-config.mjs`
+    // strips `routes`, which would otherwise make wrangler present the PRODUCTION host.)
     proxy: {
-      "/auth": { target: WORKER, changeOrigin: true },
-      "/gateway": { target: WORKER, changeOrigin: true, ws: true },
-      "/app": { target: WORKER, changeOrigin: true },
+      "/auth": { target: WORKER, changeOrigin: false },
+      "/gateway": { target: WORKER, changeOrigin: false, ws: true },
+      "/app": { target: WORKER, changeOrigin: false },
     },
   },
 });
