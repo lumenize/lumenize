@@ -378,10 +378,21 @@ re-deriving here.
   registry DO serves the whole tree", which had platform guidance leaving code entirely:
   - **Skills, rules and the rest are just FILES.** That is the whole storage decision; everything
     below is about which repo holds which level.
-  - **Platform level = the system prompt, and it STAYS IN CODE** — bundled at deploy. Possibly *also*
-    copied into a **platform-level DO, which does not exist today**. Even that DO would use
-    **`@cloudflare/computer`** (not `shell` — [[cloudflare-computer-adoption]]) and carry **repo shape**
-    for its storage, so one convention covers every level.
+  - **Platform level = the system prompt, and it STAYS IN CODE** — bundled at deploy.
+    - ⛔ **NOT mirrored into a DO. Decided 2026-09-02 (Larry): switch, do not mirror.** *"If we ever
+      want to make the switch later, we'll just make the switch. One place stays true both before and
+      after. Two places introduces an out-of-sync risk."* Two authoritative copies of a mutable thing
+      is [ADR-010](../docs/adr/010-random-opaque-keys.md)'s replication rule violated — one
+      authoritative source, and every other copy owes an explicit convergence mechanism nobody wants
+      to build. A platform-level DO does not exist today and does not need to: the Galaxy assembles
+      the prompt and the Galaxy is our code, so it imports the tree rather than reading it over mesh.
+      Should one ever be built it would use **`@cloudflare/computer`** (not `shell` —
+      [[cloudflare-computer-adoption]]) with **repo shape** for its storage, so one convention still
+      covers every level.
+    - ⏳ **What would expire this:** platform guidance is in code because **we are its only writer**.
+      A support engineer or a per-customer platform override that must be editable without a deploy
+      is the trigger to revisit — and per `calibration.md` §4 that is a trigger to re-derive, never
+      to flip on sight.
   - **Galaxy level lives in the user-developer's Workspace repo** — the same tree the app's code and
     its ontology history already occupy.
   - **Universe level is SKIPPED this round.** Minimal is explicitly enough.
