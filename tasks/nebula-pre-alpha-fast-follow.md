@@ -1,6 +1,6 @@
 # Nebula Pre-Alpha Fast-Follow
 
-**Status**: Drafted, not started — the **parent index** for the reactive "next" horizon: platform capabilities the first real user-developer apps will demand beyond the core codegen + data + chat loop. Not a build commitment; each item is `/review-task`'d before "go" and picked up **as user demand surfaces**. Linked from [`nebula-pre-alpha.md`](nebula-pre-alpha.md). Real child task files are spun **one at a time** when an item goes active — never pre-created as stubs. (Item 3 already has its own file; Items 1–2 are homed here until they go active.)
+**Status**: Drafted, not started — the **parent index** for the reactive "next" horizon: platform capabilities the first real user-developer apps will demand beyond the core codegen + data + chat loop. Not a build commitment; each item is `/review-task`'d before "go" and picked up **as user demand surfaces**. Linked from [`nebula-pre-alpha.md`](nebula-pre-alpha.md). Real child task files are spun **one at a time** when an item goes active — never pre-created as stubs. (Item 3 already has its own file; Items 1–2 are homed here until they go active. Item 9 is a **defect** rather than a capability — the one exception to the framing above, and it says so at the top of the item.)
 
 **Provenance**: Items 1–2 surfaced 2026-07-02 from the first user-developer spec — Jennifer's [Luminize Almanac vision/requirements/data-model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and her companion [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit). Review lens was "what does this spec teach Nebula," not spec QA (see the `nebula-pitch-deck` memory for the full findings).
 
@@ -136,3 +136,47 @@ inheriting it, and fix the delay if it is the bug rather than the design.
 client had to remember to subscribe and Studio did not, so the fan-out ran to an empty list for a
 whole build with every suite green. Whatever roster is used must be one Studio cannot forget to
 join.
+
+## Item 9: A connected client never re-checks its token
+
+⚠️ **A defect, not a capability — the only such item here.** It sits in this file rather than the
+backlog because a session that dies while the tab is still open is what a first real user-developer
+meets on an ordinary afternoon, and the fix is small.
+
+**Today:** `#needsTokenRefresh()` ([`lumenize-client.ts`](../packages/mesh/src/lumenize-client.ts),
+~:1112) is a sound predicate wired to exactly one caller — its own JSDoc says it exists to *"GATE
+the await in `#connectInternal`"*. Nothing re-evaluates it while a socket is up. A client that
+connects and then sits past its `exp` dispatches on the dead token, the Gateway refuses, and the
+refusal never comes back as a rejection. The caller waits out `callAsync`'s 30 s timeout and
+receives `TimeoutError`, which names neither the token nor the identity — the "thinking… forever"
+shape ADR-003 exists to kill, wearing an abort's costume.
+
+**How it shows:** `harness/scenarios/impersonation-expiry.ts` is the one red scenario in the
+registry (`drive.ts all`, 2026-09-01: 21 of 22 green). It mints a 45 s child, waits 50 s, reads —
+and both parent and child report `connectionState === 'connected'` across the lapse. Nothing in the
+client's own view of the world says anything is wrong.
+
+**Not impersonation-specific.** A child is only the fastest way to reach it: `ttlSeconds` makes the
+lapse observable in 45 s, where an ordinary session takes the full `ACCESS_TOKEN_TTL` of 15 minutes.
+Any idle tab crosses it.
+
+⚠️ **The in-lane twin is green and cannot see this.**
+`test-apps/baseline/impersonate-lifetime.test.ts` § *survives a GENUINE expiry* moves the clock with
+`vi.setSystemTime` and drives a path that re-enters the mint. It proves the server rejects a stale
+`exp` and that the re-mint works, never that a live socket notices its own token died — exactly the
+split `live.md` predicts. Provenance, checked rather than assumed: no commit in the login re-order
+touches `impersonation.ts`, `nebula-client.ts`, `lumenize-client.ts` or `mint-narrower-token.ts` on
+this path.
+
+**The change — two independent halves, and the second earns its keep whichever way the first goes:**
+
+- **Re-check before dispatch**, or on a timer, so a client refreshes rather than sending a token it
+  could have known was dead.
+- **Deliver the Gateway's refusal as a rejection**, so a stale token fails in milliseconds carrying
+  its own name instead of arriving as a timeout half a minute later.
+
+- [ ] A client connected across a real token lapse completes its next call — `impersonation-expiry`
+      goes green, on a clock nobody patched.
+- [ ] An unrecoverable refusal surfaces as itself within a second rather than as `TimeoutError` at
+      30 s (capable-of-failing test: suppress the re-check and assert the error's NAME, not merely
+      that something threw).
