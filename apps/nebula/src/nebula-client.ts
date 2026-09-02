@@ -1534,7 +1534,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * Write public `Profile` fields (name / nickname / picture) for the session's
-   * `profileId` claim — the profile-completion save. Routes on the fixed `PROFILE`
+   * `profileId` claim — a later profile EDIT. (The first nickname does not come through
+   * here: it is collected at the consent modal and written by the auth Worker at
+   * accept-membership, so a person arrives already named.) Routes on the fixed `PROFILE`
    * binding at that claim (ADR-012); the Profile DO enforces owner-or-admin
    * server-side (`#requireOwnerOrAdmin` — under impersonation the claim names the
    * SUBJECT, so the owner branch never fires and the admin branches decide). The live

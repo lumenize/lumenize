@@ -148,9 +148,14 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     const u = new URL(link);
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
-    // 4. HOME is where the click lands, and where the person chooses. The admin holds ONE accepted
-    //    membership — the universe — so no fast-forward fires and the tree renders with the galaxy
-    //    beneath it. Clicking that row is the hand-off into Studio.
+    // 4. HOME is where the click lands, and where the person chooses. The tree renders with the
+    //    galaxy beneath the universe; clicking that row is the hand-off into Studio.
+    //    ⚠️ **This identity does NOT fast-forward, and the reason is worth knowing before "fixing"
+    //    it.** `fastForwardTarget` skips Home only for a LONE accepted membership, and ADMIN_EMAIL
+    //    is the BOOTSTRAP address (`--var NEBULA_AUTH_BOOTSTRAP_EMAIL` in global-setup), so it also
+    //    holds the platform membership — two, so Home renders. A one-membership identity lands on
+    //    its Universe page instead and enters the galaxy by its SLUG from there, which is the path
+    //    `harness/scenarios/signup-to-first-app.ts` drives.
     await page.goto(`${viteBaseUrl}/auth/${TEST_UNIVERSE}/home`, { waitUntil: 'domcontentloaded' });
     const galaxyRow = page.getByRole('button', { name: new RegExp(TEST_SCOPE.replace('.', '\\.')) });
     await galaxyRow.waitFor({ state: 'visible', timeout: 30_000 });
@@ -166,15 +171,11 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     // present — count==0 is what makes the assertion above non-vacuous.
     expect(await page.getByRole('button', { name: /^Sign in$/ }).count()).toBe(0);
 
-    // 4b. PROFILE COMPLETION — a fresh identity (every run: state is wiped) has an empty
-    //     Profile, so the blocking name modal is up; complete it the way a person would.
-    //     Non-dismissibility + back-fill are the harness scenario's asserts, not repeated here.
-    const modalBox = page.locator('dialog.modal .modal-box');
-    await modalBox.waitFor({ state: 'visible', timeout: 30_000 });
-    await page.getByPlaceholder('Your name').fill('Smoke Admin');
-    await page.getByRole('button', { name: 'Save' }).click();
-    await modalBox.waitFor({ state: 'hidden', timeout: 20_000 });
+    // 4b. NOTHING to complete on arrival. The nickname is collected once at the consent modal
+    //     (`ConsentModal.vue` / `canAccept`), so Studio has no blocking gate of its own — asserted
+    //     here as the absence of an open dialog, which is what would red if one came back.
     await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
+    expect(await page.locator('dialog.modal[open]').count()).toBe(0);
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
 
     // Auto-refresh: connect() fired warmPreview(); the Galaxy's handlePreviewReady push (immediate

@@ -60,6 +60,56 @@ function registry(env: Env): any {
   return (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
 }
 
+/**
+ * One person's Profile stub (raw Workers RPC), or `null` where the binding is absent. The trust
+ * model for what may be called on it is stated on `Profile.readNickname`.
+ *
+ * ⚠️ **Absent is a legitimate configuration, not a defect.** `nebula-auth` is a standalone package;
+ * the `Profile` DO runs in the `nebula` Worker that re-exports it, and this package's own test
+ * worker binds no `PROFILE` at all. Both nickname legs are therefore best-effort BY DESIGN: the
+ * consent pre-fill degrades to an empty field, and a failed write degrades to `participantName`'s
+ * "Someone". Neither may take down acceptance — being unable to store a display name is not a
+ * reason to refuse somebody entry to the account they were invited to.
+ */
+function profile(env: Env, profileId: string): any | null {
+  const ns = (env as Env & { PROFILE?: { getByName(name: string): unknown } }).PROFILE;
+  return ns ? ns.getByName(profileId) : null;
+}
+
+/** This person's Profile stub, resolved from a `sub` the caller has ALREADY verified. */
+async function profileForSub(env: Env, sub: string): Promise<any | null> {
+  const identity = await registry(env).getIdentityScope(sub) as { profileId?: string } | null;
+  return identity?.profileId ? profile(env, identity.profileId) : null;
+}
+
+/** Longest nickname we store. A display handle, not prose — the cap is what stops a byline becoming one. */
+const NICKNAME_MAX = 64;
+
+/**
+ * Trim and bound a submitted nickname; `undefined` for anything not worth storing.
+ *
+ * ⚠️ **Optional on the wire, required in the UI, and that asymmetry is deliberate.** The consent
+ * screen will not enable Accept without one, which is where the requirement belongs — a person is
+ * being asked how they wish to appear. Making it a 400 here would instead break every programmatic
+ * accepter (the harness, personas, the test helpers) to re-state a rule the screen already enforces,
+ * and an identity that somehow arrives without one degrades to the existing "Someone" fallback
+ * rather than to a broken account.
+ */
+function normalizeNickname(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim().slice(0, NICKNAME_MAX);
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** One field out of a JSON body that may be absent, empty, or not JSON at all. */
+async function readJsonField(request: Request, key: string): Promise<unknown> {
+  try {
+    return ((await request.json()) as Record<string, unknown> | null)?.[key];
+  } catch {
+    return undefined;
+  }
+}
+
 /** Path-scoped refresh cookie: `Path={prefix}/{scope}`, `Max-Age` = the FIXED refresh TTL (no slide). */
 function refreshCookie(scope: string, token: string): string {
   return `refresh-token=${token}; Path=${NEBULA_AUTH_PREFIX}/${scope}; HttpOnly; Secure; SameSite=Strict; Max-Age=${REFRESH_TOKEN_TTL}`;
@@ -402,7 +452,24 @@ export async function handleAcceptMembership(request: Request, env: Env): Promis
   // case this endpoint exists for, and the KV read path refuses those by design.
   const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
   if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
+  // Read the body BEFORE the accept: a malformed one should not leave a half-done acceptance behind.
+  const nickname = normalizeNickname(await readJsonField(request, 'nickname'));
   const result = await registry(env).acceptMembership(record.sub) as { accepted: string[] };
+  // ⚠️ **The nickname rides acceptance because this is the moment a person is ASKED for it**, and
+  // it is the last moment before they reach a surface where other people can see them. Written after
+  // the accept, never before: a failed acceptance must not leave a name behind, while a failed write
+  // only costs the "Someone" fallback until they set one.
+  if (nickname) {
+    try {
+      await (await profileForSub(env, record.sub))?.setNickname(nickname);
+    } catch (e) {
+      // Best-effort (see `profile`): the membership is already accepted and refusing now would
+      // strand the person outside an account they agreed to join. Loud in the log, silent to them.
+      debug('nebula-auth.worker.acceptMembership').warn('nickname write failed (continuing)', {
+        sub: record.sub, error: (e as Error).message,
+      });
+    }
+  }
   return Response.json({ accepted: result.accepted.length > 0, scope: record.universeGalaxyStarId });
 }
 
@@ -431,7 +498,20 @@ export async function handlePendingMembership(request: Request, env: Env): Promi
   const card = await registry(env).getMembershipCard(record.sub) as
     { universeGalaxyStarId: string; accepted: boolean; invited?: boolean; invitedByName?: string } | null;
   if (!card) return errorResponse(404, 'not_found', 'No such membership');
-  return Response.json(card);
+  // The consent screen asks for a nickname, so it needs whatever is already on file to pre-fill with.
+  // Without it a second acceptance would re-ask, and the person would either retype their own name or
+  // silently replace it — a global field changed as a side effect of joining somewhere new. Their own
+  // public field, behind their own cookie: no disclosure question (ADR-012).
+  let nickname: string | undefined;
+  try {
+    nickname = await (await profileForSub(env, record.sub))?.readNickname() as string | undefined;
+  } catch (e) {
+    // Best-effort (see `profile`) — an empty field is a worse consent screen, not a broken one.
+    debug('nebula-auth.worker.pendingMembership').warn('nickname read failed (continuing)', {
+      sub: record.sub, error: (e as Error).message,
+    });
+  }
+  return Response.json({ ...card, ...(nickname ? { nickname } : {}) });
 }
 
 // ── signup (spend the ticket, claim, log in) ─────────────────────────────────────────────────────

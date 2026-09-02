@@ -32,6 +32,9 @@ const error = ref('');
 const loading = ref(true);
 const accessToken = ref('');
 const pending = ref<ScopeNode | undefined>(); // the row whose modal is open
+/** The nickname already on file, handed to the consent modal to pre-fill. Kept beside `pending`
+ *  rather than on the node: it belongs to the PERSON, not to the membership being consented to. */
+const pendingNickname = ref('');
 const accepting = ref(false);
 const selectedEmail = ref('');
 
@@ -67,9 +70,12 @@ async function loadPendingCard(): Promise<ScopeNode | undefined> {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
   });
   if (!resp.ok) return undefined;
-  const card = await resp.json() as
-    { universeGalaxyStarId: string; accepted: boolean; invited?: boolean; invitedByName?: string };
+  const card = await resp.json() as {
+    universeGalaxyStarId: string; accepted: boolean;
+    invited?: boolean; invitedByName?: string; nickname?: string;
+  };
   if (card.accepted) return undefined; // already taken up — nothing to consent to
+  pendingNickname.value = card.nickname ?? '';
   const depth = card.universeGalaxyStarId.split('.').length;
   return {
     scope: card.universeGalaxyStarId,
@@ -121,13 +127,16 @@ function enter(node: ScopeNode, surface: string) {
   window.location.assign(surface);
 }
 
-async function accept() {
+async function accept(nickname: string) {
   if (!pending.value) return;
   const node = pending.value;
   accepting.value = true;
   try {
+    // The nickname rides the acceptance itself — one request, so a person cannot end up enrolled
+    // somewhere while the name everyone will see them by failed to save separately.
     const resp = await fetch(`/auth/${encodeURIComponent(node.scope)}/accept-membership`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nickname }),
     });
     if (!resp.ok) { error.value = 'Could not accept that. Try again.'; return; }
 
@@ -278,6 +287,7 @@ onMounted(async () => {
       :flavor="modalFlavorFor(pending)!"
       :scope="pending.scope"
       :invited-by-name="pending.invitedByName"
+      :nickname="pendingNickname"
       :busy="accepting"
       @accept="accept"
       @decline="pending = undefined"

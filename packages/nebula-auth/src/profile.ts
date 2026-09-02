@@ -180,6 +180,45 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     this.#fanout();
   }
 
+  // ── The auth Worker's seam (NOT `@mesh`) ─────────────────────────────────────────────────────────
+
+  /**
+   * Read the nickname on behalf of a person the AUTH WORKER has already authenticated — the
+   * accept-membership seam, and the only non-`@mesh` door onto a public field.
+   *
+   * ⚠️ **Trust boundary, named (security.md § trust-boundary crossings).** This pair cannot
+   * re-validate its caller: the proof is a `refresh-token` cookie, which lives in the Worker's hands
+   * and never reaches a DO, so there is nothing here for `#requireOwnerOrAdmin` to read. What stands
+   * in its place is that the `PROFILE` binding is held only by the auth Worker, and the Worker
+   * resolves `profileId` from the cookie it JUST verified — the identical shape to
+   * `registry.acceptMembership(sub)`, which likewise acts on an identity the Worker proved.
+   *
+   * ⚠️ **Deliberately narrow: `nickname` only.** Never `name`/`picture`, never the private set. The
+   * consent screen is the one caller and one field is all it needs, so a mistake at this seam cannot
+   * widen into a disclosure or a takeover. Widening it is a security decision, not a refactor.
+   */
+  readNickname(): string | undefined {
+    for (const row of this.ctx.storage.sql.exec(
+      `SELECT value FROM ProfileFields WHERE field = 'nickname'`,
+    )) {
+      return (row as { value: string | null }).value ?? undefined;
+    }
+    return undefined;
+  }
+
+  /** Set the nickname at that same seam — see {@link readNickname} for the trust boundary. Advances
+   *  the forward-only `eTag` and fans out exactly as a `@mesh` public write does, so a subscriber
+   *  watching a byline sees the name arrive without knowing which door wrote it. */
+  setNickname(nickname: string): void {
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('nickname', ?)`, nickname,
+    );
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),
+    );
+    this.#fanout();
+  }
+
   /**
    * Push the new public snapshot to every subscriber — a HAND-ROLLED `lmz.call` loop (not
    * `svc.broadcast`, which is `LumenizeDO`-only AND whose tier-worker path rewrites `metadata.caller`,

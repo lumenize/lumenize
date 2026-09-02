@@ -64,7 +64,6 @@ export async function run(stack: DevStack): Promise<void> {
   const appSlug = 'wishlist';
   const galaxy = `${universe}.${appSlug}`;
   const person = uniqueTestEmail();
-  const DISPLAY_NAME = 'Robin Builder';
 
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
@@ -86,15 +85,10 @@ export async function run(stack: DevStack): Promise<void> {
     // and fast-forwards to the Universe page.
     await page.goto(`${vite.viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
     await page.waitForURL(new RegExp(`//[^/]+/${universe}(?:[/?#]|$)`), { timeout: 30_000 });
-    // Name the identity FIRST. The profile modal is deliberately blocking and genuinely owns the
-    // top layer, so nothing on the page behind it is clickable until it is satisfied — driving the
-    // app row before this reds with the modal intercepting the click, which is the gate working.
-    const nameField = page.getByPlaceholder('Your name');
-    await nameField.waitFor({ state: 'visible', timeout: 30_000 });
-    await nameField.fill(DISPLAY_NAME);
-    await page.getByRole('button', { name: 'Save' }).click();
-    await nameField.waitFor({ state: 'hidden', timeout: 20_000 });
-
+    // ⚠️ Nothing to dismiss on the way in. The nickname is taken at the consent modal, so no
+    // completion gate stands between arriving and working — this identity accepted programmatically
+    // (`provisionAndLogin`), so it simply has none and its byline falls back to "Someone".
+    // `signup-to-first-app` limb 7 is where the consent nickname's journey to a byline is asserted.
     const appRow = page.getByRole('button', { name: appSlug, exact: true });
     await appRow.waitFor({ state: 'visible', timeout: 30_000 });
     await appRow.click();

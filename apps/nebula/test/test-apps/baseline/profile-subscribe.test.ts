@@ -247,16 +247,20 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
   it('updateMyProfile writes MY profile and a live subscriber receives the name — the back-fill leg', async () => {
     const pid = uuid();
     // The thread-rendering side: a client already holding the per-author Profile subscription
-    // the byline rides. Its initial snapshot is the empty profile #mintIdentity leaves behind —
-    // the modal's loaded-empty ('prompt') state, asserted here as the wire truth the tri-state
-    // classifies (test/profile-gate.test.ts owns the classification).
+    // the byline rides. Its initial snapshot is the empty profile #mintIdentity leaves behind.
+    // ⚠️ A human no longer reaches a surface in that state — the nickname is collected at the
+    // consent modal (`canAccept`) — but a PROGRAMMATIC identity still can (a persona, an agent
+    // seeded later), so the empty-then-filled back-fill this asserts is the path that keeps it.
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
     await subscribe(x, pid);
     await vi.waitFor(() => expect(x.profileUpdates.length).toBe(1));
     expect(x.profileUpdates[0].snapshot.value).toEqual({});
 
-    // The completing owner: a REAL NebulaClient whose claims carry profileId = pid — the
-    // modal's save path (updateMyProfile routes on the claim, not a parameter).
+    // The completing owner: a REAL NebulaClient whose claims carry profileId = pid.
+    // ⚠️ `updateMyProfile` routes on the CLAIM, not a parameter, which is what makes it safe to
+    // expose to a client at all — a caller cannot name someone else's profile. It is the client-side
+    // write path (a later profile edit); the first nickname arrives by the auth Worker's seam at
+    // accept-membership instead, and both land in the same slot this subscriber is watching.
     const owner = await nebulaClient({ activeScope: 'universe-y.app.tenant', profileId: pid });
     await owner.updateMyProfile({ name: 'Sydney' });
 

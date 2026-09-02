@@ -74,12 +74,18 @@ export function modalFlavorFor(node: ScopeNode): 'invite' | 'self' | undefined {
 /**
  * Whether the modal's Accept button may fire.
  *
- * Trivial by design — the point is that the rule has a NAME, so "Accept is disabled until the box is
- * checked" is a property a test can hold the component to rather than a `:disabled` expression
+ * Trivial by design — the point is that the rule has a NAME, so "Accept needs the box AND a
+ * nickname" is a property a test can hold the component to rather than a `:disabled` expression
  * nobody reviews.
+ *
+ * Two conditions. The checkbox is what makes this a decision rather than a dialog someone dismisses.
+ * The nickname is what everyone else in the account sees next to anything this person posts, and
+ * collecting it HERE is what lets every app surface drop its own blocking "what should we call you?"
+ * modal: a person is asked once, at the moment they agree to be somewhere, and is never interrupted
+ * mid-task afterwards.
  */
-export function canAccept(consentChecked: boolean): boolean {
-  return consentChecked === true;
+export function canAccept(consentChecked: boolean, nickname: string): boolean {
+  return consentChecked === true && nickname.trim().length > 0;
 }
 
 /**

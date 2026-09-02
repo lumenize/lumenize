@@ -3,9 +3,8 @@ import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
 import UniverseView from "./UniverseView.vue";
-import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
+import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
 import type { TurnLiveness } from "@lumenize/nebula/frontend";
-import type { ProfileGate, ProfileSlot } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
@@ -111,37 +110,12 @@ const thread = computed<ThreadMsg[]>(() => {
   }
   return out;
 });
-// ── Profile completion — BLOCKING until `name` exists ──
-// The signal needs no new channel: reading MY store.lmz.profiles[profileId] IS the
-// subscription, and "incomplete" is DERIVED state over the live snapshot. The
-// tri-state is load-bearing (testing.md's self-heal trap): `undefined` = not yet
-// loaded (NEVER prompt — a naive !name flashes the modal during load); a loaded
-// entry with no name = prompt; a name = done. The modal closes when the
-// subscription reflects the saved write — no local "completed" flag (a second
-// source of truth).
-const profileGate = computed<ProfileGate>(() => {
-  if (!connected.value) return "done"; // no session → nothing to gate
-  const pid = (nebula.value?.client as { claims?: { profileId?: string } } | undefined)?.claims?.profileId;
-  if (!pid) return "done";
-  // This read IS the subscription (the store's read-matcher refcounts it).
-  const slot = (nebula.value?.store.lmz.profiles as Record<string, ProfileSlot> | undefined)?.[pid];
-  return deriveProfileGate(slot);
-});
-const profileName = ref("");
-const profileSaving = ref(false);
-async function saveProfileName() {
-  const name = profileName.value.trim();
-  if (!name || profileSaving.value) return;
-  profileSaving.value = true;
-  try {
-    await nebula.value!.client.updateMyProfile({ name });
-    // No local flip — the fanout closes the modal (and back-fills the thread bylines).
-  } catch (e) {
-    log("error", `Could not save your name: ${(e as Error).message}`);
-  } finally {
-    profileSaving.value = false;
-  }
-}
+// ⚠️ **No profile-completion gate here, deliberately.** A nickname is collected ONCE, at the
+// consent modal every arrival passes through (`ConsentModal.vue` / `canAccept`), so by the time
+// anyone reaches a Studio or Universe surface they already have one. Re-introducing a blocking
+// modal on this screen would interrupt a person mid-task to ask a question that was answered
+// before they got here — and, when two dialogs were open at once, it made Save unclickable.
+// A person who somehow arrives without a nickname degrades to `participantName`'s "Someone".
 
 // The durable agent reply linking back to my last posted message — TRUTH (the
 // transient stream is only a hint). Settles the liveness reducer, clearing any
@@ -703,26 +677,6 @@ async function logout() {
 
 <template>
   <div class="h-screen flex" data-theme="dark">
-    <!-- Profile completion — BLOCKING (deliberate): no close button, no backdrop
-         dismiss, Escape swallowed. Everyone in the thread sees your name, so the
-         one-time capture IS the product working. -->
-    <!-- ⚠️ `z-[1000]` beats daisyUI's `.modal` z-index of 999. A page-level modal (UniverseView's
-         create form) renders LATER in the DOM, so at equal z-index it wins the stacking order and
-         swallows the clicks meant for this one — Save became unclickable for a mouse user while
-         Enter still submitted, which is why a hand drive walked straight past it. This dialog is the
-         BLOCKING one, so it owns the top layer. -->
-    <dialog class="modal z-[1000]" :open="profileGate === 'prompt'" @cancel.prevent @keydown.escape.prevent>
-      <div class="modal-box">
-        <h3 class="text-lg font-bold">What should we call you?</h3>
-        <p class="py-2 text-sm opacity-80">Your name appears next to everything you post — everyone in your workspace sees it.</p>
-        <form class="flex gap-2" @submit.prevent="saveProfileName">
-          <input v-model="profileName" class="input input-bordered flex-1" placeholder="Your name" :disabled="profileSaving" />
-          <button class="btn btn-primary" :disabled="profileSaving || !profileName.trim()">
-            <Loader2 v-if="profileSaving" class="size-4 animate-spin" /> Save
-          </button>
-        </form>
-      </div>
-    </dialog>
     <!-- Chat rail -->
     <!-- The chat rail shows for the signed-out landing and inside a workspace. A Universe has no
          chat — it renders UniverseView full-width in the stage — so the rail is hidden there. -->

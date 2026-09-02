@@ -55,8 +55,11 @@ describe('which consent modal a row needs', () => {
 
 describe('Accept is gated on the checkbox', () => {
   it('is disabled until checked', () => {
-    expect(canAccept(false)).toBe(false);
-    expect(canAccept(true)).toBe(true);
+    expect(canAccept(false, 'Robin')).toBe(false);
+    expect(canAccept(true, 'Robin')).toBe(true);
+    // The nickname is the second condition, and whitespace is not a nickname.
+    expect(canAccept(true, '')).toBe(false);
+    expect(canAccept(true, '   ')).toBe(false);
   });
 });
 

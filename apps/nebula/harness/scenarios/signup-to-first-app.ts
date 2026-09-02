@@ -19,21 +19,26 @@
  *     reaching `claim-universe` — the newbie then spends two emails, or none.*
  *  2. **The letter names the origin the person is browsing.** *Reds on the links-point-at-prod class
  *     of bug — the one a compensating helper hid from every lane until 2026-09-02.*
- *  3. **Consent, then Home fast-forwards a lone membership to its Universe page.** *Reds against
- *     `surfaceFor(universe)` returning undefined again — the original dead end, where the account
- *     rendered as an unclickable label with nowhere to go.*
- *  4. **The blocking name modal, then the empty state IS the create form.** *Reds if the auto-open
- *     stops firing: a day-1 user then sees an empty card and no obvious next step.*
+ *  3. **Consent needs the box AND a nickname, then Home fast-forwards to the Universe page.**
+ *     *Reds against `surfaceFor(universe)` returning undefined again — the original dead end, where
+ *     the account rendered as an unclickable label with nowhere to go — and, via the disabled-Accept
+ *     half, against the nickname silently becoming optional.*
+ *  4. **The empty account opens straight into Create, unblocked.** *Reds if the auto-open stops
+ *     firing (a day-1 user sees an empty card and no next step), and the dialog count reds if a
+ *     blocking gate returns to this screen.*
  *  5. **Creating an app lands in its Studio on a LIVE session.** *Reds on the `session expired`
  *     defect: the refresh cookie sits at `/auth/{universe}` and RFC-6265 never sends it to
  *     `/auth/{universe}.{app}/…`, so without the hand-off hint Studio refreshes against a path
  *     holding no cookie and 401s. Asserted as the absence of that 401, not just of the banner.*
  *  6. **A connected, empty thread shows its hint.** *Reds if the hint stops being conditional and
  *     goes back to being a logged message pinned to the bottom of every conversation.*
- *  7. **`/{universe}` stays the Universe page, and lists the app.** *Reds against the auto-forward
+ *  7. **The nickname taken at consent is the byline on a posted message.** *Reds if the accept
+ *     handler stops writing it — the byline falls back to "Someone", which nothing on the consent
+ *     screen itself could detect. The only end-to-end proof that field reaches the Profile.*
+ *  8. **`/{universe}` stays the Universe page, and lists the app.** *Reds against the auto-forward
  *     that sent a lone-galaxy account straight into Studio — a view the address did not name
  *     (ADR-017) — and against the list flavour never rendering.*
- *  8. **A revisit does NOT re-open the create form.** *Reds if the auto-open reads `apps` before the
+ *  9. **A revisit does NOT re-open the create form.** *Reds if the auto-open reads `apps` before the
  *     scope load resolves: Flavour B is a list with Create one click away, not a modal in your face.*
  *
  * `needsContainer = false` — signup, routing and auth only. Nothing here builds an app; that is
@@ -58,7 +63,7 @@ export async function run(stack: DevStack): Promise<void> {
   const appSlug = 'wishlist';
   const galaxy = `${universe}.${appSlug}`;
   const person = uniqueTestEmail();
-  const DISPLAY_NAME = 'Robin Newcomer';
+  const NICKNAME = 'Robin Newcomer';
 
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
@@ -94,36 +99,40 @@ export async function run(stack: DevStack): Promise<void> {
     await page.goto(link, { waitUntil: 'domcontentloaded' });
     console.error('  ✓ limb 2 — the letter points at the origin being browsed; clicked unmodified');
 
-    // ── LIMB 3: consent, then the fast-forward to the Universe page ────────────────────────────
+    // ── LIMB 3: consent — the box AND a nickname — then the fast-forward ───────────────────────
     // A claim does NOT enrol its claimer: the cookie is inert until accepted, deliberately (a link
-    // click is not consent — mail scanners click links). Home is where that decision is made.
+    // click is not consent — mail scanners click links). Home is where that decision is made, and
+    // it is also the ONE place a nickname is collected, which is what lets every app surface drop
+    // its own blocking name modal.
     await page.goto(`${vite.viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
     const checkbox = page.getByTestId('consent-checkbox');
     await checkbox.waitFor({ state: 'visible', timeout: 30_000 });
+    const accept = page.getByTestId('consent-accept');
     await checkbox.check();
-    await page.getByTestId('consent-accept').click();
+    // ⚠️ This half is what proves the nickname is genuinely a CONDITION rather than a field someone
+    // may skip: box ticked, field empty, Accept must still refuse. Without it, the fill below would
+    // pass against a button that was already enabled.
+    assert.equal(await accept.isDisabled(), true,
+      'Accept must stay disabled until a nickname is supplied — the consent box alone is not enough');
+    await page.getByTestId('consent-nickname').fill(NICKNAME);
+    assert.equal(await accept.isEnabled(), true,
+      'Accept must enable once the box is ticked AND a nickname is present');
+    await accept.click();
     // The whole dead end in one wait: one accepted membership, so Home skips itself and goes to the
     // surface. Before the Universe page existed there was no surface to go to.
     await page.waitForURL(new RegExp(`//[^/]+/${universe}(?:[/?#]|$)`), { timeout: 30_000 });
-    console.error('  ✓ limb 3 — consent accepted; a lone membership fast-forwards to /{universe}');
+    console.error('  ✓ limb 3 — the box alone did not suffice; consent + nickname reaches /{universe}');
 
-    // ── LIMB 4: the blocking name modal, then the empty state IS the create form ───────────────
-    const nameField = page.getByPlaceholder('Your name');
-    try {
-      await nameField.waitFor({ state: 'visible', timeout: 30_000 });
-    } catch (e) {
-      await captureArtifacts(inst, 'signup-name-modal-missing');
-      throw e;
-    }
-    await nameField.fill(DISPLAY_NAME);
-    await page.getByRole('button', { name: 'Save' }).click();
-    await nameField.waitFor({ state: 'hidden', timeout: 20_000 });
-
+    // ── LIMB 4: the empty account opens straight into Create, with NOTHING blocking it ─────────
+    // No name modal here any more — the nickname was taken at consent, so a person arrives ready to
+    // work. The dialog count is the regression guard against a blocking gate coming back.
     await page.getByText('No apps yet. Create your first one to start building.')
       .waitFor({ state: 'visible', timeout: 20_000 });
     const slugField = page.getByPlaceholder('crm');
     await slugField.waitFor({ state: 'visible', timeout: 20_000 });
-    console.error('  ✓ limb 4 — named the identity; the empty account opens straight into Create');
+    assert.equal(await page.locator('dialog.modal[open]').count(), 1,
+      'the create form must be the ONLY open dialog — a fresh account is not interrupted by a gate');
+    console.error('  ✓ limb 4 — the empty account opens straight into Create, unblocked');
 
     // ── LIMB 5: create the app BY CLICKING, and land in its Studio on a LIVE session ───────────
     await slugField.fill(appSlug);
@@ -152,9 +161,23 @@ export async function run(stack: DevStack): Promise<void> {
     await page.getByText('Connected. Describe the app you want to build.')
       .waitFor({ state: 'visible', timeout: 20_000 });
     console.error('  ✓ limb 6 — the empty thread shows its hint');
+
+    // ── LIMB 7: the nickname taken at consent is the byline in the thread ──────────────────────
+    // The payoff for collecting it there at all, and the only end-to-end proof that the consent
+    // field reached the Profile: post a marker and read the name off its own bubble. Reds if the
+    // accept handler stops writing it (the byline falls back to "Someone"), which no assertion on
+    // the consent screen itself could see.
+    const marker = `hello from ${NICKNAME} ${Date.now().toString(36)}`;
+    await page.getByPlaceholder(COMPOSER).fill(marker);
+    await page.getByPlaceholder(COMPOSER).press('Enter');
+    const myChat = page.locator('div.chat', { hasText: marker }).first();
+    await myChat.waitFor({ state: 'visible', timeout: 30_000 });
+    await myChat.locator('.chat-header').getByText(NICKNAME).first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
+    console.error('  ✓ limb 7 — the consent nickname renders as the byline on a posted message');
     const created = await captureArtifacts(inst, 'signup-to-first-app-studio');
 
-    // ── LIMB 7: /{universe} is the Universe page and lists the app ─────────────────────────────
+    // ── LIMB 8: /{universe} is the Universe page and lists the app ─────────────────────────────
     await page.goto(`${vite.viteBaseUrl}/${universe}`, { waitUntil: 'domcontentloaded' });
     const appRow = page.getByRole('button', { name: appSlug, exact: true });
     try {
@@ -165,14 +188,14 @@ export async function run(stack: DevStack): Promise<void> {
     }
     assert.equal(await page.getByPlaceholder(COMPOSER).count(), 0,
       'the URL is the view (ADR-017): /{universe} must render the Universe page, never a galaxy Studio');
-    console.error('  ✓ limb 7 — /{universe} stays the Universe page and lists the app');
+    console.error('  ✓ limb 8 — /{universe} stays the Universe page and lists the app');
 
-    // ── LIMB 8: a revisit does NOT re-open the create form ─────────────────────────────────────
+    // ── LIMB 9: a revisit does NOT re-open the create form ─────────────────────────────────────
     // Flavour B is a list with Create one click away. An auto-open here means the modal fired off a
     // not-yet-loaded app list, which every returning visit would then reproduce.
     assert.equal(await page.getByPlaceholder('crm').isVisible(), false,
       'an account that already has apps must open on the LIST — the create form is behind the button');
-    console.error('  ✓ limb 8 — the revisit opens on the list, not the create form');
+    console.error('  ✓ limb 9 — the revisit opens on the list, not the create form');
 
     const revisit = await captureArtifacts(inst, 'signup-to-first-app-universe');
     const { existsSync, statSync } = await import('node:fs');

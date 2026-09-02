@@ -77,6 +77,10 @@ export async function loginToStudio(opts: {
   // which cookie to spend from the hand-off hint Home writes before navigating — which is precisely
   // the capability this lane used to be blocked on.
   const universe = scope.split('.')[0];
+  // ⚠️ **Home renders a tree here rather than fast-forwarding**, because this lane's admin is the
+  // BOOTSTRAP address and therefore holds the platform membership as well — `fastForwardTarget`
+  // skips Home only for a LONE accepted membership. An ordinary one-membership identity lands on
+  // its Universe page and enters the galaxy by SLUG from there instead.
   await page.goto(`${viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
   const row = page.getByRole('button', { name: new RegExp(scope.replace(/\./g, '\\.')) });
   await row.waitFor({ state: 'visible', timeout: 30_000 });
@@ -85,17 +89,11 @@ export async function loginToStudio(opts: {
   await page.waitForURL(new RegExp(`//[^/]+/${scope.replace(/\./g, "\\.")}(?:[/?#]|$)`), { timeout: 30_000 });
   await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
 
-  // ⚠️ **Clear the blocking profile-name modal, or every later click times out mysteriously.** A
-  // fresh identity has an empty Profile (state is wiped per run), so the modal is up — and a modal
-  // does not make what it covers *invisible*, it makes it unclickable. Playwright then reports
-  // "waiting for element to be visible, enabled and stable" against a control that is right there,
-  // which reads as a broken menu rather than as an overlay. Bit this lane on its first un-skipped run.
-  const modalBox = page.locator('dialog.modal .modal-box');
-  if (await modalBox.isVisible().catch(() => false)) {
-    await page.getByPlaceholder('Your name').fill('Scope Deleter');
-    await page.getByRole('button', { name: 'Save' }).click();
-    await modalBox.waitFor({ state: 'hidden', timeout: 20_000 });
-  }
+  // ⚠️ **No blocking profile modal to clear any more** — the nickname is taken once at the consent
+  // modal, so Studio opens ready to use. The hazard this used to guard against is worth remembering
+  // if a gate is ever reintroduced here: a modal does not make what it covers *invisible*, it makes
+  // it unclickable, and Playwright then reports "waiting for element to be visible, enabled and
+  // stable" against a control that is plainly there — which reads as a broken menu, not an overlay.
 
   return { ctx, page };
 }

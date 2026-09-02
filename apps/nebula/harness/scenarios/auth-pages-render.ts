@@ -25,8 +25,9 @@
  *  3. **`/auth/{scope}/home` renders the CONSENT MODAL for an unaccepted membership**, with its
  *     checkbox and a disabled Accept. *Reds against a modal bypass — the failure that would let a
  *     click enrol someone silently — and against Accept being live before the box is ticked.*
- *  4. **Checking the box enables Accept.** The positive control for limb 3: without it, "disabled"
- *     would also pass on a button that is never enabled at all.
+ *  4. **The box AND a nickname enable Accept; the box alone does not.** The positive control for
+ *     limb 3 (without it, "disabled" would also pass on a button that is never enabled at all),
+ *     plus the guard on the nickname staying a genuine condition rather than an optional field.
  *  5. **The self flavour carries the data-use notice.** *Reds against dropping the notice from the
  *     placement where a person actually commits.*
  *  6. **The page reached the server cleanly** — no console errors, no failed requests. *Reds
@@ -103,11 +104,18 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(selfWarning, 1, 'the SELF flavour must lead with its warning');
     console.error('  ✓ limb 5 — the self flavour shows the warning and the data-use notice');
 
-    // ── LIMB 4: checking the box enables Accept ────────────────────────────────────────────────
+    // ── LIMB 4: the box AND a nickname enable Accept ───────────────────────────────────────────
+    // ⚠️ Two conditions since 2026-09-02 (`canAccept`): the nickname is collected here, once, which
+    // is what lets every app surface drop its own blocking name modal. The middle assertion is the
+    // one that would notice it quietly becoming optional again.
     await checkbox.check();
+    assert.equal(await accept.isDisabled(), true,
+      'the box alone must NOT enable Accept — a nickname is the second condition');
+    await page.getByTestId('consent-nickname').fill('Robin Render');
     assert.equal(await accept.isEnabled(), true,
-      'Accept must become enabled once the box is checked — the positive control for limb 3');
-    console.error('  ✓ limb 4 — checking the box enables Accept');
+      'Accept must become enabled once the box is checked AND a nickname is present — the positive '
+      + 'control for limb 3');
+    console.error('  ✓ limb 4 — the box alone is not enough; box + nickname enables Accept');
 
     // ── LIMB 6: the page reached the server cleanly, and its ONE refusal is the designed one ───
     const capture = await captureArtifacts(inst, 'auth-pages-render');

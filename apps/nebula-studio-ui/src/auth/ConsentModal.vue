@@ -24,13 +24,17 @@ const props = defineProps<{
   flavor: 'invite' | 'self';
   scope: string;
   invitedByName?: string;
+  /** The nickname already on file, if any — pre-filled so a second acceptance neither re-asks nor
+   *  silently replaces the one this person chose the first time. */
+  nickname?: string;
   busy?: boolean;
 }>();
 
-const emit = defineEmits<{ accept: []; decline: [] }>();
+const emit = defineEmits<{ accept: [nickname: string]; decline: [] }>();
 
 const checked = ref(false);
-const enabled = computed(() => canAccept(checked.value) && !props.busy);
+const nick = ref(props.nickname ?? '');
+const enabled = computed(() => canAccept(checked.value, nick.value) && !props.busy);
 </script>
 
 <template>
@@ -58,6 +62,24 @@ const enabled = computed(() => canAccept(checked.value) && !props.busy);
         <DataUseNotice />
       </div>
 
+      <!-- ⚠️ Asked HERE, once. This is the last moment before the person reaches a surface where
+           other people can see them, and it is the only place every arrival passes through — which
+           is why no app surface needs a blocking name modal of its own. -->
+      <label class="form-control w-full py-2">
+        <span class="label-text">What should we call you?</span>
+        <input
+          v-model="nick"
+          type="text"
+          required
+          class="input input-bordered w-full"
+          placeholder="robin"
+          data-testid="consent-nickname"
+        />
+        <span class="label-text-alt text-base-content/60">
+          Shown next to anything you post. You can add a full name and a picture later.
+        </span>
+      </label>
+
       <label class="label cursor-pointer justify-start gap-3 py-2">
         <input v-model="checked" type="checkbox" class="checkbox" data-testid="consent-checkbox" />
         <span class="label-text">
@@ -71,7 +93,7 @@ const enabled = computed(() => canAccept(checked.value) && !props.busy);
           class="btn btn-primary"
           data-testid="consent-accept"
           :disabled="!enabled"
-          @click="emit('accept')"
+          @click="emit('accept', nick.trim())"
         >
           {{ busy ? 'Accepting…' : 'Accept' }}
         </button>
