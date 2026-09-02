@@ -1,6 +1,23 @@
 # Nebula — Pre-alpha (master plan)
 
-**Status (2026-08-20):** prod `nebula.lumenize.com` is **still at `ada3f31`**, deployed 2026-07-04. ⚠️ **Everything since is UNDEPLOYED** — it all waits on the **single batched wipe+redeploy gate** below (deliberate: one CF-dashboard worker-delete + redeploy, not two), so **do not read prod as evidence of current behaviour** — and F&F invites stay paused until the ⚠️ items under **[Remaining → Invite-gated](#invite-gated-needed-before-the-first-ff-invite)** land. **Sequence (decided 2026-08-19):** ① ✅ profile accepted-membership gate → [archive/nebula-profile-accepted-membership-gate.md](archive/nebula-profile-accepted-membership-gate.md); ② wipe item 6 (`actingToken`) — built directly from its own bullet, no child task file; ③ in any order: ✅ [nebula-login-prove-then-choose.md](archive/nebula-login-prove-then-choose.md) (BUILT + archived 2026-09-02, all 11 phases) · ✅ the `createGalaxy`-bundles-`.dev` item · [nebula-same-origin-guard.md](nebula-same-origin-guard.md)'s verdict — **the one ③ item left**; ④ the **Galaxy collapse** — its whole-file review is **deliberately deferred to just before its build** (Larry, 2026-08-19), and the two gates that ride it (preview-survives-redeploys, capture-live) wait with it; the ③ items are themselves invite gates or invite-adjacent, so working them first does not lengthen the critical path. Sole open mesh threads = the `callAsync`-inventory follow-ups — `#pendingTurns` (chat) homed in [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md); `#pendingSubscribes` + the m6 abort-commit for-docs proof in [backlog.md](backlog.md).
+**Status (2026-09-02):** prod `nebula.lumenize.com` is **still at `ada3f31`**, deployed 2026-07-04. ⚠️ **Everything since is UNDEPLOYED** — it all waits on the **single batched wipe+redeploy gate** below (deliberate: one CF-dashboard worker-delete + redeploy, not two), so **do not read prod as evidence of current behaviour** — and F&F invites stay paused until the ⚠️ items under **[Remaining → Invite-gated](#invite-gated-needed-before-the-first-ff-invite)** land.
+
+**The 2026-08-19 ①–④ sequence is DISCHARGED — do not plan against it.** ① profile accepted-membership gate, ② wipe item 6 (`actingToken`), ③ its four items, and ④ the **Galaxy collapse** (shipped 2026-08-28, criteria discharged 08-29/30) are all done, bar one: [nebula-same-origin-guard.md](nebula-same-origin-guard.md)'s verdict, which gates nothing. The two gates that used to wait on ④ have landed with it (preview-survives-redeploys ✅) or stand alone (capture-live, below).
+
+**What replaces it — the run to the wipe, in execution order.** Three of these have no task file yet, which is the honest state rather than an omission; write them one at a time ([[feedback_task_file_one_at_a_time]]).
+
+| | Item | Why it precedes the wipe |
+|---|---|---|
+| ① | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — *design intent only, phases NOT written* | Merging the three subscription registries makes `profileId` **required**, which is free only while the wipe deletes the pre-rollout rows |
+| ② | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — *design intent only, phases NOT written; one tabled decision to settle first* | Re-homing the registry's truth is a **swap** with no live data and a live-data migration afterwards. Sequenced after ① — its own § *Why this timing* says so |
+| ③ | ⚠️ **THE GATE — capture live** (below) — *no task file* | Day-1 behavioural signal is irreplaceable; it must be live **before** the first invite, not after |
+| ④ | **Turn-log inspection v0** (below) — *no task file; built inside the live harness* | Nothing to inspect until ③ captures, and Larry's daily questions need an answer path on day 1 |
+| ⑤ | **Synthetic subjects** (§ *Wave 2*) — *no task file, and UNOWNED* | ⚠️ Its placement decision was due before the collapse landed and is now **overdue** — see the bullet, which states the case for calling it invite-gated |
+| ⑥ | **The wipe + redeploy itself** | The window below closes here |
+
+⛔ **Deferred out of this run, deliberately:** moving the body-scoped Registry routes onto `/auth/:scope/…` → [on-hold/nebula-registry-scope-in-url.md](on-hold/nebula-registry-scope-in-url.md) (2026-09-02 — legibility not safety, and its cost curve is flat, so waiting is free; the file's § *Status* carries the two corrected premises).
+
+Sole open mesh threads = the `callAsync`-inventory follow-ups — `#pendingTurns` (chat) homed in [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md); `#pendingSubscribes` + the m6 abort-commit for-docs proof in [backlog.md](backlog.md).
 
 **This is the living master plan** — the plan at design detail, plus only what still bears on remaining work. Child task files are written **ONE AT A TIME**; on completion the child is **archived** (never left in `tasks/`, never pre-created as a stub), and history stays in the archive — decision history survives only in a Decisions table (alternatives rejected + why). The code is the authority for anything built. See [[feedback_task_file_one_at_a_time]].
 
@@ -39,12 +56,17 @@ The remaining provisioning / capture / inspection work builds on these (the code
   downward rule applied from the top — one branch inside `isAtOrAbove`, never a special arm at a call
   site. **Seed = set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.** Driven end to end by
   the `superuser-end-to-end` `/live` scenario.
-  - ⚠️ **Still owed: one `/live` scenario driving superuser login → Home → the platform scope →
-    impersonate a pre-alpha user in one go** (the coaching use case). The front-door half is owned by
-    [nebula-login-prove-then-choose.md](archive/nebula-login-prove-then-choose.md) (the platform membership now
-    mints at consume, behind proof — that task moved it off the unauthenticated request); the
-    impersonate half of that specific chain is undriven. If it turns up gaps, that is when a child task
-    file earns its existence, and not before.
+  - ✅ **The front-door half is BUILT and driven** (2026-09-01) — the platform membership mints at the
+    consume, behind proof, so a superuser arrives through the ordinary scope-less login;
+    `superuser-front-door.ts` drives it in five separately-mutable limbs (front-door mint ·
+    inert-until-accepted · accept-enrols · descent past the caller's own membership · the ADR-018 node
+    budget). `superuser-end-to-end.ts` remains alongside it.
+  - ⚠️ **Still owed, and it is now only the JOIN: one scenario chaining superuser login → Home →
+    platform scope → impersonate a pre-alpha user in one go** (the coaching use case). Both halves are
+    driven separately — the front door above, impersonation by `impersonation-lifecycle.ts` — so what
+    is unproven is that they compose, which is exactly the sequence the coaching session performs.
+    Roughly a quarter-day. If it turns up gaps, that is when a child task file earns its existence,
+    and not before.
 - **Impersonation core** — `POST {prefix}/mint-narrower-token` (RFC-8693 `act.sub`, recursive chain,
   audited). NEW piece still needed = **synthetic-subject provisioning**.
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index).
@@ -125,11 +147,9 @@ someone other than Larry is reading the output — or building against it. Where
 full reasoning, the rejected shortcut, and the fix direction live there; follow the link rather than
 re-deriving here.
 
-- **Cover the UI create-app flow — the first thing a day-1 user does has ZERO automated coverage.**
-  No ui-smoke case or `/live` scenario drives either creation path; the 2026-08-30
-  `createGalaxy`-bundles-`.dev` change shipped with nothing able to red its App.vue edits →
-  [backlog.md](backlog.md) § Nebula, *The UI create-app flow has ZERO automated coverage*. Natural
-  home: the login-prove-then-choose + consent-UI build, which reworks the adjacent screens.
+- ✅ **UI create-app flow coverage — CLOSED 2026-09-01** by the login re-order, which was its predicted
+  natural home (it reworked the adjacent screens). `apps/nebula/test/ui-smoke/smoke.test.ts` now drives
+  the flow and says at the site that it is the debt this bullet recorded.
 - **Give the scope/admin gates typed errors**, so a tester reporting "it's broken" is distinguishable
   from one who was simply refused → [backlog.md](backlog.md) § Nebula, *The scope/admin gates throw bare
   `Error`*. ⚠️ The obvious shortcut — reusing `PermissionDeniedError` — is rejected there, for reasons
@@ -193,20 +213,25 @@ re-deriving here.
     permission model — both mint people with mailboxes. For a Star to be exercised it needs **non-admin
     members driven under test**: synthetic act-as-only subjects (no mailbox, no claim, RFC-reserved dead
     domain — § Caveats) plus whatever attaches their DAG grants. Today `createSubject` exists **only** in
-    `apps/nebula/test/test-helpers.ts` — zero production callers, no UI. ⚠️ **Placement is open:** this
-    sits in Wave 2, but *"a pre-alpha user can test the permission model of the app they just generated"*
-    reads as **Invite-gated** — decide before the collapse lands, since that is when real users arrive.
+    `apps/nebula/test/test-helpers.ts` — zero production callers, no UI. 🚨 **Placement is OVERDUE, not
+    open.** The trigger was *"decide before the collapse lands, since that is when real users arrive"*;
+    the collapse landed 2026-08-28 and the decision was never taken. It sits in Wave 2 while
+    *"a pre-alpha user can test the permission model of the app they just generated"* reads as
+    **Invite-gated** — and the goal at the top of this file says users build **multi-user** apps, which
+    nothing today lets them exercise. ⇒ **Decide it before the wipe** (it is ⑤ in the status table);
+    treat Wave-2 placement as an artifact of when it was written, not as a verdict anyone reached.
   - **A galaxy-tier invite is NOT missing capability:** a universe admin's `{u}.*` already covers
     `{u}.{g}` and beneath. Nobody can *authenticate at* a Galaxy by claim (no identity row can exist at a
     2-segment scope), so callers authenticate at the universe and name the galaxy in `activeScope` — the
     shape prod uses, and it stays correct afterward.
 - **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to
   `extractTypeMetadata` (engine roadmap item).
-- **Container vite swc** — Rung-2 runtime so data-bound apps (importing `{client, store}`) actually run
-  in preview (`unplugin-swc` for TC39 decorators + image rebuild). This is also when the container first
-  needs the **unpublished `@lumenize/nebula` source**: **vendor `src/` into the image** (`file:`/workspace
-  ref) — **not** a public-npm publish (Nebula is `UNLICENSED`). See
-  [archive/nebula-release-process.md](archive/nebula-release-process.md) Phase 3 § *Dependency resolution*.
+- ✅ **Container vite swc — BUILT 2026-08-28**, with the collapse. The scaffold is on vite 8 (rolldown)
+  with `unplugin-swc` transforming TC39 decorators, and the `@lumenize` frontend is vendored into the
+  image rather than published (Nebula is `UNLICENSED`). ⚠️ **The plugin is REQUIRED, not an
+  optimization** — rolldown/oxc emits decorators verbatim and **exits 0**, so a missing transform ships
+  a `SyntaxError` only a browser sees; `apps/nebula/container/app/vite.config.ts` states that and why
+  its `exclude` overrides the `/node_modules/` default. Do not "simplify" it ([[rolldown-no-tc39-decorators]]).
 - **Data-bound generation (EXPLORATORY)** — the empirical prompt loop. **Un-parks** the replay harness
   ([on-hold/nebula-offline-prompt-harness.md](on-hold/nebula-offline-prompt-harness.md)) + the **skills**
   ([on-hold/nebula-skills.md](on-hold/nebula-skills.md)). Dogfood secret-santa-grade apps with synthetic
@@ -235,8 +260,11 @@ re-deriving here.
   primary next-big track.*
 
 ### Close-out
-- 👤 **LARRY HAND-REVIEW — ADR-011 onward, then restructure/merge/split wholesale.** Scheduled **after
-  the Galaxy collapse ships**. ADR-010 was the last one carefully hand-reviewed. Known inputs:
+- 👤 **LARRY HAND-REVIEW — ADR-011 onward, then restructure/merge/split wholesale.** ⏰ **DUE — its
+  trigger fired**: it was scheduled *after the Galaxy collapse ships*, and that shipped 2026-08-28.
+  ⚠️ Reviewing is not ratifying — **no ADR is ratified until after pre-alpha LAUNCHES** (Larry,
+  2026-09-01), so this pass decides shape and wording, never Status lines. ADR-010 was the last one
+  carefully hand-reviewed. Known inputs:
   - The best statement of the coarse-grained access-control model (`{u}.{g}.{s}`) is archived (frozen) at
     [archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md) § *The invariant* +
     § *Settled* — decide what gets lifted into an ADR or a rule (and whether ADR-012 shrinks back to
