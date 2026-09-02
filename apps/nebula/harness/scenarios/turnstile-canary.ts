@@ -44,6 +44,16 @@ function isTurnstileBlock(r: ProbeResult): boolean {
   return r.status === 403 && /turnstile/i.test(r.text);
 }
 
+/**
+ * What a sweep must set for THIS scenario and no other — the gate has to be ON here and OFF
+ * everywhere else, since every other scenario posts to these same open routes with no bypass token.
+ *
+ * ⚠️ Not a secret: `1x00000000000000000000AA` and its `…0AA` sibling are Cloudflare's PUBLISHED
+ * always-passes test keys, which is what makes probe 4 able to exercise the real `siteverify` call
+ * without a real widget. The account's actual secret never appears here.
+ */
+export const sweepEnv = { HARNESS_TURNSTILE_SECRET: '1x0000000000000000000000000000000AA' };
+
 export async function run(stack: DevStack): Promise<void> {
   const bypassToken = readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN');
 

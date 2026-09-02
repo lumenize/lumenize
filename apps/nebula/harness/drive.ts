@@ -2,7 +2,13 @@
  * Live self-verification harness — Bash entry point.
  *
  *   npx tsx apps/nebula/harness/drive.ts [scenario]   # default: message-roundtrip
+ *   npx tsx apps/nebula/harness/drive.ts all          # sweep EVERY scenario, one boot each
+ *   npx tsx apps/nebula/harness/drive.ts all --fast   # …skipping the ones that need Docker
  *   HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts   # stream wrangler-dev stdio
+ *
+ * ⚠️ **Run the sweep after touching anything a scenario you did not write depends on** — a login
+ * or consent semantic, `test/lib/email-login.ts`, a shared Studio screen. Nothing else will tell
+ * you: `/live` is not in CI, so a broken scenario stays green-looking until someone runs it.
  *
  * Boots a fresh local `wrangler dev`, runs the named scenario against the *running* system,
  * tears the stack down, and **exits non-zero if any step fails** (the runnable gate the
@@ -50,6 +56,15 @@ interface Scenario {
    * configuration the identity path reads. Never a `.dev.vars` mutation — it auto-reverts per boot.
    */
   bootVars?: Record<string, string>;
+  /**
+   * Process env this scenario needs, applied ONLY to its own child in a sweep (`drive.ts all`).
+   *
+   * ⚠️ **Per-scenario rather than exported to the shell, because these are mutually exclusive.**
+   * `turnstile-canary` needs the gate ON; every other scenario posts to those same open routes
+   * without a bypass token and gets a 403 if it is. Setting it globally for a sweep therefore
+   * fails everything else — as it did, on the first hand-run of one.
+   */
+  sweepEnv?: Record<string, string>;
 }
 
 /** Registry of runnable scenarios (add new ones here — arbitrary, not a fixed test). */
@@ -79,11 +94,66 @@ const SCENARIOS: Record<string, Scenario> = {
   'auth-pages-render': authPagesRender,         // the auth screens RENDER — content, never a status code (browser)
 };
 
+/**
+ * Run EVERY registered scenario, one fresh boot each, and report a table.
+ *
+ * ⚠️ **This exists because the registry is a suite that nothing runs.** `/live` is not in CI, so a
+ * change to a shared login semantic silently breaks the scenarios someone else wrote, and the
+ * breakage surfaces whenever the next person happens to run one — which for a scenario nobody has
+ * touched in a month is never. Measured 2026-09-01: a build shipped its own five scenarios green
+ * while breaking NINE of the seventeen that came before it, none of which any vitest suite could
+ * see. One command is the difference between finding that in four minutes and not finding it.
+ *
+ * A CHILD PROCESS per scenario, deliberately: each needs its own `wrangler dev` with its own
+ * `bootVars`, `sweepEnv` values are mutually exclusive (see `Scenario.sweepEnv`), and a scenario
+ * that leaks a handle or wedges a workerd cannot then take the rest of the sweep with it.
+ */
+async function sweep(fast: boolean): Promise<void> {
+  const { spawnSync } = await import('node:child_process');
+  const names = Object.keys(SCENARIOS)
+    .filter((n) => !fast || (SCENARIOS[n].needsContainer ?? true) === false);
+  console.error(`[harness] sweeping ${names.length} scenario(s)${fast ? ' (container-free only)' : ''}…\n`);
+
+  const results: Array<{ name: string; ok: boolean; secs: string; detail: string }> = [];
+  for (const name of names) {
+    const t0 = Date.now();
+    // A stray workerd from a previous scenario starves the next one's boot and its alarms, which
+    // reads as a flaky scenario rather than as contention (`testing.md`).
+    spawnSync('pkill', ['-9', '-f', 'workerd'], { stdio: 'ignore' });
+    // Re-exec the DOCUMENTED command rather than `node <this file>`: this is a `.ts` entry point,
+    // so a bare node spawn exits instantly with a loader error — which the sweep would then report
+    // as seventeen failing scenarios in 0.1 s each. (It did, on the first run.)
+    const child = spawnSync(
+      'npx',
+      ['tsx', process.argv[1]!, name],
+      {
+        env: { ...process.env, ...SCENARIOS[name].sweepEnv },
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
+    const out = `${child.stdout ?? ''}${child.stderr ?? ''}`;
+    const ok = child.status === 0;
+    const detail = ok ? '' : (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see output)').slice(0, 120);
+    results.push({ name, ok, secs: ((Date.now() - t0) / 1000).toFixed(1), detail });
+    console.error(`${ok ? '✅' : '❌'} ${name.padEnd(26)} ${results.at(-1)!.secs}s ${detail}`);
+    if (!ok && process.env.HARNESS_DEBUG) console.error(out);
+  }
+
+  const failed = results.filter((r) => !r.ok);
+  console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed`);
+  for (const f of failed) console.log(`  ❌ ${f.name} — ${f.detail}`);
+  if (failed.length > 0) process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
-  const name = process.argv[2] ?? 'message-roundtrip';
+  const argv = process.argv.slice(2);
+  const name = argv.find((a) => !a.startsWith('-')) ?? 'message-roundtrip';
+  if (name === 'all') return sweep(argv.includes('--fast'));
+
   const scenario = SCENARIOS[name];
   if (!scenario) {
-    console.error(`[harness] unknown scenario "${name}". Known: ${Object.keys(SCENARIOS).join(', ')}`);
+    console.error(`[harness] unknown scenario "${name}". Known: all, ${Object.keys(SCENARIOS).join(', ')}`);
     process.exitCode = 2;
     return;
   }

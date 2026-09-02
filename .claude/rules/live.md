@@ -18,6 +18,14 @@ via Playwright — screenshot / a11y / console / network), exits non-zero on fai
 a `wrangler login` session; **Docker only when the scenario declares `needsContainer`** — a
 container-free boot skips the image build entirely.
 
+⚠️ **After changing anything a scenario you did NOT write depends on, you MUST sweep the whole
+registry — `drive.ts all` (add `--fast` to skip the Docker ones).** The registry is a suite nothing
+runs: `/live` is not in CI, so breaking someone else's scenario is silent until whoever owns it
+happens to run it, which for an untouched one is never. Measured 2026-09-01: a build shipped its own
+five scenarios green while breaking **nine of the seventeen** that came before it — a shared login
+helper, an acceptance semantic, and a login form deleted from a screen three scenarios drove. No
+vitest suite could see any of it, and the sweep that found it takes about four minutes.
+
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 
 **The `/live` scenario MUST be written first. You MAY drop to pool-workers when the behaviour is
@@ -60,6 +68,15 @@ and still the right answer when a scenario IS slow, but it concedes the premise;
 not. ⚠️ If a run seems to take minutes, **suspect your own scenario before the tier**: a leaked
 `waitForEmail` waiter keeps Node's event loop alive, so the process prints its verdict and then hangs,
 which is indistinguishable from a slow boot. That exact bug is what made this tier *look* expensive.
+
+⚠️ **The sibling failure blames the mail instead: `waitForEmail({ instance })` filters SERVER-side, so
+a waiter armed on the wrong tag waits out its full timeout and reports "No email received" — a
+delivery symptom for what is a filter bug.** It arises whenever the tag is decided AFTER the waiter is
+armed: a helper that claims a scope but falls back to the scope-less login on a 409 sends `_scopeless`
+mail to a waiter listening for the scope, so it fails only for an address with history — which reads
+as flaky. ⇒ **When a later branch decides the tag, do not filter on it**; a unique recipient is the
+filter that always discriminates. Cost of learning this the other way, 2026-09-01: two sessions and
+three wrong theories about the email provider.
 
 ⚠️ **DO NOT ASSERT THAT YOU LACK THE ACCESS — CHECK.** The most insidious skip is not "this is slow",
 it is *"I can't run that here, it needs Docker / real email / a deployed Worker"* — because it reads as
