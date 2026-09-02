@@ -240,10 +240,27 @@ re-deriving here.
     intent:** the file must key on **persona NAME, never `sub`** (subs are ADR-010 randoms re-minted
     by every wipe, so anything storing one dangles); it shares the Workspace-repo write path with
     [nebula-ontology-history-file.md](nebula-ontology-history-file.md) but **NOT** its append-only
-    rule (personas are edited, history is not); and per-tab identity has to ride **`sessionStorage`,
-    which is per-tab — cookies and `localStorage` are not**, and every persona tab is the same origin
-    and scope, so the refresh cookie cannot tell them apart. `NebulaClient` already takes a
-    `sessionStorage` per context, which is the primitive.
+    rule (personas are edited, history is not); and **per-persona identity has to live in each
+    iframe's own JS realm — NOT in any Web Storage**. The preview is an `<iframe>` (`App.vue:962`) and
+    the personas are same-origin, so they share the top-level tab's `sessionStorage` *and* its cookie
+    jar: `sessionStorage` partitions per **tab**, not per same-origin iframe. Every persona is also a
+    member of the same `{u}.{g}.dev`, and the refresh cookie is `Path=/auth/{scope}` with one fixed
+    name, so two persona logins at that scope overwrite each other's cookie — `nebula-client.ts`'s
+    logout comment already names the hazard (*"an admin who logged in AT the scope they impersonate
+    into gets an exact cookie-path match"*). `NebulaClient` takes an injected `sessionStorage` per
+    context, which is the seam for giving each iframe a virtual one.
+    <!-- Corrected 2026-09-02: an earlier draft of this bullet said identity should "ride
+         sessionStorage, which is per-tab". True of tabs, false of the same-origin iframes this
+         feature actually uses. -->
+
+    ⚠️ **OPEN — is `impersonate()` even the right primitive here?** (Larry, 2026-09-02.) The
+    alternative is a **real login per persona**, walked all the way through to the Home screen's
+    choice so the session lands at the right `activeScope`. It is not a preference: an impersonated
+    token carries `act`, and [ADR-012](../docs/adr/012-global-profile-visibility.md)'s owner branch
+    **requires `!claims.act`** — so a persona created by impersonation is never treated as its own
+    profile's owner, and any behaviour keyed on ownership is untestable through it. Against that, a
+    real login needs per-identity credential isolation the cookie does not give (above) and a
+    mailbox per persona. ⇒ Settle it in the task file's design intent, not at build.
 
     ⚠️ **A FOURTH, and it is a fact to establish rather than a decision to take — Larry had already
     anticipated it as a gap.** `impersonate()` returns a **child** client that renews through the
