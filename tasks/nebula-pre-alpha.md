@@ -4,17 +4,35 @@
 
 **The 2026-08-19 ①–④ sequence is DISCHARGED — do not plan against it.** ① profile accepted-membership gate, ② wipe item 6 (`actingToken`), ③ its four items, and ④ the **Galaxy collapse** (shipped 2026-08-28, criteria discharged 08-29/30) are all done, bar one: [nebula-same-origin-guard.md](nebula-same-origin-guard.md)'s verdict, which gates nothing. The two gates that used to wait on ④ have landed with it (preview-survives-redeploys ✅) or stand alone (capture-live, below).
 
-**What replaces it — the run to the wipe, in execution order.** Three of these have no task file yet, which is the honest state rather than an omission; write them one at a time ([[feedback_task_file_one_at_a_time]]).
+**What replaces it — the run to the wipe.** Three of these have no task file yet, which is the honest state rather than an omission; write them one at a time ([[feedback_task_file_one_at_a_time]]).
 
-| | Item | Why it precedes the wipe |
+🔑 **"Before the wipe" does NOT order anything — every line of code here precedes it, because there is exactly ONE deploy** (the batched worker-delete + redeploy above). Ordering rests on a different distinction, and most of the run turns out to be unconstrained:
+
+- **DATA-GATED** — needs the greenfield DB; a migration afterwards. Real, and irreversible if missed.
+- **DEPLOY-GATED** — only needs to be in the bundle. **Any order satisfies it.**
+- **UNGATED** — does not ride the deploy at all.
+
+**So the run is ordered by RISK, and here risk is unresolved DESIGN rather than hard implementation** (Larry, 2026-09-02: *"I should favor doing the riskiest ones first"*). Which makes the decisions first, as a batch — they cost hours, and answering them late is what costs:
+
+| Decision | Why it goes first |
+|---|---|
+| **Personas: `impersonate()` or a real login — and does a `synthetic` column land?** | 🚩 **The only one with a SCHEMA consequence, and it is data-gated.** Answering it early **decouples the column from the feature**: the column rides ③ or ④ below and the persona build can stay late without touching the wipe. Left unanswered until the build, a late yes means delaying the wipe or migrating live data |
+| **Ontology: the tabled compiled-validator storage question** | Blocks its own phases; entangled, since the Star-fetch path rides the mesh methods that task deletes |
+| **`QuerySubs` registers with no permission check — deliberate?** | Blocks the data-plane task's phases (its own § *Open question*) |
+
+**Then the builds, riskiest first:**
+
+| | Item | Gate | Why HERE |
 |---|---|---|
-| ① | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — *design intent only, phases NOT written* | Merging the three subscription registries makes `profileId` **required**, which is free only while the wipe deletes the pre-rollout rows |
-| ② | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — *design intent only, phases NOT written; one tabled decision to settle first* | Re-homing the registry's truth is a **swap** with no live data and a live-data migration afterwards. Sequenced after ① — its own § *Why this timing* says so |
-| ③ | ⚠️ **THE GATE — capture live** (below) — *no task file* | Day-1 behavioural signal is irreplaceable; it must be live **before** the first invite, not after |
-| ④ | **Turn-log inspection v0** (below) — *no task file; built inside the live harness* | Nothing to inspect until ③ captures, and Larry's daily questions need an answer path on day 1 |
-| ⑤ | **The guidance file tree — platform → (universe, skipped) → galaxy** (§ *Iteration & deploy model* holds the shape) — *no task file* | ⏫ Promoted out of Wave 2 and **placed BEFORE ⑥** (Larry, 2026-09-02): personas are guidance the LLM authors and re-reads, so building them first invents a second home for guidance and then unlearns it. **Minimal is enough** — skipping Universe is explicitly fine |
-| ⑥ | **Personas — synthetic users the LLM defines, provisioned into preview tabs** (§ *Wave 2* holds the detail) — *task file NOT yet written; Larry's* | ✅ Decided invite-gated 2026-09-02 on a real user's SOP (Jennifer's multi-tab permission testing), and it is a **user-facing feature**, so day-1 self-service is the bar. ⚠️ **Sequenced after ⑤ and not to be started before it** |
-| ⑦ | **The wipe + redeploy itself** | The window below closes here |
+| ① | **The guidance file tree — platform → (universe, skipped) → galaxy** (§ *Iteration & deploy model* holds the shape) — *no task file* | deploy | **Largest remaining unknown, and it gates ②** — every day it is unbuilt is a day personas cannot start. ⏫ Promoted out of Wave 2 (Larry, 2026-09-02): personas are guidance the LLM authors and re-reads, so building them first invents a second home for guidance and then unlearns it. **Minimal is enough** — skipping Universe is explicitly fine |
+| ② | **Personas — synthetic users the LLM defines, provisioned into preview tabs** (§ *Wave 2* holds the detail) — *task file NOT yet written; Larry's* | deploy (+ any schema landed by the decision above) | Highest design uncertainty, so it follows its prerequisite immediately rather than sitting at the end. ✅ Invite-gated on a real user's SOP (Jennifer's multi-tab permission testing) and a **user-facing feature**, so day-1 self-service is the bar |
+| ③ | ⚠️ **THE GATE — capture live** (below) — *no task file* | deploy | **Irreversibility beats size.** Everything else here is repairable in a later deploy; day-1 behavioural signal that was not captured is gone permanently. Its risk is not difficulty — it is being the thing that gets squeezed at the end |
+| ④ | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — *design intent only, phases NOT written* | **data** | Merging the three subscription registries makes `profileId` **required**, free only while the wipe deletes the pre-rollout rows. Biggest item on the list and the **best understood** — size is not risk when the shape is known, which is why it is not first |
+| ⑤ | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — *design intent only, phases NOT written* | **data** | Re-homing the registry's truth is a **swap** with no live data, a live-data migration afterwards. 🚩 **INDEPENDENT of ④** — see the correction below; take them in either order, or swap if one stalls |
+| ⑥ | **The wipe + redeploy itself** | — | The window below closes here |
+| — | **Turn-log inspection v0** (below) — *no task file* | **ungated** | Built inside the `/live` harness, so it is local tooling that never rides the deploy. `Message` Resources already exist, so it does not truly wait on ③ either. **Slot it anywhere, including after the invites** |
+
+🚩 **Correction 2026-09-02 — ⑤-after-④ was asserted and is unjustified.** `nebula-ontology-history-file.md`'s status line said *"after `nebula-data-plane-owns-its-guards`"* and cited its own § *Why this timing* as the reason; that section argues **after the collapse** and **before the wipe**, and never mentions the data-plane task. Nothing in the data-plane file names ontology except capabilities it carries over unchanged. *"Follow-on **#2**"* was a numbering artifact read as a dependency, and this plan propagated it. Both files now say so.
 
 ⛔ **Deferred out of this run, deliberately:** moving the body-scoped Registry routes onto `/auth/:scope/…` → [on-hold/nebula-registry-scope-in-url.md](on-hold/nebula-registry-scope-in-url.md) (2026-09-02 — legibility not safety, and its cost curve is flat, so waiting is free; the file's § *Status* carries the two corrected premises).
 
@@ -73,7 +91,7 @@ The remaining provisioning / capture / inspection work builds on these (the code
   synthetic-subject provisioning" was wrong and is corrected here** (2026-09-02): the pieces exist and
   compose — `invite()` returns the minted `sub`, `getIdentityScope` does not filter on `acceptedAt` so
   an unclaimed subject is impersonable, and `dagTree().setPermission` attaches grants. What personas
-  (⑥) actually add is a **no-send mint**, an authoring convention, and the tab UI — see § *Wave 2*.
+  (② in the run above) actually add is a **no-send mint**, an authoring convention, and the tab UI — see § *Wave 2*.
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index).
 - **Root-admin Part 1** — initial DataPlane root admin (`admin` on `ROOT_NODE_ID`) ([on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md)).
 - **`onBeforeCall` passage guard** — `requirePassage(name, claims)` (one audit point per ADR-007,
@@ -200,7 +218,7 @@ re-deriving here.
     [archive/nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) ·
     [archive/nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) ·
     [archive/nebula-invite.md](archive/nebula-invite.md) (client surface:
-    `NebulaClient.invite(targetScope, invitees)`). One live spin-off is sequenced in ③ —
+    `NebulaClient.invite(targetScope, invitees)`). One live spin-off survives from the discharged 08-19 ③ —
     [nebula-same-origin-guard.md](nebula-same-origin-guard.md) (design intent only; its honest outcome
     may be *no guard at all*). The other, moving the body-scoped Registry routes onto `/auth/:scope/…`,
     went **ON HOLD 2026-09-02** → [on-hold/nebula-registry-scope-in-url.md](on-hold/nebula-registry-scope-in-url.md):
