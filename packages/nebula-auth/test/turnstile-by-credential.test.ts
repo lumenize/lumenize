@@ -39,7 +39,6 @@ const CLASSIFICATION: Record<string, Credential> = {
   'POST /auth/claim-universe': 'none',
   'POST /auth/claim-star': 'none',
   'POST /auth/email-magic-link': 'none',
-  'POST /auth/:scope/email-magic-link': 'none',
 
   // ── Presents a verified access token ───────────────────────────────────────────────────────────
   'POST /auth/scope-summary': 'bearer',
@@ -148,7 +147,6 @@ describe('Phase 6 — Turnstile placement is derived from the credential, not fr
       'POST /auth/claim-universe': 'mints',
       'POST /auth/claim-star': 'mints',
       'POST /auth/email-magic-link': 'sends',
-      'POST /auth/:scope/email-magic-link': 'sends',
       'POST /auth/coming-soon': 'logs',
       'GET /auth/login': 'serves',
       'GET /auth/signup': 'serves',

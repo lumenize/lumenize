@@ -63,14 +63,14 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     expect(refreshed.parsed.sub).toBe(sub);
 
     // Logging in with the NEW address (find-and-flip) resolves to the SAME sub.
-    const ml = await requestMagicLink(SELF, u, 'new@example.com');
+    const ml = await requestMagicLink(SELF, 'new@example.com');
     const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
     const { refreshToken } = await clickLink(SELF, magicLinkUrl);
     const viaNew = await refreshAndParse(SELF, u, refreshToken);
     expect(viaNew.parsed.sub).toBe(sub);
 
     // Logging in with the OLD address is rejected (no identity resolves there anymore).
-    const oldMl = await requestMagicLink(SELF, u, 'old@example.com');
+    const oldMl = await requestMagicLink(SELF, 'old@example.com');
     const { magicLinkUrl: oldUrl } = await oldMl.json() as { magicLinkUrl: string };
     const oldClick = await SELF.fetch(new Request(oldUrl, { redirect: 'manual' }));
     expectNoSession(oldClick); // rejected — old email no longer an identity

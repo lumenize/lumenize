@@ -28,7 +28,9 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
-import { provisionAndLogin, pointLinkAt } from '../../test/lib/email-login';
+import {
+  provisionAndLogin, pointLinkAt, acceptMembership, refreshTokenForScope, setCookieHeaders,
+} from '../../test/lib/email-login';
 
 export const needsContainer = false;
 
@@ -82,10 +84,16 @@ export async function run(stack: DevStack): Promise<void> {
   const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(inviteHtml)?.[1];
   assert.ok(href, `invite email carried no accept-invite link (subject start: ${inviteHtml.slice(0, 60)})`);
   const inviteLink = pointLinkAt(origin, href.replace(/&amp;/g, '&'));
-  const accepted = await fetch(inviteLink, { redirect: 'manual' });
-  const setCookie = accepted.headers.get('set-cookie') ?? '';
-  const refreshToken = /refresh-token=([^;]+)/.exec(setCookie)?.[1];
-  assert.ok(refreshToken, `accepting the real invite set no refresh cookie (${accepted.status})`);
+  const clicked = await fetch(inviteLink, { redirect: 'manual' });
+  // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all, and
+  // take the one for the scope this invite was into.
+  const refreshToken = refreshTokenForScope(setCookieHeaders(clicked), otherUniverse);
+  assert.ok(refreshToken, `clicking the real invite set no cookie for "${otherUniverse}" (${clicked.status})`);
+
+  // ⚠️ **The click proves the mailbox; it does NOT take the membership up.** The cookie it places is
+  // INERT until its holder consents, so the refresh below 401s without this — which is the design
+  // working, not a failure. (This scenario predates that change and was not re-run when it landed.)
+  await acceptMembership(origin, refreshToken, otherUniverse);
 
   const refreshed = await fetch(`${origin}/auth/${otherUniverse}/refresh-token`, {
     method: 'POST',

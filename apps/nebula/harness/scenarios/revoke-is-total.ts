@@ -24,10 +24,10 @@
  * `needsContainer = false` — auth only, so the boot skips Docker.
  */
 import assert from 'node:assert/strict';
-import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
+import { uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { provisionAndLogin, requestMagicLink, pointLinkAt } from '../../test/lib/email-login';
+import { provisionAndLogin, refreshTokenForScope, setCookieHeaders } from '../../test/lib/email-login';
 
 export const needsContainer = false;
 
@@ -47,26 +47,26 @@ export async function run(stack: DevStack): Promise<void> {
   const universe = `revoke-${crypto.randomUUID().slice(0, 8)}`;
   const person = uniqueTestEmail();
 
-  // ── Session 1: found the Universe with a real email login ────────────────────────────────────
+  // ── Two real sessions from ONE real email ────────────────────────────────────────────────────
+  // ⚠️ **The link is clicked TWICE, and that is the mechanism rather than a shortcut.** Magic links
+  // are deliberately MULTI-USE within their TTL — the scanner invariant depends on it, because
+  // corporate mail scanners fetch these links before the human does and a single-use link would burn
+  // itself on the scan. So a second click is a real second login: a fresh raw token, a fresh
+  // `RefreshTokenIndex` row, a fresh KV record. Two sessions, one letter.
+  //
+  // (This used to send a SECOND email for session 2. Same state, more moving parts — and it left the
+  // scenario depending on a same-address back-to-back delivery that was observed not to arrive.
+  // Exercising the multi-use property instead removes the dependency rather than working around it.)
   const first = await provisionAndLogin({ baseUrl: origin, scope: universe, email: person, testToken });
   const firstCookie = first.session.refreshToken;
   assert.ok(firstCookie, 'the first login produced no refresh cookie');
 
-  // ── Session 2: the SAME person logs in again — a second live refresh record ──────────────────
-  const waiter = waitForEmail({ testToken, instance: universe, to: person, timeout: 60_000 });
-  let link: string;
-  try {
-    await requestMagicLink({ baseUrl: origin, authScope: universe, email: person, fetchImpl: fetch });
-    link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
-  } finally {
-    // ⚠️ ALWAYS close it — a leaked waiter's WebSocket keeps Node's event loop alive, so the process
-    // hangs after printing its verdict. `finally` so a failed assertion cannot skip it.
-    waiter.cleanup();
-  }
-  const clicked = await fetch(link, { redirect: 'manual' });
-  const secondCookie = /refresh-token=([^;]+)/.exec(clicked.headers.get('set-cookie') ?? '')?.[1];
-  assert.ok(secondCookie, `the second real login set no refresh cookie (${clicked.status})`);
-  assert.notEqual(secondCookie, firstCookie, 'both logins returned the same cookie — not two sessions');
+  const secondClick = await fetch(first.link, { redirect: 'manual' });
+  // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all.
+  const secondCookie = refreshTokenForScope(setCookieHeaders(secondClick), universe);
+  assert.ok(secondCookie,
+    `the second click set no cookie for "${universe}" (${secondClick.status}) — links must be multi-use`);
+  assert.notEqual(secondCookie, firstCookie, 'both clicks returned the same cookie — not two sessions');
 
   // Positive control: BOTH sessions are genuinely live before anything is revoked. Without this a
   // revoke that did nothing would be indistinguishable from a login that never worked.

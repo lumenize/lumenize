@@ -59,7 +59,7 @@ async function claimAndClick(
   // Arm the listener BEFORE triggering the send. `instance: scope` routes only this hop's email here
   // (via the `X-Lumenize-Auth-Instance` header the sender stamps), so the universe hop and the star
   // hop below never pick up each other's link, and concurrent runs don't collide.
-  const waiter = waitForEmail({ testToken, instance: scope });
+  let waiter = waitForEmail({ testToken, instance: scope });
   try {
     const res = await fetch(`${baseUrl}/auth/${endpoint}`, {
       method: 'POST',
@@ -71,7 +71,13 @@ async function claimAndClick(
       throw new Error(`${endpoint} failed: ${res.status} ${await res.text()}`);
     }
     if (res.status === 409) {
-      const login = await fetch(`${baseUrl}/auth/${scope}/email-magic-link`, {
+      // ⚠️ **The fallback login is SCOPE-LESS, so its mail carries no scope tag** — the waiter armed
+      // above can never match it, and would sit out its full timeout looking like a slow send. Retire
+      // it and arm one for `_scopeless` before the request goes out. (Leaking the first would also
+      // keep Node's event loop alive past the verdict, which is its own confusing hang.)
+      waiter.cleanup();
+      waiter = waitForEmail({ testToken, instance: '_scopeless', to: email });
+      const login = await fetch(`${baseUrl}/auth/email-magic-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

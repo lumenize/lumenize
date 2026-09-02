@@ -68,10 +68,11 @@ export async function run(stack: DevStack): Promise<void> {
     disposables.push(owner);
 
     // ── The COACH: a real platform bootstrap login, then acting in the galaxy ──
-    const coachWaiter = waitForEmail({ testToken, instance: PLATFORM_SCOPE, to: COACH_EMAIL, timeout: 60_000 });
+    // ⚠️ `_scopeless` — the login request below names no scope, so its mail carries no platform tag.
+    const coachWaiter = waitForEmail({ testToken, instance: '_scopeless', to: COACH_EMAIL, timeout: 60_000 });
     let coachRefresh: string;
     try {
-      await fetch(`${origin}/auth/${PLATFORM_SCOPE}/email-magic-link`, {
+      await fetch(`${origin}/auth/email-magic-link`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email: COACH_EMAIL }),
       });

@@ -282,8 +282,6 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
     handleAcceptInvite(request, env, routeState.scope);
   /** The same handler with no scope to pass — see the scope-less row's comment in the table. */
   const handleScopelessMagicLinkStep: Step = (request) => handleEmailMagicLink(request, env);
-  const handleEmailMagicLinkStep: Step<ScopeState> = (request, routeState) =>
-    handleEmailMagicLink(request, env, routeState.scope);
   const handleRefreshTokenStep: Step = (request) => handleRefreshToken(request, env);
   const handleLogoutStep: Step<ScopeState> = (request, routeState) =>
     handleLogout(request, env, routeState.scope);
@@ -337,22 +335,18 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       { path: `${P}/magic-link`, method: 'GET', steps: [connectionRateLimitGuard, handleScopelessMagicLinkClickStep] },
       { path: `${P}/:scope/magic-link`, method: 'GET', steps: [parseScopeGuard, connectionRateLimitGuard, handleMagicLinkClickStep] },
       { path: `${P}/:scope/accept-invite`, method: 'GET', steps: [parseScopeGuard, connectionRateLimitGuard, handleAcceptInviteStep] },
-      // The SCOPE-LESS login request — the front door. It names no scope because nothing is known
+      // The login request — the ONLY front door, and it names no scope because nothing is known
       // about the address yet: the click proves the mailbox and Home offers whatever it reaches.
       // ⚠️ Its answer is uniform for member, stranger and bootstrap address alike — the divergence
       // is what would make it an oracle, so nothing downstream may branch on the address.
+      // ⚠️ A `/:scope/email-magic-link` sibling existed until 2026-09-01. Naming a scope up front is
+      // what forced a caller to KNOW their scope before proving anything — the enumeration this
+      // design deletes — so it is retired, not merely unused. `handleEmailMagicLink` still takes an
+      // optional scope because the CLAIM paths pass one; no route supplies it from a URL.
       // Presents no credential of any kind, so it carries `turnstileGuard` like its scoped sibling.
       // ⚠️ Its answer is uniform for member, stranger and bootstrap address alike — the divergence
       // is what would make it an oracle, so nothing downstream may branch on the address.
       { path: `${P}/email-magic-link`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, handleScopelessMagicLinkStep] },
-      // ⚠️ **RETIREMENT BLOCKED — a design conflict, not an oversight.** This row is in the deletion
-      // set (`tasks/nebula-login-prove-then-choose.md`, which expects "zero surviving consumers"),
-      // but mint-all's platform carve-out excludes the `nebula-platform` cookie unless the CONSUMED
-      // LINK NAMED that scope — and this is the only route that can produce such a link. Retiring it
-      // leaves a bootstrap address able to see its platform row on Home and unable to accept it,
-      // because the accept endpoint authenticates by a cookie mint-all refused to set. Resolving it
-      // means changing one of the two, which is a decision above this row.
-      { path: `${P}/:scope/email-magic-link`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, turnstileGuard, handleEmailMagicLinkStep] },
       { path: `${P}/:scope/refresh-token`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleRefreshTokenStep] },
       // Acceptance — the ONE writer, credentialed by the membership's own path-scoped cookie (so no
       // Turnstile: the cookie is a credential, and it reached this browser only via a proved mailbox).

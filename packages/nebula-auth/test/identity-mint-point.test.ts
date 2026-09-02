@@ -38,7 +38,7 @@ describe('Identity authority — mint only at authority points', () => {
     expect(first.parsed.access.authScope).toBe(`${uni}`);
 
     // Log in AGAIN via the login magic-link (find-and-flip) — must resolve to the SAME sub, never re-mint.
-    const mlResp = await requestMagicLink(SELF, uni, 'scope-admin@example.com');
+    const mlResp = await requestMagicLink(SELF, 'scope-admin@example.com');
     expect(mlResp.status).toBe(200);
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
     const { refreshToken } = await clickLink(SELF, magicLinkUrl);
@@ -52,7 +52,7 @@ describe('Identity authority — mint only at authority points', () => {
 
     // A stranger requests a login magic link for the SAME scope. The request succeeds (Turnstile-only,
     // no mint) but the CLICK must reject — no identity exists for stranger@ in `uni`.
-    const mlResp = await requestMagicLink(SELF, uni, 'stranger@example.com');
+    const mlResp = await requestMagicLink(SELF, 'stranger@example.com');
     expect(mlResp.status).toBe(200);
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
 
@@ -73,7 +73,7 @@ describe('Identity authority — mint only at authority points', () => {
     const uni = uniqueUniverse();
     await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const before = (await membershipsOf(getRegistry(), 'nobody@example.com')).length;
-    await requestMagicLink(SELF, uni, 'nobody@example.com'); // request only — must not mint
+    await requestMagicLink(SELF, 'nobody@example.com'); // request only — must not mint
     const after = (await membershipsOf(getRegistry(), 'nobody@example.com')).length;
     expect(before).toBe(0);
     expect(after).toBe(0); // reds if email-magic-link minted an identity
@@ -247,7 +247,7 @@ describe('Identity authority — adminApproved retired, enforced at MINT (edge g
     const uni = uniqueUniverse();
     await foundUniverse(SELF, uni, 'admin@example.com');
     // Request a login link for an uninvited email, click it → rejected → NO refresh KV record exists.
-    const mlResp = await requestMagicLink(SELF, uni, 'ghost@example.com');
+    const mlResp = await requestMagicLink(SELF, 'ghost@example.com');
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
     const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
     expectNoSession(clickResp);                                // no token minted
@@ -392,7 +392,7 @@ describe('Logout deletes the KV record', () => {
     const registry = getRegistry();
 
     // A second live session for the SAME sub.
-    const ml = await requestMagicLink(SELF, uni, email);
+    const ml = await requestMagicLink(SELF, email);
     const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
     const { refreshToken: second } = await clickLink(SELF, magicLinkUrl);
 
@@ -768,7 +768,7 @@ describe('verification is per-ADDRESS, acceptance is per-MEMBERSHIP', () => {
     expect(firstAccepted).toBe(1);
 
     entries.length = 0;
-    const ml = await requestMagicLink(SELF, u, email);
+    const ml = await requestMagicLink(SELF, email);
     const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
     await clickLink(SELF, magicLinkUrl);   // second login: both guards must suppress the write
 
@@ -785,7 +785,7 @@ describe('verification is per-ADDRESS, acceptance is per-MEMBERSHIP', () => {
     const first = (await state(email)).byScope[u];
     expect(first).toBeTruthy();
 
-    const ml = await requestMagicLink(SELF, u, email);
+    const ml = await requestMagicLink(SELF, email);
     const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
     await clickLink(SELF, magicLinkUrl);
 

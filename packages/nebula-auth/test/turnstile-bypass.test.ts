@@ -13,8 +13,10 @@ import { env } from 'cloudflare:test';
 import { isTurnstileBypassed, routeNebulaAuthRequest, TURNSTILE_BYPASS_HEADER } from '../src/router';
 
 const TOKEN = 'bypass-secret-3f9a2c8e1b7d4056a1c2e3f40506a7b8';
+// The URL is inert for these — `isTurnstileBypassed` reads the HEADER — but it names a live route so
+// a reader is not sent looking for one that no longer exists.
 const req = (headers: Record<string, string> = {}) =>
-  new Request('https://nebula.lumenize.com/auth/nebula-platform/email-magic-link', { method: 'POST', headers });
+  new Request('https://nebula.lumenize.com/auth/email-magic-link', { method: 'POST', headers });
 
 describe('Turnstile bypass token (isTurnstileBypassed)', () => {
   it('allows the bypass ONLY with the exact token in the header', () => {

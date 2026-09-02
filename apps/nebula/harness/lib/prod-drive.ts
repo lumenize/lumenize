@@ -74,9 +74,10 @@ export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAI
 export async function prodEmailSpin(email: string, authScope = PLATFORM_SCOPE): Promise<string> {
   const bypassToken = readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN');
   const testToken = readDevVar('TEST_TOKEN');
-  const waiter = waitForEmail({ testToken, instance: authScope, timeout: 120_000 });
+  // ⚠️ `_scopeless` — the login request names no scope, so its mail carries no scope tag.
+  const waiter = waitForEmail({ testToken, instance: '_scopeless', to: email, timeout: 120_000 });
   try {
-    const res = await fetch(`${PROD_URL}/auth/${authScope}/email-magic-link`, {
+    const res = await fetch(`${PROD_URL}/auth/email-magic-link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', [BYPASS_HEADER]: bypassToken },
       body: JSON.stringify({ email }),

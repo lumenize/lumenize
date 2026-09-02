@@ -185,7 +185,7 @@ export async function foundStarAndLogin(
   // 3. Claim the star as the tenant — open, no admin in the loop.
   const claimLink = await claimStar(browser, star, email);
   const link = claimLink ?? (await requestMagicLink({
-    baseUrl: ORIGIN, authScope: star, email, fetchImpl: browser.fetch,
+    baseUrl: ORIGIN, email, fetchImpl: browser.fetch,
   }));
   expect(link).toBeDefined();
   await browser.fetch(link!);
@@ -220,7 +220,7 @@ export async function bootstrapAdmin(
   // Already claimed (this admin backing a second client, or a second Browser for the same
   // identity) — request a fresh login link for the existing identity and click that instead.
   const magicLinkUrl = await requestMagicLink({
-    baseUrl: ORIGIN, authScope: universe, email, fetchImpl: browser.fetch,
+    baseUrl: ORIGIN, email, fetchImpl: browser.fetch,
   });
   expect(magicLinkUrl).toBeDefined();
   await browser.fetch(magicLinkUrl!);
@@ -274,7 +274,7 @@ export async function createSubject(
 
   // User clicks magic link (the invite already created the subject,
   // but the user still needs to verify via magic link)
-  const mlResp = await browser.fetch(authUrl(`${authScope}/email-magic-link?_test=true`), {
+  const mlResp = await browser.fetch(authUrl('email-magic-link?_test=true'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -346,7 +346,7 @@ export async function browserLogin(
   // ORDINARY traffic, where the same leak in @lumenize/auth would only affect requests that
   // deliberately asked. The control that actually holds this line is `audit-test-mode.sh`.
   const magicLinkUrl = await requestMagicLink({
-    baseUrl: ORIGIN, authScope, email, fetchImpl: browser.fetch,
+    baseUrl: ORIGIN, email, fetchImpl: browser.fetch,
   });
   expect(magicLinkUrl).toBeDefined();
 

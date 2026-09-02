@@ -38,7 +38,7 @@ describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
   });
 
   it('a NON-listed email at nebula-platform is NOT minted → login rejected (control: bootstrap ≠ open)', async () => {
-    const ml = await requestMagicLink(SELF, PLATFORM_SCOPE, 'random@example.com');
+    const ml = await requestMagicLink(SELF, 'random@example.com');
     expect(ml.status).toBe(200);
     const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
     // The click proves their mailbox and mints NOTHING — the `#bootstrapEmails` conjunct is the whole

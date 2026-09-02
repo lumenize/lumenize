@@ -65,12 +65,17 @@ export async function createGalaxy(self: Fetcher, universeGalaxyId: string, admi
 }
 
 /**
- * Request a LOGIN magic link (`email-magic-link`) for an existing identity. Returns the whole response
- * so callers can assert status; in test mode a 200 body carries `magicLinkUrl` (find-and-flip still
- * rejects at CONSUME if no identity exists — a request never mints).
+ * Request a LOGIN magic link. Returns the whole response so callers can assert status; in test mode a
+ * 200 body carries `magicLinkUrl`.
+ *
+ * ⚠️ **SCOPE-LESS, and it takes no scope to pass.** The `/auth/{scope}/email-magic-link` sibling is
+ * retired: naming a scope up front is what forced a caller to KNOW their scope before proving
+ * anything, which is the enumeration the prove-then-choose design deletes. A request mints nothing
+ * and answers identically whatever address it names; the consume hands back every membership the
+ * address holds.
  */
-export async function requestMagicLink(self: Fetcher, instanceName: string, email: string): Promise<Response> {
-  return self.fetch(new Request(url(instanceName, 'email-magic-link'), {
+export async function requestMagicLink(self: Fetcher, email: string): Promise<Response> {
+  return self.fetch(new Request(registryUrl('email-magic-link'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   }));
@@ -222,7 +227,7 @@ export async function foundStarAndLogin(
  * unlisted address mints nothing and the login is rejected.
  */
 export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, activeScope?: string) {
-  const ml = await requestMagicLink(self, PLATFORM_SCOPE, email);
+  const ml = await requestMagicLink(self, email);
   expect(ml.status).toBe(200);
   const { magicLinkUrl } = await ml.json() as { magicLinkUrl?: string };
   expect(magicLinkUrl).toBeDefined();

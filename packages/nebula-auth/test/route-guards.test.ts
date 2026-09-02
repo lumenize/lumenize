@@ -31,9 +31,13 @@ function registryEntriesSince(mark: number): any[] {
 }
 
 describe('a malformed scope segment is refused at the edge and never reaches the singleton', () => {
-  it('POST /auth/bad..name/email-magic-link → 400 invalid_instance, Registry not entered', async () => {
+  // ⚠️ The probe route is `refresh-token`, not the retired `/auth/{scope}/email-magic-link`. Any
+  // `:scope` POST row exercises `parseScopeGuard` identically — the guard is the subject, the route
+  // behind it is incidental. `refresh-token` is a good choice because it takes a body and reaches a
+  // handler that would fail LOUDLY if the parse let a malformed segment through.
+  it('POST /auth/bad..name/refresh-token → 400 invalid_instance, Registry not entered', async () => {
     const mark = sink.length;
-    const resp = await SELF.fetch(new Request(url('bad..name', 'email-magic-link'), {
+    const resp = await SELF.fetch(new Request(url('bad..name', 'refresh-token'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'x@example.com' }),
     }));
@@ -48,7 +52,7 @@ describe('a malformed scope segment is refused at the edge and never reaches the
     const mark = sink.length;
     // The containment predicates are grammar-free string math, so this parse step is the only
     // thing refusing a scope no grammar can produce before it reaches a handler or the singleton.
-    const resp = await SELF.fetch(new Request(url(fourSegment, 'email-magic-link'), {
+    const resp = await SELF.fetch(new Request(url(fourSegment, 'refresh-token'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'x@example.com' }),
     }));
@@ -275,7 +279,7 @@ describe('no request the edge is going to REFUSE reaches the singleton', () => {
 
   it('a malformed scope on a FLOW route is refused by the parse and the Registry is never entered', async () => {
     const mark = sink.length;
-    const resp = await SELF.fetch(new Request('http://localhost/auth/bad..name/email-magic-link', {
+    const resp = await SELF.fetch(new Request('http://localhost/auth/bad..name/refresh-token', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'x@example.com' }),
     }));

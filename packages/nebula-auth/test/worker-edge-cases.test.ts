@@ -15,18 +15,19 @@ const post = (path: string, body?: any, headers: Record<string, string> = {}) =>
     body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
   }));
 
+// The SCOPE-LESS route — the only form there is. Its `/auth/{scope}/…` sibling is retired.
 describe('email-magic-link edge cases', () => {
   it('invalid JSON body → 400', async () => {
-    const resp = await post(`${u()}/email-magic-link`, 'not json{');
+    const resp = await post('email-magic-link', 'not json{');
     expect(resp.status).toBe(400);
     expect((await resp.json() as any).error).toBe('invalid_request');
   });
   it('invalid email format → 400', async () => {
-    const resp = await post(`${u()}/email-magic-link`, { email: 'not-an-email' });
+    const resp = await post('email-magic-link', { email: 'not-an-email' });
     expect(resp.status).toBe(400);
   });
   it('GET (wrong method) → 405', async () => {
-    const resp = await SELF.fetch(new Request(url(`${u()}/email-magic-link`), { method: 'GET' }));
+    const resp = await SELF.fetch(new Request(url('email-magic-link'), { method: 'GET' }));
     expect(resp.status).toBe(405);
   });
 });

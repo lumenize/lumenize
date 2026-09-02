@@ -46,7 +46,7 @@ describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idem
     const first = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
     // Log in again via a fresh login magic link → same sub AND same profileId (the INSERT is not re-run).
-    const mlResp = await requestMagicLink(SELF, uni, 'scope-admin@example.com');
+    const mlResp = await requestMagicLink(SELF, 'scope-admin@example.com');
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
     const { refreshToken } = await clickLink(SELF, magicLinkUrl);
     const second = await refreshAndParse(SELF, uni, refreshToken);

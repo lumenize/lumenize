@@ -68,12 +68,13 @@ export async function run(stack: DevStack): Promise<void> {
   // clicked. `requestMagicLink` mints nothing on its own — the registry mints the platform identity
   // only for a configured bootstrap email at this exact scope, which is what `bootVars` arranges.
   const waiter = waitForEmail({
-    testToken, instance: PLATFORM_SCOPE, to: SUPERUSER_EMAIL, timeout: 60_000,
+    // ⚠️ `_scopeless` — the login request names no scope, so its mail carries no platform tag.
+    testToken, instance: '_scopeless', to: SUPERUSER_EMAIL, timeout: 60_000,
   });
   let refreshToken: string;
   try {
     await requestMagicLink({
-      baseUrl: origin, authScope: PLATFORM_SCOPE, email: SUPERUSER_EMAIL,
+      baseUrl: origin, email: SUPERUSER_EMAIL,
     });
     const link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
     const linkRes = await fetch(link, { redirect: 'manual' });

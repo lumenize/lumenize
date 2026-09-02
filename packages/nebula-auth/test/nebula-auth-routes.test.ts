@@ -341,7 +341,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       const u = uni();
       await foundUniverse(SELF, u, 'flow@example.com'); // admin identity now exists
 
-      const ml = await requestMagicLink(SELF, u, 'flow@example.com');
+      const ml = await requestMagicLink(SELF, 'flow@example.com');
       expect(ml.status).toBe(200);
       const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
       expect(magicLinkUrl).toBeDefined();

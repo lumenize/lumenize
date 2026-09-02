@@ -23,6 +23,9 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 /** Cookie-aware fetch. `@lumenize/testing`'s `Browser` satisfies this, as does global `fetch`. */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+/** The instance tag a SCOPE-LESS magic link's mail carries — mirrors `SCOPELESS_INSTANCE_TAG`. */
+const SCOPELESS_TAG = '_scopeless';
+
 export interface EmailLoginOptions {
   /**
    * Where to send auth requests — a wrangler-dev origin, `http://localhost` for
@@ -189,17 +192,28 @@ export async function requestUniverseClaim(options: {
 }
 
 /**
- * POST `email-magic-link` for an identity that already exists at `authScope`.
+ * POST `email-magic-link` — the SCOPE-LESS login request.
+ *
  * Returns the link URL in test mode, `undefined` in email mode.
+ *
+ * ⚠️ **It takes no scope, because there is no longer one to take.** The
+ * `/auth/{scope}/email-magic-link` sibling is retired: naming a scope up front forced a caller to
+ * KNOW their scope before proving anything, which is the enumeration the prove-then-choose design
+ * deletes. The consume hands back EVERY membership the address holds, so a caller wanting one in
+ * particular picks its cookie out of the set (`refreshTokenForScope`).
+ *
+ * ⚠️ **A waiter on this mail must be tagged `_scopeless`**, not with a universe — a request that
+ * names no scope cannot tag its mail with one, and a mis-tagged waiter hangs for its full timeout
+ * and reads as a slow boot.
  */
 export async function requestMagicLink(options: {
-  baseUrl: string; authScope: string; email: string;
+  baseUrl: string; email: string;
   fetchImpl?: FetchLike; bypassToken?: string;
 }): Promise<string | undefined> {
-  const { baseUrl, authScope, email, fetchImpl = fetch, bypassToken } = options;
+  const { baseUrl, email, fetchImpl = fetch, bypassToken } = options;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
-  const res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/${authScope}/email-magic-link`, {
+  const res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/email-magic-link`, {
     method: 'POST', headers, body: JSON.stringify({ email }),
   });
   if (!res.ok) {
@@ -281,7 +295,7 @@ export async function provisionStarAdmin(
     // 409 — already claimed (a second Browser for the same admin). An ordinary login works,
     // because unlike a `create-star` scope this one HAS an identity.
     const rawLink = claimed === null
-      ? await requestMagicLink({ baseUrl: origin, authScope: scope, email, fetchImpl, bypassToken })
+      ? await requestMagicLink({ baseUrl: origin, email, fetchImpl, bypassToken })
       : claimed;
 
     let link: string;
@@ -334,9 +348,11 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
 
   // Attach the listener BEFORE sending — the EmailTestDO pushes only to
   // already-connected sockets and never replays stored mail.
-  const waiter = waitForEmail({ testToken, instance: authScope, to: email, timeout });
+  // ⚠️ `_scopeless`: the request names no scope, so its mail cannot be tagged with one. A waiter
+  // filtered on `authScope` here hangs for its full timeout and reads as a slow boot.
+  const waiter = waitForEmail({ testToken, instance: SCOPELESS_TAG, to: email, timeout });
   try {
-    await requestMagicLink({ baseUrl: origin, authScope, email, fetchImpl, bypassToken });
+    await requestMagicLink({ baseUrl: origin, email, fetchImpl, bypassToken });
 
     const link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
     // `manual` so we can read Set-Cookie: the 302 Location is a client-side route.
@@ -416,7 +432,7 @@ export async function refreshAccessToken(
  */
 export async function provisionAndLogin(
   options: Omit<EmailLoginOptions, 'authScope'> & { scope: string },
-): Promise<{ accessToken: string; sub: string; session: EmailSession }> {
+): Promise<{ accessToken: string; sub: string; session: EmailSession; link: string }> {
   const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout } = options;
   const email = options.email ?? uniqueTestEmail();
   const origin = baseUrl.replace(/\/$/, '');
@@ -428,12 +444,16 @@ export async function provisionAndLogin(
     ? waitForEmail({ testToken, instance: universe, to: email, timeout: timeout ?? 60_000 })
     : undefined;
   let session: EmailSession;
+  // Returned to the caller: magic links are deliberately MULTI-USE within their TTL (the scanner
+  // invariant — mail scanners fetch the link before the human does), so a caller wanting a SECOND
+  // real session for the same person clicks this again rather than sending a second letter.
+  let usedLink!: string;
   try {
     const claimed = await requestUniverseClaim({ baseUrl: origin, universe, email, fetchImpl, bypassToken });
     let rawLink: string | undefined;
     if (claimed === null) {
       // Already claimed — fall through to an ordinary login for the existing identity.
-      rawLink = await requestMagicLink({ baseUrl: origin, authScope: universe, email, fetchImpl, bypassToken });
+      rawLink = await requestMagicLink({ baseUrl: origin, email, fetchImpl, bypassToken });
     } else {
       rawLink = claimed;
     }
@@ -449,6 +469,7 @@ export async function provisionAndLogin(
       }
       link = pointLinkAt(origin, rawLink);
     }
+    usedLink = link;
     const linkRes = await fetchImpl(link, { redirect: 'manual' });
     const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), universe);
     if (!refreshToken) {
@@ -488,7 +509,7 @@ export async function provisionAndLogin(
   if (scope !== universe) {
     ({ accessToken, sub } = await refreshAccessToken(origin, session, scope, fetchImpl));
   }
-  return { accessToken, sub, session };
+  return { accessToken, sub, session, link: usedLink };
 }
 
 /**

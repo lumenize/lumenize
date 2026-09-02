@@ -81,7 +81,7 @@ describe('Phase 1 — the scope-less request answers the same to everyone', () =
 
 describe('Phase 1 — the platform membership waits for mailbox proof', () => {
   it('a platform-scoped REQUEST writes no membership', async () => {
-    const resp = await requestMagicLink(SELF, PLATFORM_SCOPE, BOOTSTRAP);
+    const resp = await requestMagicLink(SELF, BOOTSTRAP);
     expect(resp.status).toBe(200);
     // Reds the moment the mint is restored to the request arm.
     expect(await membershipsFor(BOOTSTRAP)).toEqual([]);
@@ -101,15 +101,11 @@ describe('Phase 1 — the platform membership waits for mailbox proof', () => {
     expect(platform.acceptedAt).toBeNull();
   });
 
-  it('a SCOPED consume for a bootstrap address ensures it too (purpose-agnostic — the old path still works)', async () => {
-    const resp = await requestMagicLink(SELF, PLATFORM_SCOPE, BOOTSTRAP);
-    const { magicLinkUrl } = await resp.json() as { magicLinkUrl: string };
-    const click = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
-    // The scoped bootstrap login is what every existing platform-login helper drives; it must still
-    // reach a session rather than the no-identity redirect.
-    expect(click.headers.get('Set-Cookie')).toContain('refresh-token=');
-    expect((await membershipsFor(BOOTSTRAP)).some((r) => r.scope === PLATFORM_SCOPE)).toBe(true);
-  });
+  // ⚠️ A third case lived here — "a SCOPED consume ensures it too (the old path still works)" —
+  // asserting that `/auth/{scope}/email-magic-link` reached a session. That route is retired, and the
+  // property it covered (the ensure is purpose-agnostic) is already asserted by the scope-less case
+  // above, so deleting it lost no coverage. Its prose was the harmful part: it argued for preserving
+  // a path the design had removed, which is exactly what a review panel reads as intent.
 
   it('a NON-bootstrap address consuming a scope-less link is minted nothing', async () => {
     const stranger = addr();
