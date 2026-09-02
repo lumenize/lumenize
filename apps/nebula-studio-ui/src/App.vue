@@ -191,6 +191,9 @@ const manageOpen = ref(false);
 const accountEmail = ref<string | null>(null);
 type Scope = { instanceName: string; tier: string; isDev: boolean; accepted?: boolean };
 const scopes = ref<Scope[]>([]);
+/** True once a scope load has COMPLETED. Distinct from `scopes.value.length === 0`, which is also
+ *  true before the first load resolves — a difference UniverseView's empty state depends on. */
+const scopesLoaded = ref(false);
 
 /**
  * Flatten the person-scoped summary into the flat list this screen still renders.
@@ -336,10 +339,9 @@ async function connect() {
  *  view the address did not name. All this does now is load the app list for UniverseView; a
  *  workspace just confirms it is ready. */
 async function nudgeNextStep() {
-  if (isWorkspace(activeScope.value)) {
-    log("studio", "Connected. Describe the app you want to build.");
-    return;
-  }
+  // A workspace is ready to chat. The empty-thread hint lives in the template (shown only
+  // while the conversation has no content), so there is nothing to log here.
+  if (isWorkspace(activeScope.value)) return;
   await loadScopes(); // populate UniverseView's app list; an empty list opens the Create form
 }
 
@@ -433,6 +435,7 @@ async function loadScopes() {
   // Render order: parents before children, so the indent reads as a tree.
   scopes.value = flattenSummary(await client.scopes.summary())
     .sort((a, b) => a.instanceName.localeCompare(b.instanceName));
+  scopesLoaded.value = true;
 }
 
 async function openManage() {
@@ -703,7 +706,12 @@ async function logout() {
     <!-- Profile completion — BLOCKING (deliberate): no close button, no backdrop
          dismiss, Escape swallowed. Everyone in the thread sees your name, so the
          one-time capture IS the product working. -->
-    <dialog class="modal" :open="profileGate === 'prompt'" @cancel.prevent @keydown.escape.prevent>
+    <!-- ⚠️ `z-[1000]` beats daisyUI's `.modal` z-index of 999. A page-level modal (UniverseView's
+         create form) renders LATER in the DOM, so at equal z-index it wins the stacking order and
+         swallows the clicks meant for this one — Save became unclickable for a mouse user while
+         Enter still submitted, which is why a hand drive walked straight past it. This dialog is the
+         BLOCKING one, so it owns the top layer. -->
+    <dialog class="modal z-[1000]" :open="profileGate === 'prompt'" @cancel.prevent @keydown.escape.prevent>
       <div class="modal-box">
         <h3 class="text-lg font-bold">What should we call you?</h3>
         <p class="py-2 text-sm opacity-80">Your name appears next to everything you post — everyone in your workspace sees it.</p>
@@ -745,6 +753,12 @@ async function logout() {
             <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.thought }}</pre>
           </details>
         </template>
+        <!-- Empty-thread hint — shown only while the conversation has no content. It is not a
+             logged message, so the first turn that lands clears it for good (no stale bubble). -->
+        <div v-if="connected && isWorkspace(activeScope) && thread.length === 0 && turnDisplay === 'none'"
+             class="chat chat-start">
+          <div class="chat-bubble">Connected. Describe the app you want to build.</div>
+        </div>
         <!-- ONE status bubble, chosen by `turnDisplay` — the branches are keyed on the
              derived value, so precedence is the reducer's and not this list's order. -->
         <div v-if="turnDisplay === 'streaming'" class="chat chat-start">
@@ -788,13 +802,18 @@ async function logout() {
           </template>
         </div>
         <!-- Authenticated: chat composer in a .dev Star, OR the guided "name your app" creator at a Universe. -->
-        <form v-else class="flex gap-2" @submit.prevent="send">
-          <input
+        <form v-else class="flex gap-2 items-end" @submit.prevent="send">
+          <!-- Wrapping composer: a textarea wraps long input instead of scrolling sideways.
+               Enter sends; Shift+Enter inserts a newline. `field-sizing` auto-grows it. -->
+          <textarea
             v-model="input"
-            class="input input-bordered flex-1"
+            class="textarea textarea-bordered flex-1 resize-none max-h-40"
+            rows="1"
+            style="field-sizing: content"
             placeholder="Describe a change…"
             :disabled="busy"
-          />
+            @keydown.enter.exact.prevent="send"
+          ></textarea>
           <button class="btn btn-primary" :disabled="busy || !input.trim()">
             <Loader2 v-if="busy" class="size-4 animate-spin" /><Send v-else class="size-4" />
           </button>
@@ -946,6 +965,7 @@ async function logout() {
           v-else-if="stageMode === 'universe' && activeScope"
           :universe="activeScope"
           :apps="universeApps"
+          :ready="scopesLoaded"
           :busy="busy"
           :error="createError"
           @create="onCreateApp"

@@ -19,7 +19,7 @@
  * the final arbiter of the slug's shape (same as the signup screen); a rejected slug comes back as
  * `error` for the person to correct.
  */
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { Plus, Loader2, Rocket } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -27,6 +27,9 @@ const props = defineProps<{
   universe: string;
   /** Galaxies directly under this universe — `{ scope: '{u}.{g}' }`. Empty for a fresh account. */
   apps: readonly { scope: string }[];
+  /** True once the scope load has COMPLETED, so an empty `apps` means an empty ACCOUNT rather than
+   *  a list that has not arrived yet. The auto-open below cannot tell those apart without it. */
+  ready: boolean;
   /** True while a create is in flight — disables the form and shows a spinner. */
   busy: boolean;
   /** A server-side create failure to show the person (e.g. a taken or malformed slug). */
@@ -60,9 +63,20 @@ function submit() {
 
 // A fresh account has no apps and nothing to choose — so the create form IS the page. An account
 // that already has apps opens on the list, with Create one click away.
-onMounted(() => {
-  if (props.apps.length === 0) openCreate();
-});
+//
+// ⚠️ **Gated on `ready`, and fires at most once.** On mount the list is always empty — the scope
+// load has not resolved yet — so an `onMounted` version popped the create form open on EVERY visit,
+// including a returning account's, which is the opposite of the list flavour it is supposed to show.
+let autoOpened = false;
+watch(
+  () => [props.ready, props.apps.length] as const,
+  () => {
+    if (autoOpened || !props.ready) return;
+    autoOpened = true;
+    if (props.apps.length === 0) openCreate();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>

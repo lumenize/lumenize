@@ -1,0 +1,188 @@
+/**
+ * **The clean signup, driven entirely through the rendered UI — no app is created by API.**
+ *
+ * This is the scenario the dead-end got past. Every other browser scenario provisions its galaxy
+ * with `provisionAndLogin` and then logs the browser in, so the path a real first-time user walks —
+ * sign up, click the letter, consent, name yourself, create your FIRST app, land in its Studio —
+ * had no coverage at all. Four defects shipped behind a green suite because of it: a Universe with
+ * no surface (an unclickable account row), a signed-out landing at bare `/`, a `session expired`
+ * banner at the new galaxy, and `/{universe}` rendering Studio instead of the Universe page.
+ *
+ * ⚠️ **The defining property: the app is created by CLICKING, not by POSTing.** The moment this
+ * scenario reaches for a provisioning helper to "get set up", it stops covering the thing it exists
+ * for. Every step below is a step a person takes (`live.md` — a helper may only do what production
+ * does), and the emailed link is followed AS SENT.
+ *
+ * Limbs, each isolated (`live.md` — mutation-check PER LIMB, not per scenario):
+ *
+ *  1. **The declared-newbie form sends one letter.** *Reds if the create-account affordance stops
+ *     reaching `claim-universe` — the newbie then spends two emails, or none.*
+ *  2. **The letter names the origin the person is browsing.** *Reds on the links-point-at-prod class
+ *     of bug — the one a compensating helper hid from every lane until 2026-09-02.*
+ *  3. **Consent, then Home fast-forwards a lone membership to its Universe page.** *Reds against
+ *     `surfaceFor(universe)` returning undefined again — the original dead end, where the account
+ *     rendered as an unclickable label with nowhere to go.*
+ *  4. **The blocking name modal, then the empty state IS the create form.** *Reds if the auto-open
+ *     stops firing: a day-1 user then sees an empty card and no obvious next step.*
+ *  5. **Creating an app lands in its Studio on a LIVE session.** *Reds on the `session expired`
+ *     defect: the refresh cookie sits at `/auth/{universe}` and RFC-6265 never sends it to
+ *     `/auth/{universe}.{app}/…`, so without the hand-off hint Studio refreshes against a path
+ *     holding no cookie and 401s. Asserted as the absence of that 401, not just of the banner.*
+ *  6. **A connected, empty thread shows its hint.** *Reds if the hint stops being conditional and
+ *     goes back to being a logged message pinned to the bottom of every conversation.*
+ *  7. **`/{universe}` stays the Universe page, and lists the app.** *Reds against the auto-forward
+ *     that sent a lone-galaxy account straight into Studio — a view the address did not name
+ *     (ADR-017) — and against the list flavour never rendering.*
+ *  8. **A revisit does NOT re-open the create form.** *Reds if the auto-open reads `apps` before the
+ *     scope load resolves: Flavour B is a list with Create one click away, not a modal in your face.*
+ *
+ * `needsContainer = false` — signup, routing and auth only. Nothing here builds an app; that is
+ * `first-app-built`, which picks up where limb 6 leaves off.
+ */
+import assert from 'node:assert/strict';
+import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
+import type { DevStack } from '../lib/harness';
+import { readDevVar } from '../lib/harness';
+import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
+
+export const needsContainer = false;
+
+/** The composer placeholder — Studio's "you are connected and can act" tell, in both scenarios. */
+const COMPOSER = 'Describe a change…';
+
+export async function run(stack: DevStack): Promise<void> {
+  const testToken = readDevVar('TEST_TOKEN');
+  // Fresh slug + fresh address per run: a deployed target's state is durable, so a fixed pair
+  // replays an already-claimed universe (409) down a branch this scenario is not covering.
+  const universe = `signup-${crypto.randomUUID().slice(0, 8)}`;
+  const appSlug = 'wishlist';
+  const galaxy = `${universe}.${appSlug}`;
+  const person = uniqueTestEmail();
+  const DISPLAY_NAME = 'Robin Newcomer';
+
+  const browser = await launchChromium();
+  const vite = await bootStudioVite(stack.baseUrl);
+  try {
+    const inst = await instrumentedPage(browser);
+    const { page } = inst;
+
+    // ── LIMB 1: sign up through the rendered form ──────────────────────────────────────────────
+    await page.goto(`${vite.viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: /Create a new account/ }).click();
+    await page.getByPlaceholder('you@example.com').fill(person);
+    await page.getByPlaceholder('acme').fill(universe);
+
+    // ⚠️ Arm the waiter BEFORE the click — the EmailTestDO pushes to already-connected sockets and
+    // never replays. Filtered by RECIPIENT only: the address is unique per run, which discriminates
+    // unconditionally, whereas an `instance` tag would have to anticipate which branch the server
+    // takes (`live.md` — a waiter armed on the wrong tag waits out its whole timeout and reports a
+    // delivery failure for what is a filter bug).
+    const waiter = waitForEmail({ testToken, to: person, timeout: 120_000 });
+    let link: string;
+    try {
+      await page.getByRole('button', { name: 'Create account', exact: true }).click();
+      await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
+      link = extractMagicLink(await waiter.emailPromise);
+    } finally {
+      waiter.cleanup();
+    }
+    console.error('  ✓ limb 1 — the declared-newbie form sent exactly one letter');
+
+    // ── LIMB 2: the link names the origin the person is on, and is followed AS SENT ────────────
+    assert.ok(link.startsWith(vite.viteBaseUrl),
+      `the emailed link must name the browsing origin as sent (got ${new URL(link).origin}, page is ${vite.viteBaseUrl})`);
+    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    console.error('  ✓ limb 2 — the letter points at the origin being browsed; clicked unmodified');
+
+    // ── LIMB 3: consent, then the fast-forward to the Universe page ────────────────────────────
+    // A claim does NOT enrol its claimer: the cookie is inert until accepted, deliberately (a link
+    // click is not consent — mail scanners click links). Home is where that decision is made.
+    await page.goto(`${vite.viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
+    const checkbox = page.getByTestId('consent-checkbox');
+    await checkbox.waitFor({ state: 'visible', timeout: 30_000 });
+    await checkbox.check();
+    await page.getByTestId('consent-accept').click();
+    // The whole dead end in one wait: one accepted membership, so Home skips itself and goes to the
+    // surface. Before the Universe page existed there was no surface to go to.
+    await page.waitForURL(new RegExp(`//[^/]+/${universe}(?:[/?#]|$)`), { timeout: 30_000 });
+    console.error('  ✓ limb 3 — consent accepted; a lone membership fast-forwards to /{universe}');
+
+    // ── LIMB 4: the blocking name modal, then the empty state IS the create form ───────────────
+    const nameField = page.getByPlaceholder('Your name');
+    try {
+      await nameField.waitFor({ state: 'visible', timeout: 30_000 });
+    } catch (e) {
+      await captureArtifacts(inst, 'signup-name-modal-missing');
+      throw e;
+    }
+    await nameField.fill(DISPLAY_NAME);
+    await page.getByRole('button', { name: 'Save' }).click();
+    await nameField.waitFor({ state: 'hidden', timeout: 20_000 });
+
+    await page.getByText('No apps yet. Create your first one to start building.')
+      .waitFor({ state: 'visible', timeout: 20_000 });
+    const slugField = page.getByPlaceholder('crm');
+    await slugField.waitFor({ state: 'visible', timeout: 20_000 });
+    console.error('  ✓ limb 4 — named the identity; the empty account opens straight into Create');
+
+    // ── LIMB 5: create the app BY CLICKING, and land in its Studio on a LIVE session ───────────
+    await slugField.fill(appSlug);
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.waitForURL(new RegExp(`//[^/]+/${universe}\\.${appSlug}(?:[/?#]|$)`), { timeout: 60_000 });
+    try {
+      await page.getByPlaceholder(COMPOSER).waitFor({ state: 'visible', timeout: 30_000 });
+    } catch (e) {
+      await captureArtifacts(inst, 'signup-studio-connect-failed');
+      throw e;
+    }
+    // ⚠️ Assert the REFUSAL, not just the banner. "Session expired" is the symptom a person reads;
+    // the defect is a 401 from a refresh aimed at a path the cookie was never scoped to, and the
+    // banner could be suppressed while the 401 remained.
+    const galaxyRefusals = inst.failedRequests.filter(
+      (r) => r.url.includes(`/auth/${galaxy}/refresh-token`) && (r.status === 401 || r.status === 'failed'),
+    );
+    assert.deepEqual(galaxyRefusals, [],
+      `the new galaxy's refresh was REFUSED — Studio is spending a cookie that is not scoped to it: ` +
+      `${JSON.stringify(galaxyRefusals)}`);
+    assert.equal(await page.getByText('Your session expired').count(), 0,
+      'a freshly-created app must not greet its creator with an expired session');
+    console.error(`  ✓ limb 5 — created ${galaxy} by clicking; Studio connected with a live session`);
+
+    // ── LIMB 6: a connected, empty thread shows its hint ───────────────────────────────────────
+    await page.getByText('Connected. Describe the app you want to build.')
+      .waitFor({ state: 'visible', timeout: 20_000 });
+    console.error('  ✓ limb 6 — the empty thread shows its hint');
+    const created = await captureArtifacts(inst, 'signup-to-first-app-studio');
+
+    // ── LIMB 7: /{universe} is the Universe page and lists the app ─────────────────────────────
+    await page.goto(`${vite.viteBaseUrl}/${universe}`, { waitUntil: 'domcontentloaded' });
+    const appRow = page.getByRole('button', { name: appSlug, exact: true });
+    try {
+      await appRow.waitFor({ state: 'visible', timeout: 30_000 });
+    } catch (e) {
+      await captureArtifacts(inst, 'signup-universe-revisit-failed');
+      throw e;
+    }
+    assert.equal(await page.getByPlaceholder(COMPOSER).count(), 0,
+      'the URL is the view (ADR-017): /{universe} must render the Universe page, never a galaxy Studio');
+    console.error('  ✓ limb 7 — /{universe} stays the Universe page and lists the app');
+
+    // ── LIMB 8: a revisit does NOT re-open the create form ─────────────────────────────────────
+    // Flavour B is a list with Create one click away. An auto-open here means the modal fired off a
+    // not-yet-loaded app list, which every returning visit would then reproduce.
+    assert.equal(await page.getByPlaceholder('crm').isVisible(), false,
+      'an account that already has apps must open on the LIST — the create form is behind the button');
+    console.error('  ✓ limb 8 — the revisit opens on the list, not the create form');
+
+    const revisit = await captureArtifacts(inst, 'signup-to-first-app-universe');
+    const { existsSync, statSync } = await import('node:fs');
+    for (const cap of [created, revisit]) {
+      assert.ok(existsSync(cap.screenshotPath) && statSync(cap.screenshotPath).size > 0,
+        `${cap.label}: the harness must produce a non-empty screenshot`);
+    }
+    console.error(`  ── a stranger signed up and reached their first app's Studio (captures: ${revisit.dir})`);
+  } finally {
+    await vite.close().catch(() => {});
+    await browser.close().catch(() => {});
+  }
+}
