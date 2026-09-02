@@ -23,7 +23,7 @@ import { HAS_DOCKER } from './gates';
 import { resolveChromiumExecutable, loginToStudio, openScopeManager } from './helpers';
 import { provisionAndLogin } from '../lib/email-login';
 
-// ⚠️ The GALAXY, not its `.dev` star. Post-collapse, `/studio/{u}.{g}` IS the authoring workspace
+// ⚠️ The GALAXY, not its `.dev` star. Post-collapse, `/{u}.{g}` IS the authoring workspace
 // (`App.vue`'s `isWorkspace` is two segments) and `{u}.{g}.dev` is the preview star it serves. The
 // three-segment form this lane used to carry was pre-collapse addressing.
 const TEST_SCOPE = 'test-u0.test-g0';

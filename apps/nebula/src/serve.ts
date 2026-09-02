@@ -4,7 +4,8 @@
  *
  * The config is shaped like the Workers Assets stanza (`directory`,
  * `not_found_handling`) so there is ONE serving convention to learn: the same
- * match-first/SPA-fallback behavior Assets applies to `/studio/*`. Only the features
+ * match-first/SPA-fallback behavior Assets applies to the Studio SPA (every path not in
+ * `run_worker_first`, scope-first `/{scope}` above all). Only the features
  * needed now are implemented — an unsupported config value THROWS rather than
  * silently no-oping. (One stated divergence: Assets manages Studio's caching via
  * ETags; this file implements the caching pin below — same effect, different

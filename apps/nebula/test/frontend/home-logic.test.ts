@@ -63,17 +63,17 @@ describe('Accept is gated on the checkbox', () => {
 describe('where a row goes', () => {
   it('a Star goes to its app and a Galaxy to its Studio', () => {
     expect(surfaceFor(node({ scope: 'acme.crm.acct', tier: 'star' }))).toBe('/app/acme.crm.acct');
-    expect(surfaceFor(node({ scope: 'acme.crm', tier: 'galaxy' }))).toBe('/studio/acme.crm');
+    expect(surfaceFor(node({ scope: 'acme.crm', tier: 'galaxy' }))).toBe('/acme.crm');
   });
 
   it('a Universe goes to its manage-apps Studio page', () => {
-    expect(surfaceFor(node({ scope: 'acme', tier: 'universe' }))).toBe('/studio/acme');
+    expect(surfaceFor(node({ scope: 'acme', tier: 'universe' }))).toBe('/acme');
   });
 
   it('the platform root has NO surface — the one universe that is surfaceless', () => {
     // ⚠️ The guard `surfaceFor`'s JSDoc promised would come due when universes gained a surface.
     // Reds against removing the `scope === PLATFORM_SCOPE` line: without it the platform root becomes
-    // `/studio/nebula-platform`, a Studio that does not exist. The input is reachable — the server
+    // `/nebula-platform`, a Studio that does not exist. The input is reachable — the server
     // always delivers `nebula-platform` as a one-segment universe — so this test can fail.
     expect(surfaceFor(node({ scope: PLATFORM_SCOPE, tier: 'universe' }))).toBeUndefined();
   });
@@ -113,18 +113,18 @@ describe('the single-Star fast-forward', () => {
     // persona pre-alpha targets on an unclickable label.
     expect(fastForwardTarget(summary([
       node({ scope: 'acme', tier: 'universe', accepted: true }),
-    ]))).toBe('/studio/acme');
+    ]))).toBe('/acme');
   });
 
   it('one accepted GALAXY skips Home to its Studio', () => {
     expect(fastForwardTarget(summary([
       node({ scope: 'acme.crm', tier: 'galaxy', accepted: true }),
-    ]))).toBe('/studio/acme.crm');
+    ]))).toBe('/acme.crm');
   });
 
   it('a lone accepted PLATFORM membership stays on Home — it has no surface', () => {
     // The superuser. Reds against fast-forwarding a surfaceless membership, which would send them to
-    // `/studio/nebula-platform`. Home renders instead, with the platform row unclickable.
+    // `/nebula-platform`. Home renders instead, with the platform row unclickable.
     expect(fastForwardTarget(summary([
       node({ scope: PLATFORM_SCOPE, tier: 'universe', accepted: true }),
     ]))).toBeUndefined();

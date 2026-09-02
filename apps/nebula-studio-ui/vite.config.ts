@@ -30,17 +30,24 @@ const swcPlugin = swc.vite({
   },
 });
 
-// Dev-server SPA fallback for `/studio/*` (the Studio surface post-collapse). Vite's built-in
-// history fallback serves index.html only for extension-less paths, so a dotted scope
-// (`/studio/u.g`) would 404. This mirrors the production Workers-Assets
-// `single-page-application` fallback so the path-carried scope works in dev too
-// (normal `npm run dev` + the ui-smoke harness). Dev-only; the real build uses Workers Assets.
+// Dev-server SPA fallback for the scope-first control-plane URLs (`/{scope}`). Vite's built-in
+// history fallback serves index.html only for extension-less paths, so a dotted scope (`/u.g`)
+// would 404. This mirrors the production Workers-Assets `single-page-application` fallback so the
+// path-carried scope works in dev too (normal `npm run dev` + the ui-smoke harness). Dev-only; the
+// real build uses Workers Assets.
+//
+// ⚠️ It is a POST middleware (returns a function from `configureServer`), so it runs AFTER vite's
+// internals and the proxy: a real asset (`/src/*`, `/@vite/*`, `/node_modules/*`) is already served,
+// and a proxied API path (`/auth`, `/gateway`, `/app`) is already forwarded — neither reaches here.
+// What reaches here is a NAVIGATION (`Accept: text/html`) to a path nothing else claimed, i.e. a
+// bare scope. Gating on the Accept header rather than a URL prefix is what lets scope-first work:
+// there is no prefix to key on any more.
 const appSpaFallback = {
   name: "studio-spa-fallback",
   configureServer(server: import("vite").ViteDevServer) {
     return () => {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url || !/^\/studio(\/|$|\?)/.test(req.url)) return next();
+        if (req.method !== "GET" || !req.headers.accept?.includes("text/html")) return next();
         try {
           const { readFile } = await import("node:fs/promises");
           const { resolve } = await import("node:path");

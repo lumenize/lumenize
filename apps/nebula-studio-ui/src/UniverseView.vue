@@ -2,7 +2,7 @@
 /**
  * The Universe page — where a freshly-signed-up account admin sees their apps and creates new ones.
  *
- * Reached at `/studio/{universe}` (a one-segment scope; `App.vue`'s `isWorkspace` is false here), and
+ * Reached at `/{universe}` (a one-segment scope; `App.vue`'s `isWorkspace` is false here), and
  * it is the FIRST authenticated surface a self-signup lands on: Home fast-forwards a lone-universe
  * identity straight here (`home-logic.ts` `fastForwardTarget` + `surfaceFor`). Before this existed a
  * self-signup dead-ended on Home with an unclickable account label — the create-your-first-app flow

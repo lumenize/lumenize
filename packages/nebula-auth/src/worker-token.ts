@@ -90,12 +90,14 @@ function expiredRefreshCookie(scope: string): string {
  * A failed login redirect, tier-split like the success path.
  *
  * ⚠️ The split matters most HERE. An **expired** claim link is the exact case the resumable claim
- * exists for: with the control plane at `/studio`, an unsplit error
- * branch lands a Star admin identity in the user-developer's control plane — the outcome the split
- * prevents.
+ * exists for: an unsplit error branch lands a Star admin identity in the user-developer's control
+ * plane — the outcome the split prevents.
  */
 function redirectWithError(_env: Env, error: string, universeGalaxyStarId?: string): Response {
-  const redirect = landingBase(universeGalaxyStarId);
+  // The control-plane prefix is EMPTY (scope-first), so used as a standalone error path it needs a
+  // real root — `/` — or the Location would be a bare `?error=` resolved against the current URL.
+  // The star prefix (`/app`) is already a real path. See {@link STUDIO_LANDING_PREFIX}.
+  const redirect = landingBase(universeGalaxyStarId) || '/';
   const separator = redirect.includes('?') ? '&' : '?';
   return new Response(null, { status: 302, headers: { Location: `${redirect}${separator}error=${error}` } });
 }

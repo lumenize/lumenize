@@ -104,7 +104,7 @@ export async function run(stack: DevStack): Promise<void> {
     const row = page.getByRole('button', { name: new RegExp(SCOPE.replace(/\./g, '\\.')) });
     await row.waitFor({ state: 'visible', timeout: 30_000 });
     await row.click();
-    await page.waitForURL(new RegExp(`/studio/${SCOPE.replace(/\./g, '\\.')}`), { timeout: 30_000 });
+    await page.waitForURL(new RegExp(`//[^/]+/${SCOPE.replace(/\./g, "\\.")}(?:[/?#]|$)`), { timeout: 30_000 });
 
     // 3. Connected → the chat input renders. This is the harness's real gate (login worked).
     //    On failure, capture the page + console + network FIRST — "never connected" has many
@@ -163,7 +163,7 @@ export async function run(stack: DevStack): Promise<void> {
     //    subscription, and the marker renders AGAIN from the durable Message (history
     //    restore). Asserted, not reported — this is exactly what the old scenario's
     //    optimistic echo could not distinguish.
-    await page.goto(`${viteBaseUrl}/studio/${SCOPE}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${viteBaseUrl}/${SCOPE}`, { waitUntil: 'domcontentloaded' });
     // ⚠️ WATCH THE WHOLE CONNECT WINDOW, not the settled end — the modal-flash defect is a
     // TRANSIENT that self-heals the instant the Profile snapshot lands, so an assertion
     // taken after the thread renders cannot see it (that is exactly how the vivified-husk

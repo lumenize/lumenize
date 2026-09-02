@@ -30,7 +30,7 @@ import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import { generateRandomString, hashString } from '@lumenize/crypto';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
-  NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, instanceAuthUrl, scopelessAuthUrl,
+  NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, RESERVED_UNIVERSE_SLUGS, instanceAuthUrl, scopelessAuthUrl,
   SCOPELESS_INSTANCE_TAG, MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
   SCOPE_TREE_NODE_BUDGET, SIGNUP_TICKET_TTL,
 } from './types';
@@ -490,6 +490,11 @@ export class NebulaAuthRegistry extends DurableObject {
     if (!isValidSlug(slug)) throw new RegistryError(400, 'invalid_slug', 'Invalid universe slug format');
     if (slug === PLATFORM_SCOPE) {
       throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_SCOPE}" is reserved`);
+    }
+    // A universe's page is served scope-first (`/{universe}`), so its slug is a top-level path
+    // segment and must not collide with a route (`RESERVED_UNIVERSE_SLUGS`'s JSDoc lists why each).
+    if (RESERVED_UNIVERSE_SLUGS.has(slug)) {
+      throw new RegistryError(400, 'reserved_slug', `"${slug}" is reserved`);
     }
     if (!this.checkSlugAvailable(slug)) {
       // ⚠️ **The same-address RESUME, which `claimStar` has always had and this path did not.** The

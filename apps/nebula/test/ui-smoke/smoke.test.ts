@@ -49,7 +49,7 @@ import { resolveChromiumExecutable } from './helpers';
  *  GALAXY post-collapse — the Wipe teardown targets its `.dev` star (`{scope}.dev`). */
 const TEST_SCOPE = 'test-u0.test-g0';
 /** Login lands at the UNIVERSE — login never mints, the claim's membership is AT the
- *  universe, and a galaxy-scoped magic link finds no membership. `/studio/{universe}`
+ *  universe, and a galaxy-scoped magic link finds no membership. `/{universe}`
  *  then auto-opens the one workspace (nudgeNextStep), same as the harness scenario. */
 const TEST_UNIVERSE = TEST_SCOPE.split('.')[0];
 /** Bootstrap admin email = the address CF Email Routing forwards to the email-test Worker. */
@@ -90,7 +90,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
-      await page.goto(`${viteBaseUrl}/studio/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${viteBaseUrl}/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
       // Capable-of-failing: each waitFor auto-waits and THROWS if the element never appears —
       // reds if the SPA fails to mount (build/bundle break) or the shell doesn't render.
@@ -158,9 +158,9 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
 
     // 5. Studio, entered from Home. Capable-of-failing: reds if the shell fails to render or the
     //    /gateway connect never completes — and specifically reds if the HAND-OFF HINT is wrong,
-    //    because the cookie lives at `/auth/test-u0` while this page is `/studio/test-u0.test-g0`,
+    //    because the cookie lives at `/auth/test-u0` while this page is `/test-u0.test-g0` (scope-first),
     //    so without the hint Studio refreshes against a path holding no cookie.
-    await page.waitForURL(new RegExp(`/studio/${TEST_SCOPE.replace('.', '\\.')}`), { timeout: 30_000 });
+    await page.waitForURL(new RegExp(`//[^/]+/${TEST_SCOPE.replace(/\./g, '\\.')}(?:[/?#]|$)`), { timeout: 30_000 });
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
     // The sign-in control sits in the SAME `v-if="!connected"` slot, so a failed connect leaves it
     // present — count==0 is what makes the assertion above non-vacuous.

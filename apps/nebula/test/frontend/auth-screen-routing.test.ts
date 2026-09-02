@@ -42,7 +42,7 @@ describe('auth SPA screen routing', () => {
     expect(screenForPath('/auth/acme/refresh-token').screen).toBe('unknown');
     expect(screenForPath('/auth/acme/home/extra').screen).toBe('unknown');
     expect(screenForPath('/auth').screen).toBe('unknown');
-    expect(screenForPath('/studio/acme').screen).toBe('unknown');
+    expect(screenForPath('/acme').screen).toBe('unknown');
   });
 
   it('a trailing slash still routes', () => {

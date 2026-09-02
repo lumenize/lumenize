@@ -144,8 +144,8 @@
   // `directory` is the `vite build` output of apps/nebula-studio-ui (gitignored; built
   // by deploy.sh BEFORE `wrangler deploy` so the upload sees it). `run_worker_first` is a
   // ROUTE LIST, not `true`: the Worker runs first ONLY for these API prefixes + /_version;
-  // every other path — /studio/* above all — is served directly by the assets layer (SPA
-  // index.html) WITHOUT invoking the Worker; being UNLISTED here is exactly how Studio is
+  // every other path — a bare scope `/{scope}` above all — is served directly by the assets layer
+  // (SPA index.html) WITHOUT invoking the Worker; being UNLISTED here is exactly how Studio is
   // served (entrypoint.ts never references env.ASSETS — no binding read, no terminal guard).
   //   - `*` is DEEP-matching: "glob patterns with * for deep matching" — it matches zero or
   //     more of ANY character, crossing path segments AND dots (CF docs / 2025-06-17 advanced

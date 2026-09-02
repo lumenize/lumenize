@@ -100,7 +100,7 @@ function openOrEnter(node: ScopeNode) {
  * Navigate into a scope's own surface, leaving the destination the one fact it cannot derive.
  *
  * ⚠️ **The hint says WHICH COOKIE to spend, and that is not guessable from the destination URL.**
- * Studio at `/studio/acme.crm` knows the scope it is working in; it does not know that the refresh
+ * Studio at `/acme.crm` knows the scope it is working in; it does not know that the refresh
  * cookie authorizing it sits at `/auth/acme`, because a person's session is established at whatever
  * scope their link named — which here is the segment this very page bootstrapped from. Without the
  * hint Studio falls back to trying the active scope as its own auth scope, and for anyone who

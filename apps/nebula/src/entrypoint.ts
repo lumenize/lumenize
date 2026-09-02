@@ -10,7 +10,7 @@
  *                      deliberately ungated — the bounding IS the security property)
  *   /auth/*          → routeNebulaAuthRequest (login, refresh, invite, etc.)
  *   /gateway/*       → routeDORequest prefix:'gateway' (WebSocket mesh connections)
- *   anything else    → 404 (`/studio/*` is Workers Assets' by being UNLISTED in
+ *   anything else    → 404 (a bare scope path `/{scope}` is Workers Assets' by being UNLISTED in
  *                      `run_worker_first` — it never reaches this Worker in prod)
  *
  * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
@@ -179,7 +179,7 @@ const router = createRouter([
 export default {
   async fetch(request: Request) {
     // Everything the Worker serves is a row above; an unmatched path is a 404, never a
-    // fall-through to some implicit handler (`/studio/*` is Workers Assets' by being
+    // fall-through to some implicit handler (a bare scope `/{scope}` is Workers Assets' by being
     // UNLISTED in `run_worker_first` — it never reaches this code in prod).
     return (await router(request)) ?? new Response('Not Found', { status: 404 });
   },

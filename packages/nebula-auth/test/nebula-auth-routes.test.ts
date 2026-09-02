@@ -242,26 +242,24 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     // 🔒 This is a wire-level decision: it bakes into every emailed link, so it cannot be fixed after
     // the fact. A **star-scoped** admin is an end user and lands on the built-app surface (`/app`, which is
     // hardcoded because the routing scheme fixes it). Every other tier is a user-developer landing on
-    // their own control plane at `/studio` (hardcoded in `landing.ts`, like the star arm beside it)
-    // since the Galaxy collapse flipped it.
-    //
-    // ⚠️ The binding is `/app` project-wide (test/wrangler.jsonc), which would make both branches
-    // produce the SAME string and the test vacuous. Each test below mutates it to `/studio` for its
-    // duration and restores it, so the branches genuinely diverge. Do NOT flip it project-wide:
-    // `test-helpers.ts` `clickLink` asserts `/^\/app(\/|$)/` at its call sites throughout this suite.
+    // their own control plane, which is SCOPE-FIRST (`/{scope}`) — so its landing PREFIX is empty and
+    // callers build `${prefix}/${scope}` = `/{scope}`. The star prefix (`/app`) stays a real path
+    // because a star is served by the Worker (the built app), not the SPA.
     describe('login redirect tier split', () => {
       // ⚠️ **The success path no longer tier-splits — it lands on Home**, where the scope is chosen
-      // and consent given. The tier rule did not die with it: it decides the ERROR redirect (below,
-      // unchanged) and the POST-ACCEPT navigation, so it is asserted here as the unit `landingBase`
-      // rather than through a consume that no longer expresses it.
+      // and consent given. The tier rule did not die with it: it decides the ERROR redirect (below)
+      // and the POST-ACCEPT navigation, so it is asserted here as the unit `landingBase` rather than
+      // through a consume that no longer expresses it.
       const locationOf = async (linkUrl: string) =>
         (await SELF.fetch(new Request(linkUrl, { redirect: 'manual' }))).headers.get('Location');
 
-      it('landingBase still splits by TIER — a star to /app, everything else to /studio', () => {
+      it('landingBase splits by TIER — a star to /app, everything else the EMPTY control-plane prefix', () => {
+        // The empty prefix is what makes the control plane scope-first: `${''}/${scope}` = `/{scope}`.
+        // Reds against re-introducing a `/studio` literal (the retired pre-scope-first prefix).
         expect(landingBase('u.g.s')).toBe('/app');
-        expect(landingBase('u.g')).toBe('/studio');
-        expect(landingBase('u')).toBe('/studio');
-        expect(landingBase(undefined)).toBe('/studio'); // no scope to parse → the control plane
+        expect(landingBase('u.g')).toBe('');
+        expect(landingBase('u')).toBe('');
+        expect(landingBase(undefined)).toBe(''); // no scope to parse → the control plane
       });
 
       it('a STAR-scoped admin lands on HOME, not straight into the app', async () => {
@@ -294,9 +292,10 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
 
         const bad = `http://localhost${PREFIX}/${star}/magic-link?one_time_token=never-issued`;
         expect(await locationOf(bad)).toBe('/app?error=invalid_token');
-        // The non-star tier still errors to the control plane.
+        // The non-star tier errors to the control-plane ROOT — the empty prefix falls back to `/`
+        // (a bare `?error=` would resolve against the current URL). Reds against dropping that `|| '/'`.
         const badUni = `http://localhost${PREFIX}/${u}/magic-link?one_time_token=never-issued`;
-        expect(await locationOf(badUni)).toBe('/studio?error=invalid_token');
+        expect(await locationOf(badUni)).toBe('/?error=invalid_token');
       });
 
       it('the TOKEN decides the landing scope, not the URL path', async () => {
@@ -415,6 +414,19 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       }));
       expect(reserved.status).toBe(400);
       expect((await reserved.json() as any).error).toBe('reserved_slug');
+
+      // A universe slug that collides with a top-level ROUTE is refused — scope-first URLs make the
+      // slug a first path segment, so `app`/`auth`/`gateway`/`assets`/`studio` would shadow a route.
+      // Reds against dropping the RESERVED_UNIVERSE_SLUGS check. `app` is a valid slug shape (passes
+      // isValidSlug), so only the reservation stops it — this cannot false-pass on the format guard.
+      for (const slug of ['app', 'auth', 'gateway', 'assets', 'studio']) {
+        const collide = await SELF.fetch(new Request(registryUrl('claim-universe'), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug, email: 'a@b.com' }),
+        }));
+        expect(collide.status, `slug "${slug}" must be reserved`).toBe(400);
+        expect((await collide.json() as any).error, `slug "${slug}"`).toBe('reserved_slug');
+      }
     });
   });
 

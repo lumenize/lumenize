@@ -4,7 +4,7 @@
  *
  * Drives the REAL Nebula entrypoint via `Browser().fetch` (baseline `index.ts`
  * re-exports `entrypoint as default`). The Worker routes exactly its table and
- * **404s every other path** — `/studio/*` is Workers Assets' in prod by being
+ * **404s every other path** — a bare scope `/{scope}` is Workers Assets' in prod by being
  * UNLISTED in `run_worker_first`, so the Worker 404ing it here IS the contract.
  *
  * The `/app/*` leg is end-to-end: the ungated GET forwards to the owning GALAXY
@@ -100,7 +100,7 @@ describe('entrypoint routing contract — exhaustive + collision-free', () => {
   // by the Worker).
   it.each([
     ['/', 'SPA root — Assets/vite-served, never the Worker'],
-    ['/studio/acme.crm', 'Studio — Assets-owned by being UNLISTED in run_worker_first'],
+    ['/acme.crm', 'a bare galaxy scope — the Studio SPA, Assets-owned by being UNLISTED in run_worker_first'],
     ['/app', 'bare /app — no scope segment names no app'],
     ['/app/acme/', 'a non-star scope segment — only {u}.{g}.{s} names a dist'],
     ['/dev-container/acme.app.dev/', 'the RETIRED preview-proxy prefix — dead since the collapse'],

@@ -85,24 +85,23 @@ export function canAccept(consentChecked: boolean): boolean {
 /**
  * Where clicking a row goes, or `undefined` when the row has no surface of its own.
  *
- * A Universe goes to its own Studio page — `/studio/{u}` — where a person sees their apps and
- * creates new ones; a Galaxy to that app's Studio; a Star to the running app. The Studio shell reads
- * the scope from the `/studio/{scope}` segment, so a one-segment scope lands it in universe
- * (manage-apps) mode and a two-segment scope in workspace (author) mode.
+ * Scope-first URLs: the scope IS the path. A Universe goes to `/{u}` (its manage-apps page), a
+ * Galaxy to `/{u}.{g}` (its Studio), a Star to `/app/{u}.{g}.{s}` (the running app). The Studio
+ * shell reads the scope from the first path segment, so its segment count picks the view — one
+ * segment is universe (manage-apps) mode, two is workspace (author) mode. Only the Star keeps a
+ * prefix, because it is served by the Worker (the built app), not the Studio SPA — and it is the
+ * route the `lumenize.dev` data-plane split will lift off this domain entirely.
  *
- * ⚠️ **The reserved platform scope is the one universe with NO surface, and it now needs an explicit
+ * ⚠️ **The reserved platform scope is the one universe with NO surface, and it needs an explicit
  * guard.** `nebula-platform` is a single segment, so the server always delivers it as a universe;
- * until universes gained a surface it fell out unclickable *for free*, and `surfaceFor`'s earlier
- * JSDoc recorded the obligation that "the moment a universe gains a surface … add the guard back
- * THEN, with a test that can fail." That moment is now: without this line the platform root would be
- * clickable into `/studio/nebula-platform`, a Studio that does not exist. The guard is reachable and
- * `home-logic.test.ts` reds if it is removed.
+ * without this line the platform root would be clickable into `/nebula-platform`, a Studio page that
+ * does not exist. The guard is reachable and `home-logic.test.ts` reds if it is removed.
  */
 export function surfaceFor(node: ScopeNode): string | undefined {
   if (node.tier === 'star') return `/app/${node.scope}`;
-  if (node.tier === 'galaxy') return `/studio/${node.scope}`;
-  if (node.scope === PLATFORM_SCOPE) return undefined; // the platform root has no Studio of its own
-  return `/studio/${node.scope}`; // universe — its manage-apps page
+  if (node.tier === 'galaxy') return `/${node.scope}`;
+  if (node.scope === PLATFORM_SCOPE) return undefined; // the platform root has no page of its own
+  return `/${node.scope}`; // universe — its manage-apps page
 }
 
 /** Whether a level renders every child, or collapses behind a disclosure. */
@@ -144,7 +143,7 @@ export function fastForwardTarget(summary: ScopeSummary): string | undefined {
  * against a path holding no cookie. Studio owns this key (`App.vue`'s `authHint`), which is why the
  * shape is pinned here rather than spelled inline at the call site.
  *
- * Not derivable at the destination: `/studio/acme.crm` cannot know the session was established at
+ * Not derivable at the destination: `/acme.crm` cannot know the session was established at
  * `acme`, because a person's cookie sits at whatever scope their link named.
  */
 export function authHintFor(destinationScope: string, authScope: string): { key: string; value: string } {

@@ -82,7 +82,7 @@ export async function loginToStudio(opts: {
   await row.waitFor({ state: 'visible', timeout: 30_000 });
   await row.click();
 
-  await page.waitForURL(new RegExp(`/studio/${scope.replace(/\./g, '\\.')}`), { timeout: 30_000 });
+  await page.waitForURL(new RegExp(`//[^/]+/${scope.replace(/\./g, "\\.")}(?:[/?#]|$)`), { timeout: 30_000 });
   await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
 
   // ⚠️ **Clear the blocking profile-name modal, or every later click times out mysteriously.** A

@@ -16,13 +16,18 @@ import { NEBULA_AUTH_PREFIX } from './types';
 export const STAR_LANDING_PREFIX = '/app';
 
 /**
- * The control-plane surface every non-star tier lands on. Hardcoded for the same reason
- * {@link STAR_LANDING_PREFIX} is: `/studio/{scope}` is fixed by the routing scheme, not by
- * deployment. It used to read `NEBULA_AUTH_REDIRECT`, a knob inherited from `@lumenize/auth` back
- * when any host app could configure where login landed; nebula-auth serves one app, the value never
- * held a second setting, and its own star arm was already hardcoded beside it.
+ * The control-plane surface every non-star tier lands on — the EMPTY prefix, because control-plane
+ * URLs are scope-first: a universe/galaxy lands at `/{scope}`, not under a realm word. So callers
+ * build `${STUDIO_LANDING_PREFIX}/${scope}` = `/{scope}`. Fixed by the routing scheme (Workers
+ * Assets serves the Studio SPA for every path that is not a `run_worker_first` prefix), not by
+ * deployment. It used to read `NEBULA_AUTH_REDIRECT` — a knob inherited from `@lumenize/auth` — and
+ * then the literal `/studio` until scope-first (2026-09-02).
+ *
+ * ⚠️ Empty is a valid prefix ONLY where a scope segment follows it. A caller that uses the prefix
+ * as a standalone path (the error redirect, which appends only `?error=`) MUST fall back to `/`
+ * so it does not emit a bare `?error=` — see `redirectWithError` in `worker-token.ts`.
  */
-export const STUDIO_LANDING_PREFIX = '/studio';
+export const STUDIO_LANDING_PREFIX = '';
 
 /** Where a proved address chooses what to enter — the Home screen, per scope. */
 export function homePath(universeGalaxyStarId: string): string {

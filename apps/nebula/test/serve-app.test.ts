@@ -91,7 +91,7 @@ describe('serveApp — match-first + SPA fallback', () => {
   });
 
   it('a path outside the base returns null (caller falls through)', async () => {
-    expect(await serveApp(req('/studio/acme.crm'), CONFIG, getFile)).toBeNull();
+    expect(await serveApp(req('/acme.crm'), CONFIG, getFile)).toBeNull();
   });
 
   it('no index.html at all (nothing built yet) → 404, never a throw', async () => {

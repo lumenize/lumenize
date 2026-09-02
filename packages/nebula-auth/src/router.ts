@@ -193,7 +193,8 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
    * Serve the auth SPA's HTML for a GET navigation.
    *
    * ⚠️ **The Worker has to do this, unlike Studio.** `/auth/*` is listed in `run_worker_first`, so
-   * the assets layer never gets first refusal on these paths the way it does for `/studio/*` — a
+   * the assets layer never gets first refusal on these paths the way it does for the Studio SPA's
+   * bare scope paths (`/{scope}`) — a
    * navigation to `/auth/login` reaches this table or it reaches nothing. That is also why every auth
    * screen is one HTML entry: the SPA reads `location.pathname` and renders login, signup, home or
    * emails from it, so the serving rows differ only in their guards.

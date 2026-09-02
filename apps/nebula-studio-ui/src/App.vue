@@ -15,15 +15,18 @@ import type { Star } from "@lumenize/nebula";
 // hierarchy-builder sidebar). `authScope` = where you logged in (the refresh-cookie scope);
 // `activeScope` = the scope you're working IN (a `.dev` Star under your authority). They differ once
 // you "open" a Star: your Universe cookie mints a token whose admin pattern reaches the Star.
-// The ACTIVE scope comes from the path: `/studio/{scope}` — the canonical, and ONLY, form the
-// magic link redirects to (the first URL segment names a SURFACE; the second is the scope).
-// There is deliberately NO `?scope=` fallback: a second way in is an interim that gets reached
-// for later (the unlearning tax). The AUTH scope comes from the per-workspace localStorage hint
-// `nebula.authScope:{activeScope}` — written by NebulaClient on every successful token
-// acquisition, never the URL and never a cookie (the client must know it to hit the path-scoped
-// refresh endpoint). Cold browser, no hint: pre-alpha the consumed link's scope IS the landing's
-// active scope, so trying the active scope itself succeeds and writes the entry.
-const pathScope = location.pathname.match(/^\/studio\/([^/?#]+)/)?.[1];
+// The ACTIVE scope comes from the path, scope-first: `/{scope}` IS the URL — the scope is the first
+// segment, and its tier (segment count) picks the view (universe manage-apps, galaxy Studio). The
+// Worker-served prefixes (`/auth`, `/app`, `/gateway`) never reach this SPA — Workers Assets serves
+// the SPA only for everything else — and universe slugs colliding with them are refused at claim
+// (`RESERVED_UNIVERSE_SLUGS`), so a first segment that reaches here is a scope or nothing. There is
+// deliberately NO `?scope=` fallback: a second way in is an interim that gets reached for later (the
+// unlearning tax). The AUTH scope comes from the per-workspace localStorage hint
+// `nebula.authScope:{activeScope}` — written by NebulaClient on every successful token acquisition,
+// never the URL and never a cookie (the client must know it to hit the path-scoped refresh
+// endpoint). Cold browser, no hint: pre-alpha the consumed link's scope IS the landing's active
+// scope, so trying the active scope itself succeeds and writes the entry.
+const pathScope = location.pathname.match(/^\/([^/?#]+)/)?.[1];
 const urlScope = pathScope ? decodeURIComponent(pathScope) : undefined;
 const AUTH_HINT_PREFIX = "nebula.authScope:";
 const authHint = (active: string) => localStorage.getItem(AUTH_HINT_PREFIX + active) ?? undefined;
@@ -604,7 +607,7 @@ const universeApps = computed(() =>
 );
 
 /** Create the app, then NAVIGATE (not an in-place switch) to its Studio so the URL is the clean
- *  `/studio/{u}.{g}` a person can share (ADR-017). A full reload for a brand-new app costs nothing —
+ *  `/{u}.{g}` a person can share (ADR-017). A full reload for a brand-new app costs nothing —
  *  there is no chat or preview state to preserve — and lands App.vue straight in workspace mode. The
  *  scope to open comes from the server's returned `instanceName`, not the typed slug, so a URL can
  *  never disagree with what was created. */
@@ -621,12 +624,12 @@ async function onCreateApp(slug: string) {
     busy.value = false;
     return;
   }
-  window.location.assign(`/studio/${created}`);
+  window.location.assign(`/${created}`);
 }
 
 /** Open an existing app's Studio (the FLAVOUR-B list) — same clean-URL navigation. */
 function onOpenApp(scope: string) {
-  window.location.assign(`/studio/${scope}`);
+  window.location.assign(`/${scope}`);
 }
 
 async function openDeleteConfirm(target: string) {

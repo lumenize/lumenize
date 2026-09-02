@@ -335,6 +335,23 @@ export const REGISTRY_INSTANCE_NAME = 'registry';
 export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 
 /**
+ * Universe slugs that cannot be claimed because they collide with a top-level ROUTE.
+ *
+ * A universe's own page is served scope-first — `nebula.lumenize.com/{universe}` — so the universe
+ * slug IS a first path segment. These words are already first path segments that mean something
+ * else: `app` / `auth` / `gateway` are the Worker-served prefixes (`run_worker_first` in
+ * `apps/nebula/wrangler.jsonc`), `assets` is the Studio bundle's own asset directory (served
+ * directly by Workers Assets before the SPA fallback), and `studio` is the retired pre-scope-first
+ * prefix, reserved so the old shape can never be re-minted as a live account. A universe with any
+ * of these names would have its bare URL shadowed by the route, so the claim is refused up front.
+ * `_`-prefixed names (e.g. `_version`) are unclaimable already — `SLUG_RE` in `parse-id.ts` rejects
+ * a leading underscore — so they need no entry here.
+ */
+export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
+  'app', 'auth', 'gateway', 'assets', 'studio',
+]);
+
+/**
  * Nebula's reserved AGENT id — an **actor** id, never a standalone subject: a Nebula-authored
  * message's `actingToken.sub` is always the triggering human, with `{ sub: NEBULA_SUB,
  * profileId: NEBULA_SUB }` prepended as the outermost `act` entry (RFC 8693). Self-describing
