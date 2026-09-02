@@ -25,6 +25,9 @@ happens to run it, which for an untouched one is never. Measured 2026-09-01: a b
 five scenarios green while breaking **nine of the seventeen** that came before it — a shared login
 helper, an acceptance semantic, and a login form deleted from a screen three scenarios drove. No
 vitest suite could see any of it, and the sweep that found it takes about four minutes.
+⚠️ The sweep `pkill -9 -f workerd`s between scenarios (a stray one starves the next boot), which
+takes down a co-running `npm run dev`'s workerd too, and `wrangler dev` does not reliably respawn
+it (bit twice 2026-09-02). If a hand-driven stack is up, expect to reboot it after a sweep.
 
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 
