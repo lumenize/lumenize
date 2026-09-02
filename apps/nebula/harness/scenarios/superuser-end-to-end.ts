@@ -33,6 +33,7 @@ import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import {
   requestMagicLink, refreshAccessToken, pointLinkAt, provisionAndLogin,
+  acceptMembership, refreshTokenForScope, setCookieHeaders,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -78,14 +79,18 @@ export async function run(stack: DevStack): Promise<void> {
     });
     const link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
     const linkRes = await fetch(link, { redirect: 'manual' });
-    const setCookie = linkRes.headers.get('set-cookie') ?? '';
-    const match = /refresh-token=([^;]+)/.exec(setCookie);
+    // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all,
+    // and pick the one Path-bound to the platform scope.
+    const found = refreshTokenForScope(setCookieHeaders(linkRes), PLATFORM_SCOPE);
     assert.ok(
-      match,
-      `the bootstrap magic-link click set no refresh-token cookie (${linkRes.status}) — ` +
-      `Location=${linkRes.headers.get('Location') ?? '(none)'}`,
+      found,
+      `the bootstrap magic-link click set no refresh-token cookie for "${PLATFORM_SCOPE}" ` +
+      `(${linkRes.status}) — Location=${linkRes.headers.get('Location') ?? '(none)'}`,
     );
-    refreshToken = match[1]!;
+    refreshToken = found;
+    // The superuser comes through the front door, so their platform membership is inert until they
+    // consent to it like anyone else — without this the refresh below 401s `membership_not_accepted`.
+    await acceptMembership(origin, refreshToken, PLATFORM_SCOPE);
   } finally {
     waiter.cleanup();   // a leaked waiter's WebSocket hangs the process AFTER the verdict prints
   }

@@ -123,6 +123,45 @@ export async function acceptMembership(
   if (!res.ok) throw new Error(`accept-membership ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
+/**
+ * Click an invite link and come back with a session that can actually mint — the invitee's whole
+ * arrival, in one call.
+ *
+ * ⚠️ **It exists because the three steps are separable and the middle one is silently omissible.**
+ * A click sets a cookie per membership and every one of them is INERT; the refusal only shows up
+ * later, at whatever `refresh-token` the scenario reaches for next, as a `membership_not_accepted`
+ * far from the line that caused it. Four scenarios hand-rolled click → pick-a-cookie → refresh, and
+ * when acceptance landed all four broke — three of them additionally picking the first cookie in the
+ * header rather than the one Path-bound to the scope they went on to use, which is a second bug that
+ * only bites an address with history. Bundling the trio means a caller cannot express the broken
+ * order.
+ *
+ * The `clicked` response is returned because scenarios legitimately assert on it — the 302's status
+ * and its `Location` are the landing contract. A scenario testing consent ITSELF (that the click is
+ * *not* enrolment) must NOT use this: drive the two halves separately, as `invite-consent` does.
+ */
+export async function acceptInviteAndLogin(options: {
+  baseUrl: string;
+  /** The `accept-invite?invite_token=…` URL from the invitation, already pointed at this origin. */
+  inviteLink: string;
+  /** The scope being joined — picks the cookie by `Path` and names what is consented to. */
+  scope: string;
+  fetchImpl?: FetchLike;
+}): Promise<{ refreshToken: string; clicked: Response }> {
+  const { inviteLink, scope, fetchImpl = fetch } = options;
+  const origin = options.baseUrl.replace(/\/$/, '');
+  const clicked = await fetchImpl(inviteLink, { redirect: 'manual' });
+  const refreshToken = refreshTokenForScope(setCookieHeaders(clicked), scope);
+  if (!refreshToken) {
+    throw new Error(
+      `accept-invite (${clicked.status}) set no refresh-token cookie for "${scope}" — ` +
+      `Location=${clicked.headers.get('Location') ?? '(none)'}`,
+    );
+  }
+  await acceptMembership(origin, refreshToken, scope, fetchImpl);
+  return { refreshToken, clicked };
+}
+
 /** Read Set-Cookie across runtimes — `getSetCookie()` in Node/workerd, single header elsewhere. */
 export function setCookieHeaders(res: Response): string[] {
   const multi = res.headers.getSetCookie?.();
@@ -284,8 +323,14 @@ export async function provisionStarAdmin(
   await provisionAndLogin({ ...options, scope: `${universe}.${galaxy}`, email: `owner-${email}` });
 
   // 3. Claim the star as the tenant. Open — no admin in the loop, no token needed.
+  // ⚠️ **No `instance` filter, because the branch below decides the tag and it has not run yet.**
+  // A claim issues its own link tagged with the star; the 409 fallback sends a SCOPE-LESS one
+  // tagged `_scopeless`. Arming on either tag makes the other branch wait out the full timeout —
+  // which is what it did, silently, for every already-claimed star. The unique recipient is the
+  // discriminator here; `instance` was only ever a concurrency filter, and it cannot be applied
+  // before the thing it filters on is known.
   const waiter = useEmail
-    ? waitForEmail({ testToken, instance: scope, to: email, timeout: timeout ?? 60_000 })
+    ? waitForEmail({ testToken, to: email, timeout: timeout ?? 60_000 })
     : undefined;
   let session: EmailSession;
   try {
@@ -440,8 +485,11 @@ export async function provisionAndLogin(
   // 1. Claim the universe. Open + Turnstile-only, and the ONLY thing here that mints an
   //    identity — it also issues the magic link, so no separate email-magic-link call.
   const useEmail = (options.channel ?? 'email') === 'email';
+  // ⚠️ **No `instance` filter — see `provisionStarAdmin`'s waiter.** The claim tags its link with
+  // the universe; the already-claimed fallback below sends a `_scopeless` one. The recipient is
+  // unique, so it is the filter that actually discriminates.
   const waiter = useEmail
-    ? waitForEmail({ testToken, instance: universe, to: email, timeout: timeout ?? 60_000 })
+    ? waitForEmail({ testToken, to: email, timeout: timeout ?? 60_000 })
     : undefined;
   let session: EmailSession;
   // Returned to the caller: magic links are deliberately MULTI-USE within their TTL (the scanner

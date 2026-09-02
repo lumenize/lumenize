@@ -35,7 +35,9 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import { NebulaClient, ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, type OrgTreeState } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { provisionAndLogin, pointLinkAt, refreshAccessToken } from '../../test/lib/email-login';
+import {
+  provisionAndLogin, pointLinkAt, refreshAccessToken, acceptInviteAndLogin,
+} from '../../test/lib/email-login';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
 export const needsContainer = false;
@@ -83,14 +85,11 @@ export async function run(stack: DevStack): Promise<void> {
     const link = pointLinkAt(origin, href.replace(/&amp;/g, '&'));
 
     // ── LIMB 3: the click IS the login, and the persisted bit rides the real path ────────────────
-    const clicked = await inviteeBrowser.fetch(link, { redirect: 'manual' });
-    const setCookie = clicked.headers.getSetCookie?.() ?? [clicked.headers.get('set-cookie') ?? ''];
-    const refreshToken = setCookie
-      .map((c) => /(?:^|;\s*)refresh-token=([^;]*)/.exec(c)?.[1])
-      .find(Boolean);
-    assert.ok(refreshToken, `accept-invite (${clicked.status}) set no refresh-token cookie`);
+    const { refreshToken } = await acceptInviteAndLogin({
+      baseUrl: origin, inviteLink: link, scope: star, fetchImpl: inviteeBrowser.fetch,
+    });
     const inviteeSession = await refreshAccessToken(
-      origin, { refreshToken: refreshToken!, authScope: star }, star, inviteeBrowser.fetch,
+      origin, { refreshToken, authScope: star }, star, inviteeBrowser.fetch,
     );
     const claims = parseJwtUnsafe(inviteeSession.accessToken)!.payload as any;
     assert.equal(claims.access.authScope, star, "the invitee's authScope must be the star, verbatim");

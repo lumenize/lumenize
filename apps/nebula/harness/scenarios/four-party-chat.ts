@@ -24,7 +24,9 @@ import { NEBULA_SUB } from '@lumenize/nebula-auth/claims';
 import { waitForEmail } from '@lumenize/email-test/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
+import {
+  refreshAccessToken, pointLinkAt, acceptMembership, refreshTokenForScope, setCookieHeaders,
+} from '../../test/lib/email-login';
 
 const uniqueTestEmail = () => `test-${crypto.randomUUID().slice(0, 8)}@lumenize.io`;
 import { parseJwtUnsafe } from '@lumenize/crypto';
@@ -79,9 +81,13 @@ export async function run(stack: DevStack): Promise<void> {
       const { extractMagicLink } = await import('@lumenize/email-test/client');
       const link = pointLinkAt(origin, extractMagicLink(await coachWaiter.emailPromise));
       const clicked = await fetch(link, { redirect: 'manual' });
-      const m = /refresh-token=([^;]+)/.exec(clicked.headers.get('set-cookie') ?? '');
-      assert.ok(m, `coach bootstrap login set no cookie (${clicked.status})`);
-      coachRefresh = m![1]!;
+      // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all,
+      // and pick the one Path-bound to the scope this session refreshes at.
+      const found = refreshTokenForScope(setCookieHeaders(clicked), PLATFORM_SCOPE);
+      assert.ok(found, `coach bootstrap login set no cookie for "${PLATFORM_SCOPE}" (${clicked.status})`);
+      coachRefresh = found;
+      // A click is not consent — the cookie is inert until its holder accepts, superuser included.
+      await acceptMembership(origin, coachRefresh, PLATFORM_SCOPE);
     } finally {
       coachWaiter.cleanup();
     }
@@ -113,6 +119,10 @@ export async function run(stack: DevStack): Promise<void> {
       assert.ok(d, 'acceptance set no .dev workspace cookie — the invite second half is missing');
       austenGalaxyToken = /refresh-token=([^;]+)/.exec(g!)![1]!;
       austenDevToken = /refresh-token=([^;]+)/.exec(d!)![1]!;
+      // Both cookies are inert until Austen consents, and one act covers both: `acceptMembership`
+      // converges the co-minted `.dev` sibling alongside the galaxy membership it is called for —
+      // which is why the `.dev` session below works off a single accept.
+      await acceptMembership(origin, austenGalaxyToken, SCOPE);
     } finally {
       austenWaiter.cleanup();
     }

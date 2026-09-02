@@ -72,31 +72,39 @@ export async function run(stack: DevStack): Promise<void> {
     const { page } = inst;
     const ctx = page.context();
 
-    // 1. Load the Studio at the UNIVERSE (where the membership lives — the form targets the
-    //    URL scope, and a galaxy-scoped magic link would find no membership).
-    await page.goto(`${viteBaseUrl}/studio/${UNIVERSE}`, { waitUntil: 'domcontentloaded' });
+    // 1. The front door is the AUTH SPA, not Studio. Studio no longer carries a login of its own —
+    //    a person proves their address first and chooses a destination afterwards, so there is no
+    //    scope to name here and nothing about the address is known before the click.
+    await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
 
-    // 2. Real-email login: arm the waiter, drive the form, extract the link, land the cookie on the
-    //    vite origin (ctx.request shares the context cookie jar), then reload → auto-connect.
+    // 2. Real-email login: arm the waiter, drive the form, extract the link, land the cookies on the
+    //    vite origin (ctx.request shares the context cookie jar).
     //    The email loop is a real external dependency (CF Email Sending → Routing → email-test Worker)
     //    and its latency varies — a generous timeout keeps the harness from flaking on a slow delivery
     //    (a `No email received` timeout here is that flake, NOT a code defect). See FINDINGS.md.
-    const waiter = waitForEmail({ testToken, instance: UNIVERSE, to: LOGIN_EMAIL, timeout: 120_000 });
+    //    ⚠️ `_scopeless`: the request names no scope, so its mail carries no scope tag.
+    const waiter = waitForEmail({ testToken, instance: '_scopeless', to: LOGIN_EMAIL, timeout: 120_000 });
     let link: string;
     try {
       await page.getByPlaceholder('you@example.com').fill(LOGIN_EMAIL);
-      await page.getByRole('button', { name: /Send magic link/ }).click();
-      await page.getByText(/Magic link sent to/).waitFor({ state: 'visible', timeout: 30_000 });
+      await page.getByRole('button', { name: /Email me a link/ }).click();
+      await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
       link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
     }
     const u = new URL(link);
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
-    // Reload at the universe → auto-connect → nudgeNextStep sees exactly ONE galaxy and opens
-    // its workspace (`openWorkspace`), which is where the chat input renders. This drives the
-    // REAL post-collapse journey: universe login → workspace at the galaxy.
-    await page.goto(`${viteBaseUrl}/studio/${UNIVERSE}`, { waitUntil: 'domcontentloaded' });
+
+    // 2b. Enter through HOME — the real post-collapse journey, and the only thing that makes the
+    //     GALAXY reachable. The cookie sits at `/auth/{universe}` and never travels to
+    //     `/auth/{universe}.{galaxy}/…` (RFC 6265 stops at the `.`), so Studio learns which cookie
+    //     to spend from the hand-off hint Home writes on its way out.
+    await page.goto(`${viteBaseUrl}/auth/${UNIVERSE}/home`, { waitUntil: 'domcontentloaded' });
+    const row = page.getByRole('button', { name: new RegExp(SCOPE.replace(/\./g, '\\.')) });
+    await row.waitFor({ state: 'visible', timeout: 30_000 });
+    await row.click();
+    await page.waitForURL(new RegExp(`/studio/${SCOPE.replace(/\./g, '\\.')}`), { timeout: 30_000 });
 
     // 3. Connected → the chat input renders. This is the harness's real gate (login worked).
     //    On failure, capture the page + console + network FIRST — "never connected" has many

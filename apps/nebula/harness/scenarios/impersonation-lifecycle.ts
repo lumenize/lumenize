@@ -25,7 +25,9 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
-import { provisionStarAdmin, loginViaEmail, refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
+import {
+  provisionStarAdmin, loginViaEmail, refreshAccessToken, pointLinkAt, acceptInviteAndLogin,
+} from '../../test/lib/email-login';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
@@ -90,12 +92,9 @@ async function inviteAndLogin(
     const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
     assert.ok(href, `invite email carried no accept-invite link (subject: ${html.slice(0, 60)})`);
     const link = pointLinkAt(stack.baseUrl, href.replace(/&amp;/g, '&'));
-    const clicked = await browser.fetch(link, { redirect: 'manual' });
-    const setCookie = clicked.headers.getSetCookie?.() ?? [clicked.headers.get('set-cookie') ?? ''];
-    const refreshToken = setCookie
-      .map((c) => /(?:^|;\s*)refresh-token=([^;]*)/.exec(c)?.[1])
-      .find(Boolean);
-    assert.ok(refreshToken, `accept-invite (${clicked.status}) set no refresh-token cookie`);
+    const { refreshToken } = await acceptInviteAndLogin({
+      baseUrl: stack.baseUrl, inviteLink: link, scope, fetchImpl: browser.fetch,
+    });
     return refreshAccessToken(stack.baseUrl, { refreshToken, authScope: scope }, scope, browser.fetch);
   } finally {
     waiter.cleanup();

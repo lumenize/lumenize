@@ -35,7 +35,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import {
-  provisionStarAdmin, provisionAndLogin, refreshAccessToken, pointLinkAt,
+  provisionStarAdmin, provisionAndLogin, refreshAccessToken, pointLinkAt, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -184,9 +184,12 @@ export async function run(stack: DevStack): Promise<void> {
     } finally {
       waiter.cleanup();   // a leaked waiter's WebSocket hangs the process AFTER the verdict prints
     }
-    const acceptRes = await fetch(inviteLink, { redirect: 'manual' });
-    const refreshToken = /refresh-token=([^;]+)/.exec(acceptRes.headers.get('set-cookie') ?? '')?.[1];
-    assert.ok(refreshToken, `the galaxy invite was not accepted (${acceptRes.status})`);
+    // A click is not consent — the cookie it sets is INERT until its holder accepts, so without the
+    // accept the refresh below 401s `membership_not_accepted` and the limb never reaches its own
+    // subject. This is what a real invitee does at the consent modal, not a shortcut around it.
+    const { refreshToken } = await acceptInviteAndLogin({
+      baseUrl: origin, inviteLink, scope: galaxy,
+    });
 
     // The server WILL mint them a token whose `aud` is the Star beneath — that is not the bug, and
     // asserting it here is what proves the refusal below comes from passage rather than the mint.

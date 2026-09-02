@@ -38,7 +38,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { Profile } from '@lumenize/nebula-auth/profile';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { provisionAndLogin, pointLinkAt } from '../../test/lib/email-login';
+import { provisionAndLogin, pointLinkAt, acceptInviteAndLogin } from '../../test/lib/email-login';
 
 export const needsContainer = false;
 
@@ -99,11 +99,12 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(await refused(readVictimNotes()), 'an UNACCEPTED invite let a stranger READ private fields');
 
     // ── The positive control: acceptance is what discriminates, not a gate that refuses all ──
-    const accepted = await fetch(inviteLink, { redirect: 'manual' });
-    assert.ok(
-      /refresh-token=/.test(accepted.headers.get('set-cookie') ?? ''),
-      `the victim could not accept the invite (${accepted.status})`,
-    );
+    // ⚠️ **The click alone is NOT acceptance, and that is the whole discriminator.** A click sets an
+    // inert cookie; `accept-membership` is the one writer of `acceptedAt`. Clicking only — which is
+    // what this control used to do — left the membership in the same unaccepted state as the arm
+    // above, so the two arms would have been indistinguishable and the "accepted" half vacuous. The
+    // victim consents here, deliberately, because consent is the thing being shown to matter.
+    await acceptInviteAndLogin({ baseUrl: origin, inviteLink, scope: evilUniverse });
 
     // Now a legitimately-joined co-scope admin — the capability the branch exists to serve.
     assert.equal(await refused(writeVictim()), false, 'an ACCEPTED membership did not permit the admin write');

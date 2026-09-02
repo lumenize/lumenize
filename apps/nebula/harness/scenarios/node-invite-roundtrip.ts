@@ -36,7 +36,9 @@ import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
-import { provisionAndLogin, pointLinkAt, refreshAccessToken } from '../../test/lib/email-login';
+import {
+  provisionAndLogin, pointLinkAt, refreshAccessToken, acceptInviteAndLogin,
+} from '../../test/lib/email-login';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
 export const needsContainer = true;
@@ -102,14 +104,11 @@ export async function run(stack: DevStack): Promise<void> {
     const link = pointLinkAt(origin, href.replace(/&amp;/g, '&'));
 
     // ── LIMB 3: the click IS the login, at the star, with NO admin bit ─────────────────────────
-    const clicked = await inviteeBrowser.fetch(link, { redirect: 'manual' });
-    const setCookie = clicked.headers.getSetCookie?.() ?? [clicked.headers.get('set-cookie') ?? ''];
-    const refreshToken = setCookie
-      .map((c) => /(?:^|;\s*)refresh-token=([^;]*)/.exec(c)?.[1])
-      .find(Boolean);
-    assert.ok(refreshToken, `accept-invite (${clicked.status}) set no refresh-token cookie`);
+    const { refreshToken } = await acceptInviteAndLogin({
+      baseUrl: origin, inviteLink: link, scope: star, fetchImpl: inviteeBrowser.fetch,
+    });
     const inviteeSession = await refreshAccessToken(
-      origin, { refreshToken: refreshToken!, authScope: star }, star, inviteeBrowser.fetch,
+      origin, { refreshToken, authScope: star }, star, inviteeBrowser.fetch,
     );
     const claims = parseJwtUnsafe(inviteeSession.accessToken)!.payload as any;
     assert.equal(claims.access.authScope, star, "the invitee's authScope must be the star");
@@ -169,12 +168,14 @@ export async function run(stack: DevStack): Promise<void> {
     const outsiderHref = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(outsiderMail.html ?? '')?.[1];
     assert.ok(outsiderHref, 'the outsider control never received an invite link');
     const outsiderBrowser = new Browser();
-    const outsiderClicked = await outsiderBrowser.fetch(pointLinkAt(origin, outsiderHref.replace(/&amp;/g, '&')), { redirect: 'manual' });
-    const outsiderCookie = (outsiderClicked.headers.getSetCookie?.() ?? [outsiderClicked.headers.get('set-cookie') ?? ''])
-      .map((c) => /(?:^|;\s*)refresh-token=([^;]*)/.exec(c)?.[1]).find(Boolean);
-    assert.ok(outsiderCookie, 'the outsider control could not log in');
+    const { refreshToken: outsiderCookie } = await acceptInviteAndLogin({
+      baseUrl: origin,
+      inviteLink: pointLinkAt(origin, outsiderHref.replace(/&amp;/g, '&')),
+      scope: star,
+      fetchImpl: outsiderBrowser.fetch,
+    });
     const outsiderSession = await refreshAccessToken(
-      origin, { refreshToken: outsiderCookie!, authScope: star }, star, outsiderBrowser.fetch,
+      origin, { refreshToken: outsiderCookie, authScope: star }, star, outsiderBrowser.fetch,
     );
     const octx = outsiderBrowser.context(stack.baseUrl);
     const outsider = new NebulaClient({
