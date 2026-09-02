@@ -53,6 +53,24 @@ it for the next task to trip over. A task file can pre-empt this per-build by ca
 "nothing replaced survives in parallel" acceptance criterion that names the known retirements as a
 floor, not a cap — write one when the design visibly supersedes shipped code.
 
+⚠️ **A retirement leaves RESIDUE one level down, and a dead PARAMETER is its commonest form.** When
+a caller goes, the functions it called keep the parameters only that caller supplied — now
+permanently `undefined`, still typed, still threaded, and invisible to the type-checker because
+optional is legal. So for each function the retired caller reached, ask: **does any LIVE caller
+still supply each parameter?** Grep the bare function name across `src/` and read every hit; a
+default value or a `?` hides the answer. **Then drop it at every level** — on 2026-09-02 the scope
+parameter left by a retired route was dead through *three* functions, so removing it from the top
+one would merely have pushed it down.
+
+⚠️ **The dangerous half is not the dead parameter — it is the reason invented to keep it.** That
+same retirement left a comment asserting *"the CLAIM paths pass one."* They never did: the claim
+paths compose their own rows through a different helper and never reach that handler. It was a
+plausible sentence written to explain something nobody had traced, it shipped inside the retirement
+commit, and it read as settled until someone asked. ⇒ **When you keep something a retirement
+touched, trace the caller you are citing** — open it, confirm it reaches this code — and if you
+cannot, write that the parameter is unexplained rather than supplying a reason for it. An invented
+justification is worse than none: the next reader treats it as a decision (`calibration.md` §7).
+
 **Why this and not the verifier panel:** the panel in step 3 checks each phase against its *success criteria*, and a confidently-worded false claim satisfies those. The discriminator is mechanical and was measured (2026-07-30, `nebula-impersonation-client` review): **every claim verified with a targeted tool call was right; every claim inferred from adjacent context was wrong** — five in one sitting. ⚠️ **"I already read that file" is NOT the check** — in the worst instance the disproving line was in the session's own earlier tool output, so the failure was not looking but failing to ask what the read implied. Per-*claim*, not per-file.
 
 ⚠️ **This bites hardest on the standing-guidance edits**, which are the ones no test can red: they ship always-loaded, and a wrong one misleads every future session. The task file is **not evidence for itself** — when a line you are writing is determined by a claim the task file already makes, verify that claim rather than inheriting it. (`✅ Checkable` in a task file means the claim was *shaped* to be falsifiable, **not** that anyone ran it; two such claims shipped false through several review passes precisely because the marker implied otherwise.)
