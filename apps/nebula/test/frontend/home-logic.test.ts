@@ -66,17 +66,15 @@ describe('where a row goes', () => {
     expect(surfaceFor(node({ scope: 'acme.crm', tier: 'galaxy' }))).toBe('/studio/acme.crm');
   });
 
-  it('a Universe has no surface yet — it renders unclickable', () => {
-    expect(surfaceFor(node({ scope: 'acme', tier: 'universe' }))).toBeUndefined();
+  it('a Universe goes to its manage-apps Studio page', () => {
+    expect(surfaceFor(node({ scope: 'acme', tier: 'universe' }))).toBe('/studio/acme');
   });
 
-  it('the platform root has no surface — because it is a universe', () => {
-    // ⚠️ **This asserts the reachable input only, and the reason matters.** The server derives tier
-    // from segment count, so `nebula-platform` (one segment) can only ever arrive as a universe;
-    // a `{ scope: PLATFORM_SCOPE, tier: 'galaxy' }` node is not constructible, and asserting over it
-    // would be testing an input production cannot produce. An explicit platform guard was written
-    // and deleted for exactly that reason — see `surfaceFor`'s JSDoc, which records the obligation
-    // that comes due when universes gain a surface.
+  it('the platform root has NO surface — the one universe that is surfaceless', () => {
+    // ⚠️ The guard `surfaceFor`'s JSDoc promised would come due when universes gained a surface.
+    // Reds against removing the `scope === PLATFORM_SCOPE` line: without it the platform root becomes
+    // `/studio/nebula-platform`, a Studio that does not exist. The input is reachable — the server
+    // always delivers `nebula-platform` as a one-segment universe — so this test can fail.
     expect(surfaceFor(node({ scope: PLATFORM_SCOPE, tier: 'universe' }))).toBeUndefined();
   });
 });
@@ -109,9 +107,26 @@ describe('the single-Star fast-forward', () => {
     ]))).toBeUndefined();
   });
 
-  it('one accepted GALAXY does not skip Home', () => {
+  it('one ACCEPTED Universe skips Home to its manage-apps page', () => {
+    // A self-signup's entire account is one universe; there is no choice to present, so skip the
+    // one-item picker. Reds against the old tier === 'star' conjunct, which dead-ended the exact
+    // persona pre-alpha targets on an unclickable label.
+    expect(fastForwardTarget(summary([
+      node({ scope: 'acme', tier: 'universe', accepted: true }),
+    ]))).toBe('/studio/acme');
+  });
+
+  it('one accepted GALAXY skips Home to its Studio', () => {
     expect(fastForwardTarget(summary([
       node({ scope: 'acme.crm', tier: 'galaxy', accepted: true }),
+    ]))).toBe('/studio/acme.crm');
+  });
+
+  it('a lone accepted PLATFORM membership stays on Home — it has no surface', () => {
+    // The superuser. Reds against fast-forwarding a surfaceless membership, which would send them to
+    // `/studio/nebula-platform`. Home renders instead, with the platform row unclickable.
+    expect(fastForwardTarget(summary([
+      node({ scope: PLATFORM_SCOPE, tier: 'universe', accepted: true }),
     ]))).toBeUndefined();
   });
 

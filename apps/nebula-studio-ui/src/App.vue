@@ -2,6 +2,7 @@
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
+import UniverseView from "./UniverseView.vue";
 import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveProfileGate, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
 import type { TurnLiveness } from "@lumenize/nebula/frontend";
 import type { ProfileGate, ProfileSlot } from "@lumenize/nebula/frontend";
@@ -240,10 +241,14 @@ const chatPair = (s?: string) => {
   // fixture and harness driver uses).
   return g ? { resourceHostBinding: "GALAXY", chatHostBinding: "GALAXY", chatScope: g } : {};
 };
-// Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (only when
-// you're inside a `.dev` Star) > the Universe/Galaxy/Star help (the default, incl. first use).
-const stageMode = computed<"manage" | "preview" | "help">(() =>
-  manageOpen.value ? "manage" : connected.value && isWorkspace(activeScope.value) ? "preview" : "help",
+// Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (inside a
+// workspace) > the Universe page (connected at a one-segment account scope, where you create/see
+// apps) > the help/welcome (the default, incl. the signed-out landing).
+const stageMode = computed<"manage" | "preview" | "universe" | "help">(() =>
+  manageOpen.value ? "manage"
+    : !connected.value ? "help"
+    : isWorkspace(activeScope.value) ? "preview"
+    : "universe",
 );
 
 // A session worth a "Log out" affordance even before the WS connects (e.g. a stale cookie that
@@ -389,12 +394,8 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisibilityC
 async function send() {
   const msg = input.value.trim();
   if (!msg || !nebula.value || busy.value) return;
-  if (!isWorkspace(activeScope.value)) {
-    // At a Universe — the composer creates an app (guided first-run "B") instead of chatting.
-    input.value = "";
-    await createApp(msg);
-    return;
-  }
+  // The composer only renders inside a workspace (a Universe shows UniverseView instead), so `send`
+  // is always a chat submit — no Universe branch to guard.
   input.value = "";
   busy.value = true;
   try {
@@ -591,21 +592,41 @@ async function openWorkspace(galaxy: string) {
 /** Guided first-run ("B"): one app name → Galaxy + its `.dev` Star + open it, so a fresh user goes
  *  straight from their Universe to authoring without hunting through "Manage my scopes". The explicit
  *  per-row builder is still there for power users; this is the frictionless path. */
-async function createApp(name: string) {
-  const universe = authScope.value;
-  const slug = slugify(name);
-  if (!slug || !universe || busy.value) return;
+// ── The Universe page (UniverseView) — create an app, or open an existing one ──────────────────
+const createError = ref<string | undefined>();
+
+/** The apps under the account this page manages: galaxies directly beneath `activeScope`, never the
+ *  hidden `.dev` workspaces. Empty for a fresh account, which is what makes the create modal open. */
+const universeApps = computed(() =>
+  scopes.value.filter(
+    (s) => s.tier === "galaxy" && !s.isDev && s.instanceName.startsWith(`${activeScope.value}.`),
+  ).map((s) => ({ scope: s.instanceName })),
+);
+
+/** Create the app, then NAVIGATE (not an in-place switch) to its Studio so the URL is the clean
+ *  `/studio/{u}.{g}` a person can share (ADR-017). A full reload for a brand-new app costs nothing —
+ *  there is no chat or preview state to preserve — and lands App.vue straight in workspace mode. The
+ *  scope to open comes from the server's returned `instanceName`, not the typed slug, so a URL can
+ *  never disagree with what was created. */
+async function onCreateApp(slug: string) {
+  const universe = activeScope.value;
+  if (!universe || busy.value) return;
+  createError.value = undefined;
   busy.value = true;
+  let created: string;
   try {
-    await nebula.value!.client.scopes.createGalaxy(universe, slug); // its .dev workspace is born with it
+    ({ instanceName: created } = await nebula.value!.client.scopes.createGalaxy(universe, slug));
   } catch (e) {
-    log("error", `Could not create app: ${(e as Error).message}`);
+    createError.value = (e as Error).message || "Could not create the app.";
     busy.value = false;
     return;
   }
-  busy.value = false;
-  await openWorkspace(`${universe}.${slug}`); // reconnects + clears chat + manages its own busy
-  log("studio", `Your app “${slug}” is ready. Now describe what you want to build.`);
+  window.location.assign(`/studio/${created}`);
+}
+
+/** Open an existing app's Studio (the FLAVOUR-B list) — same clean-URL navigation. */
+function onOpenApp(scope: string) {
+  window.location.assign(`/studio/${scope}`);
 }
 
 async function openDeleteConfirm(target: string) {
@@ -734,7 +755,9 @@ async function logout() {
       </div>
     </dialog>
     <!-- Chat rail -->
-    <section class="w-[28rem] shrink-0 flex flex-col border-r border-base-300 bg-base-200">
+    <!-- The chat rail shows for the signed-out landing and inside a workspace. A Universe has no
+         chat — it renders UniverseView full-width in the stage — so the rail is hidden there. -->
+    <section v-if="!connected || isWorkspace(activeScope)" class="w-[28rem] shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Nebula Studio</h1>
         <button
@@ -808,7 +831,7 @@ async function logout() {
           <input
             v-model="input"
             class="input input-bordered flex-1"
-            :placeholder="isWorkspace(activeScope) ? 'Describe a change…' : 'Name your app to create it…'"
+            placeholder="Describe a change…"
             :disabled="busy"
           />
           <button class="btn btn-primary" :disabled="busy || !input.trim()">
@@ -872,8 +895,7 @@ async function logout() {
               <p class="text-sm opacity-80 mt-1">When your app goes live, each of your end-customers gets their own isolated tenant — a private copy of the app with their own data. You don't create these by hand; they arrive via sign-up or invite.</p>
             </div>
           </div>
-          <p v-if="!connected" class="opacity-80">Sign in on the left to get started.</p>
-          <p v-else class="opacity-80">Next: just type a name for your app in the chat on the left and I'll set it up — or open <span class="font-medium">Manage my account</span> (top right) to build it by hand.</p>
+          <p class="opacity-80">Sign in on the left to get started.</p>
         </div>
 
         <!-- Hierarchy manager. -->
@@ -957,6 +979,17 @@ async function logout() {
             </template>
           </div>
         </div>
+
+        <!-- The Universe page: create an app, or open an existing one. -->
+        <UniverseView
+          v-else-if="stageMode === 'universe' && activeScope"
+          :universe="activeScope"
+          :apps="universeApps"
+          :busy="busy"
+          :error="createError"
+          @create="onCreateApp"
+          @open="onOpenApp"
+        />
 
         <!-- Live preview. -->
         <iframe v-else :src="previewSrc" class="w-full h-full border-0" title="Preview" />

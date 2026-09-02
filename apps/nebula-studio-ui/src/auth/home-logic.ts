@@ -85,24 +85,24 @@ export function canAccept(consentChecked: boolean): boolean {
 /**
  * Where clicking a row goes, or `undefined` when the row has no surface of its own.
  *
- * ⚠️ **`undefined` is a real answer, not a gap.** A Universe has nowhere to go — there is no universe
- * UI yet, and eventually that is where a person manages their Galaxies. Such a row renders as an
- * unclickable label, and accepting one stays on Home and re-renders it accepted rather than
- * navigating into a page that does not exist.
+ * A Universe goes to its own Studio page — `/studio/{u}` — where a person sees their apps and
+ * creates new ones; a Galaxy to that app's Studio; a Star to the running app. The Studio shell reads
+ * the scope from the `/studio/{scope}` segment, so a one-segment scope lands it in universe
+ * (manage-apps) mode and a two-segment scope in workspace (author) mode.
  *
- * ⚠️ **The reserved platform scope is covered by the universe arm, NOT by a check of its own — and
- * whoever builds universe UI inherits an obligation here.** `nebula-platform` is a single segment,
- * and the server derives tier from segment count, so it always arrives as a universe and falls out
- * unclickable for that reason. An explicit `scope === PLATFORM_SCOPE` guard was written first and
- * deleted: nothing could reach it, so no test could red it, and a guard no test can red is one a
- * later reader trusts for a reason that was never true. The moment a universe gains a surface, that
- * incidental coverage ends and the platform root becomes clickable into a Studio that does not exist
- * — so add the guard back THEN, with a test that can fail.
+ * ⚠️ **The reserved platform scope is the one universe with NO surface, and it now needs an explicit
+ * guard.** `nebula-platform` is a single segment, so the server always delivers it as a universe;
+ * until universes gained a surface it fell out unclickable *for free*, and `surfaceFor`'s earlier
+ * JSDoc recorded the obligation that "the moment a universe gains a surface … add the guard back
+ * THEN, with a test that can fail." That moment is now: without this line the platform root would be
+ * clickable into `/studio/nebula-platform`, a Studio that does not exist. The guard is reachable and
+ * `home-logic.test.ts` reds if it is removed.
  */
 export function surfaceFor(node: ScopeNode): string | undefined {
   if (node.tier === 'star') return `/app/${node.scope}`;
   if (node.tier === 'galaxy') return `/studio/${node.scope}`;
-  return undefined; // universe — no surface yet, and that is what covers the platform root
+  if (node.scope === PLATFORM_SCOPE) return undefined; // the platform root has no Studio of its own
+  return `/studio/${node.scope}`; // universe — its manage-apps page
 }
 
 /** Whether a level renders every child, or collapses behind a disclosure. */
@@ -113,19 +113,26 @@ export function rendersExpanded(children: readonly unknown[] | undefined): boole
 /**
  * The one destination to skip Home for entirely, if there is one.
  *
- * Someone whose entire account is a single Star they have already accepted came here to use an app,
- * not to choose between one option. Every other shape — more than one membership, anything
- * unaccepted, anything that is not a Star — renders Home.
+ * Someone whose entire account is a single membership came here to use it, not to choose between one
+ * option — so Home fast-forwards them to it: a self-signup universe to its manage-apps page, a lone
+ * Star to its running app. Every other shape renders Home: more than one membership (a real choice),
+ * anything unaccepted (its consent comes first), or a single membership with no surface.
  *
  * ⚠️ **ACCEPTED is load-bearing.** Fast-forwarding an unaccepted membership would carry the person
  * past the consent modal into a surface whose session is inert, which is both the wrong outcome and
  * a confusing one: they would arrive somewhere that immediately refuses them.
+ *
+ * ⚠️ **A surfaceless single membership stays on Home, and that is what keeps the superuser here.** A
+ * lone `nebula-platform` membership has no surface ({@link surfaceFor} returns `undefined`), so a
+ * superuser lands on Home with an unclickable platform row rather than being sent to a Studio that
+ * does not exist. This is why the fast-forward is expressed as "has a surface" rather than a tier
+ * check — the tier that lacks one drops out for the right reason.
  */
 export function fastForwardTarget(summary: ScopeSummary): string | undefined {
   const all = summary.emails.flatMap((e) => e.memberships);
   if (all.length !== 1) return undefined;
   const only = all[0];
-  if (only.accepted !== true || only.tier !== 'star') return undefined;
+  if (only.accepted !== true) return undefined;
   return surfaceFor(only);
 }
 
