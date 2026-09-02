@@ -1150,16 +1150,49 @@ export class NebulaAuthRegistry extends DurableObject {
    *
    * Each record carries the membership's CURRENT acceptance, and an unaccepted one mints a cookie
    * that refuses to produce a token until the consent modal flips it — the cookie is placed, inert.
+   *
+   * ⚠️ **This is where a session becomes real, so this is where ADR-016 records one** — establishing
+   * a session is named in that ADR's § *In scope today*: a login moves no authority, but it is the
+   * first thing a post-incident reader asks about, and it is the moment a principal starts acting.
+   * The record lives HERE rather than at the three call sites because every path that establishes a
+   * session has to pass through this method to get a durable one — both consume paths and the
+   * signup-ticket claim — so a fourth caller inherits the record instead of having to remember it.
+   * Enumerating the sites is the shape ADR-016 explicitly rules out.
+   *
+   * ⚠️ **There is no `actingToken`, and its absence is the accurate record rather than a gap.** A
+   * consume presents no token — proving a mailbox is what a magic link is FOR — so there are no
+   * verified claims to hand the shared projection, and naming an actor nobody verified would be the
+   * `sub`-only defect in a friendlier shape (`#revokeByHashes`'s logout path says the same of its
+   * own). What the record names instead is every principal this act put into play: `sub` identifies
+   * the membership, `profileId` the human behind it (write-time-pinned, so it still names them after
+   * they are gone), and `scopeAdmin` the authority each cookie will carry once accepted.
    */
   async recordSessions(records: SessionRecord[], expiresAt: string): Promise<void> {
+    const established: Array<Record<string, unknown>> = [];
     for (const r of records) {
       const scope = this.getIdentityScope(r.sub);
       if (!scope) continue; // membership vanished between the two calls — nothing to record
+      const accepted = this.#isAccepted(r.sub);
       await this.#recordRefreshToken(
         r.sub, scope.universeGalaxyStarId, scope.scopeAdmin, scope.profileId, r.tokenHash, expiresAt,
-        this.#isAccepted(r.sub),
+        accepted,
       );
+      established.push({
+        sub: r.sub,
+        universeGalaxyStarId: scope.universeGalaxyStarId,
+        scopeAdmin: scope.scopeAdmin,
+        profileId: scope.profileId,
+        accepted,
+      });
     }
+    // ONE line for the whole act, because one click establishes N sessions under mint-all and a
+    // reader asking "what did that login turn into?" wants the set, not N lines to reassemble.
+    // ⚠️ Identifiers only — never a token hash, never the raw value (critical.md).
+    debug('nebula-auth.Registry.login.established').info('Sessions established', {
+      sessions: established,
+      requested: records.length,
+      expiresAt,
+    });
   }
 
   /**

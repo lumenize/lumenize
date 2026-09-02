@@ -9,16 +9,18 @@
  *    ends up holding one path-scoped cookie per membership, so choosing a scope afterwards is
  *    navigation rather than another email. Asserted as the exact SET of cookie `Path` values: a
  *    count would pass while minting the wrong ones.
- *  - **The platform carve-out.** A configured bootstrap address gets its `nebula-platform` membership
- *    on any consume (behind mailbox proof), so an unqualified mint-all would leave a superuser cookie
- *    in that browser after, say, an unsolicited peer invite. Only a link that itself named the
- *    platform scope mints that cookie.
+ *  - **The superuser comes through the front door.** A configured bootstrap address gets its
+ *    `nebula-platform` membership on any consume (behind mailbox proof), and mint-all sets that
+ *    cookie like any other. ⚠️ A carve-out here used to withhold it unless the link itself named the
+ *    platform scope; it was dropped 2026-09-01 and the tests below assert the reversal — read them,
+ *    not this bullet, and see `selectSessionsToMint`'s JSDoc for why both reasons retired it.
  *  - **Inert until accepted.** The cookies exist before consent, so something must stop them being
  *    usable — otherwise the consent modal decorates a session that already works, and a direct link
  *    to the scope's surface would connect. `refresh-token` refuses an unaccepted membership, and the
  *    accept endpoint is what converges the record.
  */
 import { describe, it, expect } from 'vitest';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
 import {
@@ -113,6 +115,51 @@ describe('Phase 2 — one click, a session per membership', () => {
     const after = await refreshAndParse(SELF, PLATFORM_SCOPE, token);
     expect(after.parsed.access.authScope).toBe(PLATFORM_SCOPE);
   });
+
+  it('records ONE ADR-016 session record naming every scope the click established', async () => {
+    // ⚠️ **ADR-016 § *In scope today* names establishing a session explicitly**, and the record had
+    // gone missing: the pre-existing `login.succeeded` marker was deleted when the single-session
+    // consume was replaced by mint-all, so for a while a login was recorded nowhere at all.
+    //
+    // Asserted through the debug sink because the mechanism IS the activity log — ADR-016 § *What is
+    // recorded is the commitment; where it goes is not* puts a `@lumenize/debug` line at the point of
+    // action and imposes no schema obligation. The sink also sees DO-side entries under
+    // pool-workers, which is where this one is emitted (`testing.md`).
+    const person = addr();
+    const a = uni(); const b = uni();
+    for (const u of [a, b]) await foundUniverse(SELF, u, person);
+
+    const entries: any[] = [];
+    setDebugSink((e) => entries.push(e));
+    try {
+      await SELF.fetch(new Request(await scopelessLink(person), { redirect: 'manual' }));
+    } finally {
+      clearDebugSink();
+    }
+
+    const records = entries.filter((e) => e.namespace === 'nebula-auth.Registry.login.established');
+    // ONE line for the whole act, not one per session — a reader asking what a login turned into
+    // wants the set. Reds against moving the line inside the loop.
+    expect(records).toHaveLength(1);
+
+    const sessions = records[0].data.sessions as Array<Record<string, unknown>>;
+    // The SET of scopes, never a count: recording two sessions for the wrong two would pass a length
+    // check, and this is the field the record exists to carry.
+    expect(sessions.map((s) => s.universeGalaxyStarId).sort()).toEqual([a, b].sort());
+    // Every principal the act put into play. `profileId` is what still names the human after the
+    // membership is gone (ADR-013's write-time-pinned stamp), and `accepted` is what says whether the
+    // cookie this record describes can do anything yet.
+    for (const s of sessions) {
+      expect(s.sub).toEqual(expect.any(String));
+      expect(s.profileId).toEqual(expect.any(String));
+      expect(s.accepted).toBe(true); // `foundUniverse` accepts, so a regression to `false` reds here
+      expect(s).toHaveProperty('scopeAdmin');
+    }
+    // ⚠️ A record must never carry the credential it describes (critical.md). Reds against adding
+    // `tokenHash` — a hash is not the raw value, but it is the lookup key for a live session.
+    expect(JSON.stringify(records[0].data)).not.toContain('tokenHash');
+  });
+
   it('past the cap, the scope the LINK NAMED is still minted — it is what the click is about', () => {
     // ⚠️ A unit test on the selector, because constructing 25+ real memberships is minutes of HTTP
     // for a property that is pure ordering. It exists because the ordering shipped wrong once: with
