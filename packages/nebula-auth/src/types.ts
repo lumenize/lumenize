@@ -415,9 +415,15 @@ export interface InvitedByStamp {
  */
 export interface ConsumePlan {
   email: string;
-  /** `'login'` (bare or scoped) or `'claim'` — decides the landing, never inferred from the scope. */
-  purpose: MagicLinkPurpose;
-  /** The scope the link itself named, if any. Absent on the bare front door. */
+  /**
+   * The scope the link itself named, if any. Absent on the bare front door.
+   *
+   * ⚠️ **This, not the link's `purpose`, is what decides the landing** — `landingFor` sends the 302
+   * to this scope's Home when the address still holds it. The row's `purpose` was documented here as
+   * the deciding field and never was: both values land on Home, and the self-consent modal opens
+   * because the membership is unaccepted rather than because a claim issued the link. It stays a
+   * recorded fact on `MagicLinks` and reaches the activity log, so it is not carried on the wire.
+   */
   linkScope?: string;
   /** Every membership the address holds, most recently created first. */
   memberships: ConsumeMembership[];

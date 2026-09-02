@@ -85,8 +85,9 @@ export async function requestMagicLink(self: Fetcher, email: string): Promise<Re
  * Click a magic/invite link → the cookie set it produced. Asserts the Home redirect.
  *
  * ⚠️ **A click now sets one cookie PER MEMBERSHIP of the address (mint-all), so "the first cookie"
- * is not a thing a caller can rely on** — the set is ordered accepted-first, which for an address
- * with history is some older scope rather than the one this link named. Callers say which scope
+ * is not a thing a caller can rely on** — the order is the link's own scope first, then accepted
+ * memberships, then most-recent (`selectSessionsToMint`), so for an address with history the first
+ * cookie is not generally the one a given caller wants. Callers say which scope
  * they want; `refreshToken` is the one for the link's own landing scope, which is what every login
  * helper wants. Each cookie's `Path` is `/auth/{scope}`, so the scope is read back from there.
  */

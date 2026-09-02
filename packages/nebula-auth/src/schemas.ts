@@ -150,10 +150,12 @@ CREATE TABLE IF NOT EXISTS MagicLinks (
  *  - **`universeGalaxyStarId` is NULLABLE.** A bare login link names no scope — the address proves
  *    its mailbox and the Home screen offers whatever memberships that address holds. A scope is
  *    present only when the link's own purpose named one (a claim, or the reserved platform scope).
- *  - **`purpose` is explicit, never inferred from the scope's presence.** It decides where the
- *    consume's 302 lands, and inference would tie routing to a column that is about to hold NULL
- *    for the common case. `'login'` → the Home screen; `'claim'` → Home with the self-consent modal
- *    over the scope just claimed.
+ *  - **`purpose` records HOW the link was issued, and it is explicit rather than inferred from the
+ *    scope's presence** — inference would tie the answer to a column that now holds NULL for the
+ *    common case. ⚠️ **It decides nothing**, which corrects what this bullet used to say: both values
+ *    land on Home (`landingFor` reads `linkScope`), and the self-consent modal opens because the
+ *    membership is unaccepted, not because a claim issued the link. Its consumer is the activity
+ *    log, where "claim link or login link?" is a question a reader actually asks.
  *
  *  ⚠️ A NOT NULL cannot be dropped by `ALTER TABLE`, so this arrives as DROP + CREATE rather than an
  *  alter — free here because a link is a 30-minute ephemeron, so no row is worth preserving. */

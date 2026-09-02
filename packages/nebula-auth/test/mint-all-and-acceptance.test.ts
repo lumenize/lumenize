@@ -173,7 +173,7 @@ describe('Phase 2 — one click, a session per membership', () => {
       sub: 'fresh', universeGalaxyStarId: 'brand-new', scopeAdmin: true, profileId: 'p', accepted: false,
     };
     const chosen = selectSessionsToMint({
-      email: 'x@example.com', purpose: 'claim', linkScope: 'brand-new',
+      email: 'x@example.com', linkScope: 'brand-new',
       memberships: [...older, fresh],
     });
     expect(chosen).toHaveLength(MINT_ALL_COOKIE_CAP);         // the cap holds…

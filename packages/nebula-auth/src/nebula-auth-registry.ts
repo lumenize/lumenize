@@ -1140,8 +1140,12 @@ export class NebulaAuthRegistry extends DurableObject {
     const purpose: MagicLinkPurpose = kind === 'invite'
       ? 'login' // an invite lands on Home with the invite-flavor modal; its scope is the link's
       : ((row.purpose as MagicLinkPurpose | undefined) ?? 'login');
+    // `purpose` is recorded and reported, never returned: the Worker decides the landing from
+    // `linkScope`, so shipping the field across the RPC would be dead weight carrying a JSDoc claim
+    // nothing satisfies. What it is genuinely good for is telling a reader of the activity log
+    // whether this click came from a claim link or a login link, which is why it is logged here.
     debug('nebula-auth.Registry.login.resolved').info('Consume resolved', { table, purpose, linkScope });
-    return { email: lc, purpose, linkScope, memberships: this.#membershipsForAddress(lc) };
+    return { email: lc, linkScope, memberships: this.#membershipsForAddress(lc) };
   }
 
   /**

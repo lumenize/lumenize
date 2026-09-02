@@ -95,29 +95,64 @@ export async function run(stack: DevStack): Promise<void> {
   let inviteeAccess = '';
   function inviteeToken(): string { return inviteeAccess; }
 
-  // ── LIMB 2: PRE-ACCEPT — the destination refuses to connect ────────────────────────────────────
-  const preAccept = await fetch(`${origin}/auth/${galaxy}/refresh-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${cookie}` },
-    body: JSON.stringify({ activeScope: galaxy }),
-  });
+  /** The consent card, read the way Home reads it — cookie-credentialed, no access token anywhere. */
+  const consentCard = async (): Promise<{ accepted: boolean; invited?: boolean; invitedByName?: string }> => {
+    const res = await fetch(`${origin}/auth/${galaxy}/pending-membership`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${cookie}` },
+    });
+    assert.equal(res.status, 200, `pending-membership refused the invitee's own cookie (${res.status})`);
+    return await res.json() as { accepted: boolean; invited?: boolean; invitedByName?: string };
+  };
+
+  /** The invited scope's refusal to mint, as a status + reason pair. */
+  const mintAttempt = async (): Promise<{ status: number; body: string }> => {
+    const res = await fetch(`${origin}/auth/${galaxy}/refresh-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${cookie}` },
+      body: JSON.stringify({ activeScope: galaxy }),
+    });
+    return { status: res.status, body: await res.text() };
+  };
+
+  // ── LIMB 2: PRE-ACCEPT — the session is inert AND the row says so ──────────────────────────────
+  // Both halves, because they can break apart: a session could be refused for a reason that has
+  // nothing to do with acceptance, and a row could be flipped while the refusal persisted.
+  const preAccept = await mintAttempt();
   assert.equal(preAccept.status, 401,
     'an unaccepted invite must mint NOTHING — otherwise the modal decorates a session that already works');
-  assert.match(await preAccept.text(), /membership_not_accepted/,
+  assert.match(preAccept.body, /membership_not_accepted/,
     'the refusal must name the reason, so a boundary refusal cannot be mistaken for this one');
-  console.error('  ✓ limb 2 — pre-accept: the invited scope refuses to connect');
+  const cardBefore = await consentCard();
+  assert.equal(cardBefore.accepted, false,
+    'the ROW must be unaccepted, not merely the session refused — this is the half the 401 cannot prove');
+  assert.equal(cardBefore.invited, true,
+    'the card must say INVITED, or Home renders the self flavour ("only accept if you initiated this") ' +
+    'for something a third party initiated');
+  assert.equal(cardBefore.invitedByName, 'Dana Okonkwo',
+    'the modal the invitee actually meets renders its attribution from THIS card, pre-accept');
+  console.error('  ✓ limb 2 — pre-accept: the scope refuses to connect, and the row is unaccepted');
 
-  // ── LIMB 3: DECLINE writes nothing ─────────────────────────────────────────────────────────────
-  // Declining is walking away — there is no endpoint for it, which is the point. Re-probing after
-  // doing nothing must find the membership exactly as it was.
-  const afterDecline = await fetch(`${origin}/auth/${galaxy}/refresh-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${cookie}` },
-    body: JSON.stringify({ activeScope: galaxy }),
-  });
+  // ── LIMB 3: RENDERING THE OFFER, THEN WALKING AWAY, WRITES NOTHING ─────────────────────────────
+  // 🚨 **This limb used to re-send limb 2's exact request with nothing in between, so it could not
+  // fail on its own** — any mutation that reddened it reddened limb 2 first. Declining has no
+  // endpoint (walking away is the whole point), so what makes the limb capable of failing is the
+  // one thing the invitee's browser DOES do before walking: Home fetches the consent card to render
+  // the modal. That read is on the production path and must be a pure read.
+  //
+  // Isolating mutation: make `pending-membership` flip `acceptedAt` (or let any read path enrol).
+  // Limb 2 stays green — it reads the card only after its own 401 — and this limb reds, because the
+  // second read now reports `accepted: true` and the mint succeeds. That is the scanner-shaped hole
+  // the always-modal design exists to close: a fetch must never be able to enrol anybody.
+  await consentCard();   // the invitee opens Home, sees the offer…
+  await consentCard();   // …and looks again, because a re-render is a re-read
+  const cardAfter = await consentCard();
+  assert.equal(cardAfter.accepted, false,
+    'rendering the offer enrolled the invitee — a read path must never write acceptance');
+  const afterDecline = await mintAttempt();
   assert.equal(afterDecline.status, 401,
     'declining must leave the membership untaken — nothing may enrol without an explicit Accept');
-  console.error('  ✓ limb 3 — decline: nothing written, the membership stays an offer');
+  console.error('  ✓ limb 3 — decline: rendering the offer three times wrote nothing');
 
   // ── LIMB 4: ACCEPT enrols, and the SAME cookie then mints ──────────────────────────────────────
   await acceptMembership(origin, cookie!, galaxy);

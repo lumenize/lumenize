@@ -92,9 +92,10 @@ function cookieValue(setCookies: string[], name: string): string | undefined {
  * The `refresh-token` cookie a click set FOR A GIVEN SCOPE.
  *
  * ⚠️ **A click sets one cookie per membership of the address (mint-all), so "the first cookie" is
- * not something a caller can rely on** — the set is ordered accepted-first, which for an address
- * with history is some older scope. Each cookie's `Path` is `/auth/{scope}`, so the scope is read
- * back from there.
+ * not something a caller can rely on** — the order is the link's own scope first, then accepted
+ * memberships, then most-recent (`selectSessionsToMint`), so for an address with history the first
+ * cookie is whichever scope the link named rather than the one the caller wants next. Each cookie's
+ * `Path` is `/auth/{scope}`, so the scope is read back from there.
  */
 export function refreshTokenForScope(headers: string[], scope: string): string | undefined {
   for (const c of headers) {
