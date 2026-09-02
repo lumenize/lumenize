@@ -7,6 +7,10 @@
 #   → then open http://localhost:5174 — the scope-less front door: one email field, the emailed
 #     link lands on :5174 (the Worker boots a derived config with `routes` stripped, and the vite
 #     proxy forwards the real Host — see apps/nebula/scripts/local-config.mjs), then Home.
+#   ⚠️ Drive it in CHROME or FIREFOX, not Safari. Every auth cookie is `Secure`, and WebKit does not
+#     store Secure cookies on plain http://localhost (Chrome/Firefox do) — so in Safari the click
+#     "works" but the next POST is a 401 with no cookie in sight (bit 2026-09-02). The real fix is
+#     local https (tasks/backlog.md § Testing & Quality); the cookie attributes are not negotiable.
 #
 # Prereqs:
 #   • macOS Accessibility permission for your terminal (ttab drives Terminal.app / iTerm via AppleScript):
