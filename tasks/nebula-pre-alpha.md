@@ -12,7 +12,7 @@
 | ② | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — *design intent only, phases NOT written; one tabled decision to settle first* | Re-homing the registry's truth is a **swap** with no live data and a live-data migration afterwards. Sequenced after ① — its own § *Why this timing* says so |
 | ③ | ⚠️ **THE GATE — capture live** (below) — *no task file* | Day-1 behavioural signal is irreplaceable; it must be live **before** the first invite, not after |
 | ④ | **Turn-log inspection v0** (below) — *no task file; built inside the live harness* | Nothing to inspect until ③ captures, and Larry's daily questions need an answer path on day 1 |
-| ⑤ | **Synthetic subjects** (§ *Wave 2*) — *no task file, and UNOWNED* | ⚠️ **The one decision whose trigger has actually fired and gone untaken.** It was due before the collapse landed — see the bullet, which states the case for calling it invite-gated |
+| ⑤ | **Personas — synthetic users the LLM defines, provisioned into preview tabs** (§ *Wave 2* holds the detail) — *task file NOT yet written; Larry's* | ✅ Decided invite-gated 2026-09-02 on a real user's SOP (Jennifer's multi-tab permission testing), and it is a **user-facing feature**, so day-1 self-service is the bar |
 | ⑥ | **The wipe + redeploy itself** | The window below closes here |
 
 ⛔ **Deferred out of this run, deliberately:** moving the body-scoped Registry routes onto `/auth/:scope/…` → [on-hold/nebula-registry-scope-in-url.md](on-hold/nebula-registry-scope-in-url.md) (2026-09-02 — legibility not safety, and its cost curve is flat, so waiting is free; the file's § *Status* carries the two corrected premises).
@@ -213,13 +213,40 @@ re-deriving here.
     permission model — both mint people with mailboxes. For a Star to be exercised it needs **non-admin
     members driven under test**: synthetic act-as-only subjects (no mailbox, no claim, RFC-reserved dead
     domain — § Caveats) plus whatever attaches their DAG grants. Today `createSubject` exists **only** in
-    `apps/nebula/test/test-helpers.ts` — zero production callers, no UI. 🚨 **Placement is OVERDUE, not
-    open.** The trigger was *"decide before the collapse lands, since that is when real users arrive"*;
-    the collapse landed 2026-08-28 and the decision was never taken. It sits in Wave 2 while
-    *"a pre-alpha user can test the permission model of the app they just generated"* reads as
-    **Invite-gated** — and the goal at the top of this file says users build **multi-user** apps, which
-    nothing today lets them exercise. ⇒ **Decide it before the wipe** (it is ⑤ in the status table);
-    treat Wave-2 placement as an artifact of when it was written, not as a verdict anyone reached.
+    `apps/nebula/test/test-helpers.ts` — zero production callers, no UI.
+
+    ✅ **DECIDED 2026-09-02 (Larry): INVITE-GATED, and it grew — this is a user-facing FEATURE, not a
+    test affordance.** Wave-2 placement was an artifact of when it was written. The evidence that
+    settled it is a real user: **Jennifer has been building one of her two pre-alpha apps in Claude
+    Code, and testing her permission model is her standard operating procedure** — several tabs open,
+    two personas exercised at a time in one session. So this is demand, not speculation, and the bar
+    is day-1 self-service rather than something Larry walks someone through.
+
+    **The shape Larry is designing to** (his sketch, 2026-09-02 — the task file is his to write, so
+    read it there once it exists rather than treating this paragraph as the spec):
+    - **The LLM writes a PERSONA file into the Workspace repo** as soon as the app has a permission
+      model — day 1 for most apps, and it **evolves** with the app. Persona-oriented: named personas,
+      each with roles and permissions. It is the permission model written down, not a fixture beside it.
+    - **Studio materializes them** — accounts provisioned from the file, then **opened in separate
+      tabs inside the preview window**, each logged in as its own persona.
+    - **A `.dev` Star wipe re-establishes them** — re-provision, re-grant, re-login across the tabs.
+
+    ⚠️ **Three things are cheap now and expensive later, so settle them in the task file's design
+    intent:** the file must key on **persona NAME, never `sub`** (subs are ADR-010 randoms re-minted
+    by every wipe, so anything storing one dangles); it shares the Workspace-repo write path with
+    [nebula-ontology-history-file.md](nebula-ontology-history-file.md) but **NOT** its append-only
+    rule (personas are edited, history is not); and per-tab identity has to ride **`sessionStorage`,
+    which is per-tab — cookies and `localStorage` are not**, and every persona tab is the same origin
+    and scope, so the refresh cookie cannot tell them apart. `NebulaClient` already takes a
+    `sessionStorage` per context, which is the primitive.
+
+    ✅ **Capability-wise this is mostly ASSEMBLY, not new mechanism** — verified on disk 2026-09-02:
+    `invite()` returns the minted `sub` (`InviteeSummary`), `getIdentityScope` does **not** filter on
+    `acceptedAt` so an unclaimed persona is impersonable, `impersonate(sub, activeScope)` is built and
+    driven, and `dagTree().setPermission` attaches the grants. **The one real capability gap is a
+    no-send mint** — `issueInvites` is already mint-only with `sendInviteEmails` dispatched separately
+    post-return, so the seam exists; without using it, every wipe re-bounces mail off the sender that
+    carries real magic links.
   - **A galaxy-tier invite is NOT missing capability:** a universe admin's `{u}.*` already covers
     `{u}.{g}` and beneath. Nobody can *authenticate at* a Galaxy by claim (no identity row can exist at a
     2-segment scope), so callers authenticate at the universe and name the galaxy in `activeScope` — the
