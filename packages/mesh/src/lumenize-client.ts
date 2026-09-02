@@ -67,9 +67,11 @@ function buildClientOutgoingContext(
   const newState = options?.state
     ? { ...parentContext.state, ...options.state }
     : parentContext.state;
+  // Spread the parent context and override only what this hop changes — originAuth,
+  // originRequest, and any immutable field added later ride through unnamed.
   return {
+    ...parentContext,
     callChain: newCallChain,
-    originAuth: parentContext.originAuth,
     state: newState,
   };
 }
@@ -1280,6 +1282,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       const callContext: CallContext = {
         callChain: preprocessedCallContext.callChain,  // Plain strings - no postprocessing
         originAuth: preprocessedCallContext.originAuth,  // From JWT - no postprocessing
+        originRequest: preprocessedCallContext.originRequest,  // Edge facts, plain strings - no postprocessing
         state: postprocess(preprocessedCallContext.state),  // Preprocessed → native
       };
 

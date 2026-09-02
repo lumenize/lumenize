@@ -161,6 +161,9 @@ interface CallContext {
   /** Verified JWT claims from origin (immutable) */
   originAuth?: { sub: string; claims?: Record<string, unknown> };
 
+  /** HTTP facts of the originating upgrade, stamped by the Gateway — client-originated chains only (immutable) */
+  originRequest?: { cf?: OriginCf; ip?: string; origin?: string; userAgent?: string; acceptLanguage?: string };
+
   /** Mutable state propagated through chain */
   state: Record<string, unknown>;
 }
@@ -174,6 +177,7 @@ interface CallContext {
 | `metadata` | Native | JSON |
 | `callContext.callChain` | Native | JSON (plain strings) |
 | `callContext.originAuth` | Native | JSON (plain strings) |
+| `callContext.originRequest` | Native | JSON (plain strings) |
 | `callContext.state` | Native | Preprocessed (may contain Maps, Sets, etc.) |
 | `chain` | Preprocessed | Preprocessed |
 

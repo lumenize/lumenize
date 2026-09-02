@@ -118,11 +118,13 @@ task file is finished are because of helpers we used to test during the task fil
 **Where it bit (2026-09-02):** local `wrangler dev` inferred its host from `wrangler.jsonc`'s
 `routes`, so every login link a local stack emailed pointed at **production** — 22 green scenarios,
 found by one hand-driven click. The environment was fixed (`apps/nebula/scripts/local-config.mjs`
-strips `routes`; the Studio proxy forwards the real Host) and the helper died with it. ⚠️
-`pointInviteLinkAt` survives at the invite sites under a stated licence — a mesh call carries no
-request URL, so the facade mints at the issuer — and it is a **known violation with a named fix**
-(`tasks/on-hold/mesh-origin-request.md` Phase 1), not a precedent. Its vitest twin `pointAtOrigin`
-in `test/test-helpers.ts` goes with it.
+strips `routes`; the Studio proxy forwards the real Host) and the helper died with it. The invite
+sites needed one more piece the same day — a mesh call carries no request URL, so the facade had
+minted at the issuer — and the fix was again the code, not a helper: the Gateway now stamps the
+upgrade's origin into `callContext.originRequest` (`mesh-origin-request.md` Phase 1) and the
+facade mints from it. That deleted the last two compensators, `pointInviteLinkAt` and its vitest
+twin `pointAtOrigin`. ⇒ **Every emailed link is now followed AS SENT in every lane**, which is the
+property to defend: a new host-rewriting helper is a regression of this rule, whatever its JSDoc says.
 
 ## Two venues, one registry — local is the default; deployed is a deliberate pass (2026-08-29)
 

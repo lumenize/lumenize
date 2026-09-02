@@ -36,7 +36,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, inviteViaMesh } from '../lib/harness';
 import {
-  provisionAndLogin, pointInviteLinkAt, refreshTokenForScope, setCookieHeaders, acceptMembership,
+  provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -64,7 +64,7 @@ export async function run(stack: DevStack): Promise<void> {
     const html = (await waiter.emailPromise).html ?? '';
     const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
     assert.ok(href, `the invite email carried no accept-invite link (starts: ${html.slice(0, 80)})`);
-    link = pointInviteLinkAt(origin, href!);
+    link = href!;
   } finally {
     waiter.cleanup();
   }

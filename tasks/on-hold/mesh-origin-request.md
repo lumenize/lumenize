@@ -1,8 +1,8 @@
 # Mesh: `callContext.originRequest` + placement-aware calls
 
-> 🆕 **A second consumer arrived 2026-09-02, and it is a user-facing defect rather than a placement nicety.** `NebulaAuthFacade` mints invite links against `NEBULA_AUTH_ISSUER` because a mesh call has no request URL to read an origin from — so every invite a LOCAL stack emails points at production, the same class of bug a hand-driven magic link exposed that day (fixed for HTTP entries by `apps/nebula/scripts/local-config.mjs`; structurally unfixable for the mesh entry without this task). `callContext.originRequest` is exactly the missing input: the Gateway's upgrade request carries the browser's real `Host`, so the facade can mint from the connection's origin. Landing this deletes the last two compensating helpers in the test lanes — `pointInviteLinkAt` (`apps/nebula/test/lib/email-login.ts`) and `pointAtOrigin` (`test/test-helpers.ts`). ⚠️ The origin MUST come from the connection the Gateway verified, never from a client-supplied value — an attacker-chosen origin in an emailed login link is an account-takeover vector. Filed in [backlog.md](../backlog.md) § *Nebula Auth*.
+> ✅ **Phase 1 LANDED 2026-09-02 — pulled forward for a second consumer, with one field amended (`origin`, below).** `NebulaAuthFacade` used to mint invite links against `NEBULA_AUTH_ISSUER` because a mesh call has no request URL to read an origin from — so every invite a LOCAL stack emailed pointed at production, the same class of bug a hand-driven magic link exposed that day. `callContext.originRequest` was exactly the missing input: the Gateway stamps the upgrade's `origin` (what routing delivered, never a client header — an attacker-chosen origin in an emailed login link is an account-takeover vector, which is why it is read from the Trust DMZ and nowhere else), and the facade now mints from it with the issuer as the fallback for chains no client originated. That deleted the last two compensating helpers in the test lanes, `pointInviteLinkAt` and `pointAtOrigin`; every emailed link is now followed AS SENT in every lane. All four Phase 1 criteria are in `packages/mesh/test/lumenize-client-gateway.test.ts` § *originRequest*, three of them mutation-validated (the origin line and the inherit-path spread each red the tests that claim them). **Phases 2 (`locationHint`) and 3 (docs) stay on hold** — the `CallContext` docs page owes an `originRequest` row when Phase 3 runs.
 
-**Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry), not started. Its original consumer — [nebula-dataplane-root-admin.md](nebula-dataplane-root-admin.md) Part 1b (place the Star near the tenant) — was DEFERRED 2026-06-15, so there's no immediate driver. Pick up when a real pre-create provisioning entry point lands.
+**Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry); **Phase 1 BUILT 2026-09-02** (see the banner), Phases 2–3 on hold. Its original consumer — [nebula-dataplane-root-admin.md](nebula-dataplane-root-admin.md) Part 1b (place the Star near the tenant) — was DEFERRED 2026-06-15, so there's no immediate driver. Pick up when a real pre-create provisioning entry point lands.
 
 **The placement fact that motivates the `locationHint` half (recorded 2026-08-20):** a Star is placed near its *founder* at provisioning and Cloudflare never migrates it toward its traffic — an admin in Philadelphia founds a Star and members in Sydney talk to Philadelphia forever. Today no user-serving DO is placed by anything a link scanner can reach (the magic-link consume path's invariant — `consumeAndLogin`'s JSDoc in `packages/nebula-auth/src/worker-token.ts`), so founder-placement is the only placement unfairness in the system, and `CallOptions.locationHint` is its lever.
 
@@ -33,10 +33,13 @@ type OriginCf = Pick<IncomingRequestCfProperties,
 export interface OriginRequest {
   cf?: OriginCf;            // absent where the runtime doesn't populate it (previews)
   ip?: string;              // CF-Connecting-IP (edge-set, unspoofable)
+  origin?: string;          // scheme+host the upgrade ARRIVED on — from request.url, never a header (added 2026-09-02)
   userAgent?: string;       // User-Agent (client-controlled — descriptive only)
   acceptLanguage?: string;  // Accept-Language (client-controlled — descriptive only)
 }
 ```
+
+- **`origin` — amended in 2026-09-02 (Larry), with the second consumer.** `new URL(request.url).origin` at the upgrade: what routing delivered, so it sits in `ip`'s trust tier (edge-derived, not client-forgeable) rather than `userAgent`'s. That tier is what licenses building a user-facing absolute URL from it — the mesh invite facade now mints its emailed links from it, which is the consumer that pulled Phase 1 forward. It is a flat field because it came from the request line, not from `cf`; the split rule holds.
 
 - **`cf` stays a sub-object** because it is a *verbatim* `Pick` of the global `IncomingRequestCfProperties` — every field name, type, and quirk maps 1:1 to Cloudflare's `request.cf` docs (types-are-schema, zero invented vocabulary). Run `npm run types` before coding (the type is global, per critical.md).
 - **`ip`/`userAgent`/`acceptLanguage` are flat typed fields** — the alternative (`headers['cf-connecting-ip']`) is stringly, undiscoverable in autocomplete, and undocumentable in the type. They don't go inside `cf` because that would break the verbatim-Pick property.
@@ -68,17 +71,17 @@ Top-level `originRequest?: OriginRequest`, parallel to `originAuth` ([types.ts:3
 
 **Goal**: every client-originated call arrives at its callee with `callContext.originRequest` populated.
 
-- [ ] `OriginCf` + `OriginRequest` in `packages/mesh/src/types.ts`; `originRequest?: OriginRequest` on `CallContext` with the staleness JSDoc above. Export from both index and client-index.
-- [ ] Gateway upgrade handler: build the snapshot from `request.cf` + headers; add `originRequest?` to `GatewayConnectionInfo`; include in the attachment.
-- [ ] Stamp into `baseContext` at the Trust-DMZ site (:552), sourced from the deserialized attachment.
-- [ ] **Audit every site that reconstructs a `CallContext` literal** — they explicitly enumerate fields, so the new one silently drops anywhere it's missed: `buildOutgoingCallContext` inherit path ([lmz-api.ts:249-253](../packages/mesh/src/lmz-api.ts) — spreads `originAuth` by name), the fresh-chain path (:233-237, stays `undefined` — correct), `getCurrentCallContextCopy` (:49-53), and the Gateway's client-bound envelope rebuild (:674-678, plain strings / no preprocessing, same as `originAuth`). Consider spread-based reconstruction so the *next* added field can't be dropped.
+- [x] `OriginCf` + `OriginRequest` in `packages/mesh/src/types.ts`; `originRequest?: OriginRequest` on `CallContext` with the staleness JSDoc above. Export from both index and client-index.
+- [x] Gateway upgrade handler: build the snapshot from `request.cf` + headers; add `originRequest?` to `GatewayConnectionInfo`; include in the attachment.
+- [x] Stamp into `baseContext` at the Trust-DMZ site (:552), sourced from the deserialized attachment.
+- [x] **Audit every site that reconstructs a `CallContext` literal** — they explicitly enumerate fields, so the new one silently drops anywhere it's missed: `buildOutgoingCallContext` inherit path ([lmz-api.ts:249-253](../packages/mesh/src/lmz-api.ts) — spreads `originAuth` by name), the fresh-chain path (:233-237, stays `undefined` — correct), `getCurrentCallContextCopy` (:49-53), and the Gateway's client-bound envelope rebuild (:674-678, plain strings / no preprocessing, same as `originAuth`). Consider spread-based reconstruction so the *next* added field can't be dropped.
 
 **Success criteria** (capable-of-failing):
-- [ ] DO receiving a client-originated call sees `callContext.originRequest` with the miniflare-mock `cf` values and the UA/Accept-Language the test client sent on upgrade.
-- [ ] Multi-hop: the snapshot survives DO→DO forwarding unchanged (guards the :249-253 audit).
-- [ ] DO-originated chain and `newChain: true` → `originRequest` is `undefined`.
-- [ ] Reconnect with a changed header → snapshot refreshed.
-- [ ] Suite green + `npm run type-check` clean.
+- [x] DO receiving a client-originated call sees `callContext.originRequest` with the miniflare-mock `cf` values and the UA/Accept-Language the test client sent on upgrade.
+- [x] Multi-hop: the snapshot survives DO→DO forwarding unchanged (guards the :249-253 audit).
+- [x] DO-originated chain and `newChain: true` → `originRequest` is `undefined`.
+- [x] Reconnect with a changed header → snapshot refreshed.
+- [x] Suite green + `npm run type-check` clean.
 
 ## Phase 2 — `CallOptions.locationHint` threading + helper
 

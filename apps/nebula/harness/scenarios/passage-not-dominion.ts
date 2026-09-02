@@ -35,7 +35,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import {
-  provisionStarAdmin, provisionAndLogin, refreshAccessToken, pointInviteLinkAt, acceptInviteAndLogin,
+  provisionStarAdmin, provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -180,7 +180,7 @@ export async function run(stack: DevStack): Promise<void> {
       const html = (await waiter.emailPromise).html ?? '';
       const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
       assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
-      inviteLink = pointInviteLinkAt(origin, href.replace(/&amp;/g, '&'));
+      inviteLink = href.replace(/&amp;/g, '&');
     } finally {
       waiter.cleanup();   // a leaked waiter's WebSocket hangs the process AFTER the verdict prints
     }

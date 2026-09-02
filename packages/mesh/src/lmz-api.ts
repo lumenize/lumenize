@@ -127,9 +127,11 @@ export function buildOutgoingCallContext(
     ? { ...currentContext.state, ...options.state }
     : currentContext.state;
 
+  // Spread the inherited context and override only what this hop changes — so originAuth,
+  // originRequest, and any immutable field added later ride through without being named here.
   return {
+    ...currentContext,
     callChain: newCallChain,
-    originAuth: currentContext.originAuth,
     state: newState
   };
 }
@@ -377,6 +379,7 @@ export interface ClientResultEnvelope {
  * | `metadata` | No (plain strings) | Never |
  * | `callContext.callChain` | No (plain strings) | Never |
  * | `callContext.originAuth` | No (from JWT) | Never |
+ * | `callContext.originRequest` | No (edge facts, plain strings) | Never |
  * | `callContext.state` | Yes (user-defined) | Over WebSocket: Yes |
  * | `chain` (contains args) | Yes (method arguments) | Over WebSocket: Yes |
  *
@@ -839,9 +842,8 @@ async function fireResponse(
       version: 1,
       chain: preprocess(filled),
       callContext: {
+        ...inboundContext,  // originAuth, originRequest, and any later immutable field ride through
         callChain: [...inboundContext.callChain, calleeIdentity],
-        originAuth: inboundContext.originAuth,
-        state: inboundContext.state,
       },
       metadata: {
         caller: { type: calleeIdentity.type, bindingName: calleeIdentity.bindingName, instanceName: calleeIdentity.instanceName },

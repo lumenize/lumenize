@@ -4,7 +4,7 @@ import { getDOStub } from '@lumenize/routing';
 import { debug } from '@lumenize/debug';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from './ws-heartbeat.js';
 import type { CallEnvelope, ClientResultEnvelope } from './lmz-api.js';
-import type { NodeType, NodeIdentity, CallContext, OriginAuth } from './types.js';
+import type { NodeType, NodeIdentity, CallContext, OriginAuth, OriginRequest, OriginCf } from './types.js';
 import {
   GatewayMessageType,
   ClientDisconnectedError,
@@ -275,12 +275,15 @@ export class LumenizeClientGateway extends DurableObject<any> {
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
-    // Store verified identity in WebSocket attachment
+    // Store verified identity in WebSocket attachment — plus the HTTP facts of THIS upgrade, which
+    // become `callContext.originRequest` on every call the connection originates. Connection-scoped
+    // by construction: a reconnect re-runs this handler and rebuilds the snapshot.
     const attachment: GatewayConnectionInfo = {
       sub,
       bindingName,
       instanceName,
       claims,
+      originRequest: captureOriginRequest(request),
     };
 
     // Close any existing sockets before accepting the new one.
@@ -566,10 +569,13 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // Build callContext - callChain[0] is verified origin, rest comes from client
       // Client may have added hops (unlikely but allowed), so we preserve callChain[1+]
       // State is preprocessed by client for WebSocket - postprocess for Workers RPC
+      // originRequest comes from the ATTACHMENT (snapshotted at upgrade), never from the client's
+      // message — the same trust rule as originAuth: the Gateway is the boundary.
       const clientCallChain = clientContext?.callChain ?? [];
       const baseContext: CallContext = {
         callChain: [verifiedOrigin, ...clientCallChain.slice(1)],
         originAuth,
+        originRequest: attachment.originRequest,
         state: clientContext?.state ? postprocess(clientContext.state) : {},
       };
 
@@ -746,6 +752,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       callContext: {
         callChain: envelope.callContext.callChain,  // Plain strings - no preprocessing
         originAuth: envelope.callContext.originAuth,  // From JWT - no preprocessing
+        originRequest: envelope.callContext.originRequest,  // Edge facts, plain strings - no preprocessing
         state: preprocess(envelope.callContext.state),  // Native → preprocessed for WebSocket
       },
     };
@@ -894,4 +901,33 @@ export class LumenizeClientGateway extends DurableObject<any> {
       waiter.reject(error);
     }
   }
+}
+
+/**
+ * The curated snapshot of an upgrade request that becomes `callContext.originRequest`.
+ *
+ * `cf` is a verbatim FIELD PICK, never the whole object — `request.cf` also carries
+ * entitlement-gated and precision-creep fields the wire shape deliberately excludes (`OriginCf`'s
+ * JSDoc lists them). `origin` is taken from the request URL — what routing delivered — and never
+ * from a client header, which is what licenses building an emailed absolute URL from it.
+ * Header-derived fields are omitted rather than set `undefined`, to keep the attachment small.
+ */
+function captureOriginRequest(request: Request): OriginRequest {
+  const cf = (request as Request & { cf?: IncomingRequestCfProperties }).cf;
+  const pick: OriginCf | undefined = cf ? {
+    continent: cf.continent, country: cf.country, isEUCountry: cf.isEUCountry,
+    latitude: cf.latitude, longitude: cf.longitude,
+    region: cf.region, regionCode: cf.regionCode, city: cf.city,
+    colo: cf.colo, timezone: cf.timezone,
+  } : undefined;
+  const ip = request.headers.get('CF-Connecting-IP');
+  const userAgent = request.headers.get('User-Agent');
+  const acceptLanguage = request.headers.get('Accept-Language');
+  return {
+    ...(pick ? { cf: pick } : {}),
+    ...(ip ? { ip } : {}),
+    origin: new URL(request.url).origin,
+    ...(userAgent ? { userAgent } : {}),
+    ...(acceptLanguage ? { acceptLanguage } : {}),
+  };
 }

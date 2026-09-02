@@ -15,7 +15,7 @@
  * separation exists.
  */
 
-import type { NodeIdentity, OriginAuth } from './types.js';
+import type { NodeIdentity, OriginAuth, OriginRequest } from './types.js';
 
 // ============================================
 // Close Codes
@@ -156,6 +156,8 @@ export interface IncomingCallMessage {
     /** Plain strings - no preprocessing needed */
     callChain: NodeIdentity[];
     originAuth?: OriginAuth;
+    /** Edge facts of the originating upgrade — plain strings, no preprocessing needed */
+    originRequest?: OriginRequest;
     /** User-defined, preprocessed for WebSocket */
     state: any;
   };
@@ -236,4 +238,11 @@ export interface GatewayConnectionInfo {
   instanceName: string;
   /** All JWT payload fields, plus any additional claims from `onBeforeAccept`. */
   claims: Record<string, unknown>;
+  /**
+   * HTTP facts of the upgrade request, snapshotted at accept — becomes `callContext.originRequest`
+   * on every call this connection originates. Rebuilt on every reconnect, so it refreshes exactly
+   * when the socket does. Budget: ~250–350 bytes against the 2 KB `serializeAttachment` cap this
+   * attachment shares with `claims` (a comment, not an enforcement, in v1).
+   */
+  originRequest?: OriginRequest;
 }

@@ -37,7 +37,7 @@ import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
 import {
-  provisionAndLogin, pointInviteLinkAt, refreshAccessToken, acceptInviteAndLogin,
+  provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
@@ -101,7 +101,7 @@ export async function run(stack: DevStack): Promise<void> {
     const html = mail.html ?? '';
     const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
     assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
-    const link = pointInviteLinkAt(origin, href.replace(/&amp;/g, '&'));
+    const link = href.replace(/&amp;/g, '&');
 
     // ── LIMB 3: the click IS the login, at the star, with NO admin bit ─────────────────────────
     const { refreshToken } = await acceptInviteAndLogin({
@@ -170,7 +170,7 @@ export async function run(stack: DevStack): Promise<void> {
     const outsiderBrowser = new Browser();
     const { refreshToken: outsiderCookie } = await acceptInviteAndLogin({
       baseUrl: origin,
-      inviteLink: pointInviteLinkAt(origin, outsiderHref.replace(/&amp;/g, '&')),
+      inviteLink: outsiderHref.replace(/&amp;/g, '&'),
       scope: star,
       fetchImpl: outsiderBrowser.fetch,
     });

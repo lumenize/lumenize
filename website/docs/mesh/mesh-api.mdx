@@ -79,6 +79,11 @@ interface CallContext {
   // Immutable — verified claims from origin's JWT (if authenticated)
   originAuth?: OriginAuth;
 
+  // Immutable — HTTP facts of the originating upgrade, stamped by the Gateway (client-originated
+  // chains only). Tamper-evident like originAuth: NOT in callChain[0] (which the client partly
+  // authors) and NOT in state (which any hop may mutate).
+  originRequest?: OriginRequest;
+
   // Mutable — can be modified by onBeforeCall or any handler along the way
   state: Record<string, unknown>;
 }

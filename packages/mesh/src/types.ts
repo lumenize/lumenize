@@ -33,6 +33,53 @@ export interface OriginAuth {
   claims?: Record<string, unknown>; // Additional JWT claims (roles, permissions, etc.)
 }
 
+/**
+ * Verbatim subset of Cloudflare's `request.cf` (`IncomingRequestCfProperties`).
+ *
+ * Split rule: everything under `cf` came from the runtime-added `cf` Request property; every flat
+ * {@link OriginRequest} field came from a header or the request URL. `isEUCountry` keeps CF's
+ * `"1"`-or-absent quirk and `latitude`/`longitude` stay strings — normalization lives in helpers,
+ * never in the wire shape. Excluded on purpose (additive if a consumer appears): `postalCode`,
+ * `asn`/`asOrganization`, `httpProtocol`/`tlsVersion`/`botManagement`.
+ */
+export type OriginCf = Pick<IncomingRequestCfProperties,
+  | 'continent' | 'country' | 'isEUCountry'   // placement hint + EU-jurisdiction suggestion
+  | 'latitude' | 'longitude'                  // hint-split inputs (strings, per CF)
+  | 'region' | 'regionCode' | 'city'          // audit/analytics display ("login from Austin, TX")
+  | 'colo'                                    // CF datacenter the connection hit — placement/latency debugging
+  | 'timezone'                                // display/scheduling
+>;
+
+/**
+ * HTTP-level facts from the request that originated this call chain.
+ *
+ * Captured by the Gateway at WebSocket upgrade — CONNECTION-scoped, so it is refreshed on each
+ * reconnect and may be minutes or hours old mid-session. `undefined` when the origin isn't a
+ * `LumenizeClient` (DO/Worker origins, `newChain: true`).
+ *
+ * Trust, per field — this is what decides what each may be used for:
+ * - `cf` is set by the runtime at the edge and `ip` by the edge from the connection; external
+ *   clients cannot forge either (an intermediate Worker could via `new Request(req, { cf })`;
+ *   ours never do).
+ * - `origin` is the scheme + host the upgrade ARRIVED on — `new URL(request.url).origin`, i.e.
+ *   what routing delivered, never a client-supplied header. That is what makes it safe to build a
+ *   user-facing absolute URL from: an emailed link must echo the host the person is actually on.
+ * - `userAgent` / `acceptLanguage` are client-controlled — descriptive only, NEVER authorization
+ *   inputs.
+ */
+export interface OriginRequest {
+  /** Absent where the runtime doesn't populate it (previews). */
+  cf?: OriginCf;
+  /** `CF-Connecting-IP` — edge-set, unspoofable. */
+  ip?: string;
+  /** Scheme + host the upgrade arrived on — from the request URL, not from any client header. */
+  origin?: string;
+  /** `User-Agent` — client-controlled, descriptive only. */
+  userAgent?: string;
+  /** `Accept-Language` — client-controlled, descriptive only. */
+  acceptLanguage?: string;
+}
+
 /** Context for a mesh call, propagated through the entire call chain */
 export interface CallContext {
   // Immutable — full call path: [origin, hop1, hop2, ..., caller]
@@ -40,6 +87,11 @@ export interface CallContext {
 
   // Immutable — verified claims from origin's JWT (if authenticated)
   originAuth?: OriginAuth;
+
+  // Immutable — HTTP facts of the originating upgrade, stamped by the Gateway (client-originated
+  // chains only). Tamper-evident like originAuth: NOT in callChain[0] (which the client partly
+  // authors) and NOT in state (which any hop may mutate).
+  originRequest?: OriginRequest;
 
   // Mutable — can be modified by onBeforeCall or any handler along the way
   state: Record<string, unknown>;

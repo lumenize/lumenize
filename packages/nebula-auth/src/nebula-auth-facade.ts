@@ -33,14 +33,20 @@
  * Behind a dedicated subpath export (`@lumenize/nebula-auth/facade`), never the root barrel — a
  * mesh-composing class in a widely-imported index breaks pure-unit transforms (packaging.md).
  *
- * ⚠️ **Invite links mint against {@link NEBULA_AUTH_ISSUER}** — a mesh call carries no request URL,
- * so there is no origin to read (the HTTP entries read `url.origin`; a client-supplied origin would
- * be an open-redirect vector into email). The issuer IS the app's canonical public origin, so
- * production links are right by construction; a harness driving a local stack re-points the host
- * (`pointInviteLinkAt`'s existing job), and test lanes read the URL from test-mode `links` or the
- * captured message rather than from a browser bar.
+ * **Invite links mint against the origin the inviter's connection ARRIVED on** —
+ * `callContext.originRequest.origin`, which the Gateway stamps from the upgrade request's URL (what
+ * routing delivered, never a client-supplied header — a client-chosen origin in an emailed login link
+ * would be an account-takeover vector, which is why it is read from the Trust DMZ and from nowhere
+ * else). That is the same rule the HTTP entries follow with `url.origin`, and it is what lands the
+ * invitee's cookie on the host their browser will actually drive: a local stack emails
+ * `http://localhost:5174/…`, production emails the custom domain, with no per-venue re-pointing
+ * anywhere. {@link NEBULA_AUTH_ISSUER} is the FALLBACK for a chain no client originated (a DO- or
+ * Worker-originated invite, `newChain: true`) — there it is the app's canonical public origin and
+ * right by construction. ⚠️ When the `lumenize.dev` data-plane split lands, a connection arriving on
+ * a tenant host will need that task's host→scope map to decide what an invite link echoes; today
+ * every Gateway upgrade arrives on the control-plane origin, so the question does not yet arise.
  */
-import { LumenizeWorker, mesh } from '@lumenize/mesh';
+import { LumenizeWorker, mesh, type OriginRequest } from '@lumenize/mesh';
 import { hasDominionOver, parseId } from './parse-id';
 import { NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME, sanitizeInviterName } from './types';
 import type { InviteMintResult, InviteSummary, InviteeRequest, NebulaJwtPayload } from './types';
@@ -68,12 +74,17 @@ export class NebulaAuthFacade extends LumenizeWorker {
     // binding), which is the same no-verified-identity fact — collapse both to the one refusal
     // rather than leaking a framework error for one of them.
     let claims: NebulaJwtPayload | undefined;
+    let originRequest: OriginRequest | undefined;
     try {
-      claims = this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined;
+      const callContext = this.lmz.callContext;
+      claims = callContext.originAuth?.claims as NebulaJwtPayload | undefined;
+      originRequest = callContext.originRequest;
     } catch { claims = undefined; }
     if (!claims?.access?.authScope) {
       throw new Error('Invite requires a verified identity: this call carried no origin claims');
     }
+    // Where the emailed links point — the header JSDoc carries the trust argument and the fallback.
+    const origin = originRequest?.origin ?? NEBULA_AUTH_ISSUER;
 
     // ── The ADR-001 boundary: shape-check what the wire cannot. ─────────────────────────────────
     if (typeof targetScope !== 'string') {
@@ -123,7 +134,7 @@ export class NebulaAuthFacade extends LumenizeWorker {
     // ADR-016 record carries the full verified acting chain.
     const registry = (this.env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
     const mint = await registry.issueInvites(
-      targetScope, capped, NEBULA_AUTH_ISSUER, claims, cleanName,
+      targetScope, capped, origin, claims, cleanName,
     ) as InviteMintResult;
 
     const testMode = (this.env as any).NEBULA_AUTH_TEST_MODE === 'true';
@@ -131,7 +142,7 @@ export class NebulaAuthFacade extends LumenizeWorker {
       // Post-return, under waitUntil: the summary never waits on provider I/O, and the helper
       // catches per-invitee (identifiers only), so this can never reject.
       this.ctx.waitUntil(sendInviteEmails(this.env, {
-        instanceName: targetScope, origin: NEBULA_AUTH_ISSUER, invitees: mint.results,
+        instanceName: targetScope, origin, invitees: mint.results,
       }));
     }
     return summarizeInvites(mint, testMode);

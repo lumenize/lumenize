@@ -23,7 +23,7 @@ import type { NebulaClient } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
 import {
   universeAdminClient, adminClientAt, createInvitedClient, createSubject, createPlatformAdminClient,
-  browserLogin, pointAtOrigin, refreshToken, uniqueStar, universeOf, acceptMembershipVia,
+  browserLogin, refreshToken, uniqueStar, universeOf, acceptMembershipVia,
 } from '../../test-helpers';
 
 function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0, 8)}@example.com`; }
@@ -45,7 +45,7 @@ function facadeInvite(
  *  consent, and the refresh below fails. */
 async function acceptInvite(link: string, scope: string): Promise<NebulaJwtPayload> {
   const browser = new Browser();
-  await browser.fetch(pointAtOrigin(link));
+  await browser.fetch(link); // AS SENT: the facade mints against the origin the inviter connected on
   await acceptMembershipVia(browser, scope);
   const { payload } = await refreshToken(browser, scope, scope);
   return payload;

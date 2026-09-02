@@ -298,6 +298,144 @@ describe('LumenizeClientGateway', () => {
     });
   });
 
+  describe('originRequest — HTTP facts of the upgrade, stamped at the Trust DMZ', () => {
+    /** Upgrade with extra headers, wait for connection_status, return the socket. */
+    async function connectWith(
+      gateway: DurableObjectStub,
+      instanceName: string,
+      sub: string,
+      extraHeaders: Record<string, string>,
+    ): Promise<WebSocket> {
+      const token = createFakeJwt({ sub, exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+          ...extraHeaders,
+        },
+      });
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+      await new Promise<void>((resolve) => {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+      return ws;
+    }
+
+    /** Send one client call and return its postprocessed result. */
+    async function callAndAwait(
+      ws: WebSocket, callId: string, binding: string, instance: string, ops: unknown[],
+    ): Promise<any> {
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE && msg.callId === callId) {
+            ws.removeEventListener('message', handler);
+            msg.result = postprocess(msg.result);
+            resolve(msg);
+          }
+        });
+      });
+      const callMessage: CallMessage = {
+        type: GatewayMessageType.CALL, expectsResult: true, callId, binding, instance,
+        chain: preprocess(ops),
+      };
+      ws.send(JSON.stringify(callMessage));
+      const res = await responsePromise;
+      expect(res.success).toBe(true);
+      return res.result;
+    }
+
+    const GET_CONTEXT = [{ type: 'get', key: 'getCallContext' }, { type: 'apply', args: [] }];
+
+    it('stamps origin from the upgrade URL and the header facts as sent', async () => {
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('or-user.tab1'));
+      const ws = await connectWith(gateway, 'or-user.tab1', 'or-user', {
+        'User-Agent': 'lumenize-test-ua/1.0',
+        'Accept-Language': 'fr-CA,fr;q=0.9',
+        'CF-Connecting-IP': '203.0.113.7',
+      });
+      const ctx = await callAndAwait(ws, 'or-1', 'ECHO_DO', 'echo-or-1', GET_CONTEXT);
+
+      // `origin` is the URL the upgrade ARRIVED on — never a header. Mutation: drop the `origin:`
+      // line in `captureOriginRequest` and this reds; so does routing it from any header.
+      expect(ctx.originRequest).toMatchObject({
+        origin: 'https://example.com',
+        userAgent: 'lumenize-test-ua/1.0',
+        acceptLanguage: 'fr-CA,fr;q=0.9',
+        ip: '203.0.113.7',
+      });
+      // A direct DO-stub fetch carries no runtime `cf`, so the pick is ABSENT rather than an
+      // empty object — the attachment stays small and a consumer can tell "unknown" from "empty".
+      expect(ctx.originRequest.cf).toBeUndefined();
+      // And it rides beside originAuth, never inside callChain[0] or state (both client-writable).
+      expect(ctx.originAuth.sub).toBe('or-user');
+      expect(ctx.callChain[0]).not.toHaveProperty('originRequest');
+      expect(ctx.state).not.toHaveProperty('originRequest');
+      ws.close();
+    });
+
+    it('refreshes the snapshot on reconnect — the facts are connection-scoped', async () => {
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('or-user.tab2'));
+      const first = await connectWith(gateway, 'or-user.tab2', 'or-user', { 'User-Agent': 'lumenize-test-ua/1.0' });
+      const before = await callAndAwait(first, 'or-2a', 'ECHO_DO', 'echo-or-2', GET_CONTEXT);
+      expect(before.originRequest.userAgent).toBe('lumenize-test-ua/1.0');
+
+      // Reconnect (supersedes the first socket) with a changed header.
+      const second = await connectWith(gateway, 'or-user.tab2', 'or-user', { 'User-Agent': 'lumenize-test-ua/2.0' });
+      const after = await callAndAwait(second, 'or-2b', 'ECHO_DO', 'echo-or-2', GET_CONTEXT);
+      // Mutation: cache the snapshot on the instance instead of rebuilding it per upgrade → reds.
+      expect(after.originRequest.userAgent).toBe('lumenize-test-ua/2.0');
+      second.close();
+    });
+
+    it('survives DO→DO forwarding unchanged (multi-hop)', async () => {
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('or-user.tab3'));
+      const ws = await connectWith(gateway, 'or-user.tab3', 'or-user', { 'Accept-Language': 'de-DE' });
+      // hop A captures its own context, then fires an onward 3-arg call so hop B captures too.
+      await callAndAwait(ws, 'or-3', 'TEST_DO', 'or-hop-a', [
+        { type: 'get', key: 'captureAndForward' },
+        { type: 'apply', args: ['TEST_DO', 'or-hop-b'] },
+      ]);
+      const hopB = env.TEST_DO.get(env.TEST_DO.idFromName('or-hop-b'));
+      const observed = await vi.waitFor(async () => {
+        const o = await hopB.getObservedContext();
+        expect(o).toBeDefined();
+        return o;
+      });
+      // Guards the inherit path in `buildOutgoingCallContext`: a hop that rebuilt the context by
+      // naming fields would drop this. Mutation: stop spreading `currentContext` there → reds.
+      expect(observed.originRequest).toMatchObject({ origin: 'https://example.com', acceptLanguage: 'de-DE' });
+      expect(observed.callChain.map((n: { instanceName?: string }) => n.instanceName)).toEqual(['or-user.tab3', 'or-hop-a']);
+      ws.close();
+    });
+
+    it('is absent on a DO-originated chain — only a client upgrade can populate it', async () => {
+      const caller = env.TEST_DO.getByName('or-do-caller');
+      const callee = env.TEST_DO.getByName('or-do-callee');
+      // A DO learns its own identity on first contact (routing headers or an inbound envelope);
+      // a raw-stub caller has had neither, so prime it the way call-context.test.ts does.
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'or-do-caller' });
+      caller.fireCall('TEST_DO', 'or-do-callee', 'captureContext');
+      const observed = await vi.waitFor(async () => {
+        const o = await callee.getObservedContext();
+        expect(o).toBeDefined();
+        return o;
+      });
+      expect(observed.originRequest).toBeUndefined();
+      expect(observed.originAuth).toBeUndefined();
+    });
+  });
+
   describe('ClientDisconnectedError', () => {
     it('is properly serializable with structured-clone', () => {
       const error = new ClientDisconnectedError('Test error', 'alice.tab1');

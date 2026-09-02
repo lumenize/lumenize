@@ -41,6 +41,8 @@ export type {
   NodeType,
   NodeIdentity,
   OriginAuth,
+  OriginCf,
+  OriginRequest,
   CallContext,
   CallOptions,
   LumenizeServices

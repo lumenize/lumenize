@@ -174,7 +174,7 @@ export function setCookieHeaders(res: Response): string[] {
 // ─── Shared primitives ────────────────────────────────────────────────────────
 // The vitest-free core. `test/test-helpers.ts` builds its `expect`-flavoured surface
 // on top of these instead of re-implementing the HTTP shapes — same endpoints, same
-// 409 semantics, same host rewrite, one place.
+// 409 semantics, one place. (No host rewriting anywhere: every emailed link is followed AS SENT.)
 // Keep them free of `vitest` and `cloudflare:*` so the Node harness can use them.
 //
 // Why two surfaces still exist (the accurate reasons — commit 3c6641f's message got
@@ -190,30 +190,6 @@ export function setCookieHeaders(res: Response): string[] {
 // harness constructs it directly. Pass `fetchImpl: browser.fetch` and the jar captures
 // the refresh cookie exactly as it does under vitest; that is the normal path here.
 
-/**
- * Point an INVITE link at `baseUrl` — and only an invite link.
- *
- * ⚠️ This helper compensates for a difference between a local stack and production, which is the
- * shape of helper that hides bugs (`live.md`; the 2026-09-02 magic-link find), so its licence is
- * narrow and stated. The mesh invite facade mints its links against `NEBULA_AUTH_ISSUER` because
- * a mesh call carries NO request URL to read an origin from (`nebula-auth-facade.ts`) — right by
- * construction in production, and pointing at production from a local stack. Only the host
- * changes; the `invite_token` query carries the grant. No-op when the origins already match.
- *
- * ⛔ Do NOT use it on a magic-link or claim link. Those are minted by HTTP entries from the request
- * origin, and since 2026-09-02 a local boot presents the real inbound Host (`scripts/local-config.mjs`
- * strips `routes`; the Studio proxy forwards Host), so they already land where the caller is —
- * following them AS SENT is what proves it. What deletes this helper entirely is
- * `tasks/on-hold/mesh-origin-request.md` (`callContext.originRequest`), which gives the facade the
- * connection's origin to mint from.
- */
-export function pointInviteLinkAt(baseUrl: string, link: string): string {
-  const target = new URL(baseUrl.replace(/\/$/, ''));
-  const out = new URL(link);
-  out.protocol = target.protocol;
-  out.host = target.host;
-  return out.toString();
-}
 
 /**
  * POST `claim-universe` — the one open, admin-minting entry point. Returns the magic-link

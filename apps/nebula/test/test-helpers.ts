@@ -77,22 +77,6 @@ export function uniqueGalaxyScope(): {
  */
 const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 
-/**
- * Point an auth link at this lane's {@link ORIGIN}. The mesh invite facade mints its links against
- * the configured ISSUER origin (a mesh call carries no request URL to read), and the `Browser`
- * cookie jar keys by host — so a link clicked as-sent would strand its refresh cookie under the
- * issuer's host where no later `authUrl(...)` call finds it. Only the host changes; the
- * `invite_token`/`one_time_token` query carries the grant. (The `/live` harness's `pointInviteLinkAt`
- * is the same move against a wrangler-dev URL.)
- */
-export function pointAtOrigin(link: string): string {
-  const target = new URL(ORIGIN);
-  const out = new URL(link);
-  out.protocol = target.protocol;
-  out.host = target.host;
-  return out.toString();
-}
-
 export function universeOf(scope: string): string {
   return scope.split('.')[0];
 }
