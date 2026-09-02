@@ -12,8 +12,9 @@
 | ② | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — *design intent only, phases NOT written; one tabled decision to settle first* | Re-homing the registry's truth is a **swap** with no live data and a live-data migration afterwards. Sequenced after ① — its own § *Why this timing* says so |
 | ③ | ⚠️ **THE GATE — capture live** (below) — *no task file* | Day-1 behavioural signal is irreplaceable; it must be live **before** the first invite, not after |
 | ④ | **Turn-log inspection v0** (below) — *no task file; built inside the live harness* | Nothing to inspect until ③ captures, and Larry's daily questions need an answer path on day 1 |
-| ⑤ | **Personas — synthetic users the LLM defines, provisioned into preview tabs** (§ *Wave 2* holds the detail) — *task file NOT yet written; Larry's* | ✅ Decided invite-gated 2026-09-02 on a real user's SOP (Jennifer's multi-tab permission testing), and it is a **user-facing feature**, so day-1 self-service is the bar |
-| ⑥ | **The wipe + redeploy itself** | The window below closes here |
+| ⑤ | **The guidance file tree — platform → (universe, skipped) → galaxy** (§ *Iteration & deploy model* holds the shape) — *no task file* | ⏫ Promoted out of Wave 2 and **placed BEFORE ⑥** (Larry, 2026-09-02): personas are guidance the LLM authors and re-reads, so building them first invents a second home for guidance and then unlearns it. **Minimal is enough** — skipping Universe is explicitly fine |
+| ⑥ | **Personas — synthetic users the LLM defines, provisioned into preview tabs** (§ *Wave 2* holds the detail) — *task file NOT yet written; Larry's* | ✅ Decided invite-gated 2026-09-02 on a real user's SOP (Jennifer's multi-tab permission testing), and it is a **user-facing feature**, so day-1 self-service is the bar. ⚠️ **Sequenced after ⑤ and not to be started before it** |
+| ⑦ | **The wipe + redeploy itself** | The window below closes here |
 
 ⛔ **Deferred out of this run, deliberately:** moving the body-scoped Registry routes onto `/auth/:scope/…` → [on-hold/nebula-registry-scope-in-url.md](on-hold/nebula-registry-scope-in-url.md) (2026-09-02 — legibility not safety, and its cost curve is flat, so waiting is free; the file's § *Status* carries the two corrected premises).
 
@@ -68,7 +69,11 @@ The remaining provisioning / capture / inspection work builds on these (the code
     Roughly a quarter-day. If it turns up gaps, that is when a child task file earns its existence,
     and not before.
 - **Impersonation core** — `POST {prefix}/mint-narrower-token` (RFC-8693 `act.sub`, recursive chain,
-  audited). NEW piece still needed = **synthetic-subject provisioning**.
+  audited), reached from the client as `impersonate(sub, activeScope)`. ⚠️ **"NEW piece still needed =
+  synthetic-subject provisioning" was wrong and is corrected here** (2026-09-02): the pieces exist and
+  compose — `invite()` returns the minted `sub`, `getIdentityScope` does not filter on `acceptedAt` so
+  an unclaimed subject is impersonable, and `dagTree().setPermission` attaches grants. What personas
+  (⑥) actually add is a **no-send mint**, an authoring convention, and the tab UI — see § *Wave 2*.
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index).
 - **Root-admin Part 1** — initial DataPlane root admin (`admin` on `ROOT_NODE_ID`) ([on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md)).
 - **`onBeforeCall` passage guard** — `requirePassage(name, claims)` (one audit point per ADR-007,
@@ -240,6 +245,26 @@ re-deriving here.
     and scope, so the refresh cookie cannot tell them apart. `NebulaClient` already takes a
     `sessionStorage` per context, which is the primitive.
 
+    ⚠️ **A FOURTH, and it is a fact to establish rather than a decision to take — Larry had already
+    anticipated it as a gap.** `impersonate()` returns a **child** client that renews through the
+    **parent's** mint helper rather than off a cookie, with `registerChild` / `deregisterChild` /
+    `onClientTornDown` wired around it (`nebula-client.ts`). On today's shape, closing or reloading the
+    Studio tab plausibly tears down every persona tab with it — which is fatal to a feature whose
+    point is leaving tabs open across a working session. ⇒ **Drive it (`/live`, container-free, ~20
+    min) before the design intent is written**, since what it does is discoverable rather than
+    arguable.
+
+    ⚠️ **One PRE-WIPE hook, because it is schema.** § *Caveats* defers a `synthetic:true` flag as
+    YAGNI, *"add it only when the digest needs to filter test users out of real-activity metrics"* —
+    and personas-as-a-feature is exactly that consumer arriving, since every user will now mint
+    several. A one-column add is free before the wipe and a migration after (`calibration.md` §4 —
+    the justification expired, so **re-derive it**; do not simply adopt either verdict).
+
+    ⓘ **Scale sanity, not a blocker:** every persona is a real membership row in the Registry, the
+    [ADR-018](../docs/adr/018-singleton-is-the-scarce-resource.md) singleton whose default is that
+    state lives OFF it. Pre-alpha's term (users × apps × personas) is negligible, but it is
+    multiplicative — state the sizing in the task file so a later reviewer need not re-derive the worry.
+
     ✅ **Capability-wise this is mostly ASSEMBLY, not new mechanism** — verified on disk 2026-09-02:
     `invite()` returns the minted `sub` (`InviteeSummary`), `getIdentityScope` does **not** filter on
     `acceptedAt` so an unclaimed persona is impersonable, `impersonate(sub, activeScope)` is built and
@@ -325,13 +350,30 @@ re-deriving here.
   `wrangler dev` + Docker. Deploy is for: **(a)** retiring the one-way migrations-door risk, **(b)** where
   pre-alpha **users** live (mandatory for invites), **(c)** realistic multi-tab / auth / act-as
   integration checks (**~1-min** cycles — not run every iteration).
-- **The system prompt becomes a platform-owned FILE TREE, not a baked const.** `STUDIO_LOOP_SYSTEM_PROMPT`
-  is one source string today; the target is a `NEBULA.md` (the `CLAUDE.md` analog) + `skills/*.md` + `rules/*.md`
-  tree, served from a **dedicated `@cloudflare/shell`-backed registry DO** whose FS methods are exposed over
-  mesh and **read per turn** during prompt assembly. Editing the prompt = a git commit into that DO's Workspace
-  (over mesh) — **no redeploy**. Answers `nebula-skills.md`'s "where do skills live"; home for the
-  Platform→Universe→Galaxy cascade. **Wave-2 substrate — stand it up before heavy data-bound iteration** so
-  iteration is deploy-free from day one (also un-parks the [skills](on-hold/nebula-skills.md) work).
+- **Guidance is a FILE TREE the LLM walks, not a baked const.** `STUDIO_LOOP_SYSTEM_PROMPT` is one
+  source string today; the target is `NEBULA.md` (the `CLAUDE.md` analog) + `skills/*.md` + `rules/*.md`,
+  **read per turn** during prompt assembly. Answers [nebula-skills.md](on-hold/nebula-skills.md)'s
+  "where do skills live" and is the home for the Platform→Universe→Galaxy cascade
+  ([[project_nebula_guidance_hierarchy]]).
+
+  🆕 **Larry's revised shape, 2026-09-02 — captured, NOT designed; nothing here is settled and no
+  task file exists yet.** It supersedes this bullet's former "one dedicated `@cloudflare/shell`-backed
+  registry DO serves the whole tree", which had platform guidance leaving code entirely:
+  - **Skills, rules and the rest are just FILES.** That is the whole storage decision; everything
+    below is about which repo holds which level.
+  - **Platform level = the system prompt, and it STAYS IN CODE** — bundled at deploy. Possibly *also*
+    copied into a **platform-level DO, which does not exist today**. Even that DO would use
+    **`@cloudflare/computer`** (not `shell` — [[cloudflare-computer-adoption]]) and carry **repo shape**
+    for its storage, so one convention covers every level.
+  - **Galaxy level lives in the user-developer's Workspace repo** — the same tree the app's code and
+    its ontology history already occupy.
+  - **Universe level is SKIPPED this round.** Minimal is explicitly enough.
+  - **The LLM walks the chain platform → universe → galaxy and takes every layer into account.**
+
+  ⏫ **PROMOTED out of Wave 2: this now precedes the personas work** (Larry, 2026-09-02). It was
+  *"stand it up before heavy data-bound iteration"*; the reason it moved is that personas are guidance
+  the LLM must author and re-read, so building them before the tree exists means inventing a second
+  place for guidance to live and then unlearning it (`workflow.md` § *Evaluating alternatives*).
 
 ## Caveats (stated once)
 
