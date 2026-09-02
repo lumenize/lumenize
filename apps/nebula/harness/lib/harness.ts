@@ -24,7 +24,6 @@ import { fileURLToPath } from 'node:url';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
-import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lumenize/crypto';
@@ -232,10 +231,17 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
  *
  * Pass `session` when a scenario has ALREADY obtained a real server token by some other real path
  * — `provisionStarAdmin`, say, which is the only way to get a member whose `authScope` is a Star
- * rather than the universe above it. That is still rung 1: the claim is the server's either way,
- * and this only spares a second login for an identity that already exists.
+ * rather than the universe above it; or an invitee's `acceptInviteAndLogin` + `refreshAccessToken`,
+ * which is the only way to get a genuine NON-admin. That is still rung 1: the claim is the
+ * server's either way, and this only spares a second login for an identity that already exists.
  *
- * Pass `mint` for an identity the real path genuinely CANNOT produce — and say why in `reason`.
+ * ⚠️ There is deliberately NO mint entry. One existed (rung 3, `createNebulaTestToken`, with a
+ * per-site `reason`) and was deleted 2026-09-02 when its last two callers turned out to be
+ * constructible by real paths — one of them under a justification that was simply stale. A
+ * synthetic identity here is a fixture that happens to be a function, which is what `live.md`
+ * § *A `/live` scenario MUST NOT compensate for its environment* forbids; the negative controls
+ * that genuinely need a WRONG-shaped token use {@link mintDegradedToken} (rung 4), which is not a
+ * login and never reaches `connectDriver`.
  */
 export async function connectDriver(
   stack: DevStack,
@@ -254,32 +260,9 @@ export async function connectDriver(
      * An access token this scenario already obtained from the SERVER by a real login. Still rung 1
      * — the claim was minted by the running system, not constructed here — and it exists because
      * the default path (`provisionAndLogin`) always climbs from the universe, so it cannot produce
-     * a member whose own scope is a Star. Mutually exclusive with `mint`.
+     * a member whose own scope is a Star, nor a non-admin (those arrive by invite).
      */
     session?: { accessToken: string; sub: string };
-    /**
-     * Escape hatch to rung 3 (synthetic mint) — ONLY for identities real login can't create, e.g. a
-     * NON-admin at a scope whose scope admin would be admin. `reason` is required and is not decorative:
-     * ADR-009 says each surviving mint is justified per-site, so the justification lives at the call
-     * site instead of in a reviewer's memory. If you're reaching for this to save time, don't — the
-     * whole point of the measurement is that time isn't the trade-off.
-     */
-    mint?: {
-      reason: string;
-      scopeAdmin?: boolean;
-      /**
-       * The token ISSUER's DO instance — it BECOMES `access.authScope` verbatim, and is distinct
-       * from the client's own gateway instanceName. Default `scope` (admin of its own scope);
-       * `'nebula-platform'` mints a superuser whose `aud` is `scope` but whose dominion is global,
-       * the platform scope being the ROOT of the scope tree.
-       *
-       * ⚠️ **Defaulting to `scope` means this mint path cannot produce a DENIAL by narrowing** —
-       * narrow the scope and the claim narrows with it, in lockstep, so the caller always covers
-       * its own `aud`. A scenario whose subject IS a refusal must set this explicitly, or better,
-       * use the `provisionAndLogin` path below, where the server decides the claim.
-       */
-      issuerInstanceName?: string;
-    };
   },
 ): Promise<Driver> {
   const scope = opts.scope;
@@ -290,21 +273,7 @@ export async function connectDriver(
   let access_token: string;
   let sub: string;
   if (opts.session) {
-    if (opts.mint) {
-      throw new Error('connectDriver: pass `session` OR `mint`, never both — they are different rungs');
-    }
     ({ accessToken: access_token, sub } = opts.session);
-  } else if (opts.mint) {
-    // `email` is not a JWT claim (tasks/nebula-auth-surrogate-sub.md) — identity is the surrogate
-    // `sub`, so the mint takes no email.
-    ({ access_token, sub } = await createNebulaTestToken({
-      privateKey: stack.signingKey,
-      activeKey: stack.activeKey,
-      activeScope: scope,
-      instanceName: opts.mint?.issuerInstanceName ?? scope,
-      scopeAdmin: opts.mint?.scopeAdmin ?? true,
-      ttlSeconds: 3600,
-    })());
   } else {
     // provisionAndLogin, not a bare login: a fresh boot has no scopes at all, and login
     // never mints an identity. It claims the universe (the one open admin-minting entry),

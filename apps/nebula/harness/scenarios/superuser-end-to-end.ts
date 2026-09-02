@@ -191,16 +191,12 @@ export async function run(stack: DevStack): Promise<void> {
   const strangerProfileId = (parseJwtUnsafe(stranger.accessToken)!.payload as any).profileId as string;
   assert.ok(strangerProfileId, 'the stranger login carried no profileId claim');
 
+  // The SAME principal limb 1 logged in for real, as a connected mesh client — carrying the token
+  // the server minted in limb 2 (`platform`), not a rebuilt one. Until 2026-09-02 this site minted
+  // a synthetic copy under a justification that connectDriver lacked a session entry; it had one.
   const superDriver = await connectDriver(stack, {
     scope: PLATFORM_SCOPE,
-    mint: {
-      reason:
-        'the identity itself came from a REAL bootstrap login above (limb 1) — this mint only ' +
-        'rebuilds the same principal as a connected mesh client, because connectDriver has no ' +
-        'entry that takes an already-obtained platform session. The claim it asserts against was ' +
-        'checked against the server-minted one in limb 2.',
-      issuerInstanceName: PLATFORM_SCOPE,
-    },
+    session: { accessToken: platform.accessToken, sub: claims.sub as string },
   });
   try {
     await superDriver.client.lmz.callAsync(

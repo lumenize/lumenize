@@ -156,13 +156,17 @@ the probe was real, the conclusion was wrong because the fixture underneath it w
 
 **Check what the harness CONSTRUCTS, not only what a scenario asserts.** A helper that builds
 the credential is a mock wearing a helper's name, and every scenario riding it asserts over a
-shape production cannot mint. `connectDriver`'s mint path sets `instanceName:
-opts.mint?.issuerInstanceName ?? scope` (`lib/harness.ts:320`), so narrowing the scope narrows
-the claim in lockstep — a scenario built on it cannot produce a denial by narrowing, which was
-the exact denial the 2026-08-16 passage/dominion work existed to create. The fix was to
-re-derive rather than port: `scenarios/downward-dominion.ts` takes its admin limb from a real
-login (`provisionAndLogin`, rung 1) so the server decides the claim. That mint path still
-exists for callers that want it — read the line before trusting any scenario built on it.
+shape production cannot mint. `connectDriver` used to carry a mint path that set the issuing
+instance from the scope, so narrowing the scope narrowed the claim in lockstep — a scenario built
+on it could not produce a denial by narrowing, which was the exact denial the 2026-08-16
+passage/dominion work existed to create. The fix was to re-derive rather than port:
+`scenarios/downward-dominion.ts` takes its admin limb from a real login (`provisionAndLogin`,
+rung 1) so the server decides the claim. **That mint path was deleted on 2026-09-02** once its
+last two callers proved constructible by real paths (the non-admin control by a real invite, the
+superuser by the token limb 2 had already refreshed — under a justification that was simply
+stale). `connectDriver` now has exactly two ways in: a real login, or a `session` the server
+minted. A scenario that needs a wrong-shaped token for a negative control uses
+`mintDegradedToken` (rung 4), which is not a login and never reaches `connectDriver`.
 
 ⚠️ **A multi-limb scenario reddens on its FIRST failing limb, which hides every later limb's
 vacuity — so mutation-check PER LIMB, not per scenario.** Bit 2026-08-16: `passage-not-dominion`

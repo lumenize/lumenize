@@ -30,8 +30,10 @@
  */
 import assert from 'node:assert/strict';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
-import { connectDriver } from '../lib/harness';
+import { connectDriver, readDevVar } from '../lib/harness';
+import { acceptInviteAndLogin, refreshAccessToken } from '../../test/lib/email-login';
 
 /** Resource ops on the Galaxy chat host only — never a build, so the boot skips Docker. */
 export const needsContainer = false;
@@ -46,22 +48,30 @@ export async function run(stack: DevStack): Promise<void> {
   // No mint, no `reason`, nothing hand-built for the assertion to be wrong about.
   const admin = await connectDriver(stack, { scope: TARGET });
 
-  // The control — a NON-admin at TARGET. Rung-3 mint, justified per-site (ADR-009): the real
-  // enrollment path for a non-admin member is the invite flow, and node-invite-roundtrip already
-  // drives it end-to-end — its own negative control IS this denial with a genuinely-invited
-  // member. This mint constructs only what that scenario proves constructible, isolating the
-  // admin limb's bypass without a second email loop.
-  const control = await connectDriver(stack, {
-    scope: TARGET,
-    mint: {
-      reason:
-        'a non-admin member is real-path constructible only via the invite flow, which ' +
-        'node-invite-roundtrip drives end-to-end (incl. this very denial as its negative ' +
-        'control); this mint isolates the bypass without repeating that email loop.',
-      issuerInstanceName: TARGET,
-      scopeAdmin: false,
-    },
-  });
+  // The control — a NON-admin at TARGET, enrolled the only way production enrols one: the admin
+  // invites them through the ONE production surface, the real email arrives, the click is a real
+  // consume, acceptance is a real consent, the token is a real refresh. Nothing here is built for
+  // the assertion to be wrong about. (Until 2026-09-02 this was a rung-3 mint that "isolated the
+  // bypass without a second email loop" — a fixture that happened to be a function, and the loop
+  // it saved costs about a second.)
+  const controlEmail = uniqueTestEmail();
+  const testToken = readDevVar('TEST_TOKEN');
+  // Arm the waiter BEFORE the invite; the facade tags invite mail with the target scope.
+  const waiter = waitForEmail({ testToken, instance: TARGET, to: controlEmail, timeout: 60_000 });
+  let inviteLink: string;
+  try {
+    const summary = await admin.client.invite(TARGET, [{ email: controlEmail }]);
+    assert.equal(summary.errors.length, 0, `invite refused: ${JSON.stringify(summary.errors)}`);
+    const mail = await waiter.emailPromise;
+    const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(mail.html ?? '')?.[1];
+    assert.ok(href, 'invite email carried no accept-invite link');
+    inviteLink = href.replace(/&amp;/g, '&'); // followed AS SENT — it names this stack's origin
+  } finally {
+    waiter.cleanup();
+  }
+  const { refreshToken } = await acceptInviteAndLogin({ baseUrl: stack.baseUrl, inviteLink, scope: TARGET });
+  const member = await refreshAccessToken(stack.baseUrl, { refreshToken, authScope: TARGET }, TARGET);
+  const control = await connectDriver(stack, { scope: TARGET, session: member });
 
   try {
     // Both limbs run the IDENTICAL op — a `Chat` create off the installed chat ontology — so a

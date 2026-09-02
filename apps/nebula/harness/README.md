@@ -50,27 +50,29 @@ the wrong reason.
 already claimed and there is no identity for the new `owner-` address. Provision the tree once, then
 create siblings with the owner's token.
 
-**The two escape hatches, both on `connectDriver`:**
+**The one escape hatch on `connectDriver` — `session: { accessToken, sub }`** — builds the client
+from a token you already obtained by a real path. Still rung 1 (the server minted the claim); it
+exists because the default path always climbs from the universe, so it cannot produce a Star-scoped
+member (`provisionStarAdmin`) or a genuine NON-admin (`acceptInviteAndLogin` on a real invite, then
+`refreshAccessToken` — `downward-dominion.ts` is the model, and the extra email loop costs about a
+second).
 
-- **`session: { accessToken, sub }`** — build the client from a token you already obtained by a real
-  login. Still rung 1 (the server minted the claim); it exists because the default path always
-  climbs, so there is no other way to drive as a Star-scoped member.
-- **`mint: { reason, issuerInstanceName?, scopeAdmin? }`** — rung 3, for an identity the real path
-  genuinely cannot produce (e.g. a NON-admin at a scope whose founder would be its admin). `reason`
-  is required and is not decorative. ⚠️ **`issuerInstanceName` defaults to `scope`, so this path
-  cannot produce a DENIAL by narrowing** — narrow the scope and the claim narrows with it. Set it
-  explicitly, or use `session`.
+⚠️ **There is no `mint` entry, and there is not going to be one.** A rung-3 `mint: { reason, … }`
+option existed until 2026-09-02 and was deleted when its last two callers proved constructible by
+real paths — one of them under a `reason` that was simply stale. A synthetic identity in this harness
+is a fixture that happens to be a function (`live.md` § *A `/live` scenario MUST NOT compensate for
+its environment*), and `/live` is the tier whose whole value is having no fixture to build wrong.
 
 **`bootVars`** (exported from a scenario, read by `drive.ts`) sets `--var NAME:VALUE` for that boot
 only — never a `.dev.vars` mutation. `superuser-end-to-end` uses it to point
 `NEBULA_AUTH_BOOTSTRAP_EMAIL` at the `*@lumenize.io` catch-all, because the real value is a human
 mailbox no automated run can read; that is what keeps its bootstrap login a genuine round trip.
 
-**The mint itself.** `createNebulaTestToken` (`@lumenize/nebula-auth/testing`) signs with the
-`.dev.vars` key and reuses nebula-auth's shared `buildNebulaJwtPayload`, so the token is
-byte-for-byte what a scope admin's server mint produces (`access: { authScope, scopeAdmin }`), NOT
-the base flat-`isAdmin` mesh shape (which the gateway rejects). **Local only** — prod tokens come
-via audited login / stored-refresh, never this mint.
+**The only tokens this harness signs itself are the WRONG ones.** `mintDegradedToken` (rung 4,
+ADR-009) signs deliberately-degraded tokens with the `.dev.vars` key — the base flat-`isAdmin` mesh
+shape, and a nebula-issuer token with no `access` claim — and `assertTokenRejected` proves the
+gateway refuses each. They are negative controls, never a login, and never reach `connectDriver`.
+**Local only** — nothing deployed ever sees a harness-signed token.
 
 ## Layout
 
