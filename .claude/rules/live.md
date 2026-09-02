@@ -97,6 +97,33 @@ three separate times in one session: the harness's default login path was alread
 and the wrangler session were both present, and `needsContainer = false` already existed — none of it
 discovered until someone asked why the tier had been skipped.
 
+## A `/live` scenario MUST NOT compensate for its environment (2026-09-02)
+
+**A helper under `apps/nebula/harness/` MUST perform only steps production performs, and MUST NOT
+bridge a difference between the local stack and production.** The tier is worth its cost for one
+reason, stated above: a scenario built from real logins has no fixture to build wrong. A
+compensating helper puts the fixture back — it is a fixture that happens to be a function.
+`provisionAndLogin` is the allowed kind: every step it takes, a browser takes. `pointLinkAt` was the
+forbidden kind: it re-pointed an emailed link's host at the local stack before following it.
+
+**The tell is in the JSDoc.** A helper whose comment explains why the harness environment differs
+from production is compensating by definition — `pointLinkAt`'s said *"the auth layer embeds its
+configured ISSUER origin in the link, which is not where we're driving against a local
+wrangler-dev."* Such a helper MUST be treated as a defect in the environment or the code, never as
+harness plumbing: fix what differs, delete the helper, re-run the sweep. **The re-run is the
+point** — it surfaces whatever the helper was hiding before Larry meets it by hand, which is the
+bottleneck this rule protects (Larry, 2026-09-02: *"the vast majority of all bugs we find after a
+task file is finished are because of helpers we used to test during the task file build"*).
+
+**Where it bit (2026-09-02):** local `wrangler dev` inferred its host from `wrangler.jsonc`'s
+`routes`, so every login link a local stack emailed pointed at **production** — 22 green scenarios,
+found by one hand-driven click. The environment was fixed (`apps/nebula/scripts/local-config.mjs`
+strips `routes`; the Studio proxy forwards the real Host) and the helper died with it. ⚠️
+`pointInviteLinkAt` survives at the invite sites under a stated licence — a mesh call carries no
+request URL, so the facade mints at the issuer — and it is a **known violation with a named fix**
+(`tasks/on-hold/mesh-origin-request.md` Phase 1), not a precedent. Its vitest twin `pointAtOrigin`
+in `test/test-helpers.ts` goes with it.
+
 ## Two venues, one registry — local is the default; deployed is a deliberate pass (2026-08-29)
 
 Every scenario in `apps/nebula/harness/drive.ts` runs unchanged in two venues: a fresh local
