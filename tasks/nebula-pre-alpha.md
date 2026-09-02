@@ -386,10 +386,17 @@ re-deriving here.
   pre-alpha **users** live (mandatory for invites), **(c)** realistic multi-tab / auth / act-as
   integration checks (**~1-min** cycles — not run every iteration).
 - **Guidance is a FILE TREE the LLM walks, not a baked const.** `STUDIO_LOOP_SYSTEM_PROMPT` is one
-  source string today; the target is `NEBULA.md` (the `CLAUDE.md` analog) + `skills/*.md` + `rules/*.md`,
+  source string today; the target is **`AGENTS.md`** + `skills/*.md` + `rules/*.md`,
   **read per turn** during prompt assembly. Answers [nebula-skills.md](on-hold/nebula-skills.md)'s
   "where do skills live" and is the home for the Platform→Universe→Galaxy cascade
   ([[project_nebula_guidance_hierarchy]]).
+
+  ✅ **`AGENTS.md`, not `NEBULA.md` — decided 2026-09-02 (Larry).** This bullet said `NEBULA.md (the
+  `CLAUDE.md` analog)` while accepted [docs/vision/auth.md](../docs/vision/auth.md) § *The guidance
+  hierarchy* and [docs/vision/_ai-security.md](../docs/vision/_ai-security.md) both already said
+  `AGENTS.md`. One name for one thing, and it is the cross-vendor one — a user-developer's tree is
+  read by our model and by whatever they point at it, so a vendor-specific filename would be wrong
+  in their repo. The fork is closed here; the vision docs were right and need no edit.
 
   🆕 **Larry's revised shape, 2026-09-02 — captured, NOT designed; nothing here is settled and no
   task file exists yet.** It supersedes this bullet's former "one dedicated `@cloudflare/shell`-backed
