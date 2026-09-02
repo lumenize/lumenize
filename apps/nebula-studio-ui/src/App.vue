@@ -611,6 +611,24 @@ const universeApps = computed(() =>
  *  there is no chat or preview state to preserve — and lands App.vue straight in workspace mode. The
  *  scope to open comes from the server's returned `instanceName`, not the typed slug, so a URL can
  *  never disagree with what was created. */
+/**
+ * Seed the auth hint, then navigate to a scope's Studio.
+ *
+ * ⚠️ **The hint is what stops a "session expired" 401.** A galaxy's session lives at the UNIVERSE's
+ * refresh cookie (`Path=/auth/{universe}`), and `/auth/{universe}.{galaxy}/refresh-token` does NOT
+ * receive it — RFC-6265 path matching fails because the character after the `/auth/{universe}` prefix
+ * is `.`, not `/`. So Studio must be told which cookie to spend: `authScope.value` (the universe this
+ * page authenticated at). Home seeds this when IT navigates (`home-logic.ts` `authHintFor`); a
+ * create/open from the Universe page has to do the same, because these NAVIGATE rather than switch in
+ * place — a full reload drops the in-memory `authScope`, so only the stored hint survives.
+ */
+function enterScope(scope: string): void {
+  try {
+    if (authScope.value) localStorage.setItem(AUTH_HINT_PREFIX + scope, authScope.value);
+  } catch { /* private mode — Studio falls back to trying the active scope, which 401s for a galaxy */ }
+  window.location.assign(`/${scope}`);
+}
+
 async function onCreateApp(slug: string) {
   const universe = activeScope.value;
   if (!universe || busy.value) return;
@@ -624,12 +642,12 @@ async function onCreateApp(slug: string) {
     busy.value = false;
     return;
   }
-  window.location.assign(`/${created}`);
+  enterScope(created);
 }
 
-/** Open an existing app's Studio (the FLAVOUR-B list) — same clean-URL navigation. */
+/** Open an existing app's Studio (the FLAVOUR-B list) — same clean-URL navigation, same hint. */
 function onOpenApp(scope: string) {
-  window.location.assign(`/${scope}`);
+  enterScope(scope);
 }
 
 async function openDeleteConfirm(target: string) {
