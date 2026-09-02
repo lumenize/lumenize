@@ -12,7 +12,7 @@
 | ② | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — *design intent only, phases NOT written; one tabled decision to settle first* | Re-homing the registry's truth is a **swap** with no live data and a live-data migration afterwards. Sequenced after ① — its own § *Why this timing* says so |
 | ③ | ⚠️ **THE GATE — capture live** (below) — *no task file* | Day-1 behavioural signal is irreplaceable; it must be live **before** the first invite, not after |
 | ④ | **Turn-log inspection v0** (below) — *no task file; built inside the live harness* | Nothing to inspect until ③ captures, and Larry's daily questions need an answer path on day 1 |
-| ⑤ | **Synthetic subjects** (§ *Wave 2*) — *no task file, and UNOWNED* | ⚠️ Its placement decision was due before the collapse landed and is now **overdue** — see the bullet, which states the case for calling it invite-gated |
+| ⑤ | **Synthetic subjects** (§ *Wave 2*) — *no task file, and UNOWNED* | ⚠️ **The one decision whose trigger has actually fired and gone untaken.** It was due before the collapse landed — see the bullet, which states the case for calling it invite-gated |
 | ⑥ | **The wipe + redeploy itself** | The window below closes here |
 
 ⛔ **Deferred out of this run, deliberately:** moving the body-scoped Registry routes onto `/auth/:scope/…` → [on-hold/nebula-registry-scope-in-url.md](on-hold/nebula-registry-scope-in-url.md) (2026-09-02 — legibility not safety, and its cost curve is flat, so waiting is free; the file's § *Status* carries the two corrected premises).
@@ -260,11 +260,19 @@ re-deriving here.
   primary next-big track.*
 
 ### Close-out
-- 👤 **LARRY HAND-REVIEW — ADR-011 onward, then restructure/merge/split wholesale.** ⏰ **DUE — its
-  trigger fired**: it was scheduled *after the Galaxy collapse ships*, and that shipped 2026-08-28.
-  ⚠️ Reviewing is not ratifying — **no ADR is ratified until after pre-alpha LAUNCHES** (Larry,
-  2026-09-01), so this pass decides shape and wording, never Status lines. ADR-010 was the last one
-  carefully hand-reviewed. Known inputs:
+- 👤 **LARRY HAND-REVIEW — ADR-011 onward, then restructure/merge/split wholesale. RESCHEDULED to
+  AFTER pre-alpha ships** (Larry, 2026-09-02). ⚠️ **Its old trigger — *after the Galaxy collapse
+  ships* — is RETIRED, not pending**; the collapse shipped 2026-08-28 and this deliberately did not
+  follow it. Reviewing was never ratifying either: no ADR is ratified until after pre-alpha launches.
+  ADR-010 was the last one carefully hand-reviewed. **Larry's standing read as of 2026-09-02, which
+  narrows what the pass has to cover:**
+  - **ADR-015 is rock solid** — two task files' worth of passage/dominion work went by without
+    needing a single change to it, which is the evidence. **Keep it perfectly up to date as we go**
+    rather than deferring its maintenance to this pass.
+  - **012 and 013 have solidified** — still worth the read, no longer the worry.
+  - **The rest stay shaky** and are what the pass is actually for.
+
+  Known inputs:
   - The best statement of the coarse-grained access-control model (`{u}.{g}.{s}`) is archived (frozen) at
     [archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md) § *The invariant* +
     § *Settled* — decide what gets lifted into an ADR or a rule (and whether ADR-012 shrinks back to

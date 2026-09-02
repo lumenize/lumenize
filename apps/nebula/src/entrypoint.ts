@@ -14,7 +14,21 @@
  *                      `run_worker_first` — it never reaches this Worker in prod)
  *
  * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
- * binding (comma-separated origins). Empty / unset → same-origin only.
+ * binding (comma-separated origins).
+ *
+ * ⚠️ **Empty / unset disables the server-side `Origin` check ENTIRELY — it does NOT mean
+ * "same-origin only", which is what this comment used to claim.** `buildCorsOptions('')`
+ * yields `false`, and `applyCorsPolicy(request, false)` returns `{ allowedOrigin: null }`
+ * on its first branch — no comparison is made and nothing is refused. A cross-origin POST
+ * therefore **reaches its handler and does its work**; the browser withholds only the
+ * *response* from the calling page, for want of an `Access-Control-Allow-Origin` header.
+ * For anything that mints, sends mail or writes, "the page could not read the answer" is
+ * not "it did not happen". A NON-empty list is the stricter setting: a disallowed `Origin`
+ * then gets a server-side 403 before dispatch.
+ *
+ * ⇒ What actually closes `/auth` today is per-route and not this variable: `SameSite=Strict`
+ * on every cookie (`worker-token.ts`), the non-safelisted `Authorization` header forcing a
+ * preflight that cross-origin pages cannot satisfy, and `turnstileGuard` on the open rows.
  */
 
 import { env } from 'cloudflare:workers';
