@@ -80,9 +80,7 @@ wrangler deploy --env preview
 
 ### DO SQLite Storage Engine
 
-DO SQLite Storage engine uses SQLite version 3.47 or later.
-
-[This message](https://discord.com/channels/595317990191398933/992060581832032316/1544431556956004372) suggests the current version might be 3.53.4.
+DO SQLite Storage engine uses SQLite version 3.53.4 or later.
 
 It seems to now support JSONB (3.45) but not json_pretty (3.46). See the workerd allowlist to confirm what is actually available: https://github.com/cloudflare/workerd/blob/main/src/workerd/util/sqlite.c%2B%2B#L268
 
