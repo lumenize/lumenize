@@ -1,6 +1,14 @@
 # Move active scope choice until after authentication
 
-**Status:** Active child — the login re-order and the data-use consent notice, one task. Design settled 2026-08-31 through a fresh `-alt` restart; the acceptance model settled at the review gates (final 2026-09-01: ONE writer — every acceptance passes a consent modal). Zero open questions; § *Decisions* holds the full set. Every pre-alpha user's first contact passes through surfaces this task rebuilds, which is what makes it invite-gated.
+**Status (2026-09-02): ✅ COMPLETE — ARCHIVED.** All 11 phases built (2026-09-01/02). Verification at
+close: `nebula-auth` 402 passed / 4 skipped · `apps/nebula` 756 passed / 3 skipped · type-check clean ·
+`drive.ts all` 21 of 22 (`impersonation-expiry` reds on a mesh-client defect this task did not cause —
+[nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) Item 9). Every § *Relationships*
+obligation is discharged, including the two backlog rows retired 2026-09-02. **Undeployed, like
+everything on this branch — it rides the batched wipe gate.** ⚠️ **Frozen on entry** (`workflow.md`):
+the code is the authority for anything built here, and this file is not updated again.
+
+**Original status:** Active child — the login re-order and the data-use consent notice, one task. Design settled 2026-08-31 through a fresh `-alt` restart; the acceptance model settled at the review gates (final 2026-09-01: ONE writer — every acceptance passes a consent modal). Zero open questions; § *Decisions* holds the full set. Every pre-alpha user's first contact passes through surfaces this task rebuilds, which is what makes it invite-gated.
 
 > 📐 **REVIEWED — ready to build.** Stage 1 ran twice (2026-08-31; 2026-09-01 post-gate) and Stage 2 twice (2026-09-01, the second on the v3 acceptance model); all findings resolved. ⚠️ **ADR-017 and ADR-018 stay Proposed while this builds** — no ADR is ratified until after pre-alpha launches (Larry, 2026-09-01), the same footing ADR-016's one-liner already records. Exercising a Proposed ADR is expected here; do not ratify one at build.
 
