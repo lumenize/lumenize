@@ -218,9 +218,7 @@ export async function mintAccessToken(
  * `MagicLinks` row + sends the email (or, in test mode, returns the raw URL). **No identity is minted**
  * — the login-request path must never create membership.
  */
-export async function handleEmailMagicLink(
-  request: Request, env: Env, instanceName?: string,
-): Promise<Response> {
+export async function handleEmailMagicLink(request: Request, env: Env): Promise<Response> {
   let email: string;
   try {
     const body = await request.json() as { email?: string };
@@ -234,9 +232,9 @@ export async function handleEmailMagicLink(
   if (!isValidEmail(email)) return errorResponse(400, 'invalid_request', 'Valid email required');
 
   const origin = new URL(request.url).origin;
-  // `instanceName` is absent on the scope-less row — the link then names no scope, and the prover
-  // chooses among whatever memberships the address holds once the click lands them on Home.
-  const result = await registry(env).requestMagicLink(email, instanceName, origin) as
+  // The link names no scope. The prover chooses among whatever memberships the address holds once
+  // the click lands them on Home.
+  const result = await registry(env).requestMagicLink(email, origin) as
     { message: string; magicLinkUrl?: string };
   return Response.json({ ...result, expires_in: MAGIC_LINK_TTL });
 }

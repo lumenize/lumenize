@@ -836,17 +836,24 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Request a login magic link (called by the Worker on `email-magic-link`, Turnstile-gated). Inserts
-   * a `MagicLinks` row (token stored HASHED) and sends the email. `universeGalaxyStarId` is absent on
-   * the scope-less front door, where the click proves the mailbox and the scope is chosen afterward.
+   * a `MagicLinks` row (token stored HASHED) and sends the email. The link names no scope: the click
+   * proves the mailbox, and the scope is chosen afterward on Home.
    *
    * **Mints nothing, and reads nothing about the address** — one invariant now, where there used to
    * be an exception. The no-mint half is the older rule: an unauthenticated request must never create
    * membership, so a link for a scope its address was never minted into is issued, delivered, and
-   * then refused at consume. The no-read half is what makes the answer uniform for member, stranger
-   * and configured bootstrap address alike — any divergence would rebuild, in the response shape, the
-   * enumeration oracle that retiring `discover` exists to close.
+   * then refused at consume. The no-read half keeps the answer uniform for member, stranger and
+   * configured bootstrap address alike.
+   *
+   * ⚠️ **Do not add a branch here — and do not restore the larger claim this comment used to make.**
+   * Uniformity protects ACCOUNT EXISTENCE and nothing more: a divergence would tell a stranger
+   * whether an address is known. It cannot disclose which scopes anyone administers, because no
+   * response here names a scope and the read that does is authenticated ({@link getScopeSummary}).
+   * That is a low-severity CWE-203 and not worth trading much for — but not branching costs
+   * nothing, so the line holds for free rather than on the strength of the threat. The oversized
+   * version of this reasoning had reached `docs/vision/auth.md`, and was cut there 2026-09-02.
    */
-  async requestMagicLink(email: string, universeGalaxyStarId: string | undefined, origin: string):
+  async requestMagicLink(email: string, origin: string):
     Promise<{ message: string; magicLinkUrl?: string }> {
     // The Worker validates the email format before this RPC (Workers RPC drops custom Error props, so
     // client-error gates stay Worker-side) — here we just normalize + create the row.
@@ -856,7 +863,7 @@ export class NebulaAuthRegistry extends DurableObject {
     // makes the response uniform, and the uniformity is the point — this endpoint is unauthenticated,
     // so any divergence here is an oracle telling a stranger what an address reaches. The platform
     // membership used to be minted on THIS path; it now rides the consume, behind mailbox proof.
-    return this.#createMagicLinkAndSend(lc, universeGalaxyStarId, 'login', origin);
+    return this.#createMagicLinkAndSend(lc, 'login', origin);
   }
 
   /**
@@ -1459,12 +1466,14 @@ export class NebulaAuthRegistry extends DurableObject {
    * a `transactionSync` themselves (see `claimUniverse` / `claimStar`).
    */
   async #createMagicLinkAndSend(
-    email: string, universeGalaxyStarId: string | undefined, purpose: MagicLinkPurpose, origin: string,
+    email: string, purpose: MagicLinkPurpose, origin: string,
   ): Promise<{ message: string; magicLinkUrl?: string }> {
     const lc = normalizeEmail(email);
     const link = await this.#prepareMagicLink();
-    this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, purpose, link.expiresAt);
-    return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
+    // Scope-less by construction: this path serves the front door only. The claim paths need a
+    // scope on their link and compose their own rows, per the note above.
+    this.#insertMagicLinkRow(link.tokenHash, lc, undefined, purpose, link.expiresAt);
+    return this.#deliverMagicLink(link.rawToken, lc, undefined, origin);
   }
 
   /**

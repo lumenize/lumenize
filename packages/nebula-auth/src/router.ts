@@ -341,8 +341,10 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       // is what would make it an oracle, so nothing downstream may branch on the address.
       // ⚠️ A `/:scope/email-magic-link` sibling existed until 2026-09-01. Naming a scope up front is
       // what forced a caller to KNOW their scope before proving anything — the enumeration this
-      // design deletes — so it is retired, not merely unused. `handleEmailMagicLink` still takes an
-      // optional scope because the CLAIM paths pass one; no route supplies it from a URL.
+      // design deletes — so it is retired, not merely unused. The optional scope parameter that
+      // survived that retirement is gone too (2026-09-02): the note here claimed the CLAIM paths
+      // passed one, and they never did — `claimUniverse`/`claimStar` compose their own rows through
+      // `#insertMagicLinkRow` and never reach this handler.
       // Presents no credential of any kind, so it carries `turnstileGuard` like its scoped sibling.
       // ⚠️ Its answer is uniform for member, stranger and bootstrap address alike — the divergence
       // is what would make it an oracle, so nothing downstream may branch on the address.

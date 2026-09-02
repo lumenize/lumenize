@@ -64,7 +64,7 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
 
 - **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`.
-- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/create-star` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment is the `targetScope` that R5 and R6 compare against.
+- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/create-star` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. On a route that reaches R5 and R6, that segment is the `targetScope` they compare against.
 - **R3 — Rate limiting.** ONE limiter per route; **its key and place follow from whether verified identity exists at that point.** A token-bearing route takes a single `sub`-keyed limiter *after* R4 (`subRateLimitGuard`): everything costly on such a route — a Registry read, a DO write — sits after the verify, and a signature check is sub-millisecond local CPU, so a limiter ahead of it would pay roughly what it saves. A route with no `sub` yet — the cookie routes, the open routes — takes a single connection-keyed limiter (`connectionRateLimitGuard`) ahead of the first expensive thing: the cookie resolution's singleton read, or `turnstileGuard`'s `siteverify` round trip. Never both on one route.
 - **R4 — `verifyJwtGuard`.** Signature and expiry, from the `Authorization: Bearer` header. Produces the verified claims every later step reads.
 - **R5 — `passageGuard`.** Calls `hasPassageInto` — the same verdict M3 computes, with R2's scope as the `targetScope`.
@@ -73,9 +73,9 @@ The layers below describe the first of the examples above — a route whose call
 
 Every step refuses the same way: return a `Response` with an appropriate HTTP code. Explicit throwing is discouraged because that surfaces to the caller as an ambiguous 500. The mesh does the opposite: a refusal there travels back over `lmz.call()`, which preserves a thrown Error whole — custom properties included — so throwing carries what a status code cannot.
 
-One authenticated route carries no scope at all: `my-scopes` returns the scopes the caller can reach, so there is no target to decide about. R2 has nothing to parse and R5 nothing to compare — the answer *is* the set, and it is computed from the caller's own claims.
+A route whose answer *is* a set of scopes carries none in its path. `scope-summary` returns what the caller reaches across every address they hold, so there is no target to decide about — the answer is computed from the verified claims R4 produced.
 
-> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` — the first example row above included — still take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/:scope/…` puts it back in front of the handler — [nebula-registry-scope-in-url.md](../../tasks/nebula-registry-scope-in-url.md) owns the move.
+> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` — the first example row above included — still take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/:scope/…` would put it back in front of the handler — [nebula-registry-scope-in-url.md](../../tasks/nebula-registry-scope-in-url.md) holds that design, **drafted and not yet reviewed**. ⚠️ It covers these four routes and no others: the routes that carry a `:scope` segment today are unaffected, and what a segment means on them is § *The Registry*'s subject, not this one's.
 
 The sections that follow expand on the model above.
 
@@ -113,7 +113,7 @@ The same kind of value appears in three distinct roles.
 
 ⚠️ **The coarse-grained verdicts read exactly two of the three: `authScope` and `targetScope`.** `activeScope` is not an input to passage or dominion (§ *Coarse-grained access control*), and leaving it out subtracts nothing — every refresh already confines it inside `authScope`, so deciding on it would be deciding on a value `authScope` has already bounded.
 
-Anything that looks like a fourth resolves to one of these. `Memberships.universeGalaxyStarId` is `authScope` at rest. The `:scope` segment of a Registry route and the instanceName half of a mesh node address are both `targetScope`, arriving by different transport. `myScopeTree` returns a *set* of scopes a person can reach, which is an answer about many scopes rather than a fourth role for one.
+Anything that looks like a fourth resolves to one of these. `Memberships.universeGalaxyStarId` is `authScope` at rest. The instanceName half of a mesh node address is `targetScope`, and so is the `:scope` segment of a route that decides *about* that scope — `/auth/:scope/create-star`, above. **A segment is not one by virtue of being a segment**: on the cookie routes it selects which cookie the browser sends, and the scope that decides anything is read from the stored refresh record instead (§ *The Registry*).
 
 ## `authScope` (sessions)
 
@@ -137,7 +137,7 @@ That list is over memberships rather than over what the current token reaches, s
 
 Because one person can hold memberships at several addresses, the list is keyed on the **person** — their `profileId` — rather than on any one address (§ *Identity and membership*). It takes an authenticated caller to retrieve the list.
 
-> **Today's code differs.** Switching already disposes the client and rebuilds it at the new `activeScope`, but the URL never changes — the divergence [ADR-017](../adr/017-the-url-is-the-view-state.md) was written against. Neither endpoint behind the picker exists yet either. The only move available is opening a Star within the session already open, and the only person-wide list is `discover`, which is keyed on the email address and unauthenticated — filed as an enumeration oracle in [backlog.md](../../tasks/backlog.md) § *Nebula Auth*, whose fix is the authentication half of what this section describes. The `profileId`-keyed list is not built.
+> **Today's code differs, in ONE way.** The `profileId`-keyed list is built and authenticated — `scope-summary` is exactly the read this section describes, and the picker in front of it is the Home screen. What still differs is the URL: switching inside an open session disposes the client and rebuilds it at the new `activeScope` without the address changing, the divergence [ADR-017](../adr/017-the-url-is-the-view-state.md) was written against.
 
 The contrast, at a glance:
 
@@ -323,6 +323,18 @@ Changing an email address is possible and takes proof of both. Proof of the new 
 
 The last row is the point, not a gap.
 
+## Discovery
+
+The process of deciding what scope the user wants to work in is called "Discovery". It can happen whenever we are uncertain where to redirect a user to like after a fresh login. It can also be manually chosen when a user wants to change what scope they are working in.
+
+Not every type of scope is a place to work and thus not a reasonable active scope but for those that are, choosing a scope in discovery will take you the page for that type of active scope. Galaxy active scopes take you to Nebula Studio. Star active scopes serve up that app.
+
+Discovery only happens after the user is authenticated at one scope and that authenticated scope is what's used to figure out what other scopes they might want to work in by finding all possible scopes reachable by the profileId for the principal in the JWT claims (§ *Identity and membership*).
+
+The login itself names no scope, only an email address. Once someone is authenticated, discovery computes what they reach and they pick.
+
+**Skipping the picker when the browser remembers.** An expired session can return someone straight to their work. ⚠️ **The scope is remembered in `localStorage`, never carried in the link**.
+
 ## The Registry
 
 The Registry is the one thing in this document that sits entirely outside the mesh, and it is the single source of truth for who exists, what scopes exist, and who is a member where: the records the rest of this document reads have to be written somewhere no token is yet required. How it is reached splits along one line — **HTTP carries the session lifecycle; the mesh carries what a session does** (the mechanism: § *Grants in both planes*).
@@ -333,7 +345,7 @@ Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-gra
 
 This case has two families, and neither reaches R4 or R5 — with no verified claims there is nothing for `passageGuard` to decide about. Both take R1, R2 and R3, then whatever steps that endpoint needs.
 
-**Getting a token.** Claiming a scope, requesting a magic link, consuming one, discovering where you are a member. These cannot verify a token because they are how a person obtains one. Two things stand in: `turnstileGuard` proves a human is present, running after rate limiting because it costs a `siteverify` round trip; and the credential itself arrives out of band, because access is anchored to the mailbox (§ *Identity and membership*).
+**Getting a token.** Claiming a scope, requesting a magic link, consuming one. These cannot verify a token because they are how a person obtains one. Two things stand in: `turnstileGuard` proves a human is present, running after rate limiting because it costs a `siteverify` round trip; and the credential itself arrives out of band, because access is anchored to the mailbox (§ *Identity and membership*).
 
 **Presenting the refresh cookie.** `refresh-token` exchanges the refresh cookie for an access token; `logout` ends the session. The caller is authenticated here by cookie rather than by JWT. The cookie's `Path` is `/auth/{authScope}` and browsers match whole segments, so `/auth/{u}/refresh-token` only ever receives a cookie set at `/auth/{u}` or shallower — but that decides which cookie is *sent*, never what it is worth. The scope is read server-side from the stored refresh record, and the requested `activeScope` is confined inside it; it is never taken from the cookie or from the URL.
 
@@ -361,7 +373,7 @@ The `profileId` being random and unguessable stops enumeration, not access. Any 
 
 Private data can be read and written only by the owner of the profile, a superuser, or a Registry admin over a scope where that person holds an **accepted** membership.
 
-Accepted is load-bearing, not bookkeeping. An invitation creates a membership before the invitee has done anything, so counting unaccepted ones would let anyone claim a Universe, invite an address they guessed, and become an admin over a scope that stranger's profile touches. A membership is only marked accepted by consuming a link delivered to the mailbox, which no attacker can do for someone else's address.
+Accepted is load-bearing, not bookkeeping. An invitation creates a membership before the invitee has done anything, so counting unaccepted ones would let anyone claim a Universe, invite an address they guessed, and become an admin over a scope that stranger's profile touches. A membership is taken up at exactly one endpoint, reached from behind a consent modal and authenticated by the path-scoped cookie a click on mail to that address put in the browser. Consuming the link is not enough on its own — it proves the mailbox, which is a different act from agreeing to hold the membership.
 
 The owner is whoever's `profileId` is on the token, and only when that token carries no impersonation chain. An admin impersonating someone is not that person here. They may still reach the private fields through the admin rule above, as themselves, if they administer a scope where the profile holds an accepted membership.
 
@@ -463,7 +475,7 @@ Sometimes, a `scopeAdmin` grant is made for a Star and the data-plane grant happ
 So the flow keeps everyone else off the Star until the founder arrives. Having the Registry create the Star would be the worst case, since it is a global singleton sitting wherever it was first touched, and a Star created by a call from it would land beside the Registry rather than beside the Star's founder. Three steps make this happen:
 
 1. **The claim writes to the Registry, never to the Star.** A single unauthenticated call, fronted by Turnstile — anyone may claim an unclaimed Star, with no invitation and no approval step, and that openness is the product rather than an oversight. It validates and then writes atomically: the scope row, an *unaccepted* admin membership at the full three-segment id, and a magic link. The parent Galaxy must already exist, but that is an integrity check rather than an admin gate; nobody is authenticated at this point in the flow.
-2. **The mailbox proves the person.** Clicking the emailed link is what marks that membership accepted and logs them in. Re-claiming from the same address re-sends the link; a different address gets a conflict, so a pending claim cannot be taken over.
+2. **The mailbox proves the person.** Clicking the emailed link proves the address and places a session cookie. The user must still accept by clicking on the Home screen. Re-claiming from the same address re-sends the link; a different address gets a conflict, so a pending claim cannot be taken over.
 3. **The founder's first touch creates and places it.** Now authenticated at exactly that Star, they address it — and that call is what brings the Durable Object into existence, near them. The Star writes them an `admin` grant on its root node.
 
 The Star writes that grant only for an admin whose scope is exactly that Star. One from further up gains nothing by it — their dominion already covers everything there (§ *The data plane*) — and would cost the Star a great deal, because the seed runs once and never again: whoever wanders in first becomes that Star's permanent terminus for access requests, routing its members' asks away from their own admin.
