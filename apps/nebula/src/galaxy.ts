@@ -869,11 +869,23 @@ export class Galaxy extends NebulaDO {
           // all of a 3-attempt budget before the pull delivered — 3 was exactly enough,
           // which is no margin at all. The loop exits at first arrival, so a healthy
           // bracket pays one readFile and zero execs.
-          for (let attempt = 0; attempt < 5 && !(await this.#distArrived()); attempt++) {
+          // ⚠️ SPACED, not back-to-back. The miss heals with TIME, not with more execs: five
+          // re-pulls fired in a row can all race the same in-flight pull and exhaust the budget
+          // in under a second (the 2026-09-03 `build-box` reds — bundle ok, dist never arrived).
+          // The hand-observed heal was "a no-op exec on the still-alive container, within a few
+          // tries" — tries spaced by human time. 250 ms doubling → ~8 s of patience in total.
+          // The await opens this DO's input gate, but this whole build is already a chain of
+          // container awaits serialized by `#buildChain`, so nothing new is exposed here.
+          let attempt = 0;
+          for (; attempt < 5 && !(await this.#distArrived()); attempt++) {
             debug('nebula.Galaxy.build').warn('dist not in the VFS after the bracket — re-pulling', { attempt });
+            await new Promise((r) => setTimeout(r, 250 * 2 ** attempt));
             try {
               await (await this.#ws.runtime.exec('true', { cwd: '/workspace', timeoutMs: 30_000 })).result();
             } catch { break; /* session dead — the publish gate reports the loss */ }
+          }
+          if (attempt > 0) {
+            debug('nebula.Galaxy.build').info('dist arrived after re-pull', { attempts: attempt, arrived: await this.#distArrived() });
           }
         }
         this.#destroyBuildContainer();
