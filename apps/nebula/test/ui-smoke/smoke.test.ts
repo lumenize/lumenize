@@ -95,12 +95,15 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
       // Capable-of-failing: each waitFor auto-waits and THROWS if the element never appears —
       // reds if the SPA fails to mount (build/bundle break) or the shell doesn't render.
       //
-      // ⚠️ The DISCRIMINATING unauthenticated marker is now the "Sign in" button, not a login
-      // form: Studio no longer HAS a login form — the auth SPA owns every front door — so the old
-      // email-field probe would red for the wrong reason. Its presence still confirms what it
-      // always did: auto-connect correctly FAILED with no cookie (the auth-path negative control).
-      await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
+      // ⚠️ The DISCRIMINATING unauthenticated marker is the signed-out LANDING — its welcome
+      // heading and "Sign in" button — not a login form: Studio has no login form (the auth SPA
+      // owns every front door), and no chat rail either when signed out (the rail's "Nebula
+      // Studio" header exists only inside a workspace on a live session; `studio-signed-out-landing`
+      // pins that). "Sign in" being reachable still confirms what it always did: auto-connect
+      // correctly FAILED with no cookie (the auth-path negative control).
+      await page.getByRole('heading', { name: 'Welcome to Nebula' }).waitFor({ state: 'visible' });
       await page.getByRole('button', { name: /Sign in/ }).waitFor({ state: 'visible' });
+      expect(await page.getByRole('heading', { name: 'Nebula Studio' }).count()).toBe(0);
       // And the login form is GONE from Studio — reds if a login block is ever reintroduced here.
       expect(await page.getByPlaceholder('you@example.com').count()).toBe(0);
       // The preview iframe is correctly ABSENT pre-login: the stage is the help/intro until you
