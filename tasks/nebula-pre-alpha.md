@@ -90,7 +90,7 @@ Adjoins [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-mult
 
 **The lesson the build taught, worth keeping:** the first cut wrapped only the codegen loop's two awaits (model call, container build). `first-app-built`'s new live watch caught the banner painting *before codegen had started* — the discriminator and the entire plain-answer generation are silent model calls too. The turn is the unit of liveness, not any await inside it. That watch (limb 3: no banner mid-turn, no empty bubble, across a real 60–100 s turn) is what now locks the flash out.
 
-**Deliberately not here:** real token streaming (the model is called whole-response; the heartbeat makes the silence survivable, it does not make it visible) and a per-call `callModel` timeout — both change the model lane's failure semantics and belong to one decision, parked in [backlog.md](backlog.md) § *Other Nebula backlog*.
+**Deliberately not here:** a per-call `callModel` timeout — it changes the model lane's failure semantics and is parked in [backlog.md](backlog.md) § *Other Nebula backlog*. Real token streaming, first parked beside it, was pulled forward and built the same day (`apps/nebula/src/model-stream.ts`, 2026-09-03): the thinking now arrives as it is written, so the heartbeat covers only the builds and the gaps between calls.
 
 ## ③ Capture live
 
