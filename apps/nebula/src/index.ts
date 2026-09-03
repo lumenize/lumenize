@@ -52,7 +52,7 @@ export { chatOntologySeedRow } from './chat-ontology';
 // Participant derivation — display identity from the stamped actingToken (client-safe).
 export { deriveKind, deriveParticipants } from './participants';
 export {
-  startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS,
+  startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS, TURN_HEARTBEAT_MS,
   type TurnLiveness, type TurnPhase, type TurnDisplay,
 } from './turn-liveness';
 export type { ParticipantKind, ParticipantRef } from './participants';

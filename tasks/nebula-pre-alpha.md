@@ -20,7 +20,7 @@
 |---|---|---|---|
 | ① | **Guidance file tree** — platform → galaxy, universe skipped | [nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) — design intent only | deploy |
 | ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | none yet, Larry's — § *② Personas* | deploy, plus `data` if the column lands |
-| — | **Turn-liveness heartbeat** — a truthful server signal through a long quiet stretch | none — § *Turn-liveness heartbeat* | deploy |
+| — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
 | ④ | **Every Resources guard lives in the Resources plane** | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — design intent only | **data** |
 | ⑤ | **The ontology history is one committed file** | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — design intent only; independent of ④, either order | **data** |
@@ -84,7 +84,13 @@ Adjoins [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-mult
 
 ## Turn-liveness heartbeat
 
-The client already consumes the signal (`signalTurn` in [turn-liveness.ts](../apps/nebula/src/turn-liveness.ts)). What is missing is a truthful server emit during the non-streaming stretch — a cold first token, or the container build — which today crosses the `TURN_IDLE_MS` idle window and paints the `failed` banner before the next chunk heals it. Low-risk polish, slotted right after ② because it touches the codegen streaming path and belongs near the guidance work rather than drifting into "much later" (Larry, 2026-09-02).
+✅ **BUILT 2026-09-03.** The server beats through the **whole turn** — [turn-heartbeat.ts](../apps/nebula/src/turn-heartbeat.ts), wrapped once at `Galaxy.#chatTurn` — with an empty transient chunk every quarter of the client's idle window (`TURN_HEARTBEAT_MS`, derived from `TURN_IDLE_MS` in [turn-liveness.ts](../apps/nebula/src/turn-liveness.ts) so the two cannot drift apart). The client treats an empty chunk as liveness only: it re-arms the window and paints nothing, so "thinking…" stays up instead of a blank bubble (`App.vue`'s stream hook).
+
+**Bounded, deliberately.** `callModel` has no timeout of its own; a hung model call runs until the 300 s generation deadline releases the latch. The heartbeat stops at that same deadline so it cannot mask the hang the window exists to catch — a dead turn still fails, one window later than before rather than never.
+
+**The lesson the build taught, worth keeping:** the first cut wrapped only the codegen loop's two awaits (model call, container build). `first-app-built`'s new live watch caught the banner painting *before codegen had started* — the discriminator and the entire plain-answer generation are silent model calls too. The turn is the unit of liveness, not any await inside it. That watch (limb 3: no banner mid-turn, no empty bubble, across a real 60–100 s turn) is what now locks the flash out.
+
+**Deliberately not here:** real token streaming (the model is called whole-response; the heartbeat makes the silence survivable, it does not make it visible) and a per-call `callModel` timeout — both change the model lane's failure semantics and belong to one decision, parked in [backlog.md](backlog.md) § *Other Nebula backlog*.
 
 ## ③ Capture live
 

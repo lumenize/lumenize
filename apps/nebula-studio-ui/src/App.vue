@@ -339,7 +339,12 @@ async function connect() {
       // reply appear is the product working. But only MY turn's chunks are liveness for
       // MY idle window: a message the single-flight latch skipped is never answered, and
       // re-arming it from someone else's running generation is a hang with no banner.
-      streaming.value = { id: messageId, text };
+      // ⚠️ A KEEPALIVE carries no text — the server beats through the WHOLE turn, whose model
+      // calls and builds are all silent (`turn-heartbeat.ts`). It re-arms the window below like a real
+      // chunk, but must not paint: with nothing accumulated yet it would turn "thinking…" into an
+      // empty bubble. Decided on the accumulated length, so a keepalive AFTER real chunks simply
+      // re-paints the same text.
+      if (text.length > 0) streaming.value = { id: messageId, text };
       if (turn.value && replyTo === lastPostedId.value) {
         turn.value = signalTurn(turn.value, Date.now());
       }

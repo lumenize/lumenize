@@ -39,6 +39,8 @@ import { NebulaDO, requireDominionHere } from './nebula-do';
 // scripts/check-worker-graph.mjs is the tripwire.
 import type { OntologyVersionRow } from './ontology-compile';
 import { stepFailed, REPORT_MARKER, ROW_PATH, WS_ROOT, wsPath } from './build-report';
+import { withHeartbeat } from './turn-heartbeat';
+import { TURN_HEARTBEAT_MS } from './turn-liveness';
 import type { BuildReport, StepResult } from './build-report';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget, NodeInvitee, NodeInviteAck } from './resource-data-plane';
@@ -1107,17 +1109,35 @@ export class Galaxy extends NebulaDO {
   /** The turn body the trigger races against the generation deadline: discriminator
    *  first, then the codegen loop OR the plain-answer generation. */
   async #chatTurn(userMessageId: string, message: string): Promise<void> {
+    // Mint the agent Message id up front (Galaxy-minted — the human message's id is
+    // client-minted); stream progress transiently to chat subscribers; commit ONE
+    // durable Message at the end, `replyTo`-linked to the triggering human Message.
+    // Minted BEFORE the discriminator so the heartbeat below has an id from the first ms.
+    const agentMessageId = crypto.randomUUID();
+
+    // ⚠️ ONE heartbeat for the WHOLE turn (`turn-heartbeat.ts`), not one per await. Every
+    // model call in a turn is whole-response and therefore silent — the discriminator, the
+    // plain-answer generation, and each codegen round — and a container build emits nothing
+    // until it exits. Wrapping the two loop awaits alone left the discriminator and the entire
+    // answer path uncovered, and the first live drive of it painted `failed` over a healthy
+    // turn before codegen had even started. The turn IS the unit of liveness. Bounded by the
+    // same generation deadline the trigger races this body against, so a hung call still fails.
+    const deadlineAt = Date.now() + this.generationDeadlineMs;
+    await withHeartbeat(
+      () => this.#chatTurnBody(userMessageId, message, agentMessageId),
+      () => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, '', CHAT_NODE_ID, userMessageId),
+      { intervalMs: TURN_HEARTBEAT_MS, deadlineAt },
+    );
+  }
+
+  /** The turn body proper — discriminator first, then the codegen loop OR the plain answer. */
+  async #chatTurnBody(userMessageId: string, message: string, agentMessageId: string): Promise<void> {
     // STAGE 1 — the fast DISCRIMINATOR (the two-LLM-calls model): its verdict places
     // nothing UI-side pre-alpha (`respond?` is hardwired YES), but it GATES the
     // container warm (on the codegen verdict, never on message-arrival) and forks the
     // generation prompt. A plain question therefore starts ZERO containers.
     const verdict = await this.discriminate(message);
     debug('nebula.Galaxy.trigger').info('discriminator verdict', { userMessageId, codegen: verdict.codegen });
-
-    // Mint the agent Message id up front (Galaxy-minted — the human message's id is
-    // client-minted); stream progress transiently to chat subscribers; commit ONE
-    // durable Message at the end, `replyTo`-linked to the triggering human Message.
-    const agentMessageId = crypto.randomUUID();
 
     if (!verdict.codegen) {
       // ANSWER path — big model, answer prompt, no tools, zero container involvement.
@@ -1774,6 +1794,8 @@ export class Galaxy extends NebulaDO {
       userRequest,
       currentSource,
     });
+    // No per-await heartbeat here: liveness is a property of the TURN, and `#chatTurn` beats
+    // around the whole body — the discriminator and the answer path are silent model calls too.
     const deps: CodegenLoopDeps = {
       callModel: (m, p) => this.callModel(m, p),
       writeFile: (path, content) => this.writeSource(path, content),

@@ -28,6 +28,15 @@ export interface TurnLiveness {
  */
 export const TURN_IDLE_MS = 90_000;
 
+/**
+ * How often the server beats through a running turn (`turn-heartbeat.ts`): four beats per idle
+ * window, so a turn survives three consecutive dropped chunks — chunks are best-effort and a WS
+ * reconnect or a slept tab loses them — before the window can elapse on a turn that is alive.
+ * Derived, not chosen independently: it is a property of the window, and moving one without the
+ * other is the mistake this line prevents.
+ */
+export const TURN_HEARTBEAT_MS = TURN_IDLE_MS / 4;
+
 export function startTurn(now: number): TurnLiveness {
   return { phase: 'awaiting', lastSignalAt: now };
 }

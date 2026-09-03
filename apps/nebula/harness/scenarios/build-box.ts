@@ -142,7 +142,11 @@ export async function run(stack: DevStack): Promise<void> {
       '<script setup lang="ts"></script>\n<template><main>fixed</main></template>\n'));
     const fixed = await buildNow();
     assert.ok(bundleOk(fixed), `the fixed source should bundle, got ${JSON.stringify(fixed.bundle)}`);
-    assert.equal(fixed.publish.done, true, 'a clean rebuild publishes by default');
+    // The report always says WHY it did not publish (asserted above), so put it in the message —
+    // `false !== true` alone cost a full 110 s re-run just to learn which gate refused.
+    assert.equal(fixed.publish.done, true,
+      `a clean rebuild publishes by default — refused because: ${fixed.publish.why} ` +
+      `(bundle=${JSON.stringify(fixed.bundle).slice(0, 200)}; typeCheck=${JSON.stringify(fixed.typeCheck).slice(0, 200)})`);
   } finally {
     driver.dispose();
   }

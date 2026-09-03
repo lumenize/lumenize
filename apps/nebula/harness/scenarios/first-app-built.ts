@@ -122,13 +122,41 @@ export async function run(stack: DevStack): Promise<void> {
       'the empty-thread hint must be gone once the conversation has content');
     console.error('  ✓ limb 2 — the hint showed on an empty thread and cleared on the first post');
 
-    // ── LIMB 3: a real turn completes and renders durably ─────────────────────────────────────
+    // ── LIMB 3: a real turn completes and renders durably — and stays HEALTHY while it runs ────
     // ⚠️ The THOUGHT DISCLOSURE, not a "Nebula" byline: the transient streaming bubble also carries
     // that byline, so waiting on it would pass on a stream that never committed.
+    //
+    // ⚠️ WATCH THE WHOLE TURN, not the settled end. Two defects are TRANSIENTS that a post-turn
+    // assertion cannot see (testing.md's self-heal trap):
+    //  (a) the failure banner painting mid-turn — the idle window elapsing on a turn that is alive.
+    //      This is the flash seen on the first hand drive, and the server heartbeat exists to make
+    //      it impossible (`turn-heartbeat.ts` beats through the silent model call and build);
+    //  (b) an EMPTY streaming bubble — a keepalive carries no text, and the client hook must re-arm
+    //      without painting it. Either one self-heals seconds later and leaves a green end state.
+    const liveWatch = (async () => {
+      const deadline = Date.now() + TURN_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (await page.getByText('💭 thought process').count() > 0) return;
+        if (await page.getByText('No reply arrived').count() > 0) {
+          await captureArtifacts(inst, 'first-app-built-failed-flash');
+          throw new Error('the failure banner PAINTED during a live turn — the idle window elapsed on a ' +
+            'turn that was still running, which the server heartbeat exists to prevent');
+        }
+        const emptyBubbles = await page.locator('.chat-start .chat-bubble')
+          .evaluateAll((els) => els.filter((e) => (e.textContent ?? '').trim() === '').length);
+        if (emptyBubbles > 0) {
+          await captureArtifacts(inst, 'first-app-built-empty-bubble');
+          throw new Error('an EMPTY assistant bubble rendered mid-turn — a keepalive was painted as content');
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    })();
     try {
       await page.getByText('💭 thought process').first()
         .waitFor({ state: 'visible', timeout: TURN_TIMEOUT_MS });
+      await liveWatch;
     } catch (e) {
+      if (e instanceof Error && /PAINTED|EMPTY assistant bubble/.test(e.message)) throw e;
       await captureArtifacts(inst, 'first-app-built-turn-never-landed');
       throw new Error(
         `no durable agent reply rendered within ${TURN_TIMEOUT_MS / 1000}s — the turn runs detached, ` +
@@ -136,7 +164,7 @@ export async function run(stack: DevStack): Promise<void> {
         `(${e instanceof Error ? e.message : String(e)})`,
       );
     }
-    console.error('  ✓ limb 3 — a durable agent reply rendered in the thread');
+    console.error('  ✓ limb 3 — a durable agent reply rendered, and the turn stayed healthy the whole way');
 
     // ── LIMB 4: no failure banner survives the completed turn ──────────────────────────────────
     assert.equal(await page.getByText('No reply arrived').count(), 0,
