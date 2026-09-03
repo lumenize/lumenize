@@ -547,6 +547,12 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           },
         );
         if (!res.ok) {
+          // Read the body to completion even though nothing wants it. An unread body keeps the
+          // response open, and in a browser a navigation while it is pending logs a phantom
+          // ERR_ABORTED for a request the server had already answered — a stranger's session probe
+          // followed by "Sign in". (Not `body.cancel()`: that aborts at the network layer and
+          // produces the same phantom deterministically.)
+          await res.text().catch(() => { /* nothing to drain is fine */ });
           // Classify like mesh's #refreshToken string-endpoint path (P9): a
           // 401/403 means the refresh cookie is expired/invalid → terminal, so
           // #connectInternal fires onLoginRequired + 'disconnected' and the

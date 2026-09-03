@@ -1060,6 +1060,11 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       });
 
       if (!response.ok) {
+        // Read the body to completion even though nothing wants it: an unread body keeps the
+        // response open, and a page navigating away while it is pending logs a phantom failure for
+        // an answered request. (Not `body.cancel()` — that aborts at the network layer and produces
+        // the same phantom deterministically.)
+        await response.text().catch(() => { /* nothing to drain is fine */ });
         // Classify so the first-connect path (#connectInternal's catch) can be
         // symmetric with the mid-session close path (#handleClose): a 401/403
         // from the refresh endpoint means the (HttpOnly, path-scoped) refresh
