@@ -133,10 +133,26 @@ export async function run(stack: DevStack): Promise<void> {
     //      it impossible (`turn-heartbeat.ts` beats through the silent model call and build);
     //  (b) an EMPTY streaming bubble — a keepalive carries no text, and the client hook must re-arm
     //      without painting it. Either one self-heals seconds later and leaves a green end state.
+    //  (c) the spinner must MOVE: while the turn is silent the only feedback is the elapsed
+    //      counter on the thinking bubble, so two samples of it ≥2 s apart must differ.
+    let thinkingFirst: { text: string; at: number } | undefined;
+    let thinkingMoved = false;
     const liveWatch = (async () => {
       const deadline = Date.now() + TURN_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (await page.getByText('💭 thought process').count() > 0) return;
+        const thinking = page.getByTestId('turn-thinking');
+        if (await thinking.count() > 0) {
+          const text = (await thinking.first().textContent())?.trim() ?? '';
+          if (!thinkingFirst) thinkingFirst = { text, at: Date.now() };
+          else if (!thinkingMoved && Date.now() - thinkingFirst.at >= 2_000) {
+            if (text === thinkingFirst.text) {
+              await captureArtifacts(inst, 'first-app-built-spinner-frozen');
+              throw new Error(`the thinking bubble did not MOVE in 2 s ("${text}") — a silent turn shows a frozen spinner`);
+            }
+            thinkingMoved = true;
+          }
+        }
         if (await page.getByText('No reply arrived').count() > 0) {
           await captureArtifacts(inst, 'first-app-built-failed-flash');
           throw new Error('the failure banner PAINTED during a live turn — the idle window elapsed on a ' +
@@ -156,7 +172,7 @@ export async function run(stack: DevStack): Promise<void> {
         .waitFor({ state: 'visible', timeout: TURN_TIMEOUT_MS });
       await liveWatch;
     } catch (e) {
-      if (e instanceof Error && /PAINTED|EMPTY assistant bubble/.test(e.message)) throw e;
+      if (e instanceof Error && /PAINTED|EMPTY assistant bubble|did not MOVE/.test(e.message)) throw e;
       await captureArtifacts(inst, 'first-app-built-turn-never-landed');
       throw new Error(
         `no durable agent reply rendered within ${TURN_TIMEOUT_MS / 1000}s — the turn runs detached, ` +
@@ -164,7 +180,8 @@ export async function run(stack: DevStack): Promise<void> {
         `(${e instanceof Error ? e.message : String(e)})`,
       );
     }
-    console.error('  ✓ limb 3 — a durable agent reply rendered, and the turn stayed healthy the whole way');
+    console.error(`  ✓ limb 3 — a durable agent reply rendered, and the turn stayed healthy the whole way` +
+      (thinkingMoved ? ' (spinner ticked)' : ' (thinking phase too short to sample motion)'));
 
     // ── LIMB 4: no failure banner survives the completed turn ──────────────────────────────────
     assert.equal(await page.getByText('No reply arrived').count(), 0,

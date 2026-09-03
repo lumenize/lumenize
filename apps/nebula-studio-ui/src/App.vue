@@ -154,6 +154,22 @@ onMounted(() => {
   }, 5_000);
 });
 onUnmounted(() => clearInterval(turnTicker));
+
+// ── Visible motion while the turn is silent ──
+// The model is called whole-response, so nothing CAN arrive from it for tens of seconds at a time
+// and the spinner is all a person has. An elapsed counter is truthful motion at 1 Hz, driven
+// locally from when the turn was posted — no server involvement, and no pretence of progress.
+// (Real cadence is token streaming, parked with the model-lane decision in backlog.md.)
+const turnStartedAt = ref<number | null>(null);
+const nowTick = ref(Date.now());
+let elapsedTicker: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  elapsedTicker = setInterval(() => { if (turn.value) nowTick.value = Date.now(); }, 1_000);
+});
+onUnmounted(() => clearInterval(elapsedTicker));
+const elapsedSec = computed(() =>
+  turnStartedAt.value === null ? 0 : Math.max(0, Math.floor((nowTick.value - turnStartedAt.value) / 1000)),
+);
 const previewSrc = ref("");
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
@@ -428,6 +444,8 @@ async function send() {
     // channel). The preview reloads on the build-completion push, not here.
     lastPostedId.value = await nebula.value.client.postUserMessage(msg);
     turn.value = startTurn(Date.now());
+    turnStartedAt.value = Date.now();
+    nowTick.value = turnStartedAt.value;
   } catch (e) {
     log("error", `send failed: ${(e as Error).message}`);
   } finally {
@@ -872,7 +890,9 @@ async function logout() {
           </div>
         </div>
         <div v-else-if="turnDisplay === 'thinking'" class="chat chat-start">
-          <div class="chat-bubble flex items-center gap-2"><Loader2 class="size-4 animate-spin" /> Studio is thinking…</div>
+          <div class="chat-bubble flex items-center gap-2" data-testid="turn-thinking">
+            <Loader2 class="size-4 animate-spin" /> Studio is thinking… <span class="opacity-60 tabular-nums">{{ elapsedSec }}s</span>
+          </div>
         </div>
         <!-- Local notices (login guidance, nudges, errors) — never the conversation. -->
         <template v-for="(m, i) in messages" :key="'n' + i">
