@@ -82,7 +82,14 @@ function closeChatThread() {
   turn.value = null;
 }
 
-type ThreadMsg = { id: string; kind: "agent" | "human"; mine: boolean; byline: string; content: string; thought?: string };
+type ThreadMsg = { id: string; kind: "agent" | "human"; mine: boolean; byline: string; title?: string; content: string; thought?: string };
+/** What a hover reveals: the full name, when the person set one and it is not what the byline
+ *  already shows. A `title` rather than a hover-only widget, so assistive tech and keyboards get
+ *  it too — hover alone is invisible to both. */
+function participantTitle(p: { kind: "agent" | "human"; profileId?: string }): string | undefined {
+  const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
+  return prof?.name && prof.name !== participantName(p) ? prof.name : undefined;
+}
 function participantName(p: { kind: "agent" | "human"; profileId?: string }): string {
   const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
   return prof?.nickname || prof?.name || (p.kind === "agent" ? "Nebula" : "Someone");
@@ -104,6 +111,8 @@ const thread = computed<ThreadMsg[]>(() => {
       // The WHOLE-chain byline, top-down: "Nebula for {coach} for {user}" — every party
       // resolved via its own Profile (the read IS the subscription).
       byline: parties.map(participantName).join(" for "),
+      // The full names behind the byline, in the same order — shown on hover.
+      title: parties.map(participantTitle).filter(Boolean).join(" for ") || undefined,
       content: String(snap.value.content ?? ""),
       thought: typeof snap.value.thought === "string" ? snap.value.thought : undefined,
     });
@@ -889,7 +898,7 @@ async function logout() {
              attributed by the whole-chain byline resolved through each party's Profile. -->
         <template v-for="m in thread" :key="m.id">
           <div :class="['chat', m.mine ? 'chat-end' : 'chat-start']">
-            <div class="chat-header text-xs opacity-60 mb-0.5">{{ m.byline }}</div>
+            <div class="chat-header text-xs opacity-60 mb-0.5" :title="m.title" data-testid="byline">{{ m.byline }}</div>
             <div :class="['chat-bubble', m.mine ? 'chat-bubble-primary' : '']">{{ m.content }}</div>
           </div>
           <details v-if="m.thought" class="text-xs opacity-70 -mt-1">
@@ -984,7 +993,7 @@ async function logout() {
         </button>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
           <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
-          <img v-if="myProfile?.picture" :src="myProfile.picture" alt="" class="size-7 rounded-full object-cover" data-testid="account-picture" />
+          <img v-if="myProfile?.picture" :src="myProfile.picture" :alt="myProfile?.name ?? ''" :title="myProfile?.name" class="size-7 rounded-full object-cover" data-testid="account-picture" />
           <span v-else class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
         </button>
         <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">

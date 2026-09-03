@@ -221,6 +221,11 @@ export async function run(stack: DevStack): Promise<void> {
       .waitFor({ state: 'visible', timeout: 20_000 });
     // …and after Save the avatar button wears it — the Profile write fanned the picture out.
     await page.getByTestId('account-picture').waitFor({ state: 'visible', timeout: 20_000 });
+    // The FULL name is the hover: the byline keeps showing the nickname, and its title carries the
+    // name the editor just saved. A `title` (not a hover-only widget) so assistive tech gets it too.
+    await myChat.locator('[data-testid="byline"]').first().waitFor({ state: 'visible' });
+    assert.equal(await myChat.locator('[data-testid="byline"]').first().getAttribute('title'), 'Robin Q. Newcomer',
+      'hovering a byline must reveal the full name; the byline itself stays the nickname');
     console.error('  ✓ limb 8 — the profile editor renames an existing byline live, and the uploaded picture reaches the avatar');
 
     // ── LIMB 9: /{universe} is the Universe page and lists the app ─────────────────────────────
