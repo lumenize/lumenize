@@ -874,16 +874,15 @@ async function logout() {
 
           <form class="flex-1 space-y-2" @submit.prevent="saveProfile">
             <fieldset class="fieldset">
-              <legend class="fieldset-legend">What should we call you?</legend>
+              <legend class="fieldset-legend">Nickname</legend>
               <input
                 v-model="profileNickname"
                 type="text"
                 class="input w-full"
-                placeholder="robin"
+                placeholder="Robin"
                 :disabled="profileSaving"
                 data-testid="profile-nickname"
               />
-              <p class="label">Shown next to anything you post.</p>
             </fieldset>
 
             <fieldset class="fieldset">
