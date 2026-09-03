@@ -82,13 +82,26 @@ function closeChatThread() {
   turn.value = null;
 }
 
-type ThreadMsg = { id: string; kind: "agent" | "human"; mine: boolean; byline: string; title?: string; content: string; thought?: string };
+/** One face on the avatar stack: the display name (its hover is the full name), the picture if
+ *  there is one, and the kind — a fallback initial stands in for a missing picture. */
+type Party = { name: string; title?: string; picture?: string; kind: "agent" | "human" };
+type ThreadMsg = {
+  id: string; kind: "agent" | "human"; mine: boolean; byline: string; title?: string;
+  /** Front-to-back. An act-bearing message stacks the ACTOR in front of the SUBJECT — Nebula on top,
+   *  the person it ran for behind, offset just enough to stay hoverable. A plain message is one face. */
+  stack: Party[];
+  content: string; thought?: string;
+};
 /** What a hover reveals: the full name, when the person set one and it is not what the byline
  *  already shows. A `title` rather than a hover-only widget, so assistive tech and keyboards get
  *  it too — hover alone is invisible to both. */
 function participantTitle(p: { kind: "agent" | "human"; profileId?: string }): string | undefined {
   const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
   return prof?.name && prof.name !== participantName(p) ? prof.name : undefined;
+}
+function participantPicture(p: { kind: "agent" | "human"; profileId?: string }): string | undefined {
+  const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { picture?: string } }>)?.[p.profileId]?.value : undefined;
+  return prof?.picture || undefined;
 }
 function participantName(p: { kind: "agent" | "human"; profileId?: string }): string {
   const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
@@ -113,6 +126,9 @@ const thread = computed<ThreadMsg[]>(() => {
       byline: parties.map(participantName).join(" for "),
       // The full names behind the byline, in the same order — shown on hover.
       title: parties.map(participantTitle).filter(Boolean).join(" for ") || undefined,
+      stack: (parties.length > 1 ? [parties[0]!, parties[parties.length - 1]!] : [parties[0]!]).map((p) => ({
+        name: participantName(p), title: participantTitle(p), picture: participantPicture(p), kind: p.kind,
+      })),
       content: String(snap.value.content ?? ""),
       thought: typeof snap.value.thought === "string" ? snap.value.thought : undefined,
     });
@@ -898,6 +914,25 @@ async function logout() {
              attributed by the whole-chain byline resolved through each party's Profile. -->
         <template v-for="m in thread" :key="m.id">
           <div :class="['chat', m.mine ? 'chat-end' : 'chat-start']">
+            <!-- The faces behind the byline. Rendered back-to-front so the actor paints on top; the
+                 subject sits offset by a third of its width, enough to read and to hover. -->
+            <div class="chat-image">
+              <div :class="['relative h-8', m.stack.length > 1 ? 'w-11' : 'w-8']" data-testid="party-stack" :data-parties="m.stack.length">
+                <span
+                  v-for="(p, i) in [...m.stack].reverse()"
+                  :key="i"
+                  :class="['absolute top-0', i === m.stack.length - 1 ? 'left-0 z-10' : 'left-3 z-0']"
+                  :title="p.title ?? p.name"
+                  data-testid="party-avatar"
+                  :data-name="p.name"
+                >
+                  <img v-if="p.picture" :src="p.picture" alt="" class="size-8 rounded-full object-cover ring-2 ring-base-200 bg-base-200" data-testid="party-avatar-img" />
+                  <span v-else :class="['size-8 rounded-full grid place-items-center text-xs font-semibold ring-2 ring-base-200', p.kind === 'agent' ? 'bg-primary text-primary-content' : 'bg-neutral text-neutral-content']">
+                    {{ (p.name.trim().charAt(0) || '?').toUpperCase() }}
+                  </span>
+                </span>
+              </div>
+            </div>
             <div class="chat-header text-xs opacity-60 mb-0.5" :title="m.title" data-testid="byline">{{ m.byline }}</div>
             <div :class="['chat-bubble', m.mine ? 'chat-bubble-primary' : '']">{{ m.content }}</div>
           </div>

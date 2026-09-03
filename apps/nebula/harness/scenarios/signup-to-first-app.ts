@@ -224,6 +224,11 @@ export async function run(stack: DevStack): Promise<void> {
     // The FULL name is the hover: the byline keeps showing the nickname, and its title carries the
     // name the editor just saved. A `title` (not a hover-only widget) so assistive tech gets it too.
     await myChat.locator('[data-testid="byline"]').first().waitFor({ state: 'visible' });
+    // The face beside my own message is the picture I just uploaded — the Profile fanout reached
+    // the thread's per-author subscription, not only the avatar button.
+    await myChat.locator('[data-testid="party-avatar-img"]').first().waitFor({ state: 'visible', timeout: 20_000 });
+    assert.ok((await myChat.locator('[data-testid="party-avatar-img"]').first().getAttribute('src'))?.includes('/pictures/'),
+      'the avatar beside my message must be the uploaded picture');
     assert.equal(await myChat.locator('[data-testid="byline"]').first().getAttribute('title'), 'Robin Q. Newcomer',
       'hovering a byline must reveal the full name; the byline itself stays the nickname');
     console.error('  ✓ limb 8 — the profile editor renames an existing byline live, and the uploaded picture reaches the avatar');
