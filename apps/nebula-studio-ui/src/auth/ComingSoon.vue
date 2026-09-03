@@ -21,6 +21,11 @@ async function tellThem() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tag: props.tag }),
     });
+    // ⚠️ Drain the body before settling. The endpoint answers 204, and a `fetch` whose response is
+    // never read leaves the load open for Chromium to cancel — which surfaces as a
+    // `net::ERR_ABORTED` on a request that plainly succeeded, and reads as a broken endpoint to
+    // anything watching the network (it reddened `auth-pages-render`'s clean-requests limb).
+    await resp.text().catch(() => { /* nothing to drain is fine */ });
     state.value = resp.ok ? 'sent' : 'failed';
   } catch {
     state.value = 'failed';

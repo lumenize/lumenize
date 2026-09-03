@@ -27,14 +27,27 @@ import {
 
 const props = defineProps<{ scope: string }>();
 
+/**
+ * Read and discard a response body so the load completes.
+ *
+ * ⚠️ **Not hygiene — this is what stops a PHANTOM network error.** A `fetch` whose body is never
+ * read leaves the load open for Chromium to cancel, which surfaces as `net::ERR_ABORTED` on a
+ * request that actually succeeded. Anything watching the network then cannot tell it from a real
+ * failure, which would force a blanket "ignore failed requests" filter and blind the very check
+ * that catches a screen quietly 404ing its own bundle (`harness/scenarios/auth-pages-render.ts`
+ * limb 6). Every early return below abandons a body nobody was going to read.
+ */
+const drain = (resp: Response) => resp.text().catch(() => { /* nothing to drain is fine */ });
+
 const summary = ref<ScopeSummary | undefined>();
 const error = ref('');
 const loading = ref(true);
 const accessToken = ref('');
 const pending = ref<ScopeNode | undefined>(); // the row whose modal is open
-/** The nickname already on file, handed to the consent modal to pre-fill. Kept beside `pending`
- *  rather than on the node: it belongs to the PERSON, not to the membership being consented to. */
+/** The display names already on file, handed to the consent modal to pre-fill. Kept beside
+ *  `pending` rather than on the node: they belong to the PERSON, not to the membership. */
 const pendingNickname = ref('');
+const pendingName = ref('');
 const accepting = ref(false);
 const selectedEmail = ref('');
 
@@ -48,7 +61,7 @@ async function bootstrap() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activeScope: props.scope }),
   });
-  if (!resp.ok) throw new Error('needs-login');
+  if (!resp.ok) { await drain(resp); throw new Error('needs-login'); }
   const { access_token } = await resp.json() as { access_token: string };
   accessToken.value = access_token;
 }
@@ -69,13 +82,14 @@ async function loadPendingCard(): Promise<ScopeNode | undefined> {
   const resp = await fetch(`/auth/${encodeURIComponent(props.scope)}/pending-membership`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
   });
-  if (!resp.ok) return undefined;
+  if (!resp.ok) { await drain(resp); return undefined; }
   const card = await resp.json() as {
     universeGalaxyStarId: string; accepted: boolean;
-    invited?: boolean; invitedByName?: string; nickname?: string;
+    invited?: boolean; invitedByName?: string; nickname?: string; name?: string;
   };
   if (card.accepted) return undefined; // already taken up — nothing to consent to
   pendingNickname.value = card.nickname ?? '';
+  pendingName.value = card.name ?? '';
   const depth = card.universeGalaxyStarId.split('.').length;
   return {
     scope: card.universeGalaxyStarId,
@@ -91,7 +105,7 @@ async function loadSummary(): Promise<ScopeSummary> {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken.value}`, 'Content-Type': 'application/json' },
   });
-  if (!resp.ok) throw new Error(`scope-summary ${resp.status}`);
+  if (!resp.ok) { await drain(resp); throw new Error(`scope-summary ${resp.status}`); }
   return await resp.json() as ScopeSummary;
 }
 
@@ -127,18 +141,18 @@ function enter(node: ScopeNode, surface: string) {
   window.location.assign(surface);
 }
 
-async function accept(nickname: string) {
+async function accept(names: { nickname: string; name?: string }) {
   if (!pending.value) return;
   const node = pending.value;
   accepting.value = true;
   try {
-    // The nickname rides the acceptance itself — one request, so a person cannot end up enrolled
+    // The names ride the acceptance itself — one request, so a person cannot end up enrolled
     // somewhere while the name everyone will see them by failed to save separately.
     const resp = await fetch(`/auth/${encodeURIComponent(node.scope)}/accept-membership`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nickname }),
+      body: JSON.stringify(names),
     });
-    if (!resp.ok) { error.value = 'Could not accept that. Try again.'; return; }
+    if (!resp.ok) { await drain(resp); error.value = 'Could not accept that. Try again.'; return; }
 
     // Re-fetch rather than patch — see the header. This is also the moment a first-time arrival
     // gets a session at all: the cookie was inert until the Accept above, so the bootstrap that
@@ -288,6 +302,7 @@ onMounted(async () => {
       :scope="pending.scope"
       :invited-by-name="pending.invitedByName"
       :nickname="pendingNickname"
+      :name="pendingName"
       :busy="accepting"
       @accept="accept"
       @decline="pending = undefined"

@@ -183,7 +183,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
   // ── The auth Worker's seam (NOT `@mesh`) ─────────────────────────────────────────────────────────
 
   /**
-   * Read the nickname on behalf of a person the AUTH WORKER has already authenticated — the
+   * Read the DISPLAY NAMES on behalf of a person the AUTH WORKER has already authenticated — the
    * accept-membership seam, and the only non-`@mesh` door onto a public field.
    *
    * ⚠️ **Trust boundary, named (security.md § trust-boundary crossings).** This pair cannot
@@ -193,26 +193,41 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * resolves `profileId` from the cookie it JUST verified — the identical shape to
    * `registry.acceptMembership(sub)`, which likewise acts on an identity the Worker proved.
    *
-   * ⚠️ **Deliberately narrow: `nickname` only.** Never `name`/`picture`, never the private set. The
-   * consent screen is the one caller and one field is all it needs, so a mistake at this seam cannot
-   * widen into a disclosure or a takeover. Widening it is a security decision, not a refactor.
+   * ⚠️ **Deliberately narrow: the two display NAMES, never `picture` and never the private set.**
+   * The consent screen is the one caller and these are all it collects, so a mistake at this seam
+   * cannot widen into a disclosure or a takeover. `picture` is excluded because nothing writes one
+   * yet — the consent screen's avatar is a coming-soon affordance — and adding it here would be a
+   * security decision rather than a refactor.
    */
-  readNickname(): string | undefined {
+  readDisplayNames(): { nickname?: string; name?: string } {
+    const out: { nickname?: string; name?: string } = {};
     for (const row of this.ctx.storage.sql.exec(
-      `SELECT value FROM ProfileFields WHERE field = 'nickname'`,
+      `SELECT field, value FROM ProfileFields WHERE field IN ('nickname', 'name')`,
     )) {
-      return (row as { value: string | null }).value ?? undefined;
+      const { field, value } = row as { field: 'nickname' | 'name'; value: string | null };
+      if (value) out[field] = value;
     }
-    return undefined;
+    return out;
   }
 
-  /** Set the nickname at that same seam — see {@link readNickname} for the trust boundary. Advances
-   *  the forward-only `eTag` and fans out exactly as a `@mesh` public write does, so a subscriber
-   *  watching a byline sees the name arrive without knowing which door wrote it. */
-  setNickname(nickname: string): void {
+  /**
+   * Set the display names at that same seam — see {@link readDisplayNames} for the trust boundary.
+   * Advances the forward-only `eTag` and fans out exactly as a `@mesh` public write does, so a
+   * subscriber watching a byline sees the name arrive without knowing which door wrote it.
+   *
+   * ⚠️ **`name` is written only when SUPPLIED**, never cleared by omission: it is optional on the
+   * consent screen, so an absent one means "not offered", never "remove the one I have". A person
+   * accepting a second membership would otherwise wipe a full name they set at the first.
+   */
+  setDisplayNames(fields: { nickname: string; name?: string }): void {
     this.ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('nickname', ?)`, nickname,
+      `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('nickname', ?)`, fields.nickname,
     );
+    if (fields.name) {
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('name', ?)`, fields.name,
+      );
+    }
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),
     );

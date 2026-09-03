@@ -17,24 +17,38 @@
  * this a decision rather than a dialog someone dismisses.
  */
 import { ref, computed } from 'vue';
+import { UserRound } from 'lucide-vue-next';
 import { canAccept } from './home-logic';
 import DataUseNotice from '../DataUseNotice.vue';
+import ComingSoon from './ComingSoon.vue';
 
 const props = defineProps<{
   flavor: 'invite' | 'self';
   scope: string;
   invitedByName?: string;
-  /** The nickname already on file, if any — pre-filled so a second acceptance neither re-asks nor
-   *  silently replaces the one this person chose the first time. */
+  /** The names already on file, if any — pre-filled so a second acceptance neither re-asks nor
+   *  silently replaces what this person chose the first time. */
   nickname?: string;
+  name?: string;
   busy?: boolean;
 }>();
 
-const emit = defineEmits<{ accept: [nickname: string]; decline: [] }>();
+const emit = defineEmits<{ accept: [names: { nickname: string; name?: string }]; decline: [] }>();
 
 const checked = ref(false);
 const nick = ref(props.nickname ?? '');
+const fullName = ref(props.name ?? '');
+/** The picture affordance opens a coming-soon panel rather than an uploader — nothing writes
+ *  `picture` yet, so the honest thing is to record that someone wanted it. */
+const pictureComingSoon = ref(false);
 const enabled = computed(() => canAccept(checked.value, nick.value) && !props.busy);
+
+/** Omit an empty full name rather than sending `''` — absent means "not offered", and the server
+ *  writes `name` only when supplied so a later acceptance cannot blank one already set. */
+function submitAccept() {
+  const trimmed = fullName.value.trim();
+  emit('accept', { nickname: nick.value.trim(), ...(trimmed ? { name: trimmed } : {}) });
+}
 </script>
 
 <template>
@@ -65,20 +79,50 @@ const enabled = computed(() => canAccept(checked.value, nick.value) && !props.bu
       <!-- ⚠️ Asked HERE, once. This is the last moment before the person reaches a surface where
            other people can see them, and it is the only place every arrival passes through — which
            is why no app surface needs a blocking name modal of its own. -->
-      <label class="form-control w-full py-2">
-        <span class="label-text">What should we call you?</span>
-        <input
-          v-model="nick"
-          type="text"
-          required
-          class="input input-bordered w-full"
-          placeholder="robin"
-          data-testid="consent-nickname"
-        />
-        <span class="label-text-alt text-base-content/60">
-          Shown next to anything you post. You can add a full name and a picture later.
-        </span>
-      </label>
+      <div class="flex items-start gap-4 py-2">
+        <div class="flex flex-col items-center gap-1 shrink-0">
+          <button
+            type="button"
+            class="btn btn-ghost btn-circle size-16"
+            data-testid="consent-avatar"
+            @click="pictureComingSoon = true"
+          >
+            <span class="sr-only">Add a picture</span>
+            <span class="size-14 rounded-full bg-neutral text-neutral-content grid place-items-center">
+              <UserRound class="size-8" />
+            </span>
+          </button>
+          <span class="text-xs opacity-60">Change</span>
+        </div>
+
+        <div class="flex-1 space-y-2">
+          <label class="form-control w-full">
+            <span class="label-text">What should we call you?</span>
+            <input
+              v-model="nick"
+              type="text"
+              required
+              class="input input-bordered w-full"
+              placeholder="robin"
+              data-testid="consent-nickname"
+            />
+            <span class="label-text-alt text-base-content/60">
+              Shown next to anything you post.
+            </span>
+          </label>
+
+          <label class="form-control w-full">
+            <span class="label-text">Full name <span class="opacity-60">(optional)</span></span>
+            <input
+              v-model="fullName"
+              type="text"
+              class="input input-bordered w-full"
+              placeholder="Robin Fielding"
+              data-testid="consent-name"
+            />
+          </label>
+        </div>
+      </div>
 
       <label class="label cursor-pointer justify-start gap-3 py-2">
         <input v-model="checked" type="checkbox" class="checkbox" data-testid="consent-checkbox" />
@@ -93,11 +137,34 @@ const enabled = computed(() => canAccept(checked.value, nick.value) && !props.bu
           class="btn btn-primary"
           data-testid="consent-accept"
           :disabled="!enabled"
-          @click="emit('accept', nick.trim())"
+          @click="submitAccept"
         >
           {{ busy ? 'Accepting…' : 'Accept' }}
         </button>
       </div>
     </div>
+
+    <!-- The picture affordance's panel. Nested INSIDE this modal and last in its subtree, so it
+         paints above the box without needing a z-index of its own (two SIBLING dialogs at daisyUI's
+         shared z-999 are what made a Save button unclickable once — see App.vue's history). -->
+    <dialog class="modal" :open="pictureComingSoon">
+      <div class="modal-box">
+        <ComingSoon
+          title="A profile picture"
+          tag="profile-picture"
+          blurb="Pick a photo or an avatar so people recognise you at a glance."
+        />
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            data-testid="coming-soon-close"
+            @click="pictureComingSoon = false"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </dialog>
   </div>
 </template>

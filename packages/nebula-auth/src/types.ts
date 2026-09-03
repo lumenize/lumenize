@@ -626,6 +626,7 @@ export const COMING_SOON_TAGS = [
   'email-management',
   'billing',
   'team-settings',
+  'profile-picture',
 ] as const;
 
 export type ComingSoonTag = (typeof COMING_SOON_TAGS)[number];

@@ -76,8 +76,10 @@ export interface InstrumentedPage {
   page: Page;
   /** Console `error` messages + uncaught page errors, in arrival order. */
   consoleErrors: string[];
-  /** Requests that failed outright or returned a 4xx/5xx. */
-  failedRequests: Array<{ url: string; status: number | 'failed'; method: string }>;
+  /** Requests that failed outright or returned a 4xx/5xx. `errorText` carries Chromium's reason
+   *  for the outright failures — without it a `failed` entry is undiagnosable, and several are
+   *  benign (`net::ERR_ABORTED` is what a keep-alive socket teardown looks like). */
+  failedRequests: Array<{ url: string; status: number | 'failed'; method: string; errorText?: string }>;
 }
 
 /**
@@ -95,7 +97,10 @@ export async function instrumentedPage(browser: Browser): Promise<InstrumentedPa
   });
   page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message}`));
   page.on('requestfailed', (req) => {
-    failedRequests.push({ url: req.url(), status: 'failed', method: req.method() });
+    failedRequests.push({
+      url: req.url(), status: 'failed', method: req.method(),
+      errorText: req.failure()?.errorText ?? '(no reason reported)',
+    });
   });
   page.on('response', (res) => {
     if (res.status() >= 400) {

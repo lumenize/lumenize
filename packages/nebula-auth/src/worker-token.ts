@@ -82,31 +82,32 @@ async function profileForSub(env: Env, sub: string): Promise<any | null> {
   return identity?.profileId ? profile(env, identity.profileId) : null;
 }
 
-/** Longest nickname we store. A display handle, not prose — the cap is what stops a byline becoming one. */
-const NICKNAME_MAX = 64;
+/** Longest display name we store. A handle, not prose — the cap is what stops a byline becoming one. */
+const DISPLAY_NAME_MAX = 64;
 
 /**
- * Trim and bound a submitted nickname; `undefined` for anything not worth storing.
+ * Trim and bound a submitted display name; `undefined` for anything not worth storing.
  *
- * ⚠️ **Optional on the wire, required in the UI, and that asymmetry is deliberate.** The consent
- * screen will not enable Accept without one, which is where the requirement belongs — a person is
- * being asked how they wish to appear. Making it a 400 here would instead break every programmatic
- * accepter (the harness, personas, the test helpers) to re-state a rule the screen already enforces,
- * and an identity that somehow arrives without one degrades to the existing "Someone" fallback
- * rather than to a broken account.
+ * ⚠️ **The nickname is optional on the wire and required in the UI, and that asymmetry is
+ * deliberate.** The consent screen will not enable Accept without one, which is where the
+ * requirement belongs — a person is being asked how they wish to appear. Making it a 400 here would
+ * instead break every programmatic accepter (the harness, personas, the test helpers) to re-state a
+ * rule the screen already enforces, and an identity that somehow arrives without one degrades to the
+ * existing "Someone" fallback rather than to a broken account. The full `name` is optional in BOTH
+ * places — it has no display surface of its own yet.
  */
-function normalizeNickname(raw: unknown): string | undefined {
+function normalizeDisplayName(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
-  const trimmed = raw.trim().slice(0, NICKNAME_MAX);
+  const trimmed = raw.trim().slice(0, DISPLAY_NAME_MAX);
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/** One field out of a JSON body that may be absent, empty, or not JSON at all. */
-async function readJsonField(request: Request, key: string): Promise<unknown> {
+/** The whole JSON body, or `{}` when it is absent, empty, or not JSON at all. */
+async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
   try {
-    return ((await request.json()) as Record<string, unknown> | null)?.[key];
+    return ((await request.json()) as Record<string, unknown> | null) ?? {};
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -439,6 +440,10 @@ export async function handleLogoutAll(request: Request, env: Env): Promise<Respo
 /**
  * `POST /auth/{scope}/accept-membership` — the ONE writer of acceptance, behind the consent modal.
  *
+ * ⚠️ **It also takes the display names**, because this is the one screen every arrival passes
+ * through and therefore the only place to ask once rather than interrupt later. The nickname is
+ * required by the screen (`canAccept`) and optional here; the full name is optional in both.
+ *
  * Credentialed by that membership's OWN path-scoped refresh cookie, which is self-carrying proof:
  * the browser only sends it to this scope's auth routes, so no cross-membership authorization rule
  * exists to get wrong. The cookie is the same one the consume placed and left inert — accepting is
@@ -453,7 +458,9 @@ export async function handleAcceptMembership(request: Request, env: Env): Promis
   const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
   if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
   // Read the body BEFORE the accept: a malformed one should not leave a half-done acceptance behind.
-  const nickname = normalizeNickname(await readJsonField(request, 'nickname'));
+  const body = await readJsonBody(request);
+  const nickname = normalizeDisplayName(body.nickname);
+  const name = normalizeDisplayName(body.name);
   const result = await registry(env).acceptMembership(record.sub) as { accepted: string[] };
   // ⚠️ **The nickname rides acceptance because this is the moment a person is ASKED for it**, and
   // it is the last moment before they reach a surface where other people can see them. Written after
@@ -461,11 +468,11 @@ export async function handleAcceptMembership(request: Request, env: Env): Promis
   // only costs the "Someone" fallback until they set one.
   if (nickname) {
     try {
-      await (await profileForSub(env, record.sub))?.setNickname(nickname);
+      await (await profileForSub(env, record.sub))?.setDisplayNames({ nickname, ...(name ? { name } : {}) });
     } catch (e) {
       // Best-effort (see `profile`): the membership is already accepted and refusing now would
       // strand the person outside an account they agreed to join. Loud in the log, silent to them.
-      debug('nebula-auth.worker.acceptMembership').warn('nickname write failed (continuing)', {
+      debug('nebula-auth.worker.acceptMembership').warn('display-name write failed (continuing)', {
         sub: record.sub, error: (e as Error).message,
       });
     }
@@ -502,16 +509,20 @@ export async function handlePendingMembership(request: Request, env: Env): Promi
   // Without it a second acceptance would re-ask, and the person would either retype their own name or
   // silently replace it — a global field changed as a side effect of joining somewhere new. Their own
   // public field, behind their own cookie: no disclosure question (ADR-012).
-  let nickname: string | undefined;
+  let names: { nickname?: string; name?: string } = {};
   try {
-    nickname = await (await profileForSub(env, record.sub))?.readNickname() as string | undefined;
+    names = (await (await profileForSub(env, record.sub))?.readDisplayNames() ?? {}) as typeof names;
   } catch (e) {
-    // Best-effort (see `profile`) — an empty field is a worse consent screen, not a broken one.
-    debug('nebula-auth.worker.pendingMembership').warn('nickname read failed (continuing)', {
+    // Best-effort (see `profile`) — empty fields are a worse consent screen, not a broken one.
+    debug('nebula-auth.worker.pendingMembership').warn('display-name read failed (continuing)', {
       sub: record.sub, error: (e as Error).message,
     });
   }
-  return Response.json({ ...card, ...(nickname ? { nickname } : {}) });
+  return Response.json({
+    ...card,
+    ...(names.nickname ? { nickname: names.nickname } : {}),
+    ...(names.name ? { name: names.name } : {}),
+  });
 }
 
 // ── signup (spend the ticket, claim, log in) ─────────────────────────────────────────────────────

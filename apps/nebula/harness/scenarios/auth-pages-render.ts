@@ -32,6 +32,10 @@
  *     placement where a person actually commits.*
  *  6. **The page reached the server cleanly** — no console errors, no failed requests. *Reds
  *     against a screen that looks right and is quietly 404ing its own bundle.*
+ *  7. **The identity block: an optional full name, and an avatar that opens a coming-soon panel.**
+ *     *Reds if the picture affordance starts pretending to work, and — by clicking through to the
+ *     confirmation — if its tag is not one the server's closed set recognises, which is the mistake
+ *     every new coming-soon stub makes and which a 400 would otherwise hide behind a generic error.*
  *
  * `needsContainer = false` — auth screens only, never a build.
  */
@@ -87,7 +91,12 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(link.startsWith(vite.viteBaseUrl),
       `the emailed link must name the page's own origin as sent (got ${new URL(link).origin}, page is ${vite.viteBaseUrl})`);
     // The click lands the cookies on the page's own origin because the link already names it.
-    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    // ⚠️ `networkidle`, not `domcontentloaded`: the landing page starts its own bootstrap fetches,
+    // and navigating to Home below while one is in flight CANCELS it — which Chromium reports as
+    // `net::ERR_ABORTED` on a request nothing was wrong with, reddening limb 6 for a failure this
+    // scenario caused itself. Letting the page it is leaving finish is the fix; filtering the abort
+    // would have blinded the guard instead.
+    await page.goto(link, { waitUntil: 'networkidle' });
 
     // ── LIMB 3: Home renders the consent modal, Accept disabled ────────────────────────────────
     await page.goto(`${vite.viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
@@ -116,6 +125,26 @@ export async function run(stack: DevStack): Promise<void> {
       'Accept must become enabled once the box is checked AND a nickname is present — the positive '
       + 'control for limb 3');
     console.error('  ✓ limb 4 — the box alone is not enough; box + nickname enables Accept');
+
+    // ── LIMB 7 (before 6, which reads cumulative state): the identity block ────────────────────
+    // The optional full name renders beside the required nickname…
+    await page.getByTestId('consent-name').waitFor({ state: 'visible' });
+    // …and the avatar is a COMING-SOON affordance rather than an uploader, because nothing writes
+    // `picture` yet. Clicking it must open the panel.
+    await page.getByTestId('consent-avatar').click();
+    const wantIt = page.getByRole('button', { name: 'I want this' });
+    await wantIt.waitFor({ state: 'visible', timeout: 10_000 });
+    // ⚠️ **Clicking through is what proves the TAG is in the server's closed set.** The endpoint
+    // refuses an unrecognised tag with a 400, which the component shows as a failure — so the
+    // success text below reds on a stub wired to a tag nobody registered, which is exactly the
+    // mistake a new coming-soon surface makes.
+    await wantIt.click();
+    await page.getByText('Noted — thank you.').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByTestId('coming-soon-close').click();
+    // Back to the consent decision, undisturbed — the panel is a detour, not a replacement.
+    assert.equal(await accept.isEnabled(), true,
+      'closing the coming-soon panel must leave the consent decision exactly as it was');
+    console.error('  ✓ limb 7 — optional full name renders; the avatar opens a coming-soon panel that records');
 
     // ── LIMB 6: the page reached the server cleanly, and its ONE refusal is the designed one ───
     const capture = await captureArtifacts(inst, 'auth-pages-render');
