@@ -40,6 +40,7 @@ import * as signupOneEmail from './scenarios/signup-one-email';
 import * as inviteConsent from './scenarios/invite-consent';
 import * as superuserFrontDoor from './scenarios/superuser-front-door';
 import * as authPagesRender from './scenarios/auth-pages-render';
+import * as studioSignedOutLanding from './scenarios/studio-signed-out-landing';
 import * as signupToFirstApp from './scenarios/signup-to-first-app';
 import * as firstAppBuilt from './scenarios/first-app-built';
 
@@ -94,6 +95,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'invite-consent': inviteConsent,              // an invitation is an OFFER: Home, modal, consent — pre-accept + decline limbs
   'superuser-front-door': superuserFrontDoor,   // the superuser logs in like anyone else and consents to the platform root
   'auth-pages-render': authPagesRender,         // the auth screens RENDER — content, never a status code (browser)
+  'studio-signed-out-landing': studioSignedOutLanding, // signed out, Studio is ONE landing — no chat rail; Sign in is the auth SPA's door (browser)
   // ── the browser lane for a stranger's first hour: signup → first app → first build ──────────
   'signup-to-first-app': signupToFirstApp,       // the whole clean signup, driven by CLICKING — the app is created through the UI, never by API (no Docker)
   'first-app-built': firstAppBuilt,              // a prompt typed in the rendered composer produces a built app in the preview (Docker)

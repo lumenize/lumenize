@@ -376,10 +376,10 @@ const chatPair = (s?: string) => {
 };
 // Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (inside a
 // workspace) > the Universe page (connected at a one-segment account scope, where you create/see
-// apps) > the help/welcome (the default, incl. the signed-out landing).
-const stageMode = computed<"manage" | "preview" | "universe" | "help">(() =>
+// apps) > the signed-out landing (welcome + sign in; no chat rail, since there is nothing to chat with).
+const stageMode = computed<"manage" | "preview" | "universe" | "landing">(() =>
   manageOpen.value ? "manage"
-    : !connected.value ? "help"
+    : !connected.value ? "landing"
     : isWorkspace(activeScope.value) ? "preview"
     : "universe",
 );
@@ -930,9 +930,10 @@ async function logout() {
     </dialog>
 
     <!-- Chat rail -->
-    <!-- The chat rail shows for the signed-out landing and inside a workspace. A Universe has no
-         chat — it renders UniverseView full-width in the stage — so the rail is hidden there. -->
-    <section v-if="!connected || isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
+    <!-- The chat rail exists only inside a workspace on a live session. A Universe has no chat — it
+         renders UniverseView full-width in the stage — and the signed-out landing has nothing to
+         chat with, so both render the stage alone. -->
+    <section v-if="connected && isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Nebula Studio</h1>
         <button
@@ -1020,27 +1021,7 @@ async function logout() {
       </div>
 
       <footer class="p-4 border-t border-base-300">
-        <!-- Unauthenticated: Studio has no login of its own — the auth SPA owns every front door. -->
-        <div v-if="!connected" class="flex flex-col gap-2">
-          <!-- Post-magic-link auto-connect in flight — don't flash a sign-in prompt. -->
-          <div v-if="connecting" class="flex items-center gap-2 text-sm opacity-80 py-2">
-            <Loader2 class="size-4 animate-spin" /> Signing you in…
-          </div>
-          <template v-else>
-            <p v-if="sessionExpired" class="text-sm text-warning">
-              Your session expired — please sign in again.
-            </p>
-            <button class="btn btn-primary" @click="goToLogin">
-              <LogIn class="size-4" /> Sign in
-            </button>
-            <!-- Escape hatch with no avatar (stale cookie / half-finished sign-in). -->
-            <button v-if="hasSession" type="button" class="btn btn-ghost btn-xs self-start opacity-70" @click="logout">
-              <LogOut class="size-3.5" /> Log out
-            </button>
-          </template>
-        </div>
-        <!-- Authenticated: chat composer in a .dev Star, OR the guided "name your app" creator at a Universe. -->
-        <form v-else class="flex gap-2 items-end" @submit.prevent="send">
+        <form class="flex gap-2 items-end" @submit.prevent="send">
           <!-- Wrapping composer: a textarea wraps long input instead of scrolling sideways.
                Enter sends; Shift+Enter inserts a newline. `field-sizing` auto-grows it. -->
           <textarea
@@ -1092,9 +1073,26 @@ async function logout() {
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto">
-        <!-- Help / intro (default + first use). -->
-        <div v-if="stageMode === 'help'" class="p-8 max-w-2xl flex flex-col gap-5">
+        <!-- Signed-out landing: sign in, and the three-level picture of what you are signing in to.
+             Studio has no login of its own — the auth SPA owns every front door. -->
+        <div v-if="stageMode === 'landing'" class="p-8 max-w-2xl mx-auto flex flex-col gap-5" data-testid="landing">
           <h2 class="text-xl font-bold">Welcome to Nebula</h2>
+          <!-- Post-magic-link auto-connect in flight — don't flash a sign-in prompt. -->
+          <div v-if="connecting" class="flex items-center gap-2 text-sm opacity-80">
+            <Loader2 class="size-4 animate-spin" /> Signing you in…
+          </div>
+          <div v-else class="flex flex-col gap-2">
+            <p v-if="sessionExpired" class="text-sm text-warning">
+              Your session expired — please sign in again.
+            </p>
+            <button class="btn btn-primary self-start" @click="goToLogin">
+              <LogIn class="size-4" /> Sign in
+            </button>
+            <!-- Escape hatch with no avatar (stale cookie / half-finished sign-in). -->
+            <button v-if="hasSession" type="button" class="btn btn-ghost btn-xs self-start opacity-70" @click="logout">
+              <LogOut class="size-3.5" /> Log out
+            </button>
+          </div>
           <p class="opacity-80">You build inside a simple three-level hierarchy. You'll create it yourself, one level at a time.</p>
           <div class="flex flex-col gap-4">
             <div class="border border-base-300 rounded-box p-4">
@@ -1114,7 +1112,6 @@ async function logout() {
               <p class="text-sm opacity-80 mt-1">When your app goes live, each of your end-customers gets their own isolated tenant — a private copy of the app with their own data. You don't create these by hand; they arrive via sign-up or invite.</p>
             </div>
           </div>
-          <p class="opacity-80">Sign in on the left to get started.</p>
         </div>
 
         <!-- Hierarchy manager. -->
