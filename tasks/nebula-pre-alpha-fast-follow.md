@@ -10,7 +10,7 @@ Close the platform gaps that stand between the current live loop and real user-d
 
 ## Item 1: User-app media storage (photos/blobs)
 
-> ⚠️ **Placement open — may be table-stakes, not fast-follow.** The Almanac's atomic unit (`Entry`) *requires* photos ("the app cannot exist without this"), so media may belong **earlier** — Invite-gated or Wave-2 in [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — rather than in this reactive post-core bucket. Decide at `/review-task`.
+> ⚠️ **Placement open — may be table-stakes, not fast-follow.** The Almanac's atomic unit (`Entry`) *requires* photos ("the app cannot exist without this"), so media may belong **earlier** — before the wipe, or with the data-bound work, in [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § *What remains* — rather than in this reactive post-core bucket. Decide at `/review-task`.
 
 **Goal**: A user-developer's generated app can accept, store, and serve end-user-uploaded media (photos first), governed by the same ReBAC/DAG access control as every other resource.
 
@@ -45,7 +45,7 @@ Close the platform gaps that stand between the current live loop and real user-d
 
 **Full design + phased build plan lives in its own file**: [`nebula-outside-world.md`](nebula-outside-world.md).
 
-The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (secrets vault, app-server facet runtime, egress broker, ingress router, scheduler, security stdlib) and the Studio agent writes integrations (email, payments, Slack, search) as ordinary app code. Spikes proven + mutation-checked; gated on `/review-task`. Demand order **`fetch` → email → search → secrets-last**. Also homes the Wave-3 inbound `claude@` email exercise noted in [`nebula-pre-alpha.md`](nebula-pre-alpha.md).
+The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (secrets vault, app-server facet runtime, egress broker, ingress router, scheduler, security stdlib) and the Studio agent writes integrations (email, payments, Slack, search) as ordinary app code. Spikes proven + mutation-checked; gated on `/review-task`. Demand order **`fetch` → email → search → secrets-last**. Also homes the post-wipe inbound `claude@` email exercise noted in [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § *What remains*.
 
 ## Item 4: The prod ontology install path
 

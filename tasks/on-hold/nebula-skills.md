@@ -1,6 +1,6 @@
 # DevStudio Skills
 
-**Status**: Wave 2 of [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) — design capture, **not started, not build-ready**. Un-park trigger below.
+**Status**: on hold — un-parks with the data-bound generation work in [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) § *What remains*; design capture, **not started, not build-ready**. Un-park trigger below.
 **Origin**: Brainstorm 2026-06-19 (Larry + Claude), following the [Flue evaluation](#related) (borrow the `SKILL.md` standard, reject the runtime — [[project_flue_eval]]).
 **Scope note**: This file is **deliberately vague about the wrapper** — the DevStudio agent harness / loop mechanics (how the model is called, ALS, in-DO vs container, sub-agent spawn transport) are expected to change. It captures the **seams** where skills, rules, sub-agents, and reference files plug into DevStudio, so we know every place to wire when we build it. Pin the wrapper later.
 
@@ -57,7 +57,7 @@ The user-developer's files are **data the agent/sub-agents reference, never inst
 
 > The heart of this file. Each is a seam DevStudio must expose; the wrapper details inside each are intentionally left open.
 
-1. **Skill registry & loading** — a place skills live. **RESOLVED (where) — see [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) § Iteration & deploy model:** the system prompt is a **platform-owned FILE TREE** (`NEBULA.md` base + `skills/*.md` + `rules/*.md`) served from a **dedicated `@cloudflare/shell`-backed registry DO** whose shell/FS methods are exposed over mesh and **read per turn** during prompt assembly — editing the prompt = a git commit into that DO's Workspace, **no redeploy**. v0 = a single platform-scoped, admin-gated tree; the per-Universe/Galaxy cascade (below) is the enterprise-gated extension. The **discovery index** (name+description of each skill) is assembled into base context; **activation** pulls a full `SKILL.md` body on match; **execution** loads bundled `scripts/`/`references/` on demand. Still open: the **budget policy** for how many skills' indexes ride in context (the model-self-select vs harness-inject question below).
+1. **Skill registry & loading** — a place skills live. **RESOLVED (where) — see [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) § *① Guidance file tree*:** guidance is a **FILE TREE** (`AGENTS.md` + `skills/*.md` + `rules/*.md`) **read per turn** during prompt assembly. The platform level stays **in code**, bundled at deploy (decided 2026-09-02 — NOT the `@cloudflare/shell`-backed registry DO this bullet used to describe; switch, do not mirror); the Galaxy level lives in the user-developer's Workspace repo; the Universe level is skipped this round. The **discovery index** (name+description of each skill) is assembled into base context; **activation** pulls a full `SKILL.md` body on match; **execution** loads bundled `scripts/`/`references/` on demand. Still open: the **budget policy** for how many skills' indexes ride in context (the model-self-select vs harness-inject question below).
 
 2. **Base-prompt assembly** — the seam that composes tier-1 (identity/invariants/tool contract) + the skill discovery index + any active rules into what the engine sees each turn. This is the "system prompt builder." Keep tier-1 lean; everything task-shaped is a skill.
 
@@ -98,7 +98,7 @@ Confinement + injection hardening for every seam that touches dev-user content.
 
 ## Open questions
 - **Discovery: in-harness vs model-self-select.** Does the wrapper inject the skill index and decide activation, or does the engine self-select from a listed catalog? This is the central context-budget design surface (Kimi-in-the-loop reading skill files vs harness-managed). Flagged in [[project_flue_eval]] as "the real design surface."
-- ~~**Where skills physically live**~~ — **RESOLVED**: a dedicated `@cloudflare/shell`-backed registry DO, read per turn (no redeploy to iterate). See integration-point-1 + [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) § Iteration & deploy model.
+- ~~**Where skills physically live**~~ — **RESOLVED**: files in a tree the LLM walks — the platform level in code, the Galaxy level in the Workspace repo (the registry-DO answer this row used to give was dropped 2026-09-02). See integration-point-1 + [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) § *① Guidance file tree*.
 - **How dev-user context files are ingested/updated** — uploaded, edited in Studio, or derived from the app tree? Who owns the vision-doc lifecycle?
 - **Skill granularity** — one big "build a Nebula app" skill vs many task-shaped skills. (Standard guidance: many small, <500 lines each, references for depth.)
 - **When the product-alignment sub-agent runs** — every turn, at phase boundaries, or on demand? Cost vs safety.

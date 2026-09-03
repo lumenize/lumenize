@@ -2,7 +2,7 @@
 
 **Status**: **ON HOLD** (parked 2026-06-23). Designed, partially reviewed (`/review-task` Stage 1 run
 2026-06-22), deferred. **Un-park trigger:** the **data-bound generation** work
-([`../nebula-pre-alpha.md`](../nebula-pre-alpha.md) Wave 2) is churning and hand-driven / local prompt
+([`../nebula-pre-alpha.md`](../nebula-pre-alpha.md) § *Data-bound generation*) is churning and hand-driven / local prompt
 iteration has become too slow — then this offline replay bench is the accelerator. Master home:
 [`../nebula-pre-alpha.md`](../nebula-pre-alpha.md).
 

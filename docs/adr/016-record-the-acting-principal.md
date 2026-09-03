@@ -39,7 +39,7 @@ Splitting changed **no behaviour at all**: the pre-split record held only (`sub`
 
 **Excluded from the key, deliberately:** `profileId` (derived from `sub`, so it adds nothing and would spuriously split on a future unification re-point) and `access` (asserted authority — see above; a snapshot must not split because someone's admin bit changed mid-window).
 
-✅ **Resources is conformant as of 2026-08-20** (schema-surgery item 6, `tasks/nebula-pre-alpha.md`): `Snapshots.actingToken` stores the full record via the shared projection, the coalesce key is identity-derived, and a wire-boundary allow-list (`WireActingToken`) keeps the asserted `access` inside the column — a snapshot delivered to a client carries identity and display `profileId`s only. The consequence checked at build time: with both parties' `profileId` on the record, the parallel `{sub → profileId}` `Snapshot.meta` map planned in `tasks/archive/nebula-galaxy-collapse-and-chat.md` was confirmed redundant (recorded there).
+✅ **Resources is conformant as of 2026-08-20** (see `identityKey`'s JSDoc, `resources.ts`): `Snapshots.actingToken` stores the full record via the shared projection, the coalesce key is identity-derived, and a wire-boundary allow-list (`WireActingToken`) keeps the asserted `access` inside the column — a snapshot delivered to a client carries identity and display `profileId`s only. The consequence checked at build time: with both parties' `profileId` on the record, the parallel `{sub → profileId}` `Snapshot.meta` map planned in `tasks/archive/nebula-galaxy-collapse-and-chat.md` was confirmed redundant (recorded there).
 
 ### In scope today
 
