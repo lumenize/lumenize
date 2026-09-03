@@ -96,7 +96,11 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 2: the link names the origin the person is on, and is followed AS SENT ────────────
     assert.ok(link.startsWith(vite.viteBaseUrl),
       `the emailed link must name the browsing origin as sent (got ${new URL(link).origin}, page is ${vite.viteBaseUrl})`);
+    // ⚠️ ONE navigation: the link already lands on Home (`landingFor` sends every arrival there), and
+    // a second `goto` would cancel this page's in-flight bootstrap — an abort the scenario causes
+    // itself. Readiness comes from the auto-waiting locator below, not from a delay.
     await page.goto(link, { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(new RegExp(`/auth/${universe}/home(?:[/?#]|$)`), { timeout: 30_000 });
     console.error('  ✓ limb 2 — the letter points at the origin being browsed; clicked unmodified');
 
     // ── LIMB 3: consent — the box AND a nickname — then the fast-forward ───────────────────────
@@ -104,7 +108,6 @@ export async function run(stack: DevStack): Promise<void> {
     // click is not consent — mail scanners click links). Home is where that decision is made, and
     // it is also the ONE place a nickname is collected, which is what lets every app surface drop
     // its own blocking name modal.
-    await page.goto(`${vite.viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
     const checkbox = page.getByTestId('consent-checkbox');
     await checkbox.waitFor({ state: 'visible', timeout: 30_000 });
     const accept = page.getByTestId('consent-accept');

@@ -90,16 +90,20 @@ export async function run(stack: DevStack): Promise<void> {
     }
     assert.ok(link.startsWith(vite.viteBaseUrl),
       `the emailed link must name the page's own origin as sent (got ${new URL(link).origin}, page is ${vite.viteBaseUrl})`);
-    // The click lands the cookies on the page's own origin because the link already names it.
-    // ⚠️ `networkidle`, not `domcontentloaded`: the landing page starts its own bootstrap fetches,
-    // and navigating to Home below while one is in flight CANCELS it — which Chromium reports as
-    // `net::ERR_ABORTED` on a request nothing was wrong with, reddening limb 6 for a failure this
-    // scenario caused itself. Letting the page it is leaving finish is the fix; filtering the abort
-    // would have blinded the guard instead.
-    await page.goto(link, { waitUntil: 'networkidle' });
+    // The click lands the cookies on the page's own origin because the link already names it — and
+    // it lands on HOME, because every arrival does (`landingFor`: a claim and an invite arrive with
+    // their consent modal front and centre).
+    //
+    // ⚠️ **ONE navigation, not two.** A second `goto` to Home here is not merely redundant: it
+    // CANCELS this page's in-flight bootstrap, which Chromium reports as `net::ERR_ABORTED` on a
+    // request nothing was wrong with — a failure the scenario causes itself and then trips limb 6
+    // over. Readiness is established by the auto-waiting locator below, never by a quiet-period
+    // heuristic (`networkidle` is Playwright-discouraged for exactly this reason) and never by a
+    // fixed delay.
+    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(new RegExp(`/auth/${universe}/home(?:[/?#]|$)`), { timeout: 30_000 });
 
     // ── LIMB 3: Home renders the consent modal, Accept disabled ────────────────────────────────
-    await page.goto(`${vite.viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
     const checkbox = page.getByTestId('consent-checkbox');
     await checkbox.waitFor({ state: 'visible', timeout: 20_000 });
     const accept = page.getByTestId('consent-accept');

@@ -80,10 +80,11 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 1: the same letter, clicked in the browser → Universe page → click into the app ───
     assert.ok(provisioned.link.startsWith(vite.viteBaseUrl),
       `the emailed link must name the browsing origin as sent (got ${new URL(provisioned.link).origin})`);
+    // ⚠️ ONE navigation: the link lands on Home by itself, and a second `goto` would cancel this
+    // page's in-flight bootstrap. The membership was accepted during provisioning, so Home has a
+    // decision-free lone membership and fast-forwards to the Universe page — waited on below, which
+    // is an auto-waiting assertion rather than a delay.
     await page.goto(provisioned.link, { waitUntil: 'domcontentloaded' });
-    // The membership was accepted during provisioning, so Home has a decision-free lone membership
-    // and fast-forwards to the Universe page.
-    await page.goto(`${vite.viteBaseUrl}/auth/${universe}/home`, { waitUntil: 'domcontentloaded' });
     await page.waitForURL(new RegExp(`//[^/]+/${universe}(?:[/?#]|$)`), { timeout: 30_000 });
     // ⚠️ Nothing to dismiss on the way in. The nickname is taken at the consent modal, so no
     // completion gate stands between arriving and working — this identity accepted programmatically
