@@ -1337,20 +1337,51 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   #sendOrQueue(message: string, callId: string): void {
-    if (this.#ws?.readyState === WebSocket.OPEN) {
-      this.#ws.send(message);
-    } else {
-      // Queue until reconnect (bounded). Dropped silently on overflow — the client holds
-      // no awaited per-call Promise (4-arg handlers live in #inHeapHandlers → D8 reconcile
-      // on reload; 3-arg is fire-and-forget), so there is nothing to reject.
-      if (this.#messageQueue.length >= MAX_QUEUE_SIZE) {
-        this.#debugFactory('lmz.mesh.LumenizeClient.#sendOrQueue').warn(
-          'message queue full — dropping queued call', { callId },
-        );
-        return;
-      }
-      this.#messageQueue.push({ message, callId });
+    // ⚠️ An OPEN socket whose token is DUE is not a socket to send on. The Gateway checks the
+    // ATTACHMENT's `exp` on every inbound message and closes 4401, dropping that message at the
+    // door; the client then re-auths and reconnects, but a message already SENT is never replayed —
+    // so a client idle past its TTL lost its first call, and a `callAsync` waited out its timeout
+    // (bit 2026-09-03: `impersonation-expiry`, deterministic). Queue it instead and ROTATE the
+    // socket — refresh, reconnect with the new token, and let the `connection_status` flush deliver
+    // it on a socket whose attachment is fresh. The refresh-ahead window makes this proactive: a
+    // token with under 30 s left rotates before it can lapse mid-flight.
+    const socketOpen = this.#ws?.readyState === WebSocket.OPEN;
+    if (socketOpen && !this.#needsTokenRefresh()) {
+      this.#ws!.send(message);
+      return;
     }
+    // Queue until reconnect (bounded). Dropped silently on overflow — the client holds
+    // no awaited per-call Promise (4-arg handlers live in #inHeapHandlers → D8 reconcile
+    // on reload; 3-arg is fire-and-forget), so there is nothing to reject.
+    if (this.#messageQueue.length >= MAX_QUEUE_SIZE) {
+      this.#debugFactory('lmz.mesh.LumenizeClient.#sendOrQueue').warn(
+        'message queue full — dropping queued call', { callId },
+      );
+      return;
+    }
+    this.#messageQueue.push({ message, callId });
+    if (socketOpen) this.#rotateSocketForFreshToken();
+  }
+
+  #rotating = false;
+
+  /**
+   * Replace an open socket whose token is due with one authenticated by a fresh token. The queue
+   * carries whatever was meant for the old socket; the new socket's `connection_status` flushes it.
+   *
+   * Order matters: the NEW socket is assigned before the old one is closed, so the old socket's
+   * close event is the "stale close from superseded socket" the `onclose` guard already ignores —
+   * no competing reconnect, no clobbered `#ws`. `#connectInternal` refreshes on its own when the
+   * token is due, and `#ensureFreshToken` de-dupes, so the refresh happens exactly once.
+   */
+  #rotateSocketForFreshToken(): void {
+    if (this.#rotating) return;
+    this.#rotating = true;
+    const old = this.#ws;
+    this.#setConnectionState('reconnecting');
+    this.#connectInternal()
+      .then(() => { old?.close(1000, 'token rotated'); })
+      .finally(() => { this.#rotating = false; });
   }
 
   #flushMessageQueue(): void {

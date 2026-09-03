@@ -45,6 +45,7 @@ import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/cl
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { provisionStarAdmin, loginViaEmail, refreshAccessToken } from '../../test/lib/email-login';
+import type { Star } from '@lumenize/nebula';
 
 /** This scenario never drives a build, so it does not need the container — or Docker. */
 export const needsContainer = false;
@@ -129,12 +130,16 @@ export async function run(stack: DevStack): Promise<void> {
   //
   // ⚠️ **NOT a scope read.** `scopes.summary()` answers for a PERSON across every address and scope
   // they hold, so it refuses an `act`-bearing token outright — an admin acting as someone must not
-  // receive that person's other tenancies. Reading the subject's own resources is what an
-  // impersonated support session actually does, and it exercises the same refresh path.
-  // A read the subject themselves could make; a missing resource answers `null` rather than
-  // throwing, so this exercises the refresh path without depending on any seeded data.
-  const read = await child.resources.read('Message', `probe-${Date.now()}`);
-  assert.ok(read === null || typeof read === 'object', 'the child must still act after its token lapsed');
+  // receive that person's other tenancies.
+  // ⚠️ **NOT a resource read either, any more.** This used to read a `Message` and accept `null`;
+  // since ontologies install only by lazy pull (2026-08-30) a fresh Star has none, so ANY resource
+  // read is refused as `OntologyStaleError` before the lookup — a refusal this scenario could not
+  // see while the transport bug it exists for (2026-09-03: a post-lapse call sent on the stale
+  // socket, dropped at the Gateway) was timing it out first. `getStarConfig` is a read a subject
+  // themselves can make — `@mesh()` with no dominion guard, ontology-free, no seeded data — and it
+  // rides the very same refresh-then-send path.
+  const config = await child.lmz.callAsync('STAR', star, child.ctn<Star>().getStarConfig());
+  assert.ok(config !== null && typeof config === 'object', 'the child must still act after its token lapsed');
 
   // ⚠️ THE assertion. `exp` ADVANCING proves a re-mint actually happened rather than a cached token
   // being reused, and `sub` holding proves the re-mint went through the parent's mint helper and NOT

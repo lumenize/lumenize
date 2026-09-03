@@ -48,8 +48,9 @@ Here's how each component handles it:
 2. **Auth hooks** forward the verified JWT via `Authorization: Bearer {jwt}` header
 3. **Gateway** decodes the JWT payload to extract `sub`, `exp`, and claims — stores as `originAuth` in WebSocket attachment
 4. **Gateway** validates that JWT `sub` matches the Gateway instance name prefix (prevents hijacking)
-5. **On each call**, Gateway checks the stored expiration — if expired, closes with `4401`
-6. **On 4401**, client refreshes via HTTP and reconnects automatically
+5. **Before each call**, the client checks its own token: within 30 s of expiry (or already past it), the call is **queued**, the token refreshed, and the socket **rotated** — a new connection authenticated with the fresh token, on which the queued call is then delivered. A call is never sent on a socket whose token is due.
+6. **On each inbound message**, Gateway checks the expiration stored at upgrade — if expired, it closes with `4401` and that message is dropped. This is the backstop, not the normal path: with step 5 it fires only for revocation, key rotation, or clock skew.
+7. **On 4401**, client refreshes via HTTP and reconnects automatically. Anything queued while disconnected is delivered once the new connection reports ready; a message the Gateway already dropped is not replayed, which is why step 5 keeps calls off a stale socket in the first place.
 
 The Gateway doesn't re-verify the JWT signature — it trusts that the auth hooks already did. This is the same trust boundary shown in the [Architecture Overview](#architecture-overview) diagram.
 

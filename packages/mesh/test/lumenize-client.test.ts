@@ -714,6 +714,53 @@ describe('Message Queue', () => {
   });
 });
 
+describe('A call after the token lapsed', () => {
+  beforeEach(() => { createdWebSockets = []; });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('is never sent on the stale socket — it is queued, the socket rotates, and the new socket delivers it', async () => {
+    // Real timers keep flowing (the client's own awaits and the 10 ms waits below need them); only the
+    // wall clock is jumped, which is what a lapse IS from the client's point of view.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const nowSec = () => Math.floor(Date.now() / 1000);
+    let mints = 0;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      // First mint: 100 s of life, well outside the 30 s refresh-ahead window, so the connect does
+      // not refresh. Every later mint is fresh again.
+      refresh: async () => { mints++; return { access_token: createFakeJwt({ sub: 'user', exp: nowSec() + 100 }) }; },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(mints).toBe(1);
+    const stale = createdWebSockets[0];
+    stale.simulateOpen();
+    stale.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+
+    // The lapse: the token is 100 s past its exp, and the socket is still OPEN — exactly the state
+    // an idle tab is in when the person comes back.
+    vi.setSystemTime(Date.now() + 200_000);
+    client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
+
+    // ⚠️ Never on the stale socket: the Gateway would 4401 it and drop the message at the door.
+    expect(stale.getSentMessages().length).toBe(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(mints).toBe(2);                                   // refreshed exactly once
+    expect(createdWebSockets.length).toBe(2);                // a new socket, authenticated afresh
+    expect(stale.readyState).toBe(MockWebSocket.CLOSING);    // the old one is being retired
+    const fresh = createdWebSockets[1];
+    expect(fresh.getSentMessages().length).toBe(0);          // nothing until the Gateway says ready
+
+    fresh.simulateOpen();
+    fresh.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(fresh.getSentMessages().length).toBe(1);          // the lapsed call, delivered
+    expect(stale.getSentMessages().length).toBe(0);          // and still never on the stale one
+    client.disconnect();
+  });
+});
+
 describe('Stale close from superseded socket', () => {
   beforeEach(() => {
     createdWebSockets = [];
