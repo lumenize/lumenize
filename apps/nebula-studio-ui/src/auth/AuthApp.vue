@@ -15,7 +15,7 @@ import { computed } from 'vue';
 import { screenForPath } from './routes';
 import LoginScreen from './LoginScreen.vue';
 import SignupScreen from './SignupScreen.vue';
-import ComingSoon from './ComingSoon.vue';
+import ComingSoon from '../ComingSoon.vue';
 import HomeScreen from './HomeScreen.vue';
 
 const route = computed(() => screenForPath(window.location.pathname));

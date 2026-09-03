@@ -20,7 +20,7 @@ import { ref, computed } from 'vue';
 import { UserRound } from 'lucide-vue-next';
 import { canAccept } from './home-logic';
 import DataUseNotice from '../DataUseNotice.vue';
-import ComingSoon from './ComingSoon.vue';
+import ComingSoon from '../ComingSoon.vue';
 
 const props = defineProps<{
   flavor: 'invite' | 'self';

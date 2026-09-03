@@ -35,10 +35,14 @@
  *  7. **The nickname taken at consent is the byline on a posted message.** *Reds if the accept
  *     handler stops writing it — the byline falls back to "Someone", which nothing on the consent
  *     screen itself could detect. The only end-to-end proof that field reaches the Profile.*
- *  8. **`/{universe}` stays the Universe page, and lists the app.** *Reds against the auto-forward
+ *  8. **The profile editor, reached from the avatar menu, renames an existing byline LIVE.** *Reds
+ *     if the editor opens blank (an edit that silently wipes what was on file), and if a save stops
+ *     reaching the subscription — the fanout the deleted completion modal's back-fill limb used to
+ *     cover.*
+ *  9. **`/{universe}` stays the Universe page, and lists the app.** *Reds against the auto-forward
  *     that sent a lone-galaxy account straight into Studio — a view the address did not name
  *     (ADR-017) — and against the list flavour never rendering.*
- *  9. **A revisit does NOT re-open the create form.** *Reds if the auto-open reads `apps` before the
+ * 10. **A revisit does NOT re-open the create form.** *Reds if the auto-open reads `apps` before the
  *     scope load resolves: Flavour B is a list with Create one click away, not a modal in your face.*
  *
  * `needsContainer = false` — signup, routing and auth only. Nothing here builds an app; that is
@@ -180,7 +184,28 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 7 — the consent nickname renders as the byline on a posted message');
     const created = await captureArtifacts(inst, 'signup-to-first-app-studio');
 
-    // ── LIMB 8: /{universe} is the Universe page and lists the app ─────────────────────────────
+    // ── LIMB 8: the profile editor renames the byline LIVE ────────────────────────────────────
+    // The avatar menu is the only way to change these after consent, and the payoff is that a save
+    // lands on the SUBSCRIPTION: the byline on the message posted above re-renders with no reload.
+    // That mechanism is what the deleted completion modal's back-fill limb used to assert, so this
+    // is where that coverage now lives.
+    const RENAMED = 'Robin Renamed';
+    await page.locator('button[title="Account"]').click();
+    await page.getByTestId('menu-profile').click();
+    const nicknameField = page.getByTestId('profile-nickname');
+    await nicknameField.waitFor({ state: 'visible', timeout: 20_000 });
+    // Seeded from the LIVE snapshot, not opened blank — reds if the editor stops reading the
+    // profile it is about to overwrite, which is how an edit silently becomes a wipe.
+    assert.equal(await nicknameField.inputValue(), NICKNAME,
+      'the profile editor must open seeded with the nickname already on file');
+    await nicknameField.fill(RENAMED);
+    await page.getByTestId('profile-name').fill('Robin Q. Newcomer');
+    await page.getByTestId('profile-save').click();
+    await myChat.locator('.chat-header').getByText(RENAMED).first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
+    console.error('  ✓ limb 8 — the profile editor renames an existing byline live, no reload');
+
+    // ── LIMB 9: /{universe} is the Universe page and lists the app ─────────────────────────────
     await page.goto(`${vite.viteBaseUrl}/${universe}`, { waitUntil: 'domcontentloaded' });
     const appRow = page.getByRole('button', { name: appSlug, exact: true });
     try {
@@ -191,14 +216,14 @@ export async function run(stack: DevStack): Promise<void> {
     }
     assert.equal(await page.getByPlaceholder(COMPOSER).count(), 0,
       'the URL is the view (ADR-017): /{universe} must render the Universe page, never a galaxy Studio');
-    console.error('  ✓ limb 8 — /{universe} stays the Universe page and lists the app');
+    console.error('  ✓ limb 9 — /{universe} stays the Universe page and lists the app');
 
-    // ── LIMB 9: a revisit does NOT re-open the create form ─────────────────────────────────────
+    // ── LIMB 10: a revisit does NOT re-open the create form ────────────────────────────────────
     // Flavour B is a list with Create one click away. An auto-open here means the modal fired off a
     // not-yet-loaded app list, which every returning visit would then reproduce.
     assert.equal(await page.getByPlaceholder('crm').isVisible(), false,
       'an account that already has apps must open on the LIST — the create form is behind the button');
-    console.error('  ✓ limb 9 — the revisit opens on the list, not the create form');
+    console.error('  ✓ limb 10 — the revisit opens on the list, not the create form');
 
     const revisit = await captureArtifacts(inst, 'signup-to-first-app-universe');
     const { existsSync, statSync } = await import('node:fs');

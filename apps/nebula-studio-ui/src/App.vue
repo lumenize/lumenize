@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
-import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
+import { Send, RotateCw, Eraser, LogIn, Loader2, User, UserRound, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
 import UniverseView from "./UniverseView.vue";
+import ComingSoon from "./ComingSoon.vue";
 import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
 import type { TurnLiveness } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
@@ -161,6 +162,16 @@ const sessionExpired = ref(false); // a mid-session terminal auth failure flippe
 
 // account / hierarchy
 const menuOpen = ref(false);
+
+// ── My profile — the ONE place to change how I appear, reached from the avatar menu ──
+// The nickname is first collected at the consent modal every arrival passes through; this is where
+// it (and an optional full name) can be changed afterwards.
+const profileOpen = ref(false);
+const profileNickname = ref("");
+const profileFullName = ref("");
+const profileSaving = ref(false);
+/** The picture affordance is coming-soon, here as on the consent screen — nothing writes one yet. */
+const pictureComingSoon = ref(false);
 const manageOpen = ref(false);
 const accountEmail = ref<string | null>(null);
 type Scope = { instanceName: string; tier: string; isDev: boolean; accepted?: boolean };
@@ -204,6 +215,46 @@ const log = (role: Msg["role"], text: string) => messages.value.push({ role, tex
 // Post-collapse Studio's WORKING scope is the app-level GALAXY ({u}.{g}); the preview it embeds
 // is per-STAR, composed as the galaxy + `.dev` — the one surface where the split is real.
 const isWorkspace = (s?: string) => !!s && s.split(".").length === 2;
+
+/** MY live public profile — the same slot every byline reads, so a save here re-renders them all. */
+const myProfile = computed<{ name?: string; nickname?: string; picture?: string } | undefined>(() => {
+  const pid = (nebula.value?.client as { claims?: { profileId?: string } } | undefined)?.claims?.profileId;
+  if (!pid) return undefined;
+  return (nebula.value?.store.lmz.profiles as
+    Record<string, { value?: { name?: string; nickname?: string; picture?: string } }> | undefined)?.[pid]?.value;
+});
+
+/** Seed the form from the live snapshot each time it opens — never from stale local refs. */
+function openProfile() {
+  menuOpen.value = false;
+  profileNickname.value = myProfile.value?.nickname ?? "";
+  profileFullName.value = myProfile.value?.name ?? "";
+  profileOpen.value = true;
+}
+
+const canSaveProfile = computed(() => profileNickname.value.trim().length > 0 && !profileSaving.value);
+
+async function saveProfile() {
+  if (!canSaveProfile.value) return;
+  profileSaving.value = true;
+  try {
+    const name = profileFullName.value.trim();
+    // ⚠️ `writeProfile` REPLACES the whole public set — an omitted field is written as NULL, not
+    // left alone — so carry the existing picture through. It is always absent today (nothing writes
+    // one), which is exactly why forgetting this would go unnoticed until pictures exist.
+    const picture = myProfile.value?.picture;
+    await nebula.value!.client.updateMyProfile({
+      nickname: profileNickname.value.trim(),
+      ...(name ? { name } : {}),
+      ...(picture ? { picture } : {}),
+    });
+    profileOpen.value = false;
+  } catch (e) {
+    log("error", `Could not save your profile: ${(e as Error).message}`);
+  } finally {
+    profileSaving.value = false;
+  }
+}
 const previewStar = (s: string) => `${s}.dev`;
 // Chat lives at the GALAXY ({u}.{g}) post-collapse — one thread shared across the galaxy's
 // stars. A universe-only scope has no galaxy, so no chat pair is passed and the client's
@@ -677,6 +728,97 @@ async function logout() {
 
 <template>
   <div class="h-screen flex" data-theme="dark">
+    <!-- My profile — reached from the avatar menu, and the ONLY place these change after the
+         consent screen collected them. NOT a gate: it opens on request and closes on Cancel, so it
+         never stands between a person and their work the way the old completion modal did. -->
+    <dialog class="modal" :open="profileOpen">
+      <div class="modal-box">
+        <h3 class="text-lg font-bold">Your profile</h3>
+        <p class="py-2 text-sm opacity-80">How you appear to everyone you work with.</p>
+
+        <div class="flex items-start gap-4 py-2">
+          <div class="flex flex-col items-center gap-1 shrink-0">
+            <button
+              type="button"
+              class="btn btn-ghost btn-circle size-16"
+              data-testid="profile-avatar"
+              @click="pictureComingSoon = true"
+            >
+              <span class="sr-only">Change your picture</span>
+              <span class="size-14 rounded-full bg-neutral text-neutral-content grid place-items-center">
+                <UserRound class="size-8" />
+              </span>
+            </button>
+            <span class="text-xs opacity-60">Change</span>
+          </div>
+
+          <form class="flex-1 space-y-2" @submit.prevent="saveProfile">
+            <label class="form-control w-full">
+              <span class="label-text">What should we call you?</span>
+              <input
+                v-model="profileNickname"
+                type="text"
+                class="input input-bordered w-full"
+                placeholder="robin"
+                :disabled="profileSaving"
+                data-testid="profile-nickname"
+              />
+              <span class="label-text-alt text-base-content/60">Shown next to anything you post.</span>
+            </label>
+
+            <label class="form-control w-full">
+              <span class="label-text">Full name <span class="opacity-60">(optional)</span></span>
+              <input
+                v-model="profileFullName"
+                type="text"
+                class="input input-bordered w-full"
+                placeholder="Robin Fielding"
+                :disabled="profileSaving"
+                data-testid="profile-name"
+              />
+            </label>
+          </form>
+        </div>
+
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="profileSaving" @click="profileOpen = false">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm gap-2"
+            :disabled="!canSaveProfile"
+            data-testid="profile-save"
+            @click="saveProfile"
+          >
+            <Loader2 v-if="profileSaving" class="size-4 animate-spin" /> Save
+          </button>
+        </div>
+      </div>
+
+      <!-- Nested and LAST in this dialog's subtree, so it stacks above the box without a z-index of
+           its own — the same shape ConsentModal uses for the identical affordance. -->
+      <dialog class="modal" :open="pictureComingSoon">
+        <div class="modal-box">
+          <ComingSoon
+            title="A profile picture"
+            tag="profile-picture"
+            blurb="Pick a photo or an avatar so people recognise you at a glance."
+          />
+          <div class="modal-action">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              data-testid="coming-soon-close"
+              @click="pictureComingSoon = false"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </dialog>
+    </dialog>
+
     <!-- Chat rail -->
     <!-- The chat rail shows for the signed-out landing and inside a workspace. A Universe has no
          chat — it renders UniverseView full-width in the stage — so the rail is hidden there. -->
@@ -796,6 +938,7 @@ async function logout() {
         </button>
         <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
           <button class="btn btn-sm btn-ghost justify-start" @click="goHome"><Home class="size-4" /> Home</button>
+          <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-profile" @click="openProfile"><UserRound class="size-4" /> Profile</button>
           <button class="btn btn-sm btn-ghost justify-start" @click="openManage">Manage my account</button>
           <a class="btn btn-sm btn-ghost justify-start" href="/auth/emails"><Mail class="size-4" /> Email addresses</a>
           <div class="divider my-0"></div>
