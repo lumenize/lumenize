@@ -124,7 +124,7 @@ watch(
             v-model="slug"
             type="text"
             autofocus
-            class="input input-bordered w-full"
+            class="input w-full"
             placeholder="crm"
             :disabled="busy"
           />

@@ -280,6 +280,9 @@ const log = (role: Msg["role"], text: string) => messages.value.push({ role, tex
 // Post-collapse Studio's WORKING scope is the app-level GALAXY ({u}.{g}); the preview it embeds
 // is per-STAR, composed as the galaxy + `.dev` — the one surface where the split is real.
 const isWorkspace = (s?: string) => !!s && s.split(".").length === 2;
+/** Tree indent per depth, on the spacing scale. Literal so Tailwind's scanner emits every step;
+ *  an inline `marginLeft: depth * 20px` was the one off-scale value in the shell. */
+const INDENT = ["ml-0", "ml-5", "ml-10", "ml-15", "ml-20"] as const;
 
 /** MY live public profile — the same slot every byline reads, so a save here re-renders them all. */
 const myProfile = computed<{ name?: string; nickname?: string; picture?: string } | undefined>(() => {
@@ -870,30 +873,30 @@ async function logout() {
           </div>
 
           <form class="flex-1 space-y-2" @submit.prevent="saveProfile">
-            <label class="form-control w-full">
-              <span class="label-text">What should we call you?</span>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">What should we call you?</legend>
               <input
                 v-model="profileNickname"
                 type="text"
-                class="input input-bordered w-full"
+                class="input w-full"
                 placeholder="robin"
                 :disabled="profileSaving"
                 data-testid="profile-nickname"
               />
-              <span class="label-text-alt text-base-content/60">Shown next to anything you post.</span>
-            </label>
+              <p class="label">Shown next to anything you post.</p>
+            </fieldset>
 
-            <label class="form-control w-full">
-              <span class="label-text">Full name <span class="opacity-60">(optional)</span></span>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Full name <span class="opacity-60">(optional)</span></legend>
               <input
                 v-model="profileFullName"
                 type="text"
-                class="input input-bordered w-full"
+                class="input w-full"
                 placeholder="Robin Fielding"
                 :disabled="profileSaving"
                 data-testid="profile-name"
               />
-            </label>
+            </fieldset>
           </form>
         </div>
 
@@ -929,7 +932,7 @@ async function logout() {
     <!-- Chat rail -->
     <!-- The chat rail shows for the signed-out landing and inside a workspace. A Universe has no
          chat — it renders UniverseView full-width in the stage — so the rail is hidden there. -->
-    <section v-if="!connected || isWorkspace(activeScope)" class="w-[28rem] shrink-0 flex flex-col border-r border-base-300 bg-base-200">
+    <section v-if="!connected || isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Nebula Studio</h1>
         <button
@@ -1042,9 +1045,8 @@ async function logout() {
                Enter sends; Shift+Enter inserts a newline. `field-sizing` auto-grows it. -->
           <textarea
             v-model="input"
-            class="textarea textarea-bordered flex-1 resize-none max-h-40"
+            class="textarea flex-1 resize-none max-h-40 field-sizing-content"
             rows="1"
-            style="field-sizing: content"
             placeholder="Describe a change…"
             :disabled="busy"
             @keydown.enter.exact.prevent="send"
@@ -1155,7 +1157,7 @@ async function logout() {
             </p>
             <p v-else-if="!scopes.length" class="text-sm opacity-60">Nothing here yet.</p>
             <template v-for="s in treeScopes" :key="s.instanceName">
-              <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :style="{ marginLeft: depth(s) * 20 + 'px' }">
+              <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :class="INDENT[Math.min(depth(s), INDENT.length - 1)]">
                 <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
                 <span class="text-xs opacity-40">{{ s.tier === "galaxy" ? "app" : s.tier }}</span>
 
@@ -1184,9 +1186,9 @@ async function logout() {
               <!-- inline "name a Galaxy" input under a Universe row -->
               <!-- The notice's SECOND placement: creating an app is a commit, so it renders here as
                    well as in the self-signup consent modal. One component, two renders. -->
-              <form v-if="addChildFor === s.instanceName" class="flex flex-col gap-2" :style="{ marginLeft: (depth(s) + 1) * 20 + 'px' }" @submit.prevent="addGalaxy(s.instanceName)">
+              <form v-if="addChildFor === s.instanceName" class="flex flex-col gap-2" :class="INDENT[Math.min(depth(s) + 1, INDENT.length - 1)]" @submit.prevent="addGalaxy(s.instanceName)">
                 <div class="flex gap-2 items-center">
-                  <input v-model="addChildSlug" class="input input-bordered input-sm flex-1 font-mono" placeholder="name your app" :disabled="busy" />
+                  <input v-model="addChildSlug" class="input input-sm flex-1 font-mono" placeholder="name your app" :disabled="busy" />
                   <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">
                     <Loader2 v-if="busy" class="size-3.5 animate-spin" /> Add
                   </button>

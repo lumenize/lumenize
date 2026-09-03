@@ -63,24 +63,22 @@ async function submit() {
       </div>
 
       <form v-else class="space-y-3" @submit.prevent="submit">
-        <label class="form-control w-full">
-          <span class="label-text">Email</span>
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Email</legend>
           <input
             v-model="email" type="email" required autocomplete="email"
-            class="input input-bordered w-full" placeholder="you@example.com"
+            class="input w-full" placeholder="you@example.com"
           />
-        </label>
+        </fieldset>
 
-        <label v-if="creating" class="form-control w-full">
-          <span class="label-text">Name your account</span>
+        <fieldset v-if="creating" class="fieldset">
+          <legend class="fieldset-legend">Name your account</legend>
           <input
             v-model="accountName" type="text" required
-            class="input input-bordered w-full" placeholder="acme"
+            class="input w-full" placeholder="acme"
           />
-          <span class="label-text-alt text-base-content/60">
-            Lowercase letters, numbers and hyphens.
-          </span>
-        </label>
+          <p class="label">Lowercase letters, numbers and hyphens.</p>
+        </fieldset>
 
         <button class="btn btn-primary w-full" type="submit" :disabled="busy">
           {{ busy ? 'Sending…' : creating ? 'Create account' : 'Email me a link' }}

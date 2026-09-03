@@ -52,15 +52,14 @@ async function claim() {
       </p>
 
       <form class="space-y-3" @submit.prevent="claim">
-        <label class="form-control w-full">
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Account name</legend>
           <input
             v-model="accountName" type="text" required autofocus
-            class="input input-bordered w-full" placeholder="acme"
+            class="input w-full" placeholder="acme"
           />
-          <span class="label-text-alt text-base-content/60">
-            Lowercase letters, numbers and hyphens.
-          </span>
-        </label>
+          <p class="label">Lowercase letters, numbers and hyphens.</p>
+        </fieldset>
 
         <button class="btn btn-primary w-full" type="submit" :disabled="busy">
           {{ busy ? 'Creating…' : 'Create account' }}

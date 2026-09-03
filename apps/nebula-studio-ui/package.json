@@ -5,7 +5,8 @@
   "//": "The Studio UI (chat-first authoring SPA). DEV: runs via its own vite dev server + a same-origin proxy to `wrangler dev` (see vite.config.ts + README.md). Deps mirror container/app (no new project deps) + @lumenize/nebula for the mesh client. A workspace member so @lumenize/* resolve. PROD serving (Workers Assets, Decision 3) is a later step.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "audit:classes": "vite build --logLevel silent && node scripts/audit-classes.mjs"
   },
   "dependencies": {
     "@lumenize/nebula": "*",

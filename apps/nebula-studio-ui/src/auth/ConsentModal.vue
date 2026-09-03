@@ -87,37 +87,35 @@ function submitAccept() {
         </div>
 
         <div class="flex-1 space-y-2">
-          <label class="form-control w-full">
-            <span class="label-text">What should we call you?</span>
+          <fieldset class="fieldset">
+            <legend class="fieldset-legend">What should we call you?</legend>
             <input
               v-model="nick"
               type="text"
               required
-              class="input input-bordered w-full"
+              class="input w-full"
               placeholder="robin"
               data-testid="consent-nickname"
             />
-            <span class="label-text-alt text-base-content/60">
-              Shown next to anything you post.
-            </span>
-          </label>
+            <p class="label">Shown next to anything you post.</p>
+          </fieldset>
 
-          <label class="form-control w-full">
-            <span class="label-text">Full name <span class="opacity-60">(optional)</span></span>
+          <fieldset class="fieldset">
+            <legend class="fieldset-legend">Full name <span class="opacity-60">(optional)</span></legend>
             <input
               v-model="fullName"
               type="text"
-              class="input input-bordered w-full"
+              class="input w-full"
               placeholder="Robin Fielding"
               data-testid="consent-name"
             />
-          </label>
+          </fieldset>
         </div>
       </div>
 
       <label class="label cursor-pointer justify-start gap-3 py-2">
         <input v-model="checked" type="checkbox" class="checkbox" data-testid="consent-checkbox" />
-        <span class="label-text">
+        <span>
           {{ flavor === 'invite' ? 'I want to join this account' : 'I started this signup' }}
         </span>
       </label>

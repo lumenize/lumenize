@@ -224,7 +224,7 @@ onMounted(async () => {
 
     <template v-else>
       <!-- The email strip: every address on this identity, the signed-in one selected. -->
-      <div v-if="sections.length > 1" class="tabs tabs-boxed">
+      <div v-if="sections.length > 1" class="tabs tabs-box">
         <button
           v-for="s in sections" :key="s.email"
           class="tab" :class="{ 'tab-active': s.email === activeSection?.email }"
