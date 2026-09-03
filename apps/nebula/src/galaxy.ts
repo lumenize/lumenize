@@ -40,6 +40,7 @@ import { NebulaDO, requireDominionHere } from './nebula-do';
 import type { OntologyVersionRow } from './ontology-compile';
 import { stepFailed, REPORT_MARKER, ROW_PATH, WS_ROOT, wsPath } from './build-report';
 import { withHeartbeat } from './turn-heartbeat';
+import { assembleStream } from './model-stream';
 import { TURN_HEARTBEAT_MS } from './turn-liveness';
 import type { BuildReport, StepResult } from './build-report';
 import { ResourceDataPlane } from './resource-data-plane';
@@ -1274,11 +1275,10 @@ export class Galaxy extends NebulaDO {
       ],
       temperature: 0.7,
       max_tokens: 1024,
-    });
+    // Streams as it is written; nothing is re-sent afterwards — the durable Message is the commit.
+    }, (text) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, text, CHAT_NODE_ID, userMessageId));
     const turn = parseModelTurn(raw);
-    const reply = turn.text.trim() || 'I had nothing to add — try rephrasing?';
-    this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, userMessageId);
-    return reply;
+    return turn.text.trim() || 'I had nothing to add — try rephrasing?';
   }
 
   /**
@@ -1718,13 +1718,15 @@ export class Galaxy extends NebulaDO {
    *
    * The model id stays isolated to `STUDIO_MODEL` and is never surfaced.
    */
-  protected async callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown> {
+  protected async callModel(
+    messages: ChatMessage[], params: ModelParams, onDelta?: (text: string) => void,
+  ): Promise<unknown> {
     return this.runModel(STUDIO_MODEL, {
       messages,
       tools: CODEGEN_TOOLS,
       temperature: params.temperature,
       max_tokens: params.max_tokens,
-    });
+    }, onDelta);
   }
 
   /**
@@ -1733,14 +1735,22 @@ export class Galaxy extends NebulaDO {
    * REST-vs-binding split lives once. `protected` so a probe overriding IT scripts
    * every path at once.
    */
-  protected async runModel(model: string, body: Record<string, unknown>): Promise<unknown> {
+  protected async runModel(
+    model: string, body: Record<string, unknown>, onDelta?: (text: string) => void,
+  ): Promise<unknown> {
+    // With a delta sink the call STREAMS — `stream: true` on either lane yields the same SSE bytes
+    // — and `assembleStream` hands the text out live while rebuilding the whole-response shape the
+    // caller parses. Without one nothing changes: the discriminator stays a small whole response.
+    if (onDelta) body = { ...body, stream: true };
     // WORKERS_AI_TOKEN / CLOUDFLARE_ACCOUNT_ID / CF_AI_GATEWAY are runtime env (`.dev.vars`
     // / `wrangler secret`), not committed wrangler vars, so they're absent from the
     // generated `Env` — widen at the read (packaging.md).
     const env = this.env as Env & { WORKERS_AI_TOKEN?: string; CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string };
-    if (env.WORKERS_AI_TOKEN) return this.#callModelRest(env, env.WORKERS_AI_TOKEN, model, body);
+    if (env.WORKERS_AI_TOKEN) return this.#callModelRest(env, env.WORKERS_AI_TOKEN, model, body, onDelta);
     // The model-catalog types don't cover every @cf id; run() is treated loosely.
-    return (this.env.AI as any).run(model, body);
+    const out = await (this.env.AI as any).run(model, body);
+    if (onDelta && out instanceof ReadableStream) return assembleStream(out, onDelta);
+    return out;
   }
 
   /**
@@ -1766,6 +1776,7 @@ export class Galaxy extends NebulaDO {
     token: string,
     model: string,
     body: unknown,
+    onDelta?: (text: string) => void,
   ): Promise<unknown> {
     const accountId = env.CLOUDFLARE_ACCOUNT_ID;
     if (!accountId) throw new Error('Workers AI REST path needs CLOUDFLARE_ACCOUNT_ID');
@@ -1777,6 +1788,7 @@ export class Galaxy extends NebulaDO {
     if (env.CF_AI_GATEWAY) headers['cf-aig-gateway-id'] = env.CF_AI_GATEWAY;
     const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!resp.ok) throw new Error(`Workers AI REST ${resp.status} at ${new URL(url).pathname}`);
+    if (onDelta && resp.body) return assembleStream(resp.body, onDelta);
     return unwrapWorkersAiRest(await resp.json());
   }
 
@@ -1808,8 +1820,13 @@ export class Galaxy extends NebulaDO {
     });
     // No per-await heartbeat here: liveness is a property of the TURN, and `#chatTurn` beats
     // around the whole body — the discriminator and the answer path are silent model calls too.
+    // Live deltas ride the same `onProgress` seam as the coarse steps — the client appends
+    // either — so a round's thinking streams batch by batch instead of landing whole when the
+    // model returns. `onDelta` on the deps tells the loop not to re-emit that thinking.
+    const onDelta = onProgress ? (text: string) => onProgress(text) : undefined;
     const deps: CodegenLoopDeps = {
-      callModel: (m, p) => this.callModel(m, p),
+      callModel: (m, p) => this.callModel(m, p, onDelta),
+      ...(onDelta ? { onDelta } : {}),
       writeFile: (path, content) => this.writeSource(path, content),
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
       // The model's publish override passes through; the pending-ontology job rides

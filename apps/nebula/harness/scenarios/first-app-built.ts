@@ -137,10 +137,32 @@ export async function run(stack: DevStack): Promise<void> {
     //      counter on the thinking bubble, so two samples of it ≥2 s apart must differ.
     let thinkingFirst: { text: string; at: number } | undefined;
     let thinkingMoved = false;
+    //  (d) the turn STREAMS: the strip's tail must take at least two distinct values (live deltas,
+    //      not one lump when the model returns), and clicking it mid-stream must open a transcript
+    //      longer than the tail — the unreadable scroll by default, readable on request.
+    const tailsSeen = new Set<string>();
+    let transcriptChecked = false;
     const liveWatch = (async () => {
       const deadline = Date.now() + TURN_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (await page.getByText('💭 thought process').count() > 0) return;
+        const tailEl = page.getByTestId('stream-tail');
+        if (await tailEl.count() > 0) {
+          const tail = (await tailEl.first().textContent())?.trim() ?? '';
+          if (tail) tailsSeen.add(tail);
+          if (!transcriptChecked && tailsSeen.size >= 2) {
+            transcriptChecked = true;
+            await page.getByTestId('stream-strip').first().click();
+            const transcript = page.getByTestId('stream-transcript');
+            await transcript.waitFor({ state: 'visible', timeout: 5_000 });
+            const full = (await transcript.textContent())?.trim() ?? '';
+            if (full.length <= tail.replace(/^…/, '').length) {
+              await captureArtifacts(inst, 'first-app-built-transcript-short');
+              throw new Error(`the transcript modal must hold MORE than the strip's tail (${full.length} vs ${tail.length} chars)`);
+            }
+            await page.getByTestId('stream-transcript-close').click();
+          }
+        }
         const thinking = page.getByTestId('turn-thinking');
         if (await thinking.count() > 0) {
           const text = (await thinking.first().textContent())?.trim() ?? '';
@@ -172,7 +194,7 @@ export async function run(stack: DevStack): Promise<void> {
         .waitFor({ state: 'visible', timeout: TURN_TIMEOUT_MS });
       await liveWatch;
     } catch (e) {
-      if (e instanceof Error && /PAINTED|EMPTY assistant bubble|did not MOVE/.test(e.message)) throw e;
+      if (e instanceof Error && /PAINTED|EMPTY assistant bubble|did not MOVE|transcript modal/.test(e.message)) throw e;
       await captureArtifacts(inst, 'first-app-built-turn-never-landed');
       throw new Error(
         `no durable agent reply rendered within ${TURN_TIMEOUT_MS / 1000}s — the turn runs detached, ` +
@@ -180,14 +202,28 @@ export async function run(stack: DevStack): Promise<void> {
         `(${e instanceof Error ? e.message : String(e)})`,
       );
     }
-    console.error(`  ✓ limb 3 — a durable agent reply rendered, and the turn stayed healthy the whole way` +
+    assert.ok(tailsSeen.size >= 2,
+      `the reply must STREAM — the strip's tail took ${tailsSeen.size} distinct value(s); one or none means ` +
+      'the text landed whole when the model returned, which is the pre-streaming shape');
+    assert.ok(transcriptChecked, 'the transcript modal was never exercised — the strip never had two tails to click between');
+    console.error(`  ✓ limb 3 — a durable agent reply rendered, the turn stayed healthy, and it STREAMED ` +
+      `(${tailsSeen.size} tails; transcript read mid-stream)` +
       (thinkingMoved ? ' (spinner ticked)' : ' (thinking phase too short to sample motion)'));
 
     // ── LIMB 4: no failure banner survives the completed turn ──────────────────────────────────
     assert.equal(await page.getByText('No reply arrived').count(), 0,
       'a completed turn must leave no failure banner behind — a `failed` that outlives its turn is ' +
       'the frozen-partial-reply hang');
-    console.error('  ✓ limb 4 — no failure banner survived the turn');
+    // The agent's reply wears TWO faces: Nebula (the actor) in front, the person it ran for behind —
+    // `deriveParticipants` order, actor first. A single face here would mean the act chain was
+    // flattened away, which is the attribution ADR-016 exists to keep.
+    const agentChat = page.locator('div.chat', { has: page.locator('[data-testid="byline"]', { hasText: /^Nebula/ }) }).first();
+    await agentChat.waitFor({ state: 'visible', timeout: 20_000 });
+    assert.equal(await agentChat.locator('[data-testid="party-avatar"]').count(), 2,
+      'an act-bearing message must stack two faces: the actor and the subject');
+    assert.equal(await agentChat.locator('[data-testid="party-avatar"].z-10').getAttribute('data-name'), 'Nebula',
+      'the ACTOR (Nebula) must be the face in front');
+    console.error('  ✓ limb 4 — no failure banner survived the turn; Nebula\'s reply stacks actor over subject');
 
     // ── LIMB 5: the preview serves the BUILT app ──────────────────────────────────────────────
     const previewUrl = `${vite.viteBaseUrl}/app/${galaxy}.dev/`;

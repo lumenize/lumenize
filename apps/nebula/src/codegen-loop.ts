@@ -220,6 +220,9 @@ export interface CodegenLoopDeps {
    * push directly via the test harness.
    */
   onProgress?: (step: string) => void;
+  /** Present when `callModel` streams its text live through `onProgress` — the loop then
+   *  emits only its own steps (`building…`, `wrote …`), never the round's thinking again. */
+  onDelta?: (text: string) => void;
 }
 
 export interface CodegenLoopConfig {
@@ -389,9 +392,10 @@ export async function runCodegenLoop(
     const turn = parseModelTurn(raw);
     lastText = turn.text;
     if (turn.reasoning.trim().length > 0) reasoningParts.push(turn.reasoning);
-    // Phase 3: emit this round's thinking as a progress step (coarse, not tokens).
+    // Phase 3: emit this round's thinking as a progress step (coarse, not tokens) — unless it
+    // already streamed live through `onDelta`, in which case only a line break separates rounds.
     const step = turn.reasoning.trim() || turn.text.trim();
-    if (step.length > 0) deps.onProgress?.(step);
+    if (step.length > 0) deps.onProgress?.(deps.onDelta ? '\n' : step);
 
     // Loop-detection #1 — repeated model text (rolling hash). Checked BEFORE
     // dispatch so it's independent of the identical-call detector.

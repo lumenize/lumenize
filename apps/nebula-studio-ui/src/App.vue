@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, UserRound, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
 import UniverseView from "./UniverseView.vue";
@@ -52,6 +52,29 @@ type ChatSub = { resourceIds: string[]; setRenderWindow(ids: string[]): void; on
 let chatSub: ChatSub | null = null;
 /** The in-flight transient stream (best-effort animation; the durable Message is truth). */
 const streaming = ref<{ id: string; text: string } | null>(null);
+// ── The live transcript: a compact strip by default, the full text on request ──
+// Token streaming is an unreadable scroll at speed, so the thread shows only a pulse and the tail
+// of the latest text; clicking opens a modal with everything so far. The transcript survives the
+// stream's end while the modal is open — a reader mid-page is not interrupted by the durable
+// message landing — and is dropped on close.
+const streamModalOpen = ref(false);
+const streamTranscript = ref("");
+watch(() => streaming.value?.text, (text) => { if (text !== undefined) streamTranscript.value = text; });
+const streamTail = computed(() => {
+  const t = streaming.value?.text ?? "";
+  const tail = t.length > 80 ? `…${t.slice(-80)}` : t;
+  return tail.replace(/\s+/g, " ");
+});
+const transcriptEl = ref<HTMLPreElement | null>(null);
+watch(streamTranscript, async () => {
+  if (!streamModalOpen.value) return;
+  await nextTick();
+  transcriptEl.value?.scrollTo({ top: transcriptEl.value.scrollHeight });
+});
+function closeStreamModal() {
+  streamModalOpen.value = false;
+  if (!streaming.value) streamTranscript.value = "";
+}
 /** The id of MY last posted message — "thinking" until an agent reply links back to it. */
 const lastPostedId = ref<string | null>(null);
 /** Liveness of MY in-flight turn (src/turn-liveness.ts): chunks are a hint, the durable
@@ -892,6 +915,17 @@ async function logout() {
 
     </dialog>
 
+    <!-- The full live transcript — opened from the strip; scrolls with the stream. -->
+    <dialog class="modal" :open="streamModalOpen" @cancel.prevent="closeStreamModal">
+      <div class="modal-box max-w-3xl">
+        <h3 class="text-lg font-bold">What Nebula is thinking</h3>
+        <pre ref="transcriptEl" class="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-base-200 p-3 font-mono text-xs" data-testid="stream-transcript">{{ streamTranscript || "(nothing yet)" }}</pre>
+        <div class="modal-action">
+          <button type="button" class="btn btn-sm" data-testid="stream-transcript-close" @click="closeStreamModal">Close</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- Chat rail -->
     <!-- The chat rail shows for the signed-out landing and inside a workspace. A Universe has no
          chat — it renders UniverseView full-width in the stage — so the rail is hidden there. -->
@@ -951,7 +985,18 @@ async function logout() {
              derived value, so precedence is the reducer's and not this list's order. -->
         <div v-if="turnDisplay === 'streaming'" class="chat chat-start">
           <div class="chat-header text-xs opacity-60 mb-0.5">Nebula</div>
-          <div class="chat-bubble whitespace-pre-wrap">{{ streaming!.text }}</div>
+          <!-- The strip: a pulse, the tail of what is being written, and a click to read it all. -->
+          <button
+            type="button"
+            class="chat-bubble flex items-center gap-2 text-left max-w-full"
+            data-testid="stream-strip"
+            title="Click to read the full transcript"
+            @click="streamModalOpen = true"
+          >
+            <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+            <span class="shrink-0 text-xs opacity-70">Nebula is thinking</span>
+            <span class="truncate font-mono text-xs opacity-80" data-testid="stream-tail">{{ streamTail }}</span>
+          </button>
         </div>
         <div v-else-if="turnDisplay === 'failed'" class="chat chat-start">
           <div class="chat-bubble chat-bubble-error text-sm">
