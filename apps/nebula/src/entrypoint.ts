@@ -9,6 +9,7 @@
  *   /app/{star}/*    → the built app, forwarded to the owning Galaxy's serve (GET/HEAD,
  *                      deliberately ungated — the bounding IS the security property)
  *   /auth/*          → routeNebulaAuthRequest (login, refresh, invite, etc.)
+ *   /pictures        → PUT (bearer) stores a profile picture in R2; GET /pictures/{key} serves it, PUBLIC
  *   /gateway/*       → routeDORequest prefix:'gateway' (WebSocket mesh connections)
  *   anything else    → 404 (a bare scope path `/{scope}` is Workers Assets' by being UNLISTED in
  *                      `run_worker_first` — it never reaches this Worker in prod)
@@ -34,6 +35,7 @@
 import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
 import { routeNebulaAuthRequest, verifyNebulaAccessToken, createRouter, type Step, type RouteState } from '@lumenize/nebula-auth';
+import { handlePictureUpload, servePicture } from './profile-pictures';
 import { routeDORequest, type CorsOptions } from '@lumenize/routing';
 import { extractWebSocketToken } from '@lumenize/mesh/client';
 
@@ -154,6 +156,10 @@ const serveAppForward: Step<RouteState> = async (request, { params }) => {
  */
 const router = createRouter([
   { path: '/_version', steps: [(request) => handleVersion(request)] },
+  // Profile pictures (`profile-pictures.ts`): the upload derives whose from the verified bearer;
+  // the serve is public by design — an <img> carries no credential, and `picture` is a public field.
+  { path: '/pictures', method: 'PUT', steps: [(request) => handlePictureUpload(request, env)] },
+  { path: '/pictures/:key', method: 'GET', steps: [(_request, state) => servePicture(state.params.key, env)] },
   { path: '/app/:scope', steps: [serveAppForward] },
   { path: '/app/:scope/*', steps: [serveAppForward] },
   {

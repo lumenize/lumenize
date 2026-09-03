@@ -73,6 +73,8 @@ echo "▸ AUTH_EMAIL_FROM resolves to: ${EMAIL_FROM:-<UNSET — defaults to UNVE
 #    NO `--dry-run` preflight — it HANGS on the full worker (0% CPU, >10 min; the heavy remote
 #    bindings stall on account resolution). The vite-build → deploy → /_version self-check below
 #    IS the validation path.
+echo "▸ R2: the platform blob bucket must exist before the binding does (create-if-missing)"
+wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs(\s|$)' || wrangler r2 bucket create nebula-blobs
 echo "▸ wrangler deploy (worker bundle + DevContainer image)"
 # tee → a log so we can self-check the URL wrangler ACTUALLY reports (no custom domain means the
 # worker lands on *.workers.dev, not the issuer domain). pipefail (set -o above) still aborts on a

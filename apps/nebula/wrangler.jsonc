@@ -120,6 +120,11 @@
   //     3 colo-matched pairs. Directionally sound, not powered. standard-4 may well be
   //     better; resolving it needs many samples per (instance_type × colo) cell.
   // Revisit with a powered experiment before spending more here.
+  // R2 — the platform's ONE blob bucket (nebula-pre-alpha-fast-follow § blob storage: a uniform
+  // capability, never per-app infrastructure). First tenant: profile pictures, keyed
+  // `profile-pictures/{uuid}.{ext}` (`src/profile-pictures.ts`). Local `wrangler dev` serves it from
+  // miniflare's R2 — no remote, no credential; deployed, `scripts/deploy.sh` creates it if missing.
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "nebula-blobs" }],
   "containers": [
     {
       "max_instances": 10,
@@ -167,7 +172,9 @@
     "directory": "../nebula-studio-ui/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/app/*", "/auth/*", "/gateway/*", "/_version"]
+    // ⚠️ `/pictures` (exact) AND `/pictures/*`: the upload is a PUT to the bare prefix, and a path the
+    // assets layer owns answers 405 to any non-GET before the Worker ever sees it (bit 2026-09-03).
+    "run_worker_first": ["/app/*", "/auth/*", "/gateway/*", "/pictures", "/pictures/*", "/_version"]
   },
   // Declarative DO class registry — `exports` (NOT SQL migration; replaced the old `migrations` array,
   // tasks/archive/do-exports-and-toolchain-upgrade.md). Every class is `storage: "sqlite"` — all use sync storage

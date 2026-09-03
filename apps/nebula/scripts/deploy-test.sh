@@ -99,11 +99,15 @@ node -e '
     else { out += c; i++; }
   }
   const cfg = JSON.parse(out.replace(/,\s*([}\]])/g, "$1"));
-  delete cfg.routes; // the ONE deliberate difference from the real config
+  delete cfg.routes; // the FIRST deliberate difference from the real config
+  // …and the second: the test worker gets its own blob bucket, so a test run never writes into prod's.
+  for (const b of cfg.r2_buckets ?? []) if (b.bucket_name === "nebula-blobs") b.bucket_name = "nebula-blobs-test";
   fs.writeFileSync(process.argv[2], JSON.stringify(cfg, null, 2) + "\n");
 ' "$APP_DIR/wrangler.jsonc" "$TEST_CONFIG"
 trap 'rm -f "$TEST_CONFIG"' EXIT
 
+echo "▸ R2: the test worker's blob bucket (create-if-missing)"
+wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs-test(\s|$)' || wrangler r2 bucket create nebula-blobs-test
 echo "▸ wrangler deploy --config .wrangler-deploy-test.jsonc --name ${WORKER_NAME} (worker bundle + build-box image; NO routes)"
 DEPLOY_LOG="$(mktemp)"
 wrangler deploy --config "$TEST_CONFIG" --name "$WORKER_NAME" --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}" 2>&1 | tee "$DEPLOY_LOG"

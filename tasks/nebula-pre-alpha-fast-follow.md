@@ -18,6 +18,7 @@ Close the platform gaps that stand between the current live loop and real user-d
 
 **Shape (to be designed, not pinned)**:
 - R2-backed blob storage surfaced as a platform capability, not raw R2 access (homogeneity: no per-app infrastructure divergence).
+  - ✅ **First tenant landed 2026-09-03 — profile pictures.** One platform bucket (`nebula-blobs`, binding `BLOBS`; the test worker gets `nebula-blobs-test`), keyed `profile-pictures/{uuid}.{ext}`; `PUT /pictures` is bearer-gated and sniffs the bytes, `GET /pictures/{key}` is public and immutable because `picture` is a public field an `<img>` loads with no credential. `apps/nebula/src/profile-pictures.ts`. Not yet a capability an app can call — that is still this item.
 - Access control must ride the existing substrate — a photo is only readable by users who can read the resource that owns it (the sharing-circle semantics in Jennifer's spec map directly onto ReBAC).
 - Relationship to `resource-history-r2` outbox mechanics: same bucket family, different object class — check for shared plumbing before designing fresh.
 

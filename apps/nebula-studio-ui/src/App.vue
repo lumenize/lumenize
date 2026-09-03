@@ -3,7 +3,6 @@ import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, UserRound, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
 import UniverseView from "./UniverseView.vue";
-import ComingSoon from "./ComingSoon.vue";
 import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
 import type { TurnLiveness } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
@@ -186,8 +185,10 @@ const profileOpen = ref(false);
 const profileNickname = ref("");
 const profileFullName = ref("");
 const profileSaving = ref(false);
-/** The picture affordance is coming-soon, here as on the consent screen — nothing writes one yet. */
-const pictureComingSoon = ref(false);
+/** The picture chosen in the editor this session: uploaded the moment it is picked (so the
+ *  preview is the real served object), written into the Profile on Save with the names. */
+const profilePicture = ref<string | undefined>();
+const pictureUploading = ref(false);
 const manageOpen = ref(false);
 const accountEmail = ref<string | null>(null);
 type Scope = { instanceName: string; tier: string; isDev: boolean; accepted?: boolean };
@@ -245,6 +246,7 @@ function openProfile() {
   menuOpen.value = false;
   profileNickname.value = myProfile.value?.nickname ?? "";
   profileFullName.value = myProfile.value?.name ?? "";
+  profilePicture.value = myProfile.value?.picture;
   profileOpen.value = true;
 }
 
@@ -256,9 +258,8 @@ async function saveProfile() {
   try {
     const name = profileFullName.value.trim();
     // ⚠️ `writeProfile` REPLACES the whole public set — an omitted field is written as NULL, not
-    // left alone — so carry the existing picture through. It is always absent today (nothing writes
-    // one), which is exactly why forgetting this would go unnoticed until pictures exist.
-    const picture = myProfile.value?.picture;
+    // left alone — so the picture always rides: the one just uploaded, else the one on file.
+    const picture = profilePicture.value ?? myProfile.value?.picture;
     await nebula.value!.client.updateMyProfile({
       nickname: profileNickname.value.trim(),
       ...(name ? { name } : {}),
@@ -269,6 +270,40 @@ async function saveProfile() {
     log("error", `Could not save your profile: ${(e as Error).message}`);
   } finally {
     profileSaving.value = false;
+  }
+}
+
+/** Shrink to an avatar before upload — the server caps bytes, but a phone photo is 10× that and
+ *  nobody needs it at full size next to a chat bubble. Falls back to the original if decoding
+ *  fails (an odd container the browser cannot draw); the server still sniffs and bounds it. */
+async function downscaleImage(file: File, max = 512): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size <= 256 * 1024) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("could not encode the picture"))), "image/png"));
+  } catch {
+    return file;
+  }
+}
+
+async function onPictureChosen(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ""; // so picking the same file again still fires `change`
+  if (!file || !nebula.value) return;
+  pictureUploading.value = true;
+  try {
+    profilePicture.value = await nebula.value.client.uploadProfilePicture(await downscaleImage(file));
+  } catch (err) {
+    log("error", `Could not upload that picture: ${(err as Error).message}`);
+  } finally {
+    pictureUploading.value = false;
   }
 }
 const previewStar = (s: string) => `${s}.dev`;
@@ -761,17 +796,28 @@ async function logout() {
 
         <div class="flex items-start gap-4 py-2">
           <div class="flex flex-col items-center gap-1 shrink-0">
-            <button
-              type="button"
-              class="btn btn-ghost btn-circle size-16"
-              data-testid="profile-avatar"
-              @click="pictureComingSoon = true"
-            >
+            <label class="btn btn-ghost btn-circle size-16 cursor-pointer" data-testid="profile-avatar">
               <span class="sr-only">Change your picture</span>
-              <span class="size-14 rounded-full bg-neutral text-neutral-content grid place-items-center">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                class="hidden"
+                data-testid="profile-picture-input"
+                :disabled="pictureUploading || profileSaving"
+                @change="onPictureChosen"
+              />
+              <Loader2 v-if="pictureUploading" class="size-6 animate-spin" />
+              <img
+                v-else-if="profilePicture"
+                :src="profilePicture"
+                alt=""
+                class="size-14 rounded-full object-cover"
+                data-testid="profile-picture-img"
+              />
+              <span v-else class="size-14 rounded-full bg-neutral text-neutral-content grid place-items-center">
                 <UserRound class="size-8" />
               </span>
-            </button>
+            </label>
             <span class="text-xs opacity-60">Change</span>
           </div>
 
@@ -819,27 +865,6 @@ async function logout() {
         </div>
       </div>
 
-      <!-- Nested and LAST in this dialog's subtree, so it stacks above the box without a z-index of
-           its own — the same shape ConsentModal uses for the identical affordance. -->
-      <dialog class="modal" :open="pictureComingSoon">
-        <div class="modal-box">
-          <ComingSoon
-            title="A profile picture"
-            tag="profile-picture"
-            blurb="Pick a photo or an avatar so people recognise you at a glance."
-          />
-          <div class="modal-action">
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              data-testid="coming-soon-close"
-              @click="pictureComingSoon = false"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </dialog>
     </dialog>
 
     <!-- Chat rail -->
@@ -959,7 +984,8 @@ async function logout() {
         </button>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
           <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
-          <span class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
+          <img v-if="myProfile?.picture" :src="myProfile.picture" alt="" class="size-7 rounded-full object-cover" data-testid="account-picture" />
+          <span v-else class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
         </button>
         <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
           <button class="btn btn-sm btn-ghost justify-start" @click="goHome"><Home class="size-4" /> Home</button>

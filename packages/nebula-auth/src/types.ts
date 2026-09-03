@@ -342,13 +342,14 @@ export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
  * else: `app` / `auth` / `gateway` are the Worker-served prefixes (`run_worker_first` in
  * `apps/nebula/wrangler.jsonc`), `assets` is the Studio bundle's own asset directory (served
  * directly by Workers Assets before the SPA fallback), and `studio` is the retired pre-scope-first
- * prefix, reserved so the old shape can never be re-minted as a live account. A universe with any
+ * prefix, reserved so the old shape can never be re-minted as a live account; `pictures` is where
+ * profile pictures are served (`/pictures/{key}`, Worker-served from R2). A universe with any
  * of these names would have its bare URL shadowed by the route, so the claim is refused up front.
  * `_`-prefixed names (e.g. `_version`) are unclaimable already — `SLUG_RE` in `parse-id.ts` rejects
  * a leading underscore — so they need no entry here.
  */
 export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
-  'app', 'auth', 'gateway', 'assets', 'studio',
+  'app', 'auth', 'gateway', 'assets', 'studio', 'pictures',
 ]);
 
 /**
@@ -626,7 +627,6 @@ export const COMING_SOON_TAGS = [
   'email-management',
   'billing',
   'team-settings',
-  'profile-picture',
 ] as const;
 
 export type ComingSoonTag = (typeof COMING_SOON_TAGS)[number];

@@ -35,10 +35,11 @@
  *  7. **The nickname taken at consent is the byline on a posted message.** *Reds if the accept
  *     handler stops writing it — the byline falls back to "Someone", which nothing on the consent
  *     screen itself could detect. The only end-to-end proof that field reaches the Profile.*
- *  8. **The profile editor, reached from the avatar menu, renames an existing byline LIVE.** *Reds
- *     if the editor opens blank (an edit that silently wipes what was on file), and if a save stops
- *     reaching the subscription — the fanout the deleted completion modal's back-fill limb used to
- *     cover.*
+ *  8. **The profile editor, reached from the avatar menu, renames an existing byline LIVE — and a
+ *     picture uploaded there is served back from R2 and reaches the avatar button.** *Reds if the
+ *     editor opens blank (an edit that silently wipes what was on file), if a save stops reaching the
+ *     subscription — the fanout the deleted completion modal's back-fill limb used to cover — and if
+ *     the upload stops storing, sniffing, or serving.*
  *  9. **`/{universe}` stays the Universe page, and lists the app.** *Reds against the auto-forward
  *     that sent a lone-galaxy account straight into Studio — a view the address did not name
  *     (ADR-017) — and against the list flavour never rendering.*
@@ -200,10 +201,27 @@ export async function run(stack: DevStack): Promise<void> {
       'the profile editor must open seeded with the nickname already on file');
     await nicknameField.fill(RENAMED);
     await page.getByTestId('profile-name').fill('Robin Q. Newcomer');
+    // A picture, through R2 for real: the file goes in via the editor's input, is uploaded the
+    // moment it is picked, and the preview that appears IS the served object — asserted by
+    // fetching its src through the same origin and checking a real image came back.
+    const onePixelPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', 'base64');
+    await page.getByTestId('profile-picture-input').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: onePixelPng });
+    const pictureImg = page.getByTestId('profile-picture-img');
+    await pictureImg.waitFor({ state: 'visible', timeout: 30_000 });
+    const pictureSrc = await pictureImg.getAttribute('src');
+    assert.ok(pictureSrc && /\/pictures\/[0-9a-f-]{36}\.png$/.test(pictureSrc),
+      `the preview must be the served object under /pictures/{uuid}.png, got ${pictureSrc}`);
+    const served = await page.context().request.get(pictureSrc!);
+    assert.equal(served.status(), 200, 'the uploaded picture must be served back');
+    assert.equal(served.headers()['content-type'], 'image/png', 'served with the SNIFFED type, not a guess');
+    assert.ok((served.headers()['cache-control'] ?? '').includes('immutable'), 'a picture URL is immutable — a change is a new key');
     await page.getByTestId('profile-save').click();
     await myChat.locator('.chat-header').getByText(RENAMED).first()
       .waitFor({ state: 'visible', timeout: 20_000 });
-    console.error('  ✓ limb 8 — the profile editor renames an existing byline live, no reload');
+    // …and after Save the avatar button wears it — the Profile write fanned the picture out.
+    await page.getByTestId('account-picture').waitFor({ state: 'visible', timeout: 20_000 });
+    console.error('  ✓ limb 8 — the profile editor renames an existing byline live, and the uploaded picture reaches the avatar');
 
     // ── LIMB 9: /{universe} is the Universe page and lists the app ─────────────────────────────
     await page.goto(`${vite.viteBaseUrl}/${universe}`, { waitUntil: 'domcontentloaded' });

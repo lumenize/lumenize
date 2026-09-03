@@ -32,10 +32,9 @@
  *     placement where a person actually commits.*
  *  6. **The page reached the server cleanly** — no console errors, no failed requests. *Reds
  *     against a screen that looks right and is quietly 404ing its own bundle.*
- *  7. **The identity block: an optional full name, and an avatar that opens a coming-soon panel.**
- *     *Reds if the picture affordance starts pretending to work, and — by clicking through to the
- *     confirmation — if its tag is not one the server's closed set recognises, which is the mistake
- *     every new coming-soon stub makes and which a 400 would otherwise hide behind a generic error.*
+ *  7. **The identity block: an optional full name, and a placeholder avatar that points at the
+ *     editor.** *Reds if the consent screen grows an uploader (nothing here holds a session that
+ *     could be authorized to store one) or regresses to the retired coming-soon stub.*
  *
  * `needsContainer = false` — auth screens only, never a build.
  */
@@ -131,24 +130,15 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 4 — the box alone is not enough; box + nickname enables Accept');
 
     // ── LIMB 7 (before 6, which reads cumulative state): the identity block ────────────────────
-    // The optional full name renders beside the required nickname…
+    // The optional full name renders beside the required nickname, and the avatar is a PLACEHOLDER
+    // with a pointer, not an uploader: there is no session yet (the cookie is inert until Accept),
+    // so nothing here could be authorized to write a picture. The uploader lives in the Profile
+    // editor, which `signup-to-first-app` drives end to end through R2.
     await page.getByTestId('consent-name').waitFor({ state: 'visible' });
-    // …and the avatar is a COMING-SOON affordance rather than an uploader, because nothing writes
-    // `picture` yet. Clicking it must open the panel.
-    await page.getByTestId('consent-avatar').click();
-    const wantIt = page.getByRole('button', { name: 'I want this' });
-    await wantIt.waitFor({ state: 'visible', timeout: 10_000 });
-    // ⚠️ **Clicking through is what proves the TAG is in the server's closed set.** The endpoint
-    // refuses an unrecognised tag with a 400, which the component shows as a failure — so the
-    // success text below reds on a stub wired to a tag nobody registered, which is exactly the
-    // mistake a new coming-soon surface makes.
-    await wantIt.click();
-    await page.getByText('Noted — thank you.').waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByTestId('coming-soon-close').click();
-    // Back to the consent decision, undisturbed — the panel is a detour, not a replacement.
-    assert.equal(await accept.isEnabled(), true,
-      'closing the coming-soon panel must leave the consent decision exactly as it was');
-    console.error('  ✓ limb 7 — optional full name renders; the avatar opens a coming-soon panel that records');
+    await page.getByText("Add a picture from your profile once you're in.").waitFor({ state: 'visible' });
+    assert.equal(await page.getByRole('button', { name: 'I want this' }).count(), 0,
+      'the consent avatar must not be a coming-soon stub any more — pictures are real');
+    console.error('  ✓ limb 7 — optional full name renders; the avatar points at the profile editor');
 
     // ── LIMB 6: the page reached the server cleanly, and its ONE refusal is the designed one ───
     const capture = await captureArtifacts(inst, 'auth-pages-render');

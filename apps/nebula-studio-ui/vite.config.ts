@@ -139,6 +139,7 @@ export default defineConfig({
       "/auth": { target: WORKER, changeOrigin: false },
       "/gateway": { target: WORKER, changeOrigin: false, ws: true },
       "/app": { target: WORKER, changeOrigin: false },
+      "/pictures": { target: WORKER, changeOrigin: false },
     },
   },
 });
