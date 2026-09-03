@@ -836,7 +836,7 @@ async function logout() {
 </script>
 
 <template>
-  <div class="h-screen flex" data-theme="dark">
+  <div class="h-screen flex">
     <!-- My profile — reached from the avatar menu, and the ONLY place these change after the
          consent screen collected them. NOT a gate: it opens on request and closes on Cancel, so it
          never stands between a person and their work the way the old completion modal did. -->
