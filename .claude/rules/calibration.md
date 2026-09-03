@@ -178,6 +178,32 @@ bug now reds a named test.
 **How to catch yourself:** you are writing a second `v-else-if` whose branches are not mutually
 exclusive by construction — so one of them is only unreachable because of where it sits in the list.
 
+## 13. You will avoid the test that needs time to pass
+
+**What you'll do:** cover a mechanism whose failure only shows across a real lapse — a token
+expiring, a socket reconnecting, a tab coming back after an hour — with a fixture that *starts* in
+the lapsed state, or not at all. Waiting reads as slow and fiddly; a scenario that has to sleep 50 s
+looks like a worse test than one that runs in 2 s. So the mechanism gets a green suite and no
+witness.
+
+**What to do instead:** write the one that waits. Time is cheap here — `live.md` has the numbers —
+and the lapse *is* the test: a token born expired proves the re-mint path runs, not that a session
+survives its token lapsing under it. A reconnect, an expiry, a heartbeat window elapsing are each a
+few seconds of wall clock against a mechanism nothing else can reach. If a real clock is genuinely
+out of reach in a lane, `vi.setSystemTime` moves both isolates (`testing.md`) — that is the fallback,
+never the "starts lapsed" fixture.
+
+**Where it bit (2026-09-03):** `impersonation-expiry` was the only scenario in the registry that let
+a token actually lapse with a socket open. It found that any client idle past its TTL lost its first
+call — sent on the stale socket, refused at the Gateway's door, never resent — a "thinking… forever"
+for anyone coming back after lunch. Every other test of that path started in the lapsed state and
+was green. The same day, the turn heartbeat's first cut wrapped only the loop's awaits; only a watch
+that ran through a real 90 s turn caught the banner painting before codegen had begun.
+
+**How to catch yourself:** the fixture for a time-dependent mechanism constructs the *after* state
+directly, and you are about to write "cannot let time pass" or "too slow to wait for" in its
+justification. Both were written here, and both were false.
+
 ## 10. Opening with a sweep — moved
 
 Now `prose-voice.md` § *The moves that make the difference*. It is prose guidance rather than a training bias, and belongs where it loads at drafting time. The handle stays because archived files cite it and they are frozen.
