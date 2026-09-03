@@ -18,7 +18,7 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
-| ① | **Guidance file tree** — platform → galaxy, universe skipped | none yet — § *① Guidance file tree* | deploy |
+| ① | **Guidance file tree** — platform → galaxy, universe skipped | [nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) — design intent only | deploy |
 | ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | none yet, Larry's — § *② Personas* | deploy, plus `data` if the column lands |
 | — | **Turn-liveness heartbeat** — a truthful server signal through a long quiet stretch | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
@@ -56,16 +56,7 @@
 
 ## ① Guidance file tree
 
-The LLM reads its guidance from a FILE TREE it walks — `AGENTS.md` + `skills/*.md` + `rules/*.md`, read per turn during prompt assembly — in place of the one source string `STUDIO_LOOP_SYSTEM_PROMPT` in `galaxy.ts` today. Larry's shape (2026-09-02), captured and not yet designed:
-
-- **Skills, rules and the rest are just files.** That is the whole storage decision; the rest is which repo holds which level.
-- **Platform level = the system prompt, and it stays in code**, bundled at deploy. The Galaxy assembles the prompt and the Galaxy is our code, so it imports the tree rather than reading it over mesh. ⛔ Not mirrored into a DO — *"one place stays true both before and after; two places introduces an out-of-sync risk"* ([ADR-010](../docs/adr/010-random-opaque-keys.md)'s replication rule). Should a platform DO ever be built it would use `@cloudflare/computer` with repo shape, so one convention covers every level. What would expire this: a writer other than us — a support engineer, or a per-customer override that cannot wait for a deploy — and that is a trigger to re-derive, never to flip on sight (`calibration.md` §4).
-- **Galaxy level lives in the user-developer's Workspace repo**, the tree the app's code and its ontology history already occupy.
-- **Universe level is skipped this round.** Minimal is explicitly enough.
-- **The LLM walks platform → universe → galaxy** and takes every layer into account.
-- **`AGENTS.md`, not `NEBULA.md`** — the cross-vendor name, because a user-developer's tree is read by our model and by whatever else they point at it; [docs/vision/auth.md](../docs/vision/auth.md) § *The guidance hierarchy* already says so.
-
-It precedes ② because personas are guidance the LLM authors and re-reads: building them first invents a second home for guidance and then unlearns it. It also answers [on-hold/nebula-skills.md](on-hold/nebula-skills.md)'s "where do skills live".
+Now [nebula-guidance-file-tree.md](nebula-guidance-file-tree.md), a Pass-1 draft and the authority for the shape: platform guidance in code, Galaxy guidance in the user-developer's Workspace repo, both read every turn, under the cross-vendor name `AGENTS.md`. It precedes ② because personas are guidance the LLM authors and re-reads — building them first invents a second home for guidance and then unlearns it. It also answers [on-hold/nebula-skills.md](on-hold/nebula-skills.md)'s "where do skills live".
 
 ## ② Personas
 
