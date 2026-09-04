@@ -43,6 +43,7 @@ An overlay — a modal, a drawer, a side panel — is decided by the same test, 
 ### Positive
 - Support and debugging work **by construction** — "send me your URL" is sufficient, and it is the direct prerequisite for the admin-debug flow that `/mint-narrower-token` exists to serve.
 - Deep links, browser back/forward, refresh, and bookmarks all behave without per-view effort.
+- **A login brings you back.** Where a person was when a session lapsed, or the link a signed-out recipient opened, is restored after login from a client-side memory the routing module owns — never from the URL, which would make it an action, and never from the letter.
 - **Testable.** A test can navigate to a URL and assert the resulting view, instead of driving a click-path to reach it — cheaper and less brittle.
 - Every generated app inherits it, so user-developers get shareable URLs without knowing this decision exists.
 

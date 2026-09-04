@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { viewState, navigate, leaveTo, clearOverlays, scopeOf } from "./view-state";
+import { viewState, navigate, leaveTo, clearOverlays, forgetReturnTo, scopeOf } from "./view-state";
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, UserRound, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
@@ -422,7 +422,9 @@ function reloadPreview() {
 const AUTH_LOGIN = "/auth/login";
 const homeFor = (s: string) => `/auth/${encodeURIComponent(s)}/home`;
 
-function goToLogin() { leaveTo(AUTH_LOGIN); }
+// Leaving for a login is never the person's choice — a lapsed session, or a shared link opened
+// signed out — so where they were is remembered and Home brings them back (src/view-state.ts).
+function goToLogin() { leaveTo(AUTH_LOGIN, { returnHere: true }); }
 
 /** Back to Home to pick a different Account, App or Tenant. */
 function goHome() {
@@ -810,6 +812,7 @@ function resetToLoggedOut() {
   if (activeScope.value) localStorage.removeItem(AUTH_HINT_PREFIX + activeScope.value);
   menuOpen.value = false;
   clearOverlays();
+  forgetReturnTo(); // leaving on purpose is not something to come back to
   deletePlan.value = null;
   deleteTarget.value = null;
   connected.value = false;

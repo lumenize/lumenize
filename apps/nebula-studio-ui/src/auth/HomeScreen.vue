@@ -18,12 +18,12 @@
  * so patching the row in place would leave the screen showing a tree the server no longer agrees
  * with.
  */
-import { leaveTo } from '../view-state';
+import { leaveTo, takeReturnTo } from '../view-state';
 import { ref, onMounted, computed } from 'vue';
 import ConsentModal from './ConsentModal.vue';
 import {
   modalFlavorFor, surfaceFor, rendersExpanded, fastForwardTarget, crossEmailNotice, authHintFor,
-  type ScopeSummary, type ScopeNode, type EmailScopes,
+  type ScopeSummary, type ScopeNode, type EmailScopes, returnTarget,
 } from './home-logic';
 
 const props = defineProps<{ scope: string }>();
@@ -180,6 +180,20 @@ onMounted(async () => {
     const loaded = await loadSummary();
     summary.value = loaded;
     selectedEmail.value = loaded.emails.find((e) => e.current)?.email ?? loaded.emails[0]?.email ?? '';
+
+    // Where they were when they left for this login — a lapsed session, or a shared link opened
+    // signed out — outranks the fast-forward: they already said where they were going. One shot;
+    // the hint is keyed by the DESTINATION scope, which may sit below the membership that covers it.
+    const back = takeReturnTo();
+    const target = back ? returnTarget(loaded, back) : undefined;
+    if (target) {
+      try {
+        const hint = authHintFor(target.scope, props.scope);
+        localStorage.setItem(hint.key, hint.value);
+      } catch { /* private mode — Studio falls back to trying the active scope */ }
+      leaveTo(target.path);
+      return;
+    }
 
     // One accepted Star and nothing else: they came to use an app, not to choose between one option.
     const straightIn = fastForwardTarget(loaded);

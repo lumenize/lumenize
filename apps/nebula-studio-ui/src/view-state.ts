@@ -117,9 +117,52 @@ export function clearOverlays(): void {
   navigate({ profile: false, manage: false, transcript: undefined, create: false }, { replace: true });
 }
 
-/** Go to ANOTHER document — the ONLY cross-document move. A full load, on purpose (see above). */
-export function leaveTo(url: string): void {
+/**
+ * Go to ANOTHER document — the ONLY cross-document move. A full load, on purpose (see above).
+ * `returnHere` remembers the current path and query first (below), for a leave the person did not
+ * choose: a lapsed session, or a shared link opened signed out. Leaving on purpose remembers nothing.
+ */
+export function leaveTo(url: string, opts: { returnHere?: boolean } = {}): void {
+  if (opts.returnHere) rememberReturnTo(location.pathname + location.search);
   location.assign(url);
+}
+
+// ── The module's ONE piece of storage: where a person was when they left for a login ──────────
+// Where you were is what you were DOING, so it never rides the URL (ADR-017) and cannot ride the
+// letter (a server-minted link to Home). localStorage, not sessionStorage: the letter opens in a
+// new tab, and nothing in that tab can name the tab that left, which is also why the key carries no
+// tab or scope discriminator — two lapsed tabs collide as last-write-wins, which lands you on the
+// other page you also own. Home consumes it (`returnTarget` in auth/home-logic.ts), honouring only
+// a relative path under an accepted membership, and clears it: one shot, one value, one hour.
+const RETURN_KEY = 'nebula.returnTo';
+export const RETURN_MAX_AGE_MS = 60 * 60 * 1000;
+
+interface StoredReturn { path: string; at: number }
+
+/** The remembered path if it is still usable — relative, same-origin, young — else `undefined`. */
+export function validReturnTo(stored: unknown, now: number): string | undefined {
+  const r = stored as Partial<StoredReturn> | null;
+  if (!r || typeof r.path !== 'string' || typeof r.at !== 'number') return undefined;
+  if (!r.path.startsWith('/') || r.path.startsWith('//')) return undefined; // an absolute URL is an open redirect
+  if (now - r.at > RETURN_MAX_AGE_MS || r.at > now) return undefined;
+  return r.path;
+}
+
+export function rememberReturnTo(path: string, now = Date.now()): void {
+  try { localStorage.setItem(RETURN_KEY, JSON.stringify({ path, at: now } satisfies StoredReturn)); } catch { /* no storage */ }
+}
+
+/** Read AND clear the remembered path — one shot, whether or not it turns out usable. */
+export function takeReturnTo(now = Date.now()): string | undefined {
+  try {
+    const raw = localStorage.getItem(RETURN_KEY);
+    localStorage.removeItem(RETURN_KEY);
+    return raw ? validReturnTo(JSON.parse(raw), now) : undefined;
+  } catch { return undefined; }
+}
+
+export function forgetReturnTo(): void {
+  try { localStorage.removeItem(RETURN_KEY); } catch { /* no storage */ }
 }
 
 if (hasWindow) {

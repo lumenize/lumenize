@@ -21,6 +21,13 @@ so that there is one way.
   purpose: a different scope is a different socket and token, and the auth screens are a different
   bundle. It exists so those moves stay visible and countable.
 
+The module's ONE piece of storage is the return-to: `leaveTo(url, { returnHere: true })` remembers the
+current path and query in localStorage (`nebula.returnTo` — one value, one hour, cleared on logout), and
+Home's router consumes it through `returnTarget` in `auth/home-logic.ts`, honouring only a relative path
+under an accepted membership. It MUST NOT ride the URL or the letter: where a person was is what they
+were doing, not what they are looking at. localStorage, never sessionStorage — the letter opens in a
+new tab.
+
 `npm run audit:urls` (in `apps/nebula-studio-ui`) is the proof, and MUST run after touching routing: it
 fails on any `location` / `history` / `popstate` use outside that file.
 

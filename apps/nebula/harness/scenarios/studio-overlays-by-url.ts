@@ -22,12 +22,15 @@
  *     Back closes it without leaving the page. *Reds if open rewrote the entry in place.*
  *  7. **`?manage` by URL alone opens the panel WITH its rows loaded.** The rows are the
  *     discriminating half — the heading alone would pass a panel the URL opened but never loaded.
+ *  8. **A shared link opened signed out comes BACK after the real letter** — Sign in, the letter,
+ *     and the link's own view, not Home and not the scope root. *Reds if the return-to is not
+ *     remembered, not honoured, or if Home's fast-forward wins.*
  *
  * The stream transcript (`?transcript={messageId}`) needs a live turn and is covered where one
  * exists, `first-app-built`. `needsContainer = false` — no build.
  */
 import assert from 'node:assert/strict';
-import { uniqueTestEmail } from '@lumenize/email-test/client';
+import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
@@ -41,6 +44,7 @@ export async function run(stack: DevStack): Promise<void> {
   const universe = `overlay-${crypto.randomUUID().slice(0, 8)}`;
   const galaxy = `${universe}.wishlist`;
   const NICKNAME = 'Robin Overlay';
+  const person = uniqueTestEmail();
 
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
@@ -60,7 +64,7 @@ export async function run(stack: DevStack): Promise<void> {
     }
     console.error('  ✓ limb 1 — signed out, ?profile renders the landing and no editor');
 
-    await signUpInBrowser(inst, vite.viteBaseUrl, { universe, email: uniqueTestEmail(), nickname: NICKNAME, testToken });
+    await signUpInBrowser(inst, vite.viteBaseUrl, { universe, email: person, nickname: NICKNAME, testToken });
 
     // ── LIMB 2: the empty account's create form is the URL ─────────────────────────────────────
     await page.waitForURL(/\?create(?:[&#]|$)/, { timeout: 30_000 });
@@ -106,6 +110,37 @@ export async function run(stack: DevStack): Promise<void> {
     await panel.waitFor({ state: 'visible', timeout: 30_000 });
     await panel.getByText(galaxy, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
     console.error('  ✓ limb 7 — ?manage opens the panel by URL and its rows are loaded');
+
+    // ── LIMB 8: a shared link opened signed out comes BACK after the real letter ───────────────
+    // The whole point of a shareable URL, for the person it is most for: signed out, Sign in, the
+    // letter, and the link's view — not Home, not the scope root. Home's fast-forward would send a
+    // lone-membership account to /{universe}; the return-to outranks it.
+    const recipient = await browser.newContext();
+    try {
+      const p3 = await recipient.newPage();
+      await p3.goto(`${vite.viteBaseUrl}/${galaxy}?manage`, { waitUntil: 'domcontentloaded' });
+      await p3.getByRole('button', { name: /^Sign in$/ }).waitFor({ state: 'visible', timeout: 30_000 });
+      await p3.getByRole('button', { name: /^Sign in$/ }).click();
+      await p3.getByPlaceholder('you@example.com').waitFor({ state: 'visible', timeout: 20_000 });
+      await p3.getByPlaceholder('you@example.com').fill(person);
+      const waiter = waitForEmail({ testToken, to: person, timeout: 120_000 });
+      let link: string;
+      try {
+        await p3.getByRole('button', { name: /Email me a link/ }).click();
+        await p3.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
+        link = extractMagicLink(await waiter.emailPromise);
+      } finally {
+        waiter.cleanup();
+      }
+      await p3.goto(link, { waitUntil: 'domcontentloaded' });
+      await p3.waitForURL(new RegExp(`//[^/]+/${galaxy.replace('.', '\\.')}\\?manage(?:[&#]|$)`), { timeout: 30_000 });
+      const panel3 = p3.getByTestId('manage-panel');
+      await panel3.waitFor({ state: 'visible', timeout: 30_000 });
+      await panel3.getByText(galaxy, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+    } finally {
+      await recipient.close();
+    }
+    console.error('  ✓ limb 8 — the shared ?manage link opened signed out came back after the real letter');
 
   } finally {
     await vite.close();

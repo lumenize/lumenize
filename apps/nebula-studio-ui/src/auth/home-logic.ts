@@ -142,6 +142,25 @@ export function fastForwardTarget(summary: ScopeSummary): string | undefined {
 }
 
 /**
+ * Where to send a person who left for this login from somewhere — a lapsed session, or a shared
+ * link opened signed out — if their memberships cover it; else `undefined` and Home decides as usual.
+ *
+ * The path names a Studio scope in its first segment. It is honoured when an ACCEPTED membership
+ * sits at that scope or above it (a universe membership covers `/{u}.{g}`); an unaccepted one, or
+ * a scope the person does not hold, is not a place to send them, and authorization is re-checked on
+ * arrival regardless (ADR-017). The returned `scope` is the DESTINATION's, which is what the auth
+ * hint must be keyed by ({@link authHintFor}) — the membership's scope may sit above it.
+ */
+export function returnTarget(summary: ScopeSummary, path: string): { scope: string; path: string } | undefined {
+  const seg = path.match(/^\/([^/?#]+)/)?.[1];
+  if (!seg) return undefined;
+  const scope = decodeURIComponent(seg);
+  const covered = summary.emails.flatMap((e) => e.memberships)
+    .some((m) => m.accepted === true && (m.scope === scope || scope.startsWith(`${m.scope}.`)));
+  return covered ? { scope, path } : undefined;
+}
+
+/**
  * The hand-off hint Home leaves for Studio: which cookie to spend at a destination.
  *
  * ⚠️ **The KEY is where you are going and the VALUE is where your session lives**, and getting them
