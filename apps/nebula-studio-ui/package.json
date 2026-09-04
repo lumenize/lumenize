@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "audit:classes": "vite build --logLevel silent && node scripts/audit-classes.mjs"
+    "audit:classes": "vite build --logLevel silent && node scripts/audit-classes.mjs",
+    "audit:urls": "node scripts/audit-urls.mjs"
   },
   "dependencies": {
     "@lumenize/nebula": "*",

@@ -18,6 +18,7 @@
  * so patching the row in place would leave the screen showing a tree the server no longer agrees
  * with.
  */
+import { leaveTo } from '../view-state';
 import { ref, onMounted, computed } from 'vue';
 import ConsentModal from './ConsentModal.vue';
 import {
@@ -138,7 +139,7 @@ function enter(node: ScopeNode, surface: string) {
     const hint = authHintFor(node.scope, props.scope);
     localStorage.setItem(hint.key, hint.value);
   } catch { /* private mode — Studio falls back to trying the active scope */ }
-  window.location.assign(surface);
+  leaveTo(surface);
 }
 
 async function accept(names: { nickname: string; name?: string }) {

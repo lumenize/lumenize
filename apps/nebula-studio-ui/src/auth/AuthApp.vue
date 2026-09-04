@@ -11,6 +11,7 @@
  * front-end to see a login form — and meant the login form could only exist where Studio was
  * served. Home has to serve every tier, including a Star tenant who never sees Studio.
  */
+import { viewState } from '../view-state';
 import { computed } from 'vue';
 import { screenForPath } from './routes';
 import LoginScreen from './LoginScreen.vue';
@@ -18,7 +19,7 @@ import SignupScreen from './SignupScreen.vue';
 import ComingSoon from '../ComingSoon.vue';
 import HomeScreen from './HomeScreen.vue';
 
-const route = computed(() => screenForPath(window.location.pathname));
+const route = computed(() => screenForPath(viewState.value.pathname));
 </script>
 
 <template>

@@ -11,6 +11,7 @@
  * is the whole reason the ticket exists: the mailbox was proved seconds ago by the click that landed
  * them here.
  */
+import { leaveTo } from '../view-state';
 import { ref } from 'vue';
 
 const accountName = ref('');
@@ -34,7 +35,7 @@ async function claim() {
     // The response names where to go, rather than this screen rebuilding the path — the server
     // already decided which scope was claimed, and it is the one that knows.
     const { home } = await resp.json() as { home: string };
-    window.location.assign(home);
+    leaveTo(home);
   } catch {
     error.value = 'Could not reach the server. Try again.';
   } finally {

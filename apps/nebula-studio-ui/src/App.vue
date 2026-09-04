@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { parseOverlay, withOverlay, opensSomething, type Overlay } from "./view-state";
+import { viewState, navigate, leaveTo, clearOverlays, scopeOf } from "./view-state";
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, UserRound, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
@@ -26,45 +26,14 @@ import type { Star } from "@lumenize/nebula";
 // never the URL and never a cookie (the client must know it to hit the path-scoped refresh
 // endpoint). Cold browser, no hint: pre-alpha the consumed link's scope IS the landing's active
 // scope, so trying the active scope itself succeeds and writes the entry.
-const pathScope = location.pathname.match(/^\/([^/?#]+)/)?.[1];
-const urlScope = pathScope ? decodeURIComponent(pathScope) : undefined;
+const urlScope = scopeOf(viewState.value.pathname);
 const AUTH_HINT_PREFIX = "nebula.authScope:";
 const authHint = (active: string) => localStorage.getItem(AUTH_HINT_PREFIX + active) ?? undefined;
 const activeScope = ref<string | undefined>(urlScope);
 const authScope = ref<string | undefined>(urlScope ? (authHint(urlScope) ?? urlScope) : undefined);
 
-// ── Overlays ride the URL, and the URL is their ONLY opener (src/view-state.ts, ADR-017) ──
-// Every button below that opens the profile editor, the manage panel, the stream transcript or
-// the create form NAVIGATES; the dialogs render from `overlay`. Open pushes a history entry so
-// Back closes; close goes back over an entry this page pushed, and otherwise rewrites in place
-// (a direct arrival at `?profile` has no entry of ours beneath it).
-const overlay = ref<Overlay>(parseOverlay(location.search));
-let pushedOverlays = 0;
-function setOverlay(patch: Partial<Overlay>, opts: { replace?: boolean } = {}) {
-  const next = withOverlay(location.search, patch);
-  if (next === location.search) return;
-  const url = location.pathname + next + location.hash;
-  if (opensSomething(patch) && !opts.replace) {
-    history.pushState(null, "", url);
-    pushedOverlays++;
-  } else if (!opensSomething(patch) && pushedOverlays > 0) {
-    pushedOverlays--;
-    history.back(); // popstate re-reads the URL
-    return;
-  } else {
-    history.replaceState(null, "", url);
-  }
-  overlay.value = parseOverlay(location.search);
-}
-window.addEventListener("popstate", () => {
-  overlay.value = parseOverlay(location.search);
-  // Back past our last pushed entry lands on the page's own URL — nothing of ours is left above it.
-  if (!opensSomething(overlay.value)) pushedOverlays = 0;
-});
-/** Strip every overlay in place — for a state change the URL must not outlive (logout). */
-function clearOverlays() {
-  setOverlay({ profile: false, manage: false, transcript: undefined, create: false }, { replace: true });
-}
+// ── The URL, through src/view-state.ts only: `viewState` reads it, `navigate` / `leaveTo` write it ──
+const overlay = computed(() => viewState.value.overlay);
 
 // LOCAL notices only (login guidance, errors, nudges). The CONVERSATION renders from the
 // durable Message subscription below — never from a local echo (D-echo: the sender sees
@@ -107,10 +76,10 @@ watch(streamTranscript, async () => {
   transcriptEl.value?.scrollTo({ top: transcriptEl.value.scrollHeight });
 });
 function openStreamModal() {
-  if (streaming.value) setOverlay({ transcript: streaming.value.id });
+  if (streaming.value) navigate({ transcript: streaming.value.id });
 }
 function closeStreamModal() {
-  setOverlay({ transcript: undefined });
+  navigate({ transcript: undefined });
   if (!streaming.value) streamTranscript.value = "";
 }
 /** The URL names a message whose stream this page never held (a shared link after the fact). */
@@ -336,9 +305,9 @@ const myProfile = computed<{ name?: string; nickname?: string; picture?: string 
 /** Seed the form from the live snapshot each time it opens — never from stale local refs. */
 function openProfile() {
   menuOpen.value = false;
-  setOverlay({ profile: true });
+  navigate({ profile: true });
 }
-function closeProfile() { setOverlay({ profile: false }); }
+function closeProfile() { navigate({ profile: false }); }
 // Seeded from the live profile while the editor is open and UNTOUCHED — whichever lands last, the
 // opening or the profile. Arriving by URL opens the editor the moment the socket connects, before
 // the profile subscription has delivered, so seeding once on open would seed from nothing; the
@@ -453,12 +422,12 @@ function reloadPreview() {
 const AUTH_LOGIN = "/auth/login";
 const homeFor = (s: string) => `/auth/${encodeURIComponent(s)}/home`;
 
-function goToLogin() { window.location.assign(AUTH_LOGIN); }
+function goToLogin() { leaveTo(AUTH_LOGIN); }
 
 /** Back to Home to pick a different Account, App or Tenant. */
 function goHome() {
   menuOpen.value = false;
-  window.location.assign(authScope.value ? homeFor(authScope.value) : AUTH_LOGIN);
+  leaveTo(authScope.value ? homeFor(authScope.value) : AUTH_LOGIN);
 }
 
 /** A terminal auth failure (refresh token expired/invalid) on an ALREADY-connected tab — fired
@@ -625,7 +594,7 @@ async function loadScopes() {
 
 function openManage() {
   menuOpen.value = false;
-  setOverlay({ manage: true });
+  navigate({ manage: true });
 }
 // Loads when the panel OPENS — by button or by URL — so `?manage` on arrival is the same panel.
 watch(manageOpen, async (open) => {
@@ -644,7 +613,7 @@ watch(manageOpen, async (open) => {
 }, { immediate: true });
 
 function closeManage() {
-  setOverlay({ manage: false });
+  navigate({ manage: false });
   deletePlan.value = null;
   deleteTarget.value = null;
   addChildFor.value = null;
@@ -757,7 +726,7 @@ function enterScope(scope: string): void {
   try {
     if (authScope.value) localStorage.setItem(AUTH_HINT_PREFIX + scope, authScope.value);
   } catch { /* private mode — Studio falls back to trying the active scope, which 401s for a galaxy */ }
-  window.location.assign(`/${scope}`);
+  leaveTo(`/${scope}`);
 }
 
 async function onCreateApp(slug: string) {
@@ -1263,8 +1232,8 @@ async function logout() {
           :busy="busy"
           :error="createError"
           @create="onCreateApp"
-          @create-open="(auto) => setOverlay({ create: true }, { replace: auto })"
-          @create-close="setOverlay({ create: false })"
+          @create-open="(auto) => navigate({ create: true }, { replace: auto })"
+          @create-close="navigate({ create: false })"
           @open="onOpenApp"
         />
 

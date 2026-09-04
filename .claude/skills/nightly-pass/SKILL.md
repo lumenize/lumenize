@@ -46,6 +46,8 @@ Run each. Each is **grep-first, then verify** the hit is real before it counts. 
 
 - **Design-system class existence** ([ADR-020](../../../docs/adr/020-one-theme-per-surface.md)): a class token in Nebula's UI sources that the shipped daisyUI/Tailwind no longer defines — `npm run audit:classes -w apps/nebula-studio-ui` (builds Studio, ~2 s, exits 1 with the offenders). A hit is a screen rendering without the spacing its markup assumed, and no other tier can see it (daisyUI 5 had silently dropped every form class, 2026-09-03). Verify: the token sits in a `class`/`:class` attribute rather than a comparison operand, which the script already discards.
 
+- **URL touched outside the routing module** (`.claude/rules/ui-routing.md`, ADR-017): `npm run audit:urls -w apps/nebula-studio-ui` — any `location` / `history` / `popstate` use outside `src/view-state.ts`. A hit is view state a shared link cannot reach, or a full reload where a same-document move was meant. Verify: the hit is a read or write of the URL, not a variable that happens to be named `location`.
+
 *(Patterns tuned in a 2026-07-15 shakeout — production `src/` came back all-clear on all four tripwires; the false-positive classes each pattern's Verify step must discard are named inline.)*
 
 ### 3. Campaign slice — mutation-audit (burns the remaining budget)
