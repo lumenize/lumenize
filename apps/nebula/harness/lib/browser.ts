@@ -11,6 +11,7 @@
  *
  * @see tasks/archive/claude-live-verification.md — Phase 2
  */
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { existsSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -149,4 +150,39 @@ export async function captureArtifacts(inst: InstrumentedPage, label: string): P
     consoleErrors: inst.consoleErrors,
     failedRequests: inst.failedRequests,
   };
+}
+
+/**
+ * Sign a NEW account up through the rendered auth screens, exactly as a person does: the login
+ * form's create-account affordance, the letter that really arrives, the link followed AS SENT,
+ * consent with a nickname. Ends on the Universe page. Performs only steps production performs —
+ * a helper here MUST NOT bridge a difference between this stack and production (`live.md`).
+ */
+export async function signUpInBrowser(
+  inst: InstrumentedPage,
+  viteBaseUrl: string,
+  opts: { universe: string; email: string; nickname: string; testToken: string },
+): Promise<void> {
+  const { page } = inst;
+  await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: /Create a new account/ }).click();
+  await page.getByPlaceholder('you@example.com').fill(opts.email);
+  await page.getByPlaceholder('acme').fill(opts.universe);
+  // Armed BEFORE the click, filtered by the unique recipient only (`live.md`).
+  const waiter = waitForEmail({ testToken: opts.testToken, to: opts.email, timeout: 120_000 });
+  let link: string;
+  try {
+    await page.getByRole('button', { name: 'Create account', exact: true }).click();
+    await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
+    link = extractMagicLink(await waiter.emailPromise);
+  } finally {
+    waiter.cleanup();
+  }
+  if (!link.startsWith(viteBaseUrl)) throw new Error(`emailed link names ${new URL(link).origin}, page is ${viteBaseUrl}`);
+  await page.goto(link, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL(new RegExp(`/auth/${opts.universe}/home(?:[/?#]|$)`), { timeout: 30_000 });
+  await page.getByTestId('consent-checkbox').check();
+  await page.getByTestId('consent-nickname').fill(opts.nickname);
+  await page.getByTestId('consent-accept').click();
+  await page.waitForURL(new RegExp(`//[^/]+/${opts.universe}(?:[/?#]|$)`), { timeout: 30_000 });
 }

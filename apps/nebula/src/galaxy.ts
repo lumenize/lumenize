@@ -288,6 +288,10 @@ Rules:
 - If the user still wants colors hard-coded into the markup, DO IT — but first say once, briefly, what it
   costs: those colors stop following the theme, so restyling later means editing every component and they
   will not adapt to light/dark. State it once, then follow their decision without repeating it.
+- What the person is LOOKING AT rides the URL, so a shared link lands on the same view: the selected
+  record, the open tab or panel, filters, sort, paging. A modal or panel someone would send a link to
+  (a record's detail, a settings panel) is opened ONLY by navigating to its URL, and Back closes it.
+  What they are DOING — scroll, focus, drafts, confirmations, menus — stays out of the URL.
 - You may import icons from "lucide-vue-next". Do not import any other package.`;
 
 // ─── Galaxy DO ───────────────────────────────────────────────────────

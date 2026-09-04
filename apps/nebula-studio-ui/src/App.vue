@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseOverlay, withOverlay, opensSomething, type Overlay } from "./view-state";
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, UserRound, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
 import DataUseNotice from "./DataUseNotice.vue";
@@ -32,6 +33,39 @@ const authHint = (active: string) => localStorage.getItem(AUTH_HINT_PREFIX + act
 const activeScope = ref<string | undefined>(urlScope);
 const authScope = ref<string | undefined>(urlScope ? (authHint(urlScope) ?? urlScope) : undefined);
 
+// ── Overlays ride the URL, and the URL is their ONLY opener (src/view-state.ts, ADR-017) ──
+// Every button below that opens the profile editor, the manage panel, the stream transcript or
+// the create form NAVIGATES; the dialogs render from `overlay`. Open pushes a history entry so
+// Back closes; close goes back over an entry this page pushed, and otherwise rewrites in place
+// (a direct arrival at `?profile` has no entry of ours beneath it).
+const overlay = ref<Overlay>(parseOverlay(location.search));
+let pushedOverlays = 0;
+function setOverlay(patch: Partial<Overlay>, opts: { replace?: boolean } = {}) {
+  const next = withOverlay(location.search, patch);
+  if (next === location.search) return;
+  const url = location.pathname + next + location.hash;
+  if (opensSomething(patch) && !opts.replace) {
+    history.pushState(null, "", url);
+    pushedOverlays++;
+  } else if (!opensSomething(patch) && pushedOverlays > 0) {
+    pushedOverlays--;
+    history.back(); // popstate re-reads the URL
+    return;
+  } else {
+    history.replaceState(null, "", url);
+  }
+  overlay.value = parseOverlay(location.search);
+}
+window.addEventListener("popstate", () => {
+  overlay.value = parseOverlay(location.search);
+  // Back past our last pushed entry lands on the page's own URL — nothing of ours is left above it.
+  if (!opensSomething(overlay.value)) pushedOverlays = 0;
+});
+/** Strip every overlay in place — for a state change the URL must not outlive (logout). */
+function clearOverlays() {
+  setOverlay({ profile: false, manage: false, transcript: undefined, create: false }, { replace: true });
+}
+
 // LOCAL notices only (login guidance, errors, nudges). The CONVERSATION renders from the
 // durable Message subscription below — never from a local echo (D-echo: the sender sees
 // its own message via the fanout, like everyone else).
@@ -57,7 +91,8 @@ const streaming = ref<{ id: string; text: string } | null>(null);
 // of the latest text; clicking opens a modal with everything so far. The transcript survives the
 // stream's end while the modal is open — a reader mid-page is not interrupted by the durable
 // message landing — and is dropped on close.
-const streamModalOpen = ref(false);
+/** Open when the URL names a message's transcript; the text shown is the stream held for it. */
+const streamModalOpen = computed(() => overlay.value.transcript !== undefined);
 const streamTranscript = ref("");
 watch(() => streaming.value?.text, (text) => { if (text !== undefined) streamTranscript.value = text; });
 const streamTail = computed(() => {
@@ -71,10 +106,16 @@ watch(streamTranscript, async () => {
   await nextTick();
   transcriptEl.value?.scrollTo({ top: transcriptEl.value.scrollHeight });
 });
+function openStreamModal() {
+  if (streaming.value) setOverlay({ transcript: streaming.value.id });
+}
 function closeStreamModal() {
-  streamModalOpen.value = false;
+  setOverlay({ transcript: undefined });
   if (!streaming.value) streamTranscript.value = "";
 }
+/** The URL names a message whose stream this page never held (a shared link after the fact). */
+const transcriptMissing = computed(() =>
+  overlay.value.transcript !== undefined && streaming.value?.id !== overlay.value.transcript && !streamTranscript.value);
 /** The id of MY last posted message — "thinking" until an agent reply links back to it. */
 const lastPostedId = ref<string | null>(null);
 /** Liveness of MY in-flight turn (src/turn-liveness.ts): chunks are a hint, the durable
@@ -229,7 +270,7 @@ const menuOpen = ref(false);
 // ── My profile — the ONE place to change how I appear, reached from the avatar menu ──
 // The nickname is first collected at the consent modal every arrival passes through; this is where
 // it (and an optional full name) can be changed afterwards.
-const profileOpen = ref(false);
+const profileOpen = computed(() => overlay.value.profile && connected.value);
 const profileNickname = ref("");
 const profileFullName = ref("");
 const profileSaving = ref(false);
@@ -237,7 +278,7 @@ const profileSaving = ref(false);
  *  preview is the real served object), written into the Profile on Save with the names. */
 const profilePicture = ref<string | undefined>();
 const pictureUploading = ref(false);
-const manageOpen = ref(false);
+const manageOpen = computed(() => overlay.value.manage && connected.value);
 const accountEmail = ref<string | null>(null);
 type Scope = { instanceName: string; tier: string; isDev: boolean; accepted?: boolean };
 const scopes = ref<Scope[]>([]);
@@ -295,11 +336,21 @@ const myProfile = computed<{ name?: string; nickname?: string; picture?: string 
 /** Seed the form from the live snapshot each time it opens — never from stale local refs. */
 function openProfile() {
   menuOpen.value = false;
-  profileNickname.value = myProfile.value?.nickname ?? "";
-  profileFullName.value = myProfile.value?.name ?? "";
-  profilePicture.value = myProfile.value?.picture;
-  profileOpen.value = true;
+  setOverlay({ profile: true });
 }
+function closeProfile() { setOverlay({ profile: false }); }
+// Seeded from the live profile while the editor is open and UNTOUCHED — whichever lands last, the
+// opening or the profile. Arriving by URL opens the editor the moment the socket connects, before
+// the profile subscription has delivered, so seeding once on open would seed from nothing; the
+// button path never saw that because the profile had long arrived.
+const profileDirty = ref(false);
+watch([profileOpen, myProfile], ([open, mine]) => {
+  if (!open) { profileDirty.value = false; return; }
+  if (profileDirty.value) return;
+  profileNickname.value = mine?.nickname ?? "";
+  profileFullName.value = mine?.name ?? "";
+  profilePicture.value = mine?.picture;
+}, { immediate: true });
 
 const canSaveProfile = computed(() => profileNickname.value.trim().length > 0 && !profileSaving.value);
 
@@ -316,7 +367,7 @@ async function saveProfile() {
       ...(name ? { name } : {}),
       ...(picture ? { picture } : {}),
     });
-    profileOpen.value = false;
+    closeProfile();
   } catch (e) {
     log("error", `Could not save your profile: ${(e as Error).message}`);
   } finally {
@@ -572,9 +623,13 @@ async function loadScopes() {
   scopesLoaded.value = true;
 }
 
-async function openManage() {
+function openManage() {
   menuOpen.value = false;
-  manageOpen.value = true;
+  setOverlay({ manage: true });
+}
+// Loads when the panel OPENS — by button or by URL — so `?manage` on arrival is the same panel.
+watch(manageOpen, async (open) => {
+  if (!open) return;
   deletePlan.value = null;
   deleteTarget.value = null;
   addChildFor.value = null;
@@ -586,10 +641,10 @@ async function openManage() {
   } finally {
     busy.value = false;
   }
-}
+}, { immediate: true });
 
 function closeManage() {
-  manageOpen.value = false;
+  setOverlay({ manage: false });
   deletePlan.value = null;
   deleteTarget.value = null;
   addChildFor.value = null;
@@ -785,7 +840,7 @@ function resetToLoggedOut() {
   closeChatThread();
   if (activeScope.value) localStorage.removeItem(AUTH_HINT_PREFIX + activeScope.value);
   menuOpen.value = false;
-  manageOpen.value = false;
+  clearOverlays();
   deletePlan.value = null;
   deleteTarget.value = null;
   connected.value = false;
@@ -882,6 +937,7 @@ async function logout() {
                 placeholder="Robin"
                 :disabled="profileSaving"
                 data-testid="profile-nickname"
+                @input="profileDirty = true"
               />
             </fieldset>
 
@@ -894,13 +950,14 @@ async function logout() {
                 placeholder="Robin Fielding"
                 :disabled="profileSaving"
                 data-testid="profile-name"
+                @input="profileDirty = true"
               />
             </fieldset>
           </form>
         </div>
 
         <div class="modal-action">
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="profileSaving" @click="profileOpen = false">
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="profileSaving" @click="closeProfile">
             Cancel
           </button>
           <button
@@ -921,7 +978,8 @@ async function logout() {
     <dialog class="modal" :open="streamModalOpen" @cancel.prevent="closeStreamModal">
       <div class="modal-box max-w-3xl">
         <h3 class="text-lg font-bold">What Nebula is thinking</h3>
-        <pre ref="transcriptEl" class="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-base-200 p-3 font-mono text-xs" data-testid="stream-transcript">{{ streamTranscript || "(nothing yet)" }}</pre>
+        <p v-if="transcriptMissing" class="mt-3 text-sm opacity-70" data-testid="stream-transcript-missing">This page did not see that message being written.</p>
+        <pre v-else ref="transcriptEl" class="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-base-200 p-3 font-mono text-xs" data-testid="stream-transcript">{{ streamTranscript || "(nothing yet)" }}</pre>
         <div class="modal-action">
           <button type="button" class="btn btn-sm" data-testid="stream-transcript-close" @click="closeStreamModal">Close</button>
         </div>
@@ -994,7 +1052,7 @@ async function logout() {
             class="chat-bubble flex items-center gap-2 text-left max-w-full"
             data-testid="stream-strip"
             title="Click to read the full transcript"
-            @click="streamModalOpen = true"
+            @click="openStreamModal"
           >
             <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
             <span class="shrink-0 text-xs opacity-70">Nebula is thinking</span>
@@ -1114,7 +1172,7 @@ async function logout() {
         </div>
 
         <!-- Hierarchy manager. -->
-        <div v-else-if="stageMode === 'manage'" class="p-6 flex flex-col gap-4 max-w-2xl">
+        <div v-else-if="stageMode === 'manage'" class="p-6 flex flex-col gap-4 max-w-2xl" data-testid="manage-panel">
           <div class="flex items-center justify-between">
             <h2 class="text-lg font-bold">Manage my account</h2>
             <button class="btn btn-sm btn-ghost" @click="closeManage"><ChevronLeft class="size-4" /> Back</button>
@@ -1201,9 +1259,12 @@ async function logout() {
           :universe="activeScope"
           :apps="universeApps"
           :ready="scopesLoaded"
+          :create="overlay.create"
           :busy="busy"
           :error="createError"
           @create="onCreateApp"
+          @create-open="(auto) => setOverlay({ create: true }, { replace: auto })"
+          @create-close="setOverlay({ create: false })"
           @open="onOpenApp"
         />
 

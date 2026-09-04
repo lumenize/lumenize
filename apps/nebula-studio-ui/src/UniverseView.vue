@@ -30,6 +30,8 @@ const props = defineProps<{
   /** True once the scope load has COMPLETED, so an empty `apps` means an empty ACCOUNT rather than
    *  a list that has not arrived yet. The auto-open below cannot tell those apart without it. */
   ready: boolean;
+  /** The create form is open — decided by the URL (`?create`), never here (ADR-017). */
+  create: boolean;
   /** True while a create is in flight — disables the form and shows a spinner. */
   busy: boolean;
   /** A server-side create failure to show the person (e.g. a taken or malformed slug). */
@@ -38,10 +40,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'create', slug: string): void;
+  /** Ask the shell to open the form by navigation; `auto` = the empty-account case, which rewrites
+   *  the URL in place rather than pushing an entry Back would only reopen. */
+  (e: 'create-open', auto: boolean): void;
+  (e: 'create-close'): void;
   (e: 'open', scope: string): void;
 }>();
 
-const modalOpen = ref(false);
 const slug = ref('');
 
 /** The galaxy slug shown to the person — the part after `{universe}.`. */
@@ -51,9 +56,9 @@ function slugOf(scope: string): string {
 
 const canCreate = computed(() => slug.value.trim().length > 0 && !props.busy);
 
-function openCreate() {
+function openCreate(auto = false) {
   slug.value = '';
-  modalOpen.value = true;
+  emit('create-open', auto);
 }
 
 function submit() {
@@ -73,7 +78,7 @@ watch(
   () => {
     if (autoOpened || !props.ready) return;
     autoOpened = true;
-    if (props.apps.length === 0) openCreate();
+    if (props.apps.length === 0) openCreate(true);
   },
   { immediate: true },
 );
@@ -87,7 +92,7 @@ watch(
           <h1 class="text-xl font-bold">{{ universe }}</h1>
           <p class="text-sm opacity-70">Your account. Everything you build lives here.</p>
         </div>
-        <button class="btn btn-primary btn-sm gap-2" :disabled="busy" @click="openCreate">
+        <button class="btn btn-primary btn-sm gap-2" :disabled="busy" @click="openCreate()">
           <Plus class="size-4" /> Create app
         </button>
       </header>
@@ -115,7 +120,7 @@ watch(
     </div>
 
     <!-- FLAVOUR A (built): create an app. -->
-    <dialog class="modal" :open="modalOpen">
+    <dialog class="modal" :open="props.create">
       <div class="modal-box">
         <h3 class="text-lg font-bold">Create an app</h3>
         <p class="py-2 text-sm opacity-80">Pick a short name. You can build as many apps as you like.</p>
@@ -136,7 +141,7 @@ watch(
               type="button"
               class="btn btn-ghost btn-sm"
               :disabled="busy"
-              @click="modalOpen = false"
+              @click="emit('create-close')"
             >
               Cancel
             </button>
