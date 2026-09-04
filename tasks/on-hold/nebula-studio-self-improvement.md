@@ -17,7 +17,7 @@ This is **not** the [`nebula-nightly-loop`](../archive/nebula-nightly-loop.md). 
 |---|---|---|
 | **Target** | Lumenize's *own source* (code/spec review) | *Studio's codegen scaffold* |
 | **Reward** | Larry's judgment at 8am | the eval harness (below) + eventually economic signal |
-| **Meter** | Larry's subscription | Workers AI (Cloudflare bills) |
+| **Meter** | Larry's subscription | the eval budget — any provider, hundreds a month (§ *Decisions*, Billing) |
 | **Trust** | exercised once, not yet trusted | primary track, built fresh |
 | **Safety model** | protect Larry's repo + token window | protect *user-developers* + tenant isolation |
 
@@ -40,7 +40,7 @@ Ornith co-evolves scaffold + solution inside model weights via RL. We lift that 
 
 ## Part A — The reward function (absorbed eval suite)
 
-> A standing, **all-Cloudflare, no-Anthropic-per-token** harness. It is the *fixed ruler* the optimizer optimizes against — and, standalone, the **regression gate** for any change to the generation loop (system prompt, generator model, skills, harness/SDK). Deterministic checks do the heavy lifting; an LLM-judge covers only the genuinely-fuzzy "does the generated UI match intent" gate. **Nothing self-improves without this; build it first.**
+> A standing harness, judged wherever independence from the generator and quality are best (§ *Decisions*, Billing). It is the *fixed ruler* the optimizer optimizes against — and, standalone, the **regression gate** for any change to the generation loop (system prompt, generator model, skills, harness/SDK). Deterministic checks do the heavy lifting; an LLM-judge covers only the genuinely-fuzzy "does the generated UI match intent" gate. **Nothing self-improves without this; build it first.**
 
 ### Decisions (pinned in the 2026-06-18 brainstorm; still hold)
 
@@ -52,7 +52,7 @@ Ornith co-evolves scaffold + solution inside model weights via RL. We lift that 
 | Judge provider | **Workers AI via `workers-ai-provider` → AI Gateway**, Node-side (`{ accountId, apiKey }`, not a binding) | Eval driver runs Node-side vitest (mirrors `apps/nebula/test/browser/smoke.test.ts`). Routes through AI Gateway for caching / spend caps / cost observability. |
 | Judge model | **GLM-5.2** — `@cf/zai-org/glm-5.2`, **pinned**, `temperature: 0` | Different lab/lineage from the Kimi generator (Zhipu vs Moonshot) → breaks "grades its own homework." Capable evaluator; landed on Workers AI 2026-06-16. |
 | Generator under test | **Kimi K2.7** (current Studio engine, [[kimi-k27-adoption]]) | The thing being graded. Judge ≠ generator (invariants below). |
-| Billing | All judging on **Workers AI (Cloudflare bills)**; zero Anthropic per-token | Hard constraint. The no-per-token route = a Workers AI *destination* model; there is **no flat "Claude SDK credits" judge path** — confirmed, don't go looking. ⚠️ **The old reason for that was "AI Gateway is not a billing route", which stopped being true 2026-08-07** (unified billing, now including Workers AI). It *is* a billing route — it just isn't a *flat* one: provider per-token rates are passed through, so paying Anthropic in Cloudflare credits is still Anthropic per-token. Same conclusion, different premise; don't restore the old clause. |
+| Billing | **Judging may run off Workers AI, at per-token rates, on any provider — relaxed 2026-09-03 (Larry).** The judge is chosen for independence from the generator and for quality, and paid for in money rather than in model choice: an off-Cloudflare Kimi K3, or Claude Opus, are both in bounds. | Evals are an **occasional** cost that does not scale with user growth, so a per-token judge is a fixed line item, not a margin risk; Larry is self-funded and has budgeted hundreds of dollars a month for it. This retires the former hard constraint (*all judging on Workers AI, zero Anthropic per-token*), which existed to keep judging inside Cloudflare billing — a route AI Gateway now provides at pass-through provider rates anyway (unified billing, 2026-08-07). ⚠️ Two things the relaxation does NOT change: the judge stays **pinned** and a change re-baselines the suite (invariant 1 below — so pick the off-Cloudflare judge *before* the first baseline exists), and a judge on a different lab's lineage from the generator is now cheap to guarantee, which also frees the **generator** to move to a GLM model if the guidance work ever wants the 1M context. |
 | CI determinism | Tool **record/replay** (`VITEST_EVALS_REPLAY_MODE=auto`) | CI reuses recorded outputs instead of paying for inference every run. |
 
 ### Invariants (the judge is a fixed ruler)

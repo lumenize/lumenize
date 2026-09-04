@@ -96,6 +96,15 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 **Couplings:** the respond-or-not policy + `@`-mention control ride the same classifier and land with this; cancel must ride the container teardown order — let the sync bracket resolve, `destroy()`, tolerate the 1006 — and release the residency hold (both pinned in the collapse's Phase 3).
 
+**The respond-or-not policy — decided 2026-09-04 (Larry), deterministic first.** The classifier's *codegen* verdict no longer forks anything — the guidance task ([nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) § *Design intent*) runs one assembly on every turn and keeps the cheap call only as a container-warm hint. What is still this item's is whether Nebula answers at all, and three of the four cases need no model:
+
+1. **`@nebula` in the message → respond.** Needs a mention syntax, which does not exist today: `@` followed by a participant's display name, matched case-insensitively against the chat's participants.
+2. **Another participant tagged and no `@nebula` → do not respond.** The message is for them.
+3. **Only the poster is present and no tag → respond.** "Present" is the chat query's live data-subscriber roster, a table the Galaxy already holds for presence — a synchronous local read. Key it by `sub`, not by client, so a person with two Studio tabs counts once. Personas never appear: they are logged into the app preview, not into Studio's chat.
+4. **Others present and no tag → the cheap model decides**, given the roster and the last six or so messages with their bylines, and failing open to *respond* — an unanswered request is the worse error in a building session. Draft prompt: *"A group chat in an app-building workspace. Nebula is the assistant. Given who is present and the last messages, reply with ONLY `{"respond": true}` if the newest message asks Nebula for something or continues an exchange with Nebula, and `{"respond": false}` if it is addressed to another person."*
+
+Single-flight sits before all four: a message during a generation is still skipped, and the queue this item builds is what changes that.
+
 ## Notes
 
 - A third finding from the same Jennifer analysis — **cross-document spec-drift detection** (her two docs contradict each other: photo-first-required vs text-first capture) — is deliberately *not* an item here: it's a Studio/coach-loop capability question that needs its own framing, and the coach loop covers it manually during alpha. Revisit when the Studio eval suite resumes.
