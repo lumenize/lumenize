@@ -36,6 +36,7 @@ Close the platform gaps that stand between the current live loop and real user-d
 **Shape (to be designed, not pinned)**:
 - Per-app persona config: display name, voice/tone guidance, values constraints — data the platform's chat consumes, not code the app injects (no prompt-injection surface into the governed chat; constraints are additive style, never access-expanding).
 - Never surface the underlying model name (existing rule: model-agnostic naming).
+- The tone and values come from the app's `docs/vision.md`, the declared file the guidance task seeds ([nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) § *Design intent*) — a second reader of one file, never a second store; the ReBAC floor on that chat is unchanged.
 
 **Success criteria (sketch)**:
 - [ ] A user-developer can name and style their app's assistant from the Studio.
