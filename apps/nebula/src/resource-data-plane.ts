@@ -384,7 +384,7 @@ export class ResourceDataPlane {
    * write (Child 3 option (b): the Galaxy's assistant progress/thought stream fans to
    * the session query's subscribers, then commits ONE durable Message). The capability
    * owns targeting + the `access.scopeAdmin`-aware read recheck (never re-implemented
-   * host-side, D3/D16); the host owns delivery via its own `this.svc.broadcast`.
+   * host-side, D3/D16); the host owns delivery via its own `NebulaDO.broadcast`.
    *
    * Per-CONNECTION (one entry per subscribed tab, no dedup by `sub`) — every open tab
    * is a delivery target. `nodeId` is the node the transient content will live under

@@ -1434,7 +1434,7 @@ export class Galaxy extends NebulaDO {
     // liveness for its OWN turn. That is a hang: under single-flight a message posted
     // during a generation is skipped and never answered, yet its poster's idle window is
     // re-armed by the running turn's chunks and never fails.
-    this.svc.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress, replyTo));
+    this.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress, replyTo));
   }
 
   /**
@@ -1627,11 +1627,12 @@ export class Galaxy extends NebulaDO {
   #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]): void {
     const remote = this.ctn<NebulaClient>().handleResourceUpdate(
       snapshot.meta.typeName, resourceId, snapshot);
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onBroadcastResult(resourceId) });
+    this.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onBroadcastResult(resourceId) });
   }
 
   /** Per-target broadcast result handler — drop a subscriber whose Gateway reported
-   *  it disconnected (`ClientDisconnectedError`). `@mesh()` for the tier-worker path. */
+   *  it disconnected (`ClientDisconnectedError`). `@mesh()` for the tier-worker path, which
+   *  `NebulaDO.broadcast` pins that path off today (TEMP). */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
@@ -1645,7 +1646,7 @@ export class Galaxy extends NebulaDO {
    *  {@link onQueryBroadcastResult} keyed by `queryHash`. */
   #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]): void {
     const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQueryBroadcastResult(queryHash) });
+    this.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQueryBroadcastResult(queryHash) });
   }
 
   /** Host-side fanout for a subscriber-list roster push — the distinct-by-`sub` roster to a
@@ -1653,7 +1654,7 @@ export class Galaxy extends NebulaDO {
    *  {@link onQuerySubscriberListBroadcastResult} (watcher table, NOT `QuerySubscribers`). */
   #broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]): void {
     const remote = this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, roster);
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQuerySubscriberListBroadcastResult(queryHash) });
+    this.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQuerySubscriberListBroadcastResult(queryHash) });
   }
 
   /** Per-target query-push result handler (no-denial broadcast + has-denial

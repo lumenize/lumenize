@@ -782,14 +782,14 @@ export class Star extends NebulaDO {
     if (subscribers.length === 0) return;
     const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
     const remote = this.ctn<NebulaClient>().handleReload();
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onReloadBroadcastResult() });
+    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onReloadBroadcastResult() });
   }
 
   /**
    * Per-target reload-broadcast result handler — drop a subscriber whose Gateway
    * reported it disconnected (`ClientDisconnectedError.clientInstanceName`),
-   * mirroring `onTreeBroadcastResult`. `@mesh()` because the broadcast can take
-   * the tier-worker dispatch path.
+   * mirroring `onTreeBroadcastResult`. `@mesh()` for the tier-worker dispatch path, which
+   * `NebulaDO.broadcast` pins that path off today (TEMP) — the decorator is what keeps lifting it a one-line change.
    */
   @mesh()
   onReloadBroadcastResult(result?: unknown): void {
@@ -811,8 +811,8 @@ export class Star extends NebulaDO {
    *
    * Drop-on-failed-broadcast cleanup rides `onTreeBroadcastResult` (its own
    * handler keyed by `clientId`, NOT the resourceId path). That handler carries
-   * `@mesh()` because the tree broadcast goes to ALL connected clients and can
-   * exceed `svc.broadcast`'s `directThreshold` → tier-worker dispatch.
+   * `@mesh()` for tier-worker dispatch — the tree broadcast goes to ALL connected clients, so it
+   * is the likeliest of these to exceed `directThreshold` once `NebulaDO.broadcast` pins that path off today (TEMP).
    */
   #onDagChanged() {
     const subscribers = this.#treeSubscriptions.all();
@@ -820,16 +820,15 @@ export class Star extends NebulaDO {
     const state = this.#dataPlane.dagTree.getState();
     const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
     const remote = this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state });
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
+    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
   }
 
   /**
    * Host-side fanout for one mutated resource — the {@link ResourceHostBridge}
    * `broadcastResourceUpdate` impl the data-plane invokes per committed mutation.
-   * Builds the `handleResourceUpdate` continuation + dispatches `svc.broadcast`
-   * (the framework primitive that picks a direct loop vs. recursive Worker tier
-   * automatically; see `packages/mesh/src/broadcast.ts`). `targets` is already
-   * filtered (originator excluded) by the data-plane.
+   * Builds the `handleResourceUpdate` continuation + dispatches {@link NebulaDO.broadcast},
+   * which pins the flat loop at any N (TEMP — its JSDoc carries why, and what lifting it needs).
+   * `targets` is already filtered (originator excluded) by the data-plane.
    *
    * **Drop-on-failed-fanout (v2):** `svc.broadcast` is given an `onResult` partial
    * continuation the framework completes with the per-target result. On
@@ -858,7 +857,7 @@ export class Star extends NebulaDO {
     const opts: { directThreshold?: number; onResult?: any } = {};
     if (!omitOnResult) opts.onResult = this.ctn<Star>().onBroadcastResult(resourceId);
     if (directThreshold !== undefined) opts.directThreshold = directThreshold;
-    this.svc.broadcast(targets, remote, opts);
+    this.broadcast(targets, remote, opts);
   }
 
   /**
@@ -870,9 +869,9 @@ export class Star extends NebulaDO {
    * `ClientDisconnectedError.clientInstanceName` when delivery fails.
    *
    * Public visibility because mesh handler-continuations resolve by name
-   * on the local DO; needs `@mesh()` because in the tree branch the tier
-   * worker dispatches this call across the service binding (so the
-   * framework needs to recognize the method as call-callable).
+   * on the local DO; `@mesh()` because in the tree branch the tier worker dispatches this call
+   * across the service binding, so the framework must recognize it as call-callable. `NebulaDO.broadcast` pins that path off today (TEMP),
+   * and the decorator stays so lifting the pin needs no change here.
    */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
@@ -891,7 +890,7 @@ export class Star extends NebulaDO {
    */
   #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]) {
     const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
+    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
   }
 
   /**
@@ -902,14 +901,14 @@ export class Star extends NebulaDO {
    */
   #broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]) {
     const remote = this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, roster);
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onQuerySubscriberListBroadcastResult(queryHash) });
+    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onQuerySubscriberListBroadcastResult(queryHash) });
   }
 
   /**
    * Per-target result handler for query pushes (both the no-denial broadcast and
    * the per-subscriber has-denial deliveries — m6). Keyed by `queryHash`; drops the
-   * dead client's query-sub row on a `ClientDisconnectedError`. `@mesh()` for the
-   * tier-worker broadcast path.
+   * dead client's query-sub row on a `ClientDisconnectedError`. `@mesh()` for the tier-worker
+   * broadcast path, which `NebulaDO.broadcast` pins that path off today (TEMP).
    */
   @mesh()
   onQueryBroadcastResult(queryHash: string, result?: unknown): void {
@@ -924,7 +923,7 @@ export class Star extends NebulaDO {
    * single-target `deliverRosterUpdate`). Keyed by `queryHash`; on a `ClientDisconnectedError` drops the
    * dead WATCHER's row from the WATCHER table ONLY (`removeQuerySubscriberListWatcher`), NOT
    * `QuerySubscribers` — so a dual-role client (data-subscriber AND watcher of Q) keeps its data sub.
-   * `@mesh()` for the tier-worker broadcast path. tasks/nebula-subscriber-lists.md.
+   * `@mesh()` for the tier-worker broadcast path, which `NebulaDO.broadcast` pins that path off today (TEMP).
    */
   @mesh()
   onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
@@ -938,8 +937,8 @@ export class Star extends NebulaDO {
    * Per-target result handler for the org-tree broadcast (`#onDagChanged`).
    * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
    * the failed client comes from `ClientDisconnectedError.clientInstanceName`,
-   * mirroring `onBroadcastResult`. `@mesh()` because the tree broadcast can take
-   * the tier-worker dispatch path (it fans out to every connected client).
+   * mirroring `onBroadcastResult`. `@mesh()` for the tier-worker dispatch path (this one fans
+   * out to every connected client), which `NebulaDO.broadcast` pins that path off today (TEMP).
    */
   @mesh()
   onTreeBroadcastResult(result?: unknown): void {

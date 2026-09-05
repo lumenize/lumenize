@@ -44,6 +44,7 @@ import * as studioSignedOutLanding from './scenarios/studio-signed-out-landing';
 import * as studioOverlaysByUrl from './scenarios/studio-overlays-by-url';
 import * as signupToFirstApp from './scenarios/signup-to-first-app';
 import * as firstAppBuilt from './scenarios/first-app-built';
+import * as broadcastPastThreshold from './scenarios/broadcast-past-threshold';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -101,6 +102,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // ── the browser lane for a stranger's first hour: signup → first app → first build ──────────
   'signup-to-first-app': signupToFirstApp,       // the whole clean signup, driven by CLICKING — the app is created through the UI, never by API (no Docker)
   'first-app-built': firstAppBuilt,              // a prompt typed in the rendered composer produces a built app in the preview (Docker)
+  'broadcast-past-threshold': broadcastPastThreshold, // 120 subscribers on one query — the ONLY test anywhere that crosses svc.broadcast's direct cutoff (no Docker)
 };
 
 /**

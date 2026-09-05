@@ -6,7 +6,7 @@
  */
 
 import { LumenizeDO, mesh } from '@lumenize/mesh';
-import type { CallContext } from '@lumenize/mesh';
+import type { AnyContinuation, BroadcastOptions, BroadcastTarget, CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, hasPassageInto, isPlatformScope, parseId } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
@@ -185,6 +185,37 @@ export class NebulaDO extends LumenizeDO {
     await this.ctx.blockConcurrencyWhile(async () => {
       await this.ctx.storage.deleteAll();
     });
+  }
+
+  /**
+   * Fan `remote` out to `targets` — the ONE place a Nebula node reaches `svc.broadcast`, so the
+   * dispatch policy below is stated once instead of at each call site.
+   *
+   * ⚠️ **TEMP (2026-09-05) → target = the recursive tier.** `directThreshold` defaults to
+   * `Infinity`, pinning every Nebula fan-out to the flat loop that the framework would otherwise
+   * abandon above 100 targets. Two reasons, neither of them that the tier is slow:
+   *
+   * - **Nothing here binds a tier.** The tree path calls a service binding named
+   *   `LUMENIZE_BROADCAST_TIER` and `lmz.call` validates its target synchronously, so on a Worker
+   *   declaring none the 101st subscriber does not degrade — it throws, and the throw fails the
+   *   transaction that triggered it (measured: the commit returns `infrastructure-error`).
+   * - **Tree-path cleanup is misrouted.** Up there a per-target failure is forwarded to the
+   *   chain's origin, which in production is the mutating CLIENT and not this node, so
+   *   `onBroadcastResult` never runs and a disconnected subscriber's row is never dropped. The
+   *   flat loop runs that handler locally and is correct.
+   *
+   * The pin costs tail latency that grows with N — ~1.7 s to the last of 1,000 subscribers
+   * deployed, against ~790 ms through the tier. Lag is a complaint and a cliff is an outage, so
+   * the lag is the deliberate choice until a real workload asks otherwise; lifting it means
+   * binding a tier AND fixing the cleanup routing, in one change. An explicit `directThreshold`
+   * in `opts` still wins, which is what lets the fan-out bench force either path.
+   */
+  protected broadcast(
+    targets: BroadcastTarget[],
+    remote: AnyContinuation,
+    opts: BroadcastOptions = {},
+  ): void {
+    this.svc.broadcast(targets, remote, { directThreshold: Infinity, ...opts });
   }
 
   onBeforeCall() {

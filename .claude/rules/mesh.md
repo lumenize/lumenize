@@ -121,6 +121,20 @@ Application code rarely writes the raw 4-arg form — it gets the same drop-on-f
 ## "broadcast" vs "fanout" (naming — don't flip-flop)
 `broadcast` is the Lumenize primitive (`this.svc.broadcast`), its API symbols (`onBroadcastResult`, `STAR_BROADCAST_*`), and the user-facing concept — it MUST be used everywhere those apply. `fanout` MAY be used **only** as the generic CS technique: the recursive tree-dispatch *mechanism* inside `svc.broadcast`'s tier Worker (hence `broadcast.ts` doc-comments say "tree-fanout", "per-tier fanout factor"). When renaming toward broadcast, you MUST NOT "correct" the technique-level `fanout` back, and MUST NOT reintroduce `fanout` for the primitive. (The `fanout-scaling-benchmark` files + `bench:fanout` scripts predate this split and are a known straggler — not a counter-example.)
 
+## A Nebula node broadcasts through `NebulaDO.broadcast`, never `this.svc.broadcast`
+Star, Galaxy, and every other `NebulaDO` MUST fan out with `this.broadcast(targets, remote, opts?)`,
+and MUST NOT call `this.svc.broadcast(...)` directly. One method states Nebula's dispatch policy for
+all nine call sites: it defaults `directThreshold` to `Infinity`, which pins the flat loop at any N.
+An explicit `directThreshold` in `opts` still wins, so the fan-out bench can force either path. The
+pin is TEMP, and `NebulaDO.broadcast`'s JSDoc carries the argument and what lifting it needs.
+
+⚠️ **A site that reaches past the wrapper throws above 100 targets, and takes the writer's
+transaction down with it.** `svc.broadcast` picks the tree path on target count alone; the tree path
+calls a service binding named `LUMENIZE_BROADCAST_TIER`; `apps/nebula` declares none; and `lmz.call`
+validates its target synchronously. Measured 2026-09-05: with 120 subscribers on one query, the
+commit came back `infrastructure-error`. No vitest tier can see this, because every fan-out test
+there runs two clients — the witness is the `broadcast-past-threshold` `/live` scenario.
+
 ## Fire-and-forget error delivery
 When a handler delivers results via an explicit callback (e.g. `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), the **entire handler body** MUST be wrapped in try/catch. Uncaught exceptions are silently lost — the client never gets a response and `callCompleted` never becomes true.
 
