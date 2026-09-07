@@ -47,6 +47,10 @@ function assertCycleReport(tag: string, report: BuildReport): void {
     `${tag}: the container step must be ok, got ${JSON.stringify(report.container).slice(0, 300)}`);
   assert.ok(bundleOk(report),
     `${tag}: expected a clean bundle, got ${JSON.stringify(report.bundle).slice(0, 400)}`);
+  // Printed, not asserted: the preview verdict says whether the dist ARRIVED host-side
+  // (`refreshed: false` with a did-not-arrive `why` after a clean bundle is the local
+  // materialize-mode pull miss), which the 404 at the end of the run cannot say alone.
+  console.log(`[build-box] ${tag}: preview=${JSON.stringify(report.preview)}`);
 }
 
 export async function run(stack: DevStack): Promise<void> {
@@ -126,7 +130,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(asset.headers.get('cache-control'), 'public, max-age=31536000, immutable');
 
     // ── A broken source fails the BUNDLE step (their code — never the container step),
-    //    publish says why, and last-good dist serves throughout ──
+    //    preview says why it did not refresh, and last-good dist serves throughout ──
     await client.lmz.callAsync('GALAXY', SCOPE,
       client.ctn<Galaxy>().writeSource('src/App.vue', '<script setup>this is not vue</scr'));
     const bad = await buildNow();
@@ -134,18 +138,18 @@ export async function run(stack: DevStack): Promise<void> {
       `a compile break must not fail the container step: ${JSON.stringify(bad.container).slice(0, 300)}`);
     assert.ok(!bundleOk(bad) && bundleTail(bad).length > 0,
       `a compile break is a bundle-step failure (their code), got ${JSON.stringify(bad.bundle).slice(0, 300)}`);
-    assert.equal(bad.publish.done, false, 'a failed bundle can never publish');
-    assert.ok(bad.publish.why.length > 0, 'a non-publish always says why');
+    assert.equal(bad.preview.refreshed, false, 'a failed bundle can never refresh the preview');
+    assert.ok(bad.preview.why.length > 0, 'a preview that did not refresh always says why');
     const stillServes = await fetch(`${stack.baseUrl}/app/${star}/`);
     assert.equal(stillServes.status, 200, 'last-good dist/ must keep serving through a failed build');
     await client.lmz.callAsync('GALAXY', SCOPE, client.ctn<Galaxy>().writeSource('src/App.vue',
       '<script setup lang="ts"></script>\n<template><main>fixed</main></template>\n'));
     const fixed = await buildNow();
     assert.ok(bundleOk(fixed), `the fixed source should bundle, got ${JSON.stringify(fixed.bundle)}`);
-    // The report always says WHY it did not publish (asserted above), so put it in the message —
+    // The report always says WHY it did not refresh (asserted above), so put it in the message —
     // `false !== true` alone cost a full 110 s re-run just to learn which gate refused.
-    assert.equal(fixed.publish.done, true,
-      `a clean rebuild publishes by default — refused because: ${fixed.publish.why} ` +
+    assert.equal(fixed.preview.refreshed, true,
+      `a clean rebuild refreshes the preview by default — refused because: ${fixed.preview.why} ` +
       `(bundle=${JSON.stringify(fixed.bundle).slice(0, 200)}; typeCheck=${JSON.stringify(fixed.typeCheck).slice(0, 200)})`);
   } finally {
     driver.dispose();

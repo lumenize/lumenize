@@ -438,9 +438,11 @@ What the platform owes a domain expert who is not an agentic-development expert:
 - **A working starting point for standing guidance,** derived from ours, rather than a blank `AGENTS.md`.
 - **A system prompt that pushes toward the loop,** so improving the guidance is the default motion at the end
   of a piece of work rather than a practice they would have to invent.
-- **Guidance as Resources,** which is what makes its evolution attributable and reversible for free — the same
-  substrate, not a parallel mechanism. A guidance edit is a snapshot with an `actingToken`, so "who loosened this
-  rule and when" is a lookup, and reverting is re-addressing a prior snapshot.
+- **Guidance as files in the app's own git repo,** beside the source it describes, with the agent Message as
+  the record: a guidance edit is a commit, and the turn that made it stores who asked (`actingToken`) and
+  which paths it wrote — so "who loosened this rule and when" is a join through the Message, and reverting
+  is a git revert. Guidance as Resources was the earlier draft, rejected 2026-09-02: it would split the
+  guidance from the tree it describes and buy nothing git and the Message do not already record.
 - **Chat history as Resources,** so the record of how an app came to be is durable, attributable, subscribable,
   and governed by the same grants as everything else in the Galaxy.
 - **Chat participation is a uniform floor; permissions above it vary.** Anyone whose message lands in the

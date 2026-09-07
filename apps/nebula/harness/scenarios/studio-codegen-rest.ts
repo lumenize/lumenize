@@ -1,9 +1,10 @@
 /**
  * Drive ONE real codegen turn through the shipping Workers-AI REST transport — via the
  * POST-COLLAPSE trigger: `postUserMessage` commits the human `Message`, the Galaxy's
- * commit hook starts the turn (discriminator → generation under the poster's own
- * authority), and completion is OBSERVED ON THE `Message` SUBSCRIPTION — the same way
- * the product observes it, with no reply channel at all.
+ * commit hook starts the turn (one assembly with every guidance layer and the full tool
+ * set, under the poster's own authority; the first write warms the build box), and
+ * completion is OBSERVED ON THE `Message` SUBSCRIPTION — the same way the product
+ * observes it, with no reply channel at all.
  *
  * The subject is `Galaxy#callModelRest` — specifically that gateway routing is a
  * `cf-aig-gateway-id` header on the ordinary `/ai/run/{model}` URL rather than a second
@@ -38,8 +39,8 @@ import { connectDriver, readDevVar } from '../lib/harness';
  *  email on the second run. */
 const SCOPE = `claude-${crypto.randomUUID().slice(0, 8)}.codegen`;
 
-/** A cold model turn (discriminator + generation) lives inside this budget. */
-const TURN_TIMEOUT_MS = 240_000;
+/** A cold model turn lives inside this budget. */
+const TURN_TIMEOUT_MS = 900_000; // tracks the server's 14 min generation deadline plus margin (32-round cap)
 
 export async function run(stack: DevStack): Promise<void> {
   // Fail on the PRECONDITION rather than silently proving the binding lane instead. Without a

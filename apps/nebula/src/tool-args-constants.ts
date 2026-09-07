@@ -9,12 +9,17 @@
 /** Tool-arg TS types — the ADR-001 source of truth for runtime validation. Compiled to
  *  a typia validator by `scripts/gen-validator-seeds.ts` and committed as
  *  `validator-seeds.ts`'s `TOOL_ARGS_VALIDATOR_MODULE` — never compiled at runtime.
- *  `BuildArgs.publish` is the model's publish OVERRIDE: the preview reloads by default
- *  only on a findings-free build, and the model may publish alongside findings it
- *  judges harmless (it cannot publish when the bundle failed — no `dist` exists). */
+ *  `BuildArgs.preview` is the model's PREVIEW OVERRIDE: the `.dev` preview refreshes by
+ *  default only on a findings-free build, and the model may refresh it alongside findings
+ *  it judges harmless (never when the bundle failed — no `dist` exists). `EditFileArgs`
+ *  names one span: `anchor` must occur exactly once. ⚠️ The facet is `createValidate`,
+ *  which IGNORES excess keys — `Galaxy.#validateToolArgs` refuses them by name against
+ *  the tool's declared properties, so a stale `publish` key cannot be silently dropped. */
 export const TOOL_ARGS_TYPES = `
 interface WriteFileArgs { path: string; content: string; }
-interface BuildArgs { publish?: boolean; }
+interface ReadFileArgs { path: string; }
+interface EditFileArgs { path: string; anchor: string; replacement: string; }
+interface BuildArgs { preview?: boolean; }
 interface MarkCompleteArgs {}
 `;
 
@@ -26,6 +31,7 @@ interface MarkCompleteArgs {}
  * ⚠️ Any change to {@link TOOL_ARGS_TYPES} changes the emitted module, and this id MUST
  * bump with it: `getParserValidatorFacet` caches by id, so a changed module under a
  * reused id serves the STALE validator — and nothing catches a stale id the way the
- * generator's `--check` catches a stale literal.
+ * generator's `--check` catches a stale literal. v4: `read_file` + `edit_file` joined,
+ * `BuildArgs.publish` became `preview` (2026-09-05).
  */
-export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v3';
+export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v4';

@@ -249,11 +249,11 @@ Upward passage exists primarily so a caller can read what the scope above them o
 
 Another example is the **guidance hierarchy**. Standing guidance — `AGENTS.md`, skills, rules — lives at three levels, each owned by different people and serving a different purpose: we own the platform layer, a Universe's admins own what holds across that organization's apps, a Galaxy's admins own what holds for one app. Anyone designing an app needs the whole stack upward.
 
-Reading the whole stack is free; **editing a layer takes dominion over the scope that owns it**. A Galaxy admin evolves that Galaxy's guidance and nothing above it. When a retro turns up something that would help every app in the organization, lifting it to the Universe layer takes dominion over the Universe, so a Universe admin is the one who makes that edit. That is the product improving itself recursively — the same loop we run on this repo.
+Reading the whole stack is free; **a layer's write floor is the write floor of the thing it describes.** The Galaxy layer is a file in the app's source tree — `AGENTS.md` beside `src/App.vue` — so it takes source's floor: DAG `write` at the chat node, the door a message passes to land in the thread. A collaborator who can change `App.vue` can change the guidance beside it, and the agent's own edit of that file on their turn runs under that same floor. The Universe layer describes an organisation's practices, so **editing it takes dominion over the Universe**. When a retro turns up something that would help every app in the organization, lifting it to the Universe layer is a Universe admin's edit. That is the product improving itself recursively — the same loop we run on this repo.
 
-That is a limit on who *writes*, not on who *proposes*. Nothing here would stop a feature that lets that Galaxy admin suggest a Universe-level change and routes it for attention over email — or one that lets an ordinary Galaxy member suggest a change to their own layer.
+At the Universe layer that is a limit on who *writes*, not on who *proposes*. Nothing here would stop a feature that lets a Galaxy admin suggest a Universe-level change and routes it for attention over email.
 
-> **Today's code differs.** The guidance hierarchy is not built. Upward passage works, but nothing yet stores, reads, or writes standing guidance at any of the three levels, so it has no consumer in the running system.
+> **Today's code differs.** The platform and Galaxy layers are built and read on every Studio turn; the Universe layer is not. Upward passage works, but no Universe DO holds a Workspace yet, so nothing stores, reads, or writes that layer, and the guidance hierarchy has no consumer of upward passage in the running system.
 
 ### Why downward is generous for admins
 

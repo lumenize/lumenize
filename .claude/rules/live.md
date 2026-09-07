@@ -28,6 +28,16 @@ vitest suite could see any of it, and the sweep that found it takes about four m
 ⚠️ The sweep `pkill -9 -f workerd`s between scenarios (a stray one starves the next boot), which
 takes down a co-running `npm run dev`'s workerd too, and `wrangler dev` does not reliably respawn
 it (bit twice 2026-09-02). If a hand-driven stack is up, expect to reboot it after a sweep.
+⚠️ **A source edit during a sweep invalidates every scenario after it.** Each scenario boots its
+own `wrangler dev`, which hot-reloads on a save under `apps/nebula/src/`, and a reload mid-request
+answers `503 Your worker restarted mid-request` — five scenarios in a row reported exactly that on
+2026-09-05 while a later phase's edits landed, and the sweep read as a wave of real failures. It is
+the same rule `testing.md` states for a running vitest suite: wait for the run, or start a fresh one.
+Harness and scenario files are not watched, but every child re-imports them at spawn, so an edit
+there MUST be a complete, type-checked write, and `drive.ts` itself waits until the sweep exits.
+Since 2026-09-06 the sweep DETECTS the overlap rather than trusting the rule: it fingerprints the
+watched tree at boot and re-checks it around every scenario, and a change tags every later
+result as belonging to no tree and exits non-zero — so a tainted sweep cannot read as a real one.
 
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 
@@ -140,6 +150,11 @@ equivalent for a build (`containers.md` § *There is NO source-push step* carrie
 contract). Measured: a container-free scenario is ~13 s end to end; the full container `build-box`
 is ~110 s including the boot; a deployed iteration costs those same seconds PLUS a 4–8 minute
 deploy (docker build, push, rollout, propagation) on every code change.
+
+**A scenario that reads the local stack's stdio (`DevStack.logs`) MUST guard on its presence, and
+MUST report that half as not observable on a deployed target.** The capture does not exist under
+`HARNESS_TARGET_URL`. An unguarded read asserts over an empty string and reds every deployed run.
+Bit 2026-09-05 on `first-app-built`'s marker-pairing limb, caught by a verifier panel rather than a run.
 
 **A deployed pass MUST still run — at the wipe gate/milestones, and after changes to the container
 image, `@cloudflare/computer`, or the toolchain triple** (`bash apps/nebula/scripts/deploy-test.sh`,

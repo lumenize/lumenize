@@ -80,6 +80,9 @@ export interface DevStack {
   activeKey: 'BLUE' | 'GREEN';
   /** Kill `wrangler dev` + clean up. */
   cleanup: () => Promise<void>;
+  /** The dev stack's stdio so far (the last few MB) — the Worker's own debug markers, for a
+   *  scenario that enabled them with `bootVars: { DEBUG: '…' }`. Absent on a deployed target. */
+  logs?: () => string;
 }
 
 /**
@@ -158,11 +161,20 @@ export async function bootDevStack(
     ],
     onStdio: (chunk) => {
       if (process.env.HARNESS_DEBUG) process.stderr.write(chunk);
+      // Kept for scenarios that read the Worker's own markers (a scenario that sets
+      // `bootVars: { DEBUG: '<namespaces>' }` gets those namespaces' debug lines here).
+      // Bounded from the tail: the interesting lines are the recent ones.
+      captured += chunk;
+      if (captured.length > STDIO_KEEP) captured = captured.slice(-STDIO_KEEP);
     },
   });
 
-  return { baseUrl, signingKey, activeKey: 'BLUE', cleanup };
+  return { baseUrl, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
 }
+
+/** How much of the dev stack's stdio a scenario can read back — the last ~4 MB. */
+const STDIO_KEEP = 4 * 1024 * 1024;
+let captured = '';
 
 /** A connected driver: the real-WS client + its identity + lifecycle helpers.
  *

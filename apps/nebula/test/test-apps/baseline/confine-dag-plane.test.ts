@@ -176,7 +176,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       admin.callGalaxySeedChatScript(scope, [
         { choices: [{ message: { content: 'seeded', reasoning_content: '', tool_calls: [] } }] },
         { choices: [{ message: { content: 'granted reply', reasoning_content: '', tool_calls: [] } }] },
-      ], {});
+      ]);
       await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
       using adminSub = admin.resources.subscribeQuery(CHAT_QUERY); await adminSub.ready;
       await admin.postUserMessage('seed the thread');
@@ -222,7 +222,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       );
       admin.callGalaxySeedChatScript(scope, [
         { choices: [{ message: { content: 'seeded', reasoning_content: '', tool_calls: [] } }] },
-      ], {});
+      ]);
       await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
       using adminSub = admin.resources.subscribeQuery(CHAT_QUERY); await adminSub.ready;
       const seeded = await admin.postUserMessage('seed the thread');

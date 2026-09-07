@@ -1,46 +1,55 @@
 /**
- * Preview auto-refresh — tasks/preview-ready-autorefresh.md
+ * The preview refresh hook — driven by its ONE surviving producer, the build reply.
  *
- * `NebulaClient.warmPreview()` fires a one-way request at DevStudio (passing its own
- * `instanceName`); when the dev preview is serving, DevStudio delivers a
- * `handlePreviewReady(scope)` push back (direct delivery by `instanceName`), and the
- * client invokes the `onPreviewReady` hook so the UI auto-refreshes the iframe — no
- * manual Reload, no polling.
- *
- * The real warm flow needs `env.AI`-free DevStudio + a live container (the `ui-smoke`
- * lane). Here we drive the mechanism through the full client↔Gateway↔DO path with a
- * stand-in: `StarTest.runFakePreviewWarm` echoes `handlePreviewReady` exactly as
- * `DevStudio.deliverPreviewReady` would (same `lmz.call('NEBULA_CLIENT_GATEWAY',
- * clientId, ctn().handlePreviewReady(scope))` shape). The reconnect-survival of this
- * delivery shape is already proven generically by `nebula-client-chat-delivery.test.ts`.
+ * A build a client asked for is answered to that client: `Galaxy.announceBuildToRequester`
+ * → direct delivery of `handlePreviewReady(scope)` by the client's stable `instanceName` →
+ * the client invokes the `onPreviewReady` hook, and the Studio reloads the iframe. The
+ * former initial-load cue (`warmPreview`) was deleted when the source entries moved to the
+ * chat floor (`.claude/rules/security.md`)
+ * — `dist/` serves from the Galaxy's own VFS, so there was nothing to warm — and the echo
+ * stand-in that used to drive this file went with it. What remains to assert is the hook
+ * half: that the reply's scope reaches the application-level hook, which
+ * `reload-version-contract.test.ts` T1 counts on the client subclass but never observes as
+ * the hook a UI would install.
  *
  * Mutation-validated (testing.md): commenting out `this.#onPreviewReady?.(scope)` in
  * `NebulaClient.handlePreviewReady` leaves `captured` empty → the `vi.waitFor` times
- * out → this test reddens.
+ * out → this test reddens. Removing the `announceBuildToRequester` call from
+ * `#buildAndAnnounce` reds it the same way.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { adminClientAt } from '../../test-helpers';
+import { universeAdminClient, uniqueGalaxyScope } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-function uniqueStar(): string {
-  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
-}
+/** One fake model round that calls the build tool, then one that marks complete. */
+const BUILD_THEN_COMPLETE = [
+  { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
+    { id: 'b1', type: 'function', function: { name: 'build', arguments: '{}' } },
+  ] } }] },
+  { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
+    { id: 'c1', type: 'function', function: { name: 'mark_complete', arguments: '{}' } },
+  ] } }] },
+];
 
-describe('nebula-client preview-ready auto-refresh', () => {
-
-  it('warmPreview round-trips: handlePreviewReady invokes onPreviewReady by scope', async () => {
-    const star = uniqueStar();
+describe('nebula-client preview-ready hook — the build reply', () => {
+  it('a turn whose build succeeds invokes onPreviewReady with the Galaxy scope, on the client that asked', async () => {
+    const { galaxy, dev } = uniqueGalaxyScope();
     const captured: string[] = [];
-    const a = await adminClientAt(
-      NebulaClientTest, new Browser(), star, star, 'admin@example.com', 'v1',
+    const { client } = await universeAdminClient(
+      NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1',
       { onPreviewReady: (scope: string) => { captured.push(scope); } },
     );
 
-    a.client.warmPreviewViaStarForTest(star);
+    // Positive control for the wait below: nothing has fired yet.
+    expect(captured).toEqual([]);
+    client.callGalaxyChatScripted(galaxy, 'build it', BUILD_THEN_COMPLETE);
 
-    // The stand-in echoes handlePreviewReady(scope=star) → onPreviewReady hook fires.
-    await vi.waitFor(() => { expect(captured).toContain(star); });
+    // The reply is addressed to THIS client and carries the Galaxy's own scope — the
+    // Studio compares it against its active scope before reloading.
+    await vi.waitFor(() => { expect(captured).toContain(galaxy); }, { timeout: 15000 });
+    expect(captured).toHaveLength(1);
+
+    client[Symbol.dispose]();
   });
-
 });

@@ -5,7 +5,7 @@
 // DO classes
 export { NebulaDO, requireDominionHere, requirePassage } from './nebula-do';
 export { Universe } from './universe';
-export { Galaxy } from './galaxy';
+export { Galaxy, requireChatWrite, assertModelPath, LOOP_TOOL_ENTRIES } from './galaxy';
 export { Star } from './star';
 export type { NodeInvitee, NodeInviteAck } from './resource-data-plane';
 

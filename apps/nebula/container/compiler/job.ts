@@ -8,7 +8,7 @@
  * Three steps, run UNCONDITIONALLY in order — no step gates another (a type finding
  * never stops the bundle: `@vitejs/plugin-vue` transpiles rather than type-checks, so a
  * `.vue` carrying a real TS2339 still produces a `dist`, and stopping there would make
- * the model's publish override unreachable by construction). Only `bundle`'s own
+ * the model's preview override unreachable by construction). Only `bundle`'s own
  * failure means there is no `dist`:
  *
  *   1. ontology  — when the host passed ONTOLOGY_VERSION: compile
@@ -36,6 +36,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { compileOntologyVersion } from '../../src/ontology-compile';
 // The report SHAPE + marker live in the shared leaf so the Worker side cannot drift.
+import { createHash } from 'node:crypto';
 import { REPORT_MARKER, ROW_PATH } from '../../src/build-report';
 import type { JobReport, StepResult } from '../../src/build-report';
 import { checkVueSfc } from './sfc-check';
@@ -122,8 +123,16 @@ export function runJob(workspace: string, opts: { ontologyVersion?: string; wipe
     try { wsEntries = String(readdirSync(workspace).length); } catch { /* unreadable */ }
     return `[mount] /dev/fuse=${devFuse}; ${mounts}; ${workspace} entries=${wsEntries}`;
   };
-  let bundle: StepResult;
-  const vite = spawnSync('vite', ['build'], {
+  let bundle: JobReport['bundle'];
+  // ⚠️ `--emptyOutDir=false`, and it is load-bearing under local `wrangler dev`: with FUSE
+  // absent, computerd materializes the workspace onto disk and pulls changes back after
+  // the exec, and its pull LOSES vite's default empty-then-rewrite of an unchanged dist —
+  // the deletion lands, the byte-identical re-creation does not, and the app serves 404
+  // behind a clean report (`build-box`, 2026-09-06: `sync.status: complete, applied: 0`
+  // with the files on the container's disk). Without the empty, an unchanged file is a
+  // no-op both sides and a changed one is a fresh write, which the pull has never missed.
+  // The host prunes stale entries against `bundle.files` after arrival (galaxy.ts).
+  const vite = spawnSync('vite', ['build', '--emptyOutDir=false'], {
     cwd: workspace,
     encoding: 'utf8',
     env: {
@@ -137,7 +146,19 @@ export function runJob(workspace: string, opts: { ontologyVersion?: string; wipe
   if (vite.error) {
     bundle = { ran: true, ok: false, tail: tail(`${mountDiag()}\n${String(vite.error)}`) };
   } else if (vite.status === 0) {
-    bundle = { ran: true, ok: true };
+    // The digest the host verifies arrival against (build-report.ts) — read back from the
+    // disk vite wrote, so it is the bytes the pull is expected to deliver.
+    let indexSha256: string | undefined;
+    try { indexSha256 = createHash('sha256').update(readFileSync(join(workspace, 'dist', 'index.html'))).digest('hex'); } catch { /* reported as absent */ }
+    const files: string[] = [];
+    const walk = (dir: string, rel: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const r = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) walk(join(dir, entry.name), r); else files.push(r);
+      }
+    };
+    try { walk(join(workspace, 'dist'), ''); } catch { /* no dist — reported as absent */ }
+    bundle = { ran: true, ok: true, ...(indexSha256 ? { indexSha256 } : {}), files };
   } else {
     bundle = { ran: true, ok: false, tail: tail(`${mountDiag()}\n${vite.stderr ?? ''}\n${vite.stdout ?? ''}`) };
   }

@@ -36,7 +36,7 @@ Close the platform gaps that stand between the current live loop and real user-d
 **Shape (to be designed, not pinned)**:
 - Per-app persona config: display name, voice/tone guidance, values constraints — data the platform's chat consumes, not code the app injects (no prompt-injection surface into the governed chat; constraints are additive style, never access-expanding).
 - Never surface the underlying model name (existing rule: model-agnostic naming).
-- The tone and values come from the app's `docs/vision.md`, the declared file the guidance task seeds ([nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) § *Design intent*) — a second reader of one file, never a second store; the ReBAC floor on that chat is unchanged.
+- The tone and values come from the app's `docs/vision.md`, the declared file the guidance task seeds ([nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md) § *Design intent*) — a second reader of one file, never a second store; the ReBAC floor on that chat is unchanged.
 
 **Success criteria (sketch)**:
 - [ ] A user-developer can name and style their app's assistant from the Studio.
@@ -97,7 +97,9 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 **Couplings:** the respond-or-not policy + `@`-mention control ride the same classifier and land with this; cancel must ride the container teardown order — let the sync bracket resolve, `destroy()`, tolerate the 1006 — and release the residency hold (both pinned in the collapse's Phase 3).
 
-**The respond-or-not policy — decided 2026-09-04 (Larry), deterministic first.** The classifier's *codegen* verdict no longer forks anything — the guidance task ([nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) § *Design intent*) runs one assembly on every turn and keeps the cheap call only as a container-warm hint. What is still this item's is whether Nebula answers at all, and three of the four cases need no model:
+**The respond-or-not policy — decided 2026-09-04 (Larry), deterministic first.** The classifier's *codegen* verdict no longer forks anything — the guidance task ([nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md) § *Design intent*) runs one assembly on every turn and keeps the cheap call only as a container-warm hint. What is still this item's is whether Nebula answers at all, and three of the four cases need no model:
+
+**2026-09-06 — the discriminator call is DELETED.** Its last job was a warm hint that fired the build box before the model's first write; five real turns measured every first-write to build interval above the 3.2 s cold start, so Larry dropped the call, and only the first write warms now. Stage 1 above would therefore be a NEW classifier call, decided when this item is picked up, not a survivor of the collapse's two-call design.
 
 1. **`@nebula` in the message → respond.** Needs a mention syntax, which does not exist today: `@` followed by a participant's display name, matched case-insensitively against the chat's participants.
 2. **Another participant tagged and no `@nebula` → do not respond.** The message is for them.
@@ -105,6 +107,12 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 4. **Others present and no tag → the cheap model decides**, given the roster and the last six or so messages with their bylines, and failing open to *respond* — an unanswered request is the worse error in a building session. Draft prompt: *"A group chat in an app-building workspace. Nebula is the assistant. Given who is present and the last messages, reply with ONLY `{"respond": true}` if the newest message asks Nebula for something or continues an exchange with Nebula, and `{"respond": false}` if it is addressed to another person."*
 
 Single-flight sits before all four: a message during a generation is still skipped, and the queue this item builds is what changes that.
+
+**Consider — turn leases and wake-time reconciliation (2026-09-06, from the crash-only discussion).** Three ideas from the let-it-crash article, each prefixed "consider" on purpose: none is decided, and Larry's worry sits above all three. A fresh container does nothing for a half-finished Workspace, and a restart does nothing for a corrupt one. What makes the half-finished case survivable is that both histories are durable — the commits in the DO's git and the Messages in the chat — so the person can say "fix it" and the model sees what landed and what did not. Guidance for that grows over time, and LLM-driven testing, once it exists, makes such states obvious rather than discovered by hand.
+
+- **Consider a lease per turn.** The human Message is durable before the model runs; if the Galaxy is evicted mid-turn the turn dies, and today the person posts again. On wake, a Message with no reply and no turn in flight is a lease that expired: restart it once, from the durable state (the commits, the history bundle), never a blind rerun, because a turn is a multi-minute model job. The idempotency key already exists — one reply per Message — so a restart that finds the reply landed is a no-op.
+- **Consider an attempt cap with a parked reply.** Two attempts, then a reply that says what landed and that it stopped, where someone has to look. Without the cap a restart is the article's poison message retried forever; with it, a corrupt Workspace surfaces as a message rather than a loop.
+- **Consider reconciling on wake.** An eviction skips the turn's `finally`, so a build box can outlive its build. On wake, destroy any running container no build owns, and name the Workspace's state — uncommitted changes against the last commit — so the restarted turn, or the person, starts from something named.
 
 ## Notes
 

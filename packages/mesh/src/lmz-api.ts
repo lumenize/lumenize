@@ -822,7 +822,11 @@ async function fireResponse(
   // throw must still surface (a 3-arg fire-and-forget, or a handler throw at the sink — N8).
   if (!response || response.kind === 'discard' || (response.onErrorOnly && !isError)) {
     if (isError) {
-      log.error(`${nodeTypeName}: post-ack chain threw with no handler to receive the error`, { error: errText() });
+      // The stack rides along: a bare message (`TypeError: undefined is not a function`,
+      // 2026-09-06, once in a dozen live runs) names nothing a reader can act on.
+      log.error(`${nodeTypeName}: post-ack chain threw with no handler to receive the error`, {
+        error: errText(), stack: outcome instanceof Error ? outcome.stack : undefined,
+      });
     }
     return;
   }

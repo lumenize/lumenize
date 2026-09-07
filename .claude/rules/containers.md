@@ -56,6 +56,17 @@ container's real disk instead — functionally equivalent for a build, so contai
 be verified locally (the 2026-08-28 "local serves empty — structural" finding was this same
 root-seeding bug observed locally, and is retracted).
 
+⚠️ **Under local materialize mode the pull LOSES an empty-then-rewrite of unchanged files, and a
+re-pull cannot recover it.** Measured 2026-09-06 on `build-box`: vite's default `emptyOutDir`
+deleted `dist/` and rewrote byte-identical files; the bracket reported `sync.status: complete,
+applied: 0`, and the VFS had lost the dist. The next exec's bracket then PUSHED that dist-less VFS
+onto the container, so the no-op exec meant to re-pull found an empty directory. Two rules follow.
+The job MUST run `vite build --emptyOutDir=false`, with the host pruning stale entries after
+arrival (`apps/nebula/container/compiler/job.ts`, `Galaxy.#pruneDist`). And arrival MUST be a
+digest check against the job's report, never a presence check — a stale dist answers a presence
+check. Deployed FUSE has no pull, so this class is local-only by mechanism; the wipe-gate deployed
+pass is what confirms it.
+
 ⚠️ A root-level write fails in the quietest shape available: the exec's sync bracket still reports the
 entries pushed (computerd stores them; serving is what is subtree-scoped), so the mount sits up and
 EMPTY while every count reads healthy. That was 2026-08-29's deploy blocker — bisected in

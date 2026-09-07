@@ -13,8 +13,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import { startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS } from '../src/turn-liveness';
-import { ACCESS_TOKEN_TTL } from '@lumenize/nebula-auth';
-import { GENERATION_DEADLINE_MS } from '../src/galaxy';
 
 describe('turn liveness', () => {
   it('a genuinely silent turn fails within one idle window — not a hang', () => {
@@ -91,21 +89,5 @@ describe('deriveTurnDisplay', () => {
     expect(deriveTurnDisplay({ streaming: false, phase: 'awaiting', awaitingReply: true }))
       .toBe('thinking');
     expect(deriveTurnDisplay({ streaming: false, awaitingReply: false })).toBe('none');
-  });
-});
-
-/**
- * The generation deadline is an AUTHORIZATION bound, not just a timeout — asserted here
- * because nothing else would catch it being raised. A triggered turn runs detached under
- * the poster's `callContext`, whose claims are verified at post time and never
- * re-verified at the write, so a turn allowed to outrun `ACCESS_TOKEN_TTL` would commit
- * under claims that had already expired. Keeping it strictly under the TTL is what holds
- * the write inside the revocation exposure `security.md` already accepts.
- */
-describe('generation deadline vs the access-token lifetime', () => {
-  it('a turn cannot outlive the token whose claims it commits under', () => {
-    // The SHIPPED constant, imported — not a copy. A copy would keep passing after
-    // someone raised the real deadline, which is the whole failure this guards.
-    expect(GENERATION_DEADLINE_MS).toBeLessThan(ACCESS_TOKEN_TTL * 1000);
   });
 });

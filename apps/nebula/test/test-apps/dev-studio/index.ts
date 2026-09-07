@@ -84,7 +84,7 @@ export class GalaxyLoopProbe extends Galaxy {
       ontology,
       typeCheck: { ran: true, checked: [], findings: [] },
       bundle: { ran: true, ok: true },
-      publish: { done: false, why: 'not decided at the build layer' },
+      preview: { refreshed: false, why: 'not decided at the build layer' },
     };
   }
 
@@ -147,6 +147,96 @@ export class GalaxyLoopProbe extends Galaxy {
   async reInitForTest(): Promise<void> {
     await this.onStart();
   }
+
+  /** The keys of the entry-reaching deps `runCodegenTurn` builds — the resource-surface
+   *  test asserts they are exactly `LOOP_TOOL_ENTRIES`'s. */
+  loopToolDepKeysForTest(): string[] {
+    return Object.keys(this.loopToolDeps()).sort();
+  }
+
+  /** Remove a Workspace file — e.g. `AGENTS.md`, so a turn runs on a Workspace without
+   *  the Galaxy layer (the shape of a Galaxy seeded before the layer existed). */
+  async removeFileForTest(path: string): Promise<void> {
+    await this.workspaceFs().rm(wsPath(path));
+  }
+
+  // --- The model lanes: capture what each sends without an inference ---
+  #lane?: 'rest' | 'binding';
+  #capturedRun?: { model: string; body: unknown; options: unknown };
+  protected override modelLane(): 'rest' | 'binding' {
+    return this.#lane ?? super.modelLane();
+  }
+  protected override aiBinding() {
+    return {
+      run: async (model: string, body: unknown, options?: unknown) => {
+        this.#capturedRun = { model, body, options };
+        return { response: 'stub' };
+      },
+    };
+  }
+  #capturedRestHeaders?: Record<string, string>;
+  /** Statuses the fake transport answers with, in order (200 after the queue empties);
+   *  a 429 carries `retry-after: 0` so the lane's backoff costs the test nothing. */
+  #restStatuses: number[] = [];
+  #restCalls = 0;
+  protected override restFetch(_url: string, init: RequestInit): Promise<Response> {
+    this.#capturedRestHeaders = { ...(init.headers as Record<string, string>) };
+    this.#restCalls++;
+    const status = this.#restStatuses.shift() ?? 200;
+    if (status !== 200) return Promise.resolve(new Response('refused', { status, headers: { 'retry-after': '0' } }));
+    return Promise.resolve(new Response(JSON.stringify({ success: true, result: { response: 'stub' } }),
+      { headers: { 'content-type': 'application/json' } }));
+  }
+  /** Drive the REST lane through a status sequence; returns how many calls the lane made
+   *  and whether it threw — the retry-on-429 contract. */
+  async runRestStatusesForTest(statuses: number[]): Promise<{ calls: number; error?: string }> {
+    this.#lane = 'rest';
+    const env = this.env as { CLOUDFLARE_ACCOUNT_ID?: string };
+    const had = env.CLOUDFLARE_ACCOUNT_ID;
+    env.CLOUDFLARE_ACCOUNT_ID ??= 'account-for-test';
+    this.#restStatuses = [...statuses];
+    this.#restCalls = 0;
+    try {
+      await this.runModel('@cf/test/model', { messages: [] });
+      return { calls: this.#restCalls };
+    } catch (e) {
+      return { calls: this.#restCalls, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      this.#lane = undefined;
+      if (had === undefined) delete env.CLOUDFLARE_ACCOUNT_ID;
+    }
+  }
+  /** Run `runModel` on the REST lane against the capturing transport and return the headers
+   *  `#callModelRest` put on the wire — the affinity header at its CALL SITE. */
+  async runModelViaRestForTest(): Promise<Record<string, string>> {
+    this.#lane = 'rest';
+    const env = this.env as { CLOUDFLARE_ACCOUNT_ID?: string };
+    const had = env.CLOUDFLARE_ACCOUNT_ID;
+    env.CLOUDFLARE_ACCOUNT_ID ??= 'account-for-test'; // the lane refuses to build a URL without one
+    try {
+      this.#capturedRestHeaders = undefined;
+      await this.runModel('@cf/test/model', { messages: [] });
+      return this.#capturedRestHeaders ?? {};
+    } finally {
+      this.#lane = undefined;
+      if (had === undefined) delete env.CLOUDFLARE_ACCOUNT_ID;
+    }
+  }
+  /** Run `runModel` on the BINDING lane against the capturing stub and return the options
+   *  it passed — the affinity header's presence on that lane. */
+  async runModelViaBindingForTest(): Promise<{ options: unknown; headers: Record<string, string> }> {
+    this.#lane = 'binding';
+    try {
+      this.#capturedRun = undefined;
+      await this.runModel('@cf/test/model', { messages: [] });
+      // Read through a local: TS narrows the field to `undefined` after the assignment
+      // above and cannot see the stub's write inside `aiBinding().run`.
+      const captured = this.#capturedRun as { options: unknown } | undefined;
+      return { options: captured?.options, headers: this.modelCallHeaders() };
+    } finally {
+      this.#lane = undefined;
+    }
+  }
 }
 
 /**
@@ -158,11 +248,6 @@ export class GalaxyLoopProbe extends Galaxy {
 export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
   protected override generationDeadlineMs = 800;
   #hangNext = false;
-
-  /** Pin the verdict: no discriminator model call, straight to the (scripted) codegen path. */
-  protected override async discriminate(): Promise<{ respond: true; codegen: boolean }> {
-    return { respond: true, codegen: true };
-  }
 
   protected override async callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown> {
     if (this.#hangNext) {

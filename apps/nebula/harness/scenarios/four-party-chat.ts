@@ -158,6 +158,15 @@ export async function run(stack: DevStack): Promise<void> {
     const reply = await waitForReply(owner, ownerSub, austenMsg);
     assert.equal(reply.meta.actingToken.sub, austenSession.sub,
       'the reply runs under the TRIGGERING person\'s own authority (the participant model)');
+    // EXPLORATORY limb (e) of the guidance file tree — REPORTED, never gated: in a four-party
+    // thread, "what does this app do so far?" gets a reply naming what the app has. This
+    // Galaxy holds the seed only, so the truthful answer names the placeholder, the starter
+    // shell, or that nothing is built yet; a reply that invents a feature is the finding.
+    const replyText = (reply.value as { content?: string }).content ?? '';
+    const namesWhatItHas = /warming|placeholder|starter|shell|nothing|no features|not (yet )?built|empty|scaffold|seed/i.test(replyText);
+    console.error(`  ${namesWhatItHas ? '✓' : '✗'} limb (e) [reported] — the four-party "what does it do" reply ` +
+      `${namesWhatItHas ? 'names what the app has' : 'does NOT name what the app has'}: ${JSON.stringify(replyText.slice(0, 160))}`);
+    console.error(`- ${new Date().toISOString().slice(0, 10)} · (e) · ${namesWhatItHas ? 'pass' : 'fail'} · four-party "what does this app do so far?" → ${JSON.stringify(replyText.slice(0, 100))}`);
     assert.equal(reply.meta.actingToken.act?.sub, NEBULA_SUB, 'Nebula is the stamped actor');
     const parties = deriveParticipants(reply.meta.actingToken);
     assert.deepEqual(parties.map((p) => p.kind), ['agent', 'human'], 'byline: Nebula for {Austen}');
@@ -204,6 +213,44 @@ export async function run(stack: DevStack): Promise<void> {
     const treeDeadline = Date.now() + 15_000;
     while (tree === undefined && Date.now() < treeDeadline) await new Promise((r) => setTimeout(r, 250));
     assert.ok(tree !== undefined, 'Austen READ .dev Star data (the org tree arrived on her own dev session)');
+
+    // ── The chat floor on the SOURCE entries (`security.md`'s design-floor line) ──
+    // The sub whose turn already writes and builds — Austen's GALAXY session, write at the
+    // chat node, no admin bit — can make the same calls directly; Galaxy configuration
+    // stays behind dominion. Every refusal is matched on its MESSAGE: a boundary refusal
+    // (`Active-scope mismatch`), a DAG refusal and a dominion refusal are indistinguishable
+    // as booleans, and collapsing them is exactly what this limb exists to catch.
+    const refusal = async (p: Promise<unknown>): Promise<string | null> => {
+      try { await p; return null; } catch (e) { return e instanceof Error ? e.message : String(e); }
+    };
+    const g = austen.client;
+    const app = await g.lmz.callAsync('GALAXY', SCOPE, g.ctn<Galaxy>().readSource('src/App.vue')) as string;
+    assert.ok(app.includes('<template>'), 'Austen (chat write) reads src/App.vue directly');
+    const { oid } = await g.lmz.callAsync('GALAXY', SCOPE,
+      g.ctn<Galaxy>().writeSource('src/App.vue', `${app}\n<!-- edited directly by Austen -->\n`)) as { oid: string };
+    assert.match(oid, /^[0-9a-f]{40}$/, 'Austen (chat write) writes src/App.vue directly — a commit lands');
+    const report = await g.lmz.callAsync('GALAXY', SCOPE, g.ctn<Galaxy>().buildNow(), { timeoutMs: 120_000 }) as { container?: unknown };
+    assert.ok(report && typeof report.container === 'object',
+      'Austen (chat write) runs buildNow directly and gets a per-step report (container-free here, so its container step fails and says so)');
+    assert.equal(
+      await refusal(g.lmz.callAsync('GALAXY', SCOPE, g.ctn<Galaxy>().setGalaxyConfig('pwned', true))),
+      'Admin access required',
+      'Galaxy configuration stays behind DOMINION — the bare-non-admin message, since Austen holds no bit at all',
+    );
+    // Austen's `.dev` session is a DIFFERENT sub with no grant on the Galaxy's tree: passage
+    // admits it upward, the chat floor refuses it, and dominion names both scopes.
+    const d = austenDev.client;
+    assert.match(
+      (await refusal(d.lmz.callAsync('GALAXY', SCOPE, d.ctn<Galaxy>().readSource('src/App.vue')))) ?? '(succeeded)',
+      /^write permission required on node /,
+      'the .dev session holds no chat floor on the Galaxy host — refused by the DAG, not the boundary',
+    );
+    assert.equal(
+      await refusal(d.lmz.callAsync('GALAXY', SCOPE, d.ctn<Galaxy>().setGalaxyConfig('pwned', true))),
+      `Admin access required for ${SCOPE} — your admin scope is ${SCOPE}.dev`,
+      'the .dev admin bit is not dominion over the Galaxy — the confined message names both scopes',
+    );
+    console.error('  ✓ the chat floor: Austen reads, writes and builds directly; config refused by dominion; her .dev session refused by the DAG');
 
     console.error('[four-party-chat] all four parties live + attributed; the reply ran under Austen\'s authority');
   } finally {

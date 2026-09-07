@@ -233,11 +233,11 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    */
   onReload?: () => void;
   /**
-   * Optional hook invoked when the Galaxy signals the preview can (re)load (the
-   * {@link NebulaClient.handlePreviewReady} push, in response to
-   * {@link NebulaClient.warmPreview}). The Studio uses it to auto-refresh the preview
-   * iframe — no manual Reload. `scope` is the scope the readiness is for (ignore if
-   * the UI has since switched scopes).
+   * Optional hook invoked when the Galaxy answers a build this client asked for — the
+   * {@link NebulaClient.handlePreviewReady} push, fired by the build reply
+   * (`Galaxy.announceBuildToRequester`) and by nothing else. The Studio uses it to
+   * auto-refresh the preview iframe — no manual Reload. `scope` is the scope the
+   * readiness is for (ignore if the UI has since switched scopes).
    */
   onPreviewReady?: (scope: string) => void;
   /**
@@ -255,7 +255,7 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
   resourceHostBinding?: string;
   /**
    * The CHAT host pair — which binding + instance host this client's chat
-   * (`postUserMessage` / `chat` / `warmPreview`). Chat `Chat`/`Message` Resources live on
+   * (`postUserMessage` and the thread subscription). Chat `Chat`/`Message` Resources live on
    * **GALAXY `{u}.{g}`** (the app-level brain) while app resources stay on the Star, so
    * the two planes are separate construction pairs — PER CLIENT INSTANCE, never per op
    * (no client needs two hosts: Studio's client chats and never touches app resources;
@@ -2008,24 +2008,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Ask the Galaxy to signal the preview can load (post-collapse there is nothing to warm
-   * for viewing — dist/ serves from the Galaxy's own VFS), so the
-   * UI can auto-refresh the iframe (no manual Reload). Fire-and-forget (NOT awaited
-   * `callRaw`) — the container boot is long and the readiness comes back via the
-   * {@link handlePreviewReady} push (direct delivery by this client's stable
-   * `instanceName`), so it survives a WS reconnect during the boot. Passes its own
-   * `instanceName` explicitly as the reply target.
-   */
-  warmPreview(): void {
-    const clientId = this.lmz.instanceName;
-    const { binding, scope } = this.#chatHost();
-    this.lmz.call(binding, scope, this.ctn<Galaxy>().warmPreview(clientId));
-  }
-
-  /**
-   * Receive the Galaxy's "preview is serving" signal (direct delivery, addressed to this
-   * client's `instanceName`). Invokes the `onPreviewReady` hook so the UI can refresh
-   * the preview iframe. `@mesh()` because it arrives over the Gateway like the other pushes.
+   * Receive the Galaxy's build reply — "your preview has a new dist" (direct delivery,
+   * addressed to this client's `instanceName`, so it survives a WS reconnect during the
+   * build). Invokes the `onPreviewReady` hook so the UI can refresh the preview iframe.
+   * `@mesh()` because it arrives over the Gateway like the other pushes.
    */
   @mesh()
   handlePreviewReady(scope: string): void {

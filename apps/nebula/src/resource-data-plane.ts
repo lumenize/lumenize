@@ -526,7 +526,7 @@ export class ResourceDataPlane {
    */
   async ensureResource(
     resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,
-    opts: { actor?: { sub: string; profileId?: string } } = {},
+    opts: { actor?: { sub: string; profileId?: string }; pinnedAtPost?: true } = {},
   ): Promise<void> {
     if (this.#resources.read(resourceId)) return; // idempotent: a live snapshot exists
     const { version, facet } = this.#getOntology();
@@ -541,6 +541,7 @@ export class ResourceDataPlane {
         },
         // Server-composed only — see resources.ts TransactionOpts (the trust fence).
         actor: opts.actor,
+        ...(opts.pinnedAtPost ? { pinnedAtPost: true as const } : {}),
       },
     );
   }

@@ -16,8 +16,13 @@
  *    stateless build-box, never `extends Container` (containers.md).
  *
  * `extends NebulaDO` for the structural tenant-isolation `onBeforeCall` (passage into
- * `{u}.{g}`); codegen/source methods carry `@mesh(requireDominionHere)` on top, while the
- * chat data-plane surface is bare `@mesh()` — participants are non-admin but DAG-granted.
+ * `{u}.{g}`). Three guard tiers sit on top of it. The source entries — `readSource`,
+ * `writeSource`, `buildNow`, `appendWorkspaceOntology` — carry `@mesh(requireChatWrite)`,
+ * the chat floor: DAG `write` at the chat node, the same check a Message create passes
+ * at the door, so a collaborator's direct call and the turn their message triggers agree.
+ * Galaxy configuration (`setGalaxyConfig`, `ensureChat`) keeps `@mesh(requireDominionHere)`.
+ * The chat data-plane surface is bare `@mesh()` — participants are non-admin but
+ * DAG-granted, and the per-op check lives inside the plane.
  */
 
 import { mesh } from '@lumenize/mesh';
@@ -31,7 +36,8 @@ import {
   getParserValidatorFacet,
   type ParserValidator,
 } from '@lumenize/ts-runtime-parser-validator/runtime';
-import { NEBULA_SUB, ACCESS_TOKEN_TTL } from '@lumenize/nebula-auth';
+import { NEBULA_SUB, ACCESS_TOKEN_TTL, hasDominionOver, projectActingToken } from '@lumenize/nebula-auth';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { NebulaDO, requireDominionHere } from './nebula-do';
 // Types only — the COMPILE itself runs in the container build job
 // (tasks/archive/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
@@ -53,6 +59,7 @@ import { OntologyStaleError } from './errors';
 import { serveApp } from './serve';
 import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
+import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
 import type { DagTree } from './dag-tree';
 import type { NebulaClient } from './nebula-client';
 // Type-only: types the facade continuation without pulling a second mesh entry into this
@@ -65,11 +72,17 @@ import {
   runCodegenLoop,
   parseModelTurn,
   assembleCodegenPrompt,
+  renderHistoryBundle,
+  TOOL_CONTRACT,
   CODEGEN_TOOLS,
   TOOL_ARG_TYPE,
+  unknownToolArgKeys,
   DEFAULT_LOOP_CONFIG,
+  type HistoryEntry,
   type CodegenLoopConfig,
   type CodegenLoopDeps,
+  type LoopToolDeps,
+  type LoopToolName,
   type ChatMessage,
   type ModelParams,
   type LoopResult,
@@ -142,16 +155,12 @@ const GIT_INITED_KEY = 'galaxy:gitInited';
  *  model-agnostic, and the model name is never surfaced in the UI or elsewhere. */
 const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
 
-/** The fast-discriminator model id — small + cheap, sub-second budget (the two-LLM-calls
- *  Decisions row). Swappable like {@link STUDIO_MODEL}; never surfaced. */
-const DISCRIMINATOR_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
-
 /**
  * The default generation deadline, at module scope so a test can assert the
  * shipped value rather than a copy of it (see `Galaxy.generationDeadlineMs`,
  * whose JSDoc carries why this is an authorization bound).
  */
-export const GENERATION_DEADLINE_MS = 300_000;
+export const GENERATION_DEADLINE_MS = 840_000;
 
 /** A hung build job is killed here; the report's `container` tail then NAMES the
  *  timeout, so the model does not rebuild the same code until the turn deadline.
@@ -163,38 +172,38 @@ const BUILD_TIMEOUT_MS = 180_000;
 /** Per-cycle job options: the host-computed ontology work, when the `.d.ts` changed. */
 type BuildJobOpts = { ontology?: { version: string; wipe: boolean } };
 
-/** The seam's placeholder `publish` — {@link Galaxy.#buildAndAnnounce} overwrites it
- *  with the real decision, so a faked `build()` never decides publishing either. */
-const PUBLISH_UNDECIDED = { done: false, why: 'not decided at the build layer' };
+/** The seam's placeholder `preview` — {@link Galaxy.#buildAndAnnounce} overwrites it
+ *  with the real decision, so a faked `build()` never decides the refresh either. */
+const PREVIEW_UNDECIDED = { refreshed: false, why: 'not decided at the build layer' };
 
 /**
- * The publish decision — default: reload only on a clean build; the MODEL may override
- * to publish alongside findings it judges harmless (the task's
- * publishing-is-the-model's-call decision). What it can never override is a failed (or
- * never-run) bundle: there is no `dist`, so nothing to publish — structural, not
+ * The preview decision — default: refresh the `.dev` preview only on a clean build;
+ * the MODEL may override to refresh alongside findings it judges harmless (the task's
+ * refresh-is-the-model's-call decision). What it can never override is a failed (or
+ * never-run) bundle: there is no `dist`, so nothing to refresh from — structural, not
  * policy. Pure and exported so every arm is unit-testable; the announce layer
  * (`#buildAndAnnounce`) is its only production caller.
  */
-export function decidePublish(report: BuildReport, override?: boolean): BuildReport['publish'] {
+export function decidePreview(report: BuildReport, override?: boolean): BuildReport['preview'] {
   if (!(report.bundle.ran && report.bundle.ok === true)) {
     const why = report.bundle.ran
-      ? 'bundle failed — there is no dist to publish'
+      ? 'bundle failed — there is no dist to refresh the preview from'
       : `bundle did not run (${(report.bundle as { why: string }).why}) — there is no new dist`;
-    return { done: false, why };
+    return { refreshed: false, why };
   }
   if (override === true) {
-    return { done: true, why: 'published on the model\'s override' };
+    return { refreshed: true, why: 'refreshed on the model\'s override' };
   }
   if (override === false) {
-    return { done: false, why: 'the model declined to publish' };
+    return { refreshed: false, why: 'the model declined to refresh the preview' };
   }
   if (stepFailed(report.ontology)) {
-    return { done: false, why: 'ontology compile failed — publish withheld by default' };
+    return { refreshed: false, why: 'ontology compile failed — preview refresh withheld by default' };
   }
   if (report.typeCheck.findings.length > 0) {
-    return { done: false, why: 'type findings — publish withheld by default (the model may override)' };
+    return { refreshed: false, why: 'type findings — preview refresh withheld by default (the model may override)' };
   }
-  return { done: true, why: 'clean build' };
+  return { refreshed: true, why: 'clean build' };
 }
 
 /** The env the in-container `vite build` runs under. Deps are baked at the image
@@ -256,6 +265,83 @@ function tail(text: string, n: number): string {
   return text.length > n ? text.slice(-n) : text;
 }
 
+// ─── The chat floor + the path rule (the source entries' own guards) ────────
+
+/**
+ * Guard: the CHAT FLOOR — DAG `write` at the chat node, the check a Message create runs
+ * at the door. Every source entry (`readSource`, `writeSource`, `buildNow`,
+ * `appendWorkspaceOntology`) carries `@mesh(requireChatWrite)`, so a collaborator who can
+ * post — and whose post therefore triggers a turn that writes and builds under their own
+ * claims — can make the same calls directly. A Galaxy admin passes through the confined
+ * scope-admin bypass inside `requirePermission`, so nothing changes for the owner.
+ *
+ * Distinct from {@link requireDominionHere}, which stays on the Galaxy's configuration
+ * entries: this guard reads the DAG grant, so it inherits `DagTree.requirePermission`'s
+ * obligations — the host-confined dominion bypass and the `PermissionDeniedError` message
+ * a boundary refusal is told apart by (`security.md`).
+ */
+export function requireChatWrite(instance: Galaxy): void {
+  instance.dagTree().requirePermission(CHAT_NODE_ID, 'write');
+}
+
+/**
+ * The path rule for a model- or client-chosen Workspace path, enforced IN THE ENTRIES
+ * (`readSource` / `writeSource`) so a direct call and a loop tool agree. Normalises a
+ * leading `./`, then refuses an absolute path and any `..` segment; for a WRITE, also
+ * refuses every path whose first segment starts with `.` other than `.agents` —
+ * `.platform/` and `.universe/` are mounts, `.nebula/` is machine-owned (a write there
+ * would plant a registry row `#registryRows()` parses), `.git/` is git's, `.env` is where
+ * a secret would go. Reads of a dot path stay allowed (the build box reads `.git/index`
+ * and the compiled row). Returns the normalised relative path. Pure; throws on reject.
+ */
+export function assertModelPath(path: string, opts: { write: boolean }): string {
+  if (typeof path !== 'string' || path.length === 0) {
+    throw new Error(`Invalid source path: ${String(path)}`);
+  }
+  const rel = path.replace(/^(\.\/)+/, '');
+  if (rel.startsWith('/') || rel.startsWith('\\')) {
+    throw new Error(`Absolute source path rejected: ${path}`);
+  }
+  const segments = rel.split(/[/\\]/);
+  if (segments.includes('..')) {
+    throw new Error(`'..' segment rejected in source path: ${path}`);
+  }
+  if (opts.write && segments[0]!.startsWith('.') && segments[0] !== '.agents') {
+    throw new Error(
+      `Reserved path rejected for write: ${path} — a path whose first segment starts with a dot (a file like .env, or a directory like .git/ or .nebula/) is not writable, except under .agents/`,
+    );
+  }
+  return rel;
+}
+
+/** A loop tool → the Galaxy entries it reaches. `runCodegenTurn` builds the tool deps from
+ *  this table ({@link Galaxy.loopToolDeps}), so a tool cannot reach an entry the table does
+ *  not name, and the resource-surface test reads it to assert every named entry sits at the
+ *  chat floor. `mark_complete` reaches nothing and is not listed. */
+export const LOOP_TOOL_ENTRIES = {
+  read_file: ['readSource'],
+  write_file: ['writeSource'],
+  edit_file: ['readSource', 'writeSource'],
+  build: ['buildNow'],
+} as const satisfies { [K in LoopToolName]: readonly LoopEntry[] };
+
+/** The reserved mounts a `read_file` path may name, and what answers each: `.platform/`
+ *  is the embedded platform layer ({@link PLATFORM_FILES}); `.universe/` is reserved
+ *  for a layer that does not exist yet and answers this error until it does. */
+export const UNIVERSE_RESERVED_MESSAGE = '.universe/ is reserved — no Universe layer exists yet';
+
+/** A Workspace read that found no file, as the model should see it: the path, not a
+ *  VFS error code. Any other read failure passes through unchanged. */
+function noSuchFile(path: string, e: unknown): Error {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /ENOENT|no such file|not found|does not exist|NotFound/i.test(msg)
+    ? new Error(`no such file: ${path}`)
+    : (e instanceof Error ? e : new Error(msg));
+}
+
+/** The Galaxy entries a loop tool may reach — the domain of {@link LOOP_TOOL_ENTRIES}. */
+type LoopEntry = 'readSource' | 'writeSource' | 'buildNow';
+
 /** {@link isStuckFlagResponse} over a thrown error carrying `(status, body)` — defensive
  *  against a plain Error (no `status`/`body` → not stuck). Pure. */
 export function isStuckFlagError(err: unknown): boolean {
@@ -265,34 +351,20 @@ export function isStuckFlagError(err: unknown): boolean {
   return isStuckFlagResponse(e.status, e.body);
 }
 
-/** Minimal, *structural* system bundle for the tool-calling loop — the seed of the
- *  composable cascade. The make-it-data-bound *content* is the engine file's
- *  exploratory concern; this only establishes the tool protocol + output constraints.
- *  Model-agnostic (`studio-model-agnostic-naming`) — no vendor name appears. */
-const STUDIO_LOOP_SYSTEM_PROMPT = `You are Studio, an assistant that builds a small web app as a Vue 3 Single-File Component (src/App.vue).
-Use the provided tools — do not output code in your reply:
-- Call write_file with the COMPLETE new contents of a file. It is a pure save — nothing is checked at write time — so write every file the change needs, then check them all with one build.
-- Call build to check and bundle the app. Read its per-step report: fix a failed ontology or bundle step with write_file and build again; a failed container step is infrastructure and may be retried unchanged — unless its tail says the job timed out, in which case simplify instead of retrying.
-- typeCheck findings are ADVISORY, and you are the judge: a finding may be a real bug a user would hit, or something the checker cannot see is safe. Fixing is not always the right call — shipping with a reasoned findings list is a legitimate outcome. The preview publishes by default only on a findings-free build; pass { "publish": true } to build to publish alongside findings you judge harmless. You can never publish when bundle failed (there is no dist).
-- When the app is done and the last build report is acceptable, call mark_complete.
-Rules:
-- Vue 3 with <script setup lang="ts"> and a <template>.
-- Style ONLY with Tailwind utility classes and DaisyUI component classes (both are already available).
-- For COLOR, use DaisyUI semantic classes (bg-primary, text-base-content, bg-base-200, border-base-300),
-  not raw Tailwind palette utilities (bg-blue-500, text-slate-700) — semantic classes resolve through the
-  active theme.
-- When the user wants a particular look ("warmer", "our brand blue is #1e40af", "match our logo"), change
-  the THEME, not the markup: add an @plugin "daisyui/theme" block to src/style.css setting --color-primary,
-  --color-base-100, etc. (OKLCH preferred), or switch to a different built-in theme. Same result on screen,
-  and it restyles the whole app at once.
-- If the user still wants colors hard-coded into the markup, DO IT — but first say once, briefly, what it
-  costs: those colors stop following the theme, so restyling later means editing every component and they
-  will not adapt to light/dark. State it once, then follow their decision without repeating it.
-- What the person is LOOKING AT rides the URL, so a shared link lands on the same view: the selected
-  record, the open tab or panel, filters, sort, paging. A modal or panel someone would send a link to
-  (a record's detail, a settings panel) is opened ONLY by navigating to its URL, and Back closes it.
-  What they are DOING — scroll, focus, drafts, confirmations, menus — stays out of the URL.
-- You may import icons from "lucide-vue-next". Do not import any other package.`;
+/**
+ * The Workers AI REST lane's header map — pure, so the affinity header's presence on
+ * that lane is assertable without a token. `extra` is {@link Galaxy.modelCallHeaders}
+ * (the session-affinity header both lanes send); the gateway id rides as a header on
+ * the ordinary `/ai/run` endpoint rather than a second origin (see `#callModelRest`).
+ */
+export function workersAiRestHeaders(opts: { token: string; gateway?: string; extra: Record<string, string> }): Record<string, string> {
+  return {
+    Authorization: `Bearer ${opts.token}`,
+    'Content-Type': 'application/json',
+    ...opts.extra,
+    ...(opts.gateway ? { 'cf-aig-gateway-id': opts.gateway } : {}),
+  };
+}
 
 // ─── Galaxy DO ───────────────────────────────────────────────────────
 
@@ -326,14 +398,13 @@ export class Galaxy extends NebulaDO {
    *  latch + ends the heartbeat so a fresh message can start a NEW generation.
    *  `protected` field so the test probe can shorten it.
    *
-   *  ⚠️ **It MUST stay under `ACCESS_TOKEN_TTL`, and the assert below is why.** A
-   *  triggered turn runs detached under the POSTER's `callContext`, whose claims were
-   *  verified when they posted and are never re-verified at the write — so a turn that
-   *  outran the token's own lifetime would commit under claims that had expired before
-   *  the write landed. At 300 s against 900 s the write always lands inside the window
-   *  the access TTL already bounds, which is what keeps this inside `security.md`'s
-   *  accepted revocation exposure rather than widening it. Raise this and you are
-   *  changing an authorization property, not a timeout. */
+   *  A hung-call backstop and nothing else. It is NOT an authorization bound: a
+   *  triggered turn runs detached under the POSTER's claims as verified at the post, and
+   *  finishes under them whatever happens to the token or the grant meanwhile — the
+   *  reply commits with the door's verdict pinned (`TransactionOpts.pinnedAtPost`). It
+   *  went from 300 s to 840 s on 2026-09-06 when the round cap went to 32, and the same
+   *  day Larry retired the older "must stay under the access TTL" coupling, which had
+   *  tied a liveness knob to the token window for no property the design wants. */
   protected generationDeadlineMs = GENERATION_DEADLINE_MS;
 
   /** Reconstruct the Workspace (fs + host-side git over this DO's own SQLite), seed the
@@ -560,28 +631,52 @@ export class Galaxy extends NebulaDO {
    * NO push step: the container's `/workspace` IS this tree via the FUSE mount
    * (containers.md § There is NO source-push step), and the built `dist/` is served
    * from this same VFS (Phase 3).
+   *
+   * Guarded at the chat floor ({@link requireChatWrite}), and the path rule runs FIRST
+   * ({@link assertModelPath}): only the user-owned tree is writable. A call with a
+   * client origin logs the acting principal's projection — the ADR-016 record for a
+   * direct edit; a turn's writes carry it too, and the agent Message records the turn as a whole.
    */
-  @mesh(requireDominionHere)
+  @mesh(requireChatWrite)
   async writeSource(path: string, content: string): Promise<{ oid: string; path: string }> {
-    const rel = path.replace(/^\/+/, '');
+    const rel = assertModelPath(path, { write: true });
     if (rel.includes('/')) {
       await this.#ws.fs.mkdir(wsPath(rel.slice(0, rel.lastIndexOf('/'))), { recursive: true });
     }
     await this.#ws.fs.writeFile(wsPath(rel), content);
     await this.#ws.git.add({ dir: WS_ROOT, paths: [rel] });
     const { oid } = await this.#ws.git.commit({ dir: WS_ROOT, message: `edit ${rel}` });
+    const origin = this.#clientOrigin();
     debug('nebula.Galaxy.writeSource').debug('commit', {
       instanceName: this.lmz.instanceName,
       path: rel,
       oid,
+      ...(origin ? { clientId: origin.clientId, actingToken: projectActingToken(origin.claims) } : {}),
     });
     return { oid, path: rel };
   }
 
-  /** Local read — the LLM hot path (read relevant files into context). */
-  @mesh(requireDominionHere)
+  /** Local read — the LLM hot path (read relevant files into context). Chat floor;
+   *  the path rule runs first (a read of a dot path is allowed — see
+   *  {@link assertModelPath}). */
+  @mesh(requireChatWrite)
   async readSource(path: string): Promise<string> {
-    return this.#ws.fs.readFile(wsPath(path), 'utf8');
+    const rel = assertModelPath(path, { write: false });
+    return this.#ws.fs.readFile(wsPath(rel), 'utf8');
+  }
+
+  /**
+   * The client that made this call and the verified claims it rides, or `undefined` when
+   * there is no client origin — a server-internal call, or a direct in-DO test call with
+   * no mesh call context at all (reading `lmz.callContext` outside a call throws, and
+   * that is the one case this tolerates).
+   */
+  #clientOrigin(): { clientId: string; claims: NebulaJwtPayload } | undefined {
+    let cc: CallContextLike | undefined;
+    try { cc = this.lmz.callContext; } catch { return undefined; }
+    const clientId = cc?.callChain[0]?.instanceName;
+    const claims = cc?.originAuth?.claims as NebulaJwtPayload | undefined;
+    return clientId && claims ? { clientId, claims } : undefined;
   }
 
   /** Read the ontology source + its content-addressed version (`hashBlob` of the
@@ -606,23 +701,40 @@ export class Galaxy extends NebulaDO {
    * `vite build` — the Worker never compiles); the row rides the mount at `ROW_PATH`
    * and is read back HOST-side here. `version` + `wipeOnInstall` are host-computed and
    * passed IN, never read back out of the container — `version` keys the Star's
-   * Worker Loader cache, and the wipe bit is decided under this method's dominion
-   * check. The Galaxy keeps the append-only check, the write and the
-   * `transactionSync` unchanged — only the compile moved.
+   * Worker Loader cache, and the wipe bit is decided in this method's body. The Galaxy
+   * keeps the append-only check, the write and the `transactionSync` unchanged — only
+   * the compile moved.
    *
-   * The WIPE decision is made (and dominion-checked, via this method's guard) HERE, in
-   * the turn that changed the ontology, and rides the row as `wipeOnInstall` — written
-   * once, immutable, never consumed-and-cleared. A Star pulling this version from an
-   * older one wipes first; one already on it never asks (install idempotent).
+   * The entry sits at the chat floor ({@link requireChatWrite}) like every source
+   * operation; the WIPE is the one destructive effect on that surface and is priced
+   * where it lands: the body requires dominion over the `.dev` Star this row will wipe
+   * before it writes `wipeOnInstall`, because the Star's install path wipes on the
+   * row's say-so with no check of its own, and a caller with the chat floor and no bit
+   * exists (a node inviter may hold none). The decision rides the row as
+   * `wipeOnInstall` — written once, immutable, never consumed-and-cleared — and the
+   * acting principal is logged with it (the ADR-016 record a wipe owes). A Star pulling
+   * this version from an older one wipes first; one already on it never asks (install
+   * idempotent).
    *
    * `version` is content-addressed (`git.hashBlob` of the ontology source) so a
    * re-apply of unchanged source is a no-op and the Star-side Worker Loader cache
    * (`bundleId = galaxyId/version`) never serves a stale validator.
    */
-  @mesh(requireDominionHere)
+  @mesh(requireChatWrite)
   async appendWorkspaceOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
     const { version } = await this.#readOntology();
     if (await this.#registryRow(version)) return { version }; // unchanged source → already applied
+    if (wipe) {
+      const devStar = `${this.lmz.instanceName}.dev`;
+      const origin = this.#clientOrigin();
+      const claims = origin?.claims ?? this.#claimsIfAny();
+      if (!hasDominionOver(claims?.access, devStar)) {
+        throw new Error(`Wipe refused: dominion over ${devStar} is required to wipe its data on install`);
+      }
+      debug('nebula.Galaxy.appendWorkspaceOntology').info('wipe on install decided', {
+        version, devStar, actingToken: projectActingToken(claims!),
+      });
+    }
     const report = await this.#buildAndAnnounce({ ontology: { version, wipe } });
     if (!(report.ontology.ran && report.ontology.ok === true)) {
       const detail = stepFailed(report.ontology)
@@ -733,9 +845,9 @@ export class Galaxy extends NebulaDO {
    * report; a predecessor's failure never poisons the chain).
    *
    * This is the overridable SEAM (a test double fakes the container here), so it owns
-   * the build and nothing else — {@link #buildAndAnnounce} owns the publish decision
+   * the build and nothing else — {@link #buildAndAnnounce} owns the preview decision
    * and the reload push, one level up, where a faked success announces exactly like a
-   * real one. The seam's report carries a placeholder `publish` the layer above
+   * real one. The seam's report carries a placeholder `preview` the layer above
    * overwrites.
    */
   protected build(opts: BuildJobOpts = {}): Promise<BuildReport> {
@@ -745,42 +857,49 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
-   * A build plus its publish decision + announcement — **the only way callers should
-   * build.** A published build tells whoever asked for it (see
+   * A build plus its preview decision + announcement — **the only way callers should
+   * build.** A build that refreshes the preview tells whoever asked for it (see
    * {@link announceBuildToRequester}), and that belongs to the EVENT (new `dist` in
    * the VFS) rather than to whichever caller produced it: the codegen loop's `build`
-   * tool, the admin `buildNow()` and the dev Apply all go through here.
+   * tool (through the `buildNow` entry), a direct `buildNow()` and the dev Apply all
+   * go through here.
    *
    * When the caller passes no explicit ontology job, the Workspace's own pending
    * ontology change rides along (compiled for FEEDBACK — the row is written to the
    * mount but NOT appended to the registry; only {@link appendWorkspaceOntology}, the
-   * dominion-gated Apply, appends — the secure-by-default D2 line).
+   * Apply — chat floor, with its wipe bit decided at dominion — appends; the loop
+   * cannot reach it, which is the secure-by-default D2 line).
    *
    * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
    * `build()` made every faked build silently stop announcing — the suite caught it.
    */
-  async #buildAndAnnounce(opts: BuildJobOpts & { publish?: boolean } = {}): Promise<BuildReport> {
+  async #buildAndAnnounce(opts: BuildJobOpts & { preview?: boolean } = {}): Promise<BuildReport> {
     const jobOpts: BuildJobOpts = {
       ontology: opts.ontology ?? await this.#pendingOntology(),
     };
+    // Marker: the cycle's start — "the warm precedes the build" is asserted on the order
+    // of this marker and the warm's, within one Galaxy (`instanceName` is the discriminator
+    // `testing.md` asks every marker to carry).
+    debug('nebula.Galaxy.build').debug('cycle start', { instanceName: this.lmz.instanceName, ontology: Boolean(jobOpts.ontology) });
     const report = await this.build(jobOpts);
-    let publish = decidePublish(report, opts.publish);
+    let preview = decidePreview(report, opts.preview);
     // A clean report does not prove the dist ARRIVED: the vendor's post-exec pull
     // swallows its own failure (outcome resolves `status: "pending"`, applied 0, no
     // throw), and local materialize-mode change detection can miss vite's last writes
     // on the bracket — either way the serve would 404 behind a "clean build". The
-    // DELIVERY fix is upstream: {@link #buildOnce} verifies arrival and re-pulls
-    // before its teardown, while the container's store still exists. This gate is the
+    // DELIVERY fix is upstream: the job never empties `dist` (job.ts says why the pull
+    // lost the empty-then-rewrite), and {@link #buildOnce} verifies arrival by digest
+    // before its teardown. This gate is the
     // backstop that keeps the residual loss loud instead of a silent 404. Only where a
     // container actually ran — pool-workers' faked builds have no dist.
-    if (publish.done && this.ctx.container && !(await this.#distArrived())) {
-      publish = {
-        done: false,
+    if (preview.refreshed && this.ctx.container && !(await this.#distArrived(report.bundle.indexSha256))) {
+      preview = {
+        refreshed: false,
         why: 'the built dist did not arrive back from the container (sync pull incomplete) — retry the build',
       };
     }
-    if (publish.done) this.announceBuildToRequester();
-    return { ...report, publish };
+    if (preview.refreshed) this.announceBuildToRequester();
+    return { ...report, preview };
   }
 
   /**
@@ -821,7 +940,7 @@ export class Galaxy extends NebulaDO {
    * Teardown ordering: `handle.result()` resolves the post-exec sync bracket (dist is
    * normally in this DO's VFS at that moment), then — because a failed pull resolves
    * SILENTLY as pending, and the data is only recoverable while this container lives —
-   * arrival is verified and re-pulled via no-op exec brackets before the container is
+   * arrival is verified by digest against the job's report before the container is
    * destroyed. Destroying earlier fails the request with a capnweb 1006; the destroy
    * itself tolerates that same 1006 shape on the way out (the session it tears is the
    * one being discarded).
@@ -832,7 +951,7 @@ export class Galaxy extends NebulaDO {
       ontology: { ran: false, why: 'the build job did not run' },
       typeCheck: { ran: false, checked: [], findings: [] },
       bundle: { ran: false, why: 'the build job did not run' },
-      publish: PUBLISH_UNDECIDED,
+      preview: PREVIEW_UNDECIDED,
     });
     if (!this.ctx.container) {
       return skipped('no build container attached (local test config)');
@@ -861,43 +980,33 @@ export class Galaxy extends NebulaDO {
         const steps = JSON.parse(line.slice(REPORT_MARKER.length)) as {
           ontology: BuildReport['ontology'];
           typeCheck: BuildReport['typeCheck'];
-          bundle: StepResult;
+          bundle: BuildReport['bundle'];
         };
-        // The bracket's pull can fail SILENTLY (the vendor resolves it `status:
-        // "pending"` without throwing) or miss late writes (local materialize-mode
-        // change detection) — and the data is only recoverable while THIS container
-        // lives, since a fresh pull reads its store. So before the teardown, when the
-        // job says a dist exists, confirm it arrived host-side; on a miss, a no-op
-        // exec re-runs the whole sync bracket, which is the retry.
+        // Arrival is verified by DIGEST, not presence: the job reports the sha256 of the
+        // `index.html` it wrote and the VFS must hold those bytes — a stale dist from an
+        // earlier build passed a presence check on 2026-09-06 while the pull applied 0.
+        // There is deliberately NO re-pull. Every exec's sync bracket PUSHES the VFS to
+        // the container before it runs, so a no-op exec on a miss overwrote the container's
+        // dist with the dist-less VFS and then found nothing (measured that day: `ls` on
+        // the miss showed an empty directory). The miss is designed away in the job
+        // (`--emptyOutDir=false` — job.ts says why); what remains is this record and the
+        // preview gate in {@link #buildAndAnnounce} reporting a loss loudly.
         if (steps.bundle.ran && steps.bundle.ok === true) {
-          // Budget 5: a naturally-occurring miss (2026-08-30, local loop run 6) consumed
-          // all of a 3-attempt budget before the pull delivered — 3 was exactly enough,
-          // which is no margin at all. The loop exits at first arrival, so a healthy
-          // bracket pays one readFile and zero execs.
-          // ⚠️ SPACED, not back-to-back. The miss heals with TIME, not with more execs: five
-          // re-pulls fired in a row can all race the same in-flight pull and exhaust the budget
-          // in under a second (the 2026-09-03 `build-box` reds — bundle ok, dist never arrived).
-          // The hand-observed heal was "a no-op exec on the still-alive container, within a few
-          // tries" — tries spaced by human time. 250 ms doubling → ~8 s of patience in total.
-          // The await opens this DO's input gate, but this whole build is already a chain of
-          // container awaits serialized by `#buildChain`, so nothing new is exposed here.
-          let attempt = 0;
-          for (; attempt < 5 && !(await this.#distArrived()); attempt++) {
-            debug('nebula.Galaxy.build').warn('dist not in the VFS after the bracket — re-pulling', { attempt });
-            await new Promise((r) => setTimeout(r, 250 * 2 ** attempt));
-            try {
-              await (await this.#ws.runtime.exec('true', { cwd: '/workspace', timeoutMs: 30_000 })).result();
-            } catch { break; /* session dead — the publish gate reports the loss */ }
-          }
-          if (attempt > 0) {
-            debug('nebula.Galaxy.build').info('dist arrived after re-pull', { attempts: attempt, arrived: await this.#distArrived() });
+          if (await this.#distArrived(steps.bundle.indexSha256)) {
+            await this.#pruneDist(steps.bundle.files);
+          } else {
+            debug('nebula.Galaxy.build').warn('dist did not arrive in the VFS after the bracket', {
+              instanceName: this.lmz.instanceName, expected: steps.bundle.indexSha256,
+              pulled: result.pulled, skipped: result.skipped, sync: result.sync,
+            });
           }
         }
         this.#destroyBuildContainer();
         debug('nebula.Galaxy.build').info('job report', {
+          instanceName: this.lmz.instanceName,
           ontology: steps.ontology.ran, findings: steps.typeCheck.findings.length,
           bundleOk: steps.bundle.ran && steps.bundle.ok === true,
-          pushed: result.pushed, pulled: result.pulled,
+          pushed: result.pushed, pulled: result.pulled, skipped: result.skipped, sync: result.sync,
           // "pending" = the pull attempt THREW and is over (misleading name; retried
           // only under the opt-in retryScheduler). "complete" + pulled 0 is ambiguous:
           // nothing-to-sync AND detection-missed-everything both look like it — which
@@ -905,7 +1014,7 @@ export class Galaxy extends NebulaDO {
           syncStatus: (result as { sync?: { status?: string; error?: string } }).sync?.status,
           syncError: (result as { sync?: { status?: string; error?: string } }).sync?.error,
         });
-        return { container: { ran: true, ok: true }, ...steps, publish: PUBLISH_UNDECIDED };
+        return { container: { ran: true, ok: true }, ...steps, preview: PREVIEW_UNDECIDED };
       }
       this.#destroyBuildContainer();
       // The job exits 0 by design, so any other exit is the CONTAINER step's failure.
@@ -929,15 +1038,44 @@ export class Galaxy extends NebulaDO {
   }
 
   /** Did the built `dist` land in this DO's VFS? The delivery check behind the
-   *  pre-teardown re-pull in {@link #buildOnce} and the publish gate in
-   *  {@link #buildAndAnnounce}. */
-  async #distArrived(): Promise<boolean> {
+   *  pre-teardown arrival check in {@link #buildOnce} and the preview gate in
+   *  {@link #buildAndAnnounce}. With `expectedSha256` (the job's digest of the
+   *  `index.html` it wrote) the check is for THAT dist: a stale one from an earlier
+   *  build reads as not arrived, which a presence check let through on 2026-09-06
+   *  (a pull that applied nothing, and the previous build's dist answering for it). */
+  async #distArrived(expectedSha256?: string): Promise<boolean> {
     try {
-      await this.#ws.fs.readFile(wsPath('dist/index.html'));
-      return true;
+      // Read as text, the way every other host-side read of this VFS is: vite's index.html
+      // is UTF-8, so re-encoding is byte-exact and the digest matches the job's.
+      const text = await this.#ws.fs.readFile(wsPath('dist/index.html'), 'utf8');
+      if (!expectedSha256) return true;
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+      const hex = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+      return hex === expectedSha256;
     } catch {
       return false;
     }
+  }
+
+  /** Make the VFS's `dist/` exactly what the job built. The job no longer lets vite empty
+   *  the directory (job.ts says why), so a rebuild leaves the previous build's stale hashed
+   *  assets behind; they are deleted HERE, host-side, after arrival is verified — where a
+   *  deletion cannot be lost. No `files` in the report → nothing is pruned. */
+  async #pruneDist(files: string[] | undefined): Promise<void> {
+    if (!files || files.length === 0) return;
+    const keep = new Set(files);
+    const walk = async (rel: string): Promise<void> => {
+      let entries: Array<{ name: string; isDirectory: boolean }>;
+      try { entries = await this.#ws.fs.readdir(wsPath(rel ? `dist/${rel}` : 'dist')); } catch { return; }
+      for (const e of entries) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory) { await walk(r); continue; }
+        if (!keep.has(r)) {
+          try { await this.#ws.fs.rm(wsPath(`dist/${r}`), { force: true }); } catch { /* best effort */ }
+        }
+      }
+    };
+    await walk('');
   }
 
   /**
@@ -977,6 +1115,9 @@ export class Galaxy extends NebulaDO {
    *  lets the rejection escape as an unhandled one, which is the very 1006 this is
    *  written to swallow. Deliberately not awaited: teardown must not extend the turn. */
   #destroyBuildContainer(): void {
+    // The marker precedes the container guard, like the warm's: "exactly one teardown
+    // follows a warm" is asserted on it in-lane, where there is no container to destroy.
+    debug('nebula.Galaxy.teardown').info('build container destroyed', { instanceName: this.lmz.instanceName });
     try {
       void this.ctx.container?.destroy()?.catch(() => { /* tolerated — incl. the 1006 */ });
     } catch { /* a synchronous throw from destroy() itself */ }
@@ -996,16 +1137,19 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
-   * Run one build cycle on demand — the manual-rebuild affordance (an admin recovering
-   * from an infra failure without spending a model turn), and the drive-verification
-   * surface (`harness/scenarios/build-box.ts` proves the sequential/overlap/teardown
-   * contract through it — the model's own `build` calls are not deterministically
-   * drivable). Same latch, same ephemeral cycle as the loop's tool; the report
-   * returns to the caller's `callAsync`.
+   * Run one build cycle on demand — the loop's `build` tool reaches THIS entry (through
+   * {@link LOOP_TOOL_ENTRIES}), and it is the manual-rebuild affordance (a participant
+   * recovering from an infra failure without spending a model turn) and the
+   * drive-verification surface (`harness/scenarios/build-box.ts` proves the
+   * sequential/overlap/teardown contract through it — the model's own `build` calls are
+   * not deterministically drivable). Same latch, same ephemeral cycle; the report
+   * returns to the caller's `callAsync`. `preview` is the model's override
+   * ({@link decidePreview}); the pending-ontology job rides by default (compiled for
+   * feedback, never appended — the Apply appends).
    */
-  @mesh(requireDominionHere)
-  buildNow(): Promise<BuildReport> {
-    return this.#buildAndAnnounce();
+  @mesh(requireChatWrite)
+  buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {
+    return this.#buildAndAnnounce({ preview: opts.preview });
   }
 
   /**
@@ -1026,11 +1170,12 @@ export class Galaxy extends NebulaDO {
    *
    * Both build paths reach here through {@link #buildAndAnnounce}: the codegen loop's
    * `build` tool (running under the POSTER's callContext, so `callChain[0]` is the
-   * person whose message started the turn) and the admin `buildNow()`.
+   * person whose message started the turn) and a direct `buildNow()`.
    */
   protected announceBuildToRequester(): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    // No client origin (a server-internal build) — nobody asked, so nobody is told.
+    // No client origin (a server-internal build, or a direct in-DO call with no mesh
+    // context at all) — nobody asked, so nobody is told.
+    const clientId = this.#clientOrigin()?.clientId;
     if (!clientId) return;
     this.deliverPreviewReady(this.lmz.instanceName!, clientId);
   }
@@ -1123,22 +1268,22 @@ export class Galaxy extends NebulaDO {
     }
   }
 
-  /** The turn body the trigger races against the generation deadline: discriminator
-   *  first, then the codegen loop OR the plain-answer generation. */
+  /** The turn body the trigger races against the generation deadline: ONE assembly with
+   *  every layer and the full tool set, the model deciding whether to act. */
   async #chatTurn(userMessageId: string, message: string): Promise<void> {
     // Mint the agent Message id up front (Galaxy-minted — the human message's id is
     // client-minted); stream progress transiently to chat subscribers; commit ONE
     // durable Message at the end, `replyTo`-linked to the triggering human Message.
-    // Minted BEFORE the discriminator so the heartbeat below has an id from the first ms.
+    // Minted first so the heartbeat below has an id from the first ms.
     const agentMessageId = crypto.randomUUID();
 
     // ⚠️ ONE heartbeat for the WHOLE turn (`turn-heartbeat.ts`), not one per await. Every
-    // model call in a turn is whole-response and therefore silent — the discriminator, the
-    // plain-answer generation, and each codegen round — and a container build emits nothing
-    // until it exits. Wrapping the two loop awaits alone left the discriminator and the entire
-    // answer path uncovered, and the first live drive of it painted `failed` over a healthy
-    // turn before codegen had even started. The turn IS the unit of liveness. Bounded by the
-    // same generation deadline the trigger races this body against, so a hung call still fails.
+    // model call in a turn is whole-response and therefore silent — each codegen round —
+    // and a container build emits nothing until it exits. Wrapping the loop awaits alone
+    // once left the turn's opening classifier call (since deleted) uncovered, and the first
+    // live drive painted `failed` over a healthy turn before codegen had even started.
+    // The turn IS the unit of liveness. Bounded by the same generation deadline the trigger
+    // races this body against, so a hung call still fails.
     const deadlineAt = Date.now() + this.generationDeadlineMs;
     await withHeartbeat(
       () => this.#chatTurnBody(userMessageId, message, agentMessageId),
@@ -1147,42 +1292,57 @@ export class Galaxy extends NebulaDO {
     );
   }
 
-  /** The turn body proper — discriminator first, then the codegen loop OR the plain answer. */
+  /**
+   * The turn body proper — ONE assembly, every layer, the full tool set; the model
+   * decides whether to act. A question ends the loop `no-tool-calls` with the reply as
+   * the answer, and a question that turns out to need a one-line fix gets the fix, under
+   * the poster's authority and named in the reply. (The former answer fork — a
+   * classifier-chosen prompt with no tools — is deleted: the split was never the
+   * classifier's to make, and a fork without tools could not record a stated convention.)
+   *
+   * The container WARM is structural: the first `write_file` or `edit_file` of the turn
+   * is a certain predictor of a coming `build`, so it fires the warm and hides all but
+   * round two's short generation. One latch per turn, closure-local and shared with the
+   * write deps, so a turn warms at most once. (A small classifier once fired the same
+   * latch earlier as a hint; measured on five real turns, 2026-09-05/06, every first-write
+   * to build interval cleared the 3.2 s cold start on its own, and the call was deleted.)
+   *
+   * ⚠️ A warm STARTS a container, so every turn owes a teardown on EVERY exit — a turn can
+   * end without ever calling `build` (`no-tool-calls`, the round cap, a `mark_complete`
+   * with no build), and `#buildOnce` is the only other place that destroys. Without the
+   * `finally` those turns leak a live container against `max_instances`, breaking the
+   * invariant the ephemeral design rests on: a container never outlives its build.
+   * Destroy is idempotent, so the common path (build ran, already torn down) pays a no-op.
+   */
   async #chatTurnBody(userMessageId: string, message: string, agentMessageId: string): Promise<void> {
-    // STAGE 1 — the fast DISCRIMINATOR (the two-LLM-calls model): its verdict places
-    // nothing UI-side pre-alpha (`respond?` is hardwired YES), but it GATES the
-    // container warm (on the codegen verdict, never on message-arrival) and forks the
-    // generation prompt. A plain question therefore starts ZERO containers.
-    const verdict = await this.discriminate(message);
-    debug('nebula.Galaxy.trigger').info('discriminator verdict', { userMessageId, codegen: verdict.codegen });
-
-    if (!verdict.codegen) {
-      // ANSWER path — big model, answer prompt, no tools, zero container involvement.
-      const reply = await this.#answerTurn(message, agentMessageId, userMessageId);
-      await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, userMessageId);
-      return;
-    }
-
-    // CODEGEN path — fire the container warm NOW (the ~3 s cold+mount hides behind
-    // the generation; the build tool's exec finds it already up), then run the loop.
-    // ⚠️ The warm STARTS a container, so from here the turn owes a teardown on EVERY
-    // exit: a turn can end without ever calling `build` (`no-tool-calls`, the round
-    // cap, a `mark_complete` with no build, or the discriminator failing open on a
-    // plain question), and `#buildOnce` is the only other place that destroys. Without
-    // the `finally` below those turns leak a live container against `max_instances`,
-    // breaking the invariant the whole ephemeral design rests on — that a container
-    // never outlives its build. Destroy is idempotent, so the common path (build ran,
-    // already torn down) pays a no-op.
-    this.warmBuildBox();
+    const warm = this.#turnWarmLatch();
     try {
-      await this.#codegenTurn(message, agentMessageId, userMessageId);
+      await this.#codegenTurn(message, agentMessageId, userMessageId, warm);
     } finally {
       this.#destroyBuildContainer();
     }
   }
 
-  /** The codegen fork's body — extracted so the container teardown above can wrap it. */
-  async #codegenTurn(message: string, agentMessageId: string, userMessageId: string): Promise<void> {
+  /** One turn's warm latch: `fire` starts the box at most once — the first write of the
+   *  turn fires it, later writes are no-ops. Closure-local by design — the turn holds it,
+   *  `#turnInFlight` stays the only instance field. */
+  #turnWarmLatch(): { fire(): void } {
+    let fired = false;
+    return {
+      fire: () => {
+        if (fired) return;
+        fired = true;
+        this.warmBuildBox();
+      },
+    };
+  }
+
+  /** The turn's body — the loop, then the durable reply. `warm` is the turn's latch,
+   *  fired by the first write. */
+  async #codegenTurn(
+    message: string, agentMessageId: string, userMessageId: string,
+    warm: { fire(): void },
+  ): Promise<void> {
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
     let sourceCommit: string | undefined;
@@ -1190,30 +1350,45 @@ export class Galaxy extends NebulaDO {
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
       (step) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, step, CHAT_NODE_ID, userMessageId),
+      {
+        // The triggering Message is excluded from the history bundle — the request bundle
+        // carries it, once.
+        triggeringMessageId: userMessageId,
+        // The structural warm: the first write of the turn.
+        onFirstWrite: () => warm.fire(),
+      },
     );
     debug('nebula.Galaxy.chat').debug('loop', {
       instanceName: this.lmz.instanceName, stop: result.stop,
       rounds: result.rounds, applied: result.appliedPaths.length,
     });
 
-    let reply: string;
-    if (result.stop === 'complete') {
-      reply = result.appliedPaths.length > 0 ? 'Updated the preview.' : 'Done — no changes.';
-    } else if (result.stop === 'no-tool-calls') {
-      reply = result.output || 'See the thought process.';
-    } else {
-      reply = "I couldn't finish cleanly — see the thought process.";
-    }
+    // The reply is the model's own final text on EVERY stop — what the person reads, and
+    // what the history bundle carries as "the agent's reply" — with the fixed strings only
+    // when it is empty (a `mark_complete` with no words, a bound that tripped mid-sentence).
+    const text = result.output.trim();
+    const fallback = result.stop === 'complete'
+      ? (result.appliedPaths.length > 0 ? 'Updated the preview.' : 'Done — no changes.')
+      : result.stop === 'no-tool-calls'
+        ? 'See the thought process.'
+        : result.stop === 'build-unavailable'
+          ? 'Your changes are saved, but the build box could not run just now, so the preview is unchanged. Ask me to build again in a moment.'
+          : result.stop === 'error'
+            ? `I couldn't finish — ${result.detail}. Try again in a moment.`
+            : "I couldn't finish cleanly — see the thought process.";
+    const reply = text || fallback;
 
     // The tool-calling loop carries the generated code in `write_file` *args*, not the
     // model's reply text — so surface the final content of each written file here, else the
     // thought panel loses the code. Last write wins per path (self-correction rounds
-    // rewrite the same file).
+    // rewrite the same file); an `edit_file` shows the replacement it landed.
     const written = new Map<string, string>();
     for (const tc of result.toolCalls) {
-      const a = tc.args as { path?: string; content?: string } | undefined;
+      const a = tc.args as { path?: string; content?: string; replacement?: string } | undefined;
       if (tc.name === 'write_file' && a?.path && typeof a.content === 'string') {
         written.set(a.path, a.content);
+      } else if (tc.name === 'edit_file' && a?.path && typeof a.replacement === 'string' && !tc.error) {
+        written.set(`${a.path} (edit)`, a.replacement);
       }
     }
     const files = [...new Set(result.appliedPaths)];
@@ -1260,82 +1435,18 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
-   * The plain-answer generation — the discriminator's non-codegen fork: the big model,
-   * an answer prompt, NO tools, zero container involvement. The whole answer streams
-   * as transient chunks (best-effort animation); the durable Message is the caller's
-   * commit.
-   */
-  async #answerTurn(message: string, agentMessageId: string, userMessageId: string): Promise<string> {
-    const raw = await this.runModel(STUDIO_MODEL, {
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are Studio, the assistant inside an app-building workspace. Answer the ' +
-            'question conversationally and concisely. Do NOT emit code or tool calls — ' +
-            'this turn changes nothing in the app.',
-        },
-        { role: 'user', content: message },
-      ],
-      temperature: 0.7,
-      max_tokens: 1024,
-    // Streams as it is written; nothing is re-sent afterwards — the durable Message is the commit.
-    }, (text) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, text, CHAT_NODE_ID, userMessageId));
-    const turn = parseModelTurn(raw);
-    return turn.text.trim() || 'I had nothing to add — try rephrasing?';
-  }
-
-  /**
-   * The fast DISCRIMINATOR — a small model, short prompt, sub-second budget, answering
-   * `{ respond?, codegen? }`. Pre-alpha `respond` is HARDWIRED YES (the unhardwiring
-   * policy is the fast-follow's); what the verdict does today is gate the container
-   * warm and fork the generation prompt. `protected` so probes can pin the verdict.
-   *
-   * Fails OPEN toward `codegen: true`: the pre-alpha journey is building, so a
-   * discriminator hiccup costs one speculative container start rather than a builder's
-   * change silently answered as chat.
-   */
-  protected async discriminate(message: string): Promise<{ respond: true; codegen: boolean }> {
-    try {
-      const raw = await this.runModel(DISCRIMINATOR_MODEL, {
-        messages: [
-          {
-            role: 'system',
-            content:
-              'A message arrived in an app-building chat. Reply with ONLY the JSON ' +
-              '{"codegen": true} if the message asks to build, change, style, or fix ' +
-              'the app (its UI, behavior, or data model); reply {"codegen": false} if ' +
-              'it is a question or conversation that changes nothing.',
-          },
-          { role: 'user', content: message },
-        ],
-        temperature: 0,
-        max_tokens: 32,
-      });
-      const text = parseModelTurn(raw).text;
-      const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as { codegen?: unknown };
-      return { respond: true, codegen: parsed.codegen !== false };
-    } catch (e) {
-      debug('nebula.Galaxy.discriminate').warn('verdict failed — defaulting to codegen', {
-        error: e instanceof Error ? e.message : String(e),
-      });
-      return { respond: true, codegen: true };
-    }
-  }
-
-  /**
-   * Speculatively start the build container at the CODEGEN VERDICT (never at
-   * message-arrival — the criterion), so its cold start + mount hides behind the
-   * generation and the build tool's exec finds it up. Fire-and-forget: a warm failure
-   * costs nothing (the exec's own connect starts it) and must never delay the model.
-   * A no-container environment (pool-workers) is a silent no-op. `protected` so the
-   * drive log can be asserted (a plain-question turn starts ZERO containers).
+   * Speculatively start the build container — from the turn's latch, so at most once a
+   * turn, on the first write (the structural warm). The cold start + mount then hides
+   * behind the generation and the build tool's exec finds the box up. Fire-and-forget: a warm
+   * failure costs nothing (the exec's own connect starts it) and must never delay the
+   * model. A no-container environment (pool-workers) is a silent no-op. `protected` so
+   * the drive log can be asserted — one warm per turn.
    */
   protected warmBuildBox(): void {
-    // The marker precedes the container guard ON PURPOSE: "a plain-question turn fires
-    // ZERO warms" is asserted on this marker's count, in-lane included (where
-    // ctx.container is absent and the start below is a no-op).
-    debug('nebula.Galaxy.warm').info('container warm fired (codegen verdict)');
+    // The marker precedes the container guard ON PURPOSE: "exactly one warm per turn" is
+    // asserted on this marker's count, in-lane included (where ctx.container is absent
+    // and the start below is a no-op).
+    debug('nebula.Galaxy.warm').info('container warm fired', { instanceName: this.lmz.instanceName });
     if (!this.ctx.container) return;
     try {
       // enableInternet=false mirrors the backend's own start (its default egress is
@@ -1353,40 +1464,34 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
-   * Signal the client its preview can load. Immediate BY DESIGN post-collapse: `dist/`
-   * serves Galaxy-direct from this DO's VFS, so there is nothing to warm for VIEWING —
-   * the container is engaged only on a build, off the read path entirely. The signal
-   * survives as Studio's initial-load auto-refresh cue; subsequent refreshes ride the
-   * build-completion reload push.
-   */
-  @mesh(requireDominionHere)
-  warmPreview(clientId: string): void {
-    this.deliverPreviewReady(this.lmz.instanceName!, clientId);
-  }
-
-  /**
-   * Tell the originating client the preview is ready, by direct delivery — a one-way
-   * mesh call to the client's Gateway addressed by its stable `instanceName`
-   * (`clientId`), so a WS reconnect doesn't strand it. NO `newChain` — the originating
-   * client's `originAuth` must ride through so the Gateway's aud check passes;
-   * fire-and-forget + try/catch (a delivery failure must never break the dev loop).
+   * Tell the client that asked for a build its preview is ready, by direct delivery — a
+   * one-way mesh call to the client's Gateway addressed by its stable `instanceName`
+   * (`clientId`), so a WS reconnect doesn't strand it. The build reply is its only
+   * caller ({@link announceBuildToRequester}): the former initial-load cue was deleted,
+   * because `dist/` serves Galaxy-direct from this DO's VFS and the Studio sets the
+   * iframe source before connecting, so there was nothing to warm and nothing to
+   * announce. NO `newChain` — the originating client's `originAuth` must ride through so
+   * the Gateway's aud check passes; fire-and-forget + try/catch (a delivery failure must
+   * never break the dev loop).
    */
   protected deliverPreviewReady(scope: string, clientId: string): void {
     try {
       this.lmz.call(CLIENT_GATEWAY_BINDING, clientId, this.ctn<NebulaClient>().handlePreviewReady(scope));
     } catch (e) {
-      debug('nebula.Galaxy.warmPreview').warn('preview-ready delivery failed (non-fatal)', { error: e });
+      debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: e });
     }
   }
 
   // ─── Resource data-plane surface (the chat Chat/Message Resources) ─────────
   //
-  // `@mesh()` — **NOT** `@mesh(requireDominionHere)` (unlike the codegen/source methods
-  // above): chat participants are non-admin but DAG-granted. `onBeforeCall` (NebulaDO
-  // base) enforces passage into `{u}.{g}`; the per-op DAG read/write check lives inside
-  // the data-plane (Resources/DagTree), exactly as on Star. Every op is version-gated
-  // against the INSTALLED chat ontology — `OntologyStaleError` on a mismatch, exactly
-  // Star's shapes (transaction returns it as a VALUE; read throws; subscribe pushes).
+  // `@mesh()` — no guard on the decorator: chat participants are non-admin but
+  // DAG-granted. `onBeforeCall` (NebulaDO base) enforces passage into `{u}.{g}`; the
+  // per-op DAG read/write check lives inside the data-plane (Resources/DagTree), exactly
+  // as on Star. (The source entries above put that same chat-node `write` check ON the
+  // decorator — `requireChatWrite` — because they do no per-op check of their own.)
+  // Every op is version-gated against the INSTALLED chat ontology — `OntologyStaleError`
+  // on a mismatch, exactly Star's shapes (transaction returns it as a VALUE; read
+  // throws; subscribe pushes).
 
   /**
    * Idempotently seed the pre-alpha default `Chat` at the fixed {@link DEFAULT_CHAT_ID}
@@ -1463,8 +1568,10 @@ export class Galaxy extends NebulaDO {
     if (opts.thought !== undefined) value.thought = opts.thought;
     if (opts.codegen !== undefined) value.codegen = opts.codegen;
     debug('nebula.Galaxy.stream').debug('commit', { messageId, len: content.length });
+    // The turn finishes under the authority it STARTED with: the door admitted the post,
+    // and that verdict covers the reply — a grant revoked mid-turn does not refuse it.
     await this.#dataPlane.ensureResource(messageId, 'Message', nodeId, value, {
-      actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB },
+      actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtPost: true,
     });
   }
 
@@ -1696,7 +1803,12 @@ export class Galaxy extends NebulaDO {
   }
 
   /** Trust boundary: typia-validate the untrusted model's tool-call args (shape
-   *  only — path *safety* is `assertSafeRelPath`, enforced in the loop). */
+   *  only — path *safety* is {@link assertModelPath}, enforced in the entries), then
+   *  refuse any key the tool does not declare, BY NAME. The typia facet is
+   *  `createValidate`, which ignores excess keys, so without this a stale
+   *  `{ "publish": true }` would be silently dropped — the shape the `preview` rename
+   *  exists to prevent (parser-validator feedback: the tool-args facet wants a mode
+   *  that refuses excess keys; tracked in the backlog). */
   async #validateToolArgs(
     toolName: string,
     args: unknown,
@@ -1704,9 +1816,15 @@ export class Galaxy extends NebulaDO {
     const typeName = TOOL_ARG_TYPE[toolName];
     if (!typeName) return { ok: false, error: `unknown tool '${toolName}'` };
     const res = await this.#ensureToolArgsFacet().parse(args, typeName);
-    if (res.valid) return { ok: true };
-    const detail = res.errors.map((e) => `${e.path}: expected ${e.expected}`).join('; ');
-    return { ok: false, error: `invalid ${toolName} args — ${detail}` };
+    if (!res.valid) {
+      const detail = res.errors.map((e) => `${e.path}: expected ${e.expected}`).join('; ');
+      return { ok: false, error: `invalid ${toolName} args — ${detail}` };
+    }
+    const unknown = unknownToolArgKeys(toolName, args);
+    if (unknown.length > 0) {
+      return { ok: false, error: `unknown key${unknown.length > 1 ? 's' : ''} on ${toolName} args: ${unknown.map((k) => `'${k}'`).join(', ')}` };
+    }
+    return { ok: true };
   }
 
   /**
@@ -1735,27 +1853,52 @@ export class Galaxy extends NebulaDO {
   }
 
   /**
-   * The one model-transport router every generation path shares — the codegen loop
-   * (via {@link callModel}), the discriminator, and the plain-answer turn — so the
-   * REST-vs-binding split lives once. `protected` so a probe overriding IT scripts
-   * every path at once.
+   * The one model-transport router every generation path shares — the codegen loop via
+   * {@link callModel} — so the REST-vs-binding split lives once. `protected` so a probe
+   * overriding IT scripts every path at once.
    */
   protected async runModel(
     model: string, body: Record<string, unknown>, onDelta?: (text: string) => void,
   ): Promise<unknown> {
     // With a delta sink the call STREAMS — `stream: true` on either lane yields the same SSE bytes
     // — and `assembleStream` hands the text out live while rebuilding the whole-response shape the
-    // caller parses. Without one nothing changes: the discriminator stays a small whole response.
+    // caller parses. Without one nothing changes: the call stays a whole response.
     if (onDelta) body = { ...body, stream: true };
     // WORKERS_AI_TOKEN / CLOUDFLARE_ACCOUNT_ID / CF_AI_GATEWAY are runtime env (`.dev.vars`
     // / `wrangler secret`), not committed wrangler vars, so they're absent from the
     // generated `Env` — widen at the read (packaging.md).
     const env = this.env as Env & { WORKERS_AI_TOKEN?: string; CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string };
-    if (env.WORKERS_AI_TOKEN) return this.#callModelRest(env, env.WORKERS_AI_TOKEN, model, body, onDelta);
-    // The model-catalog types don't cover every @cf id; run() is treated loosely.
-    const out = await (this.env.AI as any).run(model, body);
+    if (this.modelLane() === 'rest') return this.#callModelRest(env, env.WORKERS_AI_TOKEN!, model, body, onDelta);
+    // The model-catalog types don't cover every @cf id; run() is treated loosely. The
+    // options carry the session-affinity header (`extraHeaders` is the binding's own knob).
+    const out = await this.aiBinding().run(model, body, { extraHeaders: this.modelCallHeaders() });
     if (onDelta && out instanceof ReadableStream) return assembleStream(out, onDelta);
     return out;
+  }
+
+  /** Which transport {@link runModel} takes — REST when a `WORKERS_AI_TOKEN` is present
+   *  (the hosted lane), else the `env.AI` binding. `protected` so a probe can pin either
+   *  lane and assert what it sends. */
+  protected modelLane(): 'rest' | 'binding' {
+    return (this.env as Env & { WORKERS_AI_TOKEN?: string }).WORKERS_AI_TOKEN ? 'rest' : 'binding';
+  }
+
+  /** The `env.AI` binding — a seam so a probe can capture the options the binding lane
+   *  passes without a real inference. */
+  protected aiBinding(): { run(model: string, body: unknown, options?: unknown): Promise<unknown> } {
+    return this.env.AI as any;
+  }
+
+  /**
+   * The headers BOTH lanes send on every inference: `x-session-affinity`, keyed
+   * `{u}.{g}:main` — the Galaxy's own name plus a segment naming the conversation
+   * (`main`, until threads land and each thread keys its own). Workers AI caches the
+   * prompt prefix by default but only when a request routes to the model instance
+   * holding the cached tensors, which is what this header asks for; the system layer is
+   * ordered stable-first for the same reason (`assembleCodegenPrompt`).
+   */
+  protected modelCallHeaders(): Record<string, string> {
+    return { 'x-session-affinity': `${this.lmz.instanceName ?? this.ctx.id.name}:main` };
   }
 
   /**
@@ -1786,23 +1929,47 @@ export class Galaxy extends NebulaDO {
     const accountId = env.CLOUDFLARE_ACCOUNT_ID;
     if (!accountId) throw new Error('Workers AI REST path needs CLOUDFLARE_ACCOUNT_ID');
     const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
-    if (env.CF_AI_GATEWAY) headers['cf-aig-gateway-id'] = env.CF_AI_GATEWAY;
-    const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-    if (!resp.ok) throw new Error(`Workers AI REST ${resp.status} at ${new URL(url).pathname}`);
+    const headers = workersAiRestHeaders({ token, gateway: env.CF_AI_GATEWAY, extra: this.modelCallHeaders() });
+    // A refused call is retried twice with backoff (`Retry-After` when the service says,
+    // else 5 s then 15 s): Workers AI answers 429 under the sweep's call volume, and on
+    // 2026-09-06 one 429 ended a turn with no reply while the client waited on nothing.
+    // Past the retries it fails into the loop's controlled error, which still replies.
+    let resp: Response;
+    for (let attempt = 0; ; attempt++) {
+      resp = await this.restFetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (resp.ok || attempt >= 2 || !(resp.status === 429 || resp.status >= 500)) break;
+      await resp.body?.cancel().catch(() => { /* nothing to free */ });
+      const retryAfter = Number(resp.headers.get('retry-after'));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter >= 0 ? Math.min(retryAfter, 30) * 1000 : [5_000, 15_000][attempt]!;
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+    if (!resp.ok) {
+      // The provider's own message rides the error, bounded: a 400 is not retried and only
+      // its body says why (2026-09-06: one ended a five-round turn with no clue in the log).
+      const body = await resp.text().catch(() => '');
+      throw new Error(`Workers AI REST ${resp.status} at ${new URL(url).pathname}: ${body.replace(/\s+/g, ' ').slice(0, 300)}`);
+    }
     if (onDelta && resp.body) return assembleStream(resp.body, onDelta);
     return unwrapWorkersAiRest(await resp.json());
   }
 
+  /** The REST lane's transport, a seam like {@link Galaxy.aiBinding}: a probe captures the
+   *  headers `#callModelRest` actually sends, so the affinity header is asserted at the call
+   *  site rather than only on the pure header map. */
+  protected restFetch(url: string, init: RequestInit): Promise<Response> {
+    return fetch(url, init);
+  }
+
   /**
-   * Drive one bounded, self-correcting codegen turn: assemble the layered prompt
-   * (ontology pinned in the system block, request + current source in the user
-   * layer), run {@link runCodegenLoop}, and return the loop result. The former
-   * turn-recorder side table is DELETED — the corpus folds into the agent
-   * `Message`'s `codegen` value object (Phase 2).
+   * Drive one bounded, self-correcting codegen turn: walk the guidance tree into the
+   * system layer, stable first — the tool contract, the platform layer (the embed), the
+   * app's own `AGENTS.md` when the Workspace holds one, the chat history when there is
+   * any — put the ontology and the current source in the user message with the request,
+   * run {@link runCodegenLoop}, and return the loop result. Every turn reads the Galaxy
+   * file at turn start, which is what makes an edit take effect on the next message with
+   * nothing to restart; the platform layer is an import, so the walk costs one VFS read.
+   * The former turn-recorder side table is DELETED — the corpus folds into the agent
+   * `Message`'s `codegen` value object.
    *
    * `protected` (not `@mesh`): an internal capability, not a remote API. The test
    * harness reaches it through a test-only `@mesh` entry on a subclass.
@@ -1811,34 +1978,201 @@ export class Galaxy extends NebulaDO {
     userRequest: string,
     config: CodegenLoopConfig = DEFAULT_LOOP_CONFIG,
     onProgress?: (step: string) => void,
+    opts: {
+      triggeringMessageId?: string;
+      /** Called before the turn's FIRST write (`write_file` or `edit_file`) — the
+       *  structural container warm (`#chatTurnBody`). */
+      onFirstWrite?: () => void;
+    } = {},
   ): Promise<LoopResult> {
     let currentSource = '';
     try { currentSource = await this.#ws.fs.readFile(wsPath('src/App.vue'), 'utf8'); } catch { /* none yet */ }
     let ontologyDts: string | undefined;
     try { ontologyDts = await this.#ws.fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8'); } catch { /* none yet */ }
+    // The Galaxy layer — absent on a Workspace seeded before the layer existed, and then
+    // the turn simply runs without it.
+    let galaxyAgents: string | undefined;
+    try { galaxyAgents = await this.#ws.fs.readFile(wsPath(GALAXY_AGENTS_PATH), 'utf8'); } catch { /* none */ }
+    const { bundle: history, posterLabel } = this.#historyBundle(opts.triggeringMessageId);
 
     const initial = assembleCodegenPrompt({
-      systemBundles: [STUDIO_LOOP_SYSTEM_PROMPT],
+      systemBundles: [
+        TOOL_CONTRACT,
+        PLATFORM_AGENTS_MD,
+        ...(galaxyAgents !== undefined ? [`${GALAXY_LAYER_PREFACE}\n\n${galaxyAgents}`] : []),
+        ...(history ? [history] : []),
+      ],
       ontologyDts,
       userRequest,
       currentSource,
+      posterLabel,
     });
     // No per-await heartbeat here: liveness is a property of the TURN, and `#chatTurn` beats
-    // around the whole body — the discriminator and the answer path are silent model calls too.
+    // around the whole body — every round here is a silent model call.
     // Live deltas ride the same `onProgress` seam as the coarse steps — the client appends
     // either — so a round's thinking streams batch by batch instead of landing whole when the
     // model returns. `onDelta` on the deps tells the loop not to re-emit that thinking.
     const onDelta = onProgress ? (text: string) => onProgress(text) : undefined;
+    const tools = this.loopToolDeps();
+    if (opts.onFirstWrite) {
+      // The write deps fire the warm before they write — the latch makes the second and
+      // later calls no-ops, so wrapping both is what "the first write" means.
+      const fire = opts.onFirstWrite;
+      const { write_file, edit_file } = tools;
+      tools.write_file = (path, content) => { fire(); return write_file(path, content); };
+      tools.edit_file = (path, anchor, replacement) => { fire(); return edit_file(path, anchor, replacement); };
+    }
     const deps: CodegenLoopDeps = {
       callModel: (m, p) => this.callModel(m, p, onDelta),
       ...(onDelta ? { onDelta } : {}),
-      writeFile: (path, content) => this.writeSource(path, content),
+      tools,
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
-      // The model's publish override passes through; the pending-ontology job rides
-      // by default (compiled for feedback, never appended — the Apply appends).
-      build: (opts) => this.#buildAndAnnounce({ publish: opts?.publish }),
       onProgress,
     };
     return runCodegenLoop(initial, deps, config);
   }
+
+  /**
+   * The entry-reaching tool deps, built from {@link LOOP_TOOL_ENTRIES}: one dep per tool
+   * the table lists, each reaching only an entry the table names for it — `via` is typed
+   * against the table, so `via('build', 'writeSource')` does not compile. The loop's
+   * `this.writeSource()` / `this.buildNow()` are the ordinary calls they look like: a
+   * turn runs under the poster's own `callContext`, whose Message already passed the
+   * chat floor at the door, and a guard on the decorator does not run on an in-process
+   * call. `protected` so a test probe can assert the keys are exactly the table's.
+   */
+  protected loopToolDeps(): LoopToolDeps {
+    type Entries = typeof LOOP_TOOL_ENTRIES;
+    const via = <T extends LoopToolName, E extends Entries[T][number]>(_tool: T, entry: E): Galaxy[E] =>
+      (this[entry] as (...a: unknown[]) => unknown).bind(this) as Galaxy[E];
+    const factories: { [K in LoopToolName]: () => LoopToolDeps[K] } = {
+      // Resolves in ONE order: a `.platform/` path answers from the embed (or names the
+      // missing file), `.universe/` answers the reserved error, anything else passes the
+      // entry's path rule and reads the Workspace. An absent Workspace file is a tool
+      // error naming the path, never a thrown turn.
+      read_file: () => async (path) => {
+        const rel = path.replace(/^(\.\/)+/, '');
+        if (rel.startsWith('.platform/')) {
+          const content = PLATFORM_FILES[rel];
+          if (content === undefined) throw new Error(`no such platform file: ${rel}`);
+          return content;
+        }
+        if (rel.startsWith('.universe/')) throw new Error(UNIVERSE_RESERVED_MESSAGE);
+        try { return await via('read_file', 'readSource')(path); } catch (e) { throw noSuchFile(path, e); }
+      },
+      write_file: () => (path, content) => via('write_file', 'writeSource')(path, content),
+      // Read, count the anchor, refuse zero or two-plus matches with nothing written,
+      // else write the replaced file — so an edit can only change what it names.
+      edit_file: () => async (path, anchor, replacement) => {
+        assertModelPath(path, { write: true }); // the write's rule, before the read (no read of a reserved path)
+        if (anchor.length === 0) throw new Error(`edit_file: an empty anchor matches everywhere in ${path} — nothing written`);
+        let content: string;
+        try { content = await via('edit_file', 'readSource')(path); } catch (e) { throw noSuchFile(path, e); }
+        const count = content.split(anchor).length - 1;
+        if (count === 0) throw new Error(`edit_file: anchor not found in ${path} — nothing written; read the file and quote it exactly`);
+        if (count > 1) throw new Error(`edit_file: anchor matches ${count} times in ${path} — nothing written; widen it so it matches once`);
+        const next = content.replace(anchor, () => replacement); // a function replacer — no `$&` patterns
+        return via('edit_file', 'writeSource')(path, next);
+      },
+      build: () => (opts) => via('build', 'buildNow')(opts),
+    };
+    return Object.fromEntries(
+      (Object.keys(LOOP_TOOL_ENTRIES) as LoopToolName[]).map((tool) => [tool, factories[tool]()]),
+    ) as unknown as LoopToolDeps;
+  }
+
+  /** The verified claims of the current mesh call, or `undefined` outside one (see
+   *  {@link #clientOrigin}). */
+  #claimsIfAny(): NebulaJwtPayload | undefined {
+    try { return this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined; } catch { return undefined; }
+  }
+
+  /**
+   * The chat history as the prompt carries it — the EXCLUSIVE projection of the chat's
+   * own ordered query (`Message where chat == DEFAULT_CHAT_ID`, by `validFrom`, the same
+   * read the UI subscribes to): per message its speaker — `agent`, or a stable per-`sub`
+   * label in first-appearance order (`human 1`) — its `content`, and from an agent
+   * message's `codegen` record only the manifest (`stop`, `rounds`, `appliedPaths`,
+   * `sourceCommit`, `build.findings`). Never `toolCalls`, whose `write_file` args carry
+   * whole files, and never `thought`. The triggering Message is excluded (the request
+   * bundle carries it). Reads run under the turn's own call context, so a message the
+   * poster may not read is skipped; outside a mesh call (a direct in-DO probe) there is
+   * no history at all. A message with no reply is carried as itself, in order.
+   */
+  #historyBundle(triggeringMessageId?: string): { bundle?: string; posterLabel?: string } {
+    const claims = this.#claimsIfAny();
+    if (!claims) return {};
+    let ids: string[];
+    try {
+      ids = this.#dataPlane.findCurrentByField('Message', 'chat', DEFAULT_CHAT_ID).map((r) => r.resourceId);
+    } catch {
+      return {};
+    }
+    const labels = new Map<string, string>();
+    const labelFor = (sub: string): string => {
+      let l = labels.get(sub);
+      if (!l) { l = `human ${labels.size + 1}`; labels.set(sub, l); }
+      return l;
+    };
+    // Read every message in the chat's order, then pair each reply with the message it
+    // answers: a reply commits AFTER any message posted during its generation, so a purely
+    // chronological list would put a skipped message between a request and its reply and
+    // the model could not tell which one was answered. Each human message is followed by
+    // its reply if one exists; a message with no reply is carried as itself; an agent
+    // message whose request is not in the list is carried in place.
+    type Row = { id: string; entry: HistoryEntry; isAgent: boolean; replyTo?: string };
+    const rows: Row[] = [];
+    for (const id of ids) {
+      if (id === triggeringMessageId) continue;
+      let snap: Snapshot | null;
+      try { snap = this.#dataPlane.doRead(id); } catch { continue; }
+      if (!snap) continue;
+      const v = snap.value as {
+        content?: string;
+        replyTo?: string;
+        codegen?: { stop?: string; rounds?: number; appliedPaths?: string[]; sourceCommit?: string; build?: { findings?: string[] } };
+      };
+      const isAgent = deriveKind(snap.meta.actingToken) === 'agent';
+      const cg = v.codegen;
+      rows.push({
+        id, isAgent, replyTo: v.replyTo,
+        entry: {
+          speaker: isAgent ? 'agent' : labelFor(snap.meta.actingToken.sub),
+          content: v.content ?? '',
+          ...(isAgent && cg ? {
+            manifest: {
+              stop: cg.stop ?? '', rounds: cg.rounds ?? 0, appliedPaths: cg.appliedPaths ?? [],
+              ...(cg.sourceCommit ? { sourceCommit: cg.sourceCommit } : {}),
+              ...(cg.build?.findings?.length ? { findings: cg.build.findings } : {}),
+            },
+          } : {}),
+        },
+      });
+    }
+    const replyOf = new Map<string, Row>();
+    for (const r of rows) if (r.isAgent && r.replyTo && !replyOf.has(r.replyTo)) replyOf.set(r.replyTo, r);
+    const consumed = new Set<string>();
+    const entries: HistoryEntry[] = [];
+    for (const r of rows) {
+      if (consumed.has(r.id)) continue;
+      entries.push(r.entry);
+      consumed.add(r.id);
+      const reply = r.isAgent ? undefined : replyOf.get(r.id);
+      if (reply && !consumed.has(reply.id)) { entries.push(reply.entry); consumed.add(reply.id); }
+    }
+    return {
+      ...(entries.length > 0 ? { bundle: renderHistoryBundle(entries) } : {}),
+      posterLabel: labelFor(claims.sub),
+    };
+  }
 }
+
+/** Where the Galaxy layer of the guidance tree lives in the Workspace — the standard's
+ *  own location, so the same file reads in any agent opened on a clone. */
+const GALAXY_AGENTS_PATH = 'AGENTS.md';
+/** The line ahead of the Galaxy layer in the system message, so the model knows which
+ *  layer it is reading. */
+const GALAXY_LAYER_PREFACE = "The app's own AGENTS.md — the layer below the platform's. It adds to the platform guidance and never subtracts from it; keep it current (see the platform guidance):";
+
+/** The shape `#clientOrigin` reads off a call context. */
+type CallContextLike = { callChain: Array<{ instanceName?: string }>; originAuth?: { claims?: unknown } };

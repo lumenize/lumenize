@@ -3,7 +3,7 @@
  *
  * The client fails a turn that goes quiet for `TURN_IDLE_MS` (`turn-liveness.ts`); that window is
  * the "thinking… forever" fix and it errs short on purpose. But a turn is silent by construction
- * almost everywhere: every model call in it — the discriminator, the plain answer, each codegen
+ * almost everywhere: every model call in it — each codegen
  * round — is whole-response (nothing arrives until it returns), and a container build emits nothing
  * until it exits. A slow-but-alive stretch therefore crossed the window and painted `failed` over a
  * turn that then completed — the flash seen on the first hand drive of a 90 s build. So the

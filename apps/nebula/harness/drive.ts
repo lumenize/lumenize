@@ -45,6 +45,7 @@ import * as studioOverlaysByUrl from './scenarios/studio-overlays-by-url';
 import * as signupToFirstApp from './scenarios/signup-to-first-app';
 import * as firstAppBuilt from './scenarios/first-app-built';
 import * as broadcastPastThreshold from './scenarios/broadcast-past-threshold';
+import * as studioGuidanceLoop from './scenarios/studio-guidance-loop';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -103,6 +104,8 @@ const SCENARIOS: Record<string, Scenario> = {
   'signup-to-first-app': signupToFirstApp,       // the whole clean signup, driven by CLICKING — the app is created through the UI, never by API (no Docker)
   'first-app-built': firstAppBuilt,              // a prompt typed in the rendered composer produces a built app in the preview (Docker)
   'broadcast-past-threshold': broadcastPastThreshold, // 120 subscribers on one query — the ONLY test anywhere that crosses svc.broadcast's direct cutoff (no Docker)
+  // ── the guidance tree: the MODEL in the loop, observed — limbs reported, never gated ───────
+  'studio-guidance-loop': studioGuidanceLoop,   // a stated convention lands in AGENTS.md and holds; a data-bound request uses resources; skills activate (no Docker; REST lane; ~10 real turns)
 };
 
 /**
@@ -118,16 +121,63 @@ const SCENARIOS: Record<string, Scenario> = {
  * A CHILD PROCESS per scenario, deliberately: each needs its own `wrangler dev` with its own
  * `bootVars`, `sweepEnv` values are mutually exclusive (see `Scenario.sweepEnv`), and a scenario
  * that leaks a handle or wedges a workerd cannot then take the rest of the sweep with it.
+ *
+ * EVERY child's output is kept — one file per scenario under a per-sweep directory in the OS
+ * temp dir, named beside each failure in the summary. Until 2026-09-06 a red's evidence died
+ * with the process (only `HARNESS_DEBUG` printed it), which is how three `first-app-built`
+ * 404s in one day went unattributed: the limb's own manifest line was printed and lost.
+ *
+ * A SOURCE EDIT DURING THE SWEEP IS DETECTED, not trusted to discipline: the files `wrangler
+ * dev` watches are fingerprinted at boot and re-checked around every scenario. A save there
+ * hot-reloads every later child's Worker, and a reload mid-request answers 503 — five phantom
+ * reds in a row on 2026-09-05 (`live.md`). When it trips the sweep says so once, tags every
+ * result from that scenario on as belonging to no tree, and exits non-zero.
  */
 async function sweep(fast: boolean): Promise<void> {
   const { spawnSync } = await import('node:child_process');
+  const { mkdirSync, writeFileSync, readdirSync, statSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join, resolve, dirname } = await import('node:path');
+  const { createHash } = await import('node:crypto');
   const names = Object.keys(SCENARIOS)
     .filter((n) => !fast || (SCENARIOS[n].needsContainer ?? true) === false);
-  console.error(`[harness] sweeping ${names.length} scenario(s)${fast ? ' (container-free only)' : ''}…\n`);
+  const logDir = join(tmpdir(), 'lumenize-sweep', new Date().toISOString().replace(/[:.]/g, '-'));
+  mkdirSync(logDir, { recursive: true });
+  console.error(`[harness] sweeping ${names.length} scenario(s)${fast ? ' (container-free only)' : ''} — each one's output kept under ${logDir}\n`);
 
-  const results: Array<{ name: string; ok: boolean; secs: string; detail: string }> = [];
+  // The watched tree: the Worker's own source, the packages it bundles, and the container
+  // image's context. mtime + size per file, hashed; a scan of a few hundred stats is the cost.
+  const repoRoot = resolve(dirname(process.argv[1]!), '..', '..', '..');
+  const watched = ['apps/nebula/src', 'apps/nebula/container',
+    ...readdirSync(join(repoRoot, 'packages')).map((p) => `packages/${p}/src`)];
+  const fingerprint = (): string => {
+    const h = createHash('sha1');
+    const walk = (dir: string): void => {
+      let entries: import('node:fs').Dirent[];
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (e.name === 'node_modules' || e.name === '.wrangler' || e.name === 'dist') continue;
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.isFile()) { const st = statSync(full); h.update(`${full}:${st.mtimeMs}:${st.size}\n`); }
+      }
+    };
+    for (const w of watched) walk(join(repoRoot, w));
+    return h.digest('hex');
+  };
+  const booted = fingerprint();
+  let taintedFrom: string | undefined;
+  const checkTree = (name: string): void => {
+    if (taintedFrom === undefined && fingerprint() !== booted) {
+      taintedFrom = name;
+      console.error(`\n⚠️  source under wrangler dev's watch changed since this sweep booted — every result from "${name}" on belongs to no tree (live.md: a sweep and a source save cannot overlap)\n`);
+    }
+  };
+
+  const results: Array<{ name: string; ok: boolean; secs: string; detail: string; tainted: boolean }> = [];
   for (const name of names) {
     const t0 = Date.now();
+    checkTree(name);
     // A stray workerd from a previous scenario starves the next one's boot and its alarms, which
     // reads as a flaky scenario rather than as contention (`testing.md`).
     spawnSync('pkill', ['-9', '-f', 'workerd'], { stdio: 'ignore' });
@@ -144,17 +194,24 @@ async function sweep(fast: boolean): Promise<void> {
       },
     );
     const out = `${child.stdout ?? ''}${child.stderr ?? ''}`;
+    writeFileSync(join(logDir, `${name}.log`), out);
     const ok = child.status === 0;
-    const detail = ok ? '' : (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see output)').slice(0, 120);
-    results.push({ name, ok, secs: ((Date.now() - t0) / 1000).toFixed(1), detail });
-    console.error(`${ok ? '✅' : '❌'} ${name.padEnd(26)} ${results.at(-1)!.secs}s ${detail}`);
+    const detail = ok ? '' : (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
+    checkTree(name); // an edit DURING this scenario taints it too
+    const tainted = taintedFrom !== undefined;
+    results.push({ name, ok, secs: ((Date.now() - t0) / 1000).toFixed(1), detail, tainted });
+    console.error(`${ok ? '✅' : '❌'} ${name.padEnd(26)} ${results.at(-1)!.secs}s ${detail}${tainted ? ' (source changed mid-sweep)' : ''}`);
     if (!ok && process.env.HARNESS_DEBUG) console.error(out);
   }
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed`);
-  for (const f of failed) console.log(`  ❌ ${f.name} — ${f.detail}`);
-  if (failed.length > 0) process.exitCode = 1;
+  for (const f of failed) console.log(`  ❌ ${f.name} — ${f.detail}\n     output: ${join(logDir, `${f.name}.log`)}`);
+  if (failed.length > 0) console.log(`  (every scenario's full output is under ${logDir})`);
+  if (taintedFrom !== undefined) {
+    console.log(`\n⚠️  the source changed during the sweep — results from "${taintedFrom}" on belong to no tree; re-run the sweep`);
+  }
+  if (failed.length > 0 || taintedFrom !== undefined) process.exitCode = 1;
 }
 
 async function main(): Promise<void> {
@@ -215,6 +272,16 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error(`❌ harness scenario "${name}" FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s:`);
     console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    // The Worker's own side of the story, kept with the red: the last of the dev stack's
+    // stdio (its debug markers under the booted `DEBUG` namespaces). A red that only
+    // quotes the scenario's assertion cannot be attributed — 2026-09-06's `build-box` 404
+    // had four green build reports behind it and nothing said what the dist did.
+    const stdio = stack.logs?.();
+    if (stdio) {
+      const lines = stdio.split('\n');
+      console.error(`── dev stack stdio, last ${Math.min(lines.length, 400)} of ${lines.length} lines ──`);
+      console.error(lines.slice(-400).join('\n'));
+    }
     process.exitCode = 1;
   } finally {
     await stack.cleanup();

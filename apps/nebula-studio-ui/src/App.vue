@@ -451,9 +451,10 @@ async function connect() {
     activeScope: activeScope.value,
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...chatPair(activeScope.value),
-    // The build reply lands here: the Galaxy answers whoever asked for the build, so
-    // this one hook covers both the initial preview-ready cue and every rebuild. No
-    // `onReload` — that gates the Star's parked publish channel, not this.
+    // The build reply lands here: the Galaxy answers whoever asked for the build. The
+    // initial load needs no cue — `dist/` serves from the Galaxy's VFS and the iframe
+    // source is set below before anything is asked. No `onReload` — that gates the
+    // Star's parked publish channel, not this.
     onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
     onLoginRequired: onSessionExpired,
   });
@@ -477,8 +478,7 @@ async function connect() {
   connected.value = true;
   sessionExpired.value = false;
   if (isWorkspace(activeScope.value)) {
-    previewSrc.value = `/app/${previewStar(activeScope.value!)}/`; // render now; refresh on the ready push
-    n.client.warmPreview(); // initial-load refresh cue (builds push their own reload)
+    previewSrc.value = `/app/${previewStar(activeScope.value!)}/`; // render now; a build's reply refreshes it
     openChatThread(n.client);
   }
   await nudgeNextStep();

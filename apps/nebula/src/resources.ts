@@ -95,6 +95,12 @@ export interface TransactionOpts {
   onMutations?: (mutations: Map<string, Snapshot>) => void;
   /** Server-composed actor appended as the outermost `act` chain entry. */
   actor?: { sub: string; profileId?: string };
+  /** The DOOR's verdict covers this commit: the caller was admitted at the post that
+   *  triggered a turn, and the turn finishes under the authority it started with — a
+   *  grant revoked or a token expired mid-turn does not refuse its reply (Larry,
+   *  2026-09-06). Step 8's per-op DAG check is skipped. SERVER-COMPOSED ONLY, the same
+   *  trust fence as `actor`: a client-facing entry must never accept or forward it. */
+  pinnedAtPost?: true;
 }
 
 /** Allow-list pick for the wire — see {@link WireActingToken}. */
@@ -385,7 +391,7 @@ export class Resources {
     facet: ParserValidator,
     opts: TransactionOpts = {},
   ): Promise<TransactionResult> {
-    const { onMutations, actor } = opts;
+    const { onMutations, actor, pinnedAtPost } = opts;
     // Empty ops — no-op
     const entries = Object.entries(ops);
     if (entries.length === 0) return { ok: true, eTags: {} };
@@ -582,6 +588,7 @@ export class Resources {
       const permErrors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
+        if (pinnedAtPost) continue; // the door decided at the post — see TransactionOpts
         try {
           switch (op.op) {
             case 'create':

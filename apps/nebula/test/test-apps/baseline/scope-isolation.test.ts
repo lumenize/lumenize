@@ -15,7 +15,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
-import { Galaxy, Universe, requireDominionHere, requirePassage } from '@lumenize/nebula';
+import { Galaxy, Universe, requireDominionHere, requireChatWrite, requirePassage } from '@lumenize/nebula';
 import { isAtOrAbove } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
@@ -350,10 +350,12 @@ describe('onBeforeCall fail-closed branches (below the public API)', () => {
   });
 });
 
-// Walk a tier DO's own prototype, returning the names of its mesh-callable
-// methods whose guard is NOT requireDominionHere (identity comparison — requireDominionHere
-// is a single import). Derived dynamically so a newly-added non-admin @mesh
-// method changes the set and fails the frozen-allow-list assertion below.
+// Walk a tier DO's own prototype, returning the names of its mesh-callable methods whose
+// guard is NEITHER requireDominionHere NOR requireChatWrite (identity comparisons — each is a
+// single import). Both guards are authorization walls of their own: dominion over the host,
+// and DAG `write` at the chat node (the door a Message passes; `security.md`). Derived
+// dynamically so a newly-added bare @mesh method changes the set and fails the frozen
+// allow-list below; the chat-floor set is frozen separately.
 function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
   const proto = ctor.prototype;
   const out: string[] = [];
@@ -361,8 +363,22 @@ function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
     if (name === 'constructor') continue;
     const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
     if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (getMeshGuard(fn) === requireDominionHere) continue; // admin-gated → not under the widening concern
+    const guard = getMeshGuard(fn);
+    if (guard === requireDominionHere || guard === requireChatWrite) continue; // walled → not under the widening concern
     out.push(name);
+  }
+  return out.sort();
+}
+
+/** The Galaxy's CHAT-FLOOR methods — guarded by `requireChatWrite`. */
+function chatFloorMeshMethods(ctor: { prototype: object }): string[] {
+  const proto = ctor.prototype;
+  const out: string[] = [];
+  for (const name of Object.getOwnPropertyNames(proto)) {
+    if (name === 'constructor') continue;
+    const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
+    if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
+    if (getMeshGuard(fn) === requireChatWrite) out.push(name);
   }
   return out.sort();
 }
@@ -402,6 +418,15 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
       'unsubscribeQuery',
       'unsubscribeQuerySubscribers',
     ]);
+  });
+
+  it('B5: the Galaxy CHAT-FLOOR surface (requireChatWrite) equals the frozen source-entry list', () => {
+    // The source entries a chat participant reaches — the chat floor (`.claude/rules/security.md`) moved
+    // them from dominion to the chat floor (DAG `write` at the chat node). A `.dev`-scoped
+    // member has no grant on the Galaxy's tree by construction, so the `.*` widening does not
+    // reach them either. Mutation: restore requireDominionHere on one → it leaves this set.
+    expect(chatFloorMeshMethods(Galaxy)).toEqual(['appendWorkspaceOntology', 'buildNow', 'readSource', 'writeSource']);
+    expect(chatFloorMeshMethods(Universe)).toEqual([]);
   });
 
   it('B5: Universe non-admin @mesh surface equals the frozen shared-data allow-list', () => {

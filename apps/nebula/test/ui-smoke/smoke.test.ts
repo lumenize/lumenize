@@ -180,17 +180,9 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
     expect(await page.locator('dialog.modal[open]').count()).toBe(0);
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
-
-    // Auto-refresh: connect() fired warmPreview(); the Galaxy's handlePreviewReady push (immediate
-    // post-collapse — dist serves from its VFS) triggers reloadPreview, bumping the iframe src with
-    // a `?t=` cache-buster — with NO manual Reload click. Capable-of-failing: without the
-    // warmPreview→onPreviewReady path nothing bumps the src on login, so this times out (the src
-    // stays the bare `/app/{scope}.dev/`).
-    await page.waitForFunction(
-      () => (document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '').includes('?t='),
-      undefined,
-      { timeout: 180_000, polling: 500 },
-    );
+    // The preview renders on connect with NO refresh cue: `dist/` serves from the Galaxy's VFS, so
+    // the iframe src is the bare `/app/{scope}.dev/` and only a build's reply ever bumps it.
+    expect(await page.locator('iframe[title="Preview"]').getAttribute('src')).toBe(`/app/${TEST_SCOPE}.dev/`);
 
     authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
   });

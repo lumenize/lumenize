@@ -18,7 +18,6 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
-| ① | **Guidance file tree** — platform → galaxy, universe skipped | [nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) — design intent only | deploy |
 | ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | none yet, Larry's — § *② Personas* | deploy, plus `data` if the column lands |
 | — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
@@ -29,7 +28,7 @@
 | — | **The superuser → impersonate join scenario** (~¼ day) | none — § *The superuser join scenario* | ungated |
 | — | **Same-origin guard verdict** — "no guard" is a complete outcome | [nebula-same-origin-guard.md](nebula-same-origin-guard.md) | ungated |
 
-**Why this order.** Risk — and here risk is unresolved design rather than hard implementation (Larry, 2026-09-02: *"I should favor doing the riskiest ones first"*). ① is the largest unknown and gates ②. ② carries the most design uncertainty, so it follows its prerequisite at once. ③ is small but irreversible: day-1 signal that was not captured is gone. ④ and ⑤ are the biggest and the best understood, and size is not risk when the shape is known. ⚠️ **"Before the wipe" orders nothing** — there is exactly ONE deploy, so every line of code here precedes it; only the `data` gate is real.
+**Why this order.** Risk — and here risk is unresolved design rather than hard implementation (Larry, 2026-09-02: *"I should favor doing the riskiest ones first"*). ① — the guidance file tree, now built (§ *Shipped*) — was the largest unknown and gated ②. ② carries the most design uncertainty, so it follows its prerequisite at once. ③ is small but irreversible: day-1 signal that was not captured is gone. ④ and ⑤ are the biggest and the best understood, and size is not risk when the shape is known. ⚠️ **"Before the wipe" orders nothing** — there is exactly ONE deploy, so every line of code here precedes it; only the `data` gate is real.
 
 **After the wipe — invite, then the feedback loop:**
 
@@ -53,10 +52,6 @@
 - **`pre-alpha` → `alpha`:** PR `pre-alpha` → `main`, release, branch `alpha` off `main`. Continuous CI comes from an open draft PR `pre-alpha` → `main`.
 
 ---
-
-## ① Guidance file tree
-
-Now [nebula-guidance-file-tree.md](nebula-guidance-file-tree.md), a Pass-1 draft and the authority for the shape: platform guidance in code, Galaxy guidance in the user-developer's Workspace repo, both read every turn, under the cross-vendor name `AGENTS.md`. It precedes ② because personas are guidance the LLM authors and re-reads — building them first invents a second home for guidance and then unlearns it. It also answers [on-hold/nebula-skills.md](on-hold/nebula-skills.md)'s "where do skills live".
 
 ## ② Personas
 
@@ -82,7 +77,7 @@ Synthetic users the LLM defines, provisioned into the `.dev` Star and opened as 
 
 Adjoins [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-multi-user-testing.md) (the same tab UI, and `/create-star`'s fate) and shares the subject/grant/scope core with [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md), the pull half — share it, don't fork.
 
-**Inputs from the guidance task (2026-09-04) — the cast's home is ①'s; what runs it is designed HERE.** [nebula-guidance-file-tree.md](nebula-guidance-file-tree.md) ships `docs/personas.md` as a numbered prose procedure keyed on persona NAME, a seed template naming the four verbs any org-tree shape composes from — mint, node, edge, grant — and a third seed skill, `define-the-cast`, that elicits the cast and each relationship's shape and hands the cast to the executor below as its last step. The run's record is machine-owned under `.nebula/` and survives `resetDevData`, which touches only the Star; its path and shape (per run: the realized tree plus the name → `sub` map) are decided here, with the executor that writes it. Everything below was decided in that task's design conversation and moved here so ① does not transcribe ②'s phases:
+**Inputs from the guidance task (2026-09-04) — the cast's home is ①'s; what runs it is designed HERE.** [nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md) ships `docs/personas.md` as a numbered prose procedure keyed on persona NAME, a seed template naming the four verbs any org-tree shape composes from — mint, node, edge, grant — and a third seed skill, `define-the-cast`, that elicits the cast and each relationship's shape and hands the cast to the executor below as its last step. The run's record is machine-owned under `.nebula/` and survives `resetDevData`, which touches only the Star; its path and shape (per run: the realized tree plus the name → `sub` map) are decided here, with the executor that writes it. Everything below was decided in that task's design conversation and moved here so ① does not transcribe ②'s phases:
 
 - **Execution shape:** the model reads the prose and produces one plan for `provision(plan)`, whose argument is a list of the four operations typed in TypeScript and validated by typia before dispatch (ADR-001, the tool-args pattern). The executor is deterministic and idempotent — create-if-missing throughout — and returns the realized tree plus the name → `sub` map, which the model compares to the prose in the same turn: plan, validate, execute. That result is the record. Rejected: the model executing granular tools step by step (four tools and its judgement on every re-provision), and a typed block Studio parses (the block becomes the DAG's own schema and the *why* has no home).
 - ⚠️ **`provision` is not a loop tool.** It mints identities and grants `admin` and `scopeAdmin`, which sit above the chat floor, and the guidance task's rule is that no tool above that floor joins the loop's surface — an injected `AGENTS.md` line persists across posters and would otherwise steer the owner's turn toward it. So the plan is shown and the poster confirms, the same human-gated apply step install and wipe already use, and the executor runs under the confirming user's claims.
@@ -105,7 +100,7 @@ Adjoins [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-mult
 
 Confirm generation capture is live on deploy, then extend it with UI events — undo, abandon, feedback — sharing the sink with the feedback button. Capture reads the agent `Message` Resources (the collapse's turn-as-Resource model; the old `Turns` side table is gone). Also store the container git-hash on each turn's `Message`, so a prompt can be replayed from its exact starting code — the prerequisite for the nightly replay loop, which reads testers' turns cross-scope through the harness's `*` reach against the bench in [on-hold/nebula-offline-prompt-harness.md](on-hold/nebula-offline-prompt-harness.md). Its risk is not difficulty but being the thing squeezed at the end: everything else in the run is repairable in a later deploy, and this is not.
 
-**`report_finding` — the model as a reporter (moved here 2026-09-03 from the guidance task, where it was a bad fit).** A codegen tool the model calls when a doc misled it or an API misbehaved; the result rides the turn's agent `Message` as structured capture — tenant-local, deduplicated at the digest, and read by a human before anything reaches a public tracker. Never a direct GitHub filing from inside a tenant's Galaxy: that crosses the tenant boundary carrying possibly injected content, and its natural failure is pasting a user-developer's ontology into a public issue. Three homes: the record field is capture and is ③'s; the human-gated filing is the digest's (Wave 3); the standing instruction that tells the model *when* to report is guidance and is [nebula-guidance-file-tree.md](nebula-guidance-file-tree.md)'s. A broken link in the platform tree is not this tool's job — that tree's generator resolves every link at build time and fails on a bad one. The same acceptance events — undo, abandon, feedback — have a second consumer: **scaffold-level learning**, where a corrected or abandoned turn feeds the platform's own guidance evolution ([on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) § *Part B*). The app-level retro needs no such signal — the transcript in the prompt lets the model see a correction as it arrives, so that one is a standing instruction in the guidance task.
+**`report_finding` — the model as a reporter (moved here 2026-09-03 from the guidance task, where it was a bad fit).** A codegen tool the model calls when a doc misled it or an API misbehaved; the result rides the turn's agent `Message` as structured capture — tenant-local, deduplicated at the digest, and read by a human before anything reaches a public tracker. Never a direct GitHub filing from inside a tenant's Galaxy: that crosses the tenant boundary carrying possibly injected content, and its natural failure is pasting a user-developer's ontology into a public issue. Three homes: the record field is capture and is ③'s; the human-gated filing is the digest's (Wave 3); the standing instruction that tells the model *when* to report is guidance and is [nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md)'s. A broken link in the platform tree is not this tool's job — that tree's generator resolves every link at build time and fails on a bad one. The same acceptance events — undo, abandon, feedback — have a second consumer: **scaffold-level learning**, where a corrected or abandoned turn feeds the platform's own guidance evolution ([on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) § *Part B*). The app-level retro needs no such signal — the transcript in the prompt lets the model see a correction as it arrives, so that one is a standing instruction in the guidance task.
 
 ## Turn-log inspection v0
 
@@ -136,7 +131,35 @@ Two kinds of EXPLORATORY, neither pinnable up front:
 1. **Prompt-empirical** — data-bound generation quality. Iterate the system prompt against the compile gate and, later, a judge model, driven by capture → inspection → the replay harness. Capable-of-failing checks plus captured findings, never a transcribable spec.
 2. **UX-exploratory** — the persona UI. Prototype-and-react, and the tight loop is Larry's own dogfooding: the `mint-narrower-token` consent UX, persona switching, multi-tab use, preview tabs coupled to the act-as UI.
 
-Iterating the prompt must not require a deploy — the prompt is content, not code. Tight loop = the offline replay harness (model + gate, seconds, no preview); live checks = local `wrangler dev` + Docker; deploy only for where users live and for realistic multi-tab / auth / act-as checks, at ~1-minute cycles and not every iteration.
+Iterating the prompt must not require a deploy — the prompt is content, not code. Tight loop = the offline replay harness (model + gate, seconds, no preview); live checks = local `wrangler dev` + Docker; deploy only for where users live and for realistic multi-tab / auth / act-as checks, at ~1-minute cycles and not every iteration. The platform layer is `apps/nebula/platform/` — edit, run `node scripts/gen-platform.mjs`, and `wrangler dev` picks it up.
+
+### Findings — the model in the loop, observed
+
+One line per observation, appended, never edited: `date · limb · pass|fail · one sentence`. The limbs are the `/live` scenarios that watch the real model — `studio-guidance-loop` (a) (b) (c) (d) (f), `four-party-chat` (e), `first-app-built` (g) — each reported by the scenario and never gating a sweep; a fail is a finding for ③ and for the platform file's next edit. Un-parking this section's exploratory loop starts from the last line here.
+
+- 2026-09-05 · (a) · pass · asked for a wishlist, the model's `App.vue` reads and writes through `store` / `client.resources` — the 2026-09-03 hand-driven gap did NOT reproduce; the turn read `resources.md`, `coding-your-ui.md`, `ontology.md` and the `wire-a-view` skill first, and hit the round cap on container-free builds (8 rounds, 70 s)
+- 2026-09-05 · (b1) · pass · "no countdown timers", stated in turn one, was honoured by the next turn's output
+- 2026-09-05 · (b2) · pass · after ten further turns the rule is still in `AGENTS.md` (568 bytes)
+- 2026-09-05 · (c) · fail · the convention landed in `AGENTS.md` on the turn it was stated (`edit_file`, `applied=AGENTS.md`), but the reply did not name the file — the retro's "say so in one sentence" half is the platform file's next edit
+- 2026-09-05 · (d) · fail · a request naming data the app did not hold activated `wire-a-view`, not `define-ontology` — it wrote the ontology anyway, under the view skill; the two descriptions overlap on "data", and `define-ontology`'s trigger needs to win when the type is absent
+- 2026-09-05 · (f) · pass · asked what was requested first, the reply named the rule word for word
+- 2026-09-05 · (e) · pass · four-party "what does this app do so far?" — the reply named what the seed app has: the starter shell, the one `Item` type in the ontology, the placeholder page — and invented nothing
+- 2026-09-05 · (g) · pass · on the real `first-app-built` turn the first write landed 32.3 s before the `build` call (the hint had warmed 49.8 s ahead; the cycle then took 3.9 s) against a 3.2 s cold start — the write warm alone hides it, so the discriminator's hint is dead weight on this shape; n=1, so keep it through one more pass and drop it in ③'s edit if the second number agrees
+- 2026-09-05 · (g) · pass · second pass, same turn shape: the first write landed 7.5 s before the `build` call (the hint had warmed 52.9 s ahead; the cycle took 3.9 s) against the 3.2 s cold start — the second number agrees, so the hint is dead weight on this shape; n=2, and the drop goes in ③'s edit as the line above says
+- 2026-09-05 · (c) · pass · second pass: the convention landed in `AGENTS.md` and the reply named the file. The first pass's fail did not reproduce on an unchanged line of the platform file — variance, so the "say so" edit stays queued rather than urgent
+- 2026-09-05 · (a) · fail · second pass: no `App.vue` was written (stop=no-tool-calls, rounds=3). The turn read four platform files and the source, then replied without a write; the first pass wrote it. Variance, not the 09-03 shape — that one wrote user data outside resources
+- 2026-09-05 · (b1) · fail · second pass: not exercised — no `App.vue` this turn, which the limb now counts as a fail rather than a pass with nothing to judge
+- 2026-09-05 · (d) · fail · second pass: `wire-a-view` again, never `define-ontology` — reproduced. The two descriptions' split on "the type is absent" is the platform file's next edit, now with two runs behind it
+- 2026-09-05 · (b2) · pass · second pass: after ten further turns the rule is still in `AGENTS.md` (556 bytes)
+- 2026-09-05 · (f) · pass · second pass: the reply quoted the first request word for word
+- 2026-09-05 · (e) · pass · second pass: "a starter shell", then the one `Item` type with `title` and `done` — named what the seed has, invented nothing
+- 2026-09-05 · (g) · pass · third pass: the first write landed 31.7 s before the `build` call (the hint had warmed 56.2 s ahead; the cycle took 3.5 s) against the 3.2 s cold start — n=3, all three agree, the hint is dead weight on this shape
+- 2026-09-06 · (g) · pass · under the 32-round cap a turn ran two build cycles: write→build 21.0 s and 10.1 s (hint 38.2 s and 61.8 s ahead; cycles 9.0 s and 12.9 s) against 3.2 s — n=5 intervals, every one above the cold start
+- 2026-09-06 · (g) · resolved · the hint is deleted (Larry): five intervals from 7.5 s to 32.3 s, every one above the 3.2 s cold start, so the first-write warm is the only warm and the classifier call with it; limb (g) retired with its question
+- 2026-09-06 · (d) · pass · fixed: the two skill descriptions made disjoint and the Skills section naming the order, `define-ontology` was read first on both passes (2 of 2; 0 of 3 before). The skill itself now carries the ask-or-propose judgment — the prompt's shape, then the user-developer's preference once the profile holds it, then the conversation (Larry, 2026-09-06)
+- 2026-09-06 · (a) · asked · pass 1 under the new skill: the wishlist prompt names fields, and the model asked about the shape instead of building — the judgment the skill describes, so the limb now reports "asked" rather than fail; pass 2 built `App.vue` through the store
+- 2026-09-06 · (c) · pass · pass 2 under the new skill: the reply named `AGENTS.md`; pass 1 did not — still variance, one of two
+
 
 ## ADR hand-review
 
@@ -192,6 +215,7 @@ Don't re-derive these; the code is the authority.
 
 One line each. The archived file is the record and the code is the authority.
 
+- ① The guidance file tree — platform layer in code, Galaxy layer in the Workspace, both read every turn; `read_file` + `edit_file`; the chat history in the prompt; one assembly per turn → [nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md) (archive on commit); the convention that outlives it is `.claude/rules/studio-guidance.md`
 - Self-correcting codegen loop → [archive/nebula-codegen-loop.md](archive/nebula-codegen-loop.md)
 - Generation capture, now the `codegen` value object on each agent `Message` (the `Turns` side table is gone) → [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)
 - `onBeforeCall` downward dominion → [archive/nebula-onbeforecall-higher-admin-reach.md](archive/nebula-onbeforecall-higher-admin-reach.md)

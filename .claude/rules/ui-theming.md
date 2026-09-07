@@ -2,7 +2,7 @@
 paths:
   - "apps/nebula-studio-ui/**"
   - "apps/nebula/container/app/**"
-  - "apps/nebula/src/galaxy.ts"
+  - "apps/nebula/platform/**"
   - "**/*.vue"
 ---
 
@@ -50,8 +50,9 @@ component, and they won't adapt to light/dark. Say it plainly, once, then follow
 MUST NOT repeat the warning and MUST NOT refuse — an advisory practice with a documented-exception
 override, never a gate (`CLAUDE.md`'s "no foot-guns" principle).
 
-The codegen scaffold (`STUDIO_LOOP_SYSTEM_PROMPT` in [galaxy.ts](../../apps/nebula/src/galaxy.ts))
-carries this same **default → redirect → warn-and-proceed** shape. The two MUST be kept in sync when either changes.
+The platform layer of the guidance tree ([apps/nebula/platform/AGENTS.md](../../apps/nebula/platform/AGENTS.md),
+§ *Rules for the code you write* — read by the model on every Studio turn) carries this same
+**default → redirect → warn-and-proceed** shape. The two MUST be kept in sync when either changes.
 
 ## Status
 

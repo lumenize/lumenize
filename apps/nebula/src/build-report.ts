@@ -4,7 +4,7 @@
  *  - the container job (`container/compiler/job.ts`) PRODUCES the middle steps
  *    ({@link JobReport}) and prints them on one stdout line behind
  *    {@link REPORT_MARKER};
- *  - the Worker (`galaxy.ts` / `codegen-loop.ts`) wraps `container` and `publish`
+ *  - the Worker (`galaxy.ts` / `codegen-loop.ts`) wraps `container` and `preview`
  *    around them into the full {@link BuildReport} the model reads as a tool result.
  */
 
@@ -31,8 +31,17 @@ export interface JobReport {
    *  what tsc actually looked at: a file written, checked and unimplicated is KNOWN
    *  CLEAN. */
   typeCheck: { ran: boolean; checked: string[]; findings: Finding[] };
-  /** `!ok` ⇒ there is no `dist`, so nothing to publish (structural, not policy). */
-  bundle: StepResult;
+  /** `!ok` ⇒ there is no `dist`, so nothing to refresh the preview from (structural, not policy). */
+  /** `indexSha256` (hex) is the built `dist/index.html`'s digest when the bundle ran clean —
+   *  the host's arrival check compares it against the VFS so a STALE dist from an earlier
+   *  build cannot pass for the fresh one (a pull that applied nothing left exactly that). */
+  bundle: StepResult & {
+    indexSha256?: string;
+    /** Every file under `dist/`, relative, as the job left it — the host prunes the VFS's
+     *  `dist/` to exactly this set once arrival is verified, because the job no longer lets
+     *  vite empty the directory (see the job's `--emptyOutDir=false`). */
+    files?: string[];
+  };
 }
 
 /**
@@ -42,12 +51,14 @@ export interface JobReport {
  * the model.
  *
  * `container` is the job/exec itself (`!ok` ⇒ infra — but a tail naming the build
- * timeout means retrying unchanged will time out again); `publish` always carries a
- * why, so a preview that did not refresh is never silent.
+ * timeout means retrying unchanged will time out again); `preview` says whether the
+ * `.dev` preview refreshed and always carries a why, so a preview that did not refresh
+ * is never silent. (Named for what the flag decides — the dev preview's reload; the
+ * product's *publish*, the shipped tag served to tenant Stars, is not this.)
  */
 export type BuildReport = JobReport & {
   container: StepResult;
-  publish: { done: boolean; why: string };
+  preview: { refreshed: boolean; why: string };
 };
 
 /** True iff a step ran and failed (a skipped step is not a failure). */

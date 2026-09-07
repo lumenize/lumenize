@@ -48,6 +48,7 @@ import {
 // The compile fn left the barrel with the Worker's compilers — a test Worker may
 // still carry it (this app never deploys), imported from the leaf directly.
 import { compileOntologyVersion } from '../../../src/ontology-compile';
+import { ROW_PATH, wsPath } from '../../../src/build-report';
 import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload } from '@lumenize/nebula';
 import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
 
@@ -94,16 +95,6 @@ export class StarTest extends Star {
       targetGatewayInstanceName,
       ctn[clientMethod](...args),
     );
-  }
-
-  /** Test-only stand-in for `Galaxy.warmPreview`'s signal (preview-ready-autorefresh.md):
-   *  echo `handlePreviewReady` (scope = this Star's instanceName) back to the client, proving
-   *  `warmPreview` fires `clientId` correctly and the client's `handlePreviewReady` invokes
-   *  the `onPreviewReady` hook. */
-  @mesh(requireDominionHere)
-  runFakePreviewWarm(clientId: string): void {
-    const ctn = this.ctn() as any;
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId, ctn.handlePreviewReady(this.lmz.instanceName));
   }
 
   /**
@@ -340,14 +331,24 @@ export class StarTest extends Star {
 
 export class GalaxyTest extends Galaxy {
   // Scripted chat support: a fake model script (per-round responses, consumed by the
-  // shared `runModel` router so the codegen loop AND the answer path both ride it) + an
-  // always-ok build, so the trigger pipeline is drivable in-lane. A `{ __delayMs }`
+  // shared `runModel` router — the loop's every round rides it) + an always-ok build, so the
+  // trigger pipeline is drivable in-lane. A `{ __delayMs }`
   // entry sleeps then falls through — the lever for spanning a generation across
   // commits (the single-flight tests). The REAL container drive is the build-box /live
   // scenario; nothing here reaches ctx.container (absent under pool-workers anyway).
   #chatScript: unknown[] = [];
-  #pinnedCodegen = true;
-  protected override async runModel(_model: string, _body: Record<string, unknown>): Promise<unknown> {
+  /** Every `messages` array handed to the model, across turns — the prompt as assembled,
+   *  so a test can read a turn's system layer (`messages[0]`) and its request. Cleared by
+   *  the reader. */
+  #seenMessages: unknown[][] = [];
+  /** The tool NAMES handed to the model per call — the full set, on every turn. */
+  #seenToolNames: string[][] = [];
+  protected override async runModel(_model: string, body: Record<string, unknown>): Promise<unknown> {
+    if (Array.isArray(body.messages)) {
+      this.#seenMessages.push(body.messages.map((m) => ({ ...(m as object) })));
+      const tools = Array.isArray(body.tools) ? body.tools as Array<{ function?: { name?: string } }> : [];
+      this.#seenToolNames.push(tools.map((t) => t.function?.name ?? '?'));
+    }
     for (;;) {
       const next = this.#chatScript.shift();
       if (next === undefined) throw new Error('GalaxyTest chat script exhausted');
@@ -359,27 +360,52 @@ export class GalaxyTest extends Galaxy {
       return next;
     }
   }
-  protected override build(): Promise<BuildReport> {
-    // A clean report, shaped exactly as the real job's (publish is the layer above's
-    // decision — the seam's placeholder, overwritten by #buildAndAnnounce).
-    return Promise.resolve({
+  protected override async build(
+    opts: { ontology?: { version: string; wipe: boolean } } = {},
+  ): Promise<BuildReport> {
+    // A clean report, shaped exactly as the real job's (preview is the layer above's
+    // decision — the seam's placeholder, overwritten by #buildAndAnnounce). When the host
+    // passes an ontology job, compile IN PLACE and write the row where the real job
+    // does (an fs write at ROW_PATH — the dev-studio probe's shape), so the Apply's
+    // host-side read-back, version check and append run unchanged in this lane too.
+    let ontology: BuildReport['ontology'] = { ran: false, why: 'no ontology change (host passed no version)' };
+    if (opts.ontology) {
+      try {
+        const types = await this.workspaceFs().readFile(wsPath('src/ontology.d.ts'), 'utf8');
+        const row = compileOntologyVersion({
+          version: opts.ontology.version, types,
+          ...(opts.ontology.wipe ? { wipeOnInstall: true } : {}),
+        });
+        await this.workspaceFs().mkdir(wsPath('.nebula'), { recursive: true });
+        await this.workspaceFs().writeFile(wsPath(ROW_PATH), JSON.stringify(row));
+        ontology = { ran: true, ok: true, rowPath: ROW_PATH };
+      } catch (e) {
+        ontology = { ran: true, ok: false, tail: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    return {
       container: { ran: true, ok: true },
-      ontology: { ran: false, why: 'no ontology change (host passed no version)' },
+      ontology,
       typeCheck: { ran: true, checked: ['src/App.vue'], findings: [] },
       bundle: { ran: true, ok: true },
-      publish: { done: false, why: 'not decided at the build layer' },
-    });
+      preview: { refreshed: false, why: 'not decided at the build layer' },
+    };
   }
 
-  /** Pin the discriminator (no model call, deterministic fork) — the verdict's own
-   *  model behavior is out of scope in-lane; what the pin exercises is what the fork
-   *  DOES (warm gating + prompt selection). */
-  protected override async discriminate(): Promise<{ respond: true; codegen: boolean }> {
-    return { respond: true, codegen: this.#pinnedCodegen };
+  /** No script seeded → NO turn. Tests that post user Messages without a script assert on
+   *  their own messages alone; until 2026-09-06 an unscripted turn threw script-exhausted
+   *  and died silently, which those tests leaned on without saying so. A failed model call
+   *  now commits an error reply (the controlled `error` stop), so the no-turn is explicit. */
+  protected override async runTriggeredTurn(userMessageId: string, message: string): Promise<void> {
+    if (this.#chatScript.length === 0) {
+      debug('nebula.GalaxyTest.trigger').debug('no script seeded — the turn is a no-op', { userMessageId });
+      return;
+    }
+    await super.runTriggeredTurn(userMessageId, message);
   }
 
   /** Run ONE real TRIGGERED turn against the scripted model (the whole pipeline:
-   *  discriminator (pinned) → loop → commit → build-completion reload trigger).
+   *  loop → commit → build-completion reload trigger).
    *  Drives `runTriggeredTurn` — the same runner the commit hook invokes. */
   @mesh(requireDominionHere)
   async chatScriptedForTest(userMessageId: string, message: string, script: unknown[]): Promise<void> {
@@ -391,9 +417,25 @@ export class GalaxyTest extends Galaxy {
    *  `postUserMessage` commit fires `#onChatCommitted` in the same isolate, so the
    *  seeded script is what its generation consumes). Ephemeral by design. */
   @mesh(requireDominionHere)
-  seedChatScriptForTest(script: unknown[], opts: { codegen?: boolean } = {}): void {
+  seedChatScriptForTest(script: unknown[]): void {
     this.#chatScript = [...script];
-    this.#pinnedCodegen = opts.codegen ?? true;
+  }
+
+  /** The prompts the model saw since the last read (one `messages` array per model call),
+   *  then cleared. */
+  @mesh(requireDominionHere)
+  takeSeenMessagesForTest(): unknown[][] {
+    const out = this.#seenMessages;
+    this.#seenMessages = [];
+    return out;
+  }
+
+  /** The tool names each model call carried since the last read, then cleared. */
+  @mesh(requireDominionHere)
+  takeSeenToolNamesForTest(): string[][] {
+    const out = this.#seenToolNames;
+    this.#seenToolNames = [];
+    return out;
   }
 
   /** Test-only: drop + recreate the QuerySubscribers table — the reconnect test's
@@ -557,14 +599,6 @@ export class NebulaClientTest extends NebulaClient {
 
   // --- Test initiators (tests call these to trigger outbound mesh calls) ---
   // Uses this.lmz.call() with this.ctn<TargetType>().method(args) continuation pattern
-
-  /** Exercise `warmPreview`'s fire shape against the StarTest stand-in: fire with this
-   *  client's *explicit* instanceName; the stand-in echoes
-   *  `handlePreviewReady` → the `onPreviewReady` hook fires. */
-  warmPreviewViaStarForTest(starInstanceName: string): void {
-    const clientId = this.lmz.instanceName;
-    this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakePreviewWarm(clientId));
-  }
 
   callStarWhoAmI(starInstanceName: string): void {
     this.resetResults();
@@ -918,6 +952,20 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
+  /** Read (and clear) the prompts the GALAXY's scripted model saw — `lastResult` holds them. */
+  callGalaxyTakeSeenMessages(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().takeSeenMessagesForTest();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Read (and clear) the tool names each model call carried — `lastResult` holds them. */
+  callGalaxyTakeSeenToolNames(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().takeSeenToolNamesForTest();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
   /** Clear the GALAXY's QuerySubscribers (the reconnect test's server-side amnesia). */
   callGalaxyClearQuerySubscribers(scope: string): void {
     this.resetResults();
@@ -927,9 +975,9 @@ export class NebulaClientTest extends NebulaClient {
 
   /** Seed the fake-model script ahead of a REAL `postUserMessage` (the commit-hook
    *  trigger consumes it). Result-handler form so a test can await the seed landing. */
-  callGalaxySeedChatScript(scope: string, script: unknown[], opts: { codegen?: boolean } = {}): void {
+  callGalaxySeedChatScript(scope: string, script: unknown[]): void {
     this.resetResults();
-    const remote = this.ctn<GalaxyTest>().seedChatScriptForTest(script, opts);
+    const remote = this.ctn<GalaxyTest>().seedChatScriptForTest(script);
     this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
