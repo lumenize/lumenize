@@ -27,7 +27,8 @@ This task is the next increment on that fine-grained permissioning journey and w
 
 - **Gated by the Profile access-control work** ([nebula-profile-access-control.md](nebula-profile-access-control.md)), in build 2026-09-08. Its mint refusal is why a persona must accept before it can be impersonated, and its owner-branch change is what lets an impersonated persona own its own profile.
 - **Shares the Workspace-repo write path** with ⑤ ([nebula-ontology-history-file.md](nebula-ontology-history-file.md)), and not its append-only rule — personas are edited, history is not.
-- **Adjoins** [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-multi-user-testing.md), the same tab UI, and shares the subject/grant/scope core with [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md), the pull half — share it, do not fork it. [Are these two adjoins superceded? Should we mine and delete them?]
+- **Mines the tab half of** [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-multi-user-testing.md) — its favored default is § *Pinned*'s tab row below, and its question about how test users are minted is answered by decision 1. **That file is not deleted**: its other half is the fate of `/create-star` and how a pre-created tenant Star is founded, which this task does not touch. Shipping personas trips its second open question, whether admin-created tenant Stars are still needed at all.
+- **Shares the subject/grant/scope core with** [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md) — **not superseded**. That is the pull half, someone climbing the tree to ask an admin for access; this is the push half, a cast provisioned up front. Share the core, do not fork it.
 - **The cast's home is ①'s** ([archive/nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md), shipped): `docs/personas.md` as numbered prose keyed on persona name, a seed template naming mint, node, edge and grant, and a `define-the-cast` skill that elicits the cast and hands it to the executor designed here.
 
 ## Pinned already — decided, with where each was argued
@@ -46,6 +47,7 @@ This task is the next increment on that fine-grained permissioning journey and w
 | The run's record is machine-owned under `.nebula/`, and survives `resetDevData`, which touches only the Star. | Same. |
 | The `.dev` Star stands in for a tenant Star whose founder is a stranger, so the first persona gets `admin` on the root node plus `scopeAdmin` at `.dev`, as one plan entry and an explicit `setPermission` — never an arrival. | Same. ⚠️ The seed latch and `resetDevData`'s re-arming are described there; arrival order decides and is never relied on. |
 | The creating call should originate from the user-developer's own request, not the singleton — a DO's first call fixes where it lives forever. | Same; needs `CallOptions.locationHint` from [on-hold/mesh-origin-request.md](on-hold/mesh-origin-request.md). |
+| Multi-user testing happens on the `.dev` Star, never on pre-created tenant Stars, rendered as a tab strip where the single preview iframe sits today — one iframe per test user. | [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-multi-user-testing.md), its favored default, stated 2026-08-17 and mined here. It predates goal 4 and agrees with it. |
 
 ## Verified on disk — so it need not be re-derived
 
@@ -65,9 +67,13 @@ Mined from the sections above on 2026-09-08. The first is a fork with a pinned d
 
 **A. Plan or script? Your § *Context* names "the provisioning script" as one of the three files the LLM produces; § *Pinned* says the model emits ONE plan, typed and typia-validated, for a deterministic executor.** Those are different artifacts: a script is code that runs, a plan is data that is checked before anything runs, and only the second can be refused whole. The pinned form was chosen over granular tools and over a typed block Studio parses. Decide which the prose means, because goal 1's bracket — whether the personas file carries it or references a sibling — only has an answer once this does.
 
-**B. Does provisioning DELETE?** Goal 1 says *adjust the existing provisioning to match the latest of those two files*; § *Pinned* says create-if-missing throughout, which can only add. Converging to match means removing a grant the prose dropped, re-parenting a moved node, retiring a persona. That is destructive, it is an [ADR-016](../docs/adr/016-record-the-acting-principal.md) authority event per removal, and [ADR-015](../docs/adr/015-passage-and-dominion.md) says restraint for destructive actions is a warning rather than a refusal. Additive-only and converging are both defensible; they are not the same task.
+**B. ANSWERED in shape (Larry, 2026-09-08): re-provisioning wipes the `.dev` Star first, so create-if-missing is enough and nothing converges.** `resetDevData` is a `deleteAll()` on that Star alone, so the nodes, the edges, the grants and the Resources all go and there is nothing left to adjust. No deletes, no per-removal authority event, no half-migrated tree. **Residual, and it is a DX question rather than a mechanism one:** is the wipe suggested, offered as the default of a two-button apply, or forced? Goal 2's data is what makes it feel expensive, so answer it with D.
 
-**C. What happens to test data hanging off something the converge removes?** Only live if B says converge, and it is the case that makes a re-run feel unsafe.
+**B2. The Registry is NOT wiped, and it accrues far less than it looks — check this before designing a sweep.** `Memberships` carries `UNIQUE (emailId, universeGalaxyStarId)` and `#mintIdentity` returns the existing row when one is there, so re-provisioning an unchanged persona **reuses its `sub`**. Cruft therefore accrues per persona **renamed or removed**, not per re-provision, which is bounded by how often a user-developer edits the cast rather than by how often they test.
+
+⚠️ **That falsifies a criterion this file inherited.** § *Criteria* says a wiped `.dev` Star re-establishes with *a fresh `sub` per name*. It will not: the membership survives `resetDevData` and is reused, and only ⑥'s worker-delete destroys the Registry. The stable `sub` is the better property anyway — the `.nebula/` name-to-`sub` map stays valid across a dev wipe instead of being rewritten each time — so the criterion is corrected below rather than the behaviour.
+
+**C. What happens to test data hanging off something the wipe removes?** Everything, and that is the point: the wipe takes the data with the tree, so a re-run starts from the plan and the data script alone. The question that survives is D's — what rebuilds it.
 
 **D. Test data — a second artifact, or part of the plan, or out of scope?** Your goal 2's own bracket. Two sub-questions it carries: whose authority writes it, since a Resource created as the founder persona and one created as Studio land under different grants; and what a second run does, which needs a key to be idempotent on.
 
@@ -93,5 +99,5 @@ Mined from the sections above on 2026-09-08. The first is a fork with a pinned d
 
 ## Criteria the plan already says to carry
 
-- A wiped `.dev` Star is re-established from the persona file alone: provision from a seeded `personas.md`, wipe, run, and the tree, the grants and a fresh `sub` per name match the prose. Mutation: drop create-if-missing, and the second run fails on "already exists".
+- A wiped `.dev` Star is re-established from the persona file alone: provision from a seeded `personas.md`, wipe, run, and the tree and grants match the prose. ⚠️ Each unchanged persona keeps the **same** `sub`, because its membership survives a `.dev` wipe and is reused — assert that, not a fresh one (§ *Open* B2). Mutation: drop create-if-missing, and the second run fails on "already exists".
 - A plan naming an unknown node is refused before anything runs. Mutation: remove validation, and a grant lands on nothing.

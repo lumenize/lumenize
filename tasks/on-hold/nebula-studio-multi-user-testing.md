@@ -1,8 +1,8 @@
 # Testing from inside the Studio — test users, test Stars, and who founds a pre-created Star
 
-**Status:** ⏸️ **ON HOLD (2026-08-17)** — parked until we design how testing actually works from inside the Studio. Nothing here blocks pre-alpha; the questions were surfaced while reviewing [nebula-registry-route-guards.md](../archive/nebula-registry-route-guards.md) and are parked here so they are decided once, together, instead of ad-hoc per endpoint.
+**Status:** ⏸️ **ON HOLD, and NARROWED 2026-09-08** — the tab half was mined into [nebula-testing-with-personas.md](../nebula-testing-with-personas.md), which now owns how testing works from inside the Studio. What remains here is the fate of `/create-star` and how a pre-created tenant Star is founded. Originally parked 2026-08-17 until we designed the testing story. Nothing here blocks pre-alpha; the questions were surfaced while reviewing [nebula-registry-route-guards.md](../archive/nebula-registry-route-guards.md) and are parked here so they are decided once, together, instead of ad-hoc per endpoint.
 
-**The favored default, stated first: multi-user testing happens ON the `.dev` Star, not on pre-created tenant Stars.** Multiple test users, rendered as a **tab interface where the single preview iframe sits today — each tab its own iframe, one per test user**. This adjoins the master plan's personas item ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § *② Personas* — invite-gated since 2026-09-02, and Larry's task file to write). Once that works smoothly, revisit whether a real use case for admin-created tenant Stars exists at all.
+**The favored default, stated first and now MINED: multi-user testing happens ON the `.dev` Star, not on pre-created tenant Stars** — a tab strip where the single preview iframe sits, one iframe per test user. That is [nebula-testing-with-personas.md](../nebula-testing-with-personas.md)'s goal 4, and it is pinned there. It is repeated here because open question 2 below turns on it: once those tabs work, revisit whether a real use case for admin-created tenant Stars exists at all.
 
 ## What is true today, and stays true while this is parked
 
@@ -21,11 +21,11 @@
 ## Open questions for when this resumes
 
 1. **`/create-star-for-testing`, open to any member of the parent Galaxy (not only `scopeAdmin`)** — proposed 2026-08-17. ⚠️ The design problem it must solve: `create-*` deliberately **mints no identity** (the claim/create split in `router.ts`'s own comment), so a plain member who creates a Star receives no membership in it and cannot enter what they just made. Either the endpoint mints a membership — breaking the split — or it pairs creation with a self-invite. Also open: quotas/abuse bounds for non-admin creation, who may delete what a member created, and whether the tab-iframe default retires the need entirely.
-2. **Does anything still need admin-created tenant Stars once `.dev` multi-user tabs work?** If yes, `/create-star` (or a successor) gets its real second consumer; if no, `/create-star` retires outright: `createGalaxy` now bundles the `.dev` INSERT (built 2026-08-30; its JSDoc carries the rationale), so once the wipe kills `develop()`'s legacy repair ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § *⑥ The wipe*, the post-wipe cleanup) the endpoint has zero production callers.
-3. **How test users are minted for the `.dev` tabs** — the synthetic-subjects thread; act-as vs real invited identities; what the Studio UI shows per tab.
+2. **Does anything still need admin-created tenant Stars once `.dev` multi-user tabs work?** ⚠️ **Shipping personas is this question's trigger** — the tabs are that task's goal 4, so this becomes answerable rather than speculative the moment it lands. If yes, `/create-star` (or a successor) gets its real second consumer; if no, `/create-star` retires outright: `createGalaxy` now bundles the `.dev` INSERT (built 2026-08-30; its JSDoc carries the rationale), so once the wipe kills `develop()`'s legacy repair ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § *⑥ The wipe*, the post-wipe cleanup) the endpoint has zero production callers.
+3. ✅ **Answered 2026-09-08 and moved** — decision 1 in [nebula-pre-alpha.md](../nebula-pre-alpha.md) § *What remains* settles it as BOTH: real invited identities that accept like anyone, driven by `impersonate()`. The synthetic-subjects thread is closed with no `synthetic` column. What the Studio shows per tab is [nebula-testing-with-personas.md](../nebula-testing-with-personas.md)'s.
 
 ## Relationships
 
-- **Adjoins** [nebula-pre-alpha.md](../nebula-pre-alpha.md) § *② Personas* (owned since 2026-09-02: invite-gated, Larry's task file).
+- **Mined by** [nebula-testing-with-personas.md](../nebula-testing-with-personas.md), which took the tab default and open question 3. Nothing here contradicts it.
 - **Consumes, when it resumes:** [archive/nebula-invite.md](../archive/nebula-invite.md)'s per-invitee `scopeAdmin` (the founding path above).
 - **Does not touch** [nebula-registry-route-guards.md](../archive/nebula-registry-route-guards.md) — `create-star`'s table row is unaffected.
