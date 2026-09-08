@@ -21,7 +21,7 @@ This task is the next increment on that fine-grained permissioning journey and w
 1. **Provision each persona as a user.** Everytime the personas file, which includes the provisioning script [Or does it just reference that in a separate file?], either provision from scratch, if the .dev Star was wiped, or adjust the existing provisioning to match the lastest of those two files.
 2. **Populate with (on a wipe), or adjust existing (no wipe), test data to minimally show off the difference in each persona's permissions.** [Should this require another script? or maybe this is out of scope for this task file?]
 3. **Accept each persona's invite.** Create dynamic email addresses for each persona [Would it make sense to use `{u}.{g}~{personaSlug}@lumenize.io` as the format for the email address (note the use of tilde instead of dash to help with parsing since u and g slugs can contain dashes, but maybe some other delimeter is better)?]. Send those emails and auto-accept those invites. [Do we need to upgrade the platform standing guidance to recommend short nicknames as slugs for each persona? "Manager Mary" might just become "mary".]
-4. **Log each persona in to a separate tab in the preview area.** The preview area gets a list of tabs with the persona slug as the tab label.
+4. **Log each persona in to a separate tab in the preview area.** The preview area gets a list of tabs with the persona slug as the tab label.
 
 ## Relationships
 
