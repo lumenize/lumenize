@@ -183,8 +183,11 @@ describe.skip('the email-change FLOW (unbuilt) — pinned contract', () => {
     // they do. The comment must carry (a) that it is presence-only and MUST NOT become
     // `act.sub === claims.sub`, which reads the chain's identity and is the manufacture it defends
     // against; (b) that it is what makes the target-`emailId` question moot, so removing it reopens a
-    // decision rather than just a check. `profile.ts`'s owner branch already carries exactly this kind
+    // decision rather than just a check. `router.ts`'s `forwardWithSubject` carries exactly this kind
     // of comment for the same predicate on a different surface — copy its shape, not its wording.
+    // (It used to point at `profile.ts`'s owner branch; that clause was retired 2026-09-08 when
+    // acceptance moved to the mint, and `security.md` rule (1) now names `forwardWithSubject` as the
+    // worked case.)
     //
     // ARRANGE (placeholder): a narrower token minted for `sub`, POSTed to the change endpoint.
     // ASSERT: refused; no email is sent (assert on the email sender, not on a response body).

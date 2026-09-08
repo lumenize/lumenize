@@ -21,7 +21,7 @@
  */
 import { debug } from '@lumenize/debug';
 import { signJwt, importPrivateKey, generateRandomString, hashString } from '@lumenize/crypto';
-import { buildNebulaJwtPayload } from './access-claims';
+import { buildNebulaJwtPayload, projectActingToken } from './access-claims';
 import { hasDominionOver, isAtOrAbove, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';
 import {
@@ -30,7 +30,7 @@ import {
   SIGNUP_TICKET_TTL, SIGNUP_TICKET_COOKIE, COMING_SOON_TAGS,
 } from './types';
 import type { ComingSoonTag, ConsumeMembership, ConsumePlan, NebulaJwtPayload, RefreshTokenKV } from './types';
-import type { TicketClaimResult } from './nebula-auth-registry';
+import type { NebulaAuthRegistry, TicketClaimResult } from './nebula-auth-registry';
 import { landingBase, homePath, SIGNUP_PATH } from './landing';
 
 // ── error helpers ──────────────────────────────────────────────────────────────────────────────
@@ -61,6 +61,22 @@ function registry(env: Env): any {
 }
 
 /**
+ * The two identity reads, typed against the Registry class itself. `registry(env)` is `any`, so a
+ * hand-written cast at the call site is all the compiler ever sees — and a cast cannot fail: rename
+ * `profileId` on the returned row and the read is `undefined`, which is falsy and errors nowhere.
+ * Naming the methods on the class puts a rename back in front of `tsc`, on the one method whose
+ * acceptance conjunct decides whether the mint refuses.
+ *
+ * `getIdentityScope` is the ACCEPTED-only read and the mint's; `getIdentityScopeIncludingPending`
+ * resolves a membership still pending, which is what the consent screen's name prefill reads. Both are
+ * synchronous on the class and arrive as promises over RPC, which `await` resolves either way.
+ */
+function identityReads(env: Env):
+  Pick<NebulaAuthRegistry, 'getIdentityScope' | 'getIdentityScopeIncludingPending'> {
+  return registry(env);
+}
+
+/**
  * One person's Profile stub (raw Workers RPC), or `null` where the binding is absent. The trust
  * model for what may be called on it is stated on `Profile.readNickname`.
  *
@@ -76,9 +92,15 @@ function profile(env: Env, profileId: string): any | null {
   return ns ? ns.getByName(profileId) : null;
 }
 
-/** This person's Profile stub, resolved from a `sub` the caller has ALREADY verified. */
+/**
+ * This person's Profile stub, resolved from a `sub` the caller has ALREADY verified.
+ *
+ * The PENDING-aware read, because the consent screen's name prefill runs before anyone has accepted —
+ * a membership still pending is exactly the one it is asking about. Its sibling caller, the accept
+ * handler's name write, runs just after the flip and resolves either way.
+ */
 async function profileForSub(env: Env, sub: string): Promise<any | null> {
-  const identity = await registry(env).getIdentityScope(sub) as { profileId?: string } | null;
+  const identity = await identityReads(env).getIdentityScopeIncludingPending(sub);
   return identity?.profileId ? profile(env, identity.profileId) : null;
 }
 
@@ -759,7 +781,10 @@ function canMintFor(
  * **The authorization is ONE question plus one validation:**
  *
  *  - **authorize:** `¬caller.act` (the root-identity gate, below) ∧ `caller.sub ≠ subject.sub`
- *    (the self-narrow refusal) ∧ {@link canMintFor} — dominion over the SUBJECT's scope.
+ *    (the self-narrow refusal) ∧ `subject accepted their membership` ∧ {@link canMintFor} —
+ *    dominion over the SUBJECT's scope. The acceptance conjunct has no branch of its own: the
+ *    registry's `getIdentityScope` answers only for an accepted membership, so an unaccepted
+ *    subject arrives as `null` and the collapsed refusal below covers them (ADR-012).
  *  - **mint:** `{ sub, authScope, scopeAdmin }` ← all the SUBJECT's, verbatim; `aud` ← the
  *    requested `activeScope`; `act` ← the caller.
  *
@@ -806,18 +831,21 @@ export async function mintNarrowerToken(
   try { parseId(body.activeScope); }
   catch (e) { return errorResponse(400, 'invalid_request', (e as Error).message); }
 
-  // Reject SELF-NARROWING, before the registry read. There is no second party, so `act: { sub: X }` on
-  // a token whose `sub` is X records nothing: it pollutes attribution, muddies `!claims.act` (the
-  // Profile owner guard), and leaves a token re-narrowable past the root-identity gate above.
-  // ⚠️ The invariant is *an admin-driven session is never an owner*, NOT "the two subs are different
-  // people": `#mintIdentity` keys on (email, scope), so one human legitimately holds several `sub`s.
+  // Reject SELF-NARROWING, before the registry read. There is no second party, so an actor pair
+  // naming the token's own `sub` records nothing: it pollutes attribution, and it costs that session
+  // both of the things an actor chain is refused — the tenancy summary at `router.ts`'s
+  // `forwardWithSubject`, and re-narrowing past the root-identity gate above — for no second party's
+  // sake. ⚠️ The invariant is *a chain must name someone else*, NOT "the two subs are different
+  // people": `#mintIdentity` keys on (email, scope), so one human legitimately holds several `sub`s,
+  // and this compares the one field a caller supplies against the one the Bearer already proved.
   if (body.subOfNarrowerToken === payload.sub) {
     return errorResponse(400, 'invalid_request', 'subOfNarrowerToken must be a different sub than the caller');
   }
 
-  // The subject lookup. ⚠️ An absent subject is NOT 404'd here — see the collapsed refusal below.
-  const subjectIdentity = await registry(env).getIdentityScope(body.subOfNarrowerToken) as
-    { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null;
+  // The subject lookup — the ACCEPTED-only read, which is what makes the refusal below cover a
+  // subject who never took their membership up. ⚠️ An absent subject is NOT 404'd here — see the
+  // collapsed refusal.
+  const subjectIdentity = await identityReads(env).getIdentityScope(body.subOfNarrowerToken);
 
   // ── AUTHORIZE — one question, and refusal is indistinguishable from absence ─────────────────────
   // The route is scope-less, so this call is the whole verdict. A `null` subject and a subject the
@@ -866,8 +894,11 @@ export async function mintNarrowerToken(
     ttlSeconds: body.ttlSeconds as number | undefined,
   });
 
+  // ADR-016: a mint ESTABLISHES a session, so the record names every party through the one shared
+  // projection. A hand-picked `sub` + `act.sub` pair is what that ADR's Alternatives table rejects —
+  // it drops the authority the caller asserted, which is the question a post-incident reader has.
   debug('nebula-auth.worker.narrower.issued').info('Narrower token issued', {
-    subOfNarrowerToken: body.subOfNarrowerToken, actorSub: payload.sub,
+    subOfNarrowerToken: body.subOfNarrowerToken, actingToken: projectActingToken(payload),
   });
   return Response.json({ access_token: accessToken, token_type: 'Bearer', expires_in: effectiveTtlSeconds });
 }

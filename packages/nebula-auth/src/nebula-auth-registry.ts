@@ -13,7 +13,9 @@
  *   scope-summary / expand-scope / delete-scope(-plan). The router pre-verifies JWT/Turnstile and injects the verified
  *   `access` claim + caller `sub`.
  * - **Worker token layer (raw RPC)**: requestMagicLink / issueInvites / resolveConsume /
- *   recordSessions / acceptMembership / revokeRefreshToken / getIdentityScope / setIdentityAdmin — the login-channel +
+ *   recordSessions / acceptMembership / revokeRefreshToken / setIdentityAdmin / getIdentityScope (the
+ *   mint's authorization read, accepted-only) / getIdentityScopeIncludingPending (the consent screen's
+ *   name prefill) — the login-channel +
  *   refresh-token lifecycle. The Worker generates the raw refresh token (cookie) and passes only its
  *   hash; this DO writes the index + KV.
  *
@@ -355,13 +357,58 @@ export class NebulaAuthRegistry extends DurableObject {
     };
   }
 
+  /**
+   * A `sub` → its scope, admin bit and `profileId` — **only where the membership was accepted**,
+   * which is what makes this the read an authorization decision may use. An invited-but-never-taken-up
+   * membership resolves to `null` here, so `/mint-narrower-token` refuses that subject through its
+   * existing not-found-or-not-yours 403 rather than through a branch of its own, and a future guard
+   * gets the safe behaviour without deciding to.
+   *
+   * ⚠️ **Do not drop the acceptance conjunct to un-break a caller that stopped resolving.** A caller
+   * that needs a membership still pending wants {@link getIdentityScopeIncludingPending}, which says so
+   * in its name and hands back the acceptance beside the row. Widening this one instead is how the mint
+   * came to decide authority off a membership nobody had taken up (ADR-012 § *Decision*).
+   */
   getIdentityScope(sub: string): { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null {
-    // Entry marker: a refused-at-the-edge caller must never reach this read (the mint's non-admin
-    // refusal happens before dispatch), and a 403 looks identical either way — tests assert the
-    // absence of this line through the debug sink.
+    // Entry marker: the mint's route is scope-less, so there is no pre-dispatch dominion guard and
+    // this read DOES run for a caller who is about to be refused — `route-guards.test.ts` asserts
+    // exactly one lookup for a non-admin member. What closes the probing concern is the collapsed
+    // refusal, not the absence of the read; the marker is how a test counts the lookups at all.
     debug('nebula-auth.Registry.getIdentityScope').debug('subject lookup', { sub });
     const rows = this.#sql`
       SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.scopeAdmin AS scopeAdmin, e.profileId AS profileId
+      FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+      WHERE m.sub = ${sub} AND m.acceptedAt IS NOT NULL
+    `;
+    if (rows.length === 0) return null;
+    return {
+      universeGalaxyStarId: rows[0].universeGalaxyStarId as string,
+      scopeAdmin: Boolean(rows[0].scopeAdmin),
+      profileId: rows[0].profileId as string,
+    };
+  }
+
+  /**
+   * The same row **including a membership still pending**, plus whether it was accepted — the read the
+   * session lifecycle wants, and the one read behind every `accepted` copy, so the flag has one source
+   * and a stale copy can never outvote the row.
+   *
+   * A click places a path-scoped cookie for every membership of the address and each is inert until its
+   * holder consents, so a person mid-acceptance has to keep resolving: {@link getRefreshRecord}'s
+   * self-heal, {@link recordSessions} at consume time, {@link acceptMembership}'s convergence,
+   * {@link setIdentityAdmin}'s re-put, and the consent screen's own name prefill, which by definition
+   * reads a membership nobody has accepted yet. Each of those used to pair the plain read with a second
+   * acceptance query; this returns both in one.
+   *
+   * ⚠️ **Never the read behind an authorization decision** — that is {@link getIdentityScope}, and the
+   * split is the whole point: a caller reaching for pending rows has to name them, so the plain name
+   * stays safe for whoever writes the next guard.
+   */
+  getIdentityScopeIncludingPending(sub: string):
+    { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string; accepted: boolean } | null {
+    const rows = this.#sql`
+      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.scopeAdmin AS scopeAdmin,
+             m.acceptedAt AS acceptedAt, e.profileId AS profileId
       FROM Memberships m JOIN Emails e ON e.emailId = m.emailId WHERE m.sub = ${sub}
     `;
     if (rows.length === 0) return null;
@@ -369,6 +416,7 @@ export class NebulaAuthRegistry extends DurableObject {
       universeGalaxyStarId: rows[0].universeGalaxyStarId as string,
       scopeAdmin: Boolean(rows[0].scopeAdmin),
       profileId: rows[0].profileId as string,
+      accepted: rows[0].acceptedAt != null,
     };
   }
 
@@ -388,7 +436,10 @@ export class NebulaAuthRegistry extends DurableObject {
     const sub = rows[0].sub as string;
     const expiresAt = rows[0].expiresAt as string;
     if (new Date().toISOString() > expiresAt) return null; // expired
-    const scope = this.getIdentityScope(sub);
+    // The PENDING-aware read: a cookie exists from the click and is inert until its holder consents,
+    // so a person mid-acceptance must still self-heal — the plain name would answer `null` and turn a
+    // KV propagation gap into "identity deleted".
+    const scope = this.getIdentityScopeIncludingPending(sub);
     if (!scope) return null; // identity deleted
     const record: RefreshTokenKV = {
       sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin: scope.scopeAdmin, expiresAt,
@@ -396,7 +447,7 @@ export class NebulaAuthRegistry extends DurableObject {
       // ⚠️ DERIVED from the membership row, never carried over from a stale copy and never written
       // back into `Memberships`. This arm is a reader: it reconstructs what the KV record should say,
       // so acceptance keeps exactly one writer on both the hit and the miss path.
-      accepted: this.#isAccepted(sub),
+      accepted: scope.accepted,
     };
     await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), { expirationTtl: kvTtlSeconds(expiresAt) });
     debug('nebula-auth.Registry.token.kvSelfHeal').info('refresh KV record reconstructed on miss', { sub });
@@ -1089,13 +1140,6 @@ export class NebulaAuthRegistry extends DurableObject {
     return { scopes: siblings.map((s: any) => s.scope as string) };
   }
 
-  /** Is this membership taken up? The one read behind every `accepted` copy — so the flag has one
-   *  source, and a stale copy can never outvote the row. */
-  #isAccepted(sub: string): boolean {
-    const rows = this.#sql`SELECT acceptedAt FROM Memberships WHERE sub = ${sub}`;
-    return rows.length > 0 && rows[0].acceptedAt != null;
-  }
-
   /** Every membership an address holds, newest first — mint-all's input. */
   #membershipsForAddress(lcEmail: string): ConsumeMembership[] {
     const rows = this.#sql`
@@ -1186,9 +1230,12 @@ export class NebulaAuthRegistry extends DurableObject {
   async recordSessions(records: SessionRecord[], expiresAt: string): Promise<void> {
     const established: Array<Record<string, unknown>> = [];
     for (const r of records) {
-      const scope = this.getIdentityScope(r.sub);
+      // PENDING-aware: a consume records a session for every membership of the address, and an
+      // invited one is pending by definition — the plain name would skip exactly the invitee whose
+      // cookie this is placing.
+      const scope = this.getIdentityScopeIncludingPending(r.sub);
       if (!scope) continue; // membership vanished between the two calls — nothing to record
-      const accepted = this.#isAccepted(r.sub);
+      const accepted = scope.accepted;
       await this.#recordRefreshToken(
         r.sub, scope.universeGalaxyStarId, scope.scopeAdmin, scope.profileId, r.tokenHash, expiresAt,
         accepted,
@@ -1258,13 +1305,17 @@ export class NebulaAuthRegistry extends DurableObject {
     // Converge every live session for the affected memberships: the cookies exist already and are
     // inert until this lands. Re-applies each token's ORIGINAL absolute expiry, never a fresh TTL.
     for (const s of flipped) {
-      const identity = this.getIdentityScope(s);
+      const identity = this.getIdentityScopeIncludingPending(s);
       if (!identity) continue;
       const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${s}`;
       for (const tk of tokens) {
         const record: RefreshTokenKV = {
           sub: s, universeGalaxyStarId: identity.universeGalaxyStarId, scopeAdmin: identity.scopeAdmin,
-          accepted: true, expiresAt: tk.expiresAt as string, profileId: identity.profileId,
+          // The row this read just returned rather than a literal `true`. ⚠️ Not a guard, and no
+          // mutation can red it: the loop iterates `flipped`, whose members are exactly the subs
+          // whose UPDATE wrote a row, so `identity.accepted` is provably true here. It is written
+          // this way so the record has ONE source — the same reason the pending-aware read exists.
+          accepted: identity.accepted, expiresAt: tk.expiresAt as string, profileId: identity.profileId,
         };
         await this.#refreshKv.put(`refresh:${tk.tokenHash as string}`, JSON.stringify(record), {
           expirationTtl: kvTtlSeconds(tk.expiresAt as string),
@@ -1737,14 +1788,16 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   async setIdentityAdmin(sub: string, scopeAdmin: boolean, callerClaims: NebulaJwtPayload): Promise<void> {
     this.ctx.storage.sql.exec('UPDATE Memberships SET scopeAdmin = ? WHERE sub = ?', scopeAdmin ? 1 : 0, sub);
-    const scope = this.getIdentityScope(sub);
+    // PENDING-aware: an invite may promote a membership before its holder has accepted, and a re-put
+    // that could not resolve them would strand every cookie the click placed.
+    const scope = this.getIdentityScopeIncludingPending(sub);
     if (!scope) return;
     const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${sub}`;
     for (const t of tokens) {
       const record: RefreshTokenKV = {
         sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin, expiresAt: t.expiresAt as string,
         profileId: scope.profileId, // writer (b): re-put must carry profileId forward or the claim vanishes after an admin change
-        accepted: this.#isAccepted(sub), // likewise — a re-put that dropped this would silently deaden the session
+        accepted: scope.accepted, // likewise — a re-put that dropped this would silently deaden the session
       };
       // Re-apply the ORIGINAL absolute expiry as the ttl — never a fresh TTL (M4).
       await this.#refreshKv.put(`refresh:${t.tokenHash as string}`, JSON.stringify(record), {

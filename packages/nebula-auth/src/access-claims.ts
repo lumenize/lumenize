@@ -100,17 +100,21 @@ export function buildNebulaAccessEntry(
  * `#buildActingToken`) and any later cross-node mint path, so the two cannot drift on the
  * RFC semantics.
  *
- * ⚠️ **Applies to an actingToken RECORD only — never to a TOKEN.** The Profile owner check is
- * presence-only by design (`claims.profileId === profileId && !claims.act`, ADR-012), so ANY
- * token carrying `act` loses ownership of its own profile — prepend into a session's token and
- * that person can no longer edit their own profile. If a token ever seems to need this, that
- * re-opens ADR-012; it is NOT repaired with an `act.sub === claims.sub` compare (profile.ts
- * carries the same warning from the other side).
+ * ⚠️ **Applies to an actingToken RECORD only — never to a TOKEN.** Two live refusals key on an
+ * actor chain being PRESENT, and both would fire on a session token that grew one: `router.ts`'s
+ * `forwardWithSubject` withholds the tenancy summary from an impersonating caller, and
+ * `worker-token.ts`'s root-identity gate refuses to re-narrow. Prepend an actor into somebody's own
+ * session token and they lose their scope list and their ability to impersonate, for a reason
+ * nobody intended. If a token ever seems to need this, the fix is to keep it off those two paths —
+ * never to start comparing the chain's identity to the subject's, which `security.md` rule (1)
+ * forbids outright.
  *
  * The actor arrives as the PAIR — a bare `actorSub` would drop the `profileId` the chain is
  * supposed to carry for display. `profileId` is spread CONDITIONALLY (never an
  * explicit-`undefined` key): the emitted entry matches `buildNebulaJwtPayload`'s `act` shape
- * byte-for-byte once JSON-encoded.
+ * byte-for-byte once JSON-encoded. ⚠️ `act` ITSELF is never spread conditionally on the actor
+ * having a `profileId` — the two refusals above read only whether the chain is there, so a chain
+ * that vanished when the actor had none would silently defeat both.
  */
 export function prependActor(
   base: ActClaim | undefined,
@@ -181,8 +185,9 @@ export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtP
     access,
     ...(input.profileId ? { profileId: input.profileId } : {}),
     // ⚠️ The `profileId` key is spread CONDITIONALLY inside `act`, never `act` itself conditionally:
-    // `!claims.act` (the Profile owner guard) keys on the presence of `act`, so an `act` that
-    // disappeared when the actor had no `profileId` would silently defeat that guard.
+    // the tenancy-summary refusal (`router.ts`'s `forwardWithSubject`) and the mint's root-identity
+    // gate both key on the chain's PRESENCE, so an `act` that disappeared when the actor had no
+    // `profileId` would silently defeat both.
     ...(input.actor
       ? { act: { sub: input.actor.sub, ...(input.actor.profileId ? { profileId: input.actor.profileId } : {}) } }
       : {}),

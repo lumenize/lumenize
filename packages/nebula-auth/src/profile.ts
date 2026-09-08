@@ -22,7 +22,8 @@
  *    are what carry the trust; unguessability only bounds enumeration (ADR-012, re-weighted 2026-08-20).
  *  - **`requireOwnerOrAdmin` gates public-field writes + the private set's read/write** — EXACTLY two
  *    capability levels, never per-field roles: anyone who can read a private field can also write it and
- *    write every public one. Owner (JWT `profileId` === this instance, and no `act` chain) and
+ *    write every public one. Owner (JWT `profileId` === this instance — an impersonation token included,
+ *    because acceptance is enforced where that token is minted) and
  *    super-admin (`authScope` is the platform root) short-circuit with NO read; a scoped admin whose scope
  *    covers a scope where this profile holds an **ACCEPTED** membership is the ONE path that reads (the
  *    registry's `getScopesForProfile`, whose acceptance predicate is what makes that branch safe — see
@@ -322,31 +323,22 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     const claims = this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined;
     const profileId = this.#profileId();
 
-    // (1) Owner — the JWT's own profileId equals this instance, AND the token carries no `act` chain.
-    // NO read. (LLM-as-owner passes here.)
+    // (1) Owner — the JWT's own profileId equals this instance. NO read. (LLM-as-owner passes here.)
     //
-    // ⚠️ **`!claims.act` is a deliberate EXCEPTION to `security.md`'s read-side rule, not an
-    // application of it** — it is the one place where the presence of `act` changes an authz outcome,
-    // and ADR-012 licenses it explicitly. Under impersonation the token carries the SUBJECT's
-    // `profileId`, so without this clause the admin driving it would own that person's profile:
-    // writing their public fields and reading their `privateNotes`. What licenses the exception is
-    // *global*: a profile sits outside the scope tree, and dominion over one can be
-    // MANUFACTURED (claim a Universe, invite any address), so a manufactured scope contains nothing
-    // of the victim's except this global object.
+    // ⚠️ **An impersonation token IS the owner here, deliberately.** This branch reads the subject
+    // and nothing else, exactly like every other authz decision in the system, so an admin driving a
+    // narrower token gets that person's own access to their own profile — which is what impersonation
+    // means everywhere else.
     //
-    // ⚠️ The invariant is **an admin-driven session is never an owner** — NOT "the two subs are
-    // different people". `#mintIdentity` keys on (email, scope), so one human legitimately holds
-    // several `sub`s. Do NOT "improve" this to `!claims.act || claims.act.sub === claims.sub` or
-    // `|| claims.act.profileId === claims.profileId`: both read the chain's IDENTITY to decide authz,
-    // which rule (1) forbids. This tests only that an `act` chain is PRESENT, never who the actor is.
-    //
-    // ⚠️ **A known, accepted consequence of presence-only** — do not "fix" it with the variants above.
-    // If `prependActor` (`access-claims.ts` — today it composes only `actingToken` RECORDS, never
-    // a token) were ever pointed at a TOKEN, a person's own session would carry `act` and lose the owner branch on their
-    // OWN profile. The remedy then is to keep such a token out of this path — or to re-open ADR-012 —
-    // never to start comparing `act.sub` to `claims.sub`, which is precisely the manufacture the
-    // exception exists to defeat.
-    if (claims?.profileId && claims.profileId === profileId && !claims.act) return;
+    // ⚠️ **What makes that safe is not here — it is the acceptance conjunct at the MINT.**
+    // `/mint-narrower-token` resolves its subject through the registry's accepted-only
+    // `getIdentityScope`, so a token carrying somebody's `profileId` cannot exist unless that person
+    // took their membership up, and acceptance needs the mailbox plus an explicit act behind the
+    // consent modal. The escalation this branch used to carry a no-actor-chain conjunct against —
+    // claim a Universe, invite an address you guessed, impersonate the stranger — is closed at the
+    // token's birth instead of at this one branch. Restoring that conjunct here would re-close
+    // nothing; it would only take a person's profile away from the admin their membership reaches.
+    if (claims?.profileId && claims.profileId === profileId) return;
     // (2) Not an admin → reject. NO read.
     // ⚠️ **ALLOW-LISTED off the shared predicate — a bare `scopeAdmin` test standing alone.** It is
     // work avoidance, not the dominion decision: branch (4) below asks `hasDominionOver` about each
@@ -376,10 +368,6 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // widen this branch to unaccepted memberships. Two residuals are accepted deliberately in ADR-012
     // (this points sideways across the scope tree, and reaches every scope the person belongs to);
     // scope-keying the private fields is the deferred structural answer if they ever bite.
-    //
-    // ⚠️ `!claims.act` on branch (1) does NOT fence impersonation out of the profile — an admin
-    // impersonating someone with an accepted membership in a covered scope arrives HERE, by their own
-    // dominion. That follows from impersonation meaning what it says; it is not a gap in (1).
     let scopes: string[];
     try {
       // Marker: the ONLY place a Profile authz check reads the registry (the read-counter the

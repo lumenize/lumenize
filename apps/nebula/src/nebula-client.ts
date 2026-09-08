@@ -1545,9 +1545,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * accept-membership, so a person arrives already named.) Routes on the fixed `PROFILE`
    * binding at that claim (ADR-012); the Profile DO enforces owner-or-admin
    * server-side (`#requireOwnerOrAdmin` — under impersonation the claim names the
-   * SUBJECT, so the owner branch never fires and the admin branches decide). The live
-   * subscription fans the change to every subscriber, back-filling names on earlier
-   * messages.
+   * SUBJECT, and the owner branch fires on it, so an impersonated session edits that
+   * person's profile exactly as they would. What keeps that honest is the acceptance
+   * conjunct at the mint, not a check here). The live subscription fans the change to
+   * every subscriber, back-filling names on earlier messages.
    */
   updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
     const profileId = this.claims.profileId;

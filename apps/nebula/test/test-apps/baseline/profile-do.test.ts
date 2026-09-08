@@ -255,7 +255,7 @@ describe('Profile DO — Phase 2', () => {
     await expect(write(admin, FAIL_CLOSED_PROFILE_ID, { name: 'X' })).rejects.toThrow(/authz check failed/i);
   });
 
-  // ── A NARROWER token is never an OWNER (tasks/archive/nebula-mint-narrower-token.md Phase 3) ────────────
+  // ── A NARROWER token IS the OWNER (tasks/archive/nebula-mint-narrower-token.md) ─────────────────
   // ⚠️ **This test is ADR-009 RUNG 2 and does NOT inherit this file's rung-3 header.** The whole
   // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
   // are a real star-scoped admin and a real invited member, and the token under test comes from the endpoint
@@ -263,10 +263,17 @@ describe('Profile DO — Phase 2', () => {
   // Phase 4 of tasks/archive/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
   // transport, which the `baseline` lane does not use.)
   //
-  // With a NON-admin subject the minted token carries no `scopeAdmin` claim, so `#requireOwnerOrAdmin`
-  // branch (2) rejects and branch (4) is never reached — the only thing that can let this through is
-  // the owner branch, which is exactly what `!claims.act` closes (ADR-012).
-  it('a NARROWER token is NOT the owner — the admin driving it can neither write nor read privateNotes', async () => {
+  // ⚠️ **This assertion was INVERTED, and the inversion is the design.** It used to assert a refusal,
+  // because the owner branch carried a no-actor-chain conjunct. That conjunct is gone: acceptance is
+  // enforced at the mint instead, so a token carrying somebody's `profileId` cannot exist unless they
+  // took their membership up — and an impersonated session is therefore that person at their own
+  // profile, exactly as it is everywhere else in the system. ADR-012 § *Alternatives considered*
+  // carries the retired clause and why; `security.md` rule (1) says why it is not a worked case.
+  //
+  // With a NON-admin subject the minted token carries no `scopeAdmin` claim, so branch (2) would
+  // reject and branch (4) is never reached — the owner branch is the ONLY thing that can admit this
+  // write, which is what the zero-read assertion below pins.
+  it('a NARROWER token IS the owner — the admin driving it writes and reads privateNotes, zero reads', async () => {
     const universe = `pdo-${uuid().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
@@ -284,24 +291,35 @@ describe('Profile DO — Phase 2', () => {
 
     using impersonating = await admin.impersonate(member.sub, star);
     await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
-    // Fixture guards. The token carries the SUBJECT's `profileId` — so the owner branch's zero-read
-    // equality DOES match, and `!claims.act` is the only thing standing between it and ownership.
+    // Fixture guards. The token carries the SUBJECT's `profileId`, so the owner branch's zero-read
+    // equality is what matches; it really does carry an actor chain, so this is not an ordinary login
+    // wearing a different name.
     expect(impersonating.claims.profileId).toBe(pid);
     expect(impersonating.claims.act?.sub).toBeDefined();
-    expect(impersonating.claims.access.scopeAdmin).toBeUndefined(); // non-admin subject → branch (2) rejects
+    expect(impersonating.claims.access.scopeAdmin).toBeUndefined(); // non-admin subject → branch (2) would reject
 
-    // Mutation: drop `!claims.act` from the owner branch → both of these succeed → this reds.
-    await expect(write(impersonating, pid, { name: 'X' })).rejects.toThrow(/owner or admin/i);
-    await expect(readNotes(impersonating, pid)).rejects.toThrow(/owner or admin/i);
+    const SENTINEL = `SECRET-${uuid()}`;
+    await writeNotes(ownerClient, pid, SENTINEL); // the member's own note, written by the member
 
-    // Control: the member's OWN login (same `profileId`, no `act`) IS the owner — proving the denial
-    // above is the `act` clause and not a broken fixture or an unreachable DO.
+    // Mutation: restore `&& !claims.act` on the owner branch → both of these red.
+    sink.length = 0;
+    await expect(write(impersonating, pid, { name: 'X' })).resolves.toBeUndefined();
+    await expect(readNotes(impersonating, pid)).resolves.toBe(SENTINEL);
+
+    // ⚠️ **Zero reads is the PROPERTY, not the discriminator.** What already proves branch (1) admitted
+    // the write is the fixture guard above — a subject with no `scopeAdmin` claim is rejected by
+    // branch (2) before any registry read, so no admin branch is reachable. This asserts the separate
+    // thing the owner branch promises: it costs nothing. It reds on its own if the owner branch ever
+    // starts reading the registry, which neither assertion above would notice.
+    expect(registryReads()).toBe(0);
+
+    // Control: the member's OWN cookie login (same `profileId`, no chain) is the owner too, which is
+    // the point — the two sessions are the same person at this DO.
     //
     // ⚠️ **This one deliberately does NOT use `impersonate()`, and cannot.** Every token that method
-    // mints carries `act`, which is precisely the clause under test — so an impersonated "control"
-    // would assert a DENIAL, and a builder chasing its red would be one edit from deleting the
-    // `!claims.act` guard this test exists to protect. It is a real cookie-login client instead.
-    await expect(write(ownerClient, pid, { name: 'X' })).resolves.toBeUndefined();
+    // mints carries an actor chain, so an impersonated "control" would be a second copy of the arm
+    // above rather than a control on it.
+    await expect(write(ownerClient, pid, { name: 'Y' })).resolves.toBeUndefined();
 
     // Every other client in this file is `using`-scoped; these two are plain consts because
     // `impersonate()` needs a live parent. Dispose explicitly so they do not hold Gateway sockets

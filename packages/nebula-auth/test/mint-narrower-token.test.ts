@@ -15,7 +15,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import {
   foundUniverse, inviteAndLogin, mintNarrowerRequest, url,
   foundStarAndLogin, inviteIntoGalaxy, platformLogin, BOOTSTRAP_EMAIL, SECOND_BOOTSTRAP_EMAIL,
-  registryUrl,
+  registryUrl, issueInvitesAs, clickLink, acceptMembership,
 } from './test-helpers';
 import { createNebulaTestToken } from '../src/create-nebula-test-token';
 import { isAtOrAbove } from '../src/parse-id';
@@ -130,6 +130,51 @@ describe('/mint-narrower-token (admin branch only)', () => {
     expect(absent.status).toBe(403);
     expect(realButRefused.status).toBe(403);
     expect(await absent.text()).toBe(await realButRefused.text()); // byte-equal bodies
+  });
+
+  // ── ACCEPTANCE, enforced at the mint ────────────────────────────────────────────────────────────
+  // An invite mints the membership immediately and un-taken-up, so without this a bad actor mints a
+  // token carrying a stranger's `profileId`: claim a Universe, invite an address you guessed,
+  // impersonate them. ADR-012 § *Alternatives considered* carries that story and why the refusal
+  // belongs here rather than at the Profile's owner branch; `security.md` rule (2) states the rule.
+  //
+  // ⚠️ **The FIXTURE is the discriminator, not the message.** The refusal below is the collapsed 403
+  // this file already asserts byte-for-byte above — deliberately, so a dominion holder learns nothing
+  // new about who exists. What makes it mean *unaccepted* is that the caller holds dominion over the
+  // very scope the membership sits in, so the other two readings of that 403 are excluded by
+  // construction. Matching its wording would prove less, not more.
+  //
+  // ⚠️ **No fixture in `apps/nebula` can build this** — `createSubject` and `createInvitedClient` both
+  // accept on the way through, so the unaccepted arm exists only here, where the ladder's rungs
+  // (`issueInvitesAs` / `clickLink` / `acceptMembership`) are separate steps.
+  //
+  // Mutation: drop `AND m.acceptedAt IS NOT NULL` from the registry's `getIdentityScope` → the first
+  // arm mints → reds. Skip the `acceptMembership` call → the second arm 403s → reds.
+  it('refuses a subject who never ACCEPTED, and mints for the same subject once they do', async () => {
+    const u = uni();
+    const admin = await foundUniverse(SELF, u, 'admin@example.com');
+
+    const mint = await issueInvitesAs(admin.access_token, u, [{ email: 'pending@example.com' }]);
+    expect(mint.errors).toHaveLength(0);
+    const subject = mint.results[0]!.sub;
+
+    const refused = await mintNarrowerRequest(SELF, admin.access_token,
+      { subOfNarrowerToken: subject, activeScope: u });
+    expect(refused.status).toBe(403);
+
+    // Take the membership up the way its holder does. The click places the path-scoped cookie and is
+    // NOT acceptance — mail scanners click links — so both steps are load-bearing.
+    const { refreshToken } = await clickLink(SELF, mint.results[0]!.inviteUrl);
+    await acceptMembership(SELF, u, refreshToken);
+
+    // The positive control: same caller, same subject, same scope. Without it the arm above stays
+    // green against a mint that refuses everyone.
+    const permitted = await mintNarrowerRequest(SELF, admin.access_token,
+      { subOfNarrowerToken: subject, activeScope: u });
+    expect(permitted.status).toBe(200);
+    const parsed = parseJwtUnsafe((await permitted.json() as any).access_token)!.payload as any;
+    expect(parsed.sub).toBe(subject);
+    expect(parsed.act.sub).toBe(admin.parsed.sub);
   });
 
   // ── (1) ELIGIBILITY ─────────────────────────────────────────────────────────────────────────────
@@ -441,8 +486,9 @@ describe('/mint-narrower-token (admin branch only)', () => {
       const resp = await mintNarrowerRequest(SELF, noProfile.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: u });
       expect(resp.status).toBe(200);
       const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
-      // `act` itself must still be PRESENT — `!claims.act` (the Profile owner guard) keys on its
-      // presence, so a conditional whole-`act` spread would silently defeat that guard.
+      // `act` itself must still be PRESENT — the tenancy-summary refusal (`router.ts`'s
+      // `forwardWithSubject`) and the mint's root-identity gate both key on the chain's presence, so
+      // a conditional whole-`act` spread would silently defeat both.
       expect(parsed.act).toEqual({ sub: admin.parsed.sub });
       expect('profileId' in parsed.act).toBe(false);
     });
