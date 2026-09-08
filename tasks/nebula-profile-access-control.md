@@ -74,3 +74,56 @@ Where the Profile keeps its data — a key-value table with last-writer-wins, no
 | ADR-013 records that a membership is inert until accepted. | **The sentence as the enforcement** — a commitment nobody's code checks, which is how the mint's read went unfiltered; here the tested conjunct is the enforcement and the sentence is the record. |
 | The Profile's storage is untouched here; composing the plane is ④'s. | **Composing it here** — the plane's guards are DAG-backed at five sites, so putting a non-DAG host on it changes the plane's guard model, which is ④'s subject. Two files would then decide one thing. ④ § *The Profile — the first host whose guard is not a grant* carries the mechanism. |
 | No hand-written acting-principal stamp on profile writes meanwhile. | **A last-writer field in the fields table** — an interim ④ deletes, paid for twice. |
+
+## Phases
+
+**1. The mint refuses a subject who has not accepted.** `getIdentityScope` returns `accepted` beside the scope, bit and `profileId`, read from its existing `Memberships` join. `mintNarrowerToken` refuses on it after the collapsed dominion 403 and before the `aud` validation, with a message naming acceptance. A new `inviteWithoutAccepting` helper in `test-helpers.ts` invites and stops, which is `createSubject` minus its magic-link click and its `acceptMembershipVia` call.
+
+- **Success criteria (capable of failing):**
+  - An in-lane test impersonates a subject produced by `inviteWithoutAccepting` and is refused with a message matching `/accepted/i`; the same subject, after `acceptMembershipVia`, is impersonated successfully. Both arms, in that order, in one test.
+  - The refusal is told apart from its neighbours: a subject the caller does not administer still gets `does not administer this subject`, and a `sub` that does not exist still gets that same message. Three distinct assertions on one route.
+  - The consent flow stays green, which is what proves the read was widened rather than filtered: `npx vitest run mint-all-and-acceptance identity-mint-point mint-narrower-token` in `packages/nebula-auth` (three real files, checked 2026-09-08).
+  - `sed -n '/getIdentityScope(sub/,/^  }/p' packages/nebula-auth/src/nebula-auth-registry.ts | grep -c acceptedAt` prints a non-zero count; it prints `0` today.
+- **Mutation note:** delete the acceptance conjunct in `mintNarrowerToken` → the unaccepted arm mints and the first criterion reds. Separately, change the new 403's message to the dominion one → the second criterion reds. Widen `getIdentityScope`'s new field to a constant `true` → the first criterion reds without touching the mint.
+- ⚠️ The typed cast at the mint's call site names the three fields it expects; adding a fourth to the Registry method without widening that cast compiles and silently reads `undefined`, which is falsy and would refuse everyone. The criterion that catches it is the accepted-subject arm.
+
+**2. The Profile's owner branch drops its `act` clause.** Branch (1) of `#requireOwnerOrAdmin` becomes `claims?.profileId && claims.profileId === profileId`. Its four-paragraph comment block goes with it, and the three comments elsewhere that cite the owner guard as their reason are re-derived on the two refusals that survive: `prependActor`'s *never a token* warning, the conditional `profileId` spread beside it, and the self-narrow refusal in `worker-token.ts`.
+
+- **Success criteria (capable of failing):**
+  - `profile-do.test.ts`'s *a NARROWER token is NOT the owner* inverts into *a narrower token IS the owner*: the impersonating client writes the public fields and reads `privateNotes`, with the existing real-cookie owner control kept beside it.
+  - The scoped-admin path is untouched: the owner-zero-reads, scoped-admin-one-read, manufactured-membership and fail-closed tests stay green, unedited.
+  - `grep -rnE 'claims\??\.act\b' packages/nebula-auth/src/profile.ts` returns nothing; it returns five lines today.
+  - `grep -rnE 'claims\??\.act\b' packages/nebula-auth/src apps/nebula/src` returns exactly six lines — three in `access-claims.ts` (two comments and the projection that copies the chain), `router.ts`'s `forwardWithSubject`, `worker-token.ts`'s self-narrow comment, and `impersonation.ts`'s pre-flight mirror. Eleven today. ⚠️ The `?` in the pattern is load-bearing: `impersonation.ts` writes `claims?.act`, so a pattern without it silently drops that site.
+- **Mutation note:** restore `&& !claims.act` → the inverted test reds. Delete the owner branch entirely → the inverted test and the zero-reads test both red, which is what distinguishes the change from a deletion.
+
+**3. The live scenario grows the mint limb.** `profile-takeover-refused.ts` already drives a real invite the victim never accepted, and then a real acceptance. The attacker holds dominion over the universe they claimed, so the same unaccepted membership is a mint subject: the limb attempts `impersonate` on it before the accept and after.
+
+- **Success criteria (capable of failing):**
+  - Before the accept, the attacker's `impersonate` on the victim's `sub` in the attacker's universe is refused, and the refusal's message names acceptance rather than dominion.
+  - After the accept, the same call succeeds, which is the positive control that keeps the refusal meaning *unaccepted* rather than *broken*.
+  - `npx tsx apps/nebula/harness/drive.ts profile-takeover-refused` exits zero, and the sweep `drive.ts all --fast` stays green.
+- **Mutation note:** delete the mint conjunct → the first limb greens and the scenario reds. ⚠️ Mutation-check this limb on its own: the scenario's first limbs already red under that same mutation for a different reason, so a whole-scenario red proves nothing about this one.
+
+**4. Standing guidance, last because the phases above are what it describes.** ADR-012 loses every passage resting on `!claims.act` and gains the retired clause in its Alternatives table, keeping the acceptance predicate and its test requirement. ADR-013 loses its two sentences about the `act` pair's presence. `auth.md` § *Profiles*, § *Impersonation*'s *one case today*, and its *act means impersonation* passage are rewritten per § *Design intent*. `security.md` rule (1) keeps its one test with `forwardWithSubject` as the worked case; rule (2) gains the acceptance conjunct. `workflow.md`'s ADR-012 one-liner follows.
+
+- **Success criteria (capable of failing), each run against the tree on 2026-09-08 and reported with what it prints TODAY:**
+  - `grep -rnE 'claims\??\.act' docs/adr/012-global-profile-visibility.md` returns nothing, and its Alternatives table gains a row naming the retired clause. Three hits today.
+  - `grep -rnE 'no impersonation chain|one case today is profile ownership' docs/vision/auth.md` returns nothing. Two hits today, at § *Profiles* and § *Impersonation*.
+  - `grep -n 'forwardWithSubject' .claude/rules/security.md` returns a hit; it returns nothing today, which is why rule (1) would otherwise be left naming a worked case this task deletes.
+  - `node scripts/check-prose.mjs` passes on every file touched. It passes today, so this one is a regression guard rather than a gate.
+- ⚠️ Rule (1)'s reader list is stated structurally rather than as a count, so removing one member does not falsify it. Do not convert it to a tally while editing.
+
+## Non-goals
+
+- **The Profile's storage, history and acting-principal record** — ④ § *The Profile — the first host whose guard is not a grant*, which carries the injected-authorizer design and the facts this file settled for it.
+- **Persona provisioning, the tab UI, and how a refused mint is rendered** — ② personas.
+- **Retiring `createNebulaTestToken` from the profile lane** — [backlog.md](backlog.md) § *Immediate work backlog*; the fixtures this task touches keep the rung they have.
+- **Renaming `/mint-narrower-token`** — [backlog.md](backlog.md) § *Nebula Auth*, unchanged by this work.
+- **Scope-keyed private fields** — ADR-012's deferred structural answer; ④ keeps the type able to become one resource per scope.
+
+## Relationships — completed
+
+- **Supersedes** the 2026-09-07 owner-branch design recorded in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *② Personas*; that bullet's own 2026-09-08 refinement is the live one.
+- **Invalidates two backlog rows' premises.** § *Nebula Auth*'s SELF-NARROWING row argues from `!claims.act` in the Profile guard, which goal 1 removes — its self-narrow-mints-no-`act` conclusion survives on attribution and on the mint's root gate, so the row is re-grounded rather than closed. The *LLM-writes-the-blob* row loses its blocker: an agent acting as the owner can reach `privateNotes` once goal 1 lands.
+- **Un-skip obligations:** none. No `it.skip` in either package names acceptance at the mint.
+- **Hands ④** the four facts this design settled and the two open questions on the stored dominion bit and the per-push recheck.
