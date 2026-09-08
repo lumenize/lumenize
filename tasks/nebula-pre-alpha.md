@@ -18,7 +18,7 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
-| ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — STUB; the design sections are Larry's to write, the gathered inputs are in place | deploy |
+| ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1; Larry's design sections written, fourteen open questions, Stage 1 next | deploy |
 | — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
 | ④ | **Every Resources guard lives in the Resources plane** — and the Profile moves onto it as the first host whose guard is not a grant | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — design intent only | **data** |

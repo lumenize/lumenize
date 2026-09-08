@@ -1,6 +1,6 @@
 # Personas
 
-**Status:** STUB, 2026-09-08 — the design sections below are Larry's to write and are deliberately empty. What follows them is gathered reference: the decisions already pinned and where each was argued, what is verified on disk, what is stale, and what this file still has to settle. None of it is a constraint on the design; it is here so the writing does not start with a hunt.
+**Status:** Pass 1, 2026-09-08 — § *Context* and § *Objective and goals* are Larry's, written by hand; no phases yet, and § *Open* carries fourteen questions that Pass 2 needs answered. Everything after § *Relationships* is gathered reference rather than design: what is already pinned and where each was argued, what is verified on disk, and what is stale. **Unblocked** — its one prerequisite is built and archived.
 
 ## Context
 
@@ -55,6 +55,7 @@ This task is the next increment on that fine-grained permissioning journey and w
 - **`impersonate(sub, activeScope)` is built and driven** — two live scenarios exercise it, and disposing the parent tears every child down through one seam, so a bare disconnect leaves the personas intact.
 - **`dagTree().setPermission` attaches the grants**, reached through the plane's gate once ④ lands.
 - **The refresh cookie is one fixed name at `Path=/auth/{scope}`**, so two real logins at one scope overwrite each other. That is what made a real login per persona expensive, and it is why impersonation won.
+- **An unaccepted persona is refused by the mint, and the refusal names the wrong cause.** As built, `getIdentityScope` filters on acceptance, so an unaccepted subject reads as absent and lands in the mint's deliberately collapsed 403 — *does not administer this subject*, the same answer given for a `sub` that does not exist and for one the caller may not act for. **Studio cannot diagnose a persona from that reply**, which is a live input to goals 3 and 4 (§ *Open* O).
 - **Persona mailboxes already exist as infrastructure.** The `@lumenize.io` catch-all routes to a deployed email-test Worker, and `uniqueTestEmail(prefix)` mints `prefix-<uuid>@lumenize.io`. The harness already claims, invites, waits for the real mail, clicks the link and accepts, in `apps/nebula/test/lib/email-login.ts`. Porting that path to production is this file's early phase.
 
 ## Stale — do not carry forward
@@ -63,7 +64,7 @@ This task is the next increment on that fine-grained permissioning journey and w
 
 ## Open, and this file's to settle
 
-Mined from the sections above on 2026-09-08. The first is a fork with a pinned decision and the rest are ordered by how much of the design moves if the answer changes.
+Mined from the sections above on 2026-09-08, and this list includes every bracketed aside in § *Context* and § *Objective and goals* — they are tracked here rather than separately. The first is a fork with a pinned decision; the rest are ordered by how much of the design moves if the answer changes.
 
 **A. Plan or script? Your § *Context* names "the provisioning script" as one of the three files the LLM produces; § *Pinned* says the model emits ONE plan, typed and typia-validated, for a deterministic executor.** Those are different artifacts: a script is code that runs, a plan is data that is checked before anything runs, and only the second can be refused whole. The pinned form was chosen over granular tools and over a typed block Studio parses. Decide which the prose means, because goal 1's bracket — whether the personas file carries it or references a sibling — only has an answer once this does.
 
@@ -93,7 +94,9 @@ Mined from the sections above on 2026-09-08. The first is a fork with a pinned d
 
 **L. ANSWERED 2026-09-08.** `nebula-studio-multi-user-testing.md` is absorbed and deleted — checked first, and none of its remainder needed a file: `claimStar` already refuses to adopt a member-less `Scopes` row, the invite carrying `scopeAdmin` that would found a pre-created Star is built, the warning-not-refusal rule is [ADR-015](../docs/adr/015-passage-and-dominion.md)'s, and its `/create-star-for-testing` question retired on its own stated terms once the tab default existed. `nebula-request-access.md` stays and is not superseded: it is the pull half, someone climbing the tree to ask an admin, and shares only the subject/grant/scope core.
 
-**M. Two references your prose leaves open, both answerable now.** The ReBAC case is made in [auth.md](../docs/vision/auth.md) § *The layers a call passes*, at the data-plane DAG bullet and the *Why relationships rather than roles?* paragraph beneath it, which cites AuthZed on role explosion. The guidance tree is `apps/nebula/platform/`, and the three artifacts are `docs/personas.md`, the `define-the-cast` skill under `platform/skills/`, and whatever A decides the third one is.
+**M. Two references your prose leaves open, both answerable now.** The ReBAC case is made in [auth.md](../docs/vision/auth.md) § *The layers a call passes*, at the data-plane DAG bullet and the *Why relationships rather than roles?* paragraph beneath it, which cites AuthZed on role explosion. The guidance tree is `apps/nebula/platform/`: `AGENTS.md` names the cast file, and `apps/nebula/platform/skills/define-the-cast/SKILL.md` is the skill that elicits it and already forbids writing a `sub` into it. ⚠️ **`docs/personas.md` is a path in the user-developer's Workspace repo, not in ours** — nothing at that path exists here, and the third artifact is whatever A decides.
+
+**O. How does provisioning know an accept succeeded?** The mint's refusal is collapsed by design, so a persona whose accept failed is indistinguishable at that call from one never invited. The accept is a real POST with a real status, so the provisioner can check it there rather than inferring from a later impersonation — but say which, because the alternative is a user-developer being told *does not administer this subject* about a persona they just watched get created.
 
 **N. Still owed regardless of the above.** [ADR-016](../docs/adr/016-record-the-acting-principal.md) binds the executor, since its mints and grants are authority events that record the full acting claims through the one shared projection. [ADR-018](../docs/adr/018-singleton-is-the-scarce-resource.md) wants a sizing sentence, because every persona is a membership row in the singleton and users times apps times personas is multiplicative. And § *Stale* still owes a verdict on what replaces the no-send mint.
 
