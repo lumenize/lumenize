@@ -75,6 +75,15 @@ justification is worse than none: the next reader treats it as a decision (`cali
 
 ⚠️ **This bites hardest on the standing-guidance edits**, which are the ones no test can red: they ship always-loaded, and a wrong one misleads every future session. The task file is **not evidence for itself** — when a line you are writing is determined by a claim the task file already makes, verify that claim rather than inheriting it. (`✅ Checkable` in a task file means the claim was *shaped* to be falsifiable, **not** that anyone ran it; two such claims shipped false through several review passes precisely because the marker implied otherwise.)
 
+⚠️ **A retirement grep scoped to `src/` is blind to the lane carrying the same prose.** When a phase
+retires a named thing and a criterion greps for it, that grep MUST cover `test/` and `harness/` too.
+Those lanes justify their assertions in the same words as the source they test, nothing compiles a
+comment, and the copy that survives is the one nobody pointed a grep at. Bit 2026-09-08: `grep -rn
+'Profile owner guard' packages/nebula-auth/src apps/nebula/src` came back clean while the identical
+justification sat in `mint-narrower-token.test.ts` — a file that same phase was editing — and in
+`email-mutable.test.ts`, which instructed a future builder to copy the shape of the comment the phase
+had just deleted.
+
 **The diff-walk is structurally blind to the text your work FALSIFIES without touching.** When a phase completes something an ADR or rule tracks as pending — retires an interim, closes a "not yet" — grep that document for its own pending-status language (`not conformant|not yet|interim|Today's code differs`) and retense what the build just made true. Bit 2026-08-20 (the `actingToken` wipe item): the build retired the narrow-`changedBy` interim while ADR-016's own Corollary still declared *"Resources is not conformant yet"* and quoted the deleted compare verbatim — outside the diff, so the phase-end walk never saw it; only the verifier panel caught it.
 
 🛑 **A phase is not done until every new test has been mutation-checked.** Not "you should"; the
@@ -124,6 +133,12 @@ First run the affected packages' full test suites once, inline — verifiers *re
 **Before the fan-out, re-run any COMPLETENESS INSTRUMENT a phase wrote — against the FINAL tree, not the tree that phase left.** When a phase edits an enumeration whose whole value is that it is exhaustive (a reader list, a call-site table, a "these are the N sites" claim) and states the command that checks it, a *later* phase in the same task can add a member and silently falsify it. The list is then wrong in exactly the way it was written to stop being wrong. This is `calibration.md` §4 with the clock sped up — the justification expires before the task ships — so the usual "re-derive when the reason dies" reflex never fires. Bit 2026-07-28 on `/mint-narrower-token`: Phase 3 wrote *"one CONTENTS reader"* into always-loaded `security.md` and Phase 4 added the second; the suite was green and only a verifier caught it. **Cheap rule: grep the task file for a phase that edits a rule/ADR/README enumeration, and re-run its own stated command last.**
 
 ⚠️ **Re-running is NOT enough — an instrument can be incapable of running at all, and its failure mode is SILENCE.** Bit 2026-08-16: a phase committed its conformance grep into a JSDoc header, escaping the `*/` with an HTML entity; the surviving `&` backgrounded the grep and commented out the rest, so it returned **zero stdout, zero stderr, exit 0** — reporting a conformant tree whatever the tree held. Re-running it "passed". ⇒ **For any command a phase writes into a rule, a criterion, a task file or a comment: run it, and confirm it can PRODUCE OUTPUT before trusting an empty result.** Point it at a known hit, or drop a filter, then narrow. (`testing.md` § *Tests must be capable of failing* carries the durable form — but that rule is path-scoped to test files, so a phase that writes an instrument into `src/` will not have loaded it.)
+
+⚠️ **A sentence that NAMES examples of an instrument's output is part of the instrument — re-check
+each example against a fresh run.** Editing one example and leaving its neighbour is how this rots:
+the sentence still reads as a live inventory while half of it points at nothing. Bit 2026-09-08 in
+`security.md`, whose ⚠️ listed two things the `act`-reader grep also returns; a phase replaced the
+second and left the first, which that same phase's rewrite had removed from the grep's output.
 
 Then fan out one adversarial verifier per phase against the **current working tree**. This checks **task-conformance** — does the code satisfy *this task file's* success criteria — which `/code-review` cannot, since it doesn't know the task. For an **exploratory phase** (step 1), the verifier's bar shifts: rather than conformance to a (nonexistent) pinned spec, it confirms the empirical deliverables landed — capable-of-failing tests for the discovered behavior plus a captured findings note (the mechanism that worked + the alternatives that failed). Pass a phase's `exploratory: true` into its verifier so it applies the right bar instead of failing on missing pinned criteria.
 
