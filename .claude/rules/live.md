@@ -28,16 +28,13 @@ vitest suite could see any of it, and the sweep that found it takes about four m
 ⚠️ The sweep `pkill -9 -f workerd`s between scenarios (a stray one starves the next boot), which
 takes down a co-running `npm run dev`'s workerd too, and `wrangler dev` does not reliably respawn
 it (bit twice 2026-09-02). If a hand-driven stack is up, expect to reboot it after a sweep.
-⚠️ **A source edit during a sweep invalidates every scenario after it.** Each scenario boots its
-own `wrangler dev`, which hot-reloads on a save under `apps/nebula/src/`, and a reload mid-request
-answers `503 Your worker restarted mid-request` — five scenarios in a row reported exactly that on
-2026-09-05 while a later phase's edits landed, and the sweep read as a wave of real failures. It is
-the same rule `testing.md` states for a running vitest suite: wait for the run, or start a fresh one.
+⚠️ **A source edit during a sweep invalidates every scenario after it** — each scenario boots its
+own `wrangler dev`, which hot-reloads on a save under `apps/nebula/src/` and answers a mid-request
+`503`. Wait for the run, or start a fresh one, as `testing.md` says for a running vitest suite.
 Harness and scenario files are not watched, but every child re-imports them at spawn, so an edit
-there MUST be a complete, type-checked write, and `drive.ts` itself waits until the sweep exits.
-Since 2026-09-06 the sweep DETECTS the overlap rather than trusting the rule: it fingerprints the
-watched tree at boot and re-checks it around every scenario, and a change tags every later
-result as belonging to no tree and exits non-zero — so a tainted sweep cannot read as a real one.
+there MUST be a complete, type-checked write. Since 2026-09-06 the sweep DETECTS this rather than
+trusting the rule: it fingerprints the watched tree and re-checks it around every scenario, so a
+tainted sweep exits non-zero instead of reading as a real one.
 
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 
@@ -53,11 +50,10 @@ evidence rather than taste:
   to be wrong about. Every in-lane assertion rests on a fixture somebody constructed, and a fixture
   built in the SAFE shape passes whether the code is right or not — which mutation testing cannot
   catch, because mutating the code reddens a safe fixture too. Measured 2026-08-04, one build:
-  **four** defects cost real time and **all four were fixture defects** — a mutation-restore that
-  corrupted a neighbouring statement via a suffix collision; an acceptance fixture where the guard
-  protected the row either way; a "member-less scope" fixture that had a membership on it; and in-lane
-  invite tests reading the test-mode `links` map, so the email path was never exercised at all. None
-  is constructible in a scenario whose state is produced by the system under test.
+  **four** defects cost real time and **all four were fixture defects** — including a "member-less
+  scope" fixture that had a membership on it, and in-lane invite tests reading the test-mode `links`
+  map, so the email path was never exercised at all. None is constructible in a scenario whose state
+  is produced by the system under test.
 - **The repo's own record.** `testing.md`: *"historically `for-docs/` tests have found more bugs than
   all other tests combined."* Nothing comparable has ever been recorded for the isolated tiers. Those
   mini-apps are gone now that we build an app rather than libraries, and `/live` is what replaces
@@ -120,24 +116,19 @@ compensating helper puts the fixture back — it is a fixture that happens to be
 forbidden kind: it re-pointed an emailed link's host at the local stack before following it.
 
 **The tell is in the JSDoc.** A helper whose comment explains why the harness environment differs
-from production is compensating by definition — `pointLinkAt`'s said *"the auth layer embeds its
-configured ISSUER origin in the link, which is not where we're driving against a local
-wrangler-dev."* Such a helper MUST be treated as a defect in the environment or the code, never as
-harness plumbing: fix what differs, delete the helper, re-run the sweep. **The re-run is the
-point** — it surfaces whatever the helper was hiding before Larry meets it by hand, which is the
-bottleneck this rule protects (Larry, 2026-09-02: *"the vast majority of all bugs we find after a
-task file is finished are because of helpers we used to test during the task file build"*).
+from production is compensating by definition. Such a helper MUST be treated as a defect in the
+environment or the code, never as harness plumbing: fix what differs, delete the helper, re-run the
+sweep. **The re-run is the point** — it surfaces whatever the helper was hiding before Larry meets
+it by hand (Larry, 2026-09-02: *"the vast majority of all bugs we find after a task file is finished
+are because of helpers we used to test during the task file build"*).
 
 **Where it bit (2026-09-02):** local `wrangler dev` inferred its host from `wrangler.jsonc`'s
 `routes`, so every login link a local stack emailed pointed at **production** — 22 green scenarios,
-found by one hand-driven click. The environment was fixed (`apps/nebula/scripts/local-config.mjs`
-strips `routes`; the Studio proxy forwards the real Host) and the helper died with it. The invite
-sites needed one more piece the same day — a mesh call carries no request URL, so the facade had
-minted at the issuer — and the fix was again the code, not a helper: the Gateway now stamps the
-upgrade's origin into `callContext.originRequest` (`mesh-origin-request.md` Phase 1) and the
-facade mints from it. That deleted the last two compensators, `pointInviteLinkAt` and its vitest
-twin `pointAtOrigin`. ⇒ **Every emailed link is now followed AS SENT in every lane**, which is the
-property to defend: a new host-rewriting helper is a regression of this rule, whatever its JSDoc says.
+found by one hand-driven click. Both fixes were to the environment and the code, never a helper:
+`apps/nebula/scripts/local-config.mjs` strips `routes`, and the Gateway stamps the upgrade's origin
+into `callContext.originRequest` so a mesh-borne facade mints from it rather than the issuer. ⇒
+**Every emailed link is now followed AS SENT in every lane**, which is the property to defend: a new
+host-rewriting helper is a regression of this rule, whatever its JSDoc says.
 
 ## Two venues, one registry — local is the default; deployed is a deliberate pass (2026-08-29)
 
@@ -174,17 +165,12 @@ the probe was real, the conclusion was wrong because the fixture underneath it w
 
 **Check what the harness CONSTRUCTS, not only what a scenario asserts.** A helper that builds
 the credential is a mock wearing a helper's name, and every scenario riding it asserts over a
-shape production cannot mint. `connectDriver` used to carry a mint path that set the issuing
-instance from the scope, so narrowing the scope narrowed the claim in lockstep — a scenario built
-on it could not produce a denial by narrowing, which was the exact denial the 2026-08-16
-passage/dominion work existed to create. The fix was to re-derive rather than port:
-`scenarios/downward-dominion.ts` takes its admin limb from a real login (`provisionAndLogin`,
-rung 1) so the server decides the claim. **That mint path was deleted on 2026-09-02** once its
-last two callers proved constructible by real paths (the non-admin control by a real invite, the
-superuser by the token limb 2 had already refreshed — under a justification that was simply
-stale). `connectDriver` now has exactly two ways in: a real login, or a `session` the server
-minted. A scenario that needs a wrong-shaped token for a negative control uses
-`mintDegradedToken` (rung 4), which is not a login and never reaches `connectDriver`.
+shape production cannot mint — a `connectDriver` mint path that set the issuing instance from the
+scope made narrowing the scope narrow the claim in lockstep, so no scenario on it could produce a
+denial by narrowing, the exact denial the passage/dominion work existed to create. **`connectDriver`
+now has exactly two ways in: a real login, or a `session` the server minted.** A scenario needing a
+wrong-shaped token for a negative control uses `mintDegradedToken` (rung 4), which is not a login
+and never reaches `connectDriver`.
 
 ⚠️ **A multi-limb scenario reddens on its FIRST failing limb, which hides every later limb's
 vacuity — so mutation-check PER LIMB, not per scenario.** Bit 2026-08-16: `passage-not-dominion`
