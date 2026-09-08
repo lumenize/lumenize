@@ -4,17 +4,30 @@
 
 ## Context
 
-*(Larry's.)*
+One of Lumenize Nebula's main selling points is that every app built automatically gets a robust fine-grained access control model using our DAG orgTree model for Resources.
+
+Right now, the preview in Nebula Studio is a single iframe. The user-dev is be expected to log in as founder, invite other users with their own dummy email addresses, accept those invites, and then log out as founder and in as each of those other users one at a time to test their fine-grained access control and see how the UI changes based upon those permissions. That does not align with Lumenize's de✨light✨ful DX core value.
+
+Further, we want to guide each user to good software development practices and one of those practices includes utilizing a cast of named personas to think about the experience of their users. We already have some support in the platform standing guidance (AGENTS.md, skills, etc.) [add references to that guidance and name the files that the LLM will produce (`docs/personas.md`, the provisioning script, and the `define-the-cast` skill)] for encouraging this but we have more planned including testing. 
+
+This task is the next increment on that fine-grained permissioning journey and we've chosen to tie the permissioning model to a cast of personas, not a list "roles", partially to highlight the difference between our ReBAC, not RBAC, model. [Add reference(s) to ReBAC introduction in docs/vision/ and or blog post(s)].
 
 ## Objective and goals
 
-*(Larry's.)*
+**Objective -- create a de✨light✨ful experience for testing a Studio authored app as each persona.**
+
+**Goals:**
+
+1. **Provision each persona as a user.** Everytime the personas file, which includes the provisioning script [Or does it just reference that in a separate file?], either provision from scratch, if the .dev Star was wiped, or adjust the existing provisioning to match the lastest of those two files.
+2. **Populate with (on a wipe), or adjust existing (no wipe), test data to minimally show off the difference in each persona's permissions.** [Should this require another script? or maybe this is out of scope for this task file?]
+3. **Accept each persona's invite.** Create dynamic email addresses for each persona [Would it make sense to use `{u}.{g}~{personaSlug}@lumenize.io` as the format for the email address (note the use of tilde instead of dash to help with parsing since u and g slugs can contain dashes, but maybe some other delimeter is better)?]. Send those emails and auto-accept those invites. [Do we need to upgrade the platform standing guidance to recommend short nicknames as slugs for each persona? "Manager Mary" might just become "mary".]
+4. **Log each persona in to a separate tab in the preview area.** The preview area gets a list of tabs with the persona slug as the tab label.
 
 ## Relationships
 
 - **Gated by the Profile access-control work** ([nebula-profile-access-control.md](nebula-profile-access-control.md)), in build 2026-09-08. Its mint refusal is why a persona must accept before it can be impersonated, and its owner-branch change is what lets an impersonated persona own its own profile.
 - **Shares the Workspace-repo write path** with ⑤ ([nebula-ontology-history-file.md](nebula-ontology-history-file.md)), and not its append-only rule — personas are edited, history is not.
-- **Adjoins** [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-multi-user-testing.md), the same tab UI, and shares the subject/grant/scope core with [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md), the pull half — share it, do not fork it.
+- **Adjoins** [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-multi-user-testing.md), the same tab UI, and shares the subject/grant/scope core with [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md), the pull half — share it, do not fork it. [Are these two adjoins superceded? Should we mine and delete them?]
 - **The cast's home is ①'s** ([archive/nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md), shipped): `docs/personas.md` as numbered prose keyed on persona name, a seed template naming mint, node, edge and grant, and a `define-the-cast` skill that elicits the cast and hands it to the executor designed here.
 
 ## Pinned already — decided, with where each was argued
@@ -48,10 +61,35 @@
 
 ## Open, and this file's to settle
 
-1. **One address is one Profile across every app** ([ADR-013](../docs/adr/013-identity-profileid-resolution.md)), so two user-developers whose apps use the same persona address would share one Profile and one display name. Mint each persona an address unique to its Galaxy, or state why sharing is acceptable.
-2. **[ADR-016](../docs/adr/016-record-the-acting-principal.md) binds the executor**: its mints and grants are authority events, so each records the full acting claims through the one shared projection.
-3. **The [ADR-018](../docs/adr/018-singleton-is-the-scarce-resource.md) sizing sentence** — every persona is a membership row in the singleton Registry. Pre-alpha's users times apps times personas is negligible but multiplicative; say so, so a later reviewer need not re-derive the worry.
-4. **What replaces the no-send mint**, per § *Stale* above.
+Mined from the sections above on 2026-09-08. The first is a fork with a pinned decision and the rest are ordered by how much of the design moves if the answer changes.
+
+**A. Plan or script? Your § *Context* names "the provisioning script" as one of the three files the LLM produces; § *Pinned* says the model emits ONE plan, typed and typia-validated, for a deterministic executor.** Those are different artifacts: a script is code that runs, a plan is data that is checked before anything runs, and only the second can be refused whole. The pinned form was chosen over granular tools and over a typed block Studio parses. Decide which the prose means, because goal 1's bracket — whether the personas file carries it or references a sibling — only has an answer once this does.
+
+**B. Does provisioning DELETE?** Goal 1 says *adjust the existing provisioning to match the latest of those two files*; § *Pinned* says create-if-missing throughout, which can only add. Converging to match means removing a grant the prose dropped, re-parenting a moved node, retiring a persona. That is destructive, it is an [ADR-016](../docs/adr/016-record-the-acting-principal.md) authority event per removal, and [ADR-015](../docs/adr/015-passage-and-dominion.md) says restraint for destructive actions is a warning rather than a refusal. Additive-only and converging are both defensible; they are not the same task.
+
+**C. What happens to test data hanging off something the converge removes?** Only live if B says converge, and it is the case that makes a re-run feel unsafe.
+
+**D. Test data — a second artifact, or part of the plan, or out of scope?** Your goal 2's own bracket. Two sub-questions it carries: whose authority writes it, since a Resource created as the founder persona and one created as Studio land under different grants; and what a second run does, which needs a key to be idempotent on.
+
+**E. Is the auto-accept a second door?** Goal 3 sends the invite mail and accepts it for the persona. That reads like the `synthetic` column decision 1 rejected, and it is not — we own the catch-all mailbox, so Studio is the address holder, clicking the real link and posting the real accept through the two endpoints a human uses. **Say that in the file**, because a reviewer who does not see it stated will read the auto-accept as the rejected shape returning.
+
+**F. A persona needs both a session and an impersonation, and the file should say why.** Accepting requires the persona's own path-scoped cookie, so acceptance is a real login. Running its tab is impersonation off the user-developer's session. Goal 3 and goal 4 are therefore different mechanisms, and goal 4's *log each persona in* reads as one.
+
+**G. Is the address stable across a wipe?** Your `{u}.{g}~{slug}@lumenize.io` format is Galaxy-scoped, which settles the shared-Profile worry — one address is one Profile ([ADR-013](../docs/adr/013-identity-profileid-resolution.md)), and this format cannot collide across apps. It also means the Profile, its display name and its picture SURVIVE the wipe that re-mints every `sub`. Probably wanted; say so, since it is the one piece of a persona that a wipe does not reset.
+
+**H. Delimiter.** `~` parses cleanly against slugs that may contain dashes. Check it against the address grammar the Registry and the mail path actually accept before pinning it, and against what the catch-all does with a `.` in the local part.
+
+**I. Do persona slugs need a guidance change?** Your goal 3 bracket. *Manager Mary* becoming `mary` is a naming rule the `define-the-cast` skill would carry, and it is ①'s file rather than this one — so this file states the requirement and ① states the rule.
+
+**J. Which personas get tabs, and is the user-developer one of them?** § *Pinned* says the OPEN set rides the URL ([ADR-017](../docs/adr/017-the-url-is-the-view-state.md)), so the tab strip and the open set are not the same list. And the stand-in founder is pinned as the first persona, which either makes the user-developer a persona or leaves them a separate seat.
+
+**K. What does a tab render when its persona cannot reach the app's landing view?** This is the payoff in your § *Context* — seeing the UI change with permissions — and the state most likely to look like a bug rather than a demonstration.
+
+**L. The two adjoined on-hold files, from your bracket.** They differ. `nebula-studio-multi-user-testing.md` is largely absorbed: its favored default is this task, and its open question about how test users are minted for the `.dev` tabs is this file. Two things there are NOT absorbed — whether anything still needs admin-created tenant Stars, and the founding-by-invite decisions — so mine the tab half here and re-home that remainder rather than deleting the file whole. `nebula-request-access.md` is not superseded at all: it is the pull half, someone climbing the tree to ask for access, and it shares only the subject/grant/scope core.
+
+**M. Two references your prose leaves open, both answerable now.** The ReBAC case is made in [auth.md](../docs/vision/auth.md) § *The layers a call passes*, at the data-plane DAG bullet and the *Why relationships rather than roles?* paragraph beneath it, which cites AuthZed on role explosion. The guidance tree is `apps/nebula/platform/`, and the three artifacts are `docs/personas.md`, the `define-the-cast` skill under `platform/skills/`, and whatever A decides the third one is.
+
+**N. Still owed regardless of the above.** [ADR-016](../docs/adr/016-record-the-acting-principal.md) binds the executor, since its mints and grants are authority events that record the full acting claims through the one shared projection. [ADR-018](../docs/adr/018-singleton-is-the-scarce-resource.md) wants a sizing sentence, because every persona is a membership row in the singleton and users times apps times personas is multiplicative. And § *Stale* still owes a verdict on what replaces the no-send mint.
 
 ## Criteria the plan already says to carry
 
