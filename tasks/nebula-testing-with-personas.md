@@ -25,7 +25,7 @@ This task is the next increment on that fine-grained permissioning journey and w
 
 ## Relationships
 
-- **Gated by the Profile access-control work** ([nebula-profile-access-control.md](nebula-profile-access-control.md)), in build 2026-09-08. Its mint refusal is why a persona must accept before it can be impersonated, and its owner-branch change is what lets an impersonated persona own its own profile.
+- **Was gated by the Profile access-control work** ([archive/nebula-profile-access-control.md](archive/nebula-profile-access-control.md)), BUILT and archived 2026-09-08 — so this file is unblocked. Its mint refusal is why a persona must accept before it can be impersonated, and its owner-branch change is what lets an impersonated persona own its own profile.
 - **Shares the Workspace-repo write path** with ⑤ ([nebula-ontology-history-file.md](nebula-ontology-history-file.md)), and not its append-only rule — personas are edited, history is not.
 - **Mines the tab half of** [on-hold/nebula-studio-multi-user-testing.md](on-hold/nebula-studio-multi-user-testing.md) — its favored default is § *Pinned*'s tab row below, and its question about how test users are minted is answered by decision 1. **That file is not deleted**: its other half is the fate of `/create-star` and how a pre-created tenant Star is founded, which this task does not touch. Shipping personas trips its second open question, whether admin-created tenant Stars are still needed at all.
 - **Shares the subject/grant/scope core with** [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md) — **not superseded**. That is the pull half, someone climbing the tree to ask an admin for access; this is the push half, a cast provisioned up front. Share the core, do not fork it.
@@ -37,7 +37,7 @@ This task is the next increment on that fine-grained permissioning journey and w
 |---|---|
 | Personas ride `impersonate()`; no `synthetic` column; each is a real `@lumenize.io` account that accepts like anyone. | Decision 1, [nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*; the trail is § *② Personas*' 2026-09-07 and 2026-09-08 bullets. |
 | The owner shown stacked behind a persona in the app is acceptable, and a user-developer may not render it as a stack at all. | Same. |
-| Acceptance is enforced at the mint, so an invited-but-unaccepted persona is not impersonable. | [nebula-profile-access-control.md](nebula-profile-access-control.md). |
+| Acceptance is enforced at the mint, so an invited-but-unaccepted persona is not impersonable. | [archive/nebula-profile-access-control.md](archive/nebula-profile-access-control.md), built. |
 | Key the persona file on NAME, never `sub` — subs are ADR-010 randoms and every wipe re-mints them. | § *② Personas*. |
 | Persona tabs are iframes inside the Studio page, never separate browser tabs: a child renews through its parent's in-process mint helper, so a reload recreates them by construction. | § *② Personas*, from the 2026-09-06 teardown answer. |
 | The set of OPEN personas is view state and rides the URL ([ADR-017](../docs/adr/017-the-url-is-the-view-state.md)); each is re-minted on load from the file's name-to-`sub` map. | Same. |
