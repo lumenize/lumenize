@@ -375,7 +375,7 @@ Private data can be read and written only by the owner of the profile, a superus
 
 Accepted is load-bearing, not bookkeeping. An invitation creates a membership before the invitee has done anything, so counting unaccepted ones would let anyone claim a Universe, invite an address they guessed, and become an admin over a scope that stranger's profile touches. A membership is taken up at exactly one endpoint, reached from behind a consent modal and authenticated by the path-scoped cookie a click on mail to that address put in the browser. Consuming the link is not enough on its own — it proves the mailbox, which is a different act from agreeing to hold the membership.
 
-The owner is whoever's `profileId` is on the token, and only when that token carries no impersonation chain. An admin impersonating someone is not that person here. They may still reach the private fields through the admin rule above, as themselves, if they administer a scope where the profile holds an accepted membership.
+The owner is whoever's `profileId` is on the token. An admin impersonating someone is that person here, exactly as they are everywhere else — the token names the subject, and nothing about the actor changes what it may do. What keeps that safe is that the token cannot exist over a membership nobody accepted: the mint refuses to issue one, so an admin arrives only at the profiles their own dominion already reaches.
 
 Access to a Profile is therefore decided by the token, plus Registry data for the admin case. The owner case reads nothing from the Registry, because the token already carries the `profileId`.
 
@@ -387,7 +387,7 @@ An environment variable holds an array of superuser email addresses. Logging in 
 
 An admin can act as someone they administer. The token names both people: the top-level `sub` is the person being acted as, and `act.sub` is the admin doing it. The token format allows nesting, but impersonation does not chain — to act as someone else you go back to your original session.
 
-`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence: profile ownership is decided by `act` being *absent* (§ *Profiles*), so anything else that prepended an actor into one would silently strip a person of their own profile. Chains grow on the **record** instead — § *Attribution*.
+`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence. Two refusals key on the chain merely being there: the scope summary above, and the mint, which will not narrow a token that already carries one. Prepend an actor into somebody's own session token and they lose their tenancy list and their ability to act as anyone, for a reason nobody intended. Chains grow on the **record** instead — § *Attribution* — where an actor is legitimately not an impersonator at all, since Nebula adds itself to every turn it writes.
 
 It produces a token but not a session. There is no refresh cookie behind it, which is why ending it means tearing down the client and never calling the logout endpoint — that would spend the cookie of the session that minted it, ending the admin's own.
 
@@ -415,7 +415,7 @@ Here is that mirroring, in the same shape as the token in § *The access token* 
 
 Every identity claim names the subject, `scopeAdmin` included — the subject does not hold it, so the token does not. The admin's own bit is not blended in. It is what permitted the impersonation at all, which is a separate rule checked somewhere else. The only trace of who is really driving is `act`, and nothing that decides access is allowed to look at it.
 
-One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. The one case today is profile ownership, which sits outside the scope tree. Such a check may look at whether `act` is present, never at who the actor is.
+One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. The case that passes it today is the scope summary, which answers with every tenancy the subject holds — a list that reaches scopes the admin driving the token may not. Such a check may look at whether `act` is present, never at who the actor is.
 
 There is no consent step, deliberately. An admin can already read and write anything in their scope under their own name, so impersonation grants them nothing new. It only changes attribution, and it improves it by naming both parties — gating it would push an admin toward the less traceable path. This changes if a customer requires consent during a security review and the deal is worth it.
 
