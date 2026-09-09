@@ -1,6 +1,6 @@
 # Personas
 
-**Status:** Pass 1, 2026-09-08 — § *Context* and § *Objective and goals* are Larry's, written by hand; no phases yet, and § *Open* is the list Pass 2 answers. Everything after § *Relationships* is gathered reference rather than design: what is already pinned and where each was argued, and what is verified on disk. **Unblocked** — its one prerequisite is built and archived. `/review-task` Stage 1 ran on 2026-09-08 and this file is its output: the open-questions list went from sixteen entries to ten decisions, four of them questions the old list never asked. **All ten are now answered** (2026-09-08/09), plus one the panel missed — see § *Settled*.
+**Status:** Pass 1, 2026-09-08 — § *Context* and § *Objective and goals* are Larry's, written by hand; no phases yet, and every question they raised is answered (§ *Settled*). Everything after § *Relationships* is gathered reference rather than design: what is already pinned and where each was argued, and what is verified on disk. **Unblocked** — its one prerequisite is built and archived. `/review-task` Stage 1 ran on 2026-09-08 and this file is its output: the open-questions list went from sixteen entries to ten decisions, four of them questions the old list never asked. **All ten are now answered** (2026-09-08/09), plus one the panel missed — see § *Settled*.
 
 ## Context
 
