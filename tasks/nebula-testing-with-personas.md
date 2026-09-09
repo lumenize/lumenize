@@ -1,6 +1,6 @@
 # Personas
 
-**Status:** Pass 1, 2026-09-08 — § *Context* and § *Objective and goals* are Larry's, written by hand; no phases yet, and every question they raised is answered (§ *Settled*). Everything after § *Relationships* is gathered reference rather than design: what is already pinned and where each was argued, and what is verified on disk. **Unblocked** — its one prerequisite is built and archived. `/review-task` Stage 1 ran on 2026-09-08 and this file is its output: the open-questions list went from sixteen entries to ten decisions, four of them questions the old list never asked. **All ten are now answered** (2026-09-08/09), plus one the panel missed — see § *Settled*.
+**Status:** Pass 1, updated 2026-09-09 — no phases yet. § *Context* and § *Objective and goals* are Larry's, written by hand; § *Design intent* is the framing every section below conforms to, and § *Pinned* carries each verdict with the alternative it beat. **Unblocked, with one gate:** its prerequisite is built and archived, and what stands between here and phases is § *The one spike that blocks Pass 2*.
 
 ## Context
 
@@ -171,10 +171,6 @@ The jar collision bites first and is the only one a cookie redesign would fix. T
 - **`NebulaEmailSender.headers()` is a uniform hook** — one stamp applied to every message type, deliberately outside the template switch *"so a new type cannot silently ship untagged"*.
 - **The only mailbox-reading path on disk is test-only.** `tooling/email-test` is `"private": true` and a **devDependency** of `apps/nebula`, so nothing in the production bundle can import it; its client pins one deployed host and one shared `testToken`, and its DO pushes to already-connected sockets rather than replaying stored mail, so a waiter must be armed before the send. `apps/nebula/src` has no inbound-mail handler at all. ⚠️ **There is no shared extractor to port, either** — `apps/nebula/test/lib/email-login.ts`'s `acceptInviteAndLogin` takes `inviteLink` as a parameter, the wait-and-extract is an ad-hoc regex duplicated across the scenarios that do it, and `extractMagicLink` matches magic-link hrefs only. That is why the receiver is built rather than ported (§ *Pinned*).
 
-## Settled — every question this file owed
-
-Stage 1 of `/review-task` cut the open-questions list from sixteen entries to ten decisions on 2026-09-08; Larry answered all ten, plus one the panel had missed, over 2026-09-08 and 09. **Every verdict is in § *Pinned*, with the alternative it beat and why.** Letters were retired rather than reused as each was answered, because other files cite them: A and K on the provisioning artifact and the tool that carries the procedure; B, C and E on the mail path; D on test data; F on the grant verb; G and H on the tabs; I and J on acceptance. **Nothing gates Pass 2 any longer** — what remains is writing the phases against the decisions below.
-
 ## The one spike that blocks Pass 2
 
 **Two facts about the address have never been checked, and either can invalidate a pinned row — so this runs before phases are written against them, not as a criterion inside one.**
@@ -195,7 +191,7 @@ Stage 1 of `/review-task` cut the open-questions list from sixteen entries to te
 
 ⚠️ **`drive.ts all` is a phase criterion, not a closing chore.** Sixteen of the twenty-eight scenarios in the registry touch the scaffold, login or invite paths this task changes, and a scenario nobody owns breaks silently. The guidance edits additionally ride `.claude/rules/studio-guidance.md` § *Changing what the model is told* — `studio-guidance-loop`, `four-party-chat` and `first-app-built` — and a limb whose outcome moves owes a dated findings line in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Data-bound generation*.
 
-## Criteria carried from the master plan
+## Criteria — what a phase must satisfy
 
 - A wiped `.dev` Star is re-established from the persona file alone: provision from a seeded `personas.md`, wipe, run, and the tree and grants match the prose. ⚠️ Each unchanged persona keeps the **same** `sub`, because its membership survives a `.dev` wipe and is reused — assert that, not a fresh one. Mutation: drop create-if-missing, and the second run fails on "already exists".
 - **The shipped cast guidance no longer names an address, and keys on the slug.** Four edits, enumerated because a partial sweep leaves the model reading a contradiction every turn: `apps/nebula/container/app/docs/personas.md` loses its dead-domain sentence and its `sally@example.com` steps, and its *"Keyed on persona NAME, never on an id"* becomes the slug; `define-the-cast/SKILL.md` step 5 loses the same dead-domain instruction, drops *"keyed by name, never by id"*, and asks for a name **and a slug** (the template has no slug field today, so this is additive, not subtractive); step 6's *"a confirmed step outside this chat"* becomes the loop tool; the template's worked step 1 — which mints, grants a tier and sets `scopeAdmin` in one sentence — splits into a `mint` and a `grant`, so the model is shown the grammar rather than a sentence that violates it; and both embeds are regenerated (`.claude/rules/studio-guidance.md` § *How the homes ship*).

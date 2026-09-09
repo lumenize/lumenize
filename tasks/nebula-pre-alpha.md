@@ -55,7 +55,7 @@
 
 ## ② Personas
 
-Its task file is the authority: [nebula-testing-with-personas.md](nebula-testing-with-personas.md). The inputs this section used to hold moved there on 2026-09-08 — the pins into its § *Pinned*, the disk facts into its § *Verified on disk*, and what was still to settle into its open-questions list, which `/review-task` Stage 1 cut to ten decisions the same day and Larry has since answered in full — that section is now § *Settled*.
+Its task file is the authority: [nebula-testing-with-personas.md](nebula-testing-with-personas.md). The inputs this section used to hold moved there on 2026-09-08 — the pins into its § *Pinned*, the disk facts into its § *Verified on disk*, and what was still to settle into its open-questions list, which `/review-task` Stage 1 cut to ten decisions the same day. Larry has since answered those and nine more over a Pass-1 review, and every verdict now sits in that file's § *Pinned* beside the alternative it beat.
 
 ## Turn-liveness heartbeat
 
