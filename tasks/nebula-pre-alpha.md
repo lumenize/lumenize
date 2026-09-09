@@ -18,7 +18,7 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
-| ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1; Larry's design sections written, Stage 1 run 2026-09-08, its § *Open* is the list Pass 2 answers | deploy |
+| ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1 complete; Stage 1 run and every question answered 2026-09-08/09, verdicts in its § *Pinned*. Pass 2 writes the phases | deploy |
 | — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
 | ④ | **Every Resources guard lives in the Resources plane** — and the Profile moves onto it as the first host whose guard is not a grant | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — design intent only | **data** |
@@ -55,7 +55,7 @@
 
 ## ② Personas
 
-Its task file is the authority: [nebula-testing-with-personas.md](nebula-testing-with-personas.md). The inputs this section used to hold moved there on 2026-09-08 — the pins into its § *Pinned*, the disk facts into its § *Verified on disk*, and what is still to settle into its § *Open*, which `/review-task` Stage 1 cut to ten decisions the same day.
+Its task file is the authority: [nebula-testing-with-personas.md](nebula-testing-with-personas.md). The inputs this section used to hold moved there on 2026-09-08 — the pins into its § *Pinned*, the disk facts into its § *Verified on disk*, and what was still to settle into its open-questions list, which `/review-task` Stage 1 cut to ten decisions the same day and Larry has since answered in full — that section is now § *Settled*.
 
 ## Turn-liveness heartbeat
 
@@ -72,6 +72,12 @@ Its task file is the authority: [nebula-testing-with-personas.md](nebula-testing
 Confirm generation capture is live on deploy, then extend it with UI events — undo, abandon, feedback — sharing the sink with the feedback button. Capture reads the agent `Message` Resources (the collapse's turn-as-Resource model; the old `Turns` side table is gone). Also store the container git-hash on each turn's `Message`, so a prompt can be replayed from its exact starting code — the prerequisite for the nightly replay loop, which reads testers' turns cross-scope through the harness's `*` reach against the bench in [on-hold/nebula-offline-prompt-harness.md](on-hold/nebula-offline-prompt-harness.md). Its risk is not difficulty but being the thing squeezed at the end: everything else in the run is repairable in a later deploy, and this is not.
 
 **`report_finding` — the model as a reporter (moved here 2026-09-03 from the guidance task, where it was a bad fit).** A codegen tool the model calls when a doc misled it or an API misbehaved; the result rides the turn's agent `Message` as structured capture — tenant-local, deduplicated at the digest, and read by a human before anything reaches a public tracker. Never a direct GitHub filing from inside a tenant's Galaxy: that crosses the tenant boundary carrying possibly injected content, and its natural failure is pasting a user-developer's ontology into a public issue. Three homes: the record field is capture and is ③'s; the human-gated filing is the digest's (Wave 3); the standing instruction that tells the model *when* to report is guidance and is [nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md)'s. A broken link in the platform tree is not this tool's job — that tree's generator resolves every link at build time and fails on a bad one. The same acceptance events — undo, abandon, feedback — have a second consumer: **scaffold-level learning**, where a corrected or abandoned turn feeds the platform's own guidance evolution ([on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) § *Part B*). The app-level retro needs no such signal — the transcript in the prompt lets the model see a correction as it arrives, so that one is a standing instruction in the guidance task.
+
+**The preview's error channel — folded in here 2026-09-09, and it may split into its own task file once ③ starts.** A user-developer says *"the preview screen is blank"* and the model's first move is to read the log tail. `@lumenize/debug` already has `setDebugSink`, but it is fenced test-only, **bypasses the DEBUG filter** and **REPLACES console output** — all three deliberate for tests. Production wants the opposite on the last two, so the package gains a **second callback**: filtered, and additive to console. Two slots rather than a flag, so neither semantics has to be re-derived at the call site and the filter is never duplicated in a sink function that may not even hold the filter value. The scaffold's `nebula.ts` installs it, entries land in this section's sink, and a loop tool reads the tail — one entry in `LOOP_TOOL_ENTRIES`, which sits at the chat floor. A later tool letting the model widen its own DEBUG filter is additive on top and is not owed now.
+
+- ⚠️ **Decide before the buffer is written: an entry carries the persona slug.** ② opens N previews at once, so an untagged tail is N interleaved streams and *"the preview"* is ambiguous. Tagging is cheap at write time and unrecoverable after.
+- ⚠️ **The scaffold half does not retrofit.** `nebula.ts` is seed — the model writes `App.vue` and components — so an app created before the sink lands keeps a copy without one, and nothing tells the model to go back. That is what puts this before the one deploy rather than in fast-follow.
+- **Its trigger and first consumer is ②** ([nebula-testing-with-personas.md](nebula-testing-with-personas.md)), where a denied persona tab and a broken one look identical without logs.
 
 ## Turn-log inspection v0
 
