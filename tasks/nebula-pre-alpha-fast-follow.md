@@ -121,12 +121,15 @@ Single-flight sits before all four: a message during a generation is still skipp
 
 ## Item 7: Multi-persona preview tabs — testing a permission model as several users at once
 
+⚠️ **ACTIVE since 2026-09-08 — its child file is [nebula-testing-with-personas.md](nebula-testing-with-personas.md), which is the authority.** It is also pre-alpha ② rather than fast-follow (`nebula-pre-alpha.md` § *What remains*), so this item is kept only for the provenance below and the two claims other files lean on. Design questions go to the child file, never here.
+
 **Larry's idea, 2026-08-28.** A user-developer cannot test their app's permission model with one login. Studio creates **test personas** on the `.dev` Star — synthetic users with real mailboxes on the `*@lumenize.io` catch-all already wired for the harness — grants each the permissions being tested, and renders **one preview iframe per persona, in tabs labeled with that persona's name**. Everything done in a tab happens AS that persona. Today the alternative is multiple browser profiles or incognito windows, which is why nobody tests permissions.
 
 - **It also dissolves an open piece the collapse carries.** [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md) § *Costs / risks* leaves the collaborator's star-side browser SESSION open (the preview's data plane needs a `{u}.{g}.dev` token, so Austen would need a refresh cookie there). With personas **no real human ever needs a session in the preview** — a better answer than the one that was about to be designed. Watch what it does to the invite's `.dev` second half, which exists partly to give her preview access.
 - ⚠️ **It does NOT fix the same-origin escalation, and must not be recorded as if it does** (the collapse's accepted risk names [on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md) as that fix). A frame can reach `window.parent.document` on ORIGIN, not identity — app code running as a persona still drives the viewing admin's Studio DOM.
-- ✅ **But it makes that fix CHEAP instead of ugly, which is why the two compose.** The obstacle to going cross-origin is third-party cookies (an embedded frame cannot use its own refresh cookie); the sanctioned path — a first-party popup login, then `document.requestStorageAccess()` — was unattractive because it puts friction on a viewer. With personas the friction lands on a developer setting up test users once per browser, which is fine for a dev tool. ⇒ **It retires the `postMessage`-scoped-token candidate** recorded in that file, which Larry rejected as the same shape as the D1 refresh-on-behalf-of pattern we deliberately left behind.
-- **Open at build: how a persona is minted.** Either Studio runs the REAL login path (ADR-009 rung 1) against a `*@lumenize.io` address and auto-consumes the link the way `provisionAndLogin` does — which means production Studio reading a mailbox — or the Galaxy provisions personas directly on `.dev` (it holds dominion there), justified because a synthetic identity has no human behind it and so no mailbox to prove. Decide it there.
+- ⛔ **REVERSED 2026-09-09 — personas make the origin split HARDER, not cheaper.** This bullet argued the cross-origin fix got cheap because persona friction would land on "a developer setting up test users once per browser." The built design has no such step: a seat uses **no cookie at all** — the parent mints an impersonated token and hands `{ accessToken, refresh }` into the same-origin iframe ([nebula-testing-with-personas.md](nebula-testing-with-personas.md) § *Design intent*). The third-party-cookie obstacle therefore does not apply, and **same-origin becomes load-bearing** instead. ⚠️ [on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md) still cites this claim to justify the Storage Access API, and Item 10 inherits the same dependency; both need re-deriving when that file next moves.
+- ⚠️ **That does not revive the `postMessage`-scoped-token candidate.** It was rejected as a *refresh*-credential handoff; a seat carries a short-lived access token plus a mint channel that dies with the parent. Different object — re-read the rejection against its own wording before reusing it either way.
+- ✅ **Answered — how a persona is minted.** The REAL login path, [ADR-009](../docs/adr/009-real-auth-path.md) rung 1: the persona is invited, our own inbound receiver takes the link off the mail, and the Galaxy follows it and POSTs the accept. The second branch this bullet offered — the Galaxy provisioning personas directly on `.dev` because "a synthetic identity has no human behind it and so no mailbox to prove" — was **rejected**, and the reasoning is in the child file rather than restated here. Do not re-decide it from this bullet.
 
 **Demand trigger:** the first user-developer whose app has more than one kind of user — which is most of them, so expect this early.
 
@@ -199,3 +202,49 @@ this path.
 - [ ] An unrecoverable refusal surfaces as itself within a second rather than as `TimeoutError` at
       30 s (capable-of-failing test: suppress the re-check and assert the error's NAME, not merely
       that something threw).
+
+## Item 10: Studio drives the preview — the model exercises the app it just wrote
+
+**Larry, 2026-09-09,** working the persona design: *"The LLM is eventually going to need to drive actual `.dev` Star usage at some point to check its own work."* Today the model's entire self-check is one `build` — `TOOL_CONTRACT` says *"check them all with ONE build; read its per-step report"* — whose steps are `ontology`, an explicitly advisory `typecheck`, `container` and `preview: { refreshed, why }`. **The model has never run the app.** It cannot see whether a button works, whether data loads, or whether a denial renders.
+
+### The topology, which is what makes this tractable
+
+Every well-known driver — Playwright, Puppeteer, Stagehand, browser-use — is **outside-in**: a Node or Python process driving a browser it owns over CDP. We are the opposite, and better placed than that sounds. Studio's page holds the user-developer's live client, the preview is a **same-origin** iframe, and a DO can already push to the page: `NebulaClient` carries about six `@mesh()` methods DOs call through the Gateway (`deliverPreviewReady`, `handleOrgTreeUpdate`, `handleProfileUpdate`). So the control channel exists, and **Studio's page is the browser panel** — the model reaches the DOM the way Claude Code reaches Chrome, with mesh where CDP would be.
+
+Same-origin also means **nothing is injected into the generated app**. `iframe.contentDocument` gives the parent `querySelector`, `.click()`, `.value =` and `dispatchEvent` outright. The missing piece is not access, it is *addressability*.
+
+### Buy, don't build — the engine is published
+
+⭐ **`@vitest/browser` exports `./locators`: Playwright's selector engine, MIT, packaged for in-page use** — and it is already a transitive devDependency here (`@vitest/browser@4.1.10`, pulled by `@vitest/browser-playwright`, which `apps/nebula` declares for its `chromium` project). Reading `dist/locators.d.ts`, the `Locator` class splits exactly along the seam we need:
+
+- **Synchronous, in-page:** `getByRole` / `getByLabelText` / `getByText` / `getByTestId` / `getByTitle` / `getByPlaceholder` / `getByAltText`, plus `filter` / `and` / `or` / `nth` / `first` / `last`, and `query()` / `element()` / `elements()` / `length`. The scope is a settable `protected _container?: Element` — which is how it points at `iframe.contentDocument.body`.
+- **`Promise<void>`, delegated to the provider (Playwright over vitest's socket):** `click`, `dblClick`, `fill`, `hover`, `selectOptions`, `upload`, `dropTo`, `wheel`, `clear`, `screenshot`.
+
+The module also exports `selectorEngine` (with `QueryContext { scope: Element | Document, pierceShadow }`), the `getBy*Selector` builders, and **`convertElementToCssSelector`** — element→stable-selector, which answers the ref problem in the reverse direction. The tell that the fit is real rather than a stretch: `getIframeScale` is in the exports, because vitest browser mode itself runs tests in a parent page driving an iframe. **Same topology.**
+
+Buying this also aligns the model with its training: it addresses elements as `role=button, name="Add todo"` — Playwright's and Testing Library's notation — instead of a tree format we invented.
+
+⚠️ **Take the engine, not `@vitest/browser`.** `locators.js` does `import "vitest/browser"; import "vitest/internal/browser"`, so it expects the runner's browser context; and it is pinned **exact** to the vitest version, which would make a vitest bump a *product* change — the toolchain-triple hazard in `.claude/rules/workflow.md` § *Toolchain bumps*, aimed at Studio's runtime. **`ivya` is the same Playwright engine published standalone**, without the runner coupling, and is the likely buy. It is not in our tree: license, size and transitive pins need verifying first. That is a spike, not a decision.
+
+### What is NOT free
+
+- **The action half.** Vitest's actions round-trip to Playwright, which we do not have in-page. Either hand-roll dispatch or take `@testing-library/user-event` (MIT) for realistic sequences — a naive `.click()` misses focus and pointer events and ignores `disabled`, which is the class of problem a testing-oriented dependency exists to have already solved.
+- **Quiescence.** *"Has this Vue app finished re-rendering?"* Playwright answers it with actionability checks (visible / stable / enabled / hit-target) that live provider-side. The in-page substitute is `@testing-library/dom`'s `waitFor` — MutationObserver polling, battle-tested. You cannot reach the child's `nextTick` from a parent realm.
+- **Screenshots.** `Locator.screenshot()` is provider-side. Page JS cannot rasterize a child document, so this needs `snapdom` / `modern-screenshot` / `html2canvas` (all MIT). Fidelity is approximate — they re-render from computed styles — so decide whether "blank screen" is answerable from structure alone before paying for it.
+- **The glue:** the mesh continuation, the loop tool and its guard, and the policy of what the model may address. ⚠️ The model wrote the app it would be driving, so this is a trust surface and not merely a capability.
+- ⛔ **axe-core is out** — MPL-2.0, off `workflow.md`'s permissive list. Ruled out before anyone proposes it.
+
+### Dependencies and dependents
+
+The concrete ask is **one engine (`ivya` or equivalent), optionally `user-event` and a rasterizer, plus `@medv/finder`-style selector generation** — which at well under 1000 SLOC is copy-with-attribution per `workflow.md`, not a dependency. All need Larry's approval. One budget note: `workflow.md`'s startup-cost rule governs the **Worker** bundle; this ships in Studio's browser bundle, a far more forgiving budget.
+
+⚠️ **Same-origin is load-bearing**, exactly as it is for the persona seat handoff — see Item 7's reversed bullet. If the preview moves cross-origin, both mechanisms need re-deriving together, not separately.
+
+### Demand trigger — and the two cheaper things that may moot it
+
+**Do not build this until both of the following have shipped and a real gap remains.** Larry's motive splits, and most of it is answered more cheaply:
+
+- *Does the permission model behave?* — the **data plane**, already reachable browser-side once persona seats exist. The model can be told what a seat sees without any DOM work.
+- *Why is the screen blank?* — **`nebula-pre-alpha.md` § *③ Capture live*** already scopes it: `@lumenize/debug` gains a second, filtered, console-additive callback, the scaffold installs it, and *"a loop tool reads the tail — one entry in `LOOP_TOOL_ENTRIES`."* A runtime error log probably answers "blank" better than a click driver.
+
+If both land and the model still cannot close a loop it should be able to close, that is when this earns its keep — and by then real turns will say which addressing it actually needs.
