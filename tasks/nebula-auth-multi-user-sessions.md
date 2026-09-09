@@ -46,15 +46,15 @@ An invite URL is a **bearer credential for the identity it names**. Following it
 |---|---|
 | The address's domain is one we operate for this purpose — `personas.lumenize.io` | Targeting a **human**. Dominion cannot do this; the attacker's own scope is a legitimate place to invite anyone. |
 | The address's local part parses to the caller's own `{u}.{g}` | Targeting **another tenant's** synthetic identity — `acme.crm~mary@personas.lumenize.io` passes the domain check and belongs to someone else. |
-| The caller holds dominion over that scope | A **same-galaxy escalation**: a collaborator at the chat floor taking over an identity that carries `scopeAdmin` at `.dev`. |
+| The caller is admitted at the **parent galaxy** — membership there, or dominion over it | A **persona reaching another persona.** Personas hold `.dev` memberships, and a seat's client is reachable from generated app code, so a `.dev`-membership floor would let Mary request Gerry's link. Aiming the check one tier up excludes them by construction: a persona's only membership is at `.dev`, while a collaborator holds one at the galaxy and the owner reaches it by dominion. ⚠️ Not *passage* at the galaxy — a `.dev` member has that upward, which is the arm that confers nothing. |
 
-⚠️ **The clauses are not redundant and none is defence in depth** — each is the only thing standing between an attacker and a different outcome. A change that drops one is a change to the invariant, not a simplification.
+⚠️ **The first two clauses carry the [ADR-012](../docs/adr/012-global-profile-visibility.md) argument; the third does not.** Our domain and the caller's own scope prefix are what make the namespace claim true — nobody manufactures acceptance for someone else's address, because there is no someone else. The third guards a smaller, separate thing (a caller escalating inside a scope it already belongs to) and may be tuned without touching that argument. ⚠️ **None of the three is defence in depth** — each is the only thing standing between an attacker and a different outcome. A change that drops one is a change to the invariant, not a simplification.
 
 ### The ADR-012 amendment — the gate on this whole file
 
 ADR-012 is **Accepted**, and it states the property this design bends: *acceptance needs the mailbox and an explicit act*, its writer *"authenticated by the cookie a click on mail to that address placed."* The accept endpoint is untouched here — it still demands that cookie. What the amendment licenses is a **second restricted way for a link to reach a legitimate holder**:
 
-> A link may be issued to a caller rather than delivered to a mailbox **only for an address in a namespace no human can hold** — a domain we operate, local part encoding the issuing scope, issued only by the platform, as `{u}.{g}~{slug}@personas.lumenize.io` is — and only to a caller holding dominion over that scope. For every human-holdable address, mailbox proof is unchanged.
+> A link may be issued to a caller rather than delivered to a mailbox **only for an address in a namespace no human can hold** — a domain we operate, local part encoding the issuing scope, issued only by the platform, as `{u}.{g}~{slug}@personas.lumenize.io` is — and only to a caller admitted at the **parent galaxy** by the rule `invite` already uses — an exact-scope membership there, or dominion over it. For every human-holdable address, mailbox proof is unchanged.
 
 That preserves what ADR-012 protects by a different mechanism: nobody manufactures acceptance for *someone else's* address, because in this namespace there is no someone else. ⚠️ **Drafted for Larry's hand review, never for ratification** — no ADR is ratified before pre-alpha launches, and this one is his to read.
 
