@@ -83,6 +83,7 @@ That preserves what ADR-012 protects by a different mechanism: nobody manufactur
 - **The three-clause rule refuses each attack separately.** A mutation per clause, not per rule: drop the domain check and a human address is issuable; drop the prefix check and another tenant's identity is; drop the dominion check and a chat-floor collaborator can take a `scopeAdmin`-bearing identity. ⚠️ Match the refusal MESSAGE — three refusals that are the same boolean are indistinguishable, and telling them apart is the point.
 - **The reserved-word list refuses its members**, and the refusal names which word — so the caller learns what to change rather than that something was wrong.
 - **Issuing a link records the acting principal**, since it establishes a session ([ADR-016](../docs/adr/016-record-the-acting-principal.md)), through the one shared projection rather than a bespoke record.
+- **[ADR-012](../docs/adr/012-global-profile-visibility.md)'s `Today's code differs` note is deleted in the same change that makes it false**, never as a follow-up — the same rule `tasks/backlog.md` § *Lumenize Mesh* states for ADR-007's divergence note. Check with the README's own enumeration, `grep -rn '^> \*\*Today' docs/adr/`: the note is there before the phase and gone after.
 
 ## Constraints Pass 2 inherits
 
