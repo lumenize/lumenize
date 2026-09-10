@@ -32,7 +32,7 @@ This **generalizes** ADR-008's principle from within-a-Star to a global public-a
   - ⚠️ **The marker is the MEMBERSHIP's acceptance — NOT `emailVerified`.** The reflex is to reuse the verified-email flag, and it reopens the hole: proving a mailbox is a property of the **ADDRESS**, so a victim who proved it in any *other* scope already carries `emailVerified=1`, and an invite mints their membership immediately and un-taken-up. The flag would therefore be satisfied by someone who never touched the invitation. What must be per-membership is *"was this invitation taken up?"* — conflating the two hands the attacker exactly the authority acceptance exists to deny.
 
 
-> **Today's code differs.** No PRODUCTION issuance path exists — `summarizeInvites` strips `inviteUrl` from every caller-facing summary except in test mode, which returns them all. [`tasks/nebula-auth-multi-user-sessions.md`](../../tasks/nebula-auth-multi-user-sessions.md) builds it and deletes this note.
+> **Today's code differs.** No PRODUCTION issuance path exists — `summarizeInvites` strips `inviteUrl` from every caller-facing summary except in test mode, which returns them all. [`tasks/nebula-persona-sessions.md`](../../tasks/nebula-persona-sessions.md) builds it and deletes this note.
 
 ⚠️ **Two consequences are ACCEPTED here, not answered — say so rather than rediscovering them:**
 1. **Direction.** A `profileId` is global and scope-free by this ADR's own decision, while a scope admin's dominion is scope-local (ADR-015: dominion flows strictly downward *within a scope tree*). This branch therefore points **sideways**, across the tree. Acceptance bounds *who* can point sideways to people who genuinely joined; it does not make the direction downward.
