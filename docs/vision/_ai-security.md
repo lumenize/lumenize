@@ -112,12 +112,12 @@ promising that and started measuring, budgeting, and recovering instead. Four of
 - **Budget the failures you have decided to tolerate — but only where they are fungible.** Error budgets are
   how SRE resolved the velocity-versus-reliability fight, which is the same fight as capability-versus-
   security, and they resolved it by *spending* a measured failure rate rather than pretending to eliminate it.
-  ⚠️ **The mapping has a hard limit that must be stated or it becomes a footgun:** an SLO works because
-  requests are interchangeable, and security failures are not — one catastrophic leak is not a thousand
-  trivial ones, so a flat "error budget for security" is seductive and wrong. **A budget can only exist over
-  the reversible class.** That is not a caveat on the analogy; it is the analogy's precondition, and it is why
-  ranking actions by permanence (§ *Reversibility, not agency, is the risk variable*) has to come first.
-  Reversibility is what converts a category of unbounded risk into a category you are allowed to measure.
+  ⚠️ **The mapping has a hard limit, and stating it is what keeps it from becoming a footgun:** an SLO works
+  because requests are interchangeable and security failures are not — one catastrophic leak is not a
+  thousand trivial ones, so a flat "error budget for security" is wrong. **A budget can only exist over
+  reversible actions**, because reversibility is what turns unbounded risk into something measurable. That is
+  the analogy's precondition rather than a caveat on it, and it is why ranking by permanence
+  (§ *Reversibility, not agency, is the risk variable*) comes first.
 - **Postmortems are blameless because their output is a system change.** SRE insists on this for a practical
   reason, not a cultural one: the moment the output is fault assignment, the inputs stop arriving. Worth
   naming here because "attribution" reads like blame-hunting and is not — it is the feedback loop's input.
@@ -178,6 +178,38 @@ ADR-007. A deterministic per-tenant allow-list on outbound traffic is literally 
 not arguing that controls are wrong, and a task that reads this as licence to skip one has misread it.** The
 disagreement is narrow, and sharper for being narrow: **not whether to gate, but what to gate, in what order
 you build it, and what happens between the gates.**
+
+#### The control point moved — which is agreement, and it is where the disagreement gets sharp
+
+Shift-left assumed a human typed code into an IDE, opened a pull request, and a pipeline scanned what came
+out. A coding agent is something else: a process on a developer workstation holding a shell, a package
+manager, environment variables, credentials, and whatever MCP servers it was given, taking hundreds of
+actions per task that nobody reads. Each of those actions is a place a supply-chain compromise, a leaked
+secret, or a destructive command can land, **and all of it happens before there is a pull request for
+anything to scan.** The scanner still runs. It runs on the far side of the event.
+
+Attackers moved first, which is usually how you find out a control point has shifted:
+
+- **Nx "s1ngularity"** (August 2025) shipped malicious packages whose payload, per the maintainers' own
+  postmortem, *"attempted to use local AI tools (like Claude and Gemini)"* to hunt for secrets on the
+  victim's machine. The agent was not the target; it was the instrument.
+- **Shai-Hulud** followed by finding other packages maintained by a compromised developer, injecting itself,
+  and republishing them — roughly 700 npm packages in its second wave, through preinstall hooks.
+- **Package hallucination** hands an attacker a name to register before anyone else does. USENIX Security
+  2025 measured invented-package rates of at least 5.2% for commercial models and 21.7% for open-source
+  ones, across 205,474 unique names an agent might confidently `npm install`.
+
+⇒ **So AARM is right that the boundary belongs at the agent, and we should say so.** Where a control has to
+sit, it sits at the workstation and the agent's action loop now, not at the pull request. What does not
+follow is that a verdict per action is the thing to put there — and one detail of the new location is what
+decides it. **There is no human in the middle any more.** At hundreds of unread actions per task, whatever
+sits at that boundary is talking to the agent, never to a person, so the loop is agent-to-agent whether or
+not anyone designed it that way. That is § *Feedback beats control* arriving through somebody else's
+premise, which makes it the version of our argument least easy to dismiss as self-serving.
+
+*(Framing from Chris Hughes, Resilient Cyber, 2026-09-10 — the same author as the human-in-the-loop
+measurement above. He took the human out of the approval step and out of the loop in the same year, and the
+two halves are one argument.)*
 
 **Where it loses, in four parts:**
 
@@ -303,6 +335,8 @@ at knowing within seconds when something has gone sideways and exactly who did i
 | The inference layer is recorded, not just the message | the agent `Message`'s `codegen` value object | **Designed, not built** |
 | Every outbound call is recorded and cannot be bypassed | the egress broker as `globalOutbound` | **Designed**; the record itself unspecified |
 | The system changes itself from outcome signal | [`self-improving-platform.md`](self-improving-platform.md) | **Direction committed, timing gated** |
+| A user-developer's agent has no workstation to compromise | Studio's agent runs in an ephemeral container, not on a laptop (§ *Level 2*) | **Built** |
+| A model-chosen dependency cannot reach an unvetted package | none | **Not addressed** — open egress, no container lockfile (§ *Level 2*) |
 
 ### Reversibility
 
@@ -449,6 +483,22 @@ What the platform owes a domain expert who is not an agentic-development expert:
   thread may trigger the agent — the DAG `write` check on that durable commit is the only door, and there is
   deliberately no separate invoke-the-agent entry to gate. An owner, a coach, and an invited collaborator with
   one `write` grant all trigger the same way; what differs above the floor is what each may otherwise touch.
+- **No workstation to compromise.** § *The control point moved* describes an attack surface a Nebula
+  user-developer simply does not have. Studio's agent runs in an ephemeral container on our infrastructure:
+  no laptop shell, no local credential store, no personal environment variables, no MCP servers of the
+  user's choosing, and nothing that survives the turn. What the Nx payload went looking for is not there to
+  find. ⭐ Worth stating plainly, because it is one of the few security properties in this document that is
+  **true today** rather than designed — and it is the answer to "your user-developers are running coding
+  agents too, so you inherit that whole problem." We inherit the dependency half of it, below, and not the
+  rest.
+
+⚠️ **The dependency half is NOT absent, and it is live.** The build box runs `npm install` over the open
+network against dependencies a model chose, so an invented package name is a real path into a generated app
+— the third bullet of § *The control point moved*, pointed at us. `apps/nebula/container/app/` also ships no
+committed lockfile, so the baked versions re-resolve at every image build. `tasks/backlog.md` § *Nebula*
+already carries both pieces, filed as build hygiene and as a security pass on widening the build box.
+**Neither is filed as this problem**, and § *What backs the position* now says so rather than leaving the
+gap where a reader would assume coverage.
 
 Governance here is advisory practice with documented-exception override, never a hard gate — consistent with
 how we treat guidance in this repo, and with the anti-friction half of the security wedge
@@ -595,6 +645,13 @@ without amendment; these are the additions specific to this document's argument.
   reversible-class carve-out is not yet sharp enough to draw a budget around. The fork is whether that carve-out
   ever gets sharp enough — and if it does not, the signals stay diagnostic and this stays an analogy rather
   than a method.
+- **Who owns the codegen loop's own dependency surface?** § *Level 2* names what is exposed: the build box
+  installs model-chosen packages over open egress against no lockfile, into apps that then ship to real
+  tenants. `tasks/backlog.md` § *Nebula* holds both pieces as hygiene, which is why nobody has had to decide
+  whether the answer is the egress broker, a registry allow-list, a committed lockfile, or advice to the
+  user-developer. It is also the one place this document's own argument cuts against us: a hallucinated
+  package is installed *once* and is permanent in the built image, so it lands on the irreversible side of
+  § *The classifier is the real artifact* and is exactly the small tail a gate is supposed to be for.
 - **What is the durable sink, and when?** ADR-016 deliberately leaves the destination open (log stream, or a
   table the action writes itself) and imposes no schema obligation. § *One primitive, two payoffs* argues this
   is foundational rather than observability polish — but it is currently owned by neither track.
