@@ -4,7 +4,10 @@
 
 ## Context
 
-A persona is a real user with a real session ([nebula-testing-with-personas.md](nebula-testing-with-personas.md)). Two things stand between it and one, and they are the whole of this file.
+A persona is a real user with a real session ([nebula-testing-with-personas.md](nebula-testing-with-personas.md)). Two things stand between it and one, and they are the whole of this file:
+
+1. An isolated browser context, which we will provide as an iframe with its own origin because same origin iframes share localstorage, sessionstorage, cookies, etc.
+2. 
 
 **Its session has nowhere to live.** Every tab in the Studio page shares one cookie jar, one `localStorage`, one `sessionStorage` and one `lmz_tab`, because a same-origin iframe shares all of them with its parent. One jar cannot hold eight identities at one scope: today a second login at a scope overwrites the first, and `handleAcceptMembership` resolves whatever cookie it finds to *its own* membership, so the overwrite reads as a silent identity swap rather than a refusal.
 

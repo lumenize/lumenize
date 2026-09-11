@@ -17,6 +17,10 @@ Nebula multiplies it. Studio does not just *have* a UI — it **generates** them
 
 **A URL one person shares must take the recipient to the same page *and the same view state*.** View state that changes *what you are looking at* belongs in the URL — the active scope, the selected record, the open tab or panel, filters, sort, pagination. State that merely reflects *what you are doing* does not: scroll offset, hover, focus, and unsaved input drafts stay out.
 
+⚠️ **A scope in an SPA URL is the ACTIVE scope, never the auth scope.** The two diverge exactly when it matters — a person reaches a Star by dominion from a scope above it. This ADR's own Evidence is that divergence going unrecorded: `/app/{scope}` supplied `authScope`, `activeScope` started equal and then drifted when someone opened a Star, and the drift never reached the URL. The sender's view was unreproducible, for precisely the support case the principle exists to serve.
+
+⚠️ **Registry endpoints hold the OPPOSITE convention, and keep it.** A path-scoped credential answers for exactly one scope, so `/auth/{scope}/…` names the AUTH scope. Both are written down because a reader who learns one will generalise it to the other.
+
 The test, when it is unclear: **would the sender be surprised that the recipient did not see it?** If yes, it is view state.
 
 An overlay — a modal, a drawer, a side panel — is decided by the same test, and the answer is all-or-nothing. One that passes has the URL as its **only** opener: a button navigates, Back closes, and the page renders it from the URL and declines it when the current state does not allow (a signed-out visitor to `?profile` gets the landing, not an editor). One that fails — a confirmation, a menu, a toast, work in flight — never touches the URL, because the URL names WHAT, never an action.
