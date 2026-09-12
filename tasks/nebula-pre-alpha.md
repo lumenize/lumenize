@@ -23,6 +23,8 @@
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
 | ④ | **Every Resources guard lives in the Resources plane** — and the Profile moves onto it as the first host whose guard is not a grant | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — design intent only | **data** |
 | ⑤ | **The ontology history is one committed file** | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — design intent only; independent of ④, either order | **data** |
+| — | **Scope full names** — a human name for a Universe, Galaxy and Star, captured at claim | none — § *Scope full names* | **data** |
+| — | **Signup progress indicator** — the certificate wait made visible on Universe Signup and Galaxy create | none — § *The certificate wait* | deploy |
 | ⑥ | **The wipe + redeploy** | § *⑥ The wipe* | — |
 | — | **Turn-log inspection v0** | none — § *Turn-log inspection v0* | ungated |
 | — | **The superuser → impersonate join scenario** (~¼ day) | none — § *The superuser join scenario* | ungated |
@@ -86,6 +88,22 @@ Manual: registry-resolve the user's `{u}` → a super-admin delegated token → 
 ## The superuser join scenario
 
 Both halves are driven separately: the front door by `superuser-front-door.ts` (the platform membership mints at the consume, behind proof, so a superuser arrives through the ordinary scope-less login), impersonation by `impersonation-lifecycle.ts`. Unproven is that they compose — one scenario chaining superuser login → Home → platform scope → impersonate a pre-alpha user, which is exactly the coaching session. If it turns up gaps, that is when a child task file earns its existence, and not before.
+
+## Scope full names
+
+`Scopes` is one column — `universeGalaxyStarId TEXT PRIMARY KEY` — so a Universe, Galaxy or Star has no human name anywhere, and its slug is doing two jobs at once. Add a `name` to that table and write it from the three claim paths (`claimUniverse`, `claimUniverseWithTicket`, `claimStar`; galaxy creation sits elsewhere and needs finding). **Two pages already exist and both gain the field: Universe Signup and Galaxy create** (Larry, 2026-09-11). Star signup is NOT pre-alpha — only the `.dev` Star is created in this cycle — so `claimStar`'s column is written without a page to type into yet. **It is `data`-gated for a reason no other item here has: the name is only knowable at the moment it is typed.** Nothing derives "Northwind Traders International" from `northwind-traders-intl`, so a claim path that never asked leaves nothing to backfill — and after the wipe the people being asked are real users, whose names would be discarded permanently rather than for a cycle.
+
+It also decides how the slug cap lands. [domain-allocation.md](domain-allocation.md) § *C — nested scope labels* caps every slug at 30 characters, because a persona and a Star share one 63-character DNS label. With a name captured beside it, signup reads *"Workspace name: Northwind Traders International → URL: `northwind-traders-intl`"* with the slug editable; without one, the same cap reads as "that name is too long" and the slug is all the user ever gets to say.
+
+**Capture only — the display surfaces are a separate question and gate nothing.** Whether a breadcrumb, the org tree, the scope picker or the Studio header shows the name or the slug has real answers on both sides, and an unread column misleads nobody while an uncaptured name is unrecoverable. ⚠️ **The name is display-only: never in a URL, never unique, never compared, never looked up, and nothing derives it from the slug or the slug from it after the claim.** Break any of those and a scope has two identifiers, which is what capping the slug rather than hashing it was chosen to avoid. It is the rule a persona name already follows — the slug is the identity, the name is a display attribute the model may edit freely.
+
+## The certificate wait
+
+[domain-allocation.md](domain-allocation.md) chose alternative C on 2026-09-11, which orders a wildcard certificate per universe and per galaxy. Measured on a Free zone that day: validation takes about 150 seconds and deployment fans out after it, with most packs active between t+188 s and t+251 s. **So creating a universe or a galaxy takes three to four minutes before its origin answers.**
+
+**The mitigation is a progress indicator, not a pre-issued pool** (Larry, 2026-09-11): the delay is the only thing C really costs, and building a warm pool is deferred until signup data says it is hurting. A seconds count-up or a polling-interval count-down is enough — what matters is that the wait is expected rather than discovered. Both pages that create a scope need it, and they are the same two that gain the name field in § *Scope full names*.
+
+**C's certificate ordering is wired up in this cycle** — a progress indicator has nothing to indicate otherwise, and personas need their own origins, which is what makes testing possible at all. The work is [nebula-persona-sessions.md](nebula-persona-sessions.md)'s and [nebula-testing-with-personas.md](nebula-testing-with-personas.md)'s; ⚠️ **[on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md) is OBE and MUST NOT be read as the plan** (Larry, 2026-09-11) — its custom-domain half is Beta at the soonest, and its origin-split half has been overtaken by the decision above.
 
 ## ⑥ The wipe
 

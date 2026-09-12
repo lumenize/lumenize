@@ -4,46 +4,84 @@
 
 ## Context
 
-A persona is a real user with a real session ([nebula-testing-with-personas.md](nebula-testing-with-personas.md)). Two things stand between it and one, and they are the whole of this file:
+A persona is a real user with a real session ([nebula-testing-with-personas.md](nebula-testing-with-personas.md)). Three things stand between it and one.
 
-1. An isolated browser context, which we will provide as an iframe with its own origin because same origin iframes share localstorage, sessionstorage, cookies, etc.
-2. 
+1. **Several personas cannot hold live sessions at once.** Studio's tabs are same-origin, so they share one `localStorage` (which holds the `tabId`), one `sessionStorage`, one cookie jar and one `BroadcastChannel` namespace. A second login at a scope overwrites the first, and `handleAcceptMembership` resolves whatever cookie it finds to *its own* membership — so the overwrite reads as a silent identity swap rather than a refusal.
+2. **A real session begins with a link sent to a mailbox.** [ADR-012](../docs/adr/012-global-profile-visibility.md) makes mailbox proof the thing that stops an inviter manufacturing an accepted membership for someone else's address. A cast of eight has eight mailboxes nobody reads, and routing real mail to them to fish the link back out is a delivery pipeline built to move a value the sender already holds.
+3. **The personas need email addresses whatever carries the link.** The Registry keys a membership on an address, so provisioning cannot proceed without one, and a user-developer will later want to exercise their own app's email flows. The address grammar in use today was chosen against a mail transport alone; nothing in it was weighed against a browser origin.
 
-**Its session has nowhere to live.** Every tab in the Studio page shares one cookie jar, one `localStorage`, one `sessionStorage` and one `lmz_tab`, because a same-origin iframe shares all of them with its parent. One jar cannot hold eight identities at one scope: today a second login at a scope overwrites the first, and `handleAcceptMembership` resolves whatever cookie it finds to *its own* membership, so the overwrite reads as a silent identity swap rather than a refusal.
+⚠️ **A general multi-user-session mechanism was designed, reviewed, and found wanting... over many evolutions**. The solving of one security or functional problem created another problem somewhere else. It was "whack-a-mole". We probably could have made it work but it was going to be too complex which translates to maintainance burden, UX tradeoffs, and security risk, so it was finally abandonded. See the iceboxed file for the record. Giving each persona its own ORIGIN makes most of the problems our design struggles were attempting to solve go away.
 
-**And its link has nowhere to come from.** A real session begins with a link sent to a mailbox — [ADR-012](../docs/adr/012-global-profile-visibility.md) makes mailbox proof the thing that stops an inviter manufacturing an accepted membership for someone else's address. A cast of eight has eight mailboxes nobody reads, and routing real mail to them to fish the link back out is a delivery pipeline built to move a value the sender already holds.
-
-⚠️ **A general multi-user-session mechanism was designed, reviewed three times, and abandoned** — see the iceboxed file for the record. Giving each persona its own ORIGIN makes most of what it was solving structurally impossible instead: separate origin, separate jar, separate storage, separate tab id. What it could not have made structural — a coach who forgets to switch browsers meeting a silent swap — is a backlog row rather than this file's problem.
+§ *Design intent* is where the origin, the name and the link are specified, and § *Open questions* holds what this file does not yet settle.
 
 ## Objective and goals
 
-**Objective — a persona holds a real session that cannot be confused with any other identity's, obtained without a mailbox and without weakening what mailbox proof protects.**
+**Objective — a persona holds a real session that cannot be confused with any other identity's, without weakening what mailbox proof protects.**
 
 **Goals:**
 
 1. **An origin per persona tab**, so its credentials and storage are its own by construction rather than by discipline.
 2. **A restricted way to OBTAIN a platform-issued identity's invite link — never to create one**, licensed by one predicate over the caller and the address together rather than by a guard around either.
 
+## Open questions
+
+These are Larry's, carried from the drafting notes rather than resolved. **The first decides the rest**, so they are in dependency order.
+
+1. **Does the link reach the tab without an email round trip at all?** Still not sold on skipping it. One of the big problems the earlier designs had was how to get that link for personas without opening a path for attackers; that problem was solved there, but the solution was complex. With separate domains it may be less complex and therefore fine — hold this open until that is visible rather than argued.
+2. **Is the membership pre-accepted, or does the persona click once?** One click, one time is not much of a UX burden. A `.dev` Star wipe needs no re-click either, because the membership is stored in the Registry and the same address is reissued — which would let the existing magic link carry it.
+3. **Is the invite URL a bearer credential?** § *The link* asserts it is. That holds only if the membership is pre-accepted and no email is used, so this question is answered by the two above rather than on its own.
+4. **Does goal 2's "obtain, never create" framing survive those answers?** The predicate in § *The link* is built on it.
+5. **Should this file say "URL" rather than "link"?** Wording, once the rest settles.
+
 ## Design intent
 
 ### The origin: give the problem nowhere to happen
 
-⚠️ **DIRECTION ONLY — the mechanism is unbuilt and deliberately unspecified here.** Everything below the next heading has been through three review panels; this has been through none, and the last design written ahead of the code was wrong at its foundation.
+⚠️ **The mechanism is unbuilt; only the NAME below it is pinned.** § *The link* has been through three review panels; this section and § *The name* have been through none, and the last design written ahead of the code was wrong at its foundation.
 
-**Each persona tab is served from its own origin**, something in the shape of `mary-{u}.{g}.dev.lumenize.dev`, on the `lumenize.dev` domain we already own, using Cloudflare's programmable DNS. A separate origin is a separate cookie jar, so a persona's refresh cookie is the only one in it; separate `localStorage` and `sessionStorage`, so no hint and no `lmz_tab` is shared; and a separate `BroadcastChannel` namespace, so `tab-id.ts`'s duplicate-tab probe cannot mistake a sibling for a clone.
+**Each persona tab is served from its own origin** on the `lumenize.dev` domain we already own, reached by one proxied wildcard DNS record and one Workers Route — § *The name* pins the grammar and what bounds it. A separate origin is a separate cookie jar, so a persona's refresh cookie is the only one in it; separate `localStorage` and `sessionStorage`, so no hint and no `lmz_tab` is shared; and a separate `BroadcastChannel` namespace, so `tab-id.ts`'s duplicate-tab probe cannot mistake a sibling for a clone.
 
 **What that buys, stated as the properties rather than as features:** a tab's label cannot lie, because the origin IS the identity. A reload re-establishes from that origin's own jar with nothing the parent must supply. And the cross-tab token theft accepted twice on the old design stops being a risk rather than being accepted.
 
 **What is genuinely open, and must be measured rather than reasoned:**
 
-- **The name's shape.** A slug plus two scope segments plus `.dev.lumenize.dev` gets long, and a wildcard certificate covers exactly one label. Check the label-length and certificate limits before pinning a grammar.
 - **What serves the auth endpoints on that origin.** The persona's cookie must be SET on its own origin, so the invite link has to point there — which is a change to what the facade stamps from `callContext.originRequest.origin`, today the control-plane origin for every upgrade.
 - **What the on-hold origin split already specifies versus what this needs.** [on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md) is scoped to one origin per GALAXY; this needs one per identity-tab, which is more than that task delivers.
 - **What breaks by no longer being same-origin.** Studio drives the preview iframe today; anything it reads or reaches becomes a cross-origin operation.
 
+### The name: one token, two renderings
+
+The entire alphabet intersection for characters "legal in an email local part" and "legal in a DNS hostname label" is **`a-z`, `0-9`, `-`**. So, I want to use "--" as a secondary delimiter. Conveniently, our current slug validator, `isValidSlug`, already disallows "--" as well as leading and trailing "-" so I don't think we need a change there. We should confirm that we only have one slug validator in the entire system and use it everywhere so this would end up applying to other slugs. Here's the format that I think will be easy to both read and parse: `{personaSlug}--{u}--{g}@lumenize.io` and `{personaSlug}--{u}--{g}.lumenize.dev`.
+
+**The caps are 11 characters for a persona slug and 24 each for a universe and a galaxy, with `dev` derived at parse time rather than carried on the wire.** A DNS label holds 63 characters and an email local part holds 64, so the DNS label is what binds — and the three caps plus two delimiters fill it exactly:
+
+```
+christopher--northwind-traders-global--warehouse-management-sys
+|-- 11 ---|  |--------- 24 ---------|  |--------- 24 ---------|
+11 + 2 + 24 + 2 + 24 = 63                    <- the label limit, to the character
+
+origin  https://christopher--northwind-traders-global--warehouse-management-sys.lumenize.dev
+email   christopher--northwind-traders-global--warehouse-management-sys@personas.lumenize.io
+scope   parseId('northwind-traders-global.warehouse-management-sys.dev')  <- dev re-added here
+guard   hostLabel === localPart(address)                                  <- equality, either way
+```
+
+That is the worst case, and a typical one is a quarter of it: `mary--acme--crm` is 15 characters, and the repo's own example universe gives `mary--george-solopreneur--app` at 29. The address domain above is `personas.lumenize.io` rather than the apex, which [nebula-testing-with-personas.md](nebula-testing-with-personas.md) § *Pinned* settled on 2026-09-08 — Email Routing covers subdomains of the same zone, and a label of personas' own leaves the `lumenize.io` apex's pre-existing catch-all problem alone.
+
+These things follow:
+
+- **`isValidSlug` gains a length cap it does not have today**, and persona creation adds `slug.length <= 11` on top of the shared grammar. `dag-ops.ts`'s `validateSlug` is a different TYPE rather than a copy to reconcile: it names an org-tree node, unique within its parent, never a hostname — Studio's own URL carries nodeIds, not slugs — so its 100-character cap and its tolerance of `--` are right there and wrong here. The two share only the word, which is the whole defect; `isValidScopeSlug` and `validateNodeSlug` would make the divergence read as two types instead of as drift.
+- **The persona cap of 11 depends on the cast guidance slugging on the FIRST NAME**, which `apps/nebula/platform/skills/define-the-cast/SKILL.md` now says. Left to itself, a model slugifies the whole alliterative name — "Manny Manager" becomes `manny-manager` at 13 and "Devon Developer" becomes `devon-developer` at 15 — so the cap and the convention are one decision. Widen the convention and the universe and galaxy caps pay for it.
+- **Deriving `dev` is load-bearing rather than cosmetic.** A fourth segment at these caps runs to 89 characters, 26 over the label, so "a persona lives only in the `dev` Star" becomes a constraint this grammar depends on rather than a fact it happens to exploit. It holds today: `RESERVED_STAR_SLUGS` is `new Set(['dev'])`, and `s[2] === 'dev'` is the segment-precise test in `star.ts` and `galaxy.ts`.
+- **Filling the label to the character leaves nothing spare.** A later marker prefix, distinguishing these origins from the per-galaxy ones that share `*.lumenize.dev`, or a fourth segment, would rename every persona origin. 9/25/25 was the considered alternative and lost: 9 cuts `jacqueline`, `alexandria` and `christopher` to buy one character each for the universe and galaxy, and a persona slug over its cap fails mid-provision while a universe slug over its cap is a field-level message at signup.
+
+Truncate-plus-hash, which is what Cloudflare Workers preview URLs do to a branch name above 63 characters, needs no counterpart here: at these caps the token cannot exceed 63, so the fallback could never fire.
+
+**Where the cap is enforced, and what a failure does.** [nebula-testing-with-personas.md](nebula-testing-with-personas.md) § *Pinned* already names nebula-auth's `isValidSlug` as the persona slug's validator, with `me` refused beside it. That stands and is not sufficient on its own: `isValidSlug` bounds no length, so the 11 is a separate clause at the persona site. **The refusal must reach the MODEL in the turn that wrote the slug** — the signal-only loop tool refuses, names the rule broken, and the model gets the turn back to fix the slug itself. Nothing says so today: § *Pinned* has that tool "validate its own arguments" and stops there, so an over-long slug would surface at apply instead — after the human confirmed the procedure — as a broken provision the user-developer watches happen, with the model already past the turn that could have corrected it. The boundary is reachable by a well-behaved model even with the first-name convention in place, since "Christabel Compliance" gives `christabel` at 10 and `christabelle` at 12. ⚠️ **This needs no `LOOP_TOOL_ENTRIES` entry and no live-tree read**, which is what separates it from the licensed escalation in the same table — a slug is checkable entirely inside the procedure, so nothing about the tool's reach changes.
+
 ### The link: what licenses issuing one instead of delivering it
 
-An invite URL is a **bearer credential for the identity it names**, and it is larger than "a link to one membership". Four facts, each load-bearing for the rule below:
+An invite URL is a **bearer [It's only "bearer" if it's pre-accepted and we don't use an email] credential for the identity it names**, and it is larger than "a link to one membership". Four facts, each load-bearing for the rule below:
 
 - **Multi-use for seven days.** `INVITE_TTL` is 604800 and the consume does not delete the row — its own JSDoc describes *"re-clicking a link that is multi-use within its TTL."*
 - **Address-wide, not per-membership.** The consume mints a cookie for every membership the ADDRESS holds, capped at `MINT_ALL_COOKIE_CAP` (24), each at its own `Path`.
