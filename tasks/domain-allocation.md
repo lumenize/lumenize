@@ -1,10 +1,10 @@
 # Which domain is for what — `lumenize.com`, `lumenize.io`, `lumenize.dev`
 
-**Status:** ✅ **DECIDED 2026-09-11 — alternative C**, measured rather than argued (§ *Measured — the C experiment*). Larry: the ceiling is fine and the certificate delay is the only thing that bites, so ship C and mitigate the delay with a progress indicator rather than a pre-issued pool. An ADR follows and this file is its evidence; how a person holds a session on each host — the name in a web address, like `tenant1.crm.acme.lumenize.dev` — is decided separately, in [sessions-per-origin.md](sessions-per-origin.md).
+**Status:** ✅ **DECIDED 2026-09-11 — alternative C**, measured rather than argued (§ *Measured — the C experiment*). Larry: the ceiling is fine and the certificate delay is the only thing that bites, so ship C and mitigate the delay with a progress indicator rather than a pre-issued pool. How a person holds a session on each host — the name in a web address, like `tenant1.crm.acme.lumenize.dev` — is decided separately, in [sessions-per-origin.md](sessions-per-origin.md).
 
 **Context.** We own `lumenize.com`, `lumenize.dev`, and `lumenize.io`. Today's allocation was never chosen — it accreted one task at a time.
 
-**Question.** What is each domain we own *for*, decided on what makes sense rather than on what we happen to have wired up? 
+**Question.** What is each domain we own *for*, decided on what makes sense rather than on what we happen to have wired up?
 
 **What this file is.** The working scratchpad/record for that decision: the measured current state below, then the alternatives we weigh and why each survives or dies. It is the **evidence** an ADR cites rather than inlines — `docs/adr/README.md` keeps an ADR to about one page and sends research records here. When the ADR is drafted, this archives as `tasks/archive/decision-domain-allocation.md` and stops changing; anything learned after that goes into the ADR's § *Alternatives considered*.
 
@@ -14,35 +14,37 @@
 
 ## Measured 2026-09-11
 
-All four zones sit on Cloudflare nameservers (`cory` / `ariadne`). `dig` output, trimmed:
+All three zones sit on Cloudflare nameservers (`cory` / `ariadne`); the other rows are subdomains that carry a job or a reservation. `dig` output, trimmed:
 
-| Zone | MX | A | DMARC | What it does today |
+| Name | MX | A | DMARC | What it does today |
 |---|---|---|---|---|
-| `lumenize.com` | **Google Workspace** (`aspmx.l.google.com`) | Cloudflare-proxied | ⚠️ **none** | The public docs site — `website/docusaurus.config.ts` sets `url: 'https://lumenize.com'`, and ~170 `@see https://lumenize.com/docs/…` JSDoc links across `packages/**` point at it. Also Larry's real human mail. |
-| `nebula.lumenize.com` | — | Cloudflare-proxied | — | **The only `custom_domain` in the repo** (`apps/nebula/wrangler.jsonc`). The trusted control plane: Studio, auth, Gateway. |
+| `lumenize.com` | **Google Workspace** (`aspmx.l.google.com`) | Cloudflare-proxied | ⚠️ **none** — `p=none` since, § *Mail posture across all three* | The public docs site — `website/docusaurus.config.ts` sets `url: 'https://lumenize.com'`, and ~170 `@see https://lumenize.com/docs/…` JSDoc links across `packages/**` point at it. Also Larry's real human mail. |
+| `nebula.lumenize.com` | — | Cloudflare-proxied | — | **The only `custom_domain` in the repo** (`apps/nebula/wrangler.jsonc`). Serves Studio, auth and the Gateway — the code we write. |
 | `lumenize.io` | Cloudflare Email Routing (`route1/2/3.mx.cloudflare.net`) | none | `p=reject` | Inbound mail. A catch-all the `/live` harness rides for real magic-link round trips (`.claude/rules/live.md`), and the post-wipe `claude@lumenize.io` receiver. |
-| `personas.lumenize.io` | **none** | **none** | — | Reserved as *undeliverable* — the namespace-nobody-can-hold argument in [nebula-persona-sessions.md](nebula-persona-sessions.md). Nothing enforces the emptiness. |
+| `personas.lumenize.io` | **none** | **none** | — | Reserved for persona addresses. Whether it receives mail is [nebula-persona-sessions.md](nebula-persona-sessions.md) § *Open questions* 1. |
 | `lumenize.dev` | **none** | **none** | none | ⭐ **Completely empty. No records of any kind.** It exists only in prose. |
-| `test.lumenize.com` | none | none | — | Nothing. Was the first choice for personas and lost on `lumenize.com`'s Google MX with no DMARC. |
+| `test.lumenize.com` | none | none | — | Nothing. Was the first choice for personas and lost on `lumenize.com`'s Google MX, which then had no DMARC. |
 
-⭐ **The untrusted data plane has zero infrastructure**, so discounting its current usage costs exactly nothing — there is none. What exists is three forward-referencing JSDoc comments (`profile-pictures.ts`, `home-logic.ts`, `nebula-auth-facade.ts`) and one task file. [What do you mean by the "untrusted data plane"?]
+⭐ **`lumenize.dev` has zero infrastructure**, so discounting its current usage costs exactly nothing — there is none. What exists is three JSDoc comments that point forward to it (`profile-pictures.ts`, `home-logic.ts`, `nebula-auth-facade.ts`) and one task file.
 
-**The several `lumenize.dev` host shapes written down are not scattered decisions — they are unresolved forks inside one file**, [on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md): flat `acme--crm.lumenize.dev` against nested `crm.acme.lumenize.dev`, star-in-path against star-in-host (`acme--crm--tenant1`), and `app.acme.lumenize.dev` for the custom-domain switch. That file also already plans a PSL submission. Its split — `nebula.lumenize.com` trusted control plane, `lumenize.dev` untrusted data plane — was the closest thing to a commitment before this file. ⚠️ **That task is OBE and MUST NOT be read as the plan** (Larry, 2026-09-11): its custom-domain half is Beta at the soonest, and its half that moves apps onto their own subdomains is overtaken by § *Alternatives considered*. [We should probably have a todo in the final task file to clean all of that up. Where should we keep track of all the places we find that need cleaning up?]
+**The several `lumenize.dev` host shapes written down are not scattered decisions — they are unresolved forks inside one file**, [on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md): flat `acme--crm.lumenize.dev` against nested `crm.acme.lumenize.dev`, star-in-path against star-in-host (`acme--crm--tenant1`), and `app.acme.lumenize.dev` for the custom-domain switch. That file also already plans a Public Suffix List (PSL) submission, § *One-way doors*. Its split was the closest thing to a commitment before this file: `nebula.lumenize.com` as the *trusted control plane*, serving the code we write — Studio, auth, the Gateway — and `lumenize.dev` as the *untrusted data plane*, serving the apps a model generates for a user-developer, which we cannot vouch for. ⚠️ **That task is OBE and MUST NOT be read as the plan** (Larry, 2026-09-11): its custom-domain half is Beta at the soonest, and its half that moves apps onto their own subdomains is overtaken by § *Alternatives considered*. Removing it is listed in § *What changes in today's code*.
 
 ## Constraints — what is already fixed
 
-Three tiers. **The third exists because two things that feel immovable are not**, and treating them as constraints would decide the question by inertia.
+**Three invariants, agreed 2026-09-11**, then four tiers of constraint, hardest first. The third tier exists because three things that feel immovable are not, and treating them as constraints would decide the question by inertia.
+
+- ⭐ **The certificate set MUST NOT grow with tenants.** A Star, and a persona inside it, is something a user-developer creates in seconds and in bulk — a tenant per customer, a cast of eight — so a certificate order for each would put a three-to-four-minute wait on every one. Growth with universes and galaxies is accepted: alternative C orders one wildcard for each, and the wait lands once, when the universe or galaxy is created. This names what we are protecting rather than a proxy for it — "one level" and "one wildcard" each forbid harmless shapes while naming nothing that actually hurts.
+- **Every production host is HTTPS** — free on `.dev`, which enforces it anyway.
+- **Our cookies are safe without a Public Suffix List entry, and the entry is submitted once we qualify** (Larry, 2026-09-14) — § *One-way doors*.
 
 ### Not ours to change
 
 - **Every `lumenize.dev` host is HTTPS-only, and a broken certificate is a DEAD PAGE rather than a warning.** Google runs the `.dev` top-level domain and put the whole of it on the browsers' built-in HSTS preload list — the list that tells a browser never to offer the *"proceed anyway"* interstitial for a domain. It is their policy, not a setting of ours, and there is no opting out.
-
-- ⭐ **INVARIANT, agreed 2026-09-11: the certificate set MUST NOT grow with tenants.** A fixed, small set of wildcards at any depth is fine; one per universe, galaxy, star or persona is not. This names what we are protecting rather than a proxy for it — "one level" and "one wildcard" each forbid harmless shapes while naming nothing that actually hurts. Two further invariants ride with it: **every production host is HTTPS** (free on `.dev`, which enforces it anyway), and **`lumenize.dev` goes on the Public Suffix List before external users**.
-
-- **A free certificate covers the apex plus ONE wildcard label, and a wildcard matches exactly one label.** `*.lumenize.dev` covers `manny--acme--crm.lumenize.dev` and does **not** cover `manny--acme.crm.lumenize.dev`. Going deeper needs Advanced Certificate Manager at $10/month per zone, with each deeper wildcard listed explicitly, ~49 per certificate. Larry already purchased it for `lumenize.dev`.
-  - ⭐ **The money is a footnote; the real cost is WHERE issuance lands.** Keep every variable part in one label and one free certificate covers unlimited hosts forever. Put a variable part to the right of a dot and you need `*.{galaxy}.lumenize.dev` — one certificate per galaxy, so *create a galaxy* becomes *issue a certificate and wait*. This is what forced the flat single-label grammar in [nebula-persona-sessions.md](nebula-persona-sessions.md) § *The name*. [Isn't there a $0.10 cost for each new batch of 49 certificates? If so, we should warn that hundreds is a rounding error. Thousands, not a worry out of Larry's pocket. 10's of thousands might start to be a problem but by then, Larry expects to have venture funding, so also not a worry.]
-- **A DNS label holds 63 characters; an email local part holds 64.** Already binding — it is what produced the 11/24/24 caps. [Should we also list the set of characters valid for both `a-z`, `0-9`, and `-`?]
-- **Cloudflare Email Routing supports thirty subdomains per zone, apex included.** [Do any of the alterantives below use the subdomains for email?]
+- **A free certificate covers the apex plus ONE wildcard label, and a wildcard matches exactly one label.** `*.lumenize.dev` covers `acme.lumenize.dev` and does **not** cover `crm.acme.lumenize.dev`. Going deeper needs Advanced Certificate Manager (ACM), $10/month per zone, with each deeper wildcard listed by name — 50 names per certificate, one of them the apex, so 49 wildcards. Larry subscribed for `lumenize.dev` on 2026-09-11.
+  - ⭐ **The money is a footnote; the real cost is WHERE issuance lands.** ACM charges nothing per certificate: the $10 covers the zone however many are ordered. The $0.10 figure belongs to Cloudflare for SaaS, billed per hostname past the first 100, and it enters only past C's ceiling or for a customer's own domain (§ *Certificate mechanisms*). Even there, Larry's position is that it costs real money only at a scale that brings funding (2026-09-11). What does cost is time. The hosts inside a galaxy — `dev.crm.acme.lumenize.dev`, `tenant1.crm.acme.lumenize.dev` — answer only once `*.crm.acme.lumenize.dev` is ordered and validated, so *create a galaxy* becomes *order a certificate and wait*. C accepts that wait, and [nebula-pre-alpha.md](nebula-pre-alpha.md) § *The certificate wait* makes it visible.
+- **A DNS label holds 63 characters, an email local part holds 64, and the only characters legal in both are `a-z`, `0-9` and `-`.** `--` is the delimiter because `isValidSlug` refuses a doubled hyphen inside a slug, so a `--` can only ever be a join, as in `manny--dev`. The 63 is what caps every slug at 30 under C, where a persona slug and a Star slug share one label (alternative C, § *Alternatives considered*).
+  - **A persona slug needs at least three characters (Larry, 2026-09-14), because a label with `--` as its third and fourth characters is reserved.** That position is how a punycode name is spelled — `xn--bcher-kva` is `bücher` — and Let's Encrypt refuses any other label shaped that way (Boulder's `errInvalidRLDH`). A two-character persona produces one: `ed--dev`. Under C's wildcards the persona's label is never named on a certificate, so nothing breaks today, but under Cloudflare for SaaS every host is named and `ed--dev.crm.acme.lumenize.dev` would be refused.
+- **Cloudflare Email Routing and Email Sending share thirty domains per zone, the apex and each subdomain counting one.** Nothing here comes near it: persona mail, if it stays, is one subdomain, `personas.lumenize.io`, with the scope carried in the local part. What the limit rules out is a mail subdomain per universe or galaxy, such as `manny@crm.acme.lumenize.io`.
 
 ### Fixed by the outside world — very painful to move
 
@@ -51,14 +53,19 @@ Three tiers. **The third exists because two things that feel immovable are not**
 
 ### Looks fixed, is not — discount these
 
-- **`nebula.lumenize.com` as the control plane.** It is the only `custom_domain` in the repo, which makes it read as load-bearing. It is not: no external users, every session dies at the wipe, magic links expire, and it is one route plus one DNS record plus a handful of constants.
+- **`nebula.lumenize.com` as Studio's home.** It is the only `custom_domain` in the repo, which makes it read as load-bearing. It is not: no external users, every session dies at the wipe, magic links expire, and it is one route plus one DNS record plus a handful of constants.
 - **`lumenize.io`'s Email Routing and catch-all.** The `/live` harness rides it and [ADR-009](../docs/adr/009-real-auth-path.md) makes real-email login the default path — but the harness is ours and every address it mints is disposable. A config cost, not a constraint.
 - **`personas.lumenize.io`.** Reserved by a task-file decision with nothing deployed and no rows behind it. Free.
 
 ### One-way doors — not constraints yet, but decided once
 
-- **A Public Suffix List entry.** The PSL is how a browser knows where one organisation's domain ends — `co.uk` is on it, which is what makes `foo.co.uk` and `bar.co.uk` different companies rather than siblings. ⭐ **What it buys here is narrower than it sounds.** Separate hosts already give separate `localStorage` and `sessionStorage`, and `lumenize.dev` and `lumenize.com` are already different domains, so the two planes are isolated from each other today with nothing to do. **Cookies are the exception — they are scoped by domain, not by origin**, where an origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`. A generated app on `acme--crm.lumenize.dev` can set `Domain=lumenize.dev`, and every sibling host, persona tabs included, then sends it. A PSL entry makes browsers refuse that, which is why `workers.dev`, `pages.dev` and `vercel.app` all carry one. Cost: weeks to months to reach browser releases, and harder to undo than to do.
-- **Durable Object namespace names.** `test-nebula` is redeployed under one stable name because fresh names strand a DO-namespace set per run, and only a dashboard project-delete removes them. This constrains environment naming rather than the planes.
+- **A Public Suffix List (PSL) entry for `lumenize.dev`.** The PSL is a list every browser ships that says where one organisation's domain ends. `co.uk` is on it, so `foo.co.uk` and `bar.co.uk` are two companies rather than two hosts of one. An entry makes `lumenize.dev` a suffix like `co.uk`, so each universe — `acme.lumenize.dev` — counts as its own organisation.
+  - **It stops one host setting a cookie for every other host.** A cookie normally goes back only to the host that set it, which is called host-only. A `Domain` attribute widens that: a generated app at `tenant1.crm.acme.lumenize.dev` can answer with `Set-Cookie: refresh-token=…; Domain=lumenize.dev`, and the browser then sends that cookie to every `lumenize.dev` host — `platform.lumenize.dev` and every other customer's Studio included. With the entry, the browser refuses `Domain=lumenize.dev` and drops the cookie.
+  - **It changes nothing about our own cookies.** [sessions-per-origin.md](sessions-per-origin.md) names every cookie we set `__Host-…`, which a browser keeps host-only and will not let a sibling set, so none of ours reaches a sibling or can be planted by one, with or without the entry. The entry is about cookies a generated app sets for other hosts.
+  - **The line it draws is the universe, not the host.** `Domain=acme.lumenize.dev` stays legal, so an app in `acme` can still reach every host in `acme`, its own Studio included — one customer's code reaching that customer's Studio. `SameSite` follows the same line: `crm.acme.lumenize.dev` and `platform.lumenize.dev` become different sites, which the `SameSite` table in sessions-per-origin.md already assumes.
+  - **C makes the threat real, and `__Host-` answers it before the entry does.** Studio moves from `nebula.lumenize.com` onto `lumenize.dev`, beside the apps, so a generated app's `Domain=lumenize.dev` cookie reaches Studio. It cannot shadow Studio's session, because Studio reads only `__Host-` names, and `Sec-Fetch` header checks stand in for `SameSite` until the entry lands (sessions-per-origin.md § *The rules*). `workers.dev`, `pages.dev` and `vercel.app` all carry an entry against the same threat.
+  - **Cost: slow to arrive, and slower to leave.** A submission is a pull request to the list, proved by a `_psl` TXT record, for a domain registered more than two years past the submission date — `lumenize.dev` runs to 2027-06-27 today (the registry's RDAP record, read 2026-09-14), so it needs renewing first. ⚠️ **It may not be accepted before launch at all:** the list's guidelines say beta, test and exploratory requests are likely to be declined, and so are projects not yet serving thousands of users — which is why the invariant above does not wait on it. Merging only starts the clock: each browser ships its own copy on its own release cycle, the maintainers say propagation cannot be expedited, and a browser nobody updates keeps the copy it shipped with — which is also why removing an entry later never fully takes.
+- **Durable Object namespace names.** `test-nebula` is redeployed under one stable name because fresh names strand a DO-namespace set per run, and only a dashboard project-delete removes them. This constrains environment naming rather than which domain serves what.
 
 **The option space is the three domains we already own** — `lumenize.com`, `lumenize.io`, `lumenize.dev`. Buying a fourth is ruled out (Larry, 2026-09-11), and nothing below proposes one.
 
@@ -67,7 +74,7 @@ Three tiers. **The third exists because two things that feel immovable are not**
 | # | Axis | Status |
 |---|---|---|
 | 1 | **Trust boundary** — which domain serves user-developer code | **Settled** — `lumenize.dev` is everything user-facing; § *The allocation* |
-| 2 | **Registrable-domain count** | **Settled** — the three we own, no fourth (Larry, 2026-09-11). The planes are already separate domains, so a PSL entry buys sibling isolation INSIDE `lumenize.dev`, nothing else |
+| 2 | **Registrable-domain count** | **Settled** — the three we own, no fourth (Larry, 2026-09-11). `lumenize.com` and `lumenize.dev` are already separate domains, so a PSL entry buys isolation between sibling hosts INSIDE `lumenize.dev`, nothing else |
 | 3 | **Mail** — which zones carry MX | **Partly** — which zones deliver is settled; the enforcement posture is deferred, and whether personas receive mail is not this file's |
 | 4 | **Certificates** | **Settled and measured** — alternative C, § *Measured — the C experiment* |
 | 5 | **Customer custom domains** | **Deferred** — Beta at the soonest (Larry, 2026-09-11), via Cloudflare for SaaS when it comes |
@@ -90,7 +97,7 @@ Three tiers. **The third exists because two things that feel immovable are not**
 
 **The docs move is already safe, which is why it can stay a direction.** `website/static/_redirects` exists and does exactly this job today — two 301s repointing a renamed package's doc URLs, placed there for external and bookmarked links. Docusaurus copies `static/*` to the build root verbatim and the site deploys as a Worker, so Workers Assets honours the file. Destinations may be absolute URLs and `lumenize.com` keeps being served, so a cross-domain move is one more line per path prefix. ⚠️ **Not `@docusaurus/plugin-client-redirects`** — it is not installed and should not be: it emits client-side JavaScript redirects for same-site renames, which is strictly worse here.
 
-⭐ **`nebula.lumenize.com` disappears.** Alternative C makes Studio the galaxy origin, so the control-plane host has no job left — and the branding decision above would have made its name wrong regardless.
+⭐ **`nebula.lumenize.com` disappears.** Alternative C makes Studio the galaxy origin, so that host has no job left — and the branding decision above would have made its name wrong regardless.
 
 ### `lumenize.io` — inbound mail, and later the package docs
 
@@ -107,7 +114,7 @@ Cloudflare Email Routing on the apex, DMARC `p=reject`, with a catch-all. **Inte
 - **The root is a landing page for user-developers**, deployed as a Workers project and linked prominently from `lumenize.com`.
 - **`platform.lumenize.dev` is the host of the `platform` scope** — login, the magic-link consume, Home, and superusers, who are simply members of that scope. [sessions-per-origin.md](sessions-per-origin.md) is what this host does. The reserved scope value `nebula-platform` (`PLATFORM_SCOPE` in `packages/nebula-auth/src/types.ts`) becomes `platform`; it is stored as a scope id and appears in URLs, so the rename is free before the wipe and a migration after.
 - ⚠️ **Platform labels share the UNIVERSE-slug namespace, so that is where they are reserved.** Under C a universe is a first label with no `--` — `acme.lumenize.dev` — so a platform label such as `platform` or `email` looks exactly like a universe a customer could claim. Every platform label goes into `RESERVED_UNIVERSE_SLUGS`, which is already due for re-deriving (§ *Shared by every alternative*).
-- **A Public Suffix List entry lands before external users.** Cookies are scoped by domain rather than origin, so without it a generated app can set `Domain=lumenize.dev` and reach every sibling, Studio included.
+- **A Public Suffix List entry is submitted once Lumenize qualifies** — serving thousands of users, with the domain renewed more than two years out. Until then `__Host-` cookie names keep a generated app from planting a session cookie on a sibling host, Studio included (§ *One-way doors*).
 
 Advanced Certificate Manager is enabled on this zone as of 2026-09-11, $10/month.
 
@@ -117,21 +124,32 @@ All three zones now carry DMARC: `lumenize.io` at `p=reject`, and `lumenize.com`
 
 ## Sessions and cookies
 
-Decided separately, in [sessions-per-origin.md](sessions-per-origin.md). `platform.lumenize.dev` establishes a session by top-level redirect and every scope host keeps its own host-only refresh cookie — sent back only to the exact host that set it — so no cookie carries a `Domain` attribute and the PSL entry stands.
+Decided separately, in [sessions-per-origin.md](sessions-per-origin.md). `platform.lumenize.dev` establishes a session by top-level redirect and every scope host keeps its own host-only refresh cookie — sent back only to the exact host that set it — so no cookie carries a `Domain` attribute. Each is named `__Host-…`, which a browser will not let a sibling host set, so nothing waits on the Public Suffix List entry.
+
+## What changes in today's code
+
+Collected as they turn up, for the build's task file to carry into its phases. [sessions-per-origin.md](sessions-per-origin.md) § *What changes in today's code* holds the session half.
+
+- **`apps/nebula/wrangler.jsonc`** — the `nebula.lumenize.com` custom domain gives way to a proxied wildcard DNS record and a Worker route on `lumenize.dev`, the last mile § *Measured — the C experiment* leaves unverified.
+- **Every other mention of `nebula.lumenize.com`** — `grep -rl 'nebula\.lumenize\.com' --exclude-dir=node_modules --exclude-dir=archive` lists them: deploy scripts, the `/live` harness, `packages/nebula-auth`, and standing guidance including `docs/vision/auth.md`, ADR-015 and `.claude/rules/prose-voice.md`, which quotes `auth.md`. A generated file such as `apps/nebula/src/platform-embed.ts` changes at its source.
+- **Three JSDoc comments that plan a "`lumenize.dev` data-plane split"** — in `packages/nebula-auth/src/nebula-auth-facade.ts`, `apps/nebula/src/profile-pictures.ts` and `apps/nebula-studio-ui/src/auth/home-logic.ts`. Each describes a move this decision replaces, so re-derive what each one guards against the new grammar rather than deleting it (`.claude/rules/calibration.md` §4).
+- **`isValidSlug`** in `packages/nebula-auth/src/parse-id.ts` gains C's 30-character cap, which it lacks today. The persona slug check, not yet built, carries the three-character floor.
+- **The reserved slug sets** — § *Shared by every alternative* lists all three changes.
+- **[on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md)** — mine it for what still stands, the custom-domain half at Beta, then `git rm` it in the same pass that archives this file, so the links to it are repointed once.
 
 ## Shared by every alternative
 
-Both alternatives below put **everything user-facing on `lumenize.dev`, with a PSL entry underneath**. They differ only in how a host spells a scope. So what follows belongs to that shared premise rather than to either option, and filing it under one of them would make the other look cheaper than it is.
+Both alternatives below put **everything user-facing on `lumenize.dev`, with a Public Suffix List entry to follow**. They differ only in how a host spells a scope. So what follows belongs to that shared premise rather than to either option, and filing it under one of them would make the other look cheaper than it is.
 
 **Resolved:**
 
 - **Star-in-host — RESOLVED, and by construction.** Both alternatives put the star in the host: A as a segment of the flat label, B as a label of its own. So the star-in-path fork [on-hold/use-lumenize-dev-domain-and-support-custom-domains.md](on-hold/use-lumenize-dev-domain-and-support-custom-domains.md) left open cannot be taken under either. Consequence: Stars of one galaxy no longer share an origin, so each tenant has its own cookie jar and cross-tenant navigation is cross-origin. Likely right — that is tenant isolation — but recorded as decided rather than inherited.
-- **Where the auth endpoints live — RESOLVED in [sessions-per-origin.md](sessions-per-origin.md).** Login and the magic-link consume live on `platform.lumenize.dev`; each scope host serves only its own `refresh-token` and `callback` endpoints, and gets its session through a signed value minted during a top-level redirect. The PSL is what forced that: once `lumenize.dev` is a public suffix a browser refuses `Domain=lumenize.dev`, so no one host can place a cookie on another. The Gateway is unaffected — it carries a bearer token, so `gateway.lumenize.dev` against `lumenize.dev/gateway` is taste.
+- **Where the auth endpoints live — RESOLVED in [sessions-per-origin.md](sessions-per-origin.md).** Login and the magic-link consume live on `platform.lumenize.dev`; each scope host serves only its own `refresh-token` and `callback` endpoints, and gets its session through a signed value minted during a top-level redirect. What forced that is that no host may place a cookie on another: a `__Host-` name forbids `Domain` now, and browsers refuse `Domain=lumenize.dev` once the Public Suffix List entry lands. The Gateway is unaffected — it carries a bearer token, so `gateway.lumenize.dev` against `lumenize.dev/gateway` is taste.
 
 **Open under either, and not blocked on choosing between them:**
 
 - **Custom domains.** `app.acme.com` arrives as a Cloudflare for SaaS custom hostname — 100 free, then $0.10/month each — and serves Studio to a galaxy scopeAdmin or the app's own landing page to anyone else. ⚠️ That means Studio's session cookie lands on the CUSTOMER's domain, which is worth deciding rather than inheriting.
-- **Studio has no host of its own**, being the galaxy origin. That deletes `nebula.lumenize.com` from the design and puts the trust boundary inside one registrable domain — which is what promotes the PSL entry from hygiene to load-bearing, since a sibling setting `Domain=lumenize.dev` would otherwise reach Studio.
+- **Studio has no host of its own**, being the galaxy origin. That deletes `nebula.lumenize.com` from the design and puts the trust boundary inside one registrable domain — which is what makes a cookie set by a sibling host a threat to Studio — answered by `__Host-` cookie names now, and by the Public Suffix List entry once it lands.
 
 **Obliged by either, and cheapest before the wipe — three reservations to settle, one of them by re-deriving rather than extending:**
 

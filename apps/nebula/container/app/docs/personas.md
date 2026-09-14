@@ -6,7 +6,7 @@ Write this when: the `define-the-cast` skill has elicited the cast, or a new kin
 
 ## The cast
 
-Write this when: the personas are named. One line each — the slug, the full name, what they do, what they must never see. Names are alliterative and say the role (Ollie Organizer, Pat Participant); the slug is the first name alone, lowercase, 11 characters or fewer (`ollie`, `pat`).
+Write this when: the personas are named. One line each — the slug, the full name, what they do, what they must never see. Names are alliterative and say the role (Ollie Organizer, Pat Participant); the slug is the first name alone, lowercase, 3 to 11 characters (`ollie`, `pat`).
 
 ## The procedure
 
