@@ -458,6 +458,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 ## Infrastructure
 
 - [ ] See `tasks/icebox/npm-publish-via-github-actions.md` for automation plans
+- [ ] **Set one mail posture across `lumenize.com`, `lumenize.io` and `lumenize.dev`** ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md) § *Deliberately open*). `lumenize.io` is already DMARC `p=reject`. `lumenize.com` — and `maccherone.com`, which it aliases — sit at `p=none` through Cloudflare DMARC Management, enabled 2026-09-11; move both to `quarantine` and then `reject` once the reports are clean. `lumenize.dev` sends nothing, so it gets a null SPF and an enforcing DMARC unless something there starts sending.
 
 ## Website, Blog, etc.
 

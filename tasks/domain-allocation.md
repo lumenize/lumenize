@@ -1,6 +1,6 @@
 # Which domain is for what — `lumenize.com`, `lumenize.io`, `lumenize.dev`
 
-**Status:** ✅ **DECIDED 2026-09-11 — alternative C**, measured rather than argued (§ *Measured — the C experiment*). Larry: the ceiling is fine and the certificate delay is the only thing that bites, so ship C and mitigate the delay with a progress indicator rather than a pre-issued pool. How a person holds a session on each host — the name in a web address, like `tenant1.crm.acme.lumenize.dev` — is decided separately, in [sessions-per-origin.md](sessions-per-origin.md).
+**Status:** ✅ **DECIDED 2026-09-11 — alternative C**, measured rather than argued (§ *Measured — the C experiment*). Larry: the ceiling is fine and the certificate delay is the only thing that bites, so ship C and mitigate the delay with a progress indicator. How a person holds a session on each host — the name in a web address, like `tenant1.crm.acme.lumenize.dev` — is decided separately, in [sessions-per-origin.md](sessions-per-origin.md).
 
 **Context.** We own `lumenize.com`, `lumenize.dev`, and `lumenize.io`. Today's allocation was never chosen — it accreted one task at a time.
 
@@ -93,19 +93,17 @@ All three zones sit on Cloudflare nameservers (`cory` / `ariadne`); the other ro
 
 **The name is decided: the product is Lumenize** (Larry, 2026-09-13). "Nebula" is the project's code name, so it leaves every user-facing surface — URLs, hostnames, UI copy, emails and published docs — while code identifiers keep it.
 
-ⓘ **What `lumenize.com` does at beta is still a DIRECTION, not a decision.** At beta it becomes the product's marketing site, the `@lumenize/*` packages are demoted from a marketing point of view, the package docs move to `lumenize.io`, and the site is free to stop being Docusaurus. The ADR notes it without committing to it (Larry, 2026-09-13).
+ⓘ **What `lumenize.com` does at beta is still a DIRECTION, not a decision.** At beta it becomes the product's marketing site, the `@lumenize/*` packages are demoted from a marketing point of view, the package docs stay on it at `lumenize.com/docs` or `docs.lumenize.com` (Larry, 2026-09-14), and the site is free to stop being Docusaurus. The ADR notes it without committing to it (Larry, 2026-09-13).
 
-**The docs move is already safe, which is why it can stay a direction.** `website/static/_redirects` exists and does exactly this job today — two 301s repointing a renamed package's doc URLs, placed there for external and bookmarked links. Docusaurus copies `static/*` to the build root verbatim and the site deploys as a Worker, so Workers Assets honours the file. Destinations may be absolute URLs and `lumenize.com` keeps being served, so a cross-domain move is one more line per path prefix. ⚠️ **Not `@docusaurus/plugin-client-redirects`** — it is not installed and should not be: it emits client-side JavaScript redirects for same-site renames, which is strictly worse here.
+**Moving the docs within `lumenize.com` is already safe, which is why it can stay a direction.** `website/static/_redirects` exists and does exactly this job today — two 301s repointing a renamed package's doc URLs, placed there for external and bookmarked links. Docusaurus copies `static/*` to the build root verbatim and the site deploys as a Worker, so Workers Assets honours the file. Destinations may be absolute URLs and `lumenize.com` keeps being served, so a move to `docs.lumenize.com` is one more line per path prefix. ⚠️ **Not `@docusaurus/plugin-client-redirects`** — it is not installed and should not be: it emits client-side JavaScript redirects for same-site renames, which is strictly worse here.
 
 ⭐ **`nebula.lumenize.com` disappears.** Alternative C makes Studio the galaxy origin, so that host has no job left — and the branding decision above would have made its name wrong regardless.
 
-### `lumenize.io` — inbound mail, and later the package docs
+### `lumenize.io` — inbound mail
 
 Cloudflare Email Routing on the apex, DMARC `p=reject`, with a catch-all. **Internal testing rides that APEX catch-all, not a subdomain**: `apps/nebula/harness/prod.ts` mints `spin-<8 hex>@lumenize.io` and the catch-all forwards to a deployed email-test Worker. `claude@lumenize.io` is the post-wipe inbound receiver.
 
 `personas.lumenize.io` is reserved and carries no records, pending [nebula-persona-sessions.md](nebula-persona-sessions.md) § *Open questions* 1.
-
-ⓘ **Direction:** the package docs move here when `lumenize.com` becomes the product's marketing site. A zone serving docs while also carrying mail is ordinary.
 
 ### `lumenize.dev` — everything user-facing
 
@@ -130,7 +128,7 @@ Decided separately, in [sessions-per-origin.md](sessions-per-origin.md). `platfo
 
 Collected as they turn up, for the build's task file to carry into its phases. [sessions-per-origin.md](sessions-per-origin.md) § *What changes in today's code* holds the session half.
 
-- **`apps/nebula/wrangler.jsonc`** — the `nebula.lumenize.com` custom domain gives way to a proxied wildcard DNS record and a Worker route on `lumenize.dev`, the last mile § *Measured — the C experiment* leaves unverified.
+- **`apps/nebula/wrangler.jsonc`** — the `nebula.lumenize.com` custom domain gives way to a proxied wildcard DNS record and a Worker route on `lumenize.dev`, which [experiments/wildcard-host-routing/RESULTS.md](../experiments/wildcard-host-routing/RESULTS.md) showed serving every depth.
 - **Every other mention of `nebula.lumenize.com`** — `grep -rl 'nebula\.lumenize\.com' --exclude-dir=node_modules --exclude-dir=archive` lists them: deploy scripts, the `/live` harness, `packages/nebula-auth`, and standing guidance including `docs/vision/auth.md`, ADR-015 and `.claude/rules/prose-voice.md`, which quotes `auth.md`. A generated file such as `apps/nebula/src/platform-embed.ts` changes at its source.
 - **Three JSDoc comments that plan a "`lumenize.dev` data-plane split"** — in `packages/nebula-auth/src/nebula-auth-facade.ts`, `apps/nebula/src/profile-pictures.ts` and `apps/nebula-studio-ui/src/auth/home-logic.ts`. Each describes a move this decision replaces, so re-derive what each one guards against the new grammar rather than deleting it (`.claude/rules/calibration.md` §4).
 - **`isValidSlug`** in `packages/nebula-auth/src/parse-id.ts` gains C's 30-character cap, which it lacks today. The persona slug check, not yet built, carries the three-character floor.
@@ -184,7 +182,7 @@ customers   hostnames   Cloudflare for SaaS   ACM
 
 ⭐ **Switching later is NOT a URL migration, which retires the main reason to decide early.** `tenant1.crm.acme.lumenize.dev` is the same string under both — only what certifies and routes it changes. No dead links, no lost cookie jars, no origin change. It is additive rather than a cutover: create custom hostnames while the wildcard still serves, let the more specific certificate take over as each is issued, then retire the wildcard. Real config work, since a custom hostname routes via a fallback origin rather than a proxied wildcard record, but not an outage.
 
-⇒ **ACM for the bulk, Cloudflare for SaaS at the margin** — past the ceiling, and for customers bringing their own domain. Not a migration to plan for; a second way in, added where the first runs out.
+⇒ **ACM for the bulk; past its ceiling, an Enterprise plan**, whose wildcard custom hostnames keep one certificate per galaxy. Below Enterprise, Cloudflare for SaaS certifies host by host, so it serves only customers bringing their own domain (corrected 2026-09-14: a certificate per tenant and persona breaks the certificate invariant).
 
 ⓘ **Alternative A is immune to this whole axis.** Every host is one label riding the free wildcard, so it needs no ACM subscription and Cloudflare for SaaS would cost it $0 — one more thing C's $10 and eleven extra characters are being weighed against.
 
@@ -199,13 +197,13 @@ Run 2026-09-11 against `lumenize.dev`, a **Free Website** zone with no DNS recor
 | What is the per-zone certificate limit on Free? | **≥20, no refusal.** The run stopped at its own cap, not Cloudflare's. At ≥20 packs × 49 wildcards that is past 1,000 wildcards on a free zone, so the ~2,450-customer ceiling stands and may be higher. |
 | How long from order to active? | **~150 s in validation, then deployment fans out; 12 of 20 were active at t+188 s and 17 of 20 by t+251 s.** |
 
-⭐ **The validation wall is roughly FIXED rather than per-certificate** — twenty packs cleared it in about the time one did. So a pre-issued pool would amortise extremely well if one is ever built. What that does not fix is a galaxy created cold, which still waits three to four minutes.
+⭐ **The validation wall is roughly FIXED rather than per-certificate** — twenty packs cleared it in about the time one did. So certificates ordered together share one wait: a universe and its first galaxy ordered at the same moment wait once. ⚠️ **A pre-issued pool, proposed alongside this measurement, cannot work** (corrected 2026-09-14): a certificate names its hosts, and a galaxy's name does not exist until someone creates it.
 
 **Method notes, so this is reproducible rather than asserted:**
 
 - ⚠️ **The certificate-packs list endpoint hides non-active packs unless you pass `?status=all`.** The first listing after ordering twenty showed `count: 1` and read as though every order had failed.
-- ⚠️ **The timing is contaminated past t+299 s**, where cleanup deletions overlapped the tail and the counts run backwards. Everything to t+251 s is clean. Before anyone builds against 188 s, re-run with ONE certificate on a quiet zone and no concurrent deletes.
-- **A certificate being `active` is NOT the same as a host serving.** An SNI handshake for `tenant1.g1.u1.lumenize.dev` against Cloudflare's edge returned nothing, because the edge maps SNI to a zone through a proxied DNS record and the zone has none. Proving the last mile needs one proxied wildcard record plus a Worker route — still unverified.
+- ⚠️ **The timing is contaminated past t+299 s**, where cleanup deletions overlapped the tail and the counts run backwards. Everything to t+251 s is clean. Before anyone builds against 188 s, re-run with ONE certificate on a quiet zone and no concurrent deletes. **Re-run 2026-09-14** ([experiments/wildcard-host-routing/RESULTS.md](../experiments/wildcard-host-routing/RESULTS.md)): a new name, `*.g2.u1`, was active and serving at +148 s; `*.u1` and `*.g1.u1`, validated in this run, went active at +27 s, likely reusing that validation.
+- **A certificate being `active` is NOT the same as a host serving.** An SNI handshake for `tenant1.g1.u1.lumenize.dev` against Cloudflare's edge returned nothing, because the edge maps SNI to a zone through a proxied DNS record and the zone has none. Proving the last mile needs one proxied wildcard record plus a Worker route. **Measured 2026-09-14** in [experiments/wildcard-host-routing/RESULTS.md](../experiments/wildcard-host-routing/RESULTS.md): one proxied `*.lumenize.dev` record and one `*.lumenize.dev/*` route serve every depth, and the certificate serves there.
 
 ## Alternatives considered
 
@@ -301,7 +299,7 @@ manny--dev.crm.acme.lumenize.dev    a persona in dev  ┘
 - **Certificate lifecycle becomes ours, and teardown is the flaky half.** A deleted galaxy leaves its wildcard, so something must reap and reconcile — the same way a deleted Worker leaves Durable Object namespaces behind. ⚠️ **Observed rather than predicted:** packs sat in `pending_deletion` for **400+ seconds**, and one delete returned `1406 Bad response certificate service` and succeeded on retry. The reaper needs retries and reconciliation, never a fire-and-forget call.
 - **The ceiling sits on an undocumented number.** 100 certificates per zone is published for Enterprise and nothing is published for Free, Pro or Business.
 
-**The escape hatch, and what it costs.** Cloudflare for SaaS serves subdomains of a zone we own, 100 hostnames free then $0.10/month each, with a documented 50,000 cap — ten times the wildcard headroom. ⚠️ **It arrives as a discontinuity, though:** the ceiling bites NEW galaxies while existing ones keep their wildcards, so past it you would have two classes of galaxy wearing different grammars, permanently. That is the consistency objection B was rejected for, arriving later and larger.
+**The escape hatch is an Enterprise plan, whose wildcard custom hostnames keep one certificate per galaxy** (corrected 2026-09-14). **Cloudflare for SaaS below Enterprise is not one.** It serves subdomains of a zone we own, 100 hostnames free then $0.10/month each, with a documented 50,000 cap — ten times the wildcard headroom. ⚠️ **It arrives as a discontinuity, though:** the ceiling bites NEW galaxies while existing ones keep their wildcards, so past it you would have two classes of galaxy wearing different grammars, permanently. That is the consistency objection B was rejected for, arriving later and larger.
 
 **Both open numbers were measured on 2026-09-11 — § *Measured — the C experiment* carries them.** The ceiling scenario that would have killed C did not happen; the galaxy-creation delay is real and is the one cost C ships with.
 
