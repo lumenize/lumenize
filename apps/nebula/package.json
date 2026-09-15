@@ -58,14 +58,17 @@
     "@vitest/browser": "4.1.10",
     "@vitest/browser-playwright": "4.1.10",
     "@vitest/coverage-istanbul": "4.1.10",
+    "@vue/compiler-sfc": "^3.5.13",
     "agents": "^0.14.2",
     "daisyui": "5.5.23",
     "http-proxy": "^1.18.1",
     "jsdom": "^25.0.1",
     "lucide-vue-next": "1.0.0",
     "playwright": "^1.48.2",
+    "typescript": "^5.9.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.10",
+    "vue": "^3.5.13",
     "wrangler": "4.124.0"
   },
   "dependencies": {
@@ -79,12 +82,9 @@
     "@lumenize/structured-clone": "*",
     "@lumenize/ts-runtime-parser-validator": "*",
     "@platformatic/vfs": "^0.4.0",
-    "@vue/compiler-sfc": "^3.5.13",
     "@vue/reactivity": "^3.5.13",
     "@vue/runtime-core": "^3.5.13",
-    "isomorphic-git": "^1.38.4",
-    "typescript": "^5.9.2",
-    "vue": "^3.5.13"
+    "isomorphic-git": "^1.38.4"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",

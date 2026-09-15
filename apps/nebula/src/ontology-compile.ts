@@ -1,16 +1,16 @@
 /**
- * Ontology compilation — the pure half of the ontology pipeline, in a leaf module with NO mesh or
- * `cloudflare:workers` imports so it loads in plain Node. ⚠️ NO in-Worker caller compiles anymore
- * (tasks/archive/nebula-move-compilers-out-of-the-worker.md — the deployed Worker orchestrates and stores;
- * `scripts/check-worker-graph.mjs` reds if this module's value graph re-enters the entry graph).
- * The live callers are all outside that graph: the container build job
- * (`container/compiler/job.ts` — the ONE production compile), `scripts/gen-validator-seeds.ts`
- * (the committed literals), the `/live` harness (compiles rows to install via `setOntology`), the
- * offline check surface (`test/offline/codegen-gate.ts`), and the test lanes (a test Worker never
- * deploys). `galaxy.ts` re-exports only the TYPES (erased — no value edge).
+ * Ontology compilation — runs in the Container's COMPILER IMAGE, never in the deployed Worker.
+ * `container/Dockerfile` copies this file into `/build`, where `container/compiler/job.ts` bundles
+ * it as the ONE production compile; the Worker only orchestrates and stores the rows that job
+ * returns (tasks/archive/nebula-move-compilers-out-of-the-worker.md). It is a leaf module with NO
+ * mesh or `cloudflare:workers` imports, so it also loads in plain Node for
+ * `scripts/gen-validator-seeds.ts` (the committed literals) and the offline check surface
+ * (`test/offline/codegen-gate.ts`), and under the test lanes (a test Worker never deploys).
  *
- * ⚠️ NOT browser-safe — `generateParseModule` pulls the bundled tsc/typia deps (multi-MB, Node/
- * workerd only). Keep it out of `client-index.ts`.
+ * ⚠️ Worker source MAY import this module's TYPES only (erased — no value edge). A value import
+ * drags the bundled tsc/typia deps (multi-MB) back into the Worker and re-blocks the deploy on the
+ * startup CPU limit; `scripts/check-worker-graph.mjs` reds when it happens. Not browser-safe for the
+ * same reason — keep it out of `client-index.ts` and `frontend-index.ts`.
  */
 import { extractTypeMetadata, generateParseModule } from '@lumenize/ts-runtime-parser-validator/compile';
 import type { TypeMetadata } from '@lumenize/ts-runtime-parser-validator/compile';
