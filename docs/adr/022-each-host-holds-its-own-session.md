@@ -3,7 +3,7 @@
 **Date**: 2026-09-14
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: [`tasks/sessions-per-origin.md`](../../tasks/sessions-per-origin.md) — the flows as sequence diagrams, which cookie must ride which request, and the designs rejected while deciding. [A 2026-09-14 browser run](../../experiments/wildcard-host-routing/RESULTS.md) confirmed the cookie and header behaviour. [The confine-admin-bypass record](../../tasks/archive/nebula-confine-admin-bypass.md) shows why `authScope` narrows, not just `aud`: a token narrowed to one galaxy by `aud` alone kept a universe admin's dominion.
+**Evidence**: [the sessions record](../../tasks/archive/decision-sessions-per-origin.md) — the flows as sequence diagrams, which cookie must ride which request, and the designs rejected while deciding. [A 2026-09-14 browser run](../../experiments/wildcard-host-routing/RESULTS.md) confirmed the cookie and header behaviour. [The confine-admin-bypass record](../../tasks/archive/nebula-confine-admin-bypass.md) shows why `authScope` narrows, not just `aud`: a token narrowed to one galaxy by `aud` alone kept a universe admin's dominion.
 
 ## Context
 
@@ -21,7 +21,7 @@ Three browser facts shape the answer:
 
 The rest of this ADR walks the round trip, then the cookie rules, what a session carries, and how Studio's frames get theirs.
 
-> **Today's code differs.** None of this is built. One host, `nebula.lumenize.com`, serves every scope. A login deposits one `refresh-token` cookie per membership at `Path=/auth/{scope}`. The client picks one by calling `POST /auth/{authScope}/refresh-token` with `activeScope` in the body, and learns `authScope` from a localStorage hint. No cookie carries the `__Host-` prefix, no endpoint reads a `Sec-Fetch-*` header, and the preview runs generated code on Studio's origin. `.claude/rules/security.md` still describes today's cookie. [`tasks/sessions-per-origin.md`](../../tasks/sessions-per-origin.md) § *What changes in today's code* lists the sites.
+> **Today's code differs.** None of this is built. One host, `nebula.lumenize.com`, serves every scope. A login deposits one `refresh-token` cookie per membership at `Path=/auth/{scope}`. The client picks one by calling `POST /auth/{authScope}/refresh-token` with `activeScope` in the body, and learns `authScope` from a localStorage hint. No cookie carries the `__Host-` prefix, no endpoint reads a `Sec-Fetch-*` header, and the preview runs generated code on Studio's origin. `.claude/rules/security.md` still describes today's cookie. [The sessions record](../../tasks/archive/decision-sessions-per-origin.md) § *What changes in today's code* lists the sites.
 
 ## Decision
 

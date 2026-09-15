@@ -3,7 +3,7 @@
 **Date**: 2026-09-14
 **Status**: Proposed — line-by-line review with Larry, 2026-09-14
 **Deciders**: Larry
-**Evidence**: [`tasks/domain-allocation.md`](../../tasks/domain-allocation.md) — the three zones as measured on 2026-09-11, alternatives A, B and C, and an experiment on `lumenize.dev` the same day: two-level wildcards accepted, domain validation automatic at every depth, at least 20 certificate packs on a Free zone with no refusal, and three to four minutes from order to active. [A 2026-09-14 run](../../experiments/wildcard-host-routing/RESULTS.md) served every depth from one DNS record and one route. The Public Suffix List's own guidelines, which say a project not yet serving thousands of users is likely to be declined.
+**Evidence**: [the domain-allocation record](../../tasks/archive/decision-domain-allocation.md) — the three zones as measured on 2026-09-11, alternatives A, B and C, and an experiment on `lumenize.dev` the same day: two-level wildcards accepted, domain validation automatic at every depth, and three to four minutes from order to active. [A 2026-09-14 run](../../experiments/wildcard-host-routing/RESULTS.md) served every depth from one DNS record and one route. The Public Suffix List's guidelines, which decline projects not yet serving thousands of users.
 
 ## Context
 
@@ -11,7 +11,7 @@ Lumenize owns three domains — `lumenize.com`, `lumenize.io` and `lumenize.dev`
 
 Two things push against one host:
 
-1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-each-host-holds-its-own-session.md) forbids that for our cookies, even a universe admin's: that admin reaches a galaxy's host through a redirect to `platform.lumenize.dev` instead. Studio, the apps it generates, and each persona a user-developer tests as all need cookies and storage the others cannot touch. So each needs a host of its own.
+1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-each-host-holds-its-own-session.md) forbids that for our cookies, even a universe admin's, who reaches a galaxy's host through `platform.lumenize.dev` instead. Studio, the apps it generates, and each persona a user-developer tests as all need cookies and storage the others cannot touch. So each needs a host of its own.
 2. **The outside world fixes the shapes a host can take.**
    - Google put all of `.dev` on the browsers' HSTS preload list, so every `lumenize.dev` host is HTTPS-only. A broken certificate is a dead page, not a warning.
    - A wildcard certificate matches exactly one label: `*.lumenize.dev` covers `acme.lumenize.dev` and not `crm.acme.lumenize.dev`.
@@ -19,7 +19,7 @@ Two things push against one host:
 
 The rest of this ADR says what each domain is for, how a host spells a scope, and what that spelling costs in certificates.
 
-> **Today's code differs.** None of this is built. `lumenize.dev` has no DNS records, and every scope is served from `nebula.lumenize.com` with the scope in the path. The preview runs generated code on Studio's own origin, and the platform scope is named `nebula-platform`. `isValidSlug` has no length cap, no persona slug check exists, and the reserved slug sets still assume a scope is a path segment. [`tasks/domain-allocation.md`](../../tasks/domain-allocation.md) § *What changes in today's code* lists the sites.
+> **Today's code differs.** None of this is built. `lumenize.dev` has no DNS records, and every scope is served from `nebula.lumenize.com` with the scope in the path. The preview runs generated code on Studio's own origin, and the platform scope is named `nebula-platform`. `isValidSlug` has no length cap, no persona slug check exists, and the reserved slug sets still assume a scope is a path segment. [The domain-allocation record](../../tasks/archive/decision-domain-allocation.md) § *What changes in today's code* lists the sites.
 
 ## Decision
 
