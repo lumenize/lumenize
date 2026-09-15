@@ -27,7 +27,7 @@ import { provisionAndLogin } from '../lib/email-login';
 // (`App.vue`'s `isWorkspace` is two segments) and `{u}.{g}.dev` is the preview star it serves. The
 // three-segment form this lane used to carry was pre-collapse addressing.
 const TEST_SCOPE = 'test-u0.test-g0';
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 /** The universe the admin owns — the parent under which the throwaway Galaxy is created. */
 const UNIVERSE = 'test-u0';
 /**

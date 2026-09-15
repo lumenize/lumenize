@@ -34,7 +34,7 @@ interface BootstrapAdminOptions {
   baseUrl: string;
   /** The STAR scope to authenticate at — 3 segments, e.g. 'acme-abc.app.tenant-a'. */
   scope: string;
-  /** Email to register / log in. Must be `test@lumenize.io` so the deployed email-test Worker receives it. */
+  /** Email to register / log in. Must be `test@lumenize-test.dev` so the deployed email-test Worker receives it. */
   email: string;
   /** TEST_TOKEN for authenticating with the deployed email-test DO. */
   testToken: string;

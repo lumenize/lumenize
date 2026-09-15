@@ -37,7 +37,7 @@ export interface EmailLoginOptions {
   /** TEST_TOKEN for the deployed email-test Worker. */
   testToken: string;
   /**
-   * Identity to log in. Defaults to a fresh `test-<uuid>@lumenize.io`, which is
+   * Identity to log in. Defaults to a fresh `test-<uuid>@lumenize-test.dev`, which is
    * both routed by the catch-all AND unique — so concurrent logins can't steal
    * each other's magic link.
    */

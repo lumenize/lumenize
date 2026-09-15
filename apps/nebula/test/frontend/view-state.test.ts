@@ -36,7 +36,7 @@ describe('validReturnTo', () => {
 
 describe('returnTarget', () => {
   const summary = (memberships: ScopeSummary['emails'][number]['memberships']): ScopeSummary =>
-    ({ emails: [{ email: 'a@lumenize.io', current: true, memberships }] } as unknown as ScopeSummary);
+    ({ emails: [{ email: 'a@lumenize-test.dev', current: true, memberships }] } as unknown as ScopeSummary);
   it('a universe membership covers a workspace beneath it, keyed by the DESTINATION scope', () => {
     const t = returnTarget(summary([{ scope: 'acme', tier: 'universe', accepted: true }]), '/acme.crm?manage');
     expect(t).toEqual({ scope: 'acme.crm', path: '/acme.crm?manage' });

@@ -1,7 +1,7 @@
 /**
  * THE HEADLINE (collapse Phase 4) — four parties in ONE thread, live, attributed:
  *
- *  - the OWNER — a real `@lumenize.io` email login (ADR-009 rung 1, `provisionAndLogin`);
+ *  - the OWNER — a real `@lumenize-test.dev` email login (ADR-009 rung 1, `provisionAndLogin`);
  *  - the COACH — a real platform super-admin login (the bootstrap email re-pointed at the
  *    catch-all via `bootVars`), acting in the galaxy under downward dominion;
  *  - the COLLABORATOR (Austen) — enrolled through the REAL invite: a galaxy node invite
@@ -28,13 +28,13 @@ import {
   refreshAccessToken, acceptMembership, refreshTokenForScope, setCookieHeaders,
 } from '../../test/lib/email-login';
 
-const uniqueTestEmail = () => `test-${crypto.randomUUID().slice(0, 8)}@lumenize.io`;
+const uniqueTestEmail = () => `test-${crypto.randomUUID().slice(0, 8)}@lumenize-test.dev`;
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
 export const needsContainer = false;
 
 /** The bootstrap (coach) email, re-pointed at the catch-all so the login is a REAL loop. */
-const COACH_EMAIL = 'coach-four@lumenize.io';
+const COACH_EMAIL = 'coach-four@lumenize-test.dev';
 export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: COACH_EMAIL };
 
 const SCOPE = 'claude-four.app';

@@ -48,7 +48,7 @@ export const needsContainer = false;
 const PLATFORM = 'nebula-platform';
 
 /** A stable address for this boot, pinned as the bootstrap identity below. */
-const SUPERUSER = 'front-door-superuser@lumenize.io';
+const SUPERUSER = 'front-door-superuser@lumenize-test.dev';
 
 export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
 

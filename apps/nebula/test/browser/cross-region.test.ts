@@ -39,7 +39,7 @@ import { Browser } from '@lumenize/testing';
 import { HarnessNebulaClient } from './harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 const DELAY_MS = 200;
 const ITERATIONS = 20;
 

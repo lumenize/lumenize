@@ -13,8 +13,8 @@ async function main(): Promise<void> {
   const cmd = process.argv[2] ?? 'enumerate';
   console.error(`[prod] target=${PROD_URL} command=${cmd}`);
   if (cmd === 'spin') {
-    // Catch-all health check: a FRESH, unruled @lumenize.io address must reach the email-test Worker.
-    const email = `spin-${crypto.randomUUID().slice(0, 8)}@lumenize.io`;
+    // Catch-all health check: a FRESH, unruled @lumenize-test.dev address must reach the email-test Worker.
+    const email = `spin-${crypto.randomUUID().slice(0, 8)}@lumenize-test.dev`;
     console.error(`[prod] requesting a magic link for a fresh unruled address: ${email}`);
     const link = await prodEmailSpin(email);
     console.error(`[prod] ✅ catch-all works — email-test Worker received the magic link for ${email}`);

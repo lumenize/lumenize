@@ -50,7 +50,7 @@ import { NebulaEmailSender } from '@lumenize/nebula-auth';
  * wrangler.jsonc, no `send_email` binding), so the from-domain must be
  * verified on **Resend** — `test.lumenize.com` is (same setup as
  * packages/auth/test/e2e-email-resend, which sends from `auth@test.lumenize.com`).
- * The magic-link recipient stays `test@lumenize.io`, which Cloudflare Email
+ * The magic-link recipient stays `test@lumenize-test.dev`, which Cloudflare Email
  * Routing catches and forwards to the deployed email-test Worker → WebSocket
  * push back to the test. Selecting Resend lets this lane run with no CF creds
  * (incl. the secret-less Claude-hosted lane); the CF Email Sending path is

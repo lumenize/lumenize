@@ -46,21 +46,21 @@ describe('the instance tag is stamped from the field, for every message variant'
   // point: `instanceName` is required, so no variant can be missed and no per-type decision
   // exists to get wrong. If a new variant is ever added without a tag, it will not compile.
   it.each([
-    ['magic-link', { type: 'magic-link', to: 'a@lumenize.io', instanceName: SCOPE,
+    ['magic-link', { type: 'magic-link', to: 'a@lumenize-test.dev', instanceName: SCOPE,
       magicLinkUrl: `http://localhost/auth/${SCOPE}/magic-link?one_time_token=abc` }],
-    ['invite-new', { type: 'invite-new', to: 'a@lumenize.io', instanceName: SCOPE,
+    ['invite-new', { type: 'invite-new', to: 'a@lumenize-test.dev', instanceName: SCOPE,
       inviteUrl: `http://localhost/auth/${SCOPE}/accept-invite?invite_token=abc` }],
     // ⚠️ THE CASE THE CHANGE EXISTS FOR. Its URL (`/app`) carries no instance segment, so under
     // URL derivation this shipped UNTAGGED even though its instance was known — and
     // `invite-existing` is exactly that shape and a variant wanted soon. The failure was silent:
     // an untagged mail lands in the email-test catch-all bucket, so `waitForEmail({ instance })`
     // never matches and the caller dies on a 60s timeout with nothing pointing at the sender.
-    ['invite-existing', { type: 'invite-existing', to: 'a@lumenize.io', instanceName: SCOPE,
+    ['invite-existing', { type: 'invite-existing', to: 'a@lumenize-test.dev', instanceName: SCOPE,
       redirectUrl: 'http://localhost/app' }],
-    ['approval-confirmation', { type: 'approval-confirmation', to: 'a@lumenize.io', instanceName: SCOPE,
+    ['approval-confirmation', { type: 'approval-confirmation', to: 'a@lumenize-test.dev', instanceName: SCOPE,
       redirectUrl: 'http://localhost/app' }],
-    ['admin-notification', { type: 'admin-notification', to: 'a@lumenize.io', instanceName: SCOPE,
-      subjectEmail: 'b@lumenize.io', approveUrl: 'http://localhost/auth/approve/sub-123' }],
+    ['admin-notification', { type: 'admin-notification', to: 'a@lumenize-test.dev', instanceName: SCOPE,
+      subjectEmail: 'b@lumenize-test.dev', approveUrl: 'http://localhost/auth/approve/sub-123' }],
   ] as const)('tags %s', async (_label, message) => {
     expect(await headersFor(message as EmailMessage)).toEqual(TAG);
   });
@@ -75,7 +75,7 @@ describe('the correctness gap this closed', () => {
   it('follows the FIELD, not the URL, when the two disagree', async () => {
     expect(await headersFor({
       type: 'magic-link',
-      to: 'a@lumenize.io',
+      to: 'a@lumenize-test.dev',
       instanceName: SCOPE,
       magicLinkUrl: 'http://localhost/auth/some.other.scope/magic-link?one_time_token=abc',
     })).toEqual(TAG);

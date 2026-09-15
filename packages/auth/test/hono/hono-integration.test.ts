@@ -5,7 +5,7 @@ import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 // Real email delivery e2e test — same flow as e2e-email but routed through Hono.
 // Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
-// Email Routing + Email Sending onboarded for lumenize.io.
+// Email Sending onboarded for lumenize.io, and Email Routing for lumenize-test.dev.
 //
 // Uses Browser (cookie-aware fetch) → SELF.fetch → Hono app → createAuthRoutes →
 // routeDORequest → LumenizeAuth DO (in-process).
@@ -22,7 +22,7 @@ describe('Hono integration (real email delivery via Cloudflare)', () => {
     // binding (LUMENIZE_AUTH_BOOTSTRAP_EMAIL, set in vitest.config.js) must match the
     // login email, and a miniflare binding can't be minted inside the test. Distinct
     // from the other lanes' addresses is all this needs to run alongside them.
-    const testEmail = 'hono@lumenize.io';
+    const testEmail = 'hono@lumenize-test.dev';
 
     // Browser with cookie jar — uses SELF.fetch (the Hono test-harness Worker)
     const browser = new Browser();

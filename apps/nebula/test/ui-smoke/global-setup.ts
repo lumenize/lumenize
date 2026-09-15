@@ -94,7 +94,7 @@ export default async function setup(project: TestProject) {
   mkdirSync(resolvePath(STUDIO_UI_DIR, 'dist'), { recursive: true });
 
   // 1. wrangler dev on the apps/nebula config. `--var NEBULA_AUTH_BOOTSTRAP_EMAIL`
-  //    overrides the .dev.vars default (dev@example.com) to test@lumenize.io — the
+  //    overrides the .dev.vars default (dev@example.com) to test@lumenize-test.dev — the
   //    address CF Email Routing forwards to the email-test Worker AND the bootstrap
   //    admin email (first login at a scope → admin). Container image build can be slow
   //    on a cold boot, so allow a generous ready timeout.
@@ -122,13 +122,13 @@ export default async function setup(project: TestProject) {
     readyTimeoutMs: hostedLocalBoot ? 300_000 : 120_000,
     extraArgs: [
       ...(hostedLocalBoot ? ['--local'] : []),
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
+      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
       // Send the magic-link via Resend (EMAIL_PROVIDER) from Resend's VERIFIED domain
       // (test.lumenize.com) — so the run needs NO CF email creds and works in every
       // lane, incl. the secret-less hosted one (a CF `send_email remote:true` send
       // silently drops without creds / from an unverified domain). The deployed
       // email-test Worker still catches the routed mail (recipient stays
-      // test@lumenize.io). Mirrors packages/auth/test/e2e-email-resend.
+      // test@lumenize-test.dev). Mirrors packages/auth/test/e2e-email-resend.
       // (tasks/nebula-in-ci.md "Email everywhere = Resend".)
       '--var', 'EMAIL_PROVIDER:resend',
       '--var', 'AUTH_EMAIL_FROM:auth@test.lumenize.com',

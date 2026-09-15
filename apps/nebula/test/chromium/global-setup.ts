@@ -25,7 +25,7 @@
  * in any wrangler invocation is a leak risk — and note `audit-test-mode.sh` does
  * NOT scan `.ts` (only wrangler configs / package.json / *.sh / CI yml / .dev.vars),
  * so keeping this spawn test-mode-free is a discipline here, not an enforced gate.
- * NEBULA_AUTH_BOOTSTRAP_EMAIL=test@lumenize.io auto-approves that subject as admin
+ * NEBULA_AUTH_BOOTSTRAP_EMAIL=test@lumenize-test.dev auto-approves that subject as admin
  * so the auth gate doesn't 403.
  */
 
@@ -75,7 +75,7 @@ export default async function setup(project: TestProject) {
       // Isolate state from the Node-side `browser` project's wrangler-dev so
       // the two never share/lock the same SQLite state dir under `npm test`.
       '--persist-to', `${PERSIST_DIR}/state`,
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
+      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
       // Surface auth/email-send failures in wrangler-dev stdout (otherwise
       // swallowed by LumenizeAuth's #sendEmail try/catch).

@@ -5,7 +5,7 @@ import { waitForEmail, extractMagicLink, reportEmailLatency, uniqueTestEmail } f
 
 // Real email delivery e2e test.
 // Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
-// Email Routing + Email Sending onboarded for lumenize.io.
+// Email Sending onboarded for lumenize.io, and Email Routing for lumenize-test.dev.
 //
 // Uses Browser (cookie-aware fetch) → SELF.fetch → test-harness Worker →
 // createAuthRoutes → routeDORequest → LumenizeAuth DO (in-process).

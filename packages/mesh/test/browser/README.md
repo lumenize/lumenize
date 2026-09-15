@@ -68,13 +68,13 @@ These have to be set in `wrangler.jsonc` `vars:`, **not** secrets:
 
 - `PRIMARY_JWT_KEY` = `"BLUE"` (or `"GREEN"` if you've rotated)
 - `LUMENIZE_AUTH_REDIRECT` = some path (`/app` is fine — it's the 302 target on magic-link click)
-- `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` = `"test@lumenize.io"` (the test's admin email — first subject registered with this address is auto-approved, so the JWT has `isAdmin: true` and the auth gate doesn't 403)
+- `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` = `"test@lumenize-test.dev"` (the test's admin email — first subject registered with this address is auto-approved, so the JWT has `isAdmin: true` and the auth gate doesn't 403)
 
 And these are real secrets that must be set via `wrangler secret bulk`:
 
 - `JWT_PUBLIC_KEY_BLUE` / `JWT_PRIVATE_KEY_BLUE` (and `_GREEN` slot if you use rotation)
 
-> **Heads-up: deployed-worker DO state is permanent.** Once `test@lumenize.io` registers against the *deployed* `lumenize-mesh-browser-e2e` worker, that subject's record persists in DO storage. Subsequent test runs find the existing admin user (still `isAdmin`, so the gate still passes — no breakage). But if you ever need to exercise the "first-time bootstrap" code path against the deployed worker, you'll have to either use a different email, delete the DO storage via the dashboard, or tear down + redeploy the worker. Local `wrangler dev` is fine — `.wrangler/state` can be cleared (`rm -rf .wrangler/state`).
+> **Heads-up: deployed-worker DO state is permanent.** Once `test@lumenize-test.dev` registers against the *deployed* `lumenize-mesh-browser-e2e` worker, that subject's record persists in DO storage. Subsequent test runs find the existing admin user (still `isAdmin`, so the gate still passes — no breakage). But if you ever need to exercise the "first-time bootstrap" code path against the deployed worker, you'll have to either use a different email, delete the DO storage via the dashboard, or tear down + redeploy the worker. Local `wrangler dev` is fine — `.wrangler/state` can be cleared (`rm -rf .wrangler/state`).
 
 ## Deploy bootstrap (one-time per Cloudflare account)
 
@@ -96,7 +96,7 @@ And these are real secrets that must be set via `wrangler secret bulk`:
 
 ## Cloudflare destination address verification
 
-For real-email tests: the email destination (`test@lumenize.io`) must be marked as a verified destination address for the *specific Worker* sending it. Cloudflare's destination verification is per-Worker, not per-account. Walk through it once via the dashboard (**Email → Send Email → Destination Addresses**). The verification email goes through Email Routing to the deployed `email-test` worker; grab the verification link from `https://email-test.transformation.workers.dev/emails?token=$TEST_TOKEN`.
+For real-email tests: the email destination (`test@lumenize-test.dev`) must be marked as a verified destination address for the *specific Worker* sending it. Cloudflare's destination verification is per-Worker, not per-account. Walk through it once via the dashboard (**Email → Send Email → Destination Addresses**). The verification email goes through Email Routing to the deployed `email-test` worker; grab the verification link from `https://email-test.transformation.workers.dev/emails?token=$TEST_TOKEN`.
 
 ## Cleanup
 

@@ -72,7 +72,7 @@ export async function run(stack: DevStack): Promise<void> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const universe = `imp${suffix}`;
   const star = `${universe}.app.tenant`;
-  const subjectEmail = `subject-${suffix}@lumenize.io`;
+  const subjectEmail = `subject-${suffix}@lumenize-test.dev`;
 
   // The SUBJECT: a real star-scoped admin, reached through the open claim-star path. As a side effect this
   // provisions the universe + galaxy above, owned by a DIFFERENT identity — `owner-<email>` — which

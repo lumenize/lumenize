@@ -28,7 +28,7 @@ import { describe, it, expect, inject } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setupMultiClient } from './multi-client';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 function uniqueGalaxy(): string {
   const suffix = crypto.randomUUID().slice(0, 8);

@@ -10,7 +10,7 @@
  * The full loop these participate in:
  *   1. test → app:              POST /auth/<scope>/email-magic-link
  *   2. app → Cloudflare or Resend → SMTP
- *   3. Cloudflare Email Routing (catch-all `*@lumenize.io`) → this Worker
+ *   3. Cloudflare Email Routing (catch-all `*@lumenize-test.dev`) → this Worker
  *   4. this Worker → WebSocket push back to the test   ← `waitForEmail`
  *   5. test → app:              GET <magic-link URL>   ← `extractMagicLink`
  *
@@ -25,7 +25,7 @@ const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
 const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';
 
 /** Domain whose Email Routing catch-all delivers to this Worker. */
-export const EMAIL_TEST_DOMAIN = 'lumenize.io';
+export const EMAIL_TEST_DOMAIN = 'lumenize-test.dev';
 
 export interface WaitForEmailOptions {
   /** TEST_TOKEN for authenticating with the deployed EmailTestDO. */
@@ -80,7 +80,7 @@ export interface EmailWaitMarks {
 }
 
 /**
- * A fresh address that the `*@lumenize.io` catch-all routes to this Worker.
+ * A fresh address that the `*@lumenize-test.dev` catch-all routes to this Worker.
  *
  * Use one per test to make real-login tests independently parallelizable: the
  * shared-mailbox race is what forced suites to serialize (`sequence.groupOrder`),

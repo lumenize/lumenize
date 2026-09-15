@@ -120,7 +120,7 @@ export default async function setup(project: TestProject) {
     configPath: WRANGLER_CONFIG,
     extraArgs: [
       '--local-protocol', 'https',
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
+      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
       // Enable debug logging so email-send failures and other auth-flow
       // issues surface in the wrangler-dev stdout buffer (otherwise they're

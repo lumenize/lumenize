@@ -45,7 +45,7 @@
   //     lane boots THIS file, and a blanket var would flip the harness off the CF Routing
   //     catch-all that `waitForEmail` depends on.
   //   - `wrangler dev` / the /live harness: the EMAIL binding below → Cloudflare Email Sending
-  //     (`remote: true` proxies to the real service during dev), landing in the `*@lumenize.io`
+  //     (`remote: true` proxies to the real service during dev), landing in the `*@lumenize-test.dev`
   //     catch-all the email-test Worker reads.
   // The from-address is env-configurable via AUTH_EMAIL_FROM (default auth@nebula.lumenize.com);
   // test/dev harnesses override it to a VERIFIED domain (test@lumenize.io) — an unverified

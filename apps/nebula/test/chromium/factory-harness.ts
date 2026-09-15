@@ -14,7 +14,7 @@ import { createNebulaClient } from '@lumenize/nebula/frontend';
 import type { CreateNebulaClientConfig, FactoryResult } from '@lumenize/nebula/frontend';
 import { bootstrapAdmin } from './auth-bootstrap';
 
-export const ADMIN_EMAIL = 'test@lumenize.io';
+export const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 /** Unique scope per test — Star DO state persists in .wrangler across runs. */
 export function uniqueStar(): string {

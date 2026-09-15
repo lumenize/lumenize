@@ -28,7 +28,8 @@ const BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
 /** The reserved platform scope — a login here mints an `access.authScope: 'nebula-platform'` token,
  *  whose dominion is global because that scope is the ROOT of the scope tree. */
 export const PLATFORM_SCOPE = 'nebula-platform';
-/** The harness identity (must be an `@lumenize.io` address routed to the email-test Worker). */
+/** The harness identity. It must reach the email-test Worker: `claude@lumenize.io` has its own
+ *  Email Routing rule, and any `@lumenize-test.dev` address rides that domain's catch-all. */
 export const HARNESS_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? 'claude@lumenize.io';
 
 /** A stored `*`-admin session. Shape is `EmailSession`; the alias keeps prod call sites readable. */
@@ -66,8 +67,8 @@ export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAI
 }
 
 /**
- * Catch-all health check: request a magic link for a FRESH, unruled `@lumenize.io` address and confirm
- * the email-test Worker receives it — proving `*@lumenize.io` catch-all → email-test Worker routes.
+ * Catch-all health check: request a magic link for a FRESH, unruled `@lumenize-test.dev` address and confirm
+ * the email-test Worker receives it — proving `*@lumenize-test.dev` catch-all → email-test Worker routes.
  * **Request-only** — does NOT consume the link, so no subject is created (the link expires unused).
  * Returns the received magic-link URL (proof of routing). First bit of the ADR-009 real-login harness.
  */

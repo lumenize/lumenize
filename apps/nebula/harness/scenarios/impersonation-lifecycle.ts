@@ -52,7 +52,7 @@ async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void
  *
  * ⚠️ This is what makes the dangerous SAME-SCOPE shape reachable, and its absence was the reason I
  * wrongly concluded the harness could not build it: I looked for an exported helper, found none, and
- * stopped — rather than checking whether the primitives existed. They do. Every `@lumenize.io`
+ * stopped — rather than checking whether the primitives existed. They do. Every `@lumenize-test.dev`
  * address is routed by the catch-all to the email-test Worker, so the invite mail is catchable
  * exactly like a magic link, and login alone never mints an identity — an invite is the only way to
  * put a SECOND person inside a scope someone else founded.
@@ -116,7 +116,7 @@ export async function run(stack: DevStack): Promise<void> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const universe = `impl${suffix}`;
   const star = `${universe}.app.tenant`;
-  const subjectEmail = `subject-${suffix}@lumenize.io`;
+  const subjectEmail = `subject-${suffix}@lumenize-test.dev`;
 
   // Count mints on the ADMIN's transport, which the child inherits — the only place a counter is
   // meaningful, since that is the transport a refused call would have used.
@@ -271,7 +271,7 @@ export async function run(stack: DevStack): Promise<void> {
   // An invited identity AT THE UNIVERSE gives a subject the admin can impersonate at its OWN
   // authScope, so the paths match exactly and only the branch stands between a child logout and the
   // admin's 30-day refresh token.
-  const peerEmail = `peer-${suffix}@lumenize.io`;
+  const peerEmail = `peer-${suffix}@lumenize-test.dev`;
   const peer = await inviteAndLogin(stack, browser, universe, admin, peerEmail, testToken);
   const sameScopeChild = await adminClient.impersonate(peer.sub, universe, { ttlSeconds: SAFE_TTL });
   await connected(sameScopeChild);

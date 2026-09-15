@@ -53,7 +53,7 @@ const TEST_SCOPE = 'test-u0.test-g0';
  *  then auto-opens the one workspace (nudgeNextStep), same as the harness scenario. */
 const TEST_UNIVERSE = TEST_SCOPE.split('.')[0];
 /** Bootstrap admin email = the address CF Email Routing forwards to the email-test Worker. */
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docker)', () => {
   let browser: Browser;
@@ -206,7 +206,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     // and the right row is addressed explicitly.
     //
     // ⚠️ Unconditional, because the row is GUARANTEED here: `global-setup.ts` pins
-    // `--var NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io`, and every consume by a bootstrap address
+    // `--var NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev`, and every consume by a bootstrap address
     // mints that platform membership UNACCEPTED. Guarding this behind `if (count)` would let it pass
     // silently on a build where the row stopped rendering at all.
     const platformRow = page.locator('.rounded-box').filter({ hasText: 'nebula-platform' }).first();

@@ -8,7 +8,7 @@ import { waitForEmail, extractMagicLink, reportEmailLatency, uniqueTestEmail } f
 //
 // Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars, test.lumenize.com
 // verified as a Resend sending domain, deployed email-test Worker, Cloudflare
-// Email Routing for lumenize.io.
+// Email Routing for lumenize-test.dev.
 describe('Magic link e2e (real email delivery via Resend)', () => {
   let cleanup: (() => void) | undefined;
 

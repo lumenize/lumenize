@@ -259,7 +259,7 @@ export async function connectDriver(
   stack: DevStack,
   opts: {
     scope: string;
-    /** Login identity. Defaults to a fresh `test-<uuid>@lumenize.io` (routed by the catch-all). */
+    /** Login identity. Defaults to a fresh `test-<uuid>@lumenize-test.dev` (routed by the catch-all). */
     email?: string;
     /**
      * The INSTALLED ontology version this driver's resource ops ride (the host enforces it —

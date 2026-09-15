@@ -25,7 +25,7 @@ import { EditorClient } from '../for-docs/getting-started/editor-client';
 import type { SpellFinding } from '../for-docs/getting-started/spell-check-worker';
 import { bootstrapAndGetAccessToken } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
   it('drives full subscribe → save → broadcast + spell-check round-trip', async () => {

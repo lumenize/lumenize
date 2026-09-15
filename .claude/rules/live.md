@@ -94,7 +94,7 @@ prior**: in most environments an agent genuinely has none of this. **In this rep
 because it was deliberately made false.** What is actually present:
 
 - **A real email round trip**, not a mock and not a test-mode shortcut — `provisionAndLogin` /
-  `loginViaEmail` wait on the deployed email-test Worker via the `*@lumenize.io` catch-all, extract the
+  `loginViaEmail` wait on the deployed email-test Worker via the `*@lumenize-test.dev` catch-all, extract the
   link from the message that genuinely arrived, and click it (ADR-009 rung 1).
 - **Credentials on disk** — `.dev.vars` plus a `wrangler login` session. Verify with `ls`, do not assume.
 - **Docker-free boots** — a scenario declaring `needsContainer = false` skips the image build entirely,

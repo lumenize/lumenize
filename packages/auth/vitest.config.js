@@ -58,7 +58,7 @@ const EMAIL_DELIVERY_RETRY = 2;
 // them because they all listened for `test@lumenize.io` on the one shared
 // EmailTestDO and would steal each other's mail. That is fixed at the source
 // instead of scheduled around: each lane now uses a DISTINCT recipient
-// (`uniqueTestEmail()` per test; a dedicated `hono@lumenize.io` for the lane
+// (`uniqueTestEmail()` per test; a dedicated `hono@lumenize-test.dev` for the lane
 // whose bootstrap-admin binding must match its login address) and `waitForEmail`
 // filters on it, so a non-matching email no longer resolves the wrong waiter.
 // ⚠️ Don't reintroduce groupOrder — real login is the DEFAULT test tier now
@@ -171,7 +171,7 @@ export default defineConfig({
           miniflare: {
             bindings: {
               ...JWT_TEST_KEYS,
-              LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'hono@lumenize.io',
+              LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'hono@lumenize-test.dev',
               DEBUG: 'auth',
             },
           },

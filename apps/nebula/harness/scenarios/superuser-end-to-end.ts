@@ -18,7 +18,7 @@
  *
  * ⚠️ **The bootstrap address is pinned for THIS BOOT ONLY, and that is what keeps it rung 1.**
  * `.dev.vars` binds `NEBULA_AUTH_BOOTSTRAP_EMAIL` to a real human mailbox, which no automated run
- * can read. `bootVars` re-points it at the `*@lumenize.io` catch-all the email-test Worker serves,
+ * can read. `bootVars` re-points it at the `*@lumenize-test.dev` catch-all the email-test Worker serves,
  * so the login below is a genuine round trip — link requested, mail delivered, link clicked — rather
  * than a synthetic mint standing in for one (ADR-009 rung 1). The override never touches
  * `.dev.vars`; it is a `--var` on one `wrangler dev`.

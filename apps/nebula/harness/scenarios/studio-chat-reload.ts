@@ -37,9 +37,9 @@ const UNIVERSE = 'claude-browser';
 const SCOPE = `${UNIVERSE}.app`;
 /** The galaxy's slug — what the Universe page labels its app row with. */
 const APP_SLUG = SCOPE.slice(UNIVERSE.length + 1);
-/** Login email — MUST be an `@lumenize.io` address CF Email Routing forwards to the email-test
+/** Login email — MUST be an `@lumenize-test.dev` address CF Email Routing forwards to the email-test
  *  Worker (the catch-all). A fresh address per run keeps the claim path clean. */
-const LOGIN_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? `test-${Date.now().toString(36)}@lumenize.io`;
+const LOGIN_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? `test-${Date.now().toString(36)}@lumenize-test.dev`;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');

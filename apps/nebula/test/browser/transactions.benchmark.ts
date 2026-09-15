@@ -60,7 +60,7 @@ import type { OperationDescriptor } from '@lumenize/nebula/client';
 import { HarnessNebulaClient, type DecomposedCallResult } from './harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 

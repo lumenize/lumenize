@@ -65,7 +65,7 @@ its environment*), and `/live` is the tier whose whole value is having no fixtur
 
 **`bootVars`** (exported from a scenario, read by `drive.ts`) sets `--var NAME:VALUE` for that boot
 only — never a `.dev.vars` mutation. `superuser-end-to-end` uses it to point
-`NEBULA_AUTH_BOOTSTRAP_EMAIL` at the `*@lumenize.io` catch-all, because the real value is a human
+`NEBULA_AUTH_BOOTSTRAP_EMAIL` at the `*@lumenize-test.dev` catch-all, because the real value is a human
 mailbox no automated run can read; that is what keeps its bootstrap login a genuine round trip.
 
 **The only tokens this harness signs itself are the WRONG ones.** `mintDegradedToken` (rung 4,

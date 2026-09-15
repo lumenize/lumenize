@@ -25,7 +25,7 @@ interface BootstrapAdminOptions {
   baseUrl: string;
   /** Scope (universeGalaxyStarId) to authenticate at — e.g. 'acme.app.tenant-a'. */
   scope: string;
-  /** Email to register / log in. Should be `test@lumenize.io` so the deployed email-test Worker receives it. */
+  /** Email to register / log in. Should be `test@lumenize-test.dev` so the deployed email-test Worker receives it. */
   email: string;
   /** TEST_TOKEN for authenticating with the deployed email-test DO. */
   testToken: string;
