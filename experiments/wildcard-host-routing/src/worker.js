@@ -3,7 +3,7 @@
 const ZONE = 'lumenize.dev';
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const host = url.hostname;
     const sub = host.endsWith(`.${ZONE}`) ? host.slice(0, -(ZONE.length + 1)) : '';
@@ -26,6 +26,8 @@ export default {
       .filter(Boolean);
 
     const body = {
+      // Which Worker answered — set per deploy, so two routes on one zone can be told apart
+      arm: env.ARM ?? null,
       host,
       path: url.pathname,
       scope: rev.join('.'),

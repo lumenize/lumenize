@@ -36,3 +36,35 @@
 **Done from the API on 2026-09-14:** the `*.lumenize.dev` DNS record and both certificate packs are deleted, and the zone again has no DNS records. Straight afterwards `tenant1.g1.u1.lumenize.dev` still answered 200, with resolvers holding the record in cache, and the zone's own Universal SSL pack briefly showed `pending_deployment`. A minute later the Universal pack was `active` again, `1.1.1.1` no longer resolved the test host, and both test packs sat in `pending_deletion`, as they did after the 2026-09-11 run.
 
 **The Worker and its route stay until Larry's periodic sweep of `experiment-` Workers deletes `experiment-wildcard-hosts`**, which removes the route with it. This directory's `workspaces` entry goes when the experiment is pruned.
+
+## Route precedence (2026-09-15)
+
+**Question.** Can a second deployment own every host under `test.lumenize.dev` through a route `*.test.lumenize.dev/*`, while another Worker holds `*.lumenize.dev/*` on the same zone? It was a candidate home for the deployed test target in `tasks/nebula-scope-moves-to-subdomain.md`, which chose `lumenize-test.dev` instead after this run (§ *Decisions*).
+
+**Setup.** The Worker above, deployed twice and told apart by an `ARM` var:
+
+- **`wide`** — `experiment-wildcard-hosts`, route `*.lumenize.dev/*`.
+- **`test-suffix`** — `experiment-wildcard-hosts-test` from `wrangler.test-suffix.jsonc`, routes `*.test.lumenize.dev/*` and `*.test--lmz.lumenize.dev/*`.
+- **DNS** — one proxied `AAAA` record, `*.lumenize.dev → 100::`.
+- **Plain `http`**, since no certificate covers two labels; the zone's `Always Use HTTPS` is off.
+
+| Host | Answered by |
+|---|---|
+| `x.lumenize.dev`, `test-kitchen.lumenize.dev`, `tes.lumenize.dev` | `wide` |
+| `x.test.lumenize.dev`, `tenant1.crm.acme.test.lumenize.dev` | `test-suffix` |
+| `test.lumenize.dev` | `wide` |
+| **`contest.lumenize.dev`, `crm.contest.lumenize.dev`, `latest.lumenize.dev`, `atest.lumenize.dev`** | **`test-suffix`** |
+| `x.test--lmz.lumenize.dev`, `tenant1.crm.acme.test--lmz.lumenize.dev` | `test-suffix` |
+| `test--lmz.lumenize.dev` | `wide` |
+| `atest--lmz.lumenize.dev` | `test-suffix` |
+
+- **The more specific route wins, whichever is newer.** The `wide` route was then deleted and recreated, so it was the newest of the three, and every host answered as before.
+- **`*.test.lumenize.dev/*` matches any host ending in `test.lumenize.dev`, not only hosts under `test.`** `contest.lumenize.dev` is a legal universe, and it and every host beneath it went to the test Worker. The docs warn that `*` matches any characters; the dot after it anchors nothing.
+- **The bare base host needs a route of its own.** `test.lumenize.dev` fell to `wide`.
+- **A base label containing `--` closes the capture for real hosts.** `*.test--lmz.lumenize.dev/*` also matched `atest--lmz.lumenize.dev`, but `isValidSlug` refuses `--`, so no universe slug can end in `test--lmz`.
+
+**Not measured:** whether a certificate authority issues `*.test--lmz.lumenize.dev`. Its `--` sits at positions five and six, and the reserved form is positions three and four, so it should.
+
+**Method note.** The first probe pass used curl's `--doh-url` and failed on every host; plain resolution answered `200` seven minutes later. The cause, the flag or early propagation, was not isolated, so that pass is not a result.
+
+**Teardown, done from the API the same day:** the DNS record and all three routes are deleted. Both Workers stay for Larry's sweep.
