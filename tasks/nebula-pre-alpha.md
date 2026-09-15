@@ -18,14 +18,13 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
-| — | **The scope moves from a URL segment to a subdomain** — every scope its own host ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)), each host its own session ([ADR-022](../docs/adr/022-each-host-holds-its-own-session.md)) | [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) — not started; ② waits on it | **data** |
+| — | **The scope moves from a URL segment to a subdomain** — every scope its own host ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)), each host its own session ([ADR-022](../docs/adr/022-each-host-holds-its-own-session.md)), and the certificate wait shown on the pages that create a scope | [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) — not started; ② waits on it | **data** |
 | ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1 complete; Stage 1 run and every question answered 2026-09-08/09, verdicts in its § *Pinned*. Pass 2 writes the phases | deploy |
 | — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
 | ④ | **Every Resources guard lives in the Resources plane** — and the Profile moves onto it as the first host whose guard is not a grant | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — design intent only | **data** |
 | ⑤ | **The ontology history is one committed file** | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — design intent only; independent of ④, either order | **data** |
 | — | **Scope full names** — a human name for a Universe, Galaxy and Star, captured at claim | none — § *Scope full names* | **data** |
-| — | **Signup progress indicator** — the certificate wait made visible on Universe Signup and Galaxy create | none — § *The certificate wait* | deploy |
 | ⑥ | **The wipe + redeploy** | § *⑥ The wipe* | — |
 | — | **Turn-log inspection v0** | none — § *Turn-log inspection v0* | ungated |
 | — | **The superuser → impersonate join scenario** (~¼ day) | none — § *The superuser join scenario* | ungated |
@@ -100,15 +99,7 @@ It also decides how the slug cap lands. [the domain-allocation record](archive/d
 
 ## The certificate wait
 
-[the domain-allocation record](archive/decision-domain-allocation.md) chose alternative C on 2026-09-11, which orders a wildcard certificate per universe and per galaxy. Measured on a Free zone that day and again on 2026-09-14: a wildcard for a name never validated before spends about 145 seconds in validation, and the host answers the moment the certificate goes active. **So creating a universe or a galaxy takes two and a half to four minutes before its origin — its web address, such as `https://crm.acme.lumenize.dev` — answers.**
-
-**The mitigation is a progress indicator** (Larry, 2026-09-11): the delay is the only thing C really costs. A pool of certificates ordered ahead of demand was proposed alongside it and cannot work — a certificate names its hosts, and a galaxy's name does not exist until someone creates it (corrected 2026-09-14). What does help: a page that creates a universe and its first galaxy orders both wildcards at once, and they clear validation together. A seconds count-up or a polling-interval count-down is enough — what matters is that the wait is expected rather than discovered. Both pages that create a scope need it, and they are the same two that gain the name field in § *Scope full names*.
-
-**The indicator finishes when the certificate is active, not when the scope is created.** A new galaxy's Studio at `crm.acme.lumenize.dev` rides the universe's wildcard, which already exists, so it loads at once — but the as-you dev tab that leads its preview strip, at `dev.crm.acme.lumenize.dev`, needs the galaxy's own wildcard. `.dev` is HTTPS-only, so until that certificate is active the tab does not load. Waiting for the certificate means the as-you dev tab loads and gets its session at once. Universe Signup waits the same way, since Studio's own subdomain rides the universe's wildcard. [the sessions record](archive/decision-sessions-per-origin.md) § *Studio and personas* carries how the tab gets its session.
-
-**C's certificate ordering is wired up in this cycle** — a progress indicator has nothing to indicate otherwise, and personas need their own origins, which is what makes testing possible at all. The work is [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md)'s.
-
-**Deleting a galaxy's certificate must not interrupt serving on any other host.** Under C a deleted galaxy leaves its wildcard behind, so something has to delete it. When the 2026-09-14 experiment deleted its two test certificates, the zone's Universal SSL certificate — the one covering `*.lumenize.dev`, so every universe host and `platform.lumenize.dev` — sat in `pending_deployment` for about a minute before going `active` again. A backup certificate stayed issued throughout, but nobody checked whether hosts kept answering during that minute ([experiments/wildcard-host-routing/RESULTS.md](../experiments/wildcard-host-routing/RESULTS.md) § *Teardown*). So whatever deletes a galaxy's certificate gets a check that hosts on other certificates keep answering while the deletion runs.
+Folded into [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) on 2026-09-15 (Larry): its § *Design intent, constraints, and future state* carries the wait, the progress indicator and certificate deletion.
 
 ## ⑥ The wipe
 

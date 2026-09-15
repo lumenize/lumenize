@@ -27,9 +27,9 @@ The rest of this ADR says what each domain is for, how a host spells a scope, an
 
 - **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` serves login, the magic-link consume, Home (where the user chooses what scope to work in), and superusers, who are members of the `platform` scope. Every universe, galaxy, Star and persona has a host beneath it.
 - **`lumenize.com` is the brand, human mail, and the package docs.** Its apex mail belongs to Google Workspace, and its apex site is today's docs and blog, whose inbound links cannot be edited. At beta it is expected to become the product's marketing site, with the `@lumenize/*` package docs staying on it at `lumenize.com/docs` or `docs.lumenize.com` (Larry, 2026-09-14).
-- **`lumenize.io` is inbound mail, read and processed by a Cloudflare Worker.** Its catch-all carries the `/live` harness's real login round trips, and `personas.lumenize.io` is reserved for persona addresses.
+- **`lumenize.io` is the platform's own mail.** Nebula sends as `noreply@lumenize.io`, a Cloudflare Worker reads named inboxes such as `claude@lumenize.io`, and `personas.lumenize.io` is reserved for persona addresses.
 - **"Nebula" is retired.** It was the product's code name during development, and it appears nowhere a user can see — so `nebula.lumenize.com` retires, since a host shows in the address bar. Code identifiers keep the name, because renaming them buys a user nothing.
-- **There is no fourth domain.** `lumenize.ai`, `lumenize.app`, `lumenize.org` and `lumenize.net` are all taken.
+- **There is no fourth domain a user sees.** `lumenize.ai`, `lumenize.app`, `lumenize.org` and `lumenize.net` are all taken. `lumenize-test.dev` carries only test traffic, pages and mail.
 
 ### How a host spells a scope
 

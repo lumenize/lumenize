@@ -27,7 +27,7 @@ The rest of this ADR walks the round trip, then the cookie rules, what a session
 
 ### Two kinds of host
 
-- **`platform.lumenize.dev` holds one refresh cookie per membership**, named for its scope — `__Host-refresh-token.acme.crm` — and serves login, the magic-link consume and `authorize`.
+- **`platform.lumenize.dev` holds one refresh cookie per membership**, named for its scope — `__Host-refresh-token.acme.crm` — and serves login, the magic-link consume, `authorize`, and a refresh for its own pages whose server picks one of those cookies (Larry, 2026-09-15).
 - **Every scope host holds exactly one refresh cookie, for its own scope**, and serves its own `/auth/login`, `/auth/callback`, `/auth/handoff` and `/auth/refresh-token`. `/auth/` is reserved on every host.
 
 ### Getting a session: a round trip through the platform host
@@ -51,7 +51,7 @@ The endpoint names are OAuth's. A **code** is a signed value in the redirect's U
 
 ### What a session carries
 
-- **`activeScope` is the host.** The server derives it, and the client names no scope anywhere. One lookup turns a host into its scope and also backs the `return_to` check, so a Star's custom domain can join it later.
+- **`activeScope` is the host.** The server derives it, and the client names neither `authScope` nor `activeScope`. One lookup turns a host into its scope and also backs the `return_to` check, so a Star's custom domain can join it later.
 - **A session on a scope host narrows `authScope` to that host's scope, never just `aud`.** A universe admin on `tenant1.crm.acme.lumenize.dev` carries `authScope: acme.crm.tenant1`. `hasDominionOver` reads `authScope` ([ADR-015](015-passage-and-dominion.md)), so pinning only `aud` would leave universe-wide dominion in the token.
 - **A session is issued only on an accepted membership, or on dominion held through an accepted scopeAdmin membership** ([ADR-012](012-global-profile-visibility.md)).
 - **No session is needed for passage.** Passage upward comes from the token's own `authScope`.
@@ -84,7 +84,7 @@ While a tab's cookie lasts, reloading Studio refreshes it silently. A persona ne
 - **Lateral movement is refused at `authorize`.** A membership in another branch of the scope tree yields no code, so reaching a host takes a membership or dominion there ([ADR-015](015-passage-and-dominion.md)).
 - **A persona's identity cannot be swapped.** Only that persona's cookie exists on its host, and nothing else can reach it.
 - **A shared link survives login**, fragment included, even when the magic link opens in another browser.
-- **The client stops naming scopes**, and the localStorage hint and return-to go away.
+- **The client stops naming its session's scope**, and the localStorage hint and return-to go away.
 - **Generated preview code leaves Studio's origin.**
 
 ### Negative / mitigations
