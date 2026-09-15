@@ -77,7 +77,7 @@ All three zones sit on Cloudflare nameservers (`cory` / `ariadne`); the other ro
 | 2 | **Registrable-domain count** | **Settled** — the three we own, no fourth (Larry, 2026-09-11). `lumenize.com` and `lumenize.dev` are already separate domains, so a PSL entry buys isolation between sibling hosts INSIDE `lumenize.dev`, nothing else |
 | 3 | **Mail** — which zones carry MX | **Partly** — which zones deliver is settled; the enforcement posture is deferred, and whether personas receive mail is not this file's |
 | 4 | **Certificates** | **Settled and measured** — alternative C, § *Measured — the C experiment* |
-| 5 | **Customer custom domains** | **Deferred** — Beta at the soonest (Larry, 2026-09-11), via Cloudflare for SaaS when it comes |
+| 5 | **Customer custom domains** | **Deferred** — Beta at the soonest (Larry, 2026-09-11), via Cloudflare for SaaS when it comes, and only for a Star (2026-09-15) |
 | 6 | **Brand — what a user-developer sees** | **The name is decided** — the product is Lumenize (Larry, 2026-09-13). What `lumenize.com` does at beta is still a direction; § *The allocation* marks it |
 | 7 | **Environments** | **Settled** — reserved STAR slugs, never domain labels, which is what keeps them free of certificates |
 
@@ -146,7 +146,7 @@ Both alternatives below put **everything user-facing on `lumenize.dev`, with a P
 
 **Open under either, and not blocked on choosing between them:**
 
-- **Custom domains.** `app.acme.com` arrives as a Cloudflare for SaaS custom hostname — 100 free, then $0.10/month each — and serves Studio to a galaxy scopeAdmin or the app's own landing page to anyone else. ⚠️ That means Studio's session cookie lands on the CUSTOMER's domain, which is worth deciding rather than inheriting.
+- **Custom domains.** `app.acme.com` arrives as a Cloudflare for SaaS custom hostname — 100 free, then $0.10/month each — and names a Star, never a galaxy (Larry, 2026-09-15). Studio stays on `lumenize.dev`, since its tabs are frames on `lumenize.dev` hosts and Safari blocks cookies in frames from another site. A universe-level domain such as `lmz.comcast.com` may come much later.
 - **Studio has no host of its own**, being the galaxy origin. That deletes `nebula.lumenize.com` from the design and puts the trust boundary inside one registrable domain — which is what makes a cookie set by a sibling host a threat to Studio — answered by `__Host-` cookie names now, and by the Public Suffix List entry once it lands.
 
 **Obliged by either, and cheapest before the wipe — three reservations to settle, one of them by re-deriving rather than extending:**

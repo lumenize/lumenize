@@ -27,11 +27,11 @@ Everything is served from one host today, `nebula.lumenize.com`, and three thing
 | Host | What it serves | Cookies it holds |
 |---|---|---|
 | `platform.lumenize.dev` | login, the magic-link consume, Home, and superusers — members of the `platform` scope | today's per-membership refresh cookies, host-only |
-| every scope host — `crm.acme.lumenize.dev`, `tenant1.crm.acme.lumenize.dev`, `manny--dev.crm.acme.lumenize.dev` | Studio or the app, plus that host's own `login`, `callback` and `refresh-token` endpoints | ONE host-only refresh cookie, for that host's scope |
+| every scope host — `crm.acme.lumenize.dev`, `tenant1.crm.acme.lumenize.dev`, `manny--dev.crm.acme.lumenize.dev` | Studio or the app, plus that host's own `login`, `callback`, `handoff` and `refresh-token` endpoints | ONE host-only refresh cookie, for that host's scope |
 
 ### Getting a session on a scope host
 
-The endpoint names are OAuth's, deliberately. A **code** here is OAuth's *authorization code*: a short-lived value carried in the redirect's address — `https://tenant1.crm.acme.lumenize.dev/auth/callback?code={signedValue}` — and never in a cookie. It shows the platform approved this person for this subdomain, and the subdomain trades it for its own refresh cookie. It takes one of two forms: an **opaque id**, a random value the server stores alongside who it is for and deletes once used; or a **signed value**, which carries that information itself, with nothing stored. This file recommends a signed value — § *Open* — so its examples show `{signedValue}`. Like a magic-link URL, a code is never logged.
+The endpoint names are OAuth's, deliberately. A **code** here is OAuth's *authorization code*: a short-lived value carried in the redirect's address — `https://tenant1.crm.acme.lumenize.dev/auth/callback?code={signedValue}` — and never in a cookie. It shows the platform approved this person for this subdomain, and the subdomain trades it for its own refresh cookie. It takes one of two forms: an **opaque id**, a random value the server stores alongside who it is for and deletes once used; or a **signed value**, which carries that information itself, with nothing stored. **It is a signed value** (Larry, 2026-09-15), so its examples show `{signedValue}`. It expires in about a minute, carries one person, one host and one `state` value or a handoff mark, and is signed with a key used for nothing else, so a code can never pass as an access token. The callback page sends `Referrer-Policy: no-referrer`, and no other page does: set site-wide, it would turn `Origin` to `null` on the platform's login form `POST` and break the fallback in § *The rules*. § *Alternatives considered* records why not an opaque id. Like a magic-link URL, a code is never logged.
 
 ```
 1. tenant1.crm.acme.lumenize.dev        index.html loads, and NebulaClient's first refresh gets a 401
@@ -53,6 +53,7 @@ The endpoint names are OAuth's, deliberately. A **code** here is OAuth's *author
 - **Nothing here waits on the Public Suffix List entry** (Larry, 2026-09-14). [domain-allocation.md](domain-allocation.md) § *One-way doors* explains why it may not be accepted before launch. Until it is, every `lumenize.dev` host is one site, so `SameSite` separates neither one customer's app from another's Studio, nor either from the platform host. ⓘ Two checks do that job instead, and keep doing it once the entry lands:
   - **Every `POST` to `/auth/`, and every `POST` a cookie authenticates, requires `Sec-Fetch-Site: same-origin`.** The browser sets that header and a page cannot change it, so a generated app on `tenant1.crm.acme.lumenize.dev` cannot post to `/auth/refresh-token` on Studio's `crm.acme.lumenize.dev`.
   - **`/auth/login`, `authorize`, the `GET` callback and the magic-link consume require a top-level navigation** — `Sec-Fetch-Mode: navigate` with `Sec-Fetch-Dest: document`. Until the entry lands, the platform host's `Lax` cookies ride any same-site request, a background `fetch` included, and this check is what refuses one.
+  - **A request without the headers is allowed, unless it is a `POST` whose `Origin` names another host** (Larry, 2026-09-15). Browsers from before March 2023 omit them, and so does every client outside a browser, the `/live` harness's Node client included. The attack these checks stop only runs in a browser, and every major browser since 2019 sends `Origin` on a `POST`, so old browsers stay covered while the harness needs no invented header. Google's Fetch Metadata guidance lets absent headers through the same way. `Origin` is only the fallback: browsers omit it on a `GET` and a top-level navigation, and it turns `null` after a cross-origin redirect or under a `Referrer-Policy` that withholds the referrer.
 - ⚠️ **A session minted for a scope host narrows `authScope` to that host's scope — never just `aud`.** A universe admin's session on `tenant1.crm.acme.lumenize.dev` carries `authScope: acme.crm.tenant1`. Pinning only `aud` would leave universe-wide dominion in the token, because `hasDominionOver` reads `authScope` and not `aud`. `access-claims.ts`'s JSDoc explains that those two containments answer different questions, and `tasks/archive/nebula-confine-admin-bypass.md` is where confusing them shipped as an escalation.
 - **A session is only issued on an accepted membership, or on dominion held through an accepted scopeAdmin membership** (Larry, 2026-09-13). An unaccepted membership never counts, since ADR-012 requires every read of a membership that confers authority to require an accepted one.
 - **No session is needed for passage.** Everyone has passage up the tree from the scope in their access token: `hasPassageInto` tests `isAtOrBelow(access.authScope, target)`, and on a subdomain that `authScope` is the subdomain's own scope — the same value as its activeScope.
@@ -80,7 +81,7 @@ Before the entry lands, all of `lumenize.dev` is one site. Every value in the ta
 
 Solid arrows are requests and dashed arrows are responses or messages pushed between frames, and each arrow names the cookie, signed value or record it carries.
 
-**Every flow starts the way an app starts.** The Worker serves an app's `index.html` to anyone, without looking at a cookie. `NebulaClient` takes the active scope from the host, and its first `POST /auth/refresh-token` decides whether a round trip is needed. Flows 4, 5 and 6 lean on § *Studio and personas*, which explains why they differ from flow 1.
+**Every flow starts the way an app starts.** The Worker serves an app's `index.html` to anyone, without looking at a cookie. `NebulaClient` takes the active scope from the host, and its first `POST /auth/refresh-token` decides whether a round trip is needed. Flows 5 and 6 lean on § *Studio and personas*, which explains why they differ from flow 1.
 
 ### 1. First visit to a subdomain, already signed in on the platform
 
@@ -109,7 +110,7 @@ sequenceDiagram
     Note over T,P: check the signature, the expiry, the host, and that state matches
     T->>K: write the refresh record, bound to tenant1.crm.acme.lumenize.dev
     T->>R: write the logout index entry
-    T-->>B: a small page that sets the refresh cookie and replaces the address with return_to
+    T-->>B: 302 to return_to, sets the refresh cookie, with Referrer-Policy no-referrer
     B->>T: GET /lists?sort=name again
     B->>T: NebulaClient POSTs /auth/refresh-token, sends the refresh cookie
     T-->>B: an access token for acme.crm.tenant1
@@ -163,58 +164,59 @@ sequenceDiagram
 
 ### 4. Opening Studio
 
+Studio's own session comes exactly as in flow 1, on `crm.acme.lumenize.dev`. What differs is what Studio does next: every tab in its strip gets a session from Studio's host, as flows 5 and 6 show.
+
 ```mermaid
 sequenceDiagram
     participant B as Tab at crm.acme.lumenize.dev
     participant ST as Worker for crm.acme.lumenize.dev
     participant P as Worker for platform.lumenize.dev
-    participant K as Workers KV
-    participant R as Registry
 
     B->>ST: GET the Studio page
     ST-->>B: Studio's index.html
     B->>ST: NebulaClient POSTs /auth/refresh-token, no refresh cookie yet
     ST-->>B: 401
-    B->>ST: navigate to /auth/login?return_to=${encodeURIComponent(location.href)}, naming the as-you dev tab dev.crm.acme.lumenize.dev in a second parameter
-    ST-->>B: 302 to platform /auth/authorize with return_to, state and the as-you dev tab, sets a state cookie
-    B->>P: GET /auth/authorize, sends the platform refresh cookies
-    P->>K: read the record behind each platform refresh cookie
-    K-->>P: the records
-    Note over P,K: pick a membership for Studio and one for the as-you dev tab, which can differ
-    P-->>B: 302 to Studio /auth/callback?code={signedValue}, the as-you dev tab's handoff value in the address fragment
-    B->>ST: GET /auth/callback?code={signedValue}, sends the state cookie, the fragment stays in the browser
-    ST->>K: write Studio's refresh record, bound to crm.acme.lumenize.dev
-    ST->>R: write the logout index entry
-    ST-->>B: a small page that sets Studio's refresh cookie
-    Note over B,P: its script moves the handoff value from the fragment into sessionStorage, then replaces the address with return_to
+    Note over B,P: from here it is flow 1 on crm.acme.lumenize.dev, through authorize and back
     B->>ST: GET the Studio page again, and NebulaClient refreshes on the new cookie
-    Note over B,P: Studio reads the handoff value from sessionStorage, clears it, and starts flow 5
+    Note over B,P: Studio then creates its tabs, and each gets its session as in flows 5 and 6
 ```
 
-### 5. The as-you dev tab's handoff
+### 5. The as-you dev tab
 
 ```mermaid
 sequenceDiagram
     participant SP as Studio page
+    participant ST as Worker for crm.acme.lumenize.dev
     participant FR as As-you dev tab frame
     participant D as Worker for dev.crm.acme.lumenize.dev
     participant K as Workers KV
     participant R as Registry
 
-    Note over SP,D: Studio runs this only with a fresh handoff value from flow 4, and on a later load points the frame straight at the app
-    SP->>FR: create the frame at dev.crm.acme.lumenize.dev/auth/handoff
-    FR->>D: GET /auth/handoff
-    D-->>FR: a small waiting page that never redirects
-    FR-->>SP: postMessage ready, target origin crm.acme.lumenize.dev
-    SP-->>FR: postMessage the handoff value, target origin dev.crm.acme.lumenize.dev
-    Note over SP,D: the frame checks that event.origin is crm.acme.lumenize.dev
-    FR->>D: POST /auth/callback with the handoff value, from its own origin
-    Note over D,R: check the signature, expiry, host and handoff mark, and that Sec-Fetch-Site is same-origin
-    D->>K: write the as-you dev tab's refresh record, bound to dev.crm.acme.lumenize.dev
-    D->>R: write the logout index entry
-    D-->>FR: sets the refresh cookie
-    FR->>D: load the galaxy's built index.html in the frame
-    Note over SP,D: the app's NebulaClient refreshes on the new cookie, as in flow 3, and shows the app as you
+    SP->>FR: create the frame at dev.crm.acme.lumenize.dev
+    FR->>D: GET the galaxy's built index.html
+    FR->>D: NebulaClient POSTs /auth/refresh-token
+    alt the tab's refresh cookie is already on this host
+        D-->>FR: an access token for acme.crm.dev, as in flow 3, and the app shows as you
+    else no cookie yet, or it has lapsed
+        D-->>FR: 401
+        FR-->>SP: postMessage needs-session, target origin crm.acme.lumenize.dev
+        SP->>FR: point the frame at dev.crm.acme.lumenize.dev/auth/handoff
+        FR->>D: GET /auth/handoff
+        D-->>FR: a small waiting page that never redirects
+        FR-->>SP: postMessage ready, target origin crm.acme.lumenize.dev
+        SP->>ST: ask for the as-you dev tab's code, on the Studio session
+        ST->>R: read the person's accepted membership at acme.crm.dev, unless the session's dominion covers it
+        ST-->>SP: a signed value with a handoff mark, bound to the person's dev sub and dev.crm.acme.lumenize.dev
+        SP-->>FR: postMessage the signed value, target origin dev.crm.acme.lumenize.dev
+        Note over SP,D: the frame checks that event.origin is crm.acme.lumenize.dev
+        FR->>D: POST /auth/callback with the signed value, from its own origin
+        Note over D,R: check the signature, expiry, host and handoff mark, and that Sec-Fetch-Site is same-origin
+        D->>K: write the tab's refresh record, bound to dev.crm.acme.lumenize.dev
+        D->>R: write the logout index entry
+        D-->>FR: sets the refresh cookie
+        FR->>D: load the galaxy's built index.html
+        Note over SP,R: the app's NebulaClient refreshes on the new cookie, as in flow 3, and shows the app as you
+    end
 ```
 
 ### 6. A persona tab
@@ -232,20 +234,22 @@ sequenceDiagram
     PF->>PW: GET the galaxy's built index.html
     PF->>PW: NebulaClient POSTs /auth/refresh-token
     alt manny's refresh cookie is already on this host
+        PW->>K: read manny's record, and the record of the Studio session that issued it
         PW-->>PF: an access token for acme.crm.dev, as in flow 3, and the app shows as manny
     else no cookie yet, or it has lapsed
         PW-->>PF: 401
         PF-->>SP: postMessage needs-session, target origin crm.acme.lumenize.dev
-        SP->>ST: ask for manny's invite link, on Austen's Studio session
-        ST-->>SP: an invite link on manny--dev.crm.acme.lumenize.dev
+        Note over SP,PW: from here it is flow 5, except for what Studio's host checks
+        SP->>ST: ask for manny's code, on Austen's Studio session
         Note over SP,PF: mayIssueLink passes because the session's authScope is acme.crm
-        Note over SP,PW: still open in nebula-persona-sessions.md — whether the link goes through email first, whether an accept step follows, and how the consume treats a frame
-        SP->>PF: point the frame at the invite link
-        PF->>PW: GET the invite link
+        Note over SP,PW: still open in nebula-persona-sessions.md — whether a link also goes out by email, and whether an accept step follows
+        ST-->>SP: a signed value with a handoff mark, bound to manny's sub and manny--dev.crm.acme.lumenize.dev
+        SP-->>PF: hand it in through /auth/handoff, as in flow 5
+        PF->>PW: POST /auth/callback with the signed value, from its own origin
         PW->>K: write manny's refresh record, bound to manny--dev.crm.acme.lumenize.dev
         PW->>R: write the logout index entry
-        PW-->>PF: sets manny's refresh cookie, 302 to the app
-        PF->>PW: GET the galaxy's built index.html
+        PW-->>PF: sets manny's refresh cookie
+        PF->>PW: load the galaxy's built index.html
         Note over PF,R: the app's NebulaClient refreshes on manny's cookie, as in flow 3, and shows the app as manny
     end
 ```
@@ -290,7 +294,7 @@ sequenceDiagram
 
 - **Already signed in on the platform host — the usual case:** the app's page loads, its first refresh finds no session, and the tab goes to the platform and back, usually in a few hundred milliseconds, with the address bar changing twice. The page then loads again, mostly from cache. It happens the first time a person reaches a host, and again when that host's cookie reaches its fixed 30-day expiry; every refresh in between is silent. It is visible, though — someone opening `tenant1` and then `tenant2` from Studio goes round once on each first visit.
 - **Not signed in:** the platform login page, then the magic link, which usually opens a new tab and sometimes a different browser. The original tab stays on the login page, as it does today.
-- **Kept out of history:** `location.replace` for the client's navigation and for the callback's page, plus server 302s, so Back never lands on the platform hop.
+- **Kept out of history:** `location.replace` for the client's navigation, plus server 302s, so Back never lands on the platform hop.
 - ⓘ **A loop breaker in the client:** if the cookie fails to set — blocked, or the jar full — the refresh after the round trip gets a 401 again. `NebulaClient` notes in `sessionStorage` that it has just been round, and shows an error instead of going again.
 
 ## Studio and personas
@@ -299,26 +303,27 @@ sequenceDiagram
 
 **"As you" means with your permissions.** For a universe admin that is everything. A collaborator invited by a peer rather than an admin holds a dev membership with no admin bit, so for them the as-you dev tab shows only what their grants allow — an empty screen there can be permissions rather than a broken app.
 
-**The as-you dev tab is handed a signed value rather than bouncing.** A navigation inside a frame is not top-level, so in Safari and Firefox the platform host's cookie is third-party there and a bounce would reach the login page. The iframe has no `sandbox` attribute (`apps/nebula-studio-ui/src/App.vue`), so on its own host it gets working cookies and a real `Origin`. Studio sends the signed value in with `postMessage`, naming the frame's exact origin and never `*`, and the frame checks `event.origin` before redeeming it with a `POST` to its own `/auth/callback` — a request from the frame to its own subdomain, which shares the universe's site with Studio's page, so its cookies are first-party and no browser blocks them. Flows 4 and 5 show it.
+**Every tab in the strip is handed a signed value rather than bouncing.** A navigation inside a frame is not top-level, so in Safari and Firefox the platform host's cookie is third-party there and a bounce would reach the login page. The iframe has no `sandbox` attribute (`apps/nebula-studio-ui/src/App.vue`), so on its own host it gets working cookies and a real `Origin`. Studio sends the signed value in with `postMessage`, naming the frame's exact origin and never `*`, and the frame checks `event.origin` before redeeming it with a `POST` to its own `/auth/callback` — a request from the frame to its own subdomain, which shares the universe's site with Studio's page, so its cookies are first-party and no browser blocks them. Flows 5 and 6 show it.
 
-ⓘ **A handed-in signed value has no `state` cookie to match**, because the frame never started a redirect of its own. The platform marks it as a handoff instead, and a handoff redeems only by `POST` from the subdomain's own origin — never through the navigation callback, which is the one that checks `state`. Another site can send a browser to an address, but it cannot make this frame's script send that `POST`.
+ⓘ **A handed-in signed value has no `state` cookie to match**, because the frame never started a redirect of its own. Studio's host marks it as a handoff instead, and a handoff redeems only by `POST` from the subdomain's own origin — never through the navigation callback, which is the one that checks `state`. Another site can send a browser to an address, but it cannot make this frame's script send that `POST`.
 
-ⓘ **The handoff travels in the address's fragment — the part after `#` — so no server ever sees it.** The platform's redirect to Studio's callback carries it there. ⓘ **The callback answers with a small page rather than a redirect**, whose script moves the value from the fragment into `sessionStorage` and then replaces the address with `return_to`. A redirect would lose the value whenever `return_to` carries a fragment of its own, because a redirect's own fragment replaces the one the request arrived with. Studio then reads the value from `sessionStorage` and clears it. The frame first loads a small waiting page at `/auth/handoff` that never redirects, and tells Studio it is ready before the value is sent.
+ⓘ **The frame first loads a small waiting page at `/auth/handoff`** that never redirects, and tells Studio it is ready before the value is sent.
 
-ⓘ **The platform host mints that signed value, during Studio's own bounce.** Studio's session belongs to one membership's `sub`, and the dev Star can need a different one: a galaxy collaborator's dev membership is a separate `sub` from their galaxy membership, since `sub` is one per address per scope. The galaxy host cannot mint for a `sub` it does not hold, and the platform host holds both — so when Studio bounces for its own session, `authorize` issues the as-you dev tab's signed value alongside it.
+**Studio's own host mints every tab's signed value** (Larry, 2026-09-15). For a persona tab, `mayIssueLink` decides. The as-you dev tab can need a different `sub` from Studio's session — a galaxy collaborator's dev membership is a separate `sub` from their galaxy membership, since `sub` is one per address per scope — so Studio's host reads the Registry for the person's accepted membership at the dev Star, unless the Studio session's dominion already covers it. That read happens only when the tab has no session. § *Alternatives considered* records why `authorize` no longer issues it during Studio's own round trip.
 
-**The signed value is redeemed within seconds, because the as-you dev tab loads with Studio** — with one exception. On a brand-new galaxy, Studio's subdomain rides the universe's wildcard certificate, which already exists, but the as-you dev tab's subdomain needs the galaxy's own, measured at two and a half to four minutes. `.dev` is HTTPS-only, so the tab does not load until that certificate is active, and the signed value would expire first. [nebula-pre-alpha.md](nebula-pre-alpha.md) § *The certificate wait* closes this: the Galaxy create page waits for the certificate before sending the person into Studio. Once redeemed, the tab refreshes on its own cookie and needs another signed value only when that cookie is gone. ⓘ Then the frame's refresh gets a 401, the frame posts `needs-session` to Studio, and Studio goes back through flow 4 — a visible round trip, and a rare one, since the two cookies are issued seconds apart and expire together.
+**A tab asks for its signed value only once its frame is ready, so no value waits out a certificate.** On a brand-new galaxy, Studio's subdomain rides the universe's wildcard certificate, which already exists, but the as-you dev tab's subdomain needs the galaxy's own, measured at two and a half to four minutes. `.dev` is HTTPS-only, so the tab's waiting page does not load until that certificate is active — which is why [nebula-pre-alpha.md](nebula-pre-alpha.md) § *The certificate wait* has the Galaxy create page wait for it before sending the person into Studio. Once redeemed, the tab refreshes on its own cookie. When that cookie is gone, its refresh gets a 401, the frame posts `needs-session`, and Studio asks its host again, in the background.
 
 **What crosses into the iframe is not a bearer credential.** It is short-lived and bound to one subdomain, and the only place it redeems is that subdomain, where the page running there would hold that session anyway. That is different in kind from the cross-tab token sharing [nebula-persona-sessions.md](nebula-persona-sessions.md) exists to remove.
 
-**A persona's session works like anyone's, with four differences:**
+**A persona's session works like anyone's, with five differences:**
 
-- **Its credential is an invite link, consumed on the persona's own host.** A persona never signs in on `platform.lumenize.dev`, so the platform holds no cookie for it and never runs `authorize` for it. Whether the link goes through email first is [nebula-persona-sessions.md](nebula-persona-sessions.md) § *Open questions* 1.
-- **Studio obtains that link, not the persona.** It asks on the user-developer's Studio session, and `mayIssueLink` checks that the session's `authScope` is the galaxy's — which is why Austen asks from Studio rather than from her dev session (§ *Who gets what*).
-- **A persona runs only inside a frame in Studio's strip, so it never makes the top-level round trip.** ⓘ When its refresh gets a 401 — the first visit, a lapsed 30-day cookie, a cleared cookie jar — the frame posts `needs-session` to Studio, which obtains a fresh link and points the frame at it. While the cookie lasts, reloading Studio refreshes the persona silently, as in flow 3. Flow 6 shows both paths.
+- **Its credential comes from Studio's host, not the platform.** A persona never signs in on `platform.lumenize.dev`, so the platform holds no cookie for it and never runs `authorize` for it. Whether a link also goes out by email is [nebula-persona-sessions.md](nebula-persona-sessions.md) § *Open questions* 1.
+- **Studio obtains it, not the persona.** It asks on the user-developer's Studio session, and `mayIssueLink` checks that the session's `authScope` is the galaxy's — which is why Austen asks from Studio rather than from her dev session (§ *Who gets what*).
+- **A persona runs only inside a frame in Studio's strip, so it never makes the top-level round trip.** ⓘ When its refresh gets a 401 — the first visit, a lapsed 30-day cookie, a cleared cookie jar — the frame posts `needs-session` to Studio, which obtains a fresh signed value and hands it in. While the cookie lasts, reloading Studio refreshes the persona silently, as in flow 3. Flow 6 shows both paths.
 - **A persona's host is always in an environment Star**, as in `manny--dev.crm.acme.lumenize.dev`, never in a tenant ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)).
+- **A persona's session lives under the Studio session that issued it** (Larry, 2026-09-15). Its refresh record names the record behind that Studio session, and every persona refresh reads both from Workers KV. So signing out, signing out everywhere, or the Studio session reaching its 30-day expiry ends every persona tab, within KV's propagation window. The persona's own logout still ends only the persona's record. Signing out everywhere works by email address and a persona is a different address, so without this link a persona's cookie would outlive its user-developer's sign-out on a shared machine.
 
-Everything else is the same: the `__Host-` refresh cookie, the record bound to its host, the `Sec-Fetch-*` checks, and every refresh after the first. The as-you dev tab shares the third difference, and gets its credential the way a persona does — a value consumed on its own host — with a different check: whether the Studio user may be issued a session at the dev scope, rather than `mayIssueLink`.
+Everything else is the same: the `__Host-` refresh cookie, the record bound to its host, and the `Sec-Fetch-*` checks. The as-you dev tab shares the first and third differences, with a different check in place of `mayIssueLink`: an accepted membership at the dev Star, or dominion over it.
 
 ⭐ **One cookie per host is also what makes a persona's identity swap impossible.** [nebula-persona-sessions.md](nebula-persona-sessions.md) § *Context* describes a second login overwriting the first, and `handleAcceptMembership` resolving whatever cookie it finds. On a persona host only that persona's cookie exists, and nothing else can reach it, because no cookie carries a `Domain`.
 
@@ -331,23 +336,23 @@ Every scope-host refresh cookie below is `__Host-refresh-token=…; Path=/; Http
 | Who → where | Host = activeScope | How the session is issued | Token's `authScope` |
 |---|---|---|---|
 | **Jennifer**, universe admin → Studio | `crm.acme.lumenize.dev` | platform, from the `acme` membership, by dominion | `acme.crm` |
-| Jennifer → dev Star | `dev.crm.acme.lumenize.dev` | platform, `acme` by dominion; Studio hands the signed value in | `acme.crm.dev` |
+| Jennifer → dev Star | `dev.crm.acme.lumenize.dev` | Studio's host, by the dominion in her Studio session; Studio hands the signed value in | `acme.crm.dev` |
 | Jennifer → tenant Star | `tenant1.crm.acme.lumenize.dev` | platform, `acme` by dominion | `acme.crm.tenant1` |
 | **Austen**, galaxy collaborator → Studio | `crm.acme.lumenize.dev` | platform, her `acme.crm` membership | `acme.crm` |
-| Austen → dev Star | `dev.crm.acme.lumenize.dev` | platform, her `acme.crm.dev` membership; Studio hands the signed value in | `acme.crm.dev` |
-| Austen → a persona's link | her Studio session | — | `acme.crm`, so `mayIssueLink` ③ passes |
+| Austen → dev Star | `dev.crm.acme.lumenize.dev` | Studio's host, after the Registry finds her accepted `acme.crm.dev` membership; Studio hands the signed value in | `acme.crm.dev` |
+| Austen → a persona's code | her Studio session | — | `acme.crm`, so `mayIssueLink` ③ passes |
 | Austen → tenant Star | `tenant1.crm.acme.lumenize.dev` | ✗ refused — no accepted membership there, and no dominion | — |
-| **Manny**, persona | `manny--dev.crm.acme.lumenize.dev` | the invite link, consumed on this host | `acme.crm.dev` |
+| **Manny**, persona | `manny--dev.crm.acme.lumenize.dev` | Studio's host, by `mayIssueLink` on Austen's Studio session; redeemed on this host | `acme.crm.dev` |
 | **Taylor**, tenant member | `tenant1.crm.acme.lumenize.dev` | platform, the `acme.crm.tenant1` membership | `acme.crm.tenant1` |
 | **Casey**, tenant admin | `tenant1.crm.acme.lumenize.dev` | platform, the `acme.crm.tenant1` membership | `acme.crm.tenant1` |
 
-**Austen gets a persona's link from her Studio session, not her dev one.** `mayIssueLink`'s third condition requires `authScope === acme.crm`; her dev session carries `acme.crm.dev`, and a Star holds no dominion over its parent.
+**Austen gets a persona's code from her Studio session, not her dev one.** `mayIssueLink`'s third condition requires `authScope === acme.crm`; her dev session carries `acme.crm.dev`, and a Star holds no dominion over its parent.
 
 ## After pre-alpha: HTTP requests that reach a scope's Durable Objects
 
 **Nothing in pre-alpha sends HTTP to a scope's Durable Objects.** The Worker serves `index.html` to anyone, and `NebulaClient` reaches the data through the Gateway. A generated app's `fetch` handler will one day serve routes like `GET /orders?sort=date` on its own host, and the design keeps room for that (Larry, 2026-09-15):
 
-- **The Worker checks the session before a request reaches the DO**, as the Gateway does for mesh calls, and passes the DO verified claims — never a cookie, so a refresh cookie never reaches generated code.
+- **The Worker checks the session, then forwards the request with `Cookie` removed and the access token in `Authorization: Bearer`** (Larry, 2026-09-15). `onBeforeConnect` in `apps/nebula/src/entrypoint.ts` already forwards that way for WebSocket upgrades, and `@lumenize/auth`'s `createRouteDORequestAuthHooks` for HTTP — though both start from a token rather than a cookie, and both copy every other header through, so dropping `Cookie` is the new step. A generated app's `fetch` handler receives a real HTTP request, never translated into Workers RPC the way the Gateway translates mesh calls, and the refresh cookie never reaches it. The stub `onBeforeRequest() { // No plans to ever implement` in that entrypoint is where this goes.
 - **How the Worker checks the session is open, and Larry's lean is a cookie on every request** (2026-09-15). It is the pattern Cloudflare users reach for most: the Worker reads the session's record from Workers KV on each request. A read costs $0.50 per million past the 10 million a month the paid plan includes, and a key read often at one location is answered from that location's cache, which lasts 60 seconds by default. Three things come with it:
   - **Revocation gets faster.** A revoked session stops working once KV's cache expires, with no 15-minute access token outliving it.
   - **A state change is never a `GET`.** It is a `POST` that passes the `Sec-Fetch-Site` check above.
@@ -367,23 +372,20 @@ A page route that needs a session before it sends HTML brings three more pieces:
 
 - **`apps/nebula/src/nebula-client.ts`** — the localStorage hint and the `activeScope` refresh body both go, along with the hint's reads and writes in `apps/nebula-studio-ui/src/App.vue` and `auth/HomeScreen.vue`. A refresh that gets a 401 now starts the round trip, by navigating the tab to `/auth/login` with `return_to`.
 - **`apps/nebula-studio-ui/src/view-state.ts`** — `rememberReturnTo`, `takeReturnTo` and `validReturnTo` lose their job to `return_to` and the magic-link record.
-- **`packages/nebula-auth/src/router.ts`** — `/auth/:scope/refresh-token` becomes `/auth/refresh-token` on each scope host, joined by `authorize` on the platform host and `login` and `callback` on every scope host. ⚠️ **A scope-less refresh endpoint, which [archive/nebula-frontend.md](archive/nebula-frontend.md) rejected, would have had that same path**, with a different meaning — here the host supplies the scope the path used to. § *Alternatives considered* records why this is not that design.
+- **`packages/nebula-auth/src/router.ts`** — `/auth/:scope/refresh-token` becomes `/auth/refresh-token` on each scope host, joined by `authorize` on the platform host, by `login`, `callback` and `handoff` on every scope host, and on a galaxy's host by the endpoint Studio asks for a tab's signed value. ⚠️ **A scope-less refresh endpoint, which [archive/nebula-frontend.md](archive/nebula-frontend.md) rejected, would have had that same path**, with a different meaning — here the host supplies the scope the path used to. § *Alternatives considered* records why this is not that design.
 - **`packages/nebula-auth/src/worker-token.ts`** — the refresh cookie becomes `__Host-refresh-token` at `Path=/`, and the auth routes gain the `Sec-Fetch-Site` and `Sec-Fetch-Mode` checks.
 - **`PLATFORM_SCOPE`** in `packages/nebula-auth/src/types.ts` — `'nebula-platform'` becomes `'platform'`. It is a stored scope id, so the rename belongs before the wipe.
-- **Emailed links change destination** — login and invite links land on `platform.lumenize.dev`, and persona invite links on the persona's own host.
+- **Emailed links change destination** — login and invite links land on `platform.lumenize.dev`. Whether a persona gets an emailed link at all is open in [nebula-persona-sessions.md](nebula-persona-sessions.md).
 - **Studio's preview moves off Studio's origin.**
 - **Standing guidance that goes stale with the change.** `.claude/rules/security.md`'s refresh-token rule describes the cookie as path-scoped by `authScope` and leans on it not travelling cross-site. `website/docs/nebula/auth-flows.md` § *Admin active-scope switching (within one scope's subtree)* describes an admin varying `activeScope` against one path and cookie, where under this design an admin switches scope by going to that scope's host.
 
 ## Open
 
-- **What a request without `Sec-Fetch-*` headers gets.** Every current browser sends them, and the threat these checks answer always runs in a browser, so refusing their absence costs a current browser nothing. What it would refuse is an old browser — Safari before 16.4 — and any client outside a browser, such as the `/live` harness's `NebulaClient` calling from Node. A harness that forged the headers to get through would be the environment-bridging helper `.claude/rules/live.md` forbids, so the choice is refuse and give the harness a browser, or let an absent header through.
-- **An opaque id or a signed value.** An opaque id is stored with what it is for — which person, which subdomain, which `state` — and deleted on use; a signed value carries those itself, checked by its signature, with nothing stored. An opaque id is what OAuth expects, because deleting it on use makes it single-use, but that needs a strongly consistent store, and on the edge that means the Registry or another Durable Object. A signed value keeps the whole flow on the edge, at the cost of being usable more than once within its lifetime — and the subdomain binding and the `state` check mean a replay can only ever sign the same person in again, in the same browser. The recommendation is a signed value that expires after about a minute.
 - **Establishing a session writes to the Registry once per subdomain, rather than once per login.** Today a consume writes the refresh index the Registry reads to end every session for an address at logout. Each subdomain's callback creates a new refresh token, so that write now happens on a person's first visit to each subdomain. It is required — without it, logout would leave subdomain sessions alive — but it is new load on the singleton, growing with subdomains visited and bounded by the 30-day lifetime (ADR-018).
 - **The KV-miss fallback to the Registry would fire more often.** When KV has no record, `handleRefreshToken` falls back once to the Registry, and `security.md` attributes that fallback to login being a bodiless redirect carrying no access token, so the first refresh can land before KV has propagated. Every subdomain's callback is the same kind of bodiless redirect. Having the callback's response carry the first access token would keep the fallback as rare as it is today.
 - ⚠️ **`security.md`'s case against refresh-token rotation loses one leg on the platform host.** That rule argues rotation defends a theft surface already closed because the cookie is host-only, HttpOnly and never sent cross-site. The platform host's cookies must be `Lax`, so they do travel on cross-site top-level navigations — and, until the Public Suffix List entry lands, on every same-site request, which the `Sec-Fetch-Mode` check is what refuses. What limits them is that only `authorize` reads them, and it can only send a signed value to a checked `lumenize.dev` host for a scope the person already reaches. This is not a case for bringing rotation back, which that rule forbids — but its rationale needs re-deriving against the new facts (`.claude/rules/calibration.md` §4).
 - **Cookies per universe.** A person holds one cookie per host visited. Once the Public Suffix List entry lands the browser's cookie limits apply per universe; until then they apply across all of `lumenize.dev`, so every universe a person visits shares one jar. RFC 6265 only guarantees 50 per domain, so a heavy visitor could lose older ones — and a generated app can fill that shared jar on purpose, which signs people out of other hosts but cannot replace a `__Host-` cookie.
-- **Whether signing out ends the persona tabs.** Logout ends every session for the signed-in address, and a persona is a different address, so on a shared machine a persona's cookie outlives the user-developer's sign-out.
-- **Custom domains, at Beta.** `return_to` accepts only `lumenize.dev` hosts. A customer's hostname needs its own entry in that check, and it is its own site, so the `SameSite` table applies to it too.
+- **Custom domains, at Beta, and only for a Star** (Larry, 2026-09-15). `app.acme.com` would name a tenant Star such as `acme.crm.tenant1`. Studio stays on `lumenize.dev`, because its tabs are frames on `lumenize.dev` hosts and Safari blocks cookies in frames from another site. One lookup turns a host into its scope and backs the `return_to` check, so a custom hostname joins through that lookup rather than through new checks. A custom domain is always a different site from the platform host, which the `Lax` platform and `state` cookies already handle. A universe-level domain such as `lmz.comcast.com` may come years later and is not designed here.
 - **Where the build lives.** Personas need this to be testable, so it is pre-alpha work. Whether it folds into [nebula-persona-sessions.md](nebula-persona-sessions.md) or comes first as its own task is decided after Larry's read.
 
 ## Alternatives considered
@@ -419,6 +421,18 @@ A top-level `{p}--{g}--{u}.lumenize.dev` would sit beyond any cascade. **Lost be
 ### The preview iframe bouncing for its own session, or chaining top-level bounces through each child host
 
 **Lost because** a navigation inside a frame is not top-level, so the platform host's cookie is third-party again in Safari and Firefox. A chain needs one hop per host, which breaks for hosts added mid-session, such as a persona's.
+
+### `authorize` issuing the as-you dev tab's value during Studio's round trip
+
+Studio's `/auth/login` named the tab, `authorize` picked a second membership for it, and the value rode back in the URL fragment to a callback page that kept it in `sessionStorage`. **Lost because** Studio's host can issue it instead, for one Registry read that happens only when the tab has no session (Larry, 2026-09-15). That deleted the extra parameter, the second membership pick, the fragment and the callback page, and it turned a lapse of the tab's cookie from a visible round trip into a background request — the same channel persona tabs use.
+
+### Persona sessions that outlive their issuer, are revoked by issuer, or expire in hours
+
+Three other answers to whether signing out ends the persona tabs. Leaving persona sessions independent for 30 days lets anyone at a shared browser open `manny--dev.crm.acme.lumenize.dev` as Manny after the user-developer signs out. Recording each persona session's issuer and revoking by issuer at sign-out ends them immediately, but needs an issuer index in the singleton Registry. Short-lived persona sessions, silently reissued while Studio is open, bound the exposure without ending anything at sign-out. **Lost because** tying each persona session to the Studio session that issued it ends them at sign-out with no index and no singleton write, for one extra KV read per persona refresh (Larry, 2026-09-15).
+
+### An opaque, single-use code
+
+An opaque id is stored with what it is for — which person, which subdomain, which `state` — and deleted on use, which is what OAuth expects of an authorization code: RFC 6749 § 4.1.2 lets a code work only once. **Lost because** single use needs a store that checks and deletes atomically. Workers KV is eventually consistent, so that means the Registry, adding a singleton write to every round trip, or a Durable Object per code, adding a write and a read-and-delete to every first visit. And single use buys nothing the bindings do not already give: the redirect code works only in the browser holding its `state` cookie, and the handoff only by a `POST` from its own host, so a replay can only sign the same person into the same host in the same browser (Larry, 2026-09-15).
 
 ### One address-level session on the platform host — not proposed, recorded so it is not re-proposed blind
 

@@ -79,7 +79,7 @@ Every `lumenize.dev` host is a sibling under one registrable domain until a Publ
 - **A persona as its own label,** `manny.dev.crm.acme.lumenize.dev`. It needs a wildcard per Star, so the certificate set grows with tenants.
 - **An environment as its own label,** such as `crm.acme.dev.lumenize.dev`. A Star slug already carries the environment for nothing, and a label would stop the host being a direct spelling of the scope.
 - **Cloudflare for SaaS for every host from the start.** Rejected for the reason § *What certificates may cost* gives: below Enterprise, the certificate set would grow with tenants and personas.
-- **Studio on a registrable domain of its own,** as `nebula.lumenize.com` is today — a trusted control plane kept apart from the apps. It pairs with any of the grammars above. Rejected because the galaxy's host is where the app lives, so it serves Studio to the people building the app (Larry, 2026-09-11), and because Studio shows the app in frames: on another site every frame is third-party, and Safari blocks a third-party frame's own cookies, so no persona tab could hold a session. `__Host-` cookie names answer the cookie threat a separate domain answered.
+- **Studio on a registrable domain of its own,** as `nebula.lumenize.com` is today — a trusted control plane kept apart from the apps. It pairs with any of the grammars above. Rejected because the galaxy's host is where the app lives, so it serves Studio to the people building the app (Larry, 2026-09-11), and because Studio shows the app in frames: on another site every frame is third-party, and Safari blocks a third-party frame's own cookies, so no persona tab could hold a session. `__Host-` cookie names answer the cookie threat a separate domain answered. The frame problem also keeps Studio off a customer's custom domain.
 
 ## Consequences
 
@@ -100,6 +100,6 @@ Every `lumenize.dev` host is a sibling under one registrable domain until a Publ
 
 ### Deliberately open
 
-- **Customer custom domains**, Beta at the soonest.
+- **Customer custom domains**, Beta at the soonest, and only for a Star (Larry, 2026-09-15). A universe-level domain such as `lmz.comcast.com` may come much later.
 - **Whether persona addresses receive mail.** [`tasks/nebula-persona-sessions.md`](../../tasks/nebula-persona-sessions.md) § *Open questions* decides it, and `personas.lumenize.io` can go either way.
 - **Mail enforcement.** DMARC on `lumenize.com` stays at `p=none` until one posture is set across all three zones, tracked in [`tasks/backlog.md`](../../tasks/backlog.md) § *Infrastructure*.
