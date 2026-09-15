@@ -18,6 +18,7 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
+| — | **The scope moves from a URL segment to a subdomain** — every scope its own host ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)), each host its own session ([ADR-022](../docs/adr/022-each-host-holds-its-own-session.md)) | [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) — not started; ② waits on it | **data** |
 | ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1 complete; Stage 1 run and every question answered 2026-09-08/09, verdicts in its § *Pinned*. Pass 2 writes the phases | deploy |
 | — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
@@ -30,7 +31,7 @@
 | — | **The superuser → impersonate join scenario** (~¼ day) | none — § *The superuser join scenario* | ungated |
 | — | **Same-origin guard verdict** — "no guard" is a complete outcome | [nebula-same-origin-guard.md](nebula-same-origin-guard.md) | ungated |
 
-**Why this order.** Risk — and here risk is unresolved design rather than hard implementation (Larry, 2026-09-02: *"I should favor doing the riskiest ones first"*). ① — the guidance file tree, now built (§ *Shipped*) — was the largest unknown and gated ②. ② carries the most design uncertainty, so it follows its prerequisite at once. ③ is small but irreversible: day-1 signal that was not captured is gone. ④ and ⑤ are the biggest and the best understood, and size is not risk when the shape is known. ⚠️ **"Before the wipe" orders nothing** — there is exactly ONE deploy, so every line of code here precedes it; only the `data` gate is real.
+**Why this order.** Risk — and here risk is unresolved design rather than hard implementation (Larry, 2026-09-02: *"I should favor doing the riskiest ones first"*). ① — the guidance file tree, now built (§ *Shipped*) — was the largest unknown and gated ②. ② carries the most design uncertainty, so it follows its prerequisites at once: ①, and the scope's move to a subdomain, since a persona tab needs a host of its own. ③ is small but irreversible: day-1 signal that was not captured is gone. ④ and ⑤ are the biggest and the best understood, and size is not risk when the shape is known. ⚠️ **"Before the wipe" orders nothing** — there is exactly ONE deploy, so every line of code here precedes it; only the `data` gate is real.
 
 **After the wipe — invite, then the feedback loop:**
 
@@ -105,7 +106,7 @@ It also decides how the slug cap lands. [the domain-allocation record](archive/d
 
 **The indicator finishes when the certificate is active, not when the scope is created.** A new galaxy's Studio at `crm.acme.lumenize.dev` rides the universe's wildcard, which already exists, so it loads at once — but the as-you dev tab that leads its preview strip, at `dev.crm.acme.lumenize.dev`, needs the galaxy's own wildcard. `.dev` is HTTPS-only, so until that certificate is active the tab does not load. Waiting for the certificate means the as-you dev tab loads and gets its session at once. Universe Signup waits the same way, since Studio's own subdomain rides the universe's wildcard. [the sessions record](archive/decision-sessions-per-origin.md) § *Studio and personas* carries how the tab gets its session.
 
-**C's certificate ordering is wired up in this cycle** — a progress indicator has nothing to indicate otherwise, and personas need their own origins, which is what makes testing possible at all. The work is [nebula-persona-sessions.md](nebula-persona-sessions.md)'s and [nebula-testing-with-personas.md](nebula-testing-with-personas.md)'s; The on-hold lumenize.dev task that planned an origin split was mined and removed on 2026-09-15; [ADR-021](../docs/adr/021-every-scope-has-its-own-host.md) and [ADR-022](../docs/adr/022-each-host-holds-its-own-session.md) replace it.
+**C's certificate ordering is wired up in this cycle** — a progress indicator has nothing to indicate otherwise, and personas need their own origins, which is what makes testing possible at all. The work is [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md)'s.
 
 **Deleting a galaxy's certificate must not interrupt serving on any other host.** Under C a deleted galaxy leaves its wildcard behind, so something has to delete it. When the 2026-09-14 experiment deleted its two test certificates, the zone's Universal SSL certificate — the one covering `*.lumenize.dev`, so every universe host and `platform.lumenize.dev` — sat in `pending_deployment` for about a minute before going `active` again. A backup certificate stayed issued throughout, but nobody checked whether hosts kept answering during that minute ([experiments/wildcard-host-routing/RESULTS.md](../experiments/wildcard-host-routing/RESULTS.md) § *Teardown*). So whatever deletes a galaxy's certificate gets a check that hosts on other certificates keep answering while the deletion runs.
 
