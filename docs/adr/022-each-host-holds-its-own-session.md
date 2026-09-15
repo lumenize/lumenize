@@ -1,15 +1,15 @@
 # ADR-022: Each Host Holds Its Own Session
 
 **Date**: 2026-09-14
-**Status**: Proposed — pending Larry's read
+**Status**: Proposed
 **Deciders**: Larry
-**Evidence**: [`tasks/sessions-per-origin.md`](../../tasks/sessions-per-origin.md) — the flows as sequence diagrams, which cookie must ride which request, and the designs rejected while deciding. [A 2026-09-14 browser run](../../experiments/wildcard-host-routing/RESULTS.md) confirmed the cookie and header behaviour. Today's refresh cookie and `handleRefreshToken` in `packages/nebula-auth/src/worker-token.ts`. `access-claims.ts`'s JSDoc on why `authScope` and `aud` answer different questions, and [`tasks/archive/nebula-confine-admin-bypass.md`](../../tasks/archive/nebula-confine-admin-bypass.md), where confusing them shipped as an escalation.
+**Evidence**: [`tasks/sessions-per-origin.md`](../../tasks/sessions-per-origin.md) — the flows as sequence diagrams, which cookie must ride which request, and the designs rejected while deciding. [A 2026-09-14 browser run](../../experiments/wildcard-host-routing/RESULTS.md) confirmed the cookie and header behaviour. Today's refresh cookie and `handleRefreshToken` in `packages/nebula-auth/src/worker-token.ts`. `access-claims.ts`'s JSDoc on why `authScope` and `aud` answer different questions. [The confine-admin-bypass record](../../tasks/archive/nebula-confine-admin-bypass.md) shows why `authScope` narrows, not just `aud`: a token narrowed to one galaxy by `aud` alone kept a universe admin's dominion.
 
 ## Context
 
-[ADR-021](021-every-scope-has-its-own-host.md) gives every scope its own host. A browser keeps cookies and storage per host, so a session made on one host is invisible to every other.
+[ADR-021](021-every-scope-has-its-own-host.md) gives every scope its own host. A browser keeps cookies and storage per host, so a session on one host can be neither read nor overwritten from another — and each host needs a session of its own.
 
-One sitting touches many hosts. A user-developer opens Studio at `crm.acme.lumenize.dev`. Its as-you dev tab shows the app at `dev.crm.acme.lumenize.dev` with the user-developer's own permissions, persona tabs run at `manny--dev.crm.acme.lumenize.dev`, and a tenant link opens `tenant1.crm.acme.lumenize.dev`. Each needs a session, and **no credential may cross from one host to another** — a token shared across tabs is what lets one persona's login overwrite another's.
+One sitting touches many hosts. A user-developer opens Studio at `crm.acme.lumenize.dev`. Its as-you dev tab shows the app at `dev.crm.acme.lumenize.dev` with the user-developer's own permissions, persona tabs run at `manny--dev.crm.acme.lumenize.dev`, and a tenant link opens `tenant1.crm.acme.lumenize.dev`. Each needs a session, and **no credential may cross from one host to another** — a token shared across tabs is what lets one persona's login overwrite another's, and lets code on one host act as whoever is signed in on another.
 
 **A page needs no session to load.** The Worker serves an app's `index.html` to anyone, and `NebulaClient` fetches everything behind it with an access token. So the client, not the page request, discovers a missing session.
 
@@ -17,11 +17,11 @@ Three browser facts shape the answer:
 
 1. **Only a top-level navigation reliably carries a cookie to another site.** Inside a frame, or on a background `fetch`, that cookie is third-party: Safari blocks it and Firefox partitions it.
 2. **A navigation cannot carry a custom header**, and `Referer` arrives cut down to an origin. So a return path has to ride the URL.
-3. **Until a Public Suffix List entry lands, every `lumenize.dev` host is one site**, and the list will not accept one before launch. So `SameSite` separates no customer from another yet, and a generated app can set a cookie for all of `lumenize.dev`.
+3. **Until a Public Suffix List (PSL) entry lands, every `lumenize.dev` host is one site**, and the list will not accept one before launch. So `SameSite` separates no customer from another yet, and a generated app can set a cookie for all of `lumenize.dev`.
 
-The rest of this ADR walks the round trip that establishes a session, then the rules each cookie follows, what a session may carry, and how the frames in Studio get theirs.
+The rest of this ADR walks the round trip, then the cookie rules, what a session carries, and how Studio's frames get theirs.
 
-> **Today's code differs.** None of this is built. One host, `nebula.lumenize.com`, serves every scope. A login deposits one `refresh-token` cookie per membership at `Path=/auth/{scope}`. The client picks one by calling `POST /auth/{authScope}/refresh-token` with `activeScope` in the body, and learns `authScope` from a localStorage hint. A lapsed session remembers its page in localStorage. No cookie carries the `__Host-` prefix, no endpoint reads a `Sec-Fetch-*` header, and the preview runs generated code on Studio's origin. [`tasks/sessions-per-origin.md`](../../tasks/sessions-per-origin.md) § *What changes in today's code* lists the sites.
+> **Today's code differs.** None of this is built. One host, `nebula.lumenize.com`, serves every scope. A login deposits one `refresh-token` cookie per membership at `Path=/auth/{scope}`. The client picks one by calling `POST /auth/{authScope}/refresh-token` with `activeScope` in the body, and learns `authScope` from a localStorage hint. A lapsed session remembers its page in localStorage. No cookie carries the `__Host-` prefix, no endpoint reads a `Sec-Fetch-*` header, and the preview runs generated code on Studio's origin. `.claude/rules/security.md` still describes today's cookie. [`tasks/sessions-per-origin.md`](../../tasks/sessions-per-origin.md) § *What changes in today's code* lists the sites.
 
 ## Decision
 
@@ -45,8 +45,8 @@ The endpoint names are OAuth's. A **code** is a short-lived value in the redirec
 
 - **Every cookie we set is named `__Host-…`.** A browser accepts such a cookie only if it is `Secure`, has `Path=/` and has no `Domain`, and never from another host. A generated app can set `refresh-token` for all of `lumenize.dev`, but never `__Host-refresh-token`, and the server reads only prefixed names. So nothing cascades down the scope tree, and no host can place a session on another.
 - **`SameSite` follows what must carry the cookie.** The platform host's refresh cookies and a scope host's `state` cookie are `Lax`, because each must ride a navigation arriving from elsewhere. A scope host's refresh cookie is `Strict`, because only its own pages send it.
-- **Two header checks do what `SameSite` cannot before the entry lands.** Every `POST` to `/auth/`, and every `POST` a cookie authenticates, requires `Sec-Fetch-Site: same-origin`. `/auth/login`, `authorize`, the `GET` callback and the magic-link consume require a top-level navigation — `Sec-Fetch-Mode: navigate` with `Sec-Fetch-Dest: document` — so a background `fetch` carrying the platform host's `Lax` cookies is refused.
-- **Each refresh cookie is backed by a Workers KV record bound to the host it was issued for.** A refresh arriving at any other host is refused. On a KV hit, refreshing reads nothing else and never waits on the singleton Registry ([ADR-018](018-singleton-is-the-scarce-resource.md)).
+- **Two header checks do what `SameSite` cannot before the PSL entry lands.** Every `POST` to `/auth/`, and every `POST` a cookie authenticates, requires `Sec-Fetch-Site: same-origin`. `/auth/login`, `authorize`, the `GET` callback and the magic-link consume require a top-level navigation — `Sec-Fetch-Mode: navigate` with `Sec-Fetch-Dest: document` — so a background `fetch` carrying the platform host's `Lax` cookies is refused.
+- **Each refresh cookie is backed by a Workers KV record bound to the host it was issued for.** A refresh arriving at any other host is refused. On a KV hit, refreshing reads nothing else, so refreshes put no load on the singleton Registry ([ADR-018](018-singleton-is-the-scarce-resource.md)).
 
 ### What a session carries
 
@@ -68,9 +68,8 @@ While a tab's cookie lasts, reloading Studio refreshes it silently.
 
 - **Cookies cascading down the scope tree by `Domain`, for scopeAdmins.** Every persona host would receive its owner's cookie, and `__Host-` forbids a `Domain` anyway.
 - **Every cookie at `Domain=lumenize.dev`, the server choosing.** It gives up `__Host-`, shares one cookie jar across every customer, puts a superuser's cookie on every tenant host, and turns choosing a token into choosing an identity.
-- **A central auth host, refreshed by background `fetch`.** It breaks the day the Public Suffix List entry lands, when that `fetch` becomes third-party. Its top-level half survived as step 2.
+- **A central auth host, refreshed by background `fetch`.** It breaks the day the PSL entry lands, when that `fetch` becomes third-party. Its top-level half survived as step 2.
 - **Pinning `aud` to the host instead of narrowing `authScope`.** `hasDominionOver` reads `authScope`.
-- **Carrying the return target in a header, or reading `Referer`.** A navigation carries no custom header, and `Referer` loses the path.
 - **The preview frame bouncing, or chaining bounces through each child host.** A frame is not top-level, and a chain breaks for a host added mid-session, such as a persona's.
 - **Moving persona hosts out of the universe subtree.** It cuts every slug to about 24 characters, and host-only cookies already keep a persona host clear.
 - **One address-level session on the platform host.** Not proposed. An earlier rejection of it rests partly on a ground that no longer holds, so proposing it owes a re-derivation.
@@ -90,7 +89,7 @@ While a tab's cookie lasts, reloading Studio refreshes it silently.
 - **The first visit to each host costs a visible round trip.** The refresh gets a 401 and the tab goes to the platform and back, a few hundred milliseconds, before the page reloads mostly from cache. It recurs at the cookie's fixed 30-day expiry. The hops stay out of history, and `NebulaClient` stops after one failed round trip.
 - **Each host visited writes a logout-index entry to the Registry.** That is new load on the singleton, bounded by the 30-day lifetime.
 - **Page and asset requests carry the refresh cookie**, because `__Host-` fixes `Path=/`. It is `HttpOnly`, and a `Cookie` header is never logged on any route.
-- **Until the entry lands, all of `lumenize.dev` shares one cookie jar.** A generated app can fill it and sign people out of other hosts — a nuisance, never a takeover.
+- **Until the PSL entry lands, all of `lumenize.dev` shares one cookie jar.** A generated app can fill it and sign people out of other hosts — a nuisance, never a takeover.
 - **`security.md`'s case against refresh-token rotation loses a leg**, because the platform host's cookies are `Lax`. Rotation stays forbidden, and its rationale needs re-deriving.
 
 ### Deliberately open
