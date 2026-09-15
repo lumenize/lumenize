@@ -20,7 +20,8 @@
     "experiments/wrangler-test-harness",
     "experiments/computer-vfs-build",
     "experiments/residency-hold",
-    "experiments/fuse-bisect"
+    "experiments/fuse-bisect",
+    "experiments/wildcard-host-routing"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
