@@ -72,9 +72,11 @@ class HarnessNebulaClient extends NebulaClient {
     this.callCompleted = true;
   }
 
-  // Install a compiled ontology directly on the Star — the post-Phase-4 dev
-  // apply path. `StarTest.applyOntologyForTest` compiles server-side because
-  // this Node-side client can't import the Worker-only `compileOntologyVersion`.
+  // Install an ontology directly on the Star through the test-app door.
+  // `StarTest.applyOntologyForTest` takes SOURCE and compiles inside the test
+  // Worker because `Star.setOntology` is deliberately not `@mesh` — no remote
+  // caller hands a Star a compiled row. This Node-side client could import the
+  // compiler; it just has no door to send the row through.
   callStarApplyOntology(starInstanceName: string, versionConfig: { version: string; types: string }): void {
     this.resetResults();
     const remote = (this.ctn() as any).applyOntologyForTest(versionConfig);
@@ -145,13 +147,13 @@ describe('browser harness', () => {
         expect(client.connectionState).toBe('connected');
       });
 
-      // 4. Install an ontology version directly on the Star — the post-Phase-4
-      //    dev apply path (Decision 9). Phase 4 removed the Star's Galaxy
-      //    lazy-pull, so a transaction at version 'v1' would hit OntologyStaleError
-      //    on a cache miss; the compiled validator must be PUSHED via setOntology.
-      //    `StarTest.applyOntologyForTest` compiles server-side (this Node-side
-      //    client can't import the Worker-only `compileOntologyVersion`). Bootstrap
-      //    admin (root admin at first instance) satisfies the requireDominionHere gate.
+      // 4. Install an ontology version directly on the Star. A Star gets its
+      //    ontology by pulling from its Galaxy's registry, and this test registers
+      //    nothing there, so without this step the transaction below answers
+      //    `ontology-stale`. `StarTest.applyOntologyForTest` takes the SOURCE and
+      //    compiles it inside the test Worker; its JSDoc says why the compile is
+      //    server-side. Bootstrap admin (root admin at first instance) satisfies
+      //    the requireDominionHere gate.
       client.callStarApplyOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await vi.waitFor(() => {
         expect(client.callCompleted).toBe(true);

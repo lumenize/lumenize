@@ -119,10 +119,12 @@ export class StarTest extends Star {
    * directly on this Star — the TEST-APP install door. Production installs arrive
    * only by lazy-pull from the Galaxy registry (`Star.setOntology` is internal, not
    * `@mesh`); tests pin a Star's ontology without a Galaxy loop through this entry
-   * instead. The browser smoke test's `HarnessNebulaClient` runs in Node and imports
-   * from `@lumenize/nebula/client`, so it can't call the Worker-only
-   * `compileOntologyVersion` itself (the main entry pulls in `cloudflare:workers`,
-   * unimportable in Node) — this method compiles server-side and installs internally.
+   * instead. It takes SOURCE and compiles here, in the test Worker, because the only
+   * alternative is a remote entry taking a compiled row — the shape `setOntology`'s
+   * JSDoc refuses, a caller handing a Star a validator bundle from outside the
+   * registry. It is NOT an import limit: `ontology-compile.ts` loads in plain Node,
+   * so the Node-side callers could compile. It does keep the compiler, which is not
+   * browser-safe, out of the chromium lane's bundle (`test/chromium/ontology-admin.ts`).
    */
   @mesh(requireDominionHere)
   applyOntologyForTest(versionConfig: OntologyVersionConfig): void {
