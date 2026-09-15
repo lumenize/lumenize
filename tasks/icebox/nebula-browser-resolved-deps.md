@@ -42,7 +42,7 @@ Stages 1 and 2 are deliberately deferred as premature**, and the `/write-task` i
 Larry's direction; read *Design intent* first when this goes active. On-hold: designed, paused, expected to
 resume when a user-developer needs a package outside the baked set. **Pinned business decision (2026-07-30):
 the dependency set is OPEN — any npm package is fair game, with warnings and no curation.** Fires the trigger
-on [`use-lumenize-dev-domain-and-support-custom-domains.md`](../on-hold/use-lumenize-dev-domain-and-support-custom-domains.md)
+on the origin split, now [ADR-021](../../docs/adr/021-every-scope-has-its-own-host.md)
 (see *Relationships*).
 
 **Objective — a user-developer's generated app can use any client-side npm package, without the build ever
@@ -255,7 +255,7 @@ Load-bearing claims, stated so review can falsify them:
 
 ## Relationships
 
-- **[`use-lumenize-dev-domain-and-support-custom-domains.md`](../on-hold/use-lumenize-dev-domain-and-support-custom-domains.md)** —
+- **The origin split, now [ADR-021](../../docs/adr/021-every-scope-has-its-own-host.md)** —
   its own pickup trigger is *"we're about to host untrusted multi-tenant apps."* This task is what fires it: the
   preview page moves from code our LLM wrote to code anyone on npm wrote, while still on the control plane's
   registrable domain. Its summary calls the work "pure edge translation," so this is a dependency, not a blocker.
