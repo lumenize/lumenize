@@ -2,6 +2,8 @@
 
 **Status:** Drafted 2026-08-17. **Not built, not reviewed. ON HOLD 2026-09-02** — deferred past the pre-alpha wipe, on the two corrections below rather than on priority alone. Carved out of [nebula-registry-route-guards.md](../archive/nebula-registry-route-guards.md), where it was Phase 3 — a Stage-1 panel found its spec falsified on disk in three independent ways *and* found it was the only phase carrying a breaking cross-package change. That file landed 2026-08-18, so the gate is open (the route table exists to move rows within).
 
+> ⓘ **2026-09-16 — [nebula-scope-moves-to-subdomain.md](../nebula-scope-moves-to-subdomain.md) changes two facts this file assumes, and nothing else.** These four routes answer only on scope hosts, never on the platform host, and that build removes the scope segment from every cookie route's `/auth/` path — so when this resumes, whether a *target* rides a path segment, a query parameter or the body is worth re-deciding rather than inheriting. The objective, the three disk facts, the carrier question and the criteria all stand.
+
 > ⚠️ **Two claims this file rested on were checked on disk 2026-09-02 and are FALSE. Both are corrected in place below; read them before re-planning, because together they invert the file's cost/benefit.**
 >
 > 1. **Its dependency has EXPIRED — the guards it planned to reuse no longer exist** (§ *Relationships*). This is a build-the-guards task now, not a move-the-rows task.

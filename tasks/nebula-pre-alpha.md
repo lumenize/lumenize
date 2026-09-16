@@ -24,11 +24,10 @@
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
 | ④ | **Every Resources guard lives in the Resources plane** — and the Profile moves onto it as the first host whose guard is not a grant | [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) — design intent only | **data** |
 | ⑤ | **The ontology history is one committed file** | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — design intent only; independent of ④, either order | **data** |
-| — | **Scope full names** — a human name for a Universe, Galaxy and Star, captured at claim | none — § *Scope full names* | **data** |
+| — | **Shared pages** — Universe Signup, Galaxy create and login: scope full names captured at claim, and per page whether an app forwards to ours or runs its own | none — § *Shared pages* | **data** |
 | ⑥ | **The wipe + redeploy** | § *⑥ The wipe* | — |
 | — | **Turn-log inspection v0** | none — § *Turn-log inspection v0* | ungated |
 | — | **The superuser → impersonate join scenario** (~¼ day) | none — § *The superuser join scenario* | ungated |
-| — | **Same-origin guard verdict** — "no guard" is a complete outcome | [nebula-same-origin-guard.md](nebula-same-origin-guard.md) | ungated |
 
 **Why this order.** Risk — and here risk is unresolved design rather than hard implementation (Larry, 2026-09-02: *"I should favor doing the riskiest ones first"*). ① — the guidance file tree, now built (§ *Shipped*) — was the largest unknown and gated ②. ② carries the most design uncertainty, so it follows its prerequisites at once: ①, and the scope's move to a subdomain, since a persona tab needs a host of its own. ③ is small but irreversible: day-1 signal that was not captured is gone. ④ and ⑤ are the biggest and the best understood, and size is not risk when the shape is known. ⚠️ **"Before the wipe" orders nothing** — there is exactly ONE deploy, so every line of code here precedes it; only the `data` gate is real.
 
@@ -89,7 +88,11 @@ Manual: registry-resolve the user's `{u}` → a super-admin delegated token → 
 
 Both halves are driven separately: the front door by `superuser-front-door.ts` (the platform membership mints at the consume, behind proof, so a superuser arrives through the ordinary scope-less login), impersonation by `impersonation-lifecycle.ts`. Unproven is that they compose — one scenario chaining superuser login → Home → platform scope → impersonate a pre-alpha user, which is exactly the coaching session. If it turns up gaps, that is when a child task file earns its existence, and not before.
 
-## Scope full names
+## Shared pages
+
+**The pages several builds touch — Universe Signup, Galaxy create and login — are one item** (Larry, 2026-09-16). It captures scope full names on the first two, below. It also decides, page by page, whether a user-developer's app forwards to ours with `return_to`, which is the default, or runs a page of its own that posts what it collected to the platform host, gets a one-time token back, and navigates on with it through the same two redirects login already uses. Which kind comes first is this item's call, and the custom kind may land after pre-alpha. [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) caps the slugs these pages collect at 30 characters, and names the one `POST` ADR-022 would need to admit for a custom page.
+
+### Scope full names
 
 `Scopes` is one column — `universeGalaxyStarId TEXT PRIMARY KEY` — so a Universe, Galaxy or Star has no human name anywhere, and its slug is doing two jobs at once. Add a `name` to that table and write it from the three claim paths (`claimUniverse`, `claimUniverseWithTicket`, `claimStar`; galaxy creation sits elsewhere and needs finding). **Two pages already exist and both gain the field: Universe Signup and Galaxy create** (Larry, 2026-09-11). Star signup is NOT pre-alpha — only the `.dev` Star is created in this cycle — so `claimStar`'s column is written without a page to type into yet. **It is `data`-gated for a reason no other item here has: the name is only knowable at the moment it is typed.** Nothing derives "Northwind Traders International" from `northwind-traders-intl`, so a claim path that never asked leaves nothing to backfill — and after the wipe the people being asked are real users, whose names would be discarded permanently rather than for a cycle.
 
@@ -99,7 +102,7 @@ It also decides how the slug cap lands. [the domain-allocation record](archive/d
 
 ## The certificate wait
 
-Folded into [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) on 2026-09-15 (Larry): its § *Design intent, constraints, and future state* carries the wait, the progress indicator and certificate deletion.
+Folded into [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) on 2026-09-15 (Larry): its § *Design intent, constraints, and future state* carries the wait and its progress indicator, and leaves certificate deletion to the soft-delete reaper.
 
 ## ⑥ The wipe
 
@@ -109,7 +112,7 @@ One CF-dashboard worker-delete + redeploy, deliberately one and not two. Greenfi
 
 **Ops at the deploy:**
 
-- **Secrets.** `deploy.sh`'s preflight refuses to deploy without `NEBULA_AUTH_BOOTSTRAP_EMAIL`, the JWT key pair and `RESEND_API_KEY`, and prints the exact command; values come from the gitignored root `.dev.vars`. `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` seeds the super-admin. What stays open on email is in [backlog.md](backlog.md) § *Nebula Auth*, the Resend rows.
+- **Secrets.** `deploy.sh`'s preflight refuses to deploy without `NEBULA_AUTH_BOOTSTRAP_EMAIL`, the JWT key pair and `RESEND_API_KEY`, and prints the exact command. `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` seeds the super-admin. ⚠️ **Production's JWT pair is generated for production and set only as its own secrets, never copied from `.dev.vars`** — that template already labels its keys *"test keys - not for production"*, and sharing them lets an admin token minted on the test target or a local stack verify here ([nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) § *Sessions*). The hint the preflight prints copies from `.dev.vars` today, so it changes with the key. Every other value still comes from that file; [backlog.md](backlog.md) § *Infrastructure* is where that stops being ad hoc. What stays open on email is in [backlog.md](backlog.md) § *Nebula Auth*, the Resend rows.
 - **`wrangler containers delete` the retired `nebula-devcontainer` application** (still listed on the account, 2026-09-03). A dashboard worker-delete removes DO namespaces, not container applications, and this cannot be a phase criterion because it fires after a deploy that happens long after `/build-task` ends.
 - **Smoke:** a real-CF KV login → refresh across colos. A KV miss falls back to the registry's `RefreshTokenIndex`, a deliberately live path.
 

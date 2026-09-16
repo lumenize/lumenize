@@ -68,3 +68,65 @@
 **Method note.** The first probe pass used curl's `--doh-url` and failed on every host; plain resolution answered `200` seven minutes later. The cause, the flag or early propagation, was not isolated, so that pass is not a result.
 
 **Teardown, done from the API the same day:** the DNS record and all three routes are deleted. Both Workers stay for Larry's sweep.
+
+## Local wildcard hosts (2026-09-16)
+
+**Question.** Do `*.lumenize.localhost` hosts resolve to loopback with no configuration, on the systems the local stack and CI run on? [The subdomain build](../../tasks/nebula-scope-moves-to-subdomain.md) rests its local venue on it.
+
+**macOS: yes.** Measured 2026-09-15 by a scratch probe, Node 24.19 with Playwright's Chromium 145. Node's `fetch` and `WebSocket` and Chromium resolved every depth to loopback with no `/etc/hosts` entry; Chromium stored `Secure` and `__Host-` cookies over plain `http` there, kept them host-only, and treated every such host as one site. That script was not kept, and the task file carries the findings.
+
+**Linux: no, at any depth.** Measured 2026-09-16 — the bare name fails too, so this is not about depth:
+
+```sh
+docker run --rm node:24-slim node -e '
+const http=require("http"),dns=require("dns");
+const s=http.createServer((q,r)=>r.end("ok:"+q.headers.host));
+s.listen(8123,"127.0.0.1",async()=>{
+  for (const h of ["lumenize.localhost","dev.crm.acme.lumenize.localhost"]) {
+    try { const a=await dns.promises.lookup(h); console.log("lookup",h,"→",a.address) }
+    catch(e){ console.log("lookup",h,"→ FAIL",e.code) }
+  }
+  try { const r=await fetch("http://dev.crm.acme.lumenize.localhost:8123/"); console.log("fetch →",r.status,await r.text()) }
+  catch(e){ console.log("fetch → FAIL",e.cause?.code||e.message) }
+  s.close()
+})'
+```
+
+```
+lookup lumenize.localhost → FAIL ENOTFOUND
+lookup dev.crm.acme.lumenize.localhost → FAIL ENOTFOUND
+fetch → FAIL ENOTFOUND
+```
+
+A Debian container is not a GitHub runner, whose Ubuntu carries systemd-resolved — but the CI lane that would find out is `ui-smoke`, and a mapping removes the question rather than answering it.
+
+**What follows.** The local stack states its own wildcard, standing in for the `*.lumenize.dev` DNS record rather than for any behaviour of ours: Chromium takes `--host-resolver-rules=MAP *.lumenize.localhost 127.0.0.1`, and Node's `fetch` takes a `lookup` hook over the same suffix. Resolution is client-side either way — `wrangler dev` binds a port and reads the `Host` header, so it needs none of this.
+
+## One pack per galaxy (2026-09-16)
+
+**Question.** Can a galaxy's own certificate pack name its exact host beside its wildcard — `g9.u9.lumenize.dev` and `*.g9.u9.lumenize.dev` — so that no universe wildcard is ever needed? A universe host already rides Universal SSL, and every Star and persona rides the galaxy's wildcard, so the galaxy host itself is the only name a universe wildcard would cover.
+
+**Setup**, on `lumenize.dev`, driven through the API with the account's global key; the zone had no DNS records and no routes to start:
+
+- **Pack** — one advanced pack, hosts `lumenize.dev`, `g9.u9.lumenize.dev` and `*.g9.u9.lumenize.dev`, Google Trust Services, TXT validation, 90 days. Neither name had been validated before.
+- **DNS** — one proxied `AAAA` record, `*.lumenize.dev → 100::`.
+- **Route** — `*.lumenize.dev/*` to `experiment-wildcard-hosts`, still deployed from the 2026-09-14 run.
+
+**Timing.** `pending_validation` at +15 s, `active` at **+233 s**. The 2026-09-14 run's never-validated name went active at +148 s, so the spread for a new galaxy is roughly two and a half to four minutes.
+
+**Before the pack went active**, `u9.lumenize.dev` already answered 200 on the Universal pack, and `h9.u9`, `g9.u9` and `dev.g9.u9` all failed their TLS handshake. **After:**
+
+| Host | HTTP | Certificate that answered its SNI |
+|---|---|---|
+| `g9.u9.lumenize.dev` — the galaxy | 200 | `lumenize.dev`, `g9.u9.lumenize.dev`, `*.g9.u9.lumenize.dev` |
+| `dev.g9.u9.lumenize.dev` — a Star | 200 | the same pack |
+| `manny--dev.g9.u9.lumenize.dev` — a persona | 200 | the same pack |
+| `u9.lumenize.dev` — the universe | 200 | Universal: `lumenize.dev`, `*.lumenize.dev` |
+| `h9.u9.lumenize.dev` — a sibling galaxy with no pack | handshake failure | none |
+| `x.dev.g9.u9.lumenize.dev` — one label past the wildcard | handshake failure | none |
+
+**What follows.** A galaxy needs exactly one pack and a universe needs none. The sibling galaxy failing is what shows no universe wildcard was doing the work, so each galaxy's pack names its own host. That halves the packs a single-galaxy customer costs against the zone's unpublished limit.
+
+**Checked with** `openssl s_client -servername {host}` for the certificate and `curl --resolve` against an address from `1.1.1.1`, which sidesteps a stale local `NXDOMAIN` for names that did not exist before the run.
+
+**Teardown, done from the API the same day:** the route, the DNS record and the pack are deleted. The pack sat in `pending_deletion` straight afterwards, and the Universal pack stayed `active`. `experiment-wildcard-hosts` stays for Larry's sweep.
