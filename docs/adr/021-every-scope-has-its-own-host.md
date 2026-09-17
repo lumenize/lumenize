@@ -11,7 +11,7 @@ Lumenize owns three domains — `lumenize.com`, `lumenize.io` and `lumenize.dev`
 
 Two things push against one host:
 
-1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-each-host-holds-its-own-session.md) forbids that for our cookies, even a universe admin's, who reaches a galaxy's host through `platform.lumenize.dev` instead. Studio, the apps it generates, and each persona a user-developer tests as all need cookies and storage the others cannot touch. So each needs a host of its own.
+1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-every-session-lives-on-the-platform-host.md) forbids that for our cookies, and keeps every session on `platform.lumenize.dev`. Studio, the apps it generates, and each persona a user-developer tests as all need storage the others cannot touch, and tokens for their own scope alone. So each needs a host of its own.
 2. **The outside world fixes the shapes a host can take.**
    - Google put all of `.dev` on the browsers' HSTS preload list, so every `lumenize.dev` host is HTTPS-only. A broken certificate is a dead page, not a warning.
    - A wildcard certificate matches exactly one label: `*.lumenize.dev` covers `acme.lumenize.dev` and not `crm.acme.lumenize.dev`.
@@ -25,7 +25,7 @@ The rest of this ADR says what each domain is for, how a host spells a scope, an
 
 ### What each domain is for
 
-- **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` serves login, the magic-link consume, Home (where the user chooses what scope to work in), and superusers, who are members of the `platform` scope. Every universe, galaxy, Star and persona has a host beneath it.
+- **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` holds every session and serves login, the magic-link consume, Home (where the user chooses what scope to work in), and superusers, who are members of the `platform` scope. Every universe, galaxy, Star and persona has a host beneath it.
 - **`lumenize.com` is the brand, human mail, and the package docs.** Its apex mail belongs to Google Workspace, and its apex site is today's docs and blog, whose inbound links cannot be edited. At beta it is expected to become the product's marketing site, with the `@lumenize/*` package docs staying on it at `lumenize.com/docs` or `docs.lumenize.com` (Larry, 2026-09-14).
 - **`lumenize.io` is the platform's own mail.** Nebula sends as `noreply@lumenize.io`, a Cloudflare Worker reads named inboxes such as `claude@lumenize.io`, and `personas.lumenize.io` is reserved for persona addresses.
 - **"Nebula" is retired.** It was the product's code name during development, and it appears nowhere a user can see — so `nebula.lumenize.com` retires, since a host shows in the address bar. Code identifiers keep the name, because renaming them buys a user nothing.
@@ -68,9 +68,9 @@ Today's mechanism is Cloudflare's Advanced Certificate Manager (ACM), $10 a mont
 
 **The ceiling arrives only with hundreds, likely thousands, of customers**, and Larry expects funding at that scale to make Enterprise's negotiated price a non-issue (2026-09-11).
 
-### Nothing depends on the Public Suffix List (PSL)
+### Every `lumenize.dev` host stays one site
 
-Every `lumenize.dev` host is a sibling under one registrable domain until a Public Suffix List entry makes each universe its own. The list declines projects that do not yet serve thousands of users. So **nothing we build may depend on the entry**: our cookies are safe without it ([ADR-022](022-each-host-holds-its-own-session.md)), and the entry is submitted once Lumenize qualifies.
+Every `lumenize.dev` host is a sibling under one registrable domain, so a browser treats all of them as one site. A Public Suffix List entry would make each universe a site of its own, and **we do not plan to submit one**: [ADR-022](022-every-session-lives-on-the-platform-host.md) keeps every session on `platform.lumenize.dev`, which can serve a page on another host only while both share a site. A customer who wants a site of its own gets one with its own domain.
 
 ## Alternatives considered
 
@@ -79,15 +79,15 @@ Every `lumenize.dev` host is a sibling under one registrable domain until a Publ
 - **A persona as its own label,** `manny.dev.crm.acme.lumenize.dev`. It needs a wildcard per Star, so the certificate set grows with tenants.
 - **An environment as its own label,** such as `crm.acme.dev.lumenize.dev`. A Star slug already carries the environment for nothing, and a label would stop the host being a direct spelling of the scope.
 - **Cloudflare for SaaS for every host from the start.** Rejected for the reason § *What certificates may cost* gives: below Enterprise, the certificate set would grow with tenants and personas.
-- **Studio on a registrable domain of its own,** as `nebula.lumenize.com` is today — a trusted control plane kept apart from the apps. It pairs with any of the grammars above. Rejected because the galaxy's host is where the app lives, so it serves Studio to the people building the app (Larry, 2026-09-11), and because Studio shows the app in frames: on another site every frame is third-party, and Safari blocks a third-party frame's own cookies, so no persona tab could hold a session. `__Host-` cookie names answer the cookie threat a separate domain answered. The frame problem also keeps Studio off a customer's custom domain.
+- **Studio on a registrable domain of its own,** as `nebula.lumenize.com` is today — a trusted control plane kept apart from the apps. It pairs with any of the grammars above. Rejected because the galaxy's host is where the app lives, so it serves Studio to the people building the app (Larry, 2026-09-11), and because Studio shows the app in frames: with Studio on another site, every frame's request to `platform.lumenize.dev` is third-party and Safari withholds its cookies, so no tab could get a token. `__Host-` cookie names answer the cookie threat a separate domain answered. The frame problem also keeps Studio off a customer's own domain.
 
 ## Consequences
 
 ### Positive
 
 - **A link names the scope it opens.** The host alone says universe, galaxy and Star, which is what [ADR-017](017-the-url-is-the-view-state.md) needs from a shared link.
-- **[ADR-015](015-passage-and-dominion.md)'s predicates get their scope from the address bar.** [ADR-022](022-each-host-holds-its-own-session.md) narrows a session's `authScope` to its host, so a universe admin working on `tenant1.crm.acme.lumenize.dev` holds dominion over that Star alone.
-- **Every Star and persona is its own origin**, with its own cookies and storage, so the browser keeps tenants and persona tabs apart without our code doing it.
+- **[ADR-015](015-passage-and-dominion.md)'s predicates get their scope from the address bar.** [ADR-022](022-every-session-lives-on-the-platform-host.md) narrows a token's `authScope` to its host, so a universe admin working on `tenant1.crm.acme.lumenize.dev` holds dominion over that Star alone.
+- **Every Star and persona is its own origin**, so the browser keeps their storage apart without our code doing it.
 - **Tenants, personas and environments cost no certificates.** Only universes and galaxies do.
 - **One 30-character rule covers every slug.**
 
@@ -96,10 +96,9 @@ Every `lumenize.dev` host is a sibling under one registrable domain until a Publ
 - **Creating a universe or a galaxy waits two and a half to four minutes, and nothing can pre-pay it.** A certificate names its hosts, so none can be ordered for a galaxy nobody has named yet. Orders placed together validate together, though, so a page creating a universe and its first galaxy orders both and waits once. A progress indicator on the create pages shows the wait.
 - **Certificate lifecycle becomes ours.** A deleted galaxy leaves its wildcard behind, and deletes can stall or fail transiently, so reaping retries and reconciles.
 - **The per-zone wildcard ceiling is unpublished below Enterprise.** Reaching it means an Enterprise plan (§ *What certificates may cost*).
-- **Moving between scopes is cross-origin.** Clicking from Studio into `tenant1` and then `tenant2` establishes a session on each ([ADR-022](022-each-host-holds-its-own-session.md)).
 
 ### Deliberately open
 
-- **Customer custom domains**, Beta at the soonest, and only for a Star (Larry, 2026-09-15). A universe-level domain such as `lmz.comcast.com` may come much later.
+- **Customer custom domains**, Beta at the soonest. The likely case is an app's own domain, serving the app's Stars to their members while Studio stays on `lumenize.dev`; a universe-level domain is unlikely (Larry, 2026-09-17).
 - **Whether persona addresses receive mail.** [`tasks/nebula-persona-sessions.md`](../../tasks/nebula-persona-sessions.md) § *Open questions* decides it, and `personas.lumenize.io` can go either way.
 - **Mail enforcement.** DMARC on `lumenize.com` stays at `p=none` until one posture is set across all three zones, tracked in [`tasks/backlog.md`](../../tasks/backlog.md) § *Infrastructure*.

@@ -1,6 +1,6 @@
 # Wildcard host routing — results (2026-09-14)
 
-**Question.** Does one Worker, one proxied `*.lumenize.dev` DNS record and one Workers route serve every host depth [ADR-021](../../docs/adr/021-every-scope-has-its-own-host.md) names, with a valid certificate? And do `__Host-` cookies and `Sec-Fetch-*` headers behave the way [ADR-022](../../docs/adr/022-each-host-holds-its-own-session.md) assumes?
+**Question.** Does one Worker, one proxied `*.lumenize.dev` DNS record and one Workers route serve every host depth [ADR-021](../../docs/adr/021-every-scope-has-its-own-host.md) names, with a valid certificate? And do `__Host-` cookies and `Sec-Fetch-*` headers behave the way [ADR-022](../../docs/adr/022-every-session-lives-on-the-platform-host.md) assumes?
 
 **Setup**, on `lumenize.dev` (Free Website zone, Advanced Certificate Manager on):
 
