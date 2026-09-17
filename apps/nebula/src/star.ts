@@ -136,9 +136,8 @@ export class Star extends NebulaDO {
    * `claim-star` self-signup needs no special machinery: the claimer's `authScope` IS this Star, so it
    * satisfies this gate on their first authenticated touch.
    *
-   * ⚠️ Keep this predicate when the seed lifts to the DataPlane
-   * (tasks/on-hold/nebula-dataplane-root-admin.md), which moves it onto hosts that are NOT leaves —
-   * on a non-leaf host a containment form would let a descendant's admin seed an ancestor.
+   * ⚠️ Keep this predicate if the seed ever moves onto hosts that are NOT leaves — on a non-leaf
+   * host a containment form would let a descendant's admin seed an ancestor.
    */
   onBeforeCall() {
     super.onBeforeCall() // locks the active scope (aud) on first call

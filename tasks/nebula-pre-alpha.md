@@ -18,7 +18,7 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
-| — | **The scope moves from a URL segment to a subdomain** — every scope its own host ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)), each host its own session ([ADR-022](../docs/adr/022-each-host-holds-its-own-session.md)), and the certificate wait shown on the pages that create a scope | [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) — not started; ② waits on it | **data** |
+| — | **The scope moves from a URL segment to a subdomain** — every scope its own host ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)), every session on the platform host ([ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md)), and the certificate wait shown on Galaxy create | [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) — not started; ② waits on it | **data** |
 | ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1 complete; Stage 1 run and every question answered 2026-09-08/09, verdicts in its § *Pinned*. Pass 2 writes the phases | deploy |
 | — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
 | ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
@@ -86,7 +86,7 @@ Manual: registry-resolve the user's `{u}` → a super-admin delegated token → 
 
 ## The superuser join scenario
 
-Both halves are driven separately: the front door by `superuser-front-door.ts` (the platform membership mints at the consume, behind proof, so a superuser arrives through the ordinary scope-less login), impersonation by `impersonation-lifecycle.ts`. Unproven is that they compose — one scenario chaining superuser login → Home → platform scope → impersonate a pre-alpha user, which is exactly the coaching session. If it turns up gaps, that is when a child task file earns its existence, and not before.
+Both halves are driven separately: the front door by `superuser-front-door.ts` (the platform membership mints at the consume, behind proof, so a superuser arrives through the ordinary scope-less login), impersonation by `impersonation-lifecycle.ts`. Unproven is that they compose — one scenario chaining superuser login → Home → the pre-alpha user's host → impersonate them there, which is exactly the coaching session. If it turns up gaps, that is when a child task file earns its existence, and not before.
 
 ## Shared pages
 
@@ -102,7 +102,7 @@ It also decides how the slug cap lands. [the domain-allocation record](archive/d
 
 ## The certificate wait
 
-Folded into [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) on 2026-09-15 (Larry): its § *Design intent, constraints, and future state* carries the wait and its progress indicator, and leaves certificate deletion to the soft-delete reaper.
+Folded into [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) on 2026-09-15 (Larry): its § *Design intent, constraints, and future state* carries the wait on Galaxy create and its count-up, and leaves certificate deletion to the soft-delete reaper.
 
 ## ⑥ The wipe
 
@@ -112,7 +112,8 @@ One CF-dashboard worker-delete + redeploy, deliberately one and not two. Greenfi
 
 **Ops at the deploy:**
 
-- **Secrets.** `deploy.sh`'s preflight refuses to deploy without `NEBULA_AUTH_BOOTSTRAP_EMAIL`, the JWT key pair and `RESEND_API_KEY`, and prints the exact command. `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` seeds the super-admin. ⚠️ **Production's JWT pair is generated for production and set only as its own secrets, never copied from `.dev.vars`** — that template already labels its keys *"test keys - not for production"*, and sharing them lets an admin token minted on the test target or a local stack verify here ([nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) § *Sessions*). The hint the preflight prints copies from `.dev.vars` today, so it changes with the key. Every other value still comes from that file; [backlog.md](backlog.md) § *Infrastructure* is where that stops being ad hoc. What stays open on email is in [backlog.md](backlog.md) § *Nebula Auth*, the Resend rows.
+- **Secrets.** `deploy.sh`'s preflight refuses to deploy without `NEBULA_AUTH_BOOTSTRAP_EMAIL`, the JWT key pair and `RESEND_API_KEY` — and, once the subdomain build lands, `CERTIFICATE_API_TOKEN` — and prints the exact command. `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` seeds the super-admin. ⚠️ **Production's JWT pair and its certificate token are production's own, set only as its secrets and never copied from `.dev.vars`.** That template already labels its keys *"test keys - not for production"*, and sharing them lets an admin token minted on the test target or a local stack verify here. `.dev.vars` also holds the test zone's certificate token, which would order packs on the wrong zone ([nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) § *Decisions*). The hint the preflight prints copies from `.dev.vars` today, so it changes for those values. Every other value still comes from that file; [backlog.md](backlog.md) § *Infrastructure* is where that stops being ad hoc. What stays open on email is in [backlog.md](backlog.md) § *Nebula Auth*, the Resend rows.
+- **DNS and certificates, after the worker-delete.** Production's `CERTIFICATE_ZONE_ID` var, and proxied `*.lumenize.dev` and apex records on `lumenize.dev`, whose Advanced Certificate Manager has been on since 2026-09-11. Each step is outward-facing ([nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) § *Constraints* carries the test zone's matching list).
 - **`wrangler containers delete` the retired `nebula-devcontainer` application** (still listed on the account, 2026-09-03). A dashboard worker-delete removes DO namespaces, not container applications, and this cannot be a phase criterion because it fires after a deploy that happens long after `/build-task` ends.
 - **Smoke:** a real-CF KV login → refresh across colos. A KV miss falls back to the registry's `RefreshTokenIndex`, a deliberately live path.
 
@@ -179,11 +180,11 @@ After pre-alpha ships (Larry, 2026-09-02); the old trigger, "after the collapse"
 
 Don't re-derive these; the code is the authority.
 
-- **Super-admin** is an ordinary membership at the reserved `nebula-platform` scope, and that scope is the ROOT of the scope tree — so dominion everywhere is the downward rule applied from the top, one branch inside `isAtOrAbove` and never a special arm at a call site. Driven by `superuser-front-door.ts` and `superuser-end-to-end.ts`.
-- **Impersonation** is `POST {prefix}/mint-narrower-token` (RFC-8693 `act.sub`, recursive chain, audited), reached from the client as `impersonate(sub, activeScope)`. Act-as downscopes automatically because DAG checks key off the delegated token's `sub`, never `act`.
-- **A galaxy-tier invite is not missing capability.** A universe admin's `{u}.*` already covers `{u}.{g}` and beneath, and nobody can authenticate AT a Galaxy (no identity row can exist at a 2-segment scope), so callers authenticate at the universe and name the galaxy in `activeScope`.
+- **Super-admin** is an ordinary membership at the reserved platform scope, `PLATFORM_SCOPE`, and that scope is the ROOT of the scope tree — so dominion everywhere is the downward rule applied from the top, one branch inside `isAtOrAbove` and never a special arm at a call site. Driven by `superuser-front-door.ts` and `superuser-end-to-end.ts`.
+- **Impersonation** is one mint endpoint (RFC-8693 `act.sub`, recursive chain, audited), reached from the client as `NebulaClient.impersonate`. Act-as downscopes automatically because DAG checks key off the delegated token's `sub`, never `act`.
+- **A galaxy-tier invite mints a membership at the galaxy itself, and a second at its `.dev` workspace.** The invitee authenticates at the galaxy, and one acceptance takes up both. The workspace membership's admin bit is the inviter's dominion verdict, so a peer's invite enrolls the invitee without it. `issueInvites` in `nebula-auth-registry.ts`; driven by `four-party-chat.ts`.
 - **Enumerate-all-users** is `NebulaAuthRegistry`, the singleton with the global email → scope index.
-- **The `onBeforeCall` passage guard** is `requirePassage(name, claims)` in `nebula-do.ts`, one audit point on every Nebula node — what lets the inspection instrument and a support engineer read, write and admin anywhere with one identity. The DataPlane root-admin seed needs an exact-star `authScope`, so a covering admin first-touching a fresh Star leaves no durable grant behind ([on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md)).
+- **The `onBeforeCall` passage guard** is `requirePassage(name, claims)` in `nebula-do.ts`, one audit point on every Nebula node — what lets the inspection instrument and a support engineer read, write and admin anywhere with one identity.
 
 ## Caveats
 

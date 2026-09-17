@@ -2,7 +2,7 @@
 
 > ✅ **Phase 1 LANDED 2026-09-02 — pulled forward for a second consumer, with one field amended (`origin`, below).** `NebulaAuthFacade` used to mint invite links against `NEBULA_AUTH_ISSUER` because a mesh call has no request URL to read an origin from — so every invite a LOCAL stack emailed pointed at production, the same class of bug a hand-driven magic link exposed that day. `callContext.originRequest` was exactly the missing input: the Gateway stamps the upgrade's `origin` (what routing delivered, never a client header — an attacker-chosen origin in an emailed login link is an account-takeover vector, which is why it is read from the Trust DMZ and nowhere else), and the facade now mints from it with the issuer as the fallback for chains no client originated. That deleted the last two compensating helpers in the test lanes, `pointInviteLinkAt` and `pointAtOrigin`; every emailed link is now followed AS SENT in every lane. All four Phase 1 criteria are in `packages/mesh/test/lumenize-client-gateway.test.ts` § *originRequest*, three of them mutation-validated (the origin line and the inherit-path spread each red the tests that claim them). **Phases 2 (`locationHint`) and 3 (docs) stay on hold** — the `CallContext` docs page owes an `originRequest` row when Phase 3 runs.
 
-**Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry); **Phase 1 BUILT 2026-09-02** (see the banner), Phases 2–3 on hold. Its original consumer — [nebula-dataplane-root-admin.md](nebula-dataplane-root-admin.md) Part 1b (place the Star near the tenant) — was DEFERRED 2026-06-15, so there's no immediate driver. Pick up when a real pre-create provisioning entry point lands.
+**Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry); **Phase 1 BUILT 2026-09-02** (see the banner), Phases 2–3 on hold. Its original consumer — placing a Star near its founder, § *Star placement — the first consumer, deferred* — was DEFERRED 2026-06-15, so there's no immediate driver. Pick up when a real pre-create provisioning entry point lands.
 
 **The placement fact that motivates the `locationHint` half (recorded 2026-08-20):** a Star is placed near its *founder* at provisioning and Cloudflare never migrates it toward its traffic — an admin in Philadelphia founds a Star and members in Sydney talk to Philadelphia forever. Today no user-serving DO is placed by anything a link scanner can reach (the magic-link consume path's invariant — `consumeAndLogin`'s JSDoc in `packages/nebula-auth/src/worker-token.ts`), so founder-placement is the only placement unfairness in the system, and `CallOptions.locationHint` is its lever.
 
@@ -95,6 +95,15 @@ Top-level `originRequest?: OriginRequest`, parallel to `originAuth` ([types.ts:3
 
 - [ ] Mesh docs: extend the page that documents `CallContext`/`originAuth` (managing-context) with `originRequest` (incl. staleness + trust notes) and the calls/options page with `locationHint` semantics (first-creation-only, best-effort, overrides caller proximity).
 - [ ] JSDoc on all new surface mirrors the pinned semantics; `@check-example` where examples are testable.
+
+## Star placement — the first consumer, deferred
+
+Mined 2026-09-16 from the removed `nebula-dataplane-root-admin.md` Part 1b, deferred there on 2026-06-15. **The first authenticated call to a Star creates it, and that call arrives through the Gateway**, so the Gateway pins a new Star near whoever touches it first. Two places that look as though they could choose the placement cannot:
+
+- **Code inside the Star,** such as `onBeforeCall` reading `cfToLocationHint(callContext.originRequest?.cf)`, runs after placement is already pinned.
+- **A hint written to the Registry at `claimStar`** has no reader, because `claimStar` never touches the Star and the Gateway never consults the Registry.
+
+So only the Gateway can place a Star, by computing `cfToLocationHint(attachment.originRequest?.cf)` and passing it to the `getByName` that creates the Star — the first note below. **Revisit when** self-signup gains an entry point that provisions a Star before its first touch; the placement decision then belongs to the first `getByName` that creates the Star, never to code inside it.
 
 ## Notes / future (not v1)
 
