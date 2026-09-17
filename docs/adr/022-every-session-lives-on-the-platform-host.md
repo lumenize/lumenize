@@ -7,21 +7,21 @@
 
 ## Context
 
-[ADR-021](021-every-scope-has-its-own-host.md) gives every scope its own host, and one sitting touches many of them. A user-developer opens Studio at `crm.acme.lumenize.dev`. Its as-you dev tab shows the app at `dev.crm.acme.lumenize.dev`, persona tabs run at `manny--dev.crm.acme.lumenize.dev`, and a tenant link opens `tenant1.crm.acme.lumenize.dev`.
+[ADR-021](021-every-scope-has-its-own-host.md) gives every scope its own host, and one sitting can touch many of them. A user-developer opens Studio at `crm.acme.lumenize.dev`. Its as-you dev tab shows the app at `dev.crm.acme.lumenize.dev`, persona tabs run at `manny--dev.crm.acme.lumenize.dev`, and a tenant link opens `tenant1.crm.acme.lumenize.dev`.
 
-Each of those pages needs an access token for its own scope, and **no page may get a token for another host**. A token shared across tabs is what lets one persona's login overwrite another's, and lets code on one host act as whoever is signed in on another.
+Each of those pages needs an access token for its own scope, and **no page may get an access token for another host**. Otherwise code on one host acts as whoever is signed in on another, and one persona's tab acts as another persona.
 
-**A page needs no session to load.** The Worker serves an app's `index.html` to anyone, and `NebulaClient` fetches everything behind it with an access token. So the client, not the page request, discovers a missing session.
+**A page needs no session to load.** The Worker serves any page's HTML to anyone, an app's `index.html` and the platform host's pages alike. What sits behind it needs a credential: an access token on a scope host, a login cookie on the platform host. So the client, not the page request, discovers a missing session.
 
 Three browser facts shape the answer:
 
-1. **A browser picks the cookies for a request by the URL it goes to, not by the page that sends it.** A `fetch` from `crm.acme.lumenize.dev` to `platform.lumenize.dev` carries the platform host's cookies, as long as the two are one site.
-2. **Every `lumenize.dev` host is one site.** A site is a registrable domain, and `SameSite` and third-party cookie blocking compare sites, not hosts. Across sites they apply: from a page on a customer's own domain, the same `fetch` carries a third-party cookie, which Safari blocks and Firefox partitions.
+1. **A browser picks the cookies for a request by the URL the request goes to, not by the page that sends it.** A `fetch` from `crm.acme.lumenize.dev` to `platform.lumenize.dev` carries the platform host's cookies, as long as the two are one site.
+2. **Every `lumenize.dev` host is one site, so no such `fetch` is cross-site.** A site is a registrable domain, and `SameSite` and third-party cookie blocking compare sites, not hosts. They bite only across sites: from a page on a customer's own domain, that same `fetch` carries a third-party cookie, which Safari blocks and Firefox partitions.
 3. **Page JavaScript cannot set `Origin`.** A server can trust it to name the page that sent the request.
 
-The rest of this ADR says where sessions live, how a page gets a token, the cookie rules, what a token carries, how a persona's host gets one, and how a customer's own domain fits.
+The rest of this ADR says where sessions live, how a page gets a token, the cookie rules, what a token carries, and how persona hosts and customer domains fit.
 
-> **Today's code differs.** None of this is built. One host, `nebula.lumenize.com`, serves every scope. A login deposits one `refresh-token` cookie per membership at `Path=/auth/{scope}`. The client refreshes at `POST /auth/{authScope}/refresh-token` with `activeScope` in the body, and learns `authScope` from a localStorage hint. No cookie carries the `__Host-` prefix, no endpoint reads a `Sec-Fetch-*` header or mints by `Origin`, the preview runs generated code on Studio's origin, and no persona exists. `.claude/rules/security.md` still describes today's cookie.
+> **Today's code differs.** None of this is built. One host, `nebula.lumenize.com`, serves every scope. A login deposits one `refresh-token` cookie per membership at `Path=/auth/{scope}`. The client refreshes at `POST /auth/{authScope}/refresh-token` with `activeScope` in the body, and learns `authScope` from a localStorage hint. No cookie carries the `__Host-` prefix, no endpoint reads a `Sec-Fetch-*` header or mints by `Origin`, and the preview runs generated code on Studio's origin. `.claude/rules/security.md` still describes today's cookie.
 
 ## Decision
 
@@ -40,7 +40,7 @@ The rest of this ADR says where sessions live, how a page gets a token, the cook
 
 **A frame gets its token the same way.** Each tab in Studio's strip is a frame on its own `lumenize.dev` host, so its `fetch` to the platform host is same-site and carries the same cookies.
 
-**Checking `return_to` is most of the login's security story.** It must be HTTPS and name a host on the platform host's site that the lookup turns into a scope. Because the client builds it from `location.href`, it keeps the fragment after `#` that a server redirect never sees.
+**Checking `return_to` is most of the login's security story.** It must be HTTPS and name a host on the platform host's site that the lookup turns into a scope. Built from `location.href`, it keeps the fragment after `#` that a server redirect never sees.
 
 ### The cookie rules
 
@@ -48,7 +48,7 @@ The rest of this ADR says where sessions live, how a page gets a token, the cook
 - **Login cookies are `SameSite=Lax`**, so a person arriving at Home from an email or another site is recognised.
 - **Every `POST` to `/auth/` requires `Sec-Fetch-Site: same-origin`, except the refresh.** The refresh serves every page on the site, so it also accepts `same-site`, and requires an `Origin` the lookup turns into a scope. CORS naming exactly that origin keeps any other page from reading the answer. A request without `Sec-Fetch-*` headers is allowed, unless it is a `POST` whose `Origin` the route would refuse.
 - **Each login cookie is backed by a Workers KV record.** On a KV hit a refresh reads nothing else, so refreshes put no load on the singleton Registry ([ADR-018](018-singleton-is-the-scarce-resource.md)).
-- **No cookie reaches a Durable Object.** A request forwarded to a Durable Object carries a token as `Authorization: Bearer`, as the WebSocket upgrade does, and the Worker drops `Cookie` first.
+- **No cookie reaches a Durable Object.** A request forwarded to one carries a token as `Authorization: Bearer`, as the WebSocket upgrade does, and the Worker drops `Cookie` first.
 
 ### What a token carries
 
@@ -92,11 +92,11 @@ The rest of this ADR says where sessions live, how a page gets a token, the cook
 
 ### Positive
 
-- **A page gets a token only for its own host, whichever page asks.** Generated code on a tenant host gets the token that host's page would get, and nothing else.
+- **A page gets a token only for its own host, whichever page asks.** Generated code on a tenant host gets that host's token and nothing else.
 - **Lateral movement is refused at the refresh.** A membership in another branch of the scope tree reaches no host there, so reaching a host takes a membership or dominion there ([ADR-015](015-passage-and-dominion.md)).
 - **Moving between hosts costs no redirect.** A page on a host the person has never visited gets its token on its first refresh.
 - **A shared link survives login**, fragment included, even when the magic link opens in another browser.
-- **The client stops naming its session's scope**, and the localStorage hint and return-to go away.
+- **The client stops naming its session's scope**, and the localStorage hint goes away.
 - **Generated preview code leaves Studio's origin.**
 
 ### Negative / mitigations
@@ -106,7 +106,7 @@ The rest of this ADR says where sessions live, how a page gets a token, the cook
 - **All of `lumenize.dev` shares one cookie jar.** A generated app can fill it and push login cookies out, signing people out — a nuisance, never a takeover.
 - **Requests to the platform host carry every login cookie**, because `__Host-` fixes `Path=/`. They are `HttpOnly` and never logged.
 - **A person signs in once per site**, so an app's own domain asks its Star members to sign in there.
-- **A brand-new persona's first tab can wait**, usually under a minute, if it looks before its KV record reaches that location; Studio opens a persona's tab only after provisioning returns, which keeps that rare.
+- **A brand-new persona's first tab can wait**, usually under a minute, if it looks before its KV record arrives there; Studio opens a persona's tab only after provisioning returns, which keeps it rare.
 - **`security.md`'s case against refresh-token rotation loses a leg**, because login cookies are `Lax`. Rotation stays forbidden, and its rationale needs re-deriving.
 
 ### Deliberately open
