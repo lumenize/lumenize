@@ -11,7 +11,7 @@ Lumenize owns three domains — `lumenize.com`, `lumenize.io` and `lumenize.dev`
 
 Two things push against one host:
 
-1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-every-session-lives-on-the-platform-host.md) forbids that for our cookies, and keeps every session on `platform.lumenize.dev`. Studio, the apps it generates, and each persona a user-developer tests as all need storage the others cannot touch, and tokens for their own scope alone. So each needs a host of its own.
+1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-every-session-lives-on-the-platform-host.md) forbids that for our cookies and keeps all of them on `platform.lumenize.dev`, which gives each page a token for the host it runs on. Studio, the apps it generates, and each persona a user-developer tests as all need storage the others cannot touch, and tokens for their own scope alone. So each needs a host of its own.
 2. **The outside world fixes the shapes a host can take.**
    - Google put all of `.dev` on the browsers' HSTS preload list, so every `lumenize.dev` host is HTTPS-only. A broken certificate is a dead page, not a warning.
    - A wildcard certificate matches exactly one label: `*.lumenize.dev` covers `acme.lumenize.dev` and not `crm.acme.lumenize.dev`.
@@ -27,7 +27,7 @@ The rest of this ADR says what each domain is for, how a host spells a scope, an
 
 - **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` holds every session and serves login, the magic-link consume, Home (where the user chooses what scope to work in), and superusers, who are members of the `platform` scope. Every universe, galaxy, Star and persona has a host beneath it.
 - **`lumenize.com` is the brand, human mail, and the package docs.** Its apex mail belongs to Google Workspace, and its apex site is today's docs and blog, whose inbound links cannot be edited. At beta it is expected to become the product's marketing site, with the `@lumenize/*` package docs staying on it at `lumenize.com/docs` or `docs.lumenize.com` (Larry, 2026-09-14).
-- **`lumenize.io` is the platform's own mail.** Nebula sends as `noreply@lumenize.io`, a Cloudflare Worker reads named inboxes such as `claude@lumenize.io`, and `personas.lumenize.io` is reserved for persona addresses.
+- **`lumenize.io` is the platform's own mail.** Nebula sends as `noreply@lumenize.io`, a Cloudflare Worker reads named inboxes such as `claude@lumenize.io`, and `personas.lumenize.io` holds persona addresses, which receive no mail ([ADR-022](022-every-session-lives-on-the-platform-host.md) § *A persona's host*).
 - **"Nebula" is retired.** It was the product's code name during development, and it appears nowhere a user can see — so `nebula.lumenize.com` retires, since a host shows in the address bar. Code identifiers keep the name, because renaming them buys a user nothing.
 - **There is no fourth domain a user sees.** `lumenize.ai`, `lumenize.app`, `lumenize.org` and `lumenize.net` are all taken. `lumenize-test.dev` carries only test traffic, pages and mail.
 
@@ -100,5 +100,4 @@ Every `lumenize.dev` host is a sibling under one registrable domain, so a browse
 ### Deliberately open
 
 - **Customer custom domains**, Beta at the soonest. The likely case is an app's own domain, serving the app's Stars to their members while Studio stays on `lumenize.dev`; a universe-level domain is unlikely (Larry, 2026-09-17).
-- **Whether persona addresses receive mail.** [`tasks/nebula-persona-sessions.md`](../../tasks/nebula-persona-sessions.md) § *Open questions* decides it, and `personas.lumenize.io` can go either way.
 - **Mail enforcement.** DMARC on `lumenize.com` stays at `p=none` until one posture is set across all three zones, tracked in [`tasks/backlog.md`](../../tasks/backlog.md) § *Infrastructure*.
