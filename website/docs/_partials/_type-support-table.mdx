@@ -18,8 +18,8 @@
 | ArrayBuffer | ✅ | ✅ | ✅ | ✅ | |
 | Uint8Array | ✅ | ✅ | ✅ | ✅ | |
 | **Errors** | | | | | |
-| Error (thrown) | ✅ | N/A | ⚠️ | ✅ | Cap'n Web loses a custom name and the remote stack |
-| Error (value) | ✅ | ⚠️ | ⚠️ | ✅ | Cap'n Web loses a custom name and the original stack |
+| Error (thrown) | ⚠️ | N/A | ⚠️ | ✅ | Workers RPC and Cap'n Web lose the remote stack; Cap'n Web also loses a custom name |
+| Error (value) | ⚠️ | ✅ | ⚠️ | ✅ | Workers RPC and Cap'n Web lose the original stack; Cap'n Web also loses a custom name |
 | **Web API Types** | | | | | |
 | Request | ✅ | ❌ | ✅ | ❌ | Lumenize: use `RequestSync` |
 | Response | ✅ | ❌ | ✅ | ❌ | Lumenize: use `ResponseSync` |
@@ -34,6 +34,7 @@
 **Notes:**
 
 - **→ Arrows:** the left side is what the current release does, and the right side is where it is heading. Workers RPC plans to drop cycles and aliases, and Cap'n Web's `RegExp` support is merged but not yet released. The Cap'n Web column reflects capnweb 0.12.0, and a [test](https://github.com/lumenize/lumenize/blob/main/doc-test/rpc/capn-web-comparison-basics-and-types/test/type-support-table.test.ts) re-checks every cell in it against the installed version.
+- **⚠️ Errors before compatibility date 2026-04-21:** the Workers RPC and DO Storage cells assume that date or later, when the `enhanced_error_serialization` flag turns on by default. Before it, both drop a custom error's `name` and custom properties, and a thrown one arrives as a plain `Error` with its class name inside the message (`"CustomError: boom"`) and no `cause`.
 - **⚠️ Map/Set with Object Keys/Values:** While `Map` and `Set` are fully supported, object identity behavior depends on serialization boundaries:
   - **Identity preserved**: Within a single RPC call (Workers RPC, `@lumenize/rpc`) or single `stringify()`/`parse()` cycle
   - **Identity lost**: Across separate storage operations (DO Storage `put()`/`get()`)
