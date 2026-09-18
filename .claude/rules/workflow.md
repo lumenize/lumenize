@@ -108,7 +108,10 @@ You MUST score each candidate on this, and MUST say so when you recommend:
 - `npm install` — install + `postinstall` (symlinks `.dev.vars` and `cloudflare-test-env.d.ts` into packages)
 - `npm run types` — generate `worker-configuration.d.ts` for all packages; **run before writing code that uses `Env`**
 - `npm run type-check` — TypeScript check across packages
-- `npm test` — code tests + doc-example validation; `npm run test:code` — vitest only; `npm run test:doc` — validate doc code examples
+- `npm test` — `test:code`, then `test:doc`
+- `npm run test:code` — every workspace's own `test` script (`scripts/test-code.sh`)
+- `npm run test:doc` — the legacy `doc-test/` suites `scripts/test-doc.sh` lists; advisory, it always exits 0
+- **None of these checks a doc's `@check-example` blocks.** That is `cd website && npm run check-examples` (`documentation.md` § *Documentation workflow*), which the website build also runs.
 
 ## Dependencies
 - **You MUST ask before installing any npm package.** Copy-paste-with-attribution SHOULD be favored over a dependency for <1000 SLOC (add an entry to `ATTRIBUTIONS.md` *and* a comment above the copied code).
