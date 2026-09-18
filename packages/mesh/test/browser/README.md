@@ -57,7 +57,7 @@ The Vite plugin proxies `/worker/*` → wrangler-dev via an env var resolved per
    },
    ```
 4. **Author `test/browser/global-setup.ts`** mirroring this directory's. Spawn `wrangler dev` against your test worker, set `process.env.WRANGLER_PROXY_TARGET` to its announced URL, `project.provide('wranglerBaseUrl', '/worker')`.
-5. **Author `test/browser/worker/wrangler.jsonc` + `index.ts`** mirroring whatever your package's getting-started doc shows. Keep `from = 'auth@nebula.lumenize.com'` (or another verified sending domain) on `AuthEmailSender` if you want real email; otherwise use `LUMENIZE_AUTH_TEST_MODE=true` to get the magic-link in the response body directly.
+5. **Author `test/browser/worker/wrangler.jsonc` + `index.ts`** mirroring whatever your package's getting-started doc shows. Use `from = 'test@lumenize.io'` (or an address on another domain onboarded for Email Sending — a sender on any other domain drops silently, and the login then waits out the test timeout) on `AuthEmailSender` if you want real email; otherwise use `LUMENIZE_AUTH_TEST_MODE=true` to get the magic-link in the response body directly.
 6. **Author your test files**:
    - `test/<your-client>-browser.test.ts` for bundle + instantiate.
    - `test/browser/<your-flow>-browser.test.ts` for the full e2e if you want runtime coverage too.

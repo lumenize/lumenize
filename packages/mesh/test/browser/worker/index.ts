@@ -1,8 +1,8 @@
 /**
  * Browser-test worker for @lumenize/mesh — mirrors the documented
  * getting-started.mdx pattern verbatim, with a single override: the
- * `AuthEmailSender.from` address (overridden so emails route through the
- * lumenize.com domain Larry has onboarded to Cloudflare Email Sending).
+ * `AuthEmailSender.from` address (overridden to a `lumenize.io` address,
+ * a domain onboarded to Cloudflare Email Sending).
  *
  * Everything else — the `createAuthRoutes` + `createRouteDORequestAuthHooks`
  * + `routeDORequest(prefix:'gateway', ...authHooks)` composition, the
@@ -32,12 +32,13 @@ export { SpellCheckWorker, type SpellFinding } from '../../for-docs/getting-star
 
 /**
  * Test-only email sender. Differs from the getting-started example only in
- * the `from` address — Larry has `lumenize.com` onboarded for Cloudflare
- * Email Sending; `auth@example.com` (the example in the doc) wouldn't
- * actually deliver.
+ * the `from` address — `lumenize.io` is onboarded for Cloudflare Email
+ * Sending; `auth@example.com` (the example in the doc) wouldn't actually
+ * deliver. A sender on a domain that isn't onboarded drops silently, and
+ * the magic-link login then waits out the test timeout.
  */
 export class AuthEmailSender extends AuthEmailSenderBase {
-  from = 'auth@nebula.lumenize.com';
+  from = 'test@lumenize.io';
 }
 
 // Module-top-level construction mirrors `getting-started.mdx § Step 6`

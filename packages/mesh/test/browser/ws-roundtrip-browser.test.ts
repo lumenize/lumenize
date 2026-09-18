@@ -7,8 +7,8 @@
  * documented `EditorClient`, and auth goes through a real magic-link email
  * (Cloudflare Email Sending → Email Routing → deployed `email-test`
  * worker). The only deviations from production are:
- *  - `AuthEmailSender.from` is `auth@nebula.lumenize.com` (a verified
- *    sending domain on this account) instead of `auth@example.com`.
+ *  - `AuthEmailSender.from` is `test@lumenize.io` (a verified sending
+ *    domain on this account) instead of `auth@example.com`.
  *  - No Turnstile gating (Turnstile is documented as optional, Step 9).
  *
  * Why this exists: the `@lumenize/debug` regression slipped past
