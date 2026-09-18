@@ -44,7 +44,7 @@ import { NebulaEmailSender } from '@lumenize/nebula-auth';
 
 /**
  * Test-harness email sender — overrides production NebulaEmailSender's
- * `from` (`auth@nebula.lumenize.com`) to `auth@test.lumenize.com`.
+ * `from` (`noreply@lumenize.io`) to `auth@test.lumenize.com`.
  *
  * Why: this harness selects **Resend** (`EMAIL_PROVIDER: resend` in
  * wrangler.jsonc, no `send_email` binding), so the from-domain must be

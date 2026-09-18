@@ -104,16 +104,14 @@ export class NebulaEmailSender extends WorkerEntrypoint {
   replyTo?: string;
 
   /**
-   * The from-address is env-configurable via `AUTH_EMAIL_FROM`. Default is the
-   * verified `noreply@lumenize.io` — a pre-alpha stopgap (`lumenize.io` is verified
-   * on BOTH Cloudflare Email Sending and Resend, so mail actually sends; an
-   * unverified from-domain is silently dropped by CF / rejected by Resend). The
-   * brand-aligned target is `noreply@nebula.lumenize.com` (matches the app origin +
-   * JWT issuer); it's now Resend-verified — the switch + its DMARC record are tracked
-   * in `tasks/backlog.md` (§ Nebula email sender domain). A test harness / `wrangler
-   * dev` lane overrides this to `test@lumenize.io` so the deployed email-test Worker
-   * catches the round-trip. (`env` is `any` because it reads one optional var and must
-   * not couple to any one consumer's generated `Env`.)
+   * The from-address is env-configurable via `AUTH_EMAIL_FROM`. Default is
+   * `noreply@lumenize.io` — `lumenize.io` is the platform's own mail domain (ADR-021),
+   * verified on BOTH Cloudflare Email Sending and Resend, so mail actually sends; an
+   * unverified from-domain is silently dropped by CF / rejected by Resend. A lane may
+   * override it with another verified sender; the deployed email-test Worker catches
+   * test mail by its RECIPIENT (`*@lumenize-test.dev`), whatever the sender. (`env` is
+   * `any` because it reads one optional var and must not couple to any one consumer's
+   * generated `Env`.)
    */
   constructor(ctx: ExecutionContext, env: any) {
     super(ctx, env);

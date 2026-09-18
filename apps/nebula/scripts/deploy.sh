@@ -63,11 +63,11 @@ done
 echo "▸ Building the Studio SPA (vite build → ../nebula-studio-ui/dist)"
 ( cd ../nebula-studio-ui && npx vite build )
 
-# Eyeball the magic-link from-address against the CF verified-senders list (B2). The code default
-# `auth@nebula.lumenize.com` is NOT a verified CF sender — CF silently DROPS mail from it.
+# Eyeball the magic-link from-address before it ships. Prod sends through Resend (step 4), so it
+# must be a Resend-verified sender or every login email is rejected.
 EMAIL_FROM=$(grep -oE '"AUTH_EMAIL_FROM"[[:space:]]*:[[:space:]]*"[^"]*"' wrangler.jsonc \
   | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/' | head -1)
-echo "▸ AUTH_EMAIL_FROM resolves to: ${EMAIL_FROM:-<UNSET — defaults to UNVERIFIED auth@nebula.lumenize.com; mail will silently drop>}"
+echo "▸ AUTH_EMAIL_FROM resolves to: ${EMAIL_FROM:-<UNSET — falls back to the code default noreply@lumenize.io>}"
 
 # 4. Deploy (also builds + pushes the DevContainer image) with the build stamp from step 1.
 #    NO `--dry-run` preflight — it HANGS on the full worker (0% CPU, >10 min; the heavy remote

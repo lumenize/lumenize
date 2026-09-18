@@ -47,9 +47,8 @@
   //   - `wrangler dev` / the /live harness: the EMAIL binding below → Cloudflare Email Sending
   //     (`remote: true` proxies to the real service during dev), landing in the `*@lumenize-test.dev`
   //     catch-all the email-test Worker reads.
-  // The from-address is env-configurable via AUTH_EMAIL_FROM (default auth@nebula.lumenize.com);
-  // test/dev harnesses override it to a VERIFIED domain (test@lumenize.io) — an unverified
-  // sender is silently dropped (CF) / rejected (Resend).
+  // The from-address comes from AUTH_EMAIL_FROM in `vars` below. A lane that overrides it must
+  // still name a VERIFIED sender — an unverified one is silently dropped (CF) / rejected (Resend).
   "services": [
     { "binding": "AUTH_EMAIL_SENDER", "service": "nebula", "entrypoint": "NebulaEmailSender" },
     // The mesh-speaking facade for authenticated-session Registry mutations (invites). Clients and
@@ -204,11 +203,10 @@
     // pathnames only, never tokens/JWTs/links/full-URLs). Revisit at alpha/public for log volume +
     // cost, and to scope it down. Emails/subs are identifiers (not secrets) and may be logged.
     "DEBUG": "auth,nebula-auth,nebula,mesh,routing",
-    // Magic-link / invite from-address. MUST be a CF-verified Email Sending sender or CF SILENTLY
-    // DROPS the mail. The shared nebula-auth code default (`auth@nebula.lumenize.com`) is NOT
-    // verified; `lumenize.io` IS, so send from it (no DNS work). The app ORIGIN + JWT issuer stay
-    // `nebula.lumenize.com`; only the email sender rides the verified `lumenize.io` until CF
-    // subdomain email support lands (→ tasks/backlog.md § Nebula Auth). B2, nebula-release-process.md.
+    // Magic-link / invite from-address — `lumenize.io` is the platform's own mail domain (ADR-021).
+    // It MUST stay verified on both providers (CF Email Sending for the local lanes, Resend for
+    // prod): CF SILENTLY DROPS mail from an unverified sender, and Resend rejects it. Same value as
+    // the nebula-auth code default, so a lane that drops this var still sends.
     "AUTH_EMAIL_FROM": "noreply@lumenize.io",
     // Comma-separated origins allowed to call this Worker from a browser.
     // ⚠️ Empty disables the server-side Origin check ENTIRELY — it is NOT "same-origin
