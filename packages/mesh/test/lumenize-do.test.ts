@@ -451,6 +451,25 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         });
       });
 
+      // A result the wire refuses must reach the handler as an error. Before, the encode threw
+      // inside the callee's detached tail, so the handler never ran and the caller waited forever.
+      it.each([
+        ['weakmap', 'Could not serialize object of type "WeakMap". Convert it to a plain value first.'],
+        ['response', 'Cannot serialize native Response object. Use ResponseSync instead.'],
+      ])('delivers an unencodable %s result to the handler as a DataCloneError', async (kind, detail) => {
+        const caller = env.TEST_DO.getByName(`unencodable-caller-${kind}`);
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: `unencodable-caller-${kind}` });
+
+        caller.callForOutcome('TEST_DO', `unencodable-callee-${kind}`, 'returnUnencodable', [kind]);
+
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallErrorName()).toBe('DataCloneError');
+        });
+        expect(await caller.getLastCallError()).toBe(
+          `The result of TEST_DO.returnUnencodable() cannot cross the mesh. ${detail}`,
+        );
+      });
+
       it('extracts the OperationChain from the continuation internally', async () => {
         const caller = env.TEST_DO.getByName('input-caller-2');
         await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'input-caller-2' });

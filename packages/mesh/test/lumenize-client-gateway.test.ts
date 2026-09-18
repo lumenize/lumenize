@@ -649,6 +649,41 @@ describe('LumenizeClientGateway', () => {
       ws.close();
     });
 
+    // A client 4-arg whose RESULT cannot be encoded must still get an ERROR RESULT. The callee
+    // used to encode it outside any try, so the fire-back never left and the client hung.
+    it('delivers an unencodable result to the client as a DataCloneError (never stranded)', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('unencodable.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+      const { ws } = await connectAndWait(gateway, 'unencodable', 'unencodable.tab1');
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function h(event: MessageEvent) {
+          const m = JSON.parse(event.data as string);
+          if (m.type === GatewayMessageType.CALL_RESPONSE) { ws.removeEventListener('message', h); resolve(m); }
+        });
+      });
+
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        expectsResult: true,
+        callId: 'unencodable-1',
+        binding: 'TEST_DO',
+        instance: 'unencodable-target',
+        chain: preprocess([{ type: 'get', key: 'returnUnencodable' }, { type: 'apply', args: ['weakmap'] }]),
+      }));
+
+      const r = await responsePromise;
+      expect(r.callId).toBe('unencodable-1');
+      expect(r.success).toBe(false);
+      const error = postprocess(r.error);
+      expect(error.name).toBe('DataCloneError');
+      expect(error.message).toBe(
+        'The result of TEST_DO.returnUnencodable() cannot cross the mesh. '
+          + 'Could not serialize object of type "WeakMap". Convert it to a plain value first.',
+      );
+      ws.close();
+    });
+
     // Q5: with CLIENT_CALL_TIMEOUT_MS injected small (miniflare binding), a mesh→client push to a
     // connected-but-non-responding client fails fast with ClientDisconnectedError — deterministic,
     // no real ~30s wait. Exercises the #clientCallTimeoutMs override branch.

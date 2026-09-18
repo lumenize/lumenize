@@ -192,6 +192,12 @@ export class TestDO extends LumenizeDO<Env> {
     return `echo: ${value}`;
   }
 
+  // Returns what the wire refuses, for the fire-back encode-failure tests
+  @mesh()
+  returnUnencodable(kind: 'weakmap' | 'response'): unknown {
+    return kind === 'weakmap' ? new WeakMap() : new Response('stays home');
+  }
+
   // Remote method that returns caller identity
   @mesh()
   getCallerIdentity(): { bindingName?: string; instanceName?: string; type: string } {

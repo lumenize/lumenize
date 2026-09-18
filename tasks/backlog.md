@@ -537,6 +537,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **The one behaviour that newly diverges from native `structuredClone()`:** a class that defines its own `Symbol.toStringTag` now throws, where native copies its own properties. Rare, and the message says to convert it first.
   - **Same change, the other direction:** a typed-array subclass such as Node's `Buffer` now travels as its built-in type. It used to arrive as `{"0":104,"1":105}`.
   - **Reach:** `@lumenize/mesh`, `@lumenize/rpc` and `@lumenize/fetch` encode their wire with it, so all three inherit the throw.
+  - **`lmz.call()` now delivers it to the caller:** a 4-arg call whose result cannot be encoded hands the handler a `DataCloneError` naming the callee (`The result of TEST_DO.returnUnencodable() cannot cross the mesh. …`), on the mesh and client legs alike. Before, `fireResponse` encoded outside its `try`, so the handler never ran and the error surfaced only in the callee's log — already true for a native `Response` before the structured-clone change widened it.
   - **It surfaced a latent `@lumenize/rpc` bug, fixed in the same change:** `flattenPrototypeChains` seeded its cycle map with a plain object's original, so a cycle through that object came back unflattened, dragging along any class instance behind it. `__asObject()` on a DO whose data points back at the DO leaked the raw instance, which the new throw caught. The cycle now resolves to the flattened copy.
 
 ## Nebula

@@ -789,6 +789,27 @@ export interface EnvelopeExecutorNode {
   onBeforeCall(): void;
 }
 
+// The error a caller's handler gets in place of a result that cannot be encoded. The
+// result is re-encoded alone so the message's path points into the result, not into
+// the handler chain it was spliced into.
+function unencodableResult(outcome: unknown, callee: string, encodeError: unknown): Error {
+  let detail = encodeError instanceof Error ? encodeError.message : String(encodeError);
+  try {
+    preprocess(outcome);
+  } catch (e) {
+    detail = e instanceof Error ? e.message : String(e);
+  }
+  return new DOMException(`The result of ${callee} cannot cross the mesh. ${detail}`, 'DataCloneError');
+}
+
+// `TEST_DO.remoteEcho()`: the callee's binding and the method its chain ended in.
+function describeCallee(node: EnvelopeExecutorNode, chain: OperationChain): string {
+  let method: string | undefined;
+  for (const op of chain) if (op.type === 'get') method = String(op.key);
+  const name = node.lmz.bindingName ?? node.lmz.type;
+  return method === undefined ? name : `${name}.${method}()`;
+}
+
 /**
  * Fill + fire a `call()`'s response back to its origin (the post-ack half of the
  * traveling-handler model). Runs inside the callee's `runWithCallContext` scope, under
@@ -801,6 +822,9 @@ export interface EnvelopeExecutorNode {
  *   response leg was **rejected at admission** (e.g. the D5 scope gate, now `requirePassage`) — logged
  *   here; a handler that throws *post-ack at the sink* (N8) is logged on the sink itself.
  * - `client`: delivered via the Gateway door — built in the client-leg phase.
+ * - A result that cannot be encoded (a `CryptoKey`, a native `Response`) reaches the
+ *   handler as a `DataCloneError` naming `callee`, in its place — on either leg — so the
+ *   caller hears about it instead of waiting on a reply that never comes.
  *
  * `onErrorOnly` (N6) is honored here, callee-side: a success fire-back is skipped.
  *
@@ -814,6 +838,7 @@ async function fireResponse(
   outcome: unknown,
   isError: boolean,
   nodeTypeName: string,
+  callee: string,
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.fireResponse');
   const errText = () => (outcome instanceof Error ? outcome.message : String(outcome));
@@ -838,13 +863,20 @@ async function fireResponse(
       instanceName: node.lmz.instanceName,
     };
     const handlerChain = postprocess(response.handler) as OperationChain;
-    const filled = replaceNestedOperationMarkers(handlerChain, outcome);
+    let chain: CallEnvelope['chain'];
+    try {
+      chain = preprocess(replaceNestedOperationMarkers(handlerChain, outcome));
+    } catch (encodeError) {
+      chain = preprocess(replaceNestedOperationMarkers(
+        handlerChain, unencodableResult(outcome, callee, encodeError),
+      ));
+    }
     // The fire-back rides the same transport as any mesh hop, so callContext propagates
     // identically — the callee appends itself; originAuth is unchanged (D14/N4). No
     // `response` descriptor: the handler does not itself fire back.
     const fireEnvelope: CallEnvelope = {
       version: 1,
-      chain: preprocess(filled),
+      chain,
       callContext: {
         ...inboundContext,  // originAuth, originRequest, and any later immutable field ride through
         callChain: [...inboundContext.callChain, calleeIdentity],
@@ -879,10 +911,16 @@ async function fireResponse(
   // response.kind === 'client' (D16/D17): the client keeps its handler in-heap, so we fire the
   // BARE result (not a chain) to the Gateway's __handleResponse door, addressed to the client's
   // instanceName + callId. The Gateway re-resolves delivery to the client's current socket.
+  let payload: Pick<ClientResultEnvelope, '$result' | '$error'>;
+  try {
+    payload = isError ? { $error: preprocess(outcome) } : { $result: preprocess(outcome) };
+  } catch (encodeError) {
+    payload = { $error: preprocess(unencodableResult(outcome, callee, encodeError)) };
+  }
   const clientResult: ClientResultEnvelope = {
     callId: response.callId,
     clientInstanceName: response.returnAddr.instanceName!,
-    ...(isError ? { $error: preprocess(outcome) } : { $result: preprocess(outcome) }),
+    ...payload,
   };
   try {
     const stub = resolveStub(env, response.returnAddr.bindingName, response.returnAddr.instanceName);
@@ -984,7 +1022,10 @@ export async function executeEnvelope(
       outcome = err instanceof Error ? err : new Error(String(err));
       isError = true;
     }
-    await fireResponse(node, options?.env, callContext, envelope.response, outcome, isError, nodeTypeName);
+    await fireResponse(
+      node, options?.env, callContext, envelope.response, outcome, isError, nodeTypeName,
+      describeCallee(node, operationChain),
+    );
   }).catch((detachedError: unknown) => {
     // Defensive: fireResponse never rejects, but a bug there must not become an
     // unhandled rejection on the waitUntil promise.
