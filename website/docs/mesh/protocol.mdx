@@ -36,7 +36,7 @@ Communication between `LumenizeDO` ↔ `LumenizeDO`, `LumenizeDO` ↔ `LumenizeW
 
 **Characteristics:**
 - Native structured clone (handles Maps, Sets, Dates, etc.)
-- **Exception**: Thrown errors lose custom properties (only `name`, `message`, `stack` preserved)
+- **Exception**: a thrown error arrives as a plain `Error` without the callee's stack, and before compatibility date 2026-04-21 it also loses its `name` and custom properties
 - No JSON serialization needed for most types
 
 ### WebSocket (Client ↔ Gateway)
@@ -190,7 +190,7 @@ interface CallContext {
 ### The `$result` / `$error` Pattern
 
 :::info Design Decision (2024-01)
-Workers RPC loses custom Error properties when errors are thrown. To preserve full error fidelity, `__executeOperation` returns wrapped results instead of throwing.
+Workers RPC loses a thrown error's class and stack, and before compatibility date 2026-04-21 its `name` and custom properties too. To preserve full error fidelity on every compatibility date, `__executeOperation` returns wrapped results instead of throwing.
 :::
 
 All `__executeOperation` methods return:

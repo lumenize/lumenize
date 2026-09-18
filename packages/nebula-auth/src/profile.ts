@@ -352,8 +352,8 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // would need the very scope list this branch exists to avoid fetching.
     if (isPlatformScope(claims.access.authScope)) return;
 
-    // (4) Scoped admin — the ONE registry read. Fail CLOSED on error (raw-RPC drops custom error props,
-    // so a thrown registry error would arrive shapeless — deny rather than trust it).
+    // (4) Scoped admin — the ONE registry read. Fail CLOSED on error: a read that did not complete
+    // proves no dominion, so deny whatever the error carries.
     //
     // ⚠️ **WHAT MAKES THIS BRANCH SAFE IS NOT HERE — it is the ACCEPTED-membership predicate inside
     // `getScopesForProfile`.** Ungated, this dominion is MANUFACTURABLE: Universe self-signup is open

@@ -301,9 +301,8 @@ export async function handleEmailMagicLink(request: Request, env: Env): Promise<
   } catch {
     return errorResponse(400, 'invalid_request', 'Invalid JSON body');
   }
-  // Validate the email HERE (the Worker is the client-error gate) — the registry RPC then never throws
-  // a RegistryError for it (Workers RPC drops the custom `status` prop, so RPC methods stay throw-free
-  // for expected client errors; only the fetch-forwarded registry endpoints throw+catch RegistryError).
+  // Validate the email HERE — a check that needs no registry data, so a malformed address never costs
+  // the singleton a hop (ADR-018), and the registry RPC has no refusal to return for it.
   if (!isValidEmail(email)) return errorResponse(400, 'invalid_request', 'Valid email required');
 
   const origin = new URL(request.url).origin;
@@ -582,7 +581,7 @@ export async function handleSignupClaim(request: Request, env: Env): Promise<Res
   const claimed = await registry(env).claimUniverseWithTicket(ticketHash, slug) as TicketClaimResult;
   if (!claimed.ok) {
     // The registry answers with a REASON, not a status — an HTTP code is this side's business, and
-    // a thrown status would not survive the RPC hop anyway (`raw-comm.md`).
+    // `SIGNUP_REFUSALS` does not compile without a message for every reason (`raw-comm.md`).
     const status = claimed.reason === 'slug_taken' ? 409
       : claimed.reason === 'invalid_ticket' ? 403
         : 400;

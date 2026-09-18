@@ -62,9 +62,9 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
 
     // ── claim-star: OPEN Star self-signup ────────────────────────────────────────────────────────
     //
-    // Every assertion here rides `SELF.fetch`, never a direct registry RPC: raw Workers RPC DROPS
-    // custom own properties (`raw-comm.md` § Errors), so a `status`/`error` assertion through an RPC
-    // helper sees nothing and passes vacuously.
+    // Every assertion here rides `SELF.fetch`, never a direct registry RPC: this route forwards to
+    // the Registry's own `fetch()`, whose `RegistryError` → `Response` conversion makes the status
+    // and `error` body a client sees — an RPC call to `claimStar` would skip it.
     describe('claim-star (open self-signup)', () => {
       /** A universe + galaxy that really exist, plus an admin token over them. */
       async function realGalaxy() {

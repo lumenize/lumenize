@@ -48,7 +48,7 @@ import { reportUnconfiguredProtections } from './router';
 
 /**
  * What a ticket-backed claim answers with. Refusals are values rather than throws — see
- * {@link NebulaAuthRegistry.claimUniverseWithTicket} for why the RPC boundary requires it.
+ * {@link NebulaAuthRegistry.claimUniverseWithTicket} for why.
  */
 export type TicketClaimResult =
   | { ok: true; sub: string; universeGalaxyStarId: string }
@@ -474,10 +474,10 @@ export class NebulaAuthRegistry extends DurableObject {
    * dominion this guard exists to refuse. See ADR-012, and the manufacture test in
    * `identity-mint-point.test.ts`, which reds if the predicate is dropped or swapped.
    *
-   * ⚠️ RETURNS PLAIN DATA — `[]` for an unknown/absent profileId, and NEVER throws a status-carrying
-   * error: custom-error own-props are dropped across raw Workers RPC (raw-comm.md § Errors). The two
-   * outcomes land on DIFFERENT Profile-DO denial paths — `[]` leaves the dominion predicate matching
-   * nothing (the does-not-cover refusal); only a REJECT trips its fail-closed catch.
+   * ⚠️ RETURNS PLAIN DATA — `[]` for an unknown/absent profileId, never a throw: a profile with no
+   * accepted membership is an answer, not a failure. The two outcomes land on DIFFERENT Profile-DO
+   * denial paths — `[]` leaves the dominion predicate matching nothing (the does-not-cover refusal);
+   * only a REJECT trips its fail-closed catch.
    */
   getScopesForProfile(profileId: string): string[] {
     const rows = this.#sql`
@@ -632,13 +632,11 @@ export class NebulaAuthRegistry extends DurableObject {
    * when a person holding two tickets submits the same name from two tabs — while a different address
    * still gets the conflict.
    *
-   * ⚠️ **Refusals are RETURNED, never thrown, and that is not a style choice.** This is called over
-   * raw Workers RPC, which drops a custom error's own properties — `name` and `message` survive, a
-   * `status` does not — so a thrown `RegistryError` reaches the Worker stripped of everything that
-   * distinguishes "this ticket expired" from "the database is on fire", and the router's catch-all
-   * answers 500 for both. `raw-comm.md` § *Errors over raw Workers RPC* states the rule: expected
-   * client-errors come back as values and the Worker maps them to statuses; a throw here means a
-   * genuine 500. Bit during this method's own first run — every negative test returned 500.
+   * ⚠️ **Refusals are RETURNED, never thrown.** Each reason is in the return type, so the Worker
+   * maps every one — its `SIGNUP_REFUSALS` table does not compile without a message for each. A
+   * thrown `RegistryError` is in no signature, and the router answers a throw it was not written to
+   * catch with a blanket 500, the same for "this ticket expired" as for "the database is on fire".
+   * `raw-comm.md` § *Errors over raw Workers RPC* states the rule; a throw here means a genuine 500.
    */
   async claimUniverseWithTicket(ticketHash: string, slug: string): Promise<TicketClaimResult> {
     const log = debug('nebula-auth.Registry.claimUniverseWithTicket');
@@ -911,8 +909,9 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   async requestMagicLink(email: string, origin: string):
     Promise<{ message: string; magicLinkUrl?: string }> {
-    // The Worker validates the email format before this RPC (Workers RPC drops custom Error props, so
-    // client-error gates stay Worker-side) — here we just normalize + create the row.
+    // The Worker validates the email format before this RPC — a check that needs no registry data,
+    // so a malformed address never costs the singleton a hop (ADR-018) — here we just normalize +
+    // create the row.
     const lc = normalizeEmail(email);
     // ⚠️ **No branch reads the address.** Whether it holds memberships, holds none, or is a configured
     // bootstrap address, the work and the answer are identical: one link row, one send. That is what
@@ -1550,8 +1549,8 @@ export class NebulaAuthRegistry extends DurableObject {
    *    the entry's sender, alongside the acceptance fact that picks the template.
    *
    * **Eligibility refusals are the caller's job** — the entry's claims-only verdicts: exact-scope
-   * membership or dominion over the target (RPC drops custom Error props, so this method stays
-   * throw-free for expected client errors) — but
+   * membership or dominion over the target (they need no registry data, so a refused caller never
+   * reaches the singleton — ADR-018) — but
    * never the admin bit: the full cap rule is re-asserted in-method, and a `scopeAdmin: true` entry
    * arriving without dominion in `callerClaims` THROWS as an invariant breach (the entry should
    * have capped it), before any entry's writes. Malformed entries join the per-invitee errors; the
