@@ -45,6 +45,12 @@ import {
 // rationale and the alternatives considered (polyfill, refactor-everywhere).
 
 /**
+ * The context a client holds: exactly the type `this.lmz.callContext` exposes, so the two cannot
+ * drift apart. It has no `originRequest`, which stays server-side.
+ */
+type ClientCallContext = LmzApiClient['callContext'];
+
+/**
  * Build the outgoing CallContext from an explicit parent context.
  *
  * Mirrors `buildOutgoingCallContext` from `lmz-api.ts` but takes the parent
@@ -53,9 +59,9 @@ import {
  */
 function buildClientOutgoingContext(
   callerIdentity: NodeIdentity,
-  parentContext: CallContext | undefined,
+  parentContext: ClientCallContext | undefined,
   options?: CallOptions,
-): CallContext {
+): ClientCallContext {
   if (options?.newChain || !parentContext) {
     return {
       callChain: [callerIdentity],
@@ -301,6 +307,9 @@ export interface LmzApiClient {
   /**
    * Current call context (only valid during @mesh handler execution).
    *
+   * Typed without `originRequest`, which stays server-side: the Gateway never sends it to a
+   * client, so reading it here fails to compile instead of returning a silent `undefined`.
+   *
    * ⚠️ **Browser constraint**: in the browser this value is backed by a
    * private instance field updated synchronously when an `@mesh()` handler
    * is dispatched. It returns the correct context for code running
@@ -326,7 +335,7 @@ export interface LmzApiClient {
    *
    * @throws Error if accessed outside of a mesh call context
    */
-  readonly callContext: CallContext;
+  readonly callContext: Omit<CallContext, 'originRequest'>;
 
   /**
    * Fire-and-forget RPC call with optional handler
@@ -375,7 +384,7 @@ export interface LmzApiClient {
  */
 interface InHeapHandler {
   handlerChain: OperationChain;
-  capturedContext: CallContext | undefined;
+  capturedContext: ClientCallContext | undefined;
   /** When true, run the handler only on an error RESULT (skip the success path — N6). */
   onErrorOnly: boolean;
 }
@@ -457,7 +466,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #reauthAttemptedThisCycle = false; // forced one token re-auth this disconnect cycle (reset on open)
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
   #heartbeatTimer?: ReturnType<typeof setInterval>; // WS keepalive while connected (started on open)
-  #currentCallContext: CallContext | null = null;
+  #currentCallContext: ClientCallContext | null = null;
   #WebSocketClass: typeof WebSocket;
   #lmzApi: LmzApiClient | null = null;
 
@@ -589,7 +598,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         return self.#instanceName;
       },
 
-      get callContext(): CallContext {
+      get callContext(): ClientCallContext {
         if (!self.#currentCallContext) {
           throw new Error(
             'Cannot access callContext outside of a mesh call. ' +
@@ -1285,7 +1294,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       // Postprocess fields that were preprocessed for WebSocket transport
       const chain = postprocess(preprocessedChain);
       // No `originRequest`: it stays server-side, so the Gateway never sends one.
-      const callContext: CallContext = {
+      const callContext: ClientCallContext = {
         callChain: preprocessedCallContext.callChain,  // Plain strings - no postprocessing
         originAuth: preprocessedCallContext.originAuth,  // From JWT - no postprocessing
         state: postprocess(preprocessedCallContext.state),  // Preprocessed → native
@@ -1409,7 +1418,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     chainOrContinuation: OperationChain | Continuation<any>,
-    parentContext: CallContext | undefined,
+    parentContext: ClientCallContext | undefined,
     expectsResult: boolean,
     options?: CallOptions
   ): void {

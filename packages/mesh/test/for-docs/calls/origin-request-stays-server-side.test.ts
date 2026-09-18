@@ -17,6 +17,9 @@
  *   the field again: the client no longer copies it, so the handler limb stays green through that
  *   regression.
  *
+ * A client's `this.lmz.callContext` is also typed without the field, so app code that reads it
+ * fails to compile. The `expectTypeOf` lines below pin that for `npm run type-check`.
+ *
  * **Why no running system (`live.md`).** Both deciding functions are mesh code that reads nothing
  * from its environment, and this drives them end to end: real `EditorClient`s over real WebSocket
  * upgrades, the Worker, `@lumenize/auth`'s hooks, the base `LumenizeClientGateway` and a real
@@ -25,11 +28,18 @@
  * `cf`, an edge-set IP), never whether it is forwarded. And this lane runs in CI, so a mesh change
  * that forwards the field again is caught where it is made, which `/live` is not.
  */
-import { it, expect, vi } from 'vitest';
+import { it, expect, expectTypeOf, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { createTestRefreshFunction, GatewayMessageType, type CallContext } from '../../../src/index.js';
+import {
+  createTestRefreshFunction, GatewayMessageType, type CallContext, type LmzApiClient,
+} from '../../../src/index.js';
 import { EditorClient } from './editor-client.js';
 import type { DocumentDO } from './document-do.js';
+
+// Type-level, so `npm run type-check` enforces these and vitest does not. MUTATION-CHECK (run,
+// flipped): type `LmzApiClient.callContext` as `CallContext` again and the first line fails.
+expectTypeOf<LmzApiClient['callContext']>().not.toHaveProperty('originRequest');
+expectTypeOf<LmzApiClient['callContext']>().toHaveProperty('originAuth');
 
 /**
  * A connected `EditorClient` for `sub`. Pass `frames` to record every text frame its socket

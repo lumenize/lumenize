@@ -58,10 +58,11 @@ export type OriginCf = Pick<IncomingRequestCfProperties,
  * `LumenizeClient` (DO/Worker origins, `newChain: true`).
  *
  * **Server-side only.** It rides every hop between DOs and Workers, and never reaches a client:
- * the Gateway leaves it out of every call it forwards down a socket, so in a `LumenizeClient`
- * `this.lmz.callContext.originRequest` is always `undefined`. These are the origin's IP, location
- * and browser, and a push that inherits a writer's chain (`svc.broadcast`) would otherwise hand
- * them to every subscriber. `originAuth` does reach the client.
+ * the Gateway leaves it out of every call it forwards down a socket, and a `LumenizeClient` types
+ * `this.lmz.callContext` as `Omit<CallContext, 'originRequest'>`, so reading it there fails to
+ * compile. These are the origin's IP, location and browser, and a push that inherits a writer's
+ * chain (`svc.broadcast`) would otherwise hand them to every subscriber. `originAuth` does reach
+ * the client.
  *
  * Trust, per field — this is what decides what each may be used for:
  * - `cf` is set by the runtime at the edge and `ip` by the edge from the connection; external
