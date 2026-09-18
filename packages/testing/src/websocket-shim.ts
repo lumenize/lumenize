@@ -76,6 +76,12 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
     #maxQueueBytes: number;
     #flushing = false;
     #metrics?: Metrics;
+    // Set once `close` has been dispatched. The WebSocket spec fires nothing after `close`, but
+    // workerd's raw socket can: when the server sends a frame and then closes, an `error`
+    // ("Network connection lost") follows the `close`. A reconnecting client such as partysocket
+    // treats that as a fresh failure and reports a second close under its own default code,
+    // masking the server's — so events from the raw socket after `close` are dropped.
+    #closeDispatched = false;
 
     // Overloaded constructor to match browser WebSocket API
     constructor(url: string | URL, protocols?: string | string[]) {
@@ -157,9 +163,7 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         this.#stateOverride = WebSocketShim.CLOSED;
         this.#queue.length = 0;
         this.#queuedBytes = 0;
-        const ev = new CloseEvent("close", { code, reason, wasClean: true });
-        this.dispatchEvent(ev);
-        // Don't call this.onclose manually - dispatchEvent handles it
+        this.#dispatchClose(new CloseEvent("close", { code, reason, wasClean: true }));
         return;
       }
 
@@ -226,6 +230,7 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
 
         // Event forwarding - create new events to avoid re-dispatch issues
         ws.addEventListener("open", (e) => {
+          if (this.#closeDispatched) return;
           // Ensure we aren't forcing a state; raw now reports OPEN.
           this.#stateOverride = null;
           const newEvent = new Event("open");
@@ -235,6 +240,7 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         });
 
         ws.addEventListener("message", (e) => {
+          if (this.#closeDispatched) return;
           // Track metrics for received messages
           if (this.#metrics) {
             this.#metrics.wsReceivedMessages = (this.#metrics.wsReceivedMessages ?? 0) + 1;
@@ -257,6 +263,7 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         });
 
         ws.addEventListener("error", (e) => {
+          if (this.#closeDispatched) return;
           // Clear any override; raw may transition to CLOSED next.
           this.#stateOverride = null;
           const newEvent = new ErrorEvent("error", {
@@ -271,17 +278,16 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         });
 
         ws.addEventListener("close", (e: CloseEvent) => {
+          if (this.#closeDispatched) return;
           // Raw reports CLOSED; clear override and drop any pending bytes.
           this.#stateOverride = null;
           this.#queue.length = 0;
           this.#queuedBytes = 0;
-          const newEvent = new CloseEvent("close", {
+          this.#dispatchClose(new CloseEvent("close", {
             code: e.code,
             reason: e.reason,
             wasClean: e.wasClean
-          });
-          this.dispatchEvent(newEvent);
-          // Don't call this.onclose manually - dispatchEvent handles it
+          }));
         });
 
         // If the raw is already OPEN (rare), synthesize "open" and flush.
@@ -301,14 +307,19 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         this.#queue.length = 0;
         this.#queuedBytes = 0;
 
-        const ce = new CloseEvent("close", {
+        this.#dispatchClose(new CloseEvent("close", {
           code: 1011,
           reason: (err as any)?.message || "WebSocket connect failed",
           wasClean: false,
-        });
-        this.dispatchEvent(ce);
-        // Don't call this.onclose manually - dispatchEvent handles it
+        }));
       }
+    }
+
+    // Every close goes through here, so nothing the raw socket fires afterwards is forwarded.
+    // Don't call this.onclose manually - dispatchEvent handles it
+    #dispatchClose(event: CloseEvent) {
+      this.#closeDispatched = true;
+      this.dispatchEvent(event);
     }
 
     async #flushQueue() {

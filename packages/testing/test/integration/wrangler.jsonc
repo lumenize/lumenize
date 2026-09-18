@@ -7,11 +7,16 @@
       {
         "name": "TEST_DO",
         "class_name": "TestDO"
+      },
+      {
+        "name": "INSTANCE_HANDLER_DO",
+        "class_name": "InstanceHandlerDO"
       }
     ]
   },
   "exports": {
-    "TestDO": { "type": "durable-object", "storage": "sqlite" }
+    "TestDO": { "type": "durable-object", "storage": "sqlite" },
+    "InstanceHandlerDO": { "type": "durable-object", "storage": "sqlite" }
   }
 }
 
