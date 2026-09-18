@@ -10,7 +10,7 @@
 
 **Three decisions first.** Each blocks a build below, and each costs hours of thinking rather than code:
 
-1. ✅ **Decided 2026-09-07/08 — personas ride `impersonate()`; acceptance is enforced at the MINT; no `synthetic` column.** The narrower-token mint refuses a subject whose membership is not accepted, so an `act`-bearing token exists only over a membership the person took up, and the Profile's owner branch drops its `act` clause. Personas are real `@lumenize.io` accounts, invited and accepted through inbound mail ported to production — the early phase of `nebula-testing-with-personas.md`, Larry's to write — so no column and no second door. The owner stacked behind a persona in the app is acceptable. The argument is in [nebula-testing-with-personas.md](nebula-testing-with-personas.md) and the alternatives it beat are in [archive/nebula-profile-access-control.md](archive/nebula-profile-access-control.md) § *Decisions*; the Profile work is **built** (§ *Shipped*), so ② is unblocked on all three of its goals.
+1. ✅ **Decided 2026-09-18 — a persona has no address, membership or cookie.** Its tab gets a plain token as the persona, with no `act`, from the cookie of whoever opened it, and only where that cookie's membership has dominion over the persona's Star ([ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md) § *A persona's host*). It replaces the 2026-09-07/08 decision that personas ride `impersonate()` as real `@lumenize.io` accounts. What that decision built stands on its own: the narrower-token mint refuses a subject whose membership is not accepted, and the Profile's owner branch has no `act` clause (§ *Shipped*).
 2. **Ontology — where compiled validators are stored**, tabled in [nebula-ontology-history-file.md](nebula-ontology-history-file.md). Blocks ⑤'s phases, and the Star-fetch path rides the mesh methods that task deletes.
 3. ✅ **Decided 2026-09-08 — yes, deliberate, and the merged registry keeps no register-time check.** Refusing at registration is what [ADR-008](../docs/adr/008-full-org-tree-visibility.md) forbids: a subscriber must be able to learn which nodes they were denied, and a refused registration discloses nothing. So the method's guard is authentication plus the delivery-time evaluation, written as a guard rather than recorded as an absence. Larry's two push-path questions were answered with it — the stored dominion bit stays and gains its convergence statement, the per-push recheck stays because every alternative stores more — in [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) § *The Profile — the first host whose guard is not a grant*. ④'s phases are unblocked.
 
@@ -90,7 +90,7 @@ Both halves are driven separately: the front door by `superuser-front-door.ts` (
 
 ## Shared pages
 
-**The pages several builds touch — Universe Signup, Galaxy create and login — are one item** (Larry, 2026-09-16). It captures scope full names on the first two, below. It also decides, page by page, whether a user-developer's app forwards to ours with `return_to`, which is the default, or runs a page of its own that posts what it collected to the platform host, gets a one-time token back, and navigates on with it through the same two redirects login already uses. Which kind comes first is this item's call, and the custom kind may land after pre-alpha. [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) caps the slugs these pages collect at 30 characters, and names the one `POST` ADR-022 would need to admit for a custom page.
+**The pages several builds touch — Universe Signup, Galaxy create and login — are one item** (Larry, 2026-09-16). It captures scope full names on the first two, below. It also decides, page by page, whether a user-developer's app forwards to ours with `return_to`, which is the default, or runs a page of its own that posts what it collected to the platform host, gets a one-time token back, and navigates on with it to the platform host, which finishes the way login does. Which kind comes first is this item's call, and the custom kind may land after pre-alpha. [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) caps the slugs these pages collect at 30 characters, and names the one `POST` ADR-022 would need to admit for a custom page.
 
 ### Scope full names
 
@@ -124,7 +124,7 @@ One CF-dashboard worker-delete + redeploy, deliberately one and not two. Greenfi
 Two kinds of EXPLORATORY, neither pinnable up front:
 
 1. **Prompt-empirical** — data-bound generation quality. Iterate the system prompt against the compile gate and, later, a judge model, driven by capture → inspection → the replay harness. Capable-of-failing checks plus captured findings, never a transcribable spec.
-2. **UX-exploratory** — the persona UI. Prototype-and-react, and the tight loop is Larry's own dogfooding: the `mint-narrower-token` consent UX, persona switching, multi-tab use, preview tabs coupled to the act-as UI.
+2. **UX-exploratory** — the persona UI. Prototype-and-react, and the tight loop is Larry's own dogfooding: persona switching, multi-tab use, and the preview tabs.
 
 Iterating the prompt must not require a deploy — the prompt is content, not code. Tight loop = the offline replay harness (model + gate, seconds, no preview); live checks = local `wrangler dev` + Docker; deploy only for where users live and for realistic multi-tab / auth / act-as checks, at ~1-minute cycles and not every iteration. The platform layer is `apps/nebula/platform/` — edit, run `node scripts/gen-platform.mjs`, and `wrangler dev` picks it up.
 
@@ -190,7 +190,6 @@ Don't re-derive these; the code is the authority.
 
 - All Universe admins ⇒ pre-alpha does NOT exercise tenant isolation. "Pre-alpha worked" validates codegen and in-app multi-user, not cross-Galaxy boundaries.
 - The migrations one-way door has been open since the first prod deploy (2026-06-26): a DO-class add, rename or delete is a migration forever.
-- Personas are real `@lumenize.io` accounts, accepted through inbound mail (decision 1 in § *What remains*); the earlier dead-domain rule is retired. One address is one Profile across every app (ADR-013), so ② mints each persona an address unique to its Galaxy, or two user-developers' apps would share a persona's Profile.
 - The cost ceiling is set and Larry watches the CF dashboard; a spend line in the digest is a nice-to-have.
 
 ## Open decisions

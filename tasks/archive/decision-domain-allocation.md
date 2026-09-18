@@ -1,5 +1,7 @@
 # Which domain is for what — `lumenize.com`, `lumenize.io`, `lumenize.dev`
 
+> **Partly superseded 2026-09-17.** [ADR-021](../../docs/adr/021-every-scope-has-its-own-host.md) no longer plans a Public Suffix List entry, because [ADR-022](../../docs/adr/022-every-session-lives-on-the-platform-host.md) keeps every session on `platform.lumenize.dev`, which serves another host only while both share a site. Read this record's PSL plan and § *Sessions and cookies* as history.
+>
 > **Archived 2026-09-15.** [ADR-021](../../docs/adr/021-every-scope-has-its-own-host.md) carries the decision; this record is frozen.
 
 **Status:** ✅ **DECIDED 2026-09-11 — alternative C**, measured rather than argued (§ *Measured — the C experiment*). Larry: the ceiling is fine and the certificate delay is the only thing that bites, so ship C and mitigate the delay with a progress indicator. How a person holds a session on each host — the name in a web address, like `tenant1.crm.acme.lumenize.dev` — is decided separately, in [sessions-per-origin.md](decision-sessions-per-origin.md).

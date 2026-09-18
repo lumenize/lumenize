@@ -1,5 +1,7 @@
 # Sessions per origin — how a person gets a session on each Lumenize host
 
+> **Superseded 2026-09-17.** [ADR-022](../../docs/adr/022-every-session-lives-on-the-platform-host.md) was rewritten: every session now lives on `platform.lumenize.dev`, and a page on any host gets its access token by a credentialed `fetch` there. The per-host design below, diagrams included, is that ADR's first rejected alternative. The browser facts still hold.
+>
 > **Archived 2026-09-15.** [ADR-022](../../docs/adr/022-each-host-holds-its-own-session.md) carries the decision; this record is frozen.
 
 **Status:** ✅ **DECIDED 2026-09-13 (Larry)** — `platform.lumenize.dev` establishes a session by top-level redirect, and every scope host — the name in a web address, like `tenant1.crm.acme.lumenize.dev` — keeps its own host-only refresh cookie, one with no `Domain` attribute, which the browser sends back only to the exact host that set it. An ADR follows and this file is its evidence. [domain-allocation.md](decision-domain-allocation.md) decided the hosts; this file decides how a credential reaches each of them.
