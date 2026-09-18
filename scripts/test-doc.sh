@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
-# Doc-tests are advisory — the doc-test infrastructure is being sunset
-# in favor of @check-example annotations in .md/.mdx files. Failures here
-# warn but do not abort: we don't want a known-stale fixture to block
-# `npm test` for everyone while the migration is in progress. Once all
-# doc-test directories are removed, this whole script goes with them.
+# Doc checks in two tiers, and only the first can fail the run:
+# 1. The @check-example checker (`cd website && npm run check-examples`): every
+#    doc code block that names a test or source file must still match it.
+# 2. The legacy doc-test suites below, which are advisory — the doc-test
+#    infrastructure is being sunset in favor of @check-example annotations in
+#    .md/.mdx files. Their failures warn but do not abort: we don't want a
+#    known-stale fixture to block `npm test` for everyone while the migration
+#    is in progress. Once all doc-test directories are removed, this tier goes
+#    with them.
+# Local runs only, decided 2026-09-18: CI never deploys the website, so it does
+# not run the website's doc check either.
 set +e
-
-echo "🧪 Running doc-tests (advisory — doc-test infrastructure is being sunset)..."
-echo ""
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+
+echo "🔍 Checking @check-example blocks (a stale block fails this run)..."
+(cd "$ROOT_DIR/website" && npm run --silent check-examples)
+CHECK_EXAMPLES_STATUS=$?
+echo ""
+
+echo "🧪 Running doc-tests (advisory — doc-test infrastructure is being sunset)..."
+echo ""
 
 DOC_TEST_DIRS=(
   "doc-test/testing/testing-plain-do"
@@ -43,5 +54,11 @@ if [ ${#DOC_TEST_FAILURES[@]} -eq 0 ]; then
 else
   echo "⚠️  Doc-tests failed in: ${DOC_TEST_FAILURES[*]}"
   echo "   Treating as advisory — doc-test infrastructure is being sunset."
+fi
+
+if [ "$CHECK_EXAMPLES_STATUS" -ne 0 ]; then
+  echo ""
+  echo "❌ @check-example blocks failed verification — see the checker output at the top."
+  exit 1
 fi
 exit 0

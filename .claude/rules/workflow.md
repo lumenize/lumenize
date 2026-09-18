@@ -110,8 +110,8 @@ You MUST score each candidate on this, and MUST say so when you recommend:
 - `npm run type-check` — TypeScript check across packages
 - `npm test` — `test:code`, then `test:doc`
 - `npm run test:code` — every workspace's own `test` script (`scripts/test-code.sh`)
-- `npm run test:doc` — the legacy `doc-test/` suites `scripts/test-doc.sh` lists; advisory, it always exits 0
-- **None of these checks a doc's `@check-example` blocks.** That is `cd website && npm run check-examples` (`documentation.md` § *Documentation workflow*), which the website build also runs.
+- `npm run test:doc` — first the `@check-example` checker (`documentation.md` § *Documentation workflow*), which fails the run on a stale doc block; then the legacy `doc-test/` suites `scripts/test-doc.sh` lists, which are advisory
+- **CI does not run the checker**, decided 2026-09-18: CI never deploys the website, so it skips the website's doc check too. A stale block surfaces at a local `npm test` or at the website build.
 
 ## Dependencies
 - **You MUST ask before installing any npm package.** Copy-paste-with-attribution SHOULD be favored over a dependency for <1000 SLOC (add an entry to `ATTRIBUTIONS.md` *and* a comment above the copied code).
