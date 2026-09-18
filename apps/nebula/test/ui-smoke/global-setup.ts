@@ -123,15 +123,15 @@ export default async function setup(project: TestProject) {
     extraArgs: [
       ...(hostedLocalBoot ? ['--local'] : []),
       '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
-      // Send the magic-link via Resend (EMAIL_PROVIDER) from Resend's VERIFIED domain
-      // (test.lumenize.com) — so the run needs NO CF email creds and works in every
+      // Send the magic-link via Resend (EMAIL_PROVIDER) from a Resend-VERIFIED domain
+      // (lumenize.io) — so the run needs NO CF email creds and works in every
       // lane, incl. the secret-less hosted one (a CF `send_email remote:true` send
       // silently drops without creds / from an unverified domain). The deployed
       // email-test Worker still catches the routed mail (recipient stays
       // test@lumenize-test.dev). Mirrors packages/auth/test/e2e-email-resend.
       // (tasks/nebula-in-ci.md "Email everywhere = Resend".)
       '--var', 'EMAIL_PROVIDER:resend',
-      '--var', 'AUTH_EMAIL_FROM:auth@test.lumenize.com',
+      '--var', 'AUTH_EMAIL_FROM:test@lumenize.io',
       '--log-level', 'info',
     ],
     onStdio: (c) => { if (process.env.UI_SMOKE_DEBUG) process.stderr.write(c); },

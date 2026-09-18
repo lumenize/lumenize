@@ -44,12 +44,13 @@ import { NebulaEmailSender } from '@lumenize/nebula-auth';
 
 /**
  * Test-harness email sender — overrides production NebulaEmailSender's
- * `from` (`noreply@lumenize.io`) to `auth@test.lumenize.com`.
+ * `from` (`noreply@lumenize.io`) to `test@lumenize.io`, the sender the other
+ * test lanes use.
  *
  * Why: this harness selects **Resend** (`EMAIL_PROVIDER: resend` in
  * wrangler.jsonc, no `send_email` binding), so the from-domain must be
- * verified on **Resend** — `test.lumenize.com` is (same setup as
- * packages/auth/test/e2e-email-resend, which sends from `auth@test.lumenize.com`).
+ * verified on **Resend** — `lumenize.io` is (same setup as
+ * packages/auth/test/e2e-email-resend).
  * The magic-link recipient stays `test@lumenize-test.dev`, which Cloudflare Email
  * Routing catches and forwards to the deployed email-test Worker → WebSocket
  * push back to the test. Selecting Resend lets this lane run with no CF creds
@@ -60,7 +61,7 @@ import { NebulaEmailSender } from '@lumenize/nebula-auth';
  * unchanged with its real branded from-address.
  */
 export class TestNebulaEmailSender extends NebulaEmailSender {
-  override from = 'auth@test.lumenize.com';
+  override from = 'test@lumenize.io';
 }
 
 export default {

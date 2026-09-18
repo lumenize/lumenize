@@ -82,7 +82,7 @@
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     // Select Resend explicitly (no EMAIL binding above). Needs RESEND_API_KEY in
-    // .dev.vars + `test.lumenize.com` verified as a Resend sending domain — same
+    // .dev.vars + `lumenize.io` verified as a Resend sending domain — same
     // setup as packages/auth/test/e2e-email-resend.
     "EMAIL_PROVIDER": "resend",
     // Allow Playwright + Vite dev/preview origins so the browser test page can

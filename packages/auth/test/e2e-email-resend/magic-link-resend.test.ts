@@ -6,7 +6,7 @@ import { waitForEmail, extractMagicLink, reportEmailLatency, uniqueTestEmail } f
 // Resend e2e smoke test — keeps the Resend transport path exercised alongside
 // the default Cloudflare transport path (see test/e2e-email/).
 //
-// Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars, test.lumenize.com
+// Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars, lumenize.io
 // verified as a Resend sending domain, deployed email-test Worker, Cloudflare
 // Email Routing for lumenize-test.dev.
 describe('Magic link e2e (real email delivery via Resend)', () => {
@@ -41,7 +41,7 @@ describe('Magic link e2e (real email delivery via Resend)', () => {
     reportEmailLatency('resend', 'full-flow', requestedAt, waiter.marks);
     expect(email.subject).toBe('Your login link');
     expect(email.to?.[0]?.address).toBe(testEmail);
-    expect(email.from?.address).toBe('auth@test.lumenize.com');
+    expect(email.from?.address).toBe('test@lumenize.io');
 
     const magicLinkUrl = extractMagicLink(email);
     expect(magicLinkUrl).toContain('one_time_token=');
