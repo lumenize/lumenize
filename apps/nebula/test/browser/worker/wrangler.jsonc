@@ -1,7 +1,7 @@
 {
   "name": "nebula-browser-test",
   "main": "./index.ts",
-  "compatibility_date": "2026-04-01",
+  "compatibility_date": "2026-08-15",
   // nodejs_compat (NOT the legacy `nodejs_compat_v2` flag-name): this worker imports
   // the @lumenize/nebula barrel, which transitively pulls DevStudio → isomorphic-git +
   // @cloudflare/shell (import `node:` builtins). Real `wrangler dev` (this harness)

@@ -43,7 +43,16 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
     readonly url: string;
     protocol = "";     // set after accept() if server selected one
     extensions = "";   // CF workers test sockets typically don't expose extensions
-    binaryType: 'blob' | 'arraybuffer' = 'blob';
+    // Forwarded to the accepted socket, so `binaryType = 'arraybuffer'` works as it does in a
+    // browser. The default is 'blob', which workerd also delivers by default.
+    #binaryType: 'blob' | 'arraybuffer' = 'blob';
+    get binaryType(): 'blob' | 'arraybuffer' {
+      return this.#binaryType;
+    }
+    set binaryType(value: 'blob' | 'arraybuffer') {
+      this.#binaryType = value;
+      if (this.#ws) (this.#ws as any).binaryType = value;
+    }
 
     // Non-standard property for testing/debugging: exposes the HTTP upgrade response
     // This allows inspection of CORS headers and other response metadata in tests
@@ -206,6 +215,7 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         }
 
         this.#ws = ws;
+        (ws as any).binaryType = this.#binaryType; // honor a value set before the socket existed
 
         // From here on, we proxy raw readyState unless temporarily overridden.
         this.#stateOverride = null;

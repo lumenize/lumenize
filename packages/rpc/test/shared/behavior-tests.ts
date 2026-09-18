@@ -1000,8 +1000,9 @@ export async function testEchoThroughStorageTypedArray(testable: TestableClient)
 /**
  * Error - echoThroughStorage (client → server → DO storage → server → client)
  * 
- * NOTE: Errors serialize through DO Storage but custom properties are lost.
- * Only message, name, and stack are preserved.
+ * NOTE: From compatibility date 2026-04-21 (`enhanced_error_serialization`) DO Storage
+ * keeps an Error's custom properties along with message, name, and stack; before it,
+ * custom properties were dropped.
  */
 export async function testEchoThroughStorageError(testable: TestableClient): Promise<void> {
   const { client } = testable;
@@ -1018,9 +1019,9 @@ export async function testEchoThroughStorageError(testable: TestableClient): Pro
   expect(echoedError.message).toBe('Test error message');
   expect(echoedError.name).toBe('Error');
   
-  // Custom properties are NOT preserved through DO Storage
-  expect((echoedError as any).code).toBeUndefined();
-  expect((echoedError as any).statusCode).toBeUndefined();
+  // Custom properties survive DO Storage
+  expect((echoedError as any).code).toBe('TEST_ERROR');
+  expect((echoedError as any).statusCode).toBe(400);
   
   // Stack should be present
   expect(echoedError.stack).toBeDefined();
@@ -1031,10 +1032,9 @@ export async function testEchoThroughStorageError(testable: TestableClient): Pro
 /**
  * Custom Error Class - echoThroughStorage (client → server → DO storage → server → client)
  * 
- * NOTE: Custom Error classes serialize through DO Storage but:
- * - Custom properties are lost
- * - Name reverts to 'Error' (not the custom class name)
- * - Only message and stack are preserved
+ * NOTE: A custom Error class serializes through DO Storage keeping its message, stack,
+ * and (from compatibility date 2026-04-21) its custom properties, but not its prototype.
+ * Its name is 'Error' here only because the class never sets one.
  */
 export async function testEchoThroughStorageCustomErrorClass(testable: TestableClient): Promise<void> {
   const { client } = testable;
@@ -1056,10 +1056,10 @@ export async function testEchoThroughStorageCustomErrorClass(testable: TestableC
   expect(echoedError).toBeInstanceOf(Error);
   expect(echoedError.message).toBe('Invalid email format');
   
-  // Custom property is NOT preserved through DO Storage
-  expect((echoedError as any).field).toBeUndefined();
-  
-  // Name reverts to 'Error', not 'ValidationError'
+  // Custom property survives DO Storage
+  expect((echoedError as any).field).toBe('email');
+
+  // Name is 'Error' because ValidationError never set this.name
   expect(echoedError.name).toBe('Error');
   
   // Prototype chain is not preserved

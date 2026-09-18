@@ -103,7 +103,7 @@ export class SecretBrokerDO extends DurableObject {
     const bundleId = `secret-echo:${crypto.randomUUID()}`;
     const stub = this.ctx.facets.get(bundleId, () => {
       const worker = this.env.LOADER.get(bundleId, () => ({
-        compatibilityDate: '2026-04-01',
+        compatibilityDate: '2026-08-15',
         mainModule: 'echo.js',
         modules: { 'echo.js': FACET_MODULE },
         // ONLY the resolved secret — NOT NEBULA_SECRETS_KEY, NOT LOADER, nothing else.

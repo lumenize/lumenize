@@ -1,6 +1,6 @@
 {
   "name": "lumenize-website",
-  "compatibility_date": "2025-08-31",
+  "compatibility_date": "2026-08-15",
   "routes": [
     {
       "pattern": "lumenize.com",

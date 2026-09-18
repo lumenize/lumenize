@@ -1,7 +1,7 @@
 {
   "name": "email-test",
   "main": "src/index.ts",
-  "compatibility_date": "2025-09-12",
+  "compatibility_date": "2026-08-15",
   "observability": {
     "enabled": true
   },

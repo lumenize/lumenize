@@ -1,7 +1,7 @@
 {
   "name": "nebula",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-04-01",
+  "compatibility_date": "2026-08-15",
   // nodejs_compat is REQUIRED: Galaxy transitively imports isomorphic-git +
   // @cloudflare/computer, which import `node:` builtins (buffer/crypto/path/zlib).
   // Use plain `nodejs_compat` (NOT the legacy `nodejs_compat_v2` flag-name):

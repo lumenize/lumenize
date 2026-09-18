@@ -4,7 +4,7 @@
   // main mesh suite's record. See tasks/nebula-devcontainer-node-type.md Phase 2.
   "name": "lumenize-container-precheck",
   "main": "./worker-and-dos.ts",
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
   "containers": [
     {

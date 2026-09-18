@@ -18,7 +18,8 @@ Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for yo
 
 ```jsonc @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/wrangler.jsonc')
 {
-  "compatibility_date": "2026-04-01",
+  // ...
+  "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [
     { "binding": "LOADER" }
