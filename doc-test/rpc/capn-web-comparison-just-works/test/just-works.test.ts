@@ -26,9 +26,10 @@ consistent. Lumenize RPC is more explicit but similarly concise. We'd give the
 win to Cap'n Web's elegance, except that once you get past the, "Wow! That's 
 cool!" we discovered some things that "just don't work" as expected. 
 
-1. **Limited type support**: Cap'n Web doesn't support many types that Workers 
-   RPC handles seamlessly (Map, Set, RegExp, ArrayBuffer, circular references, 
-   etc.). See the [type support comparison](/docs/rpc/capn-web-comparison-basics-and-types#supported-types).
+1. **Type support gaps**: Cap'n Web still can't carry some types that Workers 
+   RPC handles seamlessly (Map, Set, circular references, and RegExp until its 
+   merged support ships), and it sends an alias as separate copies. See the 
+   [type support comparison](/docs/rpc/capn-web-comparison-basics-and-types#supported-types).
 
 2. **No hibernating WebSocket support**: Cap'n Web uses `server.accept()` 
    instead of `ctx.acceptWebSocket()`, meaning Durable Objects can't maintain 
@@ -45,9 +46,9 @@ cool!" we discovered some things that "just don't work" as expected.
 
 **Important**: We might be missing something fundamental. If there are 
 different patterns that work better and/or if Cloudflare adds support for more 
-types, we'll quickly update this document. Cloudflare has noted that some 
-type support "may be added in the future." For now, based on our testing, the 
-claim "it just works" comes with significant caveats.
+types, we'll quickly update this document. Cloudflare has since added many of 
+the types we first flagged, and this comparison reflects v0.12.0. For now, 
+based on our testing, the claim "it just works" comes with significant caveats.
 */
 
 /*
@@ -102,7 +103,7 @@ import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
 it('detects package versions', () => {
   expect(lumenizeRpcPackage.version).toBe('0.26.0');
-  expect(capnwebPackage.version).toBe('0.1.0');
+  expect(capnwebPackage.version).toBe('0.12.0');
 });
 
 /*
@@ -171,11 +172,11 @@ it('demonstrates Lumenize RPC hopping over Workers RPC', async () => {
 Cap'n Web can hop from User to Room by returning Workers RPC stubs directly—a 
 clean and elegant pattern. However, even though you're getting a Workers RPC 
 stub, return values **still go through Cap'n Web's serialization layer**, which 
-has limited type support:
+still has gaps:
 
-- ✅ Plain objects, arrays, primitives: Work
-- ❌ Map, Set, RegExp, ArrayBuffer: Fail
-- ❌ Objects with cycles or aliases: Fail
+- ✅ Plain objects, arrays, primitives, and most built-in and Web API types: Work
+- ❌ Map, Set: Fail (RegExp too, until its merged support ships)
+- ❌ Objects with cycles: Fail, and aliases arrive as separate copies
 - ❌ it "just doesn't work"
 
 This means you must constrain your DO's return types to Cap'n Web-compatible 
@@ -235,14 +236,15 @@ it('demonstrates Cap\'n Web type limitations', async () => {
 
 /*
 **The bottom line**: Cap'n Web's elegant stub-returning syntax works 
-beautifully when your return types are Cap'n Web-compatible (plain objects, 
-arrays, primitives). But the moment you need Map, Set, RegExp, ArrayBuffer, or 
-objects with cycles or aliases-types that Workers RPC handles seamlessly—you'll 
-hit serialization errors or need workarounds.
+beautifully when your return types are Cap'n Web-compatible. But the moment 
+you need Map, Set, RegExp, or objects with cycles or aliases—types that 
+Workers RPC handles seamlessly—you'll hit serialization errors, silently 
+duplicated objects, or need workarounds.
 
-Lumenize RPC supports all the types that Workers RPC supports (except 
-Readable/WritableStream, which Cap'n Web also doesn't support), without 
-requiring you to change your DO's return types or add pre/post processing.
+Lumenize RPC supports every type Workers RPC does except Readable/WritableStream, 
+Blob, and native Request/Response (for which it carries RequestSync/ResponseSync), 
+and Cap'n Web now carries all of those. For everything else it needs no change 
+to your DO's return types and no pre/post processing.
 */
 
 /*
