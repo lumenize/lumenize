@@ -161,7 +161,10 @@ interface CallContext {
   /** Verified JWT claims from origin (immutable) */
   originAuth?: { sub: string; claims?: Record<string, unknown> };
 
-  /** HTTP facts of the originating upgrade, stamped by the Gateway — client-originated chains only (immutable) */
+  /**
+   * HTTP facts of the originating upgrade, stamped by the Gateway — client-originated chains only
+   * (immutable). Server-side only: the Gateway never forwards it to a client.
+   */
   originRequest?: { cf?: OriginCf; ip?: string; origin?: string; userAgent?: string; acceptLanguage?: string };
 
   /** Mutable state propagated through chain */
@@ -177,11 +180,13 @@ interface CallContext {
 | `metadata` | Native | JSON |
 | `callContext.callChain` | Native | JSON (plain strings) |
 | `callContext.originAuth` | Native | JSON (plain strings) |
-| `callContext.originRequest` | Native | JSON (plain strings) |
+| `callContext.originRequest` | Native | Never sent |
 | `callContext.state` | Native | Preprocessed (may contain Maps, Sets, etc.) |
 | `chain` | Preprocessed | Preprocessed |
 
 **Note:** `chain` is always preprocessed for consistency, even over Workers RPC.
+
+**Note:** `callContext.originRequest` never crosses a client's WebSocket, in either direction. The Gateway builds it from the upgrade request on the way in, and leaves it out of every call it forwards to a client. It holds the origin's IP address, location and browser, and a push that inherits the writer's call chain would otherwise deliver them to every subscriber. `callContext.originAuth` does go down to the client.
 
 ---
 
@@ -281,6 +286,7 @@ const GatewayMessageType = {
   callContext: {
     callChain: NodeIdentity[],
     originAuth?: OriginAuth,
+    // No originRequest: it stays server-side
     state: LmzIntermediate   // Preprocessed
   }
 }

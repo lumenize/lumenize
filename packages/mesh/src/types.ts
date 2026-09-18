@@ -57,6 +57,12 @@ export type OriginCf = Pick<IncomingRequestCfProperties,
  * reconnect and may be minutes or hours old mid-session. `undefined` when the origin isn't a
  * `LumenizeClient` (DO/Worker origins, `newChain: true`).
  *
+ * **Server-side only.** It rides every hop between DOs and Workers, and never reaches a client:
+ * the Gateway leaves it out of every call it forwards down a socket, so in a `LumenizeClient`
+ * `this.lmz.callContext.originRequest` is always `undefined`. These are the origin's IP, location
+ * and browser, and a push that inherits a writer's chain (`svc.broadcast`) would otherwise hand
+ * them to every subscriber. `originAuth` does reach the client.
+ *
  * Trust, per field — this is what decides what each may be used for:
  * - `cf` is set by the runtime at the edge and `ip` by the edge from the connection; external
  *   clients cannot forge either (an intermediate Worker could via `new Request(req, { cf })`;
@@ -90,7 +96,7 @@ export interface CallContext {
 
   // Immutable — HTTP facts of the originating upgrade, stamped by the Gateway (client-originated
   // chains only). Tamper-evident like originAuth: NOT in callChain[0] (which the client partly
-  // authors) and NOT in state (which any hop may mutate).
+  // authors) and NOT in state (which any hop may mutate). Server-side only: never sent to a client.
   originRequest?: OriginRequest;
 
   // Mutable — can be modified by onBeforeCall or any handler along the way

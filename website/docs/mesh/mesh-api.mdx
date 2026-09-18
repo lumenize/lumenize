@@ -81,7 +81,7 @@ interface CallContext {
 
   // Immutable — HTTP facts of the originating upgrade, stamped by the Gateway (client-originated
   // chains only). Tamper-evident like originAuth: NOT in callChain[0] (which the client partly
-  // authors) and NOT in state (which any hop may mutate).
+  // authors) and NOT in state (which any hop may mutate). Server-side only: never sent to a client.
   originRequest?: OriginRequest;
 
   // Mutable — can be modified by onBeforeCall or any handler along the way
@@ -100,6 +100,7 @@ interface NodeIdentity {
 **Property summary:**
 - `callChain` — Full call path from origin to immediate caller. **Immutable** — grows at each hop (managed by framework).
 - `originAuth` — Verified JWT claims from original caller. **Immutable**. Only set for authenticated LumenizeClient origins.
+- `originRequest` — HTTP facts of the WebSocket upgrade that started the chain: the origin's IP address, `User-Agent`, `Accept-Language`, and Cloudflare's `cf` location fields. **Immutable**. Only set for LumenizeClient origins, and **server-side only**: the Gateway never forwards it to a client, so inside a LumenizeClient it is always `undefined`.
 - `state` — Hook data. **Mutable** — starts as `{}`, often populated in `onBeforeCall()` but can be set or modified anywhere in this call context.
 
 **Accessing identity:**

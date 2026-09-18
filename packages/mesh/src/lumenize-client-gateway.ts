@@ -745,6 +745,10 @@ export class LumenizeClientGateway extends DurableObject<any> {
     // Build incoming call message for client
     // Chain is already preprocessed (the caller's call() preprocesses for consistency)
     // State is native from Workers RPC - preprocess for WebSocket
+    // The context goes down field by field, never spread, so nothing reaches a client unless it is
+    // named here. `originRequest` is left behind: it is the ORIGIN's IP, location and browser, and a
+    // push that inherits a writer's chain (`svc.broadcast`) would hand them to every subscriber.
+    // `originAuth` goes down, because a client's `onBeforeCall` authorizes the call from it.
     const message: IncomingCallMessage = {
       type: GatewayMessageType.INCOMING_CALL,
       callId,
@@ -752,7 +756,6 @@ export class LumenizeClientGateway extends DurableObject<any> {
       callContext: {
         callChain: envelope.callContext.callChain,  // Plain strings - no preprocessing
         originAuth: envelope.callContext.originAuth,  // From JWT - no preprocessing
-        originRequest: envelope.callContext.originRequest,  // Edge facts, plain strings - no preprocessing
         state: preprocess(envelope.callContext.state),  // Native → preprocessed for WebSocket
       },
     };

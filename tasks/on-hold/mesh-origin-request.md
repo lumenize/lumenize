@@ -75,6 +75,7 @@ Top-level `originRequest?: OriginRequest`, parallel to `originAuth` ([types.ts:3
 - [x] Gateway upgrade handler: build the snapshot from `request.cf` + headers; add `originRequest?` to `GatewayConnectionInfo`; include in the attachment.
 - [x] Stamp into `baseContext` at the Trust-DMZ site (:552), sourced from the deserialized attachment.
 - [x] **Audit every site that reconstructs a `CallContext` literal** — they explicitly enumerate fields, so the new one silently drops anywhere it's missed: `buildOutgoingCallContext` inherit path ([lmz-api.ts:249-253](../packages/mesh/src/lmz-api.ts) — spreads `originAuth` by name), the fresh-chain path (:233-237, stays `undefined` — correct), `getCurrentCallContextCopy` (:49-53), and the Gateway's client-bound envelope rebuild (:674-678, plain strings / no preprocessing, same as `originAuth`). Consider spread-based reconstruction so the *next* added field can't be dropped.
+  - **Amended 2026-09-18: the client-bound rebuild no longer carries it.** A client never receives `originRequest`. `#forwardToClient` names each field it sends down the socket and leaves this one out, because a push that inherits a writer's chain was handing the writer's IP and location to every subscriber. That site stays an allow-list; spread reconstruction is for server-side hops only.
 
 **Success criteria** (capable-of-failing):
 - [x] DO receiving a client-originated call sees `callContext.originRequest` with the miniflare-mock `cf` values and the UA/Accept-Language the test client sent on upgrade.

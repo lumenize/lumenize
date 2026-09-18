@@ -152,12 +152,14 @@ export interface IncomingCallMessage {
   callId: string;
   /** Preprocessed operation chain */
   chain: any;
+  /**
+   * Deliberately NOT the whole `CallContext`: `originRequest` stays server-side and never reaches
+   * a client. `OriginRequest`'s JSDoc says why.
+   */
   callContext: {
     /** Plain strings - no preprocessing needed */
     callChain: NodeIdentity[];
     originAuth?: OriginAuth;
-    /** Edge facts of the originating upgrade — plain strings, no preprocessing needed */
-    originRequest?: OriginRequest;
     /** User-defined, preprocessed for WebSocket */
     state: any;
   };
