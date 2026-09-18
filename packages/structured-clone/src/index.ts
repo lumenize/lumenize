@@ -23,6 +23,10 @@
  *   - Web API: RequestSync, ResponseSync, Headers, URL
  *   - Cycles and aliases fully preserved via `meta.aliases`
  *
+ * Class instances arrive as plain objects, as with native structuredClone().
+ * Any other object without an encoder (CryptoKey, Blob, streams, WeakMap, …)
+ * throws a `DataCloneError` rather than arriving as an empty impostor.
+ *
  * Inspired by:
  *   - SuperJSON (nested-document + meta sidecar shape)
  *   - Cap'n Web (inline-tagged special types)
@@ -44,6 +48,9 @@ import { postprocess } from './postprocess';
  * @param options - Optional preprocessing options.
  * @returns JSON string in `{ json, meta }` form.
  * @throws TypeError if value contains symbols.
+ * @throws DOMException named `DataCloneError` for an object with no encoder
+ *   that isn't a plain object or class instance (CryptoKey, Blob, streams, …),
+ *   naming its type and path.
  */
 export function stringify(value: any, options?: PreprocessOptions): string {
   return JSON.stringify(preprocess(value, options));

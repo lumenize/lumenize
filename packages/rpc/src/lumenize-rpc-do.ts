@@ -375,18 +375,22 @@ function flattenPrototypeChains(obj: any, seen = new WeakMap<any, any>()): any {
   const hasPrototypeMethods = proto && proto !== Object.prototype && proto !== null;
   
   if (!hasPrototypeMethods) {
-    // Plain object - just recurse into properties
-    seen.set(obj, obj);
+    // Plain object - recurse into properties. Register the copy BEFORE
+    // recursing so a cycle back to this object resolves to the copy; seeding
+    // `seen` with the original left it, and any class instance reachable only
+    // through it, unflattened in the result.
     const flattened: any = {};
+    seen.set(obj, flattened);
     for (const [key, val] of Object.entries(obj)) {
       flattened[key] = flattenPrototypeChains(val, seen);
     }
-    // Check if anything changed
+    // A cycle through this object always registers as a change, so an
+    // unchanged object was never captured and can keep its identity.
     const hasChanges = Object.keys(flattened).some(k => flattened[k] !== obj[k]);
     if (!hasChanges) {
+      seen.set(obj, obj);
       return obj; // Preserve identity
     }
-    seen.set(obj, flattened);
     return flattened;
   }
   

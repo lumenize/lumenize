@@ -404,3 +404,77 @@ describe('Wrapper Types', () => {
   });
 });
 
+describe('Objects with no encoder', () => {
+  // These keep their state in internal slots. Copying their own keys used to
+  // hand back `{}` (in workerd, a CryptoKey's metadata without its key), so
+  // the honest outcome is the DataCloneError native structuredClone() throws.
+  function thrown(fn: () => unknown): any {
+    try {
+      fn();
+    } catch (e) {
+      return e;
+    }
+    throw new Error('expected a throw');
+  }
+
+  it('throws DataCloneError for a CryptoKey instead of dropping its key', async () => {
+    const key = await crypto.subtle.generateKey(
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    );
+    const e = thrown(() => stringify(key));
+    expect(e).toBeInstanceOf(DOMException);
+    expect(e.name).toBe('DataCloneError');
+    expect(e.message).toBe(
+      'Could not serialize object of type "CryptoKey". Convert it to a plain value first.',
+    );
+  });
+
+  it.each([
+    ['Blob', () => new Blob(['hi'])],
+    ['ReadableStream', () => new ReadableStream()],
+    ['WritableStream', () => new WritableStream()],
+    ['WeakMap', () => new WeakMap()],
+    ['Promise', () => Promise.resolve(1)],
+  ])('throws DataCloneError for %s', (type, make) => {
+    const e = thrown(() => stringify(make()));
+    expect(e.name).toBe('DataCloneError');
+    expect(e.message).toBe(
+      `Could not serialize object of type "${type}". Convert it to a plain value first.`,
+    );
+  });
+
+  it('points native Request and Response at their Sync wrappers', () => {
+    expect(() => stringify(new Request('https://example.com/'))).toThrow(
+      'Cannot serialize native Request object. Use RequestSync instead.',
+    );
+    expect(() => stringify(new Response('hi'))).toThrow(
+      'Cannot serialize native Response object. Use ResponseSync instead.',
+    );
+  });
+
+  it('names where in the value the refused object sat', () => {
+    const e = thrown(() => stringify({ session: { keys: [new WeakMap()] } }));
+    expect(e.message).toBe(
+      'Could not serialize object of type "WeakMap" at session.keys[0]. '
+        + 'Convert it to a plain value first.',
+    );
+  });
+
+  it('still copies class instances and null-prototype objects', () => {
+    class Point { x = 1; y = 2; }
+    const bare = Object.assign(Object.create(null), { a: 1 });
+    expect(parse(stringify({ point: new Point(), bare }))).toEqual({
+      point: { x: 1, y: 2 },
+      bare: { a: 1 },
+    });
+  });
+
+  it("sends a typed-array subclass such as Node's Buffer as its built-in type", () => {
+    class Bytes extends Uint8Array {}
+    expect(preprocess(new Bytes([104, 105])).json).toMatchObject({ subtype: 'Uint8Array' });
+    const result = parse(stringify(new Bytes([104, 105])));
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(Array.from(result)).toEqual([104, 105]);
+  });
+});
+

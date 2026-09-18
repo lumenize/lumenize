@@ -110,6 +110,16 @@ function escapeKey(k: string): string {
   return k.startsWith('$') ? '$' + k : k;
 }
 
+// Renders a path as `session.keys[0]` for error messages.
+function formatPath(path: PathElement[]): string {
+  let out = '';
+  for (const step of path) {
+    if (step.type === 'index') out += `[${step.key}]`;
+    else out += out ? `.${step.key}` : String(step.key);
+  }
+  return out;
+}
+
 /**
  * Preprocesses complex values to a format that can be stringified to JSON.
  *
@@ -128,6 +138,9 @@ function escapeKey(k: string): string {
  * @param options - Optional preprocessing options including custom transform hooks.
  * @returns Intermediate format `{ json, meta }`.
  * @throws TypeError if value contains symbols.
+ * @throws DOMException named `DataCloneError` for an object with no encoder
+ *   that isn't a plain object or class instance (CryptoKey, Blob, streams, …),
+ *   naming its type and path.
  */
 export function preprocess(data: any, options?: PreprocessOptions): LmzIntermediate {
   const transform = options?.transform;
@@ -168,11 +181,7 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
           countRefs((value as any)[key]);
         }
       }
-    } else if (
-      value.constructor?.name === 'ArrayBuffer' ||
-      value.constructor?.name === 'DataView' ||
-      (value.constructor && /Array$/.test(value.constructor.name) && (value as any).buffer)
-    ) {
+    } else if (value.constructor?.name === 'ArrayBuffer' || ArrayBuffer.isView(value)) {
       // Atomic.
     } else if (
       value.constructor?.name === 'RequestSync' ||
@@ -352,31 +361,46 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       return { $type: 'bigint-object', value: (value as any).valueOf().toString() };
     }
     // ArrayBuffer / TypedArray / DataView
-    if ((value as any).constructor) {
-      const ctorName = (value as any).constructor.name;
-      if (ctorName === 'ArrayBuffer') {
+    if ((value as any).constructor?.name === 'ArrayBuffer') {
+      return {
+        $type: 'arraybuffer',
+        subtype: 'ArrayBuffer',
+        data: Array.from(new Uint8Array(value as ArrayBuffer)),
+      };
+    }
+    if (ArrayBuffer.isView(value)) {
+      // The tag names the built-in view even for a subclass, so Node's Buffer
+      // travels as the Uint8Array it is rather than under a constructor name
+      // that exists nowhere else.
+      const subtype = Object.prototype.toString.call(value).slice(8, -1);
+      if (subtype === 'DataView') {
         return {
           $type: 'arraybuffer',
-          subtype: 'ArrayBuffer',
-          data: Array.from(new Uint8Array(value as ArrayBuffer)),
-        };
-      }
-      if (ctorName === 'DataView') {
-        return {
-          $type: 'arraybuffer',
-          subtype: 'DataView',
+          subtype,
           data: Array.from(new Uint8Array((value as DataView).buffer)),
           byteOffset: (value as DataView).byteOffset,
           byteLength: (value as DataView).byteLength,
         };
       }
-      if (ctorName.includes('Array') && (value as any).buffer) {
-        return {
-          $type: 'arraybuffer',
-          subtype: ctorName,
-          data: Array.from(value as ArrayLike<number>),
-        };
-      }
+      return {
+        $type: 'arraybuffer',
+        subtype,
+        data: Array.from(value as unknown as ArrayLike<number>),
+      };
+    }
+    // Copying own keys is right only for a plain object or a class instance.
+    // Anything else reaching here is a host object (CryptoKey, Blob,
+    // ReadableStream, WeakMap, …) whose state lives in internal slots, so the
+    // copy would arrive as an impostor. Refuse it with the DataCloneError that
+    // native structuredClone() throws for what it can't clone.
+    const tag = Object.prototype.toString.call(value);
+    if (tag !== '[object Object]') {
+      const where = path.length > 0 ? ` at ${formatPath(path)}` : '';
+      throw new DOMException(
+        `Could not serialize object of type "${tag.slice(8, -1)}"${where}. `
+          + 'Convert it to a plain value first.',
+        'DataCloneError',
+      );
     }
     // Plain object
     const out: Record<string, any> = {};

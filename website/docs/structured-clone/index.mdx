@@ -25,7 +25,7 @@ import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
 ### Key Features
 
 - **Platform Independent**: Works in Node.js, browsers, Deno, Bun, and Cloudflare Workers
-- **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays, and Web API objects (via RequestSync/ResponseSync)
+- **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays (a subclass such as Node's `Buffer` arrives as its built-in type, as with native `structuredClone()`), and Web API objects (via RequestSync/ResponseSync)
 - **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types (including custom Error classes!)
 - **Circular References**: Automatically handled — shared and cyclic subgraphs are hoisted into `meta.aliases` and referenced by `{ $ref: id }`
 - **Zero Dependencies**: No external packages required
@@ -217,7 +217,7 @@ Binary formats are generally smaller, but this implementation is generally faste
 - **Symbols**: Cannot be serialized (throws `TypeError`)
 - **Functions**: Converted to internal markers (preserved structure, not executable)
 - **Signed Zero**: `-0` becomes `+0` (What is -0 anyway?)
-- **Streams**: `ReadableStream`/`WritableStream` not supported
+- **Objects it has no encoder for**: `CryptoKey`, `Blob`, `ReadableStream`/`WritableStream`, `WeakMap`, `Promise` and their kin throw a `DataCloneError`, the error native `structuredClone()` throws for what it can't clone. Their state lives outside their properties, so a copy would arrive broken. The message names the type and where it sat in your value, such as `at session.keys[0]`. Class instances still arrive as plain objects.
 
 ## Attribution
 

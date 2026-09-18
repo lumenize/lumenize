@@ -190,6 +190,11 @@ export async function testAsObject(testable: TestableClient): Promise<void> {
   
   // Should have env
   expect(asObject.env).toBeDefined();
+
+  // The fixture's cycles resolve to the flattened copies, never the raw
+  // originals (which would carry the DO instance through unflattened)
+  expect(asObject.complexData.data).toBe(asObject.complexData);
+  expect(asObject.complexData.parent).toBe(asObject);
 }
 
 /**
