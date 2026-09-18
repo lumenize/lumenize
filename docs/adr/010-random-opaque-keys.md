@@ -18,6 +18,8 @@ We made roughly the same mistake twice and got lucky that we could resolve befor
 
 Every key — primary or foreign, within a store or across a boundary — is a **random opaque key**, statistically guaranteed to be unique without requiring coordination. Never key off a natural or mutable attribute (email, slug, display names can change). Never key off an auto-incrementing counter (restricts where it can be generated).
 
+**A persona's `sub` and `profileId` are spelled from its host instead** ([ADR-022](022-every-session-lives-on-the-platform-host.md) § *A persona's host*). A persona is its slug in its Star, so its name is the only thing a key could stand for, and one renamed is a different persona.
+
 Two types are recommended:
 
 - A **UUID** for unordered keys. A native UUID v4 generator is currently available in Cloudflare Workers.

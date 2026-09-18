@@ -17,7 +17,7 @@
 
 ⚠️ **That placement is what makes "one human, one profile" a STRUCTURAL FACT rather than an emergent one.** Held per-membership, it would be a property of N rows agreeing — which yields derived canonical-ness (some "first" row wins), a first-mover race between two paths that see the same address, and a re-point that must update N copies in lockstep. One address, one row, one `profileId` has none of those failure modes to defend against.
 
-**A persona has no address and no membership**, so its `sub` and `profileId` sit together on its persona record ([ADR-022](022-every-session-lives-on-the-platform-host.md) § *A persona's host*). It stands for no human, so there is nobody to unify it with.
+**A persona has no address and no membership**, so its `sub` and `profileId` are spelled from its host ([ADR-022](022-every-session-lives-on-the-platform-host.md) § *A persona's host*). It stands for no human, so there is nobody to unify it with. A guesser can reach its public fields, which [ADR-012](012-global-profile-visibility.md)'s open read already allows for.
 
 **Every churny resolution keys off `sub`** (stable, never re-keyed); `profileId` is **never a key, an FK, or an authz input** — grants and snapshots key on `sub` only. That is what keeps a future person-unification **additive**: re-pointing is a one-row `UPDATE`, not a re-key across every resource record.
 
