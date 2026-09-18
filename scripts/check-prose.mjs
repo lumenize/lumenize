@@ -219,7 +219,10 @@ function analyze(path, kind, maxBytes) {
     abstract >= GATES.abstractMinCount && abstractRate > GATES.abstractPerKb,
     `${abstract} bare-abstract-noun subjects, ${abstractRate.toFixed(2)}/KB (budget ${GATES.abstractPerKb}/KB, target 0.15)`,
   )
-  push(maxBytes && raw.length > maxBytes, `${(t.length / 1000).toFixed(1)}KB (budget ${maxBytes / 1000}KB)`)
+  // The size gate measures the BODY, like every other metric here: header fields are reported
+  // separately (prose-voice.md § The budgets). It once gated on the whole file while printing the
+  // body's size, so a file could read "12.6KB (budget 13KB)" and still fail.
+  push(maxBytes && t.length > maxBytes, `${(t.length / 1000).toFixed(1)}KB (budget ${maxBytes / 1000}KB)`)
   if (kind === 'adr') {
     const dated = raw.match(/(?:✅|❌).{0,80}\b(?:as of|conformant|shipped|built)\b.{0,20}\d{4}-\d{2}-\d{2}/gi)
     push(dated, `dated build status in an ADR body: "${dated?.[0]?.slice(0, 60)}…" — belongs in the task file`)

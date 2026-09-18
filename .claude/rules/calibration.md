@@ -204,6 +204,32 @@ that ran through a real 90 s turn caught the banner painting before codegen had 
 directly, and you are about to write "cannot let time pass" or "too slow to wait for" in its
 justification. Both were written here, and both were false.
 
+## 14. You will over-apply least privilege to the coarse-grained layer
+
+**What you'll do:** narrow a token, a session or a choice of membership to where the caller happens
+to be working — "this page only needs its own Star" — and present the narrowing as security. Least
+privilege reads as diligence, so nobody asks what the narrowing stops. It is §1's reflex aimed at
+capability instead of visibility.
+
+**What to do instead:** ask which lateral move it stops. Dominion and passage are coarse-grained, and
+their job is to stop lateral movement while allowing vertical movement: dominion runs downward from
+a membership, passage upward from it. Least privilege belongs to the fine-grained layers below them,
+the DAG grants and the data-plane guards. A narrowing that stops only vertical movement breaks the
+design rather than hardening it. `docs/vision/auth.md` § *Why downward is generous for admins* argues
+it; read it there.
+
+**Where it bit (2026-09-14 to 2026-09-18):** ADR-022 narrowed every access token's `authScope` to
+the host of the page that asked for it, and a later edit picked the *nearest* scopeAdmin membership
+when several qualified. Both took a universe admin's dominion away on any page below the universe,
+so they could no longer `lmz.call()` the Universe from a galaxy's page — which today's code, where
+`authScope` is the membership and `aud` only an annotation, allows. Three Stage 1 panels on the task
+file built on it, and a rewrite of the ADR, let it through. Larry: *"If we make the coarse-grained
+one too restrictive, we don't allow the system to work as designed."*
+
+**How to catch yourself:** you are choosing the narrowest of several scopes, or confining a token to
+where its page runs, and the justification is that it can then do less. If the move it stops is
+vertical rather than lateral, this is the bias.
+
 ## 10. Opening with a sweep — moved
 
 Now `prose-voice.md` § *The moves that make the difference*. It is prose guidance rather than a training bias, and belongs where it loads at drafting time. The handle stays because archived files cite it and they are frozen.

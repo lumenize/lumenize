@@ -11,7 +11,7 @@ Lumenize owns three domains — `lumenize.com`, `lumenize.io` and `lumenize.dev`
 
 Two things push against one host:
 
-1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-every-session-lives-on-the-platform-host.md) forbids that for our cookies and keeps all of them on `platform.lumenize.dev`, which gives each page a token for the host it runs on. Studio, the apps it generates, and each persona a user-developer tests as all need storage the others cannot touch, and tokens for their own scope alone. So each needs a host of its own.
+1. **A browser keeps storage apart by origin, and cookies apart by host.** An origin is `https://` plus a host, such as `https://crm.acme.lumenize.dev`, and `localStorage`, `sessionStorage` and IndexedDB each belong to one. A cookie goes back only to the host that set it, unless it carries a `Domain` attribute, which widens it to every host under that domain. [ADR-022](022-every-session-lives-on-the-platform-host.md) forbids that for our cookies and keeps all of them on `platform.lumenize.dev`, which gives each page a token for the host it runs on. Studio, the apps it generates, and each persona a user-developer tests as all need storage the others cannot touch, and access tokens for their own host. So each needs a host of its own.
 2. **The outside world fixes the shapes a host can take.**
    - Google put all of `.dev` on the browsers' HSTS preload list, so every `lumenize.dev` host is HTTPS-only. A broken certificate is a dead page, not a warning.
    - A wildcard certificate matches exactly one label: `*.lumenize.dev` covers `acme.lumenize.dev` and not `crm.acme.lumenize.dev`.
@@ -86,7 +86,6 @@ Every `lumenize.dev` host is a sibling under one registrable domain, so a browse
 ### Positive
 
 - **A link names the scope it opens.** The host alone says universe, galaxy and Star, which is what [ADR-017](017-the-url-is-the-view-state.md) needs from a shared link.
-- **[ADR-015](015-passage-and-dominion.md)'s predicates get their scope from the address bar.** [ADR-022](022-every-session-lives-on-the-platform-host.md) narrows a token's `authScope` to its host, so a universe admin working on `tenant1.crm.acme.lumenize.dev` holds dominion over that Star alone.
 - **Every Star and persona is its own origin**, so the browser keeps their storage apart without our code doing it.
 - **Tenants, personas and environments cost no certificates.** Only universes and galaxies do.
 - **One 30-character rule covers every slug.**
