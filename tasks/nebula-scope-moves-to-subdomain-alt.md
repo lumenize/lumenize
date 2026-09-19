@@ -1,0 +1,11 @@
+# The scope moves from a URL segment to a subdomain
+
+**Status:** An -alt restart begun 2026-09-19 (`/write-task` § *When to start OVER instead — the -alt route*). It is a fresh Pass 1 for the half of [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) that the rewrite of [ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md) reshaped: sessions and access tokens, Home and where each action lives, logging out, the as-you dev tab, and the persona host before the personas build. It is written blind to the old file's arguments. The half that comes from [ADR-021](../docs/adr/021-every-scope-has-its-own-host.md), from the origin parse to the test zone, is mined from the old file at the end, together with the Stage 1 findings still open against it. This file then replaces the old one at its path.
+
+**Objective — every scope is served from a host of its own, and every session lives on the platform host, in production, in the local stack and in the `/live` harness alike.**
+
+Today one host serves everything, with the scope in the path. Studio for the galaxy `acme.crm` is `https://nebula.lumenize.com/acme.crm`, its preview is `/app/acme.crm.dev/` on that same host, its refresh is `POST /auth/acme.crm/refresh-token`, and Home is `/auth/acme.crm/home`. After this build Studio is `https://crm.acme.lumenize.dev/` and the preview is `https://dev.crm.acme.lumenize.dev/`. A page on either gets its access token from `POST https://platform.lumenize.dev/auth/refresh-token`, and login and Home live on that host too.
+
+Today a login sets one cookie per membership on `nebula.lumenize.com`, told apart only by `Path`, so any page there can get a token for any scope the person holds. The preview runs the user-developer's generated code on Studio's own origin, where it shares Studio's `localStorage` and can call Studio's auth endpoints with the user-developer's cookies.
+
+**The ADRs carry the design and its reasons, and this file carries what building them in this repo takes.** Its goal is to close the gaps between the code and those ADRs: the gaps their "Today's code differs" notes name, the rest those gaps imply for the local stack, the test venues, the harness and the docs, and the choices the ADRs leave to the build.
