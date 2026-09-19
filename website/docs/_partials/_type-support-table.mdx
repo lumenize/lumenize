@@ -25,10 +25,10 @@
 | Response | ✅ | ❌ | ✅ | ❌ | Lumenize: use `ResponseSync` |
 | Headers | ✅ | ✅ | ✅ | ✅ | |
 | URL | ❌ | ❌ | ✅ | ✅ | |
-| Blob | ✅ | ✅ | ✅ | ❌ | |
+| Blob | ✅ | ✅ | ✅ | ❌ | Lumenize: send `await blob.arrayBuffer()` and `blob.type` instead |
 | CryptoKey | ❌ | ❌ | ❌ | ❌ | Send its `exportKey('jwk')` output instead |
 | **Streams** | | | | | |
-| ReadableStream | ✅ | ❌ | ✅ | ❌ | |
+| ReadableStream | ✅ | ❌ | ✅ | ❌ | Lumenize: "just use WebSockets" |
 | WritableStream | ✅ | ❌ | ✅ | ❌ | Lumenize: "just use WebSockets" |
 
 **Notes:**
