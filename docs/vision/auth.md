@@ -105,57 +105,53 @@ The same kind of value appears in three distinct roles.
 
 | | Answers | Where it lives |
 |---|---|---|
-| **`authScope`** | *who you are* — the membership this session was established under | `access.authScope` in the token, and the refresh cookie's `Path` |
-| **`activeScope`** | *which one you are acting as right now*, chosen within `authScope` | the token's `aud` |
+| **`authScope`** | *who you are* — the membership this session was established under | `access.authScope` in the token, and the refresh cookie's name |
+| **`activeScope`** | *where you are acting right now* — the scope of the page where you are working, within `authScope` | the token's `aud` |
 | **`targetScope`** | *what you are acting on* | a URL segment, a mesh node's name, or a call parameter |
 
 **The first two are properties of the caller; the third is a property of the call.** `authScope` and `activeScope` ride the token and change only at login or refresh; `targetScope` differs for every call the same token makes. The two sections below cover the first two — `targetScope` needs no section of its own, because it is simply whatever is being addressed.
 
 ⚠️ **The coarse-grained verdicts read exactly two of the three: `authScope` and `targetScope`.** `activeScope` is not an input to passage or dominion (§ *Coarse-grained access control*), and leaving it out subtracts nothing — every refresh already confines it inside `authScope`, so deciding on it would be deciding on a value `authScope` has already bounded.
 
-Anything that looks like a fourth resolves to one of these. `Memberships.universeGalaxyStarId` is `authScope` at rest. The instanceName half of a mesh node address is `targetScope`, and so is the `:scope` segment of a route that decides *about* that scope — `/auth/:scope/create-star`, above. **A segment is not one by virtue of being a segment**: on the cookie routes it selects which cookie the browser sends, and the scope that decides anything is read from the stored refresh record instead (§ *The Registry*).
-
 ## `authScope` (sessions)
 
-A session has one `authScope`, represented by the refresh cookie set at login. It outlives any particular access token, tab, or client and has a long TTL. Reloading the page reuses it, and logging in at a different scope starts another one without removing the current one so more than one can be active at any given time, each with a different `Path` and expiration.
+A session has one `authScope`, represented by a refresh cookie. A login sets one for each membership the email address holds. A session outlives any particular access token, tab, or client and has a long TTL. Every one of them lives on `platform.lumenize.dev` and nowhere else, named for its membership's scope — `__Host-refresh-token.acme.crm` — so one login opens them all and one logout ends them all ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md)).
 
-The refresh cookie is `HttpOnly` so no script can read it, `Secure` so it only travels over HTTPS, and `SameSite=Strict` so it is never sent cross-site. Its `Path` is `/auth/{authScope}`.
+The refresh cookie is `HttpOnly` so no script can read it, `Secure` so it only travels over HTTPS, and `SameSite=Lax` so someone who follows a link in their email to Home (§ *Home*) is recognised: that navigation comes from another site, the mail client's, and a `Strict` cookie would stay behind. Its `__Host-` prefix makes a browser keep it only with `Path=/` and no `Domain`, so no other host can plant or overwrite it.
 
-Browsers decide which cookies to send by starts-with-style matching the request path against that `Path`, one whole segment at a time. So a cookie at `/auth/{u}` is sent to `/auth/{u}` and to anything deeper, like `/auth/{u}/refresh-token`, but not to `/auth/{u}.{g}/`, because `{u}.{g}` is a different URL segment rather than a deeper path. Sessions at different scopes are therefore fully separate.
+A page on any `lumenize.dev` host but `platform` gets its access token from the platform host's refresh. It calls `fetch` with `credentials: 'include'`, so the browser sends the platform host's cookies along. The page can read the answer only because the refresh names that page's origin in its CORS headers, and every other `POST` to `/auth/` refuses a request from another origin ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *The cookie rules*). Among the memberships whose cookies arrive, the refresh picks the one with the broadest dominion at or above the page's scope, and that membership's scope is the token's `authScope`. So a universe admin on a tenant's page carries `authScope: acme`, and from there can reach into the Galaxy, `acme.crm`, with dominion.
+
+> **Today's code differs.** One host, `nebula.lumenize.com`, holds every session, each cookie at `Path=/auth/{authScope}` with `SameSite=Strict`, and the client names the scope it refreshes at.
 
 ## `activeScope`
 
-An access token is a signed JWT. It has one `activeScope` — the scope the client is working in, carried as the `aud` claim. One session mints a token per client, and those clients can sit at different active scopes at once.
+An access token is a signed JWT. It has one `activeScope` — the scope of the page where the person is working, carried as the `aud` claim. On a page at `https://tenant1.crm.acme.lumenize.dev` it is `acme.crm.tenant1`. One session can back many tokens at once, one per tab, on the same host or on different hosts, each carrying its own page's `activeScope`.
 
-The client asks for it on each refresh and the server confines it to what the session already reaches, so it can only ever name somewhere `authScope` allows. It is restrained by `authScope`, but is not an independent factor in an access-control decision.
+The refresh takes it from the page's `Origin`, which page script cannot set, and mints only where it sits at `authScope` for a plain membership, or at or below it for a `scopeAdmin` one, so it can only ever name somewhere `authScope` allows. It is restrained by `authScope`, but is not an independent factor in an access-control decision.
 
-What it does do is fence the Gateway's **outbound** leg. A call heading out to a client is refused if its `aud` differs from the one that connection presented, so a person's own clients cannot bleed into each other. Since the client picks both sides of that comparison, the fence can only withhold a call — never reach anything new. The Profile is exempt, deliberately: responses out of it carry public fields only, and cross-scope delivery is the point.
+It decides nothing a call may do ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*).
 
-The UI has controls for moving between active scopes for the people who most often work in more than one — admins and coaches. Someone working in `u.g1` who wants to do some work in `u.g2` picks it from a list of every scope they are a member of, and the URL changes to name it, because the scope you are working in is view state ([ADR-017](../adr/017-the-url-is-the-view-state.md)). Whether the browser makes that a full navigation or a client-side one does not matter: either way the old client is disposed and a new one connects at the new `activeScope`, since a connection carries for its life the one `aud` it presented. They work there until they change it again.
+> **Today's code differs.** The Gateway still fences its outbound leg on `aud`: a call heading out to a client is refused if its `aud` differs from the one that connection presented, with the Profile exempt. Once `aud` is the page's host, that fence would drop every update made from another host, so what replaces it is an open question in [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md).
 
-That list is over memberships rather than over what the current token reaches, so it can span sessions — and a different session is a different cookie, at a different `Path`** (§ *`authScope` (sessions)*). Where the destination is inside the session already open, the move is what this section describes: a new token, a new `aud`, the same cookie. Where it is a different membership, meaning a different session, the url changes first, and it is the cookie at *that* scope's `Path` that mints the new token. Those cookies are long-lived and coexist, so an already-open session just works, and only an expired or absent one puts a login in front of the user's desire to work somewhere else.
-
-Because one person can hold memberships at several addresses, the list is keyed on the **person** — their `profileId` — rather than on any one address (§ *Identity and membership*). It takes an authenticated caller to retrieve the list.
-
-> **Today's code differs, in ONE way.** The `profileId`-keyed list is built and authenticated — `scope-summary` is exactly the read this section describes, and the picker in front of it is the Home screen. What still differs is the URL: switching inside an open session disposes the client and rebuilds it at the new `activeScope` without the address changing, the divergence [ADR-017](../adr/017-the-url-is-the-view-state.md) was written against.
+Moving between active scopes is moving between hosts, which a person does from Home (§ *Home*). The page they land on gets a token of its own, and a connection carries for its life the one `aud` it presented.
 
 The contrast, at a glance:
 
 | | `authScope` | `activeScope` |
 |---|---|---|
 | Belongs to | the session | each access token |
-| What it is | where you authenticated | the scope one client works in |
-| Where it lives | the refresh cookie's path, and the JWT's `access` claim | the JWT `aud` |
-| Who sets it | fixed at login | the client asks on each refresh; the server confines it to what the session reaches |
+| What it is | where you authenticated | the scope of the page where the person is working |
+| Where it lives | the refresh cookie's name, and the JWT's `access` claim | the JWT `aud` |
+| Who sets it | fixed at login; the refresh picks the session | the refresh, from the page's `Origin`, confined to what the session reaches |
 
 ## The access token
 
-A whole token, annotated — a Galaxy admin whose client is working in one of their tenants. Each comment names the section that expands it:
+A whole token, annotated — a Galaxy admin on a page at one of their tenants' hosts. Each comment names the section that expands it:
 
 ```jsonc
 {
   "sub": "8f3c…",              // the membership — see § Identity and membership
-  "aud": "acme.crm.bigco",     // activeScope — fences calls out to me, grants nothing
+  "aud": "acme.crm.bigco",     // activeScope — my page's host, grants nothing
   "access": {
     "authScope": "acme.crm",   // where I am a member — passage and dominion both read it
     "scopeAdmin": true         // see § Coarse-grained access control
@@ -323,17 +319,19 @@ Changing an email address is possible and takes proof of both. Proof of the new 
 
 The last row is the point, not a gap.
 
-## Discovery
+## Home
 
-The process of deciding what scope the user wants to work in is called "Discovery". It can happen whenever we are uncertain where to redirect a user to like after a fresh login. It can also be manually chosen when a user wants to change what scope they are working in.
+**Home, at `platform.lumenize.dev`, is where a person decides which scope to work in.** That deciding is called "discovery". It can happen whenever we are uncertain where to send someone, like after a fresh login. It can also be chosen by hand, when someone wants to change the scope they are working in, and the people who do that most are admins and coaches.
 
-Not every type of scope is a place to work and thus not a reasonable active scope but for those that are, choosing a scope in discovery will take you the page for that type of active scope. Galaxy active scopes take you to Nebula Studio. Star active scopes serve up that app.
+Not every type of scope is a place to work and thus not a reasonable active scope, but for those that are, choosing a scope in discovery takes you to the page for that type of active scope. Galaxy active scopes take you to Nebula Studio. Star active scopes serve up that app. Someone working in `u.g1` who wants to do some work in `u.g2` picks it from the list, and the tab goes to that scope's host, because the scope you are working in is view state ([ADR-017](../adr/017-the-url-is-the-view-state.md)).
 
-Discovery only happens after the user is authenticated at one scope and that authenticated scope is what's used to figure out what other scopes they might want to work in by finding all possible scopes reachable by the profileId for the principal in the JWT claims (§ *Identity and membership*).
+The list is over memberships rather than over what the current token covers, so it can span sessions. Because one person can hold memberships at several addresses, it is keyed on the **person** — their `profileId` — rather than on any one address (§ *Identity and membership*). Home reads it by the refresh cookies the browser holds, since a page on the platform host gets no token. Every session's cookie lives there too, so whichever membership the destination needs, the new page's refresh finds it. Those cookies are long-lived and coexist, so an already-open session just works, and only an expired or absent one puts a login in front of the user's desire to work somewhere else.
 
 The login itself names no scope, only an email address. Once someone is authenticated, discovery computes what they reach and they pick.
 
-**Skipping the picker when the browser remembers.** An expired session can return someone straight to their work. ⚠️ **The scope is remembered in `localStorage`, never carried in the link**.
+**Skipping the picker when a page sent you.** A page whose refresh finds no session sends the tab to log in with `return_to`, and the login returns there, in whichever browser opened the link ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *Logging in*). ⚠️ **The destination is remembered by the login, never carried in the emailed link.**
+
+> **Today's code differs.** Every scope shares one host, so the client names `activeScope` on each refresh and the server confines it, and switching inside an open session rebuilds the client without the address changing, the divergence [ADR-017](../adr/017-the-url-is-the-view-state.md) was written against. Home reads the list through `scope-summary`, with a token, and a signed-out visitor's destination waits in `localStorage`, which a link opened in another browser never sees.
 
 ## The Registry
 
@@ -347,9 +345,7 @@ This case has two families, and neither reaches R4 or R5 — with no verified cl
 
 **Getting a token.** Claiming a scope, requesting a magic link, consuming one. These cannot verify a token because they are how a person obtains one. Two things stand in: `turnstileGuard` proves a human is present, running after rate limiting because it costs a `siteverify` round trip; and the credential itself arrives out of band, because access is anchored to the mailbox (§ *Identity and membership*).
 
-**Presenting the refresh cookie.** `refresh-token` exchanges the refresh cookie for an access token; `logout` ends the session. The caller is authenticated here by cookie rather than by JWT. The cookie's `Path` is `/auth/{authScope}` and browsers match whole segments, so `/auth/{u}/refresh-token` only ever receives a cookie set at `/auth/{u}` or shallower — but that decides which cookie is *sent*, never what it is worth. The scope is read server-side from the stored refresh record, and the requested `activeScope` is confined inside it; it is never taken from the cookie or from the URL.
-
-That is also why the scope segment on these routes is not what R2 describes — never a scope being acted on.
+**Presenting the refresh cookie.** `refresh-token` exchanges refresh cookies for an access token, and `logout` ends them (§ *`authScope` (sessions)*). The caller is authenticated here by cookie rather than by JWT. A cookie's name only says which membership it holds: what the cookie is worth, and the scope that decides anything, are read from the stored refresh record.
 
 The seam stays clean, and it is worth being precise about what kind of clean. **No authorization decision ever consults the Registry mid-session** — once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally, off the claims. What does reach the Registry mid-session is **writes**, through the facade (§ *Grants in both planes*). The deciding path is finished by the time the connection is open; the mutating path goes through one door.
 
@@ -373,7 +369,7 @@ The `profileId` being random and unguessable stops enumeration, not access. Any 
 
 Private data can be read and written only by the owner of the profile, a superuser, or a Registry admin over a scope where that person holds an **accepted** membership.
 
-Accepted is load-bearing, not bookkeeping. An invitation creates a membership before the invitee has done anything, so counting unaccepted ones would let anyone claim a Universe, invite an address they guessed, and become an admin over a scope that stranger's profile touches. A membership is taken up at exactly one endpoint, reached from behind a consent modal and authenticated by the path-scoped cookie a click on mail to that address put in the browser. Consuming the link is not enough on its own — it proves the mailbox, which is a different act from agreeing to hold the membership.
+Accepted is load-bearing, not bookkeeping. An invitation creates a membership before the invitee has done anything, so counting unaccepted ones would let anyone claim a Universe, invite an address they guessed, and become an admin over a scope that stranger's profile touches. A membership is taken up at exactly one endpoint, reached from behind a consent modal and authenticated by the refresh cookie a click on mail to that address put in the browser. Consuming the link is not enough on its own — it proves the mailbox, which is a different act from agreeing to hold the membership.
 
 The owner is whoever's `profileId` is on the token. An admin impersonating someone is that person here, exactly as they are everywhere else — the token names the subject, and nothing about the actor changes what it may do. What keeps that safe is that the token cannot exist over a membership nobody accepted: the mint refuses to issue one, so an admin arrives only at the profiles their own dominion already reaches.
 
@@ -387,7 +383,9 @@ An environment variable holds an array of superuser email addresses. Logging in 
 
 An admin can act as someone they administer. The token names both people: the top-level `sub` is the person being acted as, and `act.sub` is the admin doing it. The token format allows nesting, but impersonation does not chain — to act as someone else you go back to your original session.
 
-`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence. Two refusals key on the chain merely being there: the scope summary above, and the mint, which will not narrow a token that already carries one. Prepend an actor into somebody's own session token and they lose their tenancy list and their ability to act as anyone, for a reason nobody intended. Chains grow on the **record** instead — § *Attribution* — where an actor is legitimately not an impersonator at all, since Nebula adds itself to every turn it writes.
+`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence. One refusal keys on the chain merely being there: the mint, which will not narrow a token that already carries one. Prepend an actor into somebody's own session token and they lose their ability to act as anyone, for a reason nobody intended. Chains grow on the **record** instead — § *Attribution* — where an actor is legitimately not an impersonator at all, since Nebula adds itself to every turn it writes.
+
+> **Today's code differs.** `scope-summary` and `expand-scope` refuse a token carrying `act` as well, because `scope-summary` answers every tenancy the subject holds, some of it beyond the impersonating admin's dominion. The subdomain build removes `scope-summary` and confines `expand-scope` beneath its own host, where the admin already holds dominion, so the refusal withholds nothing.
 
 It produces a token but not a session. There is no refresh cookie behind it, which is why ending it means tearing down the client and never calling the logout endpoint — that would spend the cookie of the session that minted it, ending the admin's own.
 

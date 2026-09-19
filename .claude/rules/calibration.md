@@ -221,7 +221,7 @@ it; read it there.
 **Where it bit (2026-09-14 to 2026-09-18):** ADR-022 narrowed every access token's `authScope` to
 the host of the page that asked for it, and a later edit picked the *nearest* scopeAdmin membership
 when several qualified. Both took a universe admin's dominion away on any page below the universe,
-so they could no longer `lmz.call()` the Universe from a galaxy's page — which today's code, where
+so they could no longer act as the Universe's admin from a galaxy's page — which today's code, where
 `authScope` is the membership and `aud` only an annotation, allows. Three Stage 1 panels on the task
 file built on it, and a rewrite of the ADR, let it through. Larry: *"If we make the coarse-grained
 one too restrictive, we don't allow the system to work as designed."*

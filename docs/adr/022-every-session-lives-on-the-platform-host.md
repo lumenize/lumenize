@@ -58,7 +58,7 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 ### What an access token carries
 
 - **`authScope` is the chosen membership's scope, and `aud` is the page's.** A universe scopeAdmin on `tenant1.crm.acme.lumenize.dev` carries `authScope: acme` and `aud: acme.crm.tenant1`. The client names neither.
-- **Dominion and passage read `authScope`** ([ADR-015](015-passage-and-dominion.md)), so that admin can `lmz.call()` the Universe from the Star's page with generous permissions. No check reads `aud` to decide what a call may do.
+- **Dominion and passage read `authScope`** ([ADR-015](015-passage-and-dominion.md)), so from the Star's page that admin reaches into the Galaxy with dominion, not just passage. No check reads `aud` to decide what a call may do.
 - **Lateral movement stays refused.** `aud` must sit at or below `authScope`, so no page carries a membership from another branch of the scope tree, and dominion runs only downward.
 - **Every call carries an access token, and passage upward comes from its `authScope`.** A member of `acme.crm.tenant1` can call its galaxy and its universe from the Star's page.
 - **Every access token rests on an accepted membership** ([ADR-012](012-global-profile-visibility.md)): the person's own, or for a persona, that of whoever opened its tab.
@@ -87,7 +87,7 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 ## Alternatives considered
 
 - **Each host holding its own session, set by a top-level redirect through the platform host.** It would survive a Public Suffix List entry, which we do not plan ([ADR-021](021-every-scope-has-its-own-host.md)), but costs every host a cookie, a callback, a signed code and a `state` cookie, and a frame its code passed in by `postMessage`.
-- **Narrowing `authScope` to the page's host, or picking the nearest scopeAdmin membership.** Either takes a universe admin's dominion away on a galaxy's page, so they could not `lmz.call()` the Universe from there. The coarse-grained layer is to stop lateral movement, while allowing certain kinds of vertical movement. Fine-grained access controls are necessary for this to be secure (Larry, 2026-09-18).
+- **Narrowing `authScope` to the page's host, or picking the nearest scopeAdmin membership.** Either takes a universe admin's dominion away on a galaxy's page, so they could not act as the Universe's admin there. The coarse-grained layer is to stop lateral movement, while allowing certain kinds of vertical movement. Fine-grained access controls are necessary for this to be secure (Larry, 2026-09-18).
 - **A persona tab through impersonation, with `act` naming the user-developer.** Every check that reads `act` would treat the tab unlike a real Manny; on a Star with no real users, testing fidelity outweighs attribution (Larry, 2026-09-17).
 - **A persona as a member of its Star, at an address no human can receive mail at.** It needs a membership born accepted, and guards keeping every human's address out of that namespace. With no address there is nothing to guard (Larry, 2026-09-18).
 - **Cookies with a `Domain`, cascading down a scopeAdmin's subtree or set on all of `lumenize.dev`.** Either gives up `__Host-`, so a generated app could overwrite a person's refresh cookie with its own.
