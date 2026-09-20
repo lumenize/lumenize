@@ -1,6 +1,6 @@
 ---
-status: draft
-status_dated: 2026-06-21
+status: rough draft
+status_dated: 2026-09-20
 ---
 
 # Nebula Product Strategy
