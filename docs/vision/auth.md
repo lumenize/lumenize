@@ -201,10 +201,13 @@ isAtOrBelow(myScope, targetScope)  — my scope sits at or beneath the target: t
                                      platform root. Exactly isAtOrAbove with the arguments
                                      flipped: isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(authScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(authScope, targetScope)
+dominion(aud, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(aud, targetScope)
 
-passage(authScope, scopeAdmin, targetScope)  = isAtOrBelow(authScope, targetScope)
-                                               ∨ dominion(authScope, scopeAdmin, targetScope)
+passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
+                                         ∨ dominion(aud, scopeAdmin, targetScope)
+
+   aud is the PAGE's scope, taken server-side from its Origin and never named by the
+   client; scopeAdmin still comes from the membership the token rests on.
 ```
 
 Passage is only getting past the outer border. What you can then do is decided by the rules of whatever you reached — on the mesh path (M5–M7):
@@ -377,7 +380,7 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry scopeAdmin over every Universe — essentially God. That needs no special arm: `nebula-platform` is the root of the scope tree, so `isAtOrAbove` already places it at or above every scope (§ *Coarse-grained access control*). God's dominion is the ordinary downward rule, held from the top.
+An environment variable holds an array of superuser email addresses. Logging in with one of these gives that login a membership at `_platform`, the root of the scope tree — the equivalent of Registry scopeAdmin over every Universe. That needs no special arm: `isAtOrAbove` already places the root at or above every scope, so a superuser gets a token on every host and passage everywhere. Dominion, though, reads the page's scope, and no page sits at the root ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md)) — so in any one call they hold that page's scope and below. They administer every scope there is, one page at a time.
 
 ## Impersonation
 

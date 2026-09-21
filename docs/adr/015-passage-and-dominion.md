@@ -15,7 +15,7 @@ Every caller presents its `authScope`, a `scopeAdmin` bit, and the `targetScope`
 
 Previously, this model was assumed everywhere and in a precise written form nowhere. An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
 
-> **Today's code differs.** The predicates in § *Decision* are what runs — coverage is a comparison over the member's own scope (`access.authScope`), and a non-admin no longer reaches downward — but **a call to a node named `nebula-platform` is still refused outright**, so the universal passage described here does not yet hold at the root. That is a **name reservation**, not a containment gap: nothing is deployed at that name, and refusing it stops an arbitrary class occupying the most reachable name in the system. It closes when the name goes from **rejected to bound**, never by being opened.
+> **Today's code differs.** § *Decision*'s predicates read the page's scope; today's code reads the member's own (`access.authScope`), which [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) closes. Coverage is already a comparison over that scope rather than the bare admin bit, and a non-admin already has no passage into scopes beneath their own — but **a call to a node named `nebula-platform` is still refused outright**, so the universal passage described here does not yet hold at the root. That is a **name reservation**, not a containment gap: nothing is deployed at that name, and refusing it stops an arbitrary class occupying the most reachable name in the system. It closes when the name goes from **rejected to bound**, never by being opened.
 
 ## Decision
 
@@ -42,10 +42,15 @@ isAtOrBelow(myScope, targetScope)  — my scope sits at or beneath the target: t
                                      platform root. Exactly isAtOrAbove with the arguments
                                      flipped: isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(authScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(authScope, targetScope)
+dominion(aud, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(aud, targetScope)
 
-passage(authScope, scopeAdmin, targetScope)  = isAtOrBelow(authScope, targetScope)
-                                               ∨ dominion(authScope, scopeAdmin, targetScope)
+passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
+                                         ∨ dominion(aud, scopeAdmin, targetScope)
+
+   aud is the scope of the PAGE the call came from, derived server-side from its Origin
+   and never named by the client. scopeAdmin still comes from the membership the token
+   rests on. A page therefore acts within its own scope and below, not within everything
+   its holder's broadest membership covers.
 ```
 
 **One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(access, targetScope)` and `hasPassageInto(access, targetScope)`.
@@ -61,8 +66,8 @@ passage(authScope, scopeAdmin, targetScope)  = isAtOrBelow(authScope, targetScop
 These things follow:
 
 - **The two nest: dominion implies passage**, since you cannot act somewhere you cannot arrive. So for any call, passage is never the smaller set, and what it adds is everything at-or-above that caller's own scope.
-- **Passage at the platform scope is universal**, because the upward arm asks `isAtOrAbove('nebula-platform', anything)` and the root satisfies it for everyone.
-- **Only superusers have dominion at the platform scope**, because `isAtOrAbove(myScope, 'nebula-platform')`, holds only when your own scope *is* the platform scope.
+- **Passage at the platform scope is universal**, because the upward arm asks `isAtOrAbove('_platform', anything)` and the root satisfies it for everyone.
+- **Nobody holds dominion at the platform scope**, because `isAtOrAbove(aud, '_platform')` holds only when the PAGE is at the root — and [ADR-022](022-every-session-lives-on-the-platform-host.md) gives no page a token there. A superuser's membership still sits at the root, which is what grants them a token on every host and passage everywhere; what it no longer does is carry dominion over the whole tree in one call. They administer every scope, one page at a time.
 - **Dominion over a scope is total and non-vetoable.** No finer-grained permission mechanism in that scope can veto, block, or attenuate a `scopeAdmin` above them. The Resource orgTree is the worked example: a covering scopeAdmin acts there with no grant ever written (`apps/nebula/src/dag-tree.ts` `requirePermission`). Anything added later inherits this without being asked. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
 - **A scope's finer-grained mechanisms decide for callers *without* dominion.**
 - **Lacking dominion is not a denial.** A caller with passage but no dominion may still be granted a great deal by the methods it calls, as decided by the callee's own guards.
@@ -71,7 +76,7 @@ These things follow:
 
 - **Let members block deletion of a shared scope.** The status quo before this ADR. Protects real users from a careless admin, but inverts the model: it makes dominion conditional on the consent of those it governs. In the case of Star self-signup it also becomes an attack — a squatter holds a slug hostage precisely because they are an "other user."
 - **A narrow carve-out: only unblock when the scope has a single member.** Proposed and rejected 2026-07-21. It treats the symptom; the veto is wrong for every descendant, not just the single-member case, and a predicate carve-out leaves the inverted principle in place to resurface elsewhere.
-- **Close the upward leak by tightening `requirePassage`'s tenant branch.** Rejected: that branch is passage, not dominion. Narrowing it breaks legitimate non-admin upward reads (a Star fetching its app's ontology) while leaving the actual defect — guards trusting a bare bit — untouched. ⚠️ **This row is retired by [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/archive/nebula-passage-dominion-from-scope.md), and the retirement is not a reversal.** That work changes the branch's *input* from the client-chosen `aud` to the server-trusted scope, which refuses the descendant case while preserving the upward read this row defends — `docs/vision/auth.md` § *Coarse-grained access control* (`accepted`) carries that read as its own table row. The branch survives; only what it compares changes.
+- **Close the upward leak by tightening `requirePassage`'s tenant branch.** Rejected: that branch is passage, not dominion. Narrowing it breaks legitimate non-admin upward reads (a Star fetching its app's ontology) while leaving the actual defect — guards trusting a bare bit — untouched. ⚠️ **This row is retired by [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/archive/nebula-passage-dominion-from-scope.md), and the retirement is not a reversal.** That work changed the branch's *input* from the client-chosen `aud` to the server-trusted scope, which refuses the descendant case while preserving the upward read this row defends. ⚠️ **§ *Decision* now reads `aud` again, and that is not a reversion**: `aud` is no longer client-chosen — it is the page's scope, taken from its `Origin` by the server ([ADR-022](022-every-session-lives-on-the-platform-host.md)) — so the input stays server-trusted and merely gets narrower — `docs/vision/auth.md` § *Coarse-grained access control* (`accepted`) carries that read as its own table row. The branch survives; only what it compares changes.
 - **Rely on review to catch violations.** Empirically insufficient: both violations survived multiple passes, and a third was proposed during the very session that fixed the second.
 
 ## Consequences
