@@ -109,6 +109,31 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 Single-flight sits before all four: a message during a generation is still skipped, and the queue this item builds is what changes that.
 
+**2026-09-20 — when case 4 is built, the classifier is Jev (Larry).** `typesafe/jev` is a Workers AI model that answers typed questions about one state and returns a calibrated probability instead of prose. Case 4 becomes a single `noul` question rather than a JSON parse of a chat model's reply. Shape is from [the Cloudflare model page](https://developers.cloudflare.com/ai/models/typesafe/jev/), read but not yet run here — re-check it against the docs at pickup:
+
+```ts
+const { respond } = await env.AI.run('typesafe/jev', {
+  state,  // the live subscriber roster + the last ~6 messages with bylines
+  questions: {
+    respond: {
+      type: 'noul',
+      instructions: 'A group chat in an app-building workspace. Nebula is the assistant.',
+      criteria: {
+        true: 'the newest message asks Nebula for something, or continues an exchange with it',
+        false: 'the newest message is addressed to another person',
+      },
+    },
+  },
+})
+// respond.noul is P(the message is for Nebula), 0-1 - branch on a threshold
+```
+
+- **Failing open becomes a threshold, not a catch block.** Case 4 above names the asymmetry; a probability is what makes it a number — respond unless P is decisively low.
+- **No dependency, no startup cost.** `env.AI` is already bound and already carries the codegen model, so this is a second model id on a binding we have.
+- **ADR-001 is not in play.** The `questions` object says what to ask about one state; it never describes the shape of our data. This is a model call, like the codegen call beside it.
+- **Measure the calibration before trusting a threshold.** "Calibrated" is the vendor's word, and `calibration.md` § 8 says a measurement survives an override where a label does not.
+
+
 **Consider — turn leases and wake-time reconciliation (2026-09-06, from the crash-only discussion).** Three ideas from the let-it-crash article, each prefixed "consider" on purpose: none is decided, and Larry's worry sits above all three. A fresh container does nothing for a half-finished Workspace, and a restart does nothing for a corrupt one. What makes the half-finished case survivable is that both histories are durable — the commits in the DO's git and the Messages in the chat — so the person can say "fix it" and the model sees what landed and what did not. Guidance for that grows over time, and LLM-driven testing, once it exists, makes such states obvious rather than discovered by hand.
 
 - **Consider a lease per turn.** The human Message is durable before the model runs; if the Galaxy is evicted mid-turn the turn dies, and today the person posts again. On wake, a Message with no reply and no turn in flight is a lease that expired: restart it once, from the durable state (the commits, the history bundle), never a blind rerun, because a turn is a multi-minute model job. The idempotency key already exists — one reply per Message — so a restart that finds the reply landed is a no-op.
