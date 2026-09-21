@@ -1081,7 +1081,7 @@ export class NebulaClientTest extends NebulaClient {
    *  `setOntology`. Production installs arrive ONLY by lazy-pull from the Galaxy
    *  registry; this initiator exists so a test can pin a Star's ontology without a
    *  Galaxy loop, and goes through the test-app door rather than any production entry. */
-  callStarApplyOntology(starName: string, versionConfig: OntologyVersionConfig): void {
+  callStarInstallOntology(starName: string, versionConfig: OntologyVersionConfig): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().applyOntologyForTest(versionConfig);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));

@@ -237,7 +237,7 @@ describe('transactions latency (decomposed)', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
   // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
-  // to install per-Star via `callStarApplyOntology` (the test-app door), so the bench
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('measures ping / warm / cold blocks with hop decomposition', async () => {
     const baseUrl = inject('wranglerBaseUrl');
@@ -279,8 +279,8 @@ describe('transactions latency (decomposed)', () => {
       // saves cold-block iteration 1 the ~262 ms one-time bundle load.)
       console.log('[transactions-bench] installing ontology + pre-warming bundle');
       const warmupStar = `${galaxyScope}.tenant-warmup`;
-      await client.callStarApplyOntology(warmupStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
-      await client.callStarApplyOntology(warmStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarInstallOntology(warmupStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarInstallOntology(warmStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await client.callStarTransaction(warmupStar, ONTOLOGY_VERSION, createOp());
 
       // Warmup iterations on the warm Star — gets the harness, the WS, and
@@ -309,7 +309,7 @@ describe('transactions latency (decomposed)', () => {
       const coldStars = Array.from({ length: COLD_ITERATIONS },
         () => `${galaxyScope}.tenant-cold-${crypto.randomUUID().slice(0, 8)}`);
       for (const star of coldStars) {
-        await client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+        await client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       }
       let coldIdx = 0;
       const coldSamples = await runSequentialBlock('cold', COLD_ITERATIONS, () =>

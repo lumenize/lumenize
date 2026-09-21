@@ -817,7 +817,7 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
     // …and it was NEVER installed on the derived .dev Star (no setOntology /
     // compileAndInstallOntology) and nothing was wiped. Capable-of-failing: an install
     // would leave a version in the Star's index. Only the dominion-gated
-    // appendWorkspaceOntology appends; the loop cannot reach it.
+    // applyOntology appends; the loop cannot reach it.
     expect(await inDO(env.STAR, `${dev}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
   });
 

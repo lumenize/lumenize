@@ -34,7 +34,7 @@ async function waitForSuccess(client: NebulaClientTest) {
 async function twoAdminClients(star: string) {
   const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+  a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await waitForResult(a.client);
   const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b, galaxyName };
@@ -111,7 +111,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
 
     // Append v2 + trigger its install (a v2 op cache-misses → Star fetches + installs
     // → #installState clears resource Subscribers; it must NOT touch TreeSubscribers).
-    a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
     await waitForSuccess(a.client);
     a.client.callStarTransaction(star, 'v2', {
       [crypto.randomUUID()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v2' } },

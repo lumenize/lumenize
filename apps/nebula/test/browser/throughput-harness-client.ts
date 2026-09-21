@@ -51,7 +51,7 @@ export class ThroughputHarnessClient extends NebulaClient {
 
   /** Install an ontology version directly on `starName` — `StarTest.applyOntologyForTest`
    *  compiles server-side in the test app (the Galaxy test-install path is deleted). */
-  callStarApplyOntology(starName: string, cfg: { version: string; types: string }): Promise<void> {
+  callStarInstallOntology(starName: string, cfg: { version: string; types: string }): Promise<void> {
     return new Promise((resolve, reject) => {
       this.#singleSlot = { resolve, reject };
       const remote = (this.ctn() as any).applyOntologyForTest(cfg);

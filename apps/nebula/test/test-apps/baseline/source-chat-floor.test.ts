@@ -1,6 +1,6 @@
 /**
  * The source entries at the CHAT FLOOR (`.claude/rules/security.md`'s design-floor line): `readSource`,
- * `writeSource`, `buildNow` and `appendWorkspaceOntology` carry `requireChatWrite` — DAG
+ * `writeSource`, `buildNow` and `applyOntology` carry `requireChatWrite` — DAG
  * `write` at the chat node, the same check a Message create passes at the door — so a
  * collaborator whose message triggers a turn that writes and builds under their own claims
  * can make the same calls directly. Real invited identities, the shape of the real-host
@@ -75,7 +75,7 @@ const galaxy = (c: NebulaClientTest, scope: string) => ({
   write: (path: string, content: string) =>
     c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().writeSource(path, content)) as Promise<{ oid: string; path: string }>,
   apply: (opts: { wipe?: boolean }) =>
-    c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().appendWorkspaceOntology(opts), { timeoutMs: APPLY_TIMEOUT_MS }) as Promise<{ version: string }>,
+    c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().applyOntology(opts), { timeoutMs: APPLY_TIMEOUT_MS }) as Promise<{ version: string }>,
   current: () => c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().getCurrentOntology()) as Promise<OntologyVersionRow | null>,
 });
 
@@ -168,7 +168,7 @@ describe('the source entries sit at the chat floor', () => {
     expect(head?.wipeOnInstall).toBe(true);
     // The ADR-016 record a wipe owes: the acting principal's projection on the decision line.
     const decided = entries.filter((e) =>
-      e.namespace === 'nebula.Galaxy.appendWorkspaceOntology' && e.message === 'wipe on install decided');
+      e.namespace === 'nebula.Galaxy.applyOntology' && e.message === 'wipe on install decided');
     expect(decided).toHaveLength(1);
     const token = decided[0]!.data?.actingToken as { sub?: string; access?: { authScope?: string } } | undefined;
     expect(token?.sub).toBe(owner.claims.sub);

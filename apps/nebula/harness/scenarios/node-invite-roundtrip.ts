@@ -69,7 +69,7 @@ export async function run(stack: DevStack): Promise<void> {
     // _InviteStatus rides every version (platform-unioned).
     const galaxy = star.split('.').slice(0, 2).join('.');
     const appended = await admin.client.lmz.callAsync(
-      'GALAXY', galaxy, admin.client.ctn<Galaxy>().appendWorkspaceOntology(),
+      'GALAXY', galaxy, admin.client.ctn<Galaxy>().applyOntology(),
       { timeoutMs: 240_000 },
     ) as { version: string };
     assert.ok(appended.version.length > 0, 'the Apply should return the appended seed version');

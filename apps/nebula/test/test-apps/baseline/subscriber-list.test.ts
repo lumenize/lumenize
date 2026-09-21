@@ -64,7 +64,7 @@ async function connect(opts: {
 async function admin(star: string): Promise<{ client: NebulaClientTest; sub: string }> {
   const sub = uuid();
   const client = await connect({ star, sub, scopeAdmin: true });
-  client.callStarApplyOntology(star, { version: VERSION, types: TYPES } as OntologyVersionConfig);
+  client.callStarInstallOntology(star, { version: VERSION, types: TYPES } as OntologyVersionConfig);
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
   return { client, sub };
 }
@@ -293,7 +293,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
 
     // A new-version ontology install drains ALL THREE registries (incl. watchers via clearWatchers) so a
     // watcher whose watched type/field an install could remove is cleared, not left silently stale.
-    adminClient.callStarApplyOntology(star, { version: 'v2', types: TYPES } as OntologyVersionConfig);
+    adminClient.callStarInstallOntology(star, { version: 'v2', types: TYPES } as OntologyVersionConfig);
     await vi.waitFor(() => expect(adminClient.callCompleted).toBe(true));
     // Reds if clearWatchers() is NOT unioned into #installState (the watcher row would survive the install).
     await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(0));

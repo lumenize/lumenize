@@ -3,7 +3,7 @@
  *
  * The collapse of three former nodes (Galaxy + DevStudio + DevContainer) into one class
  * (tasks/archive/nebula-galaxy-collapse-and-chat.md). It owns:
- *  - the per-galaxy **ontology registry**: `appendWorkspaceOntology()` (the dev Apply)
+ *  - the per-galaxy **ontology registry**: `applyOntology()` (the dev Apply)
  *    compiles the Workspace's `.d.ts` to a `validatorBundle` row and stores it as an
  *    immutable per-version row; Stars fetch rows on cache miss.
  *  - the **git Workspace** (source of truth for the user-developer's app source) — a
@@ -17,7 +17,7 @@
  *
  * `extends NebulaDO` for the structural tenant-isolation `onBeforeCall` (passage into
  * `{u}.{g}`). Three guard tiers sit on top of it. The source entries — `readSource`,
- * `writeSource`, `buildNow`, `appendWorkspaceOntology` — carry `@mesh(requireChatWrite)`,
+ * `writeSource`, `buildNow`, `applyOntology` — carry `@mesh(requireChatWrite)`,
  * the chat floor: DAG `write` at the chat node, the same check a Message create passes
  * at the door, so a collaborator's direct call and the turn their message triggers agree.
  * Galaxy configuration (`setGalaxyConfig`, `ensureChat`) keeps `@mesh(requireDominionHere)`.
@@ -270,7 +270,7 @@ function tail(text: string, n: number): string {
 /**
  * Guard: the CHAT FLOOR — DAG `write` at the chat node, the check a Message create runs
  * at the door. Every source entry (`readSource`, `writeSource`, `buildNow`,
- * `appendWorkspaceOntology`) carries `@mesh(requireChatWrite)`, so a collaborator who can
+ * `applyOntology`) carries `@mesh(requireChatWrite)`, so a collaborator who can
  * post — and whose post therefore triggers a turn that writes and builds under their own
  * claims — can make the same calls directly. A Galaxy admin passes through the confined
  * scope-admin bypass inside `requirePermission`, so nothing changes for the owner.
@@ -547,7 +547,7 @@ export class Galaxy extends NebulaDO {
   }
 
   // ─── Ontology registry ───────────────────────────────────────────────
-  // The one WRITE path is `appendWorkspaceOntology` (the dev Apply); the deleted
+  // The one WRITE path is `applyOntology` (the dev Apply); the deleted
   // caller-supplied-types append was a test-install path with no production caller.
 
   /**
@@ -721,7 +721,7 @@ export class Galaxy extends NebulaDO {
    * (`bundleId = galaxyId/version`) never serves a stale validator.
    */
   @mesh(requireChatWrite)
-  async appendWorkspaceOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
+  async applyOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
     const { version } = await this.#readOntology();
     if (await this.#registryRow(version)) return { version }; // unchanged source → already applied
     if (wipe) {
@@ -731,7 +731,7 @@ export class Galaxy extends NebulaDO {
       if (!hasDominionOver(claims?.access, devStar)) {
         throw new Error(`Wipe refused: dominion over ${devStar} is required to wipe its data on install`);
       }
-      debug('nebula.Galaxy.appendWorkspaceOntology').info('wipe on install decided', {
+      debug('nebula.Galaxy.applyOntology').info('wipe on install decided', {
         version, devStar, actingToken: projectActingToken(claims!),
       });
     }
@@ -758,7 +758,7 @@ export class Galaxy extends NebulaDO {
     await this.#ws.fs.mkdir(wsPath(REGISTRY_DIR), { recursive: true });
     const stored: RegistryFile = { ...row, appliedAt: new Date().toISOString() };
     await this.#ws.fs.writeFile(wsPath(registryPath(row.version)), JSON.stringify(stored));
-    debug('nebula.Galaxy.appendWorkspaceOntology').debug('appended', { version, wipeOnInstall: wipe });
+    debug('nebula.Galaxy.applyOntology').debug('appended', { version, wipeOnInstall: wipe });
     return { version };
   }
 
@@ -866,7 +866,7 @@ export class Galaxy extends NebulaDO {
    *
    * When the caller passes no explicit ontology job, the Workspace's own pending
    * ontology change rides along (compiled for FEEDBACK — the row is written to the
-   * mount but NOT appended to the registry; only {@link appendWorkspaceOntology}, the
+   * mount but NOT appended to the registry; only {@link applyOntology}, the
    * Apply — chat floor, with its wipe bit decided at dominion — appends; the loop
    * cannot reach it, which is the secure-by-default D2 line).
    *

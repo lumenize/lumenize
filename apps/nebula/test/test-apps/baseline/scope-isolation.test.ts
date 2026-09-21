@@ -425,7 +425,7 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
     // them from dominion to the chat floor (DAG `write` at the chat node). A `.dev`-scoped
     // member has no grant on the Galaxy's tree by construction, so the `.*` widening does not
     // reach them either. Mutation: restore requireDominionHere on one → it leaves this set.
-    expect(chatFloorMeshMethods(Galaxy)).toEqual(['appendWorkspaceOntology', 'buildNow', 'readSource', 'writeSource']);
+    expect(chatFloorMeshMethods(Galaxy)).toEqual(['applyOntology', 'buildNow', 'readSource', 'writeSource']);
     expect(chatFloorMeshMethods(Universe)).toEqual([]);
   });
 

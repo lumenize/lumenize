@@ -4,7 +4,7 @@
  *
  * Driven via `__executeOperation` envelopes (no Gateway/JWT), so the real receive seam
  * runs (onBeforeCall passage guard + requireDominionHere). Proves:
- *  - **append + lazy-pull**: `appendWorkspaceOntology` compiles the Workspace's ontology
+ *  - **append + lazy-pull**: `applyOntology` compiles the Workspace's ontology
  *    `.d.ts` into the Galaxy's registry (no downward push exists), and a Star data op
  *    naming that version — under a plain MEMBER's claims — pulls + installs it, honoring
  *    the row's `wipeOnInstall`;
@@ -67,10 +67,10 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
   // pulling it on a data op whose expected version it doesn't hold — under the asking
   // member's OWN claims (upward passage), which is the auth story the eager downward
   // push never had.
-  it('appendWorkspaceOntology appends a content-addressed version to the REGISTRY — no Star involvement', async () => {
+  it('applyOntology appends a content-addressed version to the REGISTRY — no Star involvement', async () => {
     const galaxy = uniqueGalaxyScope();
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     await vi.waitFor(async () => {
       const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
       expect(versions.length).toBe(1);
@@ -89,7 +89,7 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
   it('getCurrentOntology: the applied file version answers; a mid-draft file falls back to the last APPLIED row', async () => {
     const galaxy = uniqueGalaxyScope();
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     await vi.waitFor(async () => {
       expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
     }, { timeout: 15000 });
@@ -105,7 +105,7 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     // Arm 3 — the DISCRIMINATOR (arms 1–2 pass under an index-head-only impl too): apply
     // v2, then revert the FILE to v1's content without applying. File-first answers v1's
     // row — the file IS the ontology — where an index-head read would answer v2.
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     await vi.waitFor(async () => {
       expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
     }, { timeout: 15000 });
@@ -123,17 +123,17 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
   it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version; unchanged is a no-op', async () => {
     const galaxy = uniqueGalaxyScope();
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     await vi.waitFor(async () => {
       expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
     }, { timeout: 15000 });
     // Unchanged source re-applied → already appended → still 1.
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     await new Promise((r) => setTimeout(r, 250));
     expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
     // Edit → a DIFFERENT content hash → a second version appended.
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     await vi.waitFor(async () => {
       expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
     }, { timeout: 15000 });
@@ -143,7 +143,7 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     const galaxy = uniqueGalaxyScope();
     const star = `${galaxy}.dev`;
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     let version = '';
     await vi.waitFor(async () => {
       const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
@@ -169,7 +169,7 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     const member = { aud: star, access: { authScope: star } };
     // V1 → pull-install on the star.
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{}]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
     let v1 = '';
     await vi.waitFor(async () => {
       const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
@@ -183,7 +183,7 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     // V2 appended WITH the wipe decision → the pull wipes before installing, so ONLY v2
     // remains. Capable-of-failing on the WIPE: a no-wipe install yields [v1, v2].
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'appendWorkspaceOntology', [{ wipe: true }]);
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{ wipe: true }]);
     let v2 = '';
     await vi.waitFor(async () => {
       const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];

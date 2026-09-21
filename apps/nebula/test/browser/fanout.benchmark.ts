@@ -110,7 +110,7 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
   // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
-  // to install per-Star via `callStarApplyOntology` (the test-app door), so the bench
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('measures M=2 push delivery (one originator, one subscriber)', async () => {
     const baseUrl = inject('wranglerBaseUrl');
@@ -147,11 +147,11 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       // `${galaxyScope}.tenant-fanout` Star the M=2 harness transacts on. The old
       // comment claimed they were the same Star; they are not — the harness clients
       // carry `activeScope: starName`, and the public API routes to activeScope.
-      await setupClient.callStarApplyOntology(galaxyScope, {
+      await setupClient.callStarInstallOntology(galaxyScope, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });
-      await setupClient.callStarApplyOntology(`${galaxyScope}.tenant-fanout`, {
+      await setupClient.callStarInstallOntology(`${galaxyScope}.tenant-fanout`, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });
@@ -489,7 +489,7 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
   // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
-  // to install per-Star via `callStarApplyOntology` (the test-app door), so the bench
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('measures fanout shape across N values', async () => {
     const baseUrl = inject('wranglerBaseUrl');
@@ -564,7 +564,7 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
       // bare galaxyScope) — same Star each ramp step uses, so the warmup create
       // below primes both the bundle cache AND the test Star directly. (Per-Star
       // install — the Galaxy test-install path is deleted.)
-      await allClients[0].callStarApplyOntology(galaxyScope, {
+      await allClients[0].callStarInstallOntology(galaxyScope, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

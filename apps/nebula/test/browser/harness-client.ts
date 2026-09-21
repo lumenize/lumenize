@@ -230,7 +230,7 @@ export class HarnessNebulaClient extends NebulaClient {
   /** Install an ontology version directly on `starName` — `StarTest.applyOntologyForTest`
    *  compiles server-side in the test app (the Galaxy test-install path is deleted;
    *  the deployed Worker carries no compiler). Admin-gated on the star. */
-  callStarApplyOntology(
+  callStarInstallOntology(
     starName: string,
     cfg: { version: string; types: string },
   ): Promise<void> {

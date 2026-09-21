@@ -84,7 +84,7 @@ describe('Galaxy @mesh surface freeze (m5) — three guard tiers', () => {
     for (const entry of named) expect(chat).toContain(entry);
     // The exact chat-floor set: the table's three entries and the dev Apply, whose wipe
     // bit is decided in the body at dominion over the `.dev` Star.
-    expect(chat).toEqual(['appendWorkspaceOntology', 'buildNow', 'readSource', 'writeSource']);
+    expect(chat).toEqual(['applyOntology', 'buildNow', 'readSource', 'writeSource']);
   });
 
   it('the DOMINION list is exactly Galaxy configuration: setGalaxyConfig and ensureChat', () => {

@@ -260,7 +260,7 @@ describe('parse-validate throughput', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
   // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
-  // to install per-Star via `callStarApplyOntology` (the test-app door), so the bench
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('finds saturation', async () => {
     const baseUrl = inject('wranglerBaseUrl');
@@ -299,7 +299,7 @@ describe('parse-validate throughput', () => {
 
       // 3. Install the ontology on the target Star (the Galaxy test-install path is
       //    deleted — installs land per-Star via StarTest.applyOntologyForTest).
-      await client.callStarApplyOntology(warmStar, {
+      await client.callStarInstallOntology(warmStar, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

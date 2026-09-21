@@ -27,7 +27,7 @@ async function adminClient(star: string) {
 
   // Register ontology on the Galaxy
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  result.client.callStarApplyOntology(star, {
+  result.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });

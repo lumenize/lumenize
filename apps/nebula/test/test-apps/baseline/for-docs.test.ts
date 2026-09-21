@@ -71,7 +71,7 @@ describe('for-docs runtime examples (real Star)', () => {
       NebulaClientTest, new Browser(), star, star, 'scope-admin@example.com', ONTOLOGY_VERSION,
     );
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: ONTOLOGY });
+    admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: ONTOLOGY });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const browser = new Browser();

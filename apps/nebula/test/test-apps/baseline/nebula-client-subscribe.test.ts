@@ -30,7 +30,7 @@ async function twoAdminClients(star: string) {
   const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, {
+  a.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
@@ -125,7 +125,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
 
     // Register v2 on Galaxy
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    a.client.callStarApplyOntology(star, {
+    a.client.callStarInstallOntology(star, {
       version: 'v2',
       types: TEST_TYPES,
     });

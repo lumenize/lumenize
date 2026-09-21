@@ -21,7 +21,7 @@ async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expec
 async function waitForSuccess(c: NebulaClientTest) { await waitForResult(c); expect(c.lastError).toBeUndefined(); return c.lastResult; }
 async function admin(star: string) {
   const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-  a.client.callStarApplyOntology(star, { version: VERSION, types: TYPES });
+  a.client.callStarInstallOntology(star, { version: VERSION, types: TYPES });
   await waitForResult(a.client);
   return a.client;
 }

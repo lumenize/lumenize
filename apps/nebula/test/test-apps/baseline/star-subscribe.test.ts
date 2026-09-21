@@ -24,7 +24,7 @@ async function adminClient(star: string) {
   const result = await adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  result.client.callStarApplyOntology(star, {
+  result.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
@@ -120,7 +120,7 @@ describe('star-subscribe', () => {
 
     // Register a newer ontology version on Galaxy so v1 becomes stale
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    client.callStarApplyOntology(star, {
+    client.callStarInstallOntology(star, {
       version: 'v2',
       types: TEST_TYPES,
     });

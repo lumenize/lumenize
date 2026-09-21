@@ -46,7 +46,7 @@ describe('client.resources.read does not write to the bound store (§5.3.8, real
     // Admin installs the ontology and creates the resource (the "other" actor).
     const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
+    admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const todoId = crypto.randomUUID();

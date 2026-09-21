@@ -54,7 +54,7 @@ async function setupStaleScenario() {
   );
 
   // Apply v1 to the Star (the setOntology dev apply path).
-  a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
+  a.client.callStarInstallOntology(star, { version: 'v1', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
   // Create a resource at v1 so we have something to operate on
@@ -66,9 +66,9 @@ async function setupStaleScenario() {
 
   // Advance the Star's cache to v2 (apply replaces the cached row). The v1-pinned
   // client's next op will now mismatch.
-  a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
+  a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
-  // refreshHookSpy hasn't fired — applyOntology is a server-side install, not a
+  // refreshHookSpy hasn't fired — installOntology is a server-side install, not a
   // client op that could detect a mismatch.
   expect(refreshHookSpy).not.toHaveBeenCalled();
 
@@ -159,7 +159,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
       // no onShouldRefreshUI
     );
 
-    a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: 'v1', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
     const resourceId = crypto.randomUUID();
@@ -168,7 +168,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     });
     const eTag = committedETag(created, resourceId);
 
-    a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
     // No hook registered — should still get the structured outcome without

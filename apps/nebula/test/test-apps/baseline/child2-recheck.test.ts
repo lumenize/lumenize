@@ -38,7 +38,7 @@ async function waitForUpdateCount(client: NebulaClientTest, n: number) {
 /** Star-scoped admin: connects (seeds ROOT admin), installs the ontology. */
 async function starAdmin(star: string) {
   const f = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-  f.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+  f.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await waitForResult(f.client);
   return f;
 }

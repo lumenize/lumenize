@@ -2,7 +2,7 @@
  * Browser-safe ontology-install admin client for the real-chromium harness.
  *
  * The baseline (Node) e2e installs an ontology via `NebulaClientTest`'s
- * `callStarApplyOntology` initiator — but that class re-exports the
+ * `callStarInstallOntology` initiator — but that class re-exports the
  * server DO classes (Star/Galaxy/Universe as VALUES), so importing it into a
  * browser bundle pulls `cloudflare:workers` in and fails Vite resolution. This
  * minimal subclass installs an ontology the same way but stays browser-bundleable:
@@ -32,7 +32,7 @@ export class OntologyAdminClient extends NebulaClient {
 
   /** Install an ontology version directly on `starName` (admin-gated, server-side
    *  compile in the StarTest test app). */
-  callStarApplyOntology(starName: string, config: OntologyVersionConfig): void {
+  callStarInstallOntology(starName: string, config: OntologyVersionConfig): void {
     this.callCompleted = false;
     const remote = this.ctn<StarTest>().applyOntologyForTest(config);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));

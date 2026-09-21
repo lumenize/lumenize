@@ -61,7 +61,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     // Client A and client B both connected, both subscribed to the same resource.
     const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
 
     const resourceId = crypto.randomUUID();
@@ -111,7 +111,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
 
     const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
 
     const resourceId = crypto.randomUUID();

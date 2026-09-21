@@ -34,7 +34,7 @@ async function waitForSuccess(c: NebulaClientTest) {
 }
 async function admin(star: string) {
   const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-  a.client.callStarApplyOntology(star, { version: VERSION, types: TYPES });
+  a.client.callStarInstallOntology(star, { version: VERSION, types: TYPES });
   await waitForResult(a.client);
   return a;
 }
@@ -252,7 +252,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
 
     // Install v2, then trigger the install via a v2 read → #installState clears BOTH
     // registries and pushes one stale signal per (binding, client) union (m1).
-    a.callStarApplyOntology(star, { version: 'v2', types: TYPES });
+    a.callStarInstallOntology(star, { version: 'v2', types: TYPES });
     await waitForResult(a);
     a.callStarRead(star, 'v2', P);
     await waitForResult(a);

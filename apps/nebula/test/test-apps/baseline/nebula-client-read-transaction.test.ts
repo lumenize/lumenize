@@ -51,7 +51,7 @@ function useServerSnapshot(outcome: TransactionOutcome, rid: string): Snapshot {
 async function setupAdminClient(star: string) {
   const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, {
+  a.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });

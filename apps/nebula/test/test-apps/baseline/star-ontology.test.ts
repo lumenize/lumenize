@@ -2,12 +2,12 @@
  * Ontology integration tests
  *
  * Tests Star cache hit/miss, version mismatch, and validation integration through
- * `callStarApplyOntology` (client-side compile → `Star.setOntology`). The old
+ * `callStarInstallOntology` (client-side compile → `Star.setOntology`). The old
  * "Galaxy ontology" registry block died with the Galaxy's test-install method
  * (tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 3) — its duplicate-label /
  * index-listing / latest-round-trip assertions covered that method's own behaviour
  * and cannot outlive it; the surviving registry write path is the dev Apply
- * (`appendWorkspaceOntology`), covered in the dev-studio project.
+ * (`applyOntology`), covered in the dev-studio project.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -76,7 +76,7 @@ describe('Star ontology cache', () => {
     const resourceId = crypto.randomUUID();
 
     // Register ontology
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // First transaction — triggers Galaxy fetch (cache miss)
@@ -102,7 +102,7 @@ describe('Star ontology cache', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Client tagged a version that doesn't exist on Galaxy. Star fetches latest
@@ -141,9 +141,9 @@ describe('Star ontology cache', () => {
     const { client } = await adminClient(star);
 
     // Register v1 and v2
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
-    client.callStarApplyOntology(star, { version: 'v2', types: TODO_V2_TYPES });
+    client.callStarInstallOntology(star, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
     // Force Star to fetch latest (v2) by sending v2 first
@@ -173,7 +173,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v1', {
@@ -190,7 +190,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Missing required field 'done', wrong type for 'title'
@@ -216,7 +216,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, {
+    client.callStarInstallOntology(star, {
       version: 'v1',
       types: TODO_V2_TYPES,
     });
@@ -243,7 +243,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = crypto.randomUUID();
@@ -268,7 +268,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = crypto.randomUUID();
@@ -292,7 +292,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const r1 = crypto.randomUUID();
@@ -322,7 +322,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = crypto.randomUUID();
@@ -349,7 +349,7 @@ describe('read integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = crypto.randomUUID();
@@ -371,7 +371,7 @@ describe('read integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Need at least one transaction to cache the ontology on the Star
@@ -393,9 +393,9 @@ describe('read integration', () => {
     const { client } = await adminClient(star);
 
     // Register v1 and v2
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
-    client.callStarApplyOntology(star, { version: 'v2', types: TODO_V2_TYPES });
+    client.callStarInstallOntology(star, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
     // Force Star to fetch v2

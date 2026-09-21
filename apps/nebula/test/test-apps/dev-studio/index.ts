@@ -54,7 +54,7 @@ export class GalaxyLoopProbe extends Galaxy {
    * The BUILD SEAM, faked faithfully: no container exists under pool-workers, so the
    * probe compiles IN PLACE (a test Worker may carry the compiler) and writes the row
    * exactly where the real job does — an fs write at ROW_PATH via `workspaceFs()`,
-   * never `writeSource` (the mount does not git-commit). `appendWorkspaceOntology`'s
+   * never `writeSource` (the mount does not git-commit). `applyOntology`'s
    * host-side read-back, version check and append-only transaction then run
    * UNCHANGED, which is what the registry + lazy-pull suite exercises.
    */

@@ -339,7 +339,7 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
   // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
-  // to install per-Star via `callStarApplyOntology` (the test-app door), so the bench
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('compares peak per-Star throughput', async () => {
     const baseUrl = inject('wranglerBaseUrl');
@@ -413,11 +413,11 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
       // Use clients[0] for both. (Per-Star installs — the Galaxy test-install path
       // is deleted.)
       console.log('[multi] installing ontology + pre-warming bundle');
-      await allClients[0].callStarApplyOntology(`${galaxyScope}.tenant-warmup`, {
+      await allClients[0].callStarInstallOntology(`${galaxyScope}.tenant-warmup`, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });
-      await allClients[0].callStarApplyOntology(warmStar, {
+      await allClients[0].callStarInstallOntology(warmStar, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

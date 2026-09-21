@@ -53,7 +53,7 @@ function resolutionSnapshot(outcome: TransactionOutcome, rid: string): Snapshot 
 async function setupAdminClient(star: string) {
   const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, {
+  a.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
@@ -418,7 +418,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     const star = uniqueStar();
     const galaxyName = star.split('.').slice(0, 2).join('.');
     const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TWO_TYPES });
+    a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TWO_TYPES });
     await awaitCall(a.client);
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 

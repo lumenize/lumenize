@@ -42,7 +42,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     const { client: admin, accessToken: adminToken, payload: adminPayload } = await universeAdminClient(
       NebulaClientTest, browser, star, star, 'admin@example.com',
     );
-    admin.callStarApplyOntology(star, { version: VERSION, types: TYPES });
+    admin.callStarInstallOntology(star, { version: VERSION, types: TYPES });
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
 
     // A private node — the member holds no grant anywhere on it.
@@ -103,7 +103,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     const { client: admin, accessToken: adminToken, payload: adminPayload } = await universeAdminClient(
       NebulaClientTest, browser, star, star, 'admin@example.com',
     );
-    admin.callStarApplyOntology(star, { version: VERSION, types: TYPES });
+    admin.callStarInstallOntology(star, { version: VERSION, types: TYPES });
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
     await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
@@ -212,7 +212,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     const a = await clientAt(star, crypto.randomUUID());
     const b = await clientAt(universe, crypto.randomUUID());
 
-    a.callStarApplyOntology(star, { version: VERSION, types: TYPES });
+    a.callStarInstallOntology(star, { version: VERSION, types: TYPES });
     await vi.waitFor(() => expect(a.callCompleted).toBe(true));
 
     const rid = crypto.randomUUID();

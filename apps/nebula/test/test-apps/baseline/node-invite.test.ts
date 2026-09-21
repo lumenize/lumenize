@@ -11,7 +11,7 @@
  *
  * ⚠️ A runtime precondition every test here honors: the node invite's `_InviteStatus` writes ride
  * the ordinary Resources pipeline, so the host Star must hold an INSTALLED ontology (true of every
- * resource write; a production Star always has its app's). `callStarApplyOntology` installs one.
+ * resource write; a production Star always has its app's). `callStarInstallOntology` installs one.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -41,7 +41,7 @@ function nodeInvite(client: NebulaClient, nodeId: string, invitees: unknown): Pr
 async function starWithOntology(star: string) {
   const browser = new Browser();
   const admin = await adminClientAt(NebulaClientTest, browser, star, star, em('adm'));
-  admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+  admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
   return { browser, ...admin };
 }

@@ -49,8 +49,8 @@ async function devAdminClient(galaxy: string, dev: string) {
 }
 /** Apply an ontology version to the `.dev` Star (the setOntology path that replaced
  *  append + lazy-pull / deployToDev). */
-async function applyOntology(client: NebulaClientTest, dev: string, version: string, types: string) {
-  client.callStarApplyOntology(dev, { version, types });
+async function installOntology(client: NebulaClientTest, dev: string, version: string, types: string) {
+  client.callStarInstallOntology(dev, { version, types });
   await waitForSuccess(client);
 }
 
@@ -59,7 +59,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
 
     // Create a Todo under v1 (no `color` field exists yet).
     const rid = crypto.randomUUID();
@@ -69,7 +69,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
     // v2 — ADDITIVE: a new optional `color` with @default "red". Apply it.
-    await applyOntology(client, dev, 'v2', TODO_V2_ADDITIVE);
+    await installOntology(client, dev, 'v2', TODO_V2_ADDITIVE);
 
     // Read the PRE-EDIT snapshot at v2 → stored value verbatim, NO `color`
     // (reads never re-validate or fill defaults).
@@ -93,7 +93,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   it('resetDevData wipes the sandbox and re-inits (M2)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
 
     const rid = crypto.randomUUID();
     client.callStarTransaction(dev, 'v1', {
@@ -119,7 +119,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     // resetDevData wipes the ontology too (full deleteAll); re-apply it as Flow 1b does
     // (reset → setOntology). The DO + registration survive: the resource is gone, and
     // the re-init'd schema accepts a fresh read.
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
     client.callStarRead(dev, 'v1', rid);
     expect(await waitForSuccess(client)).toBeNull();
 
@@ -129,7 +129,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   it('resetDevData is admin-gated; a non-admin {u}.{g}.dev caller is rejected (B1)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client: admin } = await devAdminClient(galaxy, dev);
-    await applyOntology(admin, dev, 'v1', TODO_V1);
+    await installOntology(admin, dev, 'v1', TODO_V1);
 
     // A non-admin member OF THE DEV STAR ITSELF — not of the galaxy above it. Passage is
     // computed from the caller's own `authScope`, so a galaxy-tier non-admin has no passage into a
@@ -183,7 +183,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   it('reset effect: pre-reset resource reads null and a pre-wipe node is absent (caches rebuilt); no FK orphans', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
 
     // A child node + a resource attached to it.
     client.callStarCreateNode(dev, ROOT_NODE_ID, 'child', 'Child');
@@ -199,7 +199,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     expect(client.lastError).toBeUndefined();
 
     // Re-apply the ontology after the wipe (Flow 1b: reset → setOntology).
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
 
     // (a) The resource is gone (read → null).
     client.callStarRead(dev, 'v1', rid);
@@ -223,7 +223,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   it('reset effect: a pre-reset non-admin read grant is revoked post-reset (permission cache rebuilt)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client: admin } = await devAdminClient(galaxy, dev);
-    await applyOntology(admin, dev, 'v1', TODO_V1);
+    await installOntology(admin, dev, 'v1', TODO_V1);
 
     // A member OF THE DEV STAR (see the note in the admin-gated test above): passage is computed
     // from the caller's own scope, so the reader has to belong to the Star it reads.
@@ -254,7 +254,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     admin.callStarResetDevData(dev);
     await waitForResult(admin);
     expect(admin.lastError).toBeUndefined();
-    await applyOntology(admin, dev, 'v1', TODO_V1);
+    await installOntology(admin, dev, 'v1', TODO_V1);
     admin.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'y', done: false } },
     });
@@ -274,7 +274,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   it('a COVERING admin never becomes the DataPlane root admin — the seed is exact-star only', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client, payload } = await devAdminClient(galaxy, dev);
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
 
     // This client is a UNIVERSE scopeAdmin: its `authScope` COVERS this `.dev` Star but is
     // not EQUAL to it. Warm the Star so `onBeforeCall`'s seed gate runs.
@@ -299,7 +299,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client, payload } = await devAdminClient(galaxy, dev);
     const rootAdminSub = payload.sub;
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
 
     // Warm the dev Star so the root-admin grant + latch are seeded before reset.
     client.callStarWhoAmI(dev);
@@ -329,7 +329,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
     const rid = crypto.randomUUID();
     client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
@@ -339,7 +339,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const eTag1 = r1.ok ? r1.eTags[rid] : '';
 
     // v2 — BREAKING: a required `priority`. Apply.
-    await applyOntology(client, dev, 'v2', TODO_V2_BREAKING);
+    await installOntology(client, dev, 'v2', TODO_V2_BREAKING);
 
     // The pre-edit snapshot is invalid under v2 — a put of its old shape (missing
     // required `priority`) fails validation.
@@ -354,7 +354,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     client.callStarResetDevData(dev);
     await waitForResult(client);
     expect(client.lastError).toBeUndefined();
-    await applyOntology(client, dev, 'v2', TODO_V2_BREAKING);
+    await installOntology(client, dev, 'v2', TODO_V2_BREAKING);
 
     // A fresh write satisfying v2 (includes `priority`) validates + commits.
     const rid2 = crypto.randomUUID();

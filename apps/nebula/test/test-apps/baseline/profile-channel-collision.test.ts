@@ -26,7 +26,7 @@ function uuid(): string { return crypto.randomUUID(); }
 function uniqueStar(): string { return `acme-${uuid().slice(0, 8)}.app.tenant`; }
 
 /**
- * A connected ADMIN `NebulaClientTest` for `star` (can applyOntology + create), via **real server
+ * A connected ADMIN `NebulaClientTest` for `star` (can installOntology + create), via **real server
  * issuance** — claim the universe (which mints the universe admin, `scopeAdmin: true`), consume the magic
  * link, refresh at the star. Rung 2 of the ADR-009 ladder, and rung 3 is gone from this file.
  *
@@ -61,7 +61,7 @@ describe('Profile channel — a dev-user `Profile` type does NOT collide with th
     const client = await adminClient(star);
 
     // Install an ontology whose type is literally named `Profile` (Decision 2 keeps this LEGAL).
-    client.callStarApplyOntology(star, { version: 'v1', types: `interface Profile { name: string; }` });
+    client.callStarInstallOntology(star, { version: 'v1', types: `interface Profile { name: string; }` });
     await waitDone(client);
 
     // Create + subscribe a resource OF that dev-user `Profile` type.

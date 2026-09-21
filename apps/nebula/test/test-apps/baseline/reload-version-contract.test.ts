@@ -50,8 +50,8 @@ async function waitForSuccess(client: NebulaClientTest) {
 async function devAdminClient(galaxy: string, dev: string, extraConfig?: Record<string, unknown>) {
   return universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1', extraConfig);
 }
-async function applyOntology(client: NebulaClientTest, dev: string, version: string, types: string) {
-  client.callStarApplyOntology(dev, { version, types });
+async function installOntology(client: NebulaClientTest, dev: string, version: string, types: string) {
+  client.callStarInstallOntology(dev, { version, types });
   await waitForSuccess(client);
 }
 async function starReloadSubscribers(client: NebulaClientTest, dev: string): Promise<number> {
@@ -74,8 +74,8 @@ describe('Preview-reload channel — build-completion trigger (post-collapse)', 
     // nothing — not the Star channel, and not a build reply.
     const beforeInstallReload = client.reloadCount;
     const beforeInstall = client.previewReadyCount;
-    await applyOntology(client, dev, 'v1', TODO_V1);
-    await applyOntology(client, dev, 'v2', TODO_V2);
+    await installOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v2', TODO_V2);
 
     // POSITIVE: a chat turn whose build succeeds replies exactly once, to the client
     // that asked. No subscription is involved — this client never enrolled anywhere
@@ -102,7 +102,7 @@ describe('Preview-reload channel — build-completion trigger (post-collapse)', 
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
-    await applyOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v1', TODO_V1);
     client.callStarSubscribeReload(dev);
     await waitForSuccess(client);
     expect(await starReloadSubscribers(client, dev)).toBe(1);

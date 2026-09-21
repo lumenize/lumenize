@@ -168,11 +168,11 @@ describe('echo latency (cold-start anatomy)', () => {
     const probe: Record<string, number> = {};
     try {
       const warmupStar = `${galaxyScope}.tenant-warmup`;
-      await client.callStarApplyOntology(warmupStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarInstallOntology(warmupStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await client.callStarTransaction(warmupStar, ONTOLOGY_VERSION, createOp());
       for (let i = 0; i < PROBE_ITERATIONS; i++) {
         const star = `${galaxyScope}.tenant-probe-${crypto.randomUUID().slice(0, 8)}`;
-        await client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+        await client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
         let outcome: string;
         try {
           await client.callStarTransaction(star, ONTOLOGY_VERSION, createOp());

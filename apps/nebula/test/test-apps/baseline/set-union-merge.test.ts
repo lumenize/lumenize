@@ -59,7 +59,7 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
     // adds 't1' — advancing the server so a second add against the seed eTag conflicts.
     const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: LIST_TYPES });
+    admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: LIST_TYPES });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const listId = crypto.randomUUID();

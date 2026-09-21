@@ -77,7 +77,7 @@ class HarnessNebulaClient extends NebulaClient {
   // Worker because `Star.setOntology` is deliberately not `@mesh` — no remote
   // caller hands a Star a compiled row. This Node-side client could import the
   // compiler; it just has no door to send the row through.
-  callStarApplyOntology(starInstanceName: string, versionConfig: { version: string; types: string }): void {
+  callStarInstallOntology(starInstanceName: string, versionConfig: { version: string; types: string }): void {
     this.resetResults();
     const remote = (this.ctn() as any).applyOntologyForTest(versionConfig);
     this.lmz.call('STAR', starInstanceName, remote, (this.ctn() as any).handleResult(remote));
@@ -154,7 +154,7 @@ describe('browser harness', () => {
       //    compiles it inside the test Worker; its JSDoc says why the compile is
       //    server-side. Bootstrap admin (root admin at first instance) satisfies
       //    the requireDominionHere gate.
-      client.callStarApplyOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      client.callStarInstallOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await vi.waitFor(() => {
         expect(client.callCompleted).toBe(true);
       });

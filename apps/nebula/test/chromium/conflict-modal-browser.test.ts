@@ -55,7 +55,7 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
       baseUrl, authScope: universe, activeScope: scope, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
     });
     await vi.waitFor(() => expect(admin.connectionState).toBe('connected'), { timeout: 15000 });
-    admin.callStarApplyOntology(scope, { version: 'v1', types: ONTOLOGY });
+    admin.callStarInstallOntology(scope, { version: 'v1', types: ONTOLOGY });
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true), { timeout: 10000 });
 
     // The factory client — the doc's `client` + `store`.
