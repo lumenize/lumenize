@@ -23,11 +23,11 @@ Previously, this model was assumed everywhere and in a precise written form nowh
 
 - **Scope** is the driver for coarse-grained access control. It often appears in a segment of a URL, but it can also be a parameter of a mesh call or in the body of a Request. In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope.
 - **Dominion** — an *unconditional* right to act within a scope. Where it applies, nothing decided inside that scope can stand against it. **Downward only.**
-- **Passage** — the right for a call to reach the target scope without being refused on the way in. It confers nothing except that.
+- **Passage** — the right for a call to arrive at the target scope without being refused at the boundary. It confers nothing except that.
 
 **`dominion` and `passage` are deliberately rare words.** They replaced `authority` and `admission`/`admitted`, both general enough to mean several things at once. A reader who meets `dominion` anywhere in this repo may assume this definition and nothing else. **Do not reintroduce `authority` or `admitted` as the name of either concept.** Other senses of *authority* survive: a **mint point** is where a `sub` is minted (a Universe or Star claim, an invite); [ADR-016](016-record-the-acting-principal.md)'s **authority-changing** actions are those altering *what a principal may do*, which is deliberately **broader than dominion** — a data-plane grant changes it while touching neither `scopeAdmin` nor the scope, so narrowing that trigger to dominion would drop those changes out of it; and plain English still says Studio's agent holds no authority of its own.
 
-**There is deliberately no umbrella noun over dominion and passage, and `reach` is not to become one.** "reach" stays a verb — a call reaches a scope, an admin reaches into the scopes beneath them. Nominalised it means passage, or dominion, or their union, or the orgTree's own grants, depending on the sentence. Where a sentence seems to want one word covering both, name both.
+**There is deliberately no umbrella noun over dominion and passage, and `reach` is not to become one — in either form** (Larry, 2026-09-20). Nominalised it means passage, or dominion, or their union, or the orgTree's own grants, depending on the sentence; as a verb it is not much better, because every call in the mesh arrives at the node it names and what matters is which barriers it passes. Say the one that applies: passage at the coarse-grained boundary, dominion overriding the finer-grained checks, a grant, or refused. Where a sentence seems to want one word covering both, name both. ⚠️ "reach" is fine where it names where a request GOES rather than what it may do — the Registry is reached over HTTP, a path with no entry reaches no handler.
 
 ### Predicate pair
 
@@ -65,7 +65,7 @@ These things follow:
 - **Only superusers have dominion at the platform scope**, because `isAtOrAbove(myScope, 'nebula-platform')`, holds only when your own scope *is* the platform scope.
 - **Dominion over a scope is total and non-vetoable.** No finer-grained permission mechanism in that scope can veto, block, or attenuate a `scopeAdmin` above them. The Resource orgTree is the worked example: a covering scopeAdmin acts there with no grant ever written (`apps/nebula/src/dag-tree.ts` `requirePermission`). Anything added later inherits this without being asked. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
 - **A scope's finer-grained mechanisms decide for callers *without* dominion.**
-- **Lacking dominion is not a denial.** A caller with passage but no dominion may still be granted a great deal by the methods it reaches, as decided by the callee's own guards.
+- **Lacking dominion is not a denial.** A caller with passage but no dominion may still be granted a great deal by the methods it calls, as decided by the callee's own guards.
 
 ## Alternatives considered
 
