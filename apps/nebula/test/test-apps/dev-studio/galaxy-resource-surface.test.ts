@@ -87,10 +87,10 @@ describe('Galaxy @mesh surface freeze (m5) — three guard tiers', () => {
     expect(chat).toEqual(['applyOntology', 'buildNow', 'readSource', 'writeSource']);
   });
 
-  it('the DOMINION list is exactly Galaxy configuration: setGalaxyConfig and ensureChat', () => {
+  it('the DOMINION list is exactly Galaxy configuration: setGalaxyConfig', () => {
     // A source entry accidentally shipped with requireDominionHere ENTERS this set → red;
     // a config method dropped to the chat floor LEAVES it → red.
-    expect(meshMethods('dominion')).toEqual(['ensureChat', 'setGalaxyConfig']);
+    expect(meshMethods('dominion')).toEqual(['setGalaxyConfig']);
   });
 
   it('warmPreview is gone on BOTH ends — the Galaxy and the NebulaClient prototypes', () => {

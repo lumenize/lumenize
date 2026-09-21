@@ -876,16 +876,6 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, this.ctn<Star>().unsubscribeQuery(queryHash));
   }
 
-  /** `Galaxy.ensureChat` (idempotent default-Session seed).
-   *  Result-handler form so a test can assert it completes WITHOUT error — the second
-   *  call must NOT throw (proves the create-if-absent guard; a raw create-on-existing
-   *  throws "already exists", resources.ts). */
-  callGalaxyEnsureSession(scope: string): void {
-    this.resetResults();
-    const remote = this.ctn<Galaxy>().ensureChat();
-    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
-  }
-
   /** Fetch the Galaxy's permission-filtered query targets (M4 — subscriber clientIds
    *  allowed to read `nodeId`) into `lastResult`. */
   callGalaxyInspectQueryTargets(scope: string, query: QueryDescriptor, nodeId: string): void {

@@ -20,7 +20,7 @@
  * `writeSource`, `buildNow`, `applyOntology` — carry `@mesh(requireChatWrite)`,
  * the chat floor: DAG `write` at the chat node, the same check a Message create passes
  * at the door, so a collaborator's direct call and the turn their message triggers agree.
- * Galaxy configuration (`setGalaxyConfig`, `ensureChat`) keeps `@mesh(requireDominionHere)`.
+ * Galaxy configuration (`setGalaxyConfig`) keeps `@mesh(requireDominionHere)`.
  * The chat data-plane surface is bare `@mesh()` — participants are non-admin but
  * DAG-granted, and the per-op check lives inside the plane.
  */
@@ -1492,21 +1492,6 @@ export class Galaxy extends NebulaDO {
   // Every op is version-gated against the INSTALLED chat ontology — `OntologyStaleError`
   // on a mismatch, exactly Star's shapes (transaction returns it as a VALUE; read
   // throws; subscribe pushes).
-
-  /**
-   * Idempotently seed the pre-alpha default `Chat` at the fixed {@link DEFAULT_CHAT_ID}
-   * under {@link CHAT_NODE_ID}. Called at the start of {@link chat} (an authed admin
-   * context, so the create's `write` check passes via the CONFINED scope-admin bypass —
-   * `requirePermission` grants it only to an admin whose `authScope` covers THIS host)
-   * and exposed as an admin-gated entry so a client can guarantee the chat exists
-   * before subscribing `Message where chat == DEFAULT_CHAT_ID`. A second call is a
-   * no-op (the capability's create-if-absent). Internal `this.ensureChat()` calls
-   * bypass the decorator (direct method call).
-   */
-  @mesh(requireDominionHere)
-  async ensureChat(): Promise<void> {
-    await this.#dataPlane.ensureResource(DEFAULT_CHAT_ID, 'Chat', CHAT_NODE_ID, { title: 'Studio chat' });
-  }
 
   /**
    * Permission-filtered fanout targets for a query at `nodeId` — the transient-stream
