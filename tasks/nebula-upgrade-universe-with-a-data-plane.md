@@ -18,8 +18,25 @@ start collecting one.
 ## Relationships
 
 - **Follows [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md).** That task
-  settles the one-door shape and moves every guard into the plane; this one composes the same plane
-  onto a third host and should inherit the finished contract rather than a moving one.
+  settles the gate shape and moves every guard into the plane; this one composes the same plane onto
+  a third host and should inherit the finished contract rather than a moving one. ⚠️ **What it
+  settles is now TWO accessors, not one** (2026-09-21): a `@mesh() resources()` door and a
+  decorator-less `resourcesResults()` reached only on the response leg, each returning a narrow
+  facade rather than the plane. Read § *The surface, allocated* for the member lists; the Universe
+  supplies both, and the door is still the only `@mesh()` entry.
+- **It also inherits RETIRING THE THREE CONFIG PAIRS** (handed over 2026-09-22; that task proposed
+  the deletion and the scope was cut to here, because this is the file that authors their
+  replacement). `setUniverseConfig`/`getUniverseConfig` and the Galaxy and Star pairs all go when the
+  scope-metadata Resource lands — one blast radius rather than two. **Two preconditions, both
+  measured rather than assumed:**
+  - **`coalesceWindowMs` needs a home FIRST.** `Resources` bootstraps it into the same `'config'` KV
+    bag and reads it on every write to decide snapshot coalescing, and `setStarConfig` is its only
+    setter — so the Star pair is not a probe surface and cannot simply be deleted. A constant, a
+    plane accessor, or a field on the new type.
+  - **Three `/live` scenarios and four frozen test lists read these methods**, and
+    `passage-not-dominion` loses one in all three limbs, including the `getStarConfig` positive
+    control whose own comment records that it is not optional. Name the replacement each limb
+    re-points at, and make `drive.ts all` a phase criterion rather than a follow-up.
 - **Precedes [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) if the ordering
   holds, and that is the point.** That build's claim collects an account name and an app name. With
   this task landed, the account name is written as a resource on its Universe. Without it, the name
@@ -117,7 +134,13 @@ criterion a fixture, a mutation and a positive control.
   widen the read to any authenticated caller and the second read succeeds.
 - **The Universe exposes one door.** `grep -cE '^\s*@mesh\(' apps/nebula/src/universe.ts` returns 2
   today; the phase records what it returns after, and the expected set is named by symbol. Mutation:
-  re-expose a resource operation on the host and the count rises against a named set.
+  re-expose a resource operation on the host and the count rises against a named set. ⚠️ The count is
+  `@mesh(` lines only — `resourcesResults()` carries no decorator by design, so it never appears in
+  it, and a separate assertion owes that absence: `expect(isMeshCallable(Universe.prototype.resourcesResults)).toBe(false)`.
+- **The config pairs are gone and nothing lost a guard.** Every `/live` limb that read a config
+  method reads its replacement instead and still discriminates by message, and `coalesceWindowMs`
+  survives the deletion with a named home. Mutation: delete the pair without re-pointing a limb and
+  `drive.ts all` reds rather than a scenario silently losing its control.
 - **The scope-metadata ontology is precompiled and drift-checked.** The generator's `--check` runs
   ahead of vitest and reds on a hand-edited literal, as it already does for the chat seed.
 - **No Worker compiles it.** Mutation: install the type from source at first touch and the boot
