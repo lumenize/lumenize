@@ -1,6 +1,6 @@
 # Every Resources guard lives in the Resources plane
 
-**Status:** Pass 1 — design intent only, phases NOT written. Scoped to the **Galaxy and the Star**, the two hosts that compose the plane. **The Resources leg of the security-legibility work**, after `docs/vision/auth.md`, [ADR-015](../docs/adr/015-passage-and-dominion.md)'s passage/dominion vocabulary, and the Registry routing rewrite that put its guards in one readable table. Judge this as a change to how the access-control model is reasoned about, not as a refactor.
+**Status:** Pass 2 — design intent settled across three review passes (18 decisions, none open) and phases written against it. Scoped to the **Galaxy and the Star**, the two hosts that compose the plane. **The Resources leg of the security-legibility work**, after `docs/vision/auth.md`, [ADR-015](../docs/adr/015-passage-and-dominion.md)'s passage/dominion vocabulary, and the Registry routing rewrite that put its guards in one readable table. Judge this as a change to how the access-control model is reasoned about, not as a refactor.
 
 **Objective — answering *"who is allowed to do this to a resource?"* takes reading one bounded region of code.**
 
@@ -16,7 +16,7 @@ The sections below give the guard model these goals imply, the surface it alloca
 
 ## Decisions
 
-Settled unless marked OPEN. A row here is the whole record — the body states each decision positively, as if its alternatives were never on the table, so nothing in the prose exists to hold an earlier version at arm's length.
+Every row is settled. Rejected alternatives live in the named section each row points at, not here. A row is the whole record — the body states each decision positively, as if its alternatives were never on the table, so nothing in the prose exists to hold an earlier version at arm's length.
 
 | # | Decision | Date |
 |---|---|---|
@@ -220,3 +220,85 @@ resourcesResults()   { return this.#resources.results }    // response leg — n
 A node type that composes the plane inherits a complete access-control boundary, so standing up the next host is a `new` and two accessors. ⚠️ **Design consideration:** once every guard is local, a per-op guard table becomes something *generated from* the code rather than a second copy to keep in sync — worth revisiting after this lands, never before.
 
 **Constraints.** [ADR-007](../docs/adr/007-shared-node-security-core.md) — a node's comms and guards core is composed rather than inherited; this applies the same idea one level down. [ADR-008](../docs/adr/008-full-org-tree-visibility.md) — enforcement at the point of action, never secrecy, which is what makes a delivery-time filter legitimate rather than a gap. `mesh.md` § *Object-capability access: gate once, then chain* is the gate mechanism. `security.md` governs the fail-closed behaviour that must survive the move unchanged.
+
+## Phases
+
+Numbering is executable order. Each phase leaves the suite green, so any of them can be the last commit of a day.
+
+⚠️ **The standing-guidance edits and the three test freezes land in Phase 8, not where they are first noticed.** Phases 2, 3, 6 and 7 each change the host `@mesh()` surface those freezes enumerate, so a rewrite in any earlier phase ships an enumeration a later phase falsifies — always-loaded, and no test reds it. Earlier phases keep the freezes green by editing their literals only; Phase 8 rewrites what they *mean*.
+
+**Every command-shaped criterion below was EXECUTED against the tree at write time**, so the builder knows which arrive pre-verified. Each returns a value that makes the criterion capable of failing today:
+
+| Phase | Command | Today | After |
+|---|---|---|---|
+| 1 | `grep -rn '\bDagTree\b\|\bdagTree\b' --include='*.ts' apps packages` | 132 hits | nothing |
+| 2 | `grep -rn 'ReloadSubscriptions\|subscribeReload\|broadcastReload\|onReloadBroadcastResult\|handleReload\|onReload' --include='*.ts' apps packages` | 68 hits, every one in the sweep | nothing |
+| 2 | `node scripts/gen-scaffold.mjs --check` from `apps/nebula` | `scaffold-seed in sync` | still in sync, after regeneration |
+| 5 | `grep -rn '\bResourceDataPlane\b' --include='*.ts' apps packages` | 30 hits | nothing |
+| 6 | `grep -cE 'callContext\.callChain' apps/nebula/src/star.ts apps/nebula/src/galaxy.ts` | 14 and 10 | 0 and 0 |
+
+Not executable at write time, and named so nobody assumes otherwise: every behavioural criterion, the `/live` reaper-forge drive in Phase 7, and the both-freezes check in Phase 8.
+
+1. **`DagTree` becomes `OrgTree`, and nothing else changes** (D16). One mechanical sweep so every phase after it is written in the target vocabulary rather than re-swept later.
+   - **Success criteria (capable of failing):** `grep -rn '\bDagTree\b\|\bdagTree\b' --include='*.ts' apps packages` returns nothing; `dag-tree.ts`, `dag-ops.ts`, `dag-tree.test.ts` and `confine-dag-plane.test.ts` are renamed; `npm test` in `apps/nebula` is green with no behavioural diff in the run.
+   - ⚠️ **Verify `Bandage`, `Pedagogical`, `LucideBandage` and `BandageIcon` survive intact** — a substring replace corrupts all four. The check is the bare-identifier grep above, never `dag`.
+   - **Mutation note:** rename by substring instead of bare identifier and the `Bandage` check reds.
+
+2. **The reload channel is gone from source, scaffold and tests** (D17). § *The reload channel is deleted* carries the sweep and why each member is in it.
+   - **Success criteria:** `grep -rn 'ReloadSubscriptions\|subscribeReload\|broadcastReload\|onReloadBroadcastResult\|handleReload\|onReload' --include='*.ts' apps packages` returns nothing; `reload-subscriptions.ts` and `reload-version-contract.test.ts` are deleted; `Star.resetDevData` no longer captures or restores subscriber rows across its wipe, and its JSDoc no longer cites Flow 1d for doing so; **`node scripts/gen-scaffold.mjs --check` passes** (run from `apps/nebula`, as that package's `test` script does), which is what proves the frozen copy in `scaffold-seed.ts` was regenerated rather than left behind.
+   - **Mutation note:** edit `container/app/src/nebula.ts` without regenerating the seed and `--check` reds — the criterion that catches the half-done scaffold edit.
+   - ⚠️ **The coverage `reload-version-contract.test.ts` held is argued, not dropped** ([[skip-cycles-are-real]]): it asserted wipe-preservation of a channel that no longer exists, and the connect-gate routing it also asserted moves to Phase 6's subscribe criterion.
+
+3. **Four subscriber registries become one `Subscriptions`** (D12, D18), keyed `(topic, clientId)` with `sub`, `profileId` and the dominion bit nullable and a `kind` discriminant. `TreeSubscriptions` moves off the Star and into the plane with the other three.
+   - **Success criteria:** `subscriptions.ts`, `query-subscriptions.ts`, `query-subscriber-list-subs.ts` and `tree-subscriptions.ts` are one file; the Star holds no `#treeSubscriptions` field; **every row that carries a `sub` also carries a `profileId`**, asserted over a subscribe of each kind rather than by count; a subscriber of each kind is delivered its own push and no other kind's.
+   - **The drains are decided here, not discovered** (§ *The registries are one kind*): `clearSubscribers` / `clearQuerySubscribers` / `clearWatchers` become clear-by-kind, so the Star's ontology install drops resource and query rows and leaves tree rows alone.
+   - **Mutation note:** make the drains clear all kinds and a test asserting a tree subscriber survives an ontology install reds.
+
+4. **The host's remaining mesh I/O moves onto `ResourceHostBridge`, and the plane's constructor drops from six arguments to five** (D8, D15). `fireInvite` stops being a per-call closure, and the plane fans out orgTree changes itself.
+   - **Success criteria:** `ResourceDataPlane`'s constructor takes no `onDagChanged`; `Star.#onDagChanged` and the Galaxy's no-op are both gone; `invite` takes two parameters, not three; a grant written through `invite` still lands and an orgTree mutation still reaches a tree subscriber, each asserted on the persisted effect rather than on an ack.
+   - **Mutation note:** drop the bridge's tree fan-out and the orgTree-mutation criterion reds while the invite one stays green — which is what shows the two moved independently.
+
+5. **The plane takes the name `Resources`; the storage engine becomes `Snapshots`** (D18). `ResourceDataPlane` and `resource-data-plane.ts` go.
+   - **Success criteria:** `grep -rn '\bResourceDataPlane\b' --include='*.ts' apps packages` returns nothing; a host reads `#resources = new Resources(...)`; the `Snapshots` class owns the `Snapshots` table and no class named `Resources` performs SQL.
+   - **Mutation note:** leave one `ResourceDataPlane` reference and the grep reds. ⚠️ This phase is a rename with no behavioural change; if the suite's *behaviour* differs, something else moved with it.
+
+6. **`requests` exists, the door opens onto it, and every identity derivation is inside** (D1, D2, D6, D13, D14). The per-host entries are deleted, `@mesh() orgTree()` goes with them, and the client's per-entry continuations collapse.
+   - **Success criteria:** every derivation is inside the plane — `grep -cE 'callContext\.callChain' apps/nebula/src/star.ts apps/nebula/src/galaxy.ts` returns 0 for both (14 and 10 today); **each host's `@mesh()` surface is exactly `resources`, `getOntology`, `getGalaxyConfig`/`getStarConfig`, the config setters, `resetDevData` and the four `requireChatWrite` source entries** — stated as that inventory, never as a count; `ctn<Host>().transaction(...)` is refused as not mesh-callable while `ctn<Host>().resources().transaction(...)` succeeds; a star-tier caller with no Galaxy grant is refused by `transaction` **matched on the `PermissionDeniedError` message**, and a collaborator holding `write` at the chat node is admitted through the same method.
+   - ⚠️ **`requests` must hold the plane in a `#` field or a closure** (D13). Criterion: `resources().plane`, `resources().#resources` and every other spelling of a back-reference resolve to `undefined`, asserted by walking the returned object's own property names.
+   - **Mutation note:** spell the field `private readonly plane` and the back-reference criterion reds while everything else stays green — which is the whole point of writing it down.
+
+7. **`results` exists, the response leg reaches it, and the reapers shed their decorators** (D5, D7). `onInviteResult` and the three reapers move onto it; the host forwards go.
+   - **Success criteria:** `expect(isMeshCallable(Galaxy.prototype.resourcesResults)).toBe(false)` and the same for the Star — **`getMeshGuard` cannot express this**, since it reads falsy for a bare `@mesh()` and an undecorated method alike; a disconnected subscriber's row is still reaped after a fan-out, asserted on the row being gone; an invite's grant still lands through the fire-back.
+   - **Mutation note:** add `@mesh()` to `resourcesResults` and the absence assertion reds — the one edit that would otherwise open every continuation target to any logged-in browser.
+   - ⚠️ **Before this phase, drive the reaper forge live**: whether a caller-supplied `ClientDisconnectedError` can drop another client's row from a browser today decides whether Phase 7 is a scheduled fix or an urgent one.
+
+8. **The standing guidance and the frozen surfaces describe what now exists.** Last, because every earlier phase changes what they enumerate.
+   - **Success criteria:** `galaxy-resource-surface.test.ts` freezes the `requests` and `results` member lists and the host's own surface, with the dominion and `requireChatWrite` tiers intact; `scope-isolation.test.ts`'s widening invariant gains a positive control — a door member's DAG refusal still reachable *through* the door, matched by message — so shrinking its literal cannot leave it green and vacuous; **no `@mesh()` entry on either host is absent from both freezes**, which is the gap a wire-reachable method would fall through.
+   - `mesh.md` § *Object-capability access* gains the response-leg gate with `resourcesResults()` as its instance, and § *`lmz.call` 4-arg* stops citing `Star.onBroadcastResult` as a decorated example. `calibration.md` §11 gains the same paragraph, because it is always-loaded and read first.
+   - The subdomain sibling's coarse-barrier criterion is rewritten to a door plus per-op auth inside the plane. `backlog.md`: the three rows in § *Backlog rows this task trips* get their dispositions, and the `directThreshold` row gains the reapers' arrival as a third thing lifting the pin requires.
+   - **Mutation note:** add a bare `@mesh()` method to either host and the both-freezes criterion reds.
+
+## Non-goals
+
+- **The config pairs, and the typed scope-metadata Resource that replaces them** — [nebula-upgrade-universe-with-a-data-plane.md](nebula-upgrade-universe-with-a-data-plane.md) (D11). That file also carries the two preconditions their deletion owes.
+- **The Profile composing the plane**, and the injected authorizer it needs — [on-hold/nebula-profile-storage.md](on-hold/nebula-profile-storage.md) (D10).
+- **The Galaxy's four source entries** keep their own `@mesh(requireChatWrite)`. `LOOP_TOOL_ENTRIES` makes those decorators the codegen model's authority model, and a door would hide a mapping a reader currently sees at a glance.
+- **The generic published transient surface** — transient events on `client.resources.*` — waits for its named trigger, the first generated-app chat.
+- **Lifting `NebulaDO.broadcast`'s `directThreshold: Infinity` pin.** This task adds a third precondition to it rather than discharging any; the pin's own JSDoc and the backlog row carry the set.
+- **A generated per-op guard table.** ⚠️ *Design consideration:* once every guard is local, such a table becomes something derived from the code rather than a second copy to keep in sync. Worth revisiting after this lands, never before.
+
+## Relationships
+
+**Gated by** — [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md), shipped. It folded `DevStudio` and `DevContainer` into `Galaxy` and moved `invite`'s body and `onInviteResult` into the plane, leaving the interim this task's § *Transition* removes.
+
+**Ordered after** — [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md), per [nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*. That build's coarse-barrier criterion is therefore written against today's per-method surface, and Phase 8 rewrites it.
+
+**Gates** — [nebula-upgrade-universe-with-a-data-plane.md](nebula-upgrade-universe-with-a-data-plane.md) and [on-hold/nebula-profile-storage.md](on-hold/nebula-profile-storage.md). Both compose the finished plane onto a further host and inherit the contract rather than a moving one; both received scope this task cut (D10, D11).
+
+**Supersedes** — nothing. The duplicate `nebula-gate-once-then-chain.md` was merged into this file and deleted before Pass 1.
+
+**Standing guidance this task amends** (all in Phase 8) — `mesh.md` § *Object-capability access: gate once, then chain* and § *`lmz.call` 4-arg`*; `calibration.md` §11.
+
+**Backlog rows this task settles** — the three in § *Backlog rows this task trips*, plus the `directThreshold` row, which gains a fourth item rather than being closed. ⚠️ That enumeration is what was found by reading; it is not claimed complete, and the rows naming the config pairs or the Profile are the likely remainder.
+
+**Un-skip obligations** — none. This task adds no `it.skip`; the one coverage loss it does create, `reload-version-contract.test.ts`, is argued in Phase 2 rather than deferred.
