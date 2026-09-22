@@ -37,14 +37,14 @@ Settled unless marked OPEN. A row here is the whole record — the body states e
 | D15 | **`onDagChanged` is DELETED and the plane fans out orgTree changes itself**, through a fourth `ResourceHostBridge` member beside `broadcastResourceUpdate` / `broadcastQueryUpdate` / `broadcastRosterUpdate`. The constructor drops from six arguments to five. | 2026-09-22 |
 | D16 | **`OrgTree` is renamed `OrgTree`**, and every internal identifier with it. It rides this task as its own first phase. | 2026-09-22 |
 | D17 | **`ReloadSubscriptions` is DELETED.** The plane is not the mechanism for `.dev` Star reloads and will not become one — [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) § *Decisions* weighed a plane subscription for exactly this and rejected it. | 2026-09-22 |
-| **O3** | **OPEN — the two names goal 3 still owes**: the storage engine's, once it gives up `Resources` to the plane, and the merged registry's. § *The two names still owed* carries the candidates. | — |
+| D18 | **The storage engine becomes `Snapshots`** and **the merged registry becomes `Subscriptions`**, class and table alike. Both reuse words already in the repo rather than coining; § *The two names* has the rejected alternatives. | 2026-09-22 |
 
 ## Context and current state
 
 **Built already, and what becomes of each part:**
 
 - **`ResourceDataPlane`** — one class, composed by a host with a single `new`, holding five sub-capabilities. **Adapted**: it becomes the plane itself and takes the name, so a host reads `#resources = new Resources(...)`.
-- **`Resources`** (683 LOC) — the **temporal storage engine**: Snodgrass snapshot sequences over the host's SQLite, calling `OrgTree.requirePermission` at five sites. **Adapted**: keeps its job, gives up its name (O3).
+- **`Resources`** (683 LOC) — the **temporal storage engine**: Snodgrass snapshot sequences over the host's SQLite, calling `OrgTree.requirePermission` at five sites. **Adapted**: keeps its job, and becomes `Snapshots` (D18) so the plane can take the name.
 - **`OrgTree`** (528 LOC) — nodes, edges, grants, resolution, and the `hasDominionOver` short-circuit. **Carried over unchanged**, and it is the model the rest should match: its guards are already in the methods they protect.
 - **The per-host data-plane entries** — bare `@mesh()` methods that derive `clientId`/`subscriberBinding`, fail closed, then dispatch. **Left behind**: the derivation moves into the door. Of the Galaxy's 21 decorators and the Star's 20, eight per host are the resource entries and one more is `invite`.
   - **Nothing here is dead, so this is a regrouping and not a deletion.** Every entry still has callers outside its own file; `subscribeQuerySubscribers` has 19. A phase that expects to delete rather than move will find nothing to delete.
@@ -56,7 +56,7 @@ Settled unless marked OPEN. A row here is the whole record — the body states e
 
 ### The registries are one kind
 
-**`Subscriptions` (263) · `QuerySubs` (204) · `QuerySubscriberListSubs` (91) · `TreeSubscriptions` (69) merge into one.** All four carry the identical triple `clientId · subscriberBinding · subscribedAt` — the delivery address — and differ on two orthogonal axes: an optional TOPIC column, and an optional AUTHORIZATION identity.
+**`Subscriptions` (263) · `QuerySubs` (204) · `QuerySubscriberListSubs` (91) · `TreeSubscriptions` (69) merge into one, which keeps the name `Subscriptions` (D18).** All four carry the identical triple `clientId · subscriberBinding · subscribedAt` — the delivery address — and differ on two orthogonal axes: an optional TOPIC column, and an optional AUTHORIZATION identity.
 
 | Registry | PRIMARY KEY | Topic | Authz identity |
 |---|---|---|---|
@@ -150,9 +150,21 @@ resourcesResults()   { return this.#resources.results }    // response leg — n
 
 **It rides this task as its own FIRST phase, mechanical and alone.** Not a separate file: this task already touches every file the rename touches, so splitting means two sweeps over the same files and whichever lands second re-resolves the other's conflicts. And landing it first is what keeps this task's own output — the Decisions table, the allocation table, the rewritten test freezes, the `mesh.md` paragraph — from being written in a vocabulary it then has to re-sweep.
 
-### The two names still owed (O3)
+### The two names (D18)
 
-Goal 3 names two renames this file has not made. **Proposed:** `Snapshots` for the storage engine — its rows are ADR-004 snapshot sequences and `Snapshots` is already its table. The merged registry is harder: `Subscribers` is already the table of `Subscriptions`, one of the four being merged, so it carries the same defect that rules out `Subscriptions` itself — it would read as the survivor rather than the union. `TemporalStore`/`SnapshotStore` add vocabulary for a table that has a name, and `History` names what ADR-004 calls the substrate rather than the engine. ⚠️ A term needs Larry's approval before use (`prose-voice.md`), so a phase must not land either by invention.
+**The storage engine becomes `Snapshots`.** It manages the `Snapshots` table, its only SQL surface, and ADR-004 calls its rows snapshot sequences. The word appears nowhere as a class or type today, so `class Snapshots` beside the existing `Snapshot` type is the obvious pairing and adds no vocabulary.
+
+**The merged registry becomes `Subscriptions`, class and table alike.** It answers *what is this?* on sight: one class holding subscription rows of several kinds. Today's four tables are `Subscribers`, `QuerySubscribers`, `QuerySubscriberListSubs` and `TreeSubscribers`, so `Subscriptions` reuses no surviving TABLE name — which is where a survivor reading would actually mislead. It reuses a deleted class name, and that reads as the union keeping the general word rather than one sibling outliving three.
+
+**Rejected, and why, so nobody re-proposes them:**
+
+- **`Subscribers`** for the registry — it is one of the four table names, so the survivor problem is real rather than notional.
+- **`Enrollments`** — tempting, because [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) says the plane *"already carries enrollment and reaping"*. But `enroll` is this repo's MEMBERSHIP word — *"enrolled through the REAL invite"*, *"enrolled in the `.dev` workspace Star"*, *"rendering the offer enrolled the invitee"* — and reusing it for subscriptions is the collision goal 3 exists to prevent.
+- **`SubscriberRegistry`** — `Registry` is `NebulaAuthRegistry`'s word and a top-level concept here.
+- **`Watchers`** — already means the query-subscriber-list kind specifically (`clearWatchers`, `removeQuerySubscriberListWatcher`).
+- **`TemporalStore` / `SnapshotStore`** for the engine — new vocabulary for a table that has a name. **`History`** — ADR-004 calls history the substrate, not the engine.
+
+⇒ **The subsystem lands at four names, every one already in the reader's head:** `Resources` the plane, `Snapshots` the storage engine, `OrgTree` the permission tree (D16), `Subscriptions` the merged registry.
 
 ### The audit of what an untrusted descendant may INVOKE
 
