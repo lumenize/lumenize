@@ -21,7 +21,8 @@
     "experiments/computer-vfs-build",
     "experiments/residency-hold",
     "experiments/fuse-bisect",
-    "experiments/wildcard-host-routing"
+    "experiments/wildcard-host-routing",
+    "experiments/preview-self-binding"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
