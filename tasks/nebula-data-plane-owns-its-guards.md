@@ -333,7 +333,9 @@ Not executable at write time, and named so nobody assumes otherwise: every behav
 
 ## Relationships
 
-**Gated by** — [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md), shipped. It folded `DevStudio` and `DevContainer` into `Galaxy` and moved `invite`'s body and `onInviteResult` into the plane, leaving the interim this task's § *Transition* removes.
+**Gated by** — [mesh-every-chain-opens-with-a-mesh-call.md](mesh-every-chain-opens-with-a-mesh-call.md), **not yet built, and this task must not build before it.** Stage 2's second pass found that the `@mesh` allowlist blocks only an undecorated FIRST call: reads, `svc` chains, nested get-only markers and the whole response leg get through. So Phase 7 cannot close the reaper hole by shedding `@mesh()`, since that hole is in the reply path, and § *Design intent*'s claim that `@mesh()` entries are the whole wire surface overclaims. ⚠️ **Re-run Stage 2 after that task lands** — that pass lost its architecture lens (stalled on every retry) and left sixteen findings unworked, including a real Phase 3 bug: the merged table's key omits `kind`, so a client holding two subscription kinds loses its first to its second.
+
+**Also gated by** — [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md), shipped. It folded `DevStudio` and `DevContainer` into `Galaxy` and moved `invite`'s body and `onInviteResult` into the plane, leaving the interim this task's § *Transition* removes.
 
 **Ordered after** — [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md), per [nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*. The criterion in § *The upward arm is bounded by the callee, not by the barrier* is therefore written against today's per-method surface, and Phase 8 rewrites it.
 
