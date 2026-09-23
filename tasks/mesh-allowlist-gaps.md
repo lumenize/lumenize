@@ -90,6 +90,27 @@ None is chosen. Each entry says what it closes and what it costs, so the choice 
 4. **What the `svc` exemption is for.** Its comment calls `svc` methods *"trusted internal framework methods"*. If `alarms`, `broadcast` or `fetch` send continuations that open with `svc` across a hop, a fix must tell a local chain from one that came in off the wire rather than delete the exemption.
 5. **What a `@mesh` gate may return.** Nothing after the first call is checked under any option, so a gate whose return value holds a path back to the DO, its `ctx`, `env` or `svc` exposes all of it. `DagTree` is safe today, since every field is `#`-private. The obligation needs a home in `mesh.md` whichever option wins.
 
+## Criteria to carry into the phases
+
+**The first phase proves every hole before anything is fixed.** For each hole it writes a test asserting the secure behaviour, runs it against today's code, and records that it FAILS. A test never seen red cannot show that a fix closed anything (`testing.md`). Here the red run also answers what § *Context and current state* leaves open — whether each hole is reachable from a real browser, not only from the executor. No fix lands in that phase.
+
+- **Tier.** Each hole gets a `/live` limb, because reachability through the Gateway is exactly what is unverified, and `live.md` makes `/live` the default tier. The probe table's executor behaviour also gets a unit test, since `executeOperationChain` run against a stand-in object needs no running system — and the test says so.
+- **Prove each hole with a harmless payload.** `svc.sql(['SELECT 1'])` proves arbitrary SQL runs as well as a `DELETE` would. A skipped guard is proven by a test-only guarded method that records it ran, never by `teardown`. So a red run cannot destroy state, which matters because the harness can target a deployed worker through `HARNESS_TARGET_URL`.
+- **One limb per hole, each with a mutation that isolates it, matched on the refusal MESSAGE.** A scenario reddens on its first failing limb and hides every later one (`live.md`).
+
+| Hole | The test asserts | Red today because |
+|---|---|---|
+| read `env.<name>` with no call | refused | a chain with no call is never checked |
+| the same read, as a nested argument | refused | a get-only marker is never checked |
+| `svc.sql(['SELECT 1'])` | refused | `svc` is exempt |
+| a nested `svc` chain as an argument | refused | the exemption applies per chain |
+| a forged `ClientDisconnectedError` reply naming another client | that client's row is intact | the reaper takes its victim from the reply |
+| a marker inside a forged reply | nothing runs | the handler resolves markers at `requireMeshDecorator: false` |
+| `svc.alarms.schedule` with a caller-chosen chain | refused | unknown until checked (§ *Gotchas*, item 2) |
+
+- **Regression guards for what must keep working, green before and after:** a 4-arg handler using `$result`, a stored alarm continuation firing, `svc.broadcast`'s flat branch reaping a disconnected subscriber, and a legitimate gate chain such as today's `dagTree().setPermission(…)`. They catch a fix that closes a hole by breaking a service, which is exactly the risk § *Gotchas* names.
+- **They stay committed** as the regression suite once the fix turns them green.
+
 ## Constraints and future state
 
 **Constraints.** [ADR-003](../docs/adr/003-continuation-messaging.md) — continuations are the only call shape, so a fix must not break nesting between mesh nodes or the fire-back. [ADR-007](../docs/adr/007-shared-node-security-core.md) — the guard core is shared, so the fix lands once in the package for every node type. `CLAUDE.md` — a package gap is fixed in the package, never worked around in Nebula. `security.md` governs the fail-closed behaviour.
