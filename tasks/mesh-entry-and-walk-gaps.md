@@ -370,7 +370,9 @@ Every decision here is settled. They stay listed with their answers, so a later 
 3. ✅ **DECIDED 2026-09-24 — a client whose token just lapsed is not reaped, and it gets its own error class to say so.** A live socket with a lapsed token is back in about 100 ms, so the reaper's name guard simply stops matching it. The wider conflation stays owed on `tasks/backlog.md`'s `subscriptionRequired` row, which points back here. § *R2*.
 4. ✅ **DONE 2026-09-24 — the milestone has a row for this task**, `deploy`-gated and ordered above ④, and its decision 3 now names this file as ④'s remaining gate. § *Relationships* states the ordering fact rather than borrowing *"before the wipe"*, which that file drains of force.
 5. ⊘ **MOOT 2026-09-24 — the thing it named is not being built.** `$undeliverable` was to be a distinct ack shape for delivery failure; taking the victim from the address left it with no consumer, so it was dropped along with the protocol change it required. § *R2* records the trigger that would bring it back.
-6. ✅ **DECIDED 2026-09-24 — `@lumenize/fetch` is all but deprecated, so the `svc` exemption's deletion breaks its proxy callback and we accept that rather than build a door.** Larry runs none of it in production and doubts anyone else does; `.claude/rules/mesh.md` already forbids it in product code without human sign-off, and that sign-off will not be granted. Its bugs stay ours to fix where a fix is cheap — it is published — but **it does not get new framework surface built to keep it working**, and the replacement doors considered (a gate on `LumenizeDO`, a carrier installing plugin members) are priced against nobody. § *Gotchas*, item 4 states what actually breaks.
+6. ✅ **DECIDED 2026-09-24 — `@lumenize/fetch` is all but deprecated, so the `svc` exemption's deletion breaks its proxy callback and we accept that rather than build a door.** Larry runs none of it in production and doubts anyone else does. Its bugs stay ours to fix where a fix is cheap — it is published — but **it does not get new framework surface built to keep it working**, and the replacement doors considered (a gate on `LumenizeDO`, a carrier installing plugin members) are priced against nobody. § *Gotchas*, item 4 states what actually breaks.
+   - ⚠️ **Deprecated is not dead, and the difference decides two things.** `@lumenize/fetch` comes back **if it ever supports streaming** — the one case where proxying a fetch through a Worker genuinely saves money, and the reason Larry stopped using it is that every other case turned out rarer than expected (2026-09-24). So its suites are **`it.skip`ped rather than deleted** (Phase 5), because a revived path would otherwise have to be proven from nothing.
+   - ⚠️ **The re-derive trigger: a revived `@lumenize/fetch` needs a wire door, and the options are already priced.** A plugin cannot put a member on its host — `NadisPlugin.register` writes only the global service registry — so any chain reaching one must open on `svc`, which this task stops being an entry. The two doors that would work are a narrow `@mesh()` gate on `LumenizeDO` over the plugin half of the registry, and a carrier that installs marked members. **Neither is built now, and neither is foreclosed** (`calibration.md` §4: re-derive when the justification expires, never pre-guard).
    - ⚠️ **A REVIEW PANEL MUST NOT GROUND A FINDING IN `@lumenize/fetch`.** "This breaks the fetch round trip", "the fetch hole needs its own limb", "the new door's signature is wrong" and anything else resting on that package being kept alive is out of scope by decision, not by oversight. The two `svc.fetch` rows in § *Criteria* stay only because they assert the exemption is gone — they are tests of the **rule**, and the package is merely the vehicle that made the hole reachable.
 
 ## Constraints and future state
@@ -443,6 +445,9 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      prototype-write limb asserts `({}).<key>` is still `undefined` afterwards, on a key nothing reads.
      The response-leg limbs are GREEN with `constructor` at op 1 **and** at op 0. The browser limb is
      GREEN. Empty and apply-first chains are refused, each on its own message.
+   - **Suites this phase changes:** `packages/mesh/src/ocan/test/ocan.test.ts` — the apply-first case
+     (asserts `10` today) and the `is not a function` message case are both REWRITTEN to assert the new
+     refusals. `npm run type-check` and `packages/mesh`'s own suite pass at this commit.
    - **Mutation note:** close only `constructor` and the five other clause limbs red while every
      pre-existing row stays green; gate the fence on `requireMeshDecorator` and the response-leg limbs
      red; write it at the envelope seam instead of in the executor and the browser limb alone reds —
@@ -476,6 +481,18 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      `calls.mdx` nesting positive control, the alarm continuation and `dagTree().setPermission(…)` are
      all still GREEN. `@lumenize/fetch`'s proxy round trip is RED, which is the intended outcome
      (§ *What needs Larry*, item 6) and is recorded rather than fixed.
+   - **Suites this phase changes, each named with its disposition.** REWRITTEN to assert the new rule:
+     `ocan.test.ts`'s property-access chain at the default flag, its own-data-property `checkIdentity`
+     case, and its `meshFn` nested-object case (`c.nested.deep.method(5)` — op 0 is `get 'nested'` on an
+     unmarked field); `packages/mesh/test/lumenize-client-gateway.test.ts`; `test-worker-and-dos.ts`;
+     `continuation-only-feasibility.test.ts`. **`it.skip`ped with a one-line reason pointing at
+     § *What needs Larry*, item 6:** the eight round-trip tests in `packages/fetch/test/proxy-fetch.test.ts`
+     and the seven in `test/for-docs/basic-usage.test.ts`. ⚠️ **Skipped rather than deleted because
+     revival is live, not theoretical** — `@lumenize/fetch` comes back if it ever supports streaming,
+     which is the one case where proxying genuinely saves money (Larry, 2026-09-24), and a deleted suite
+     would have to be rewritten from nothing to prove the revived path. The two `svc.fetch` refusal rows
+     stay ACTIVE in that same suite; they test the rule, not the package. `npm run type-check` and each
+     touched package's suite pass at this commit.
    - **Mutation note:** keep the exemption and the two `svc` rows red; read `parent[key]` instead of
      the descriptor and the unmarked-getter-does-not-run limb reds; skip the recursion into nested
      markers and the two nested rows red while the top-level ones stay green; carve out `ctx`/`svc` by
@@ -486,11 +503,17 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
 6. **`meshFn` and `Unprotected<T>` leave the published surface.** `meshFn` marks a function reached
    through a path of `get`s, which is exactly what Phase 5 refuses; `Unprotected<T>` types a remote
    chain opening on `ctx`, so every chain written with it would now compile and throw.
-   - **Success criteria:** `grep -rn '\bmeshFn\b' packages/*/src packages/*/test apps website` and the
-     same for `Unprotected` return nothing outside a release note. `packages/mesh/test/node-import.test.mjs`
-     no longer asserts the `meshFn` export. Both barrel exports are gone and `npm run type-check` passes.
-   - **Mutation note:** leave either barrel export in place and its grep is non-empty. ⚠️ Scope the
-     grep away from `dist/`, which is gitignored but present on a working tree.
+   - **Success criteria:** `grep -rn '\bmeshFn\b' packages/*/src packages/*/test apps website` returns
+     nothing outside a release note. The same grep for `Unprotected` returns **only** the two CORS table
+     cells, `website/docs/{routing,testing}/cors-support.mdx` — an unrelated English sense this task does
+     not touch, named here the way § *Criteria*'s `allowlist` bullet names its own discards. ⚠️ Do NOT
+     narrow the pattern to `Unprotected<`: that misses `packages/mesh/src/ocan/index.ts`'s bare barrel
+     export, which is what the mutation below relies on. ⓘ `continuations.mdx`'s `Unprotected<T>`
+     sentence rides this phase, not Phase 9, since the grep cannot be clean without it.
+   - **Suites this phase changes:** `packages/mesh/test/node-import.test.mjs` stops asserting the
+     `meshFn` export. `npm run type-check` and `packages/mesh`'s suite pass at this commit.
+   - **Mutation note:** leave either barrel export in place and its grep returns more than the two CORS
+     cells. ⚠️ Scope the grep away from `dist/`, which is gitignored but present on a working tree.
 
 7. **The framework tells a handler who the callee was, and a lapsed token stops looking like a death.**
    A `callContext` field set in `dispatchEnvelope`, `fireResponse` and `executeEnvelope` from sources
@@ -511,9 +534,13 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      REPLYING client's is the only one touched. The direct-call row is GREEN on both halves: the call
      was PERMITTED, and no subscriber row changed. `grep -rn 'clientInstanceName' packages/*/src apps/nebula/src`
      returns only the `ClientResultEnvelope` sites.
-   - **Mutation note:** restore the field on the error and the forged-reply row reds; convert the two
-     `apps/nebula` reapers but not `packages/nebula-auth/src/profile.ts` and the third-package limb
-     reds, which is why that limb exists.
+   - **Suites this phase changes:** deleting the constructor parameter makes `tsc` enumerate every
+     construction site, since `gateway-messages.ts` declares it as a parameter property — so
+     `npm run type-check` IS the inventory here, and it is a criterion. `packages/mesh`,
+     `packages/nebula-auth` and `apps/nebula` suites each pass at this commit.
+   - **Mutation note:** restore the field on the error and the forged-reply row reds; convert the
+     `apps/nebula` reapers (Star and Galaxy) but not `packages/nebula-auth/src/profile.ts`, and the
+     third-package limb reds.
 
 9. **The docs describe the decorator we ship, and one checked example carries both legs.** Sweep
     `@mesh` across the whole of `website/docs/` — not `website/docs/mesh/` — for method-only framings
