@@ -21,7 +21,12 @@ const ABSTRACT_SUBJECTS =
 
 const GOVERNED = [
   { dir: 'docs/adr', kind: 'adr', maxBytes: 13_000 },
-  { dir: 'docs/vision', kind: 'vision', maxBytes: 60_000 },
+  // 80KB, raised from 60KB 2026-09-24 (Larry). auth.md had grown past 60KB carrying real
+  // decisions, and the gate's only cheap satisfying edit was to DEFER the decision rather
+  // than trim — which is the repair prose-voice.md § The budgets already refuses to invite
+  // for the ⚠️ count. The trim auth.md owes is still owed; it is just not a blocker on
+  // recording what we decided.
+  { dir: 'docs/vision', kind: 'vision', maxBytes: 80_000 },
   { dir: 'tasks', kind: 'task', maxBytes: null, skip: /\/(archive|icebox|nightly)\// },
   { dir: '.claude/rules', kind: 'rule', maxBytes: null },
   { dir: '.claude/skills', kind: 'rule', maxBytes: null },
