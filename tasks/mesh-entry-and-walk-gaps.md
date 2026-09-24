@@ -6,11 +6,11 @@
 
 **The primary goal is to close a currently open vulnerability** where properties at the root of an instance are accessible and methods within objects at the root are callable. The current approach only requires that the first call in an OCAN chain be decorated with `@mesh` but says nothing about properties and objects. `svc` calls and nested get-only markers all pass, so a tenant who self-signs-up can read the host's `env` or run arbitrary SQL on its parent Galaxy. **The same reach is available on the response leg**, where a reply the far side authored is re-read as a chain and run with the member-level check off — a different mechanism at the same severity, so it belongs in this goal rather than the one below. **What must be true when this is done:** a remote caller reaches the members `@mesh` marks and, from there, only what the marked member hands back — never a path onward to the node, its `ctx`, its `env`, its `svc`, or JavaScript's own objects.
 
-**The far less important secondary goal is to prevent a Client node running in a bad actor's environment from being able to unsubscribe anyone who called it or whose action resulted in a subscription push** to the bad actor. When a DO pushes to a client with a 4-arg call, the client writes the reply, and the reaper takes its victim's id from that reply.
+**The far less important secondary goal is to prevent a Client node running in a bad actor's environment from being able to unsubscribe anyone who called it or whose action resulted in a subscription push** to the bad actor. When a DO pushes to a client with a 4-arg call, the client writes the reply, and the reaper takes its victim's id from that reply. ⚠️ The same reap needs no reply at all — a reaper carries a bare `@mesh()`, so a member calls it directly with a forged error as an ordinary argument.
 
 ## Relationships
 
-- **Gates [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md).** Its Phase 7 claims to close the reaper hole by shedding `@mesh()`, and the hole is in the reply path. Its three-tier contract also assumes `@mesh()` entries are the whole wire surface. That task re-runs its Stage 2 after this one lands.
+- **Gates [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md).** Its Phase 7 claims to close the reaper hole by shedding `@mesh()`. That shed refuses the direct request-leg call and nothing on the reply path, so it was never the whole fix — and after § *R2* it carries no security at all, since the forgeable field is gone. Good hygiene, not the guard. Its three-tier contract also assumes `@mesh()` entries are the whole wire surface. That task re-runs its Stage 2 after this one lands.
 - **Gates ④ in the milestone** ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*), where it now has its own row, `deploy`-gated and ordered above it. That file's decision 3 says so too, so the two no longer disagree about whether ④ can start.
 
 ## Backlog rows this task trips
@@ -18,11 +18,11 @@
 Each row below states something a later reader would act on, and this task's deliverables falsify or narrow it. Found by reading rather than by a complete sweep, so treat the list as open.
 
 - **`directThreshold: Infinity`** (§ *Lumenize Mesh*) says *"Lifting it takes all three together"*. § *Gotchas*, item 3 adds a fourth condition — the forwarded reaper arrives through `__executeOperation` where the member-level check is on — and the sibling task adds another. ⇒ The row gains the reapers' arrival as a lift condition; the count goes.
-- **`subscriptionRequired` is broken** (§ *Lumenize Mesh*) diagnoses the expired-token branch at the exact Gateway site § *R2* converts, and argues the conflation itself is the bug: *"a live-socket-expired-token client is self-healing."* ⇒ **Contained, not fixed.** § *R2* leaves that branch outside `$undeliverable` so the diagnosis is not cemented into the new shape; the row keeps the underlying fix and gains a pointer saying so, plus a warning to re-read § *R2* first, since the ack shape is what a later fix has to work with.
+- **`subscriptionRequired` is broken** (§ *Lumenize Mesh*) diagnoses the expired-token branch at the exact Gateway site § *R2* converts, and argues the conflation itself is the bug: *"a live-socket-expired-token client is self-healing."* ⇒ **Half of it lands here.** § *R2* gives that branch its own error class, so the reaper's name guard stops matching it and a self-healing client is no longer reaped. What stays owed on the row is the wider conflation — the Gateway deciding reachability from its grace alarm while the Star decides it reactively, with the two uncoordinated.
 - **The `globalThis` registration row** rests on *"the repo registers zero classes"*, which `gateway-messages.ts`, `lumenize-do.ts` and `lumenize-worker.ts` falsify. ⇒ The row keeps its verdict — the name-guard stays the contract (§ *R2*, item 3) — and gains the corrected premise.
 - **"Improve continuation ergonomics"** (§ *Lumenize Mesh*) ⇒ **neither issue is settled by this task, and one claim about it was wrong.** Issue 1's `$defer` want SURVIVES, because nesting survives (§ *The request leg*), and it lives in the very loop R1 rewrites — so the row gains a line that the two are designed together or `$defer` pays for the rewrite twice. Issue 2, `this.ctn().handleResult` with no call, is **untouched**: a get-only handler chain runs on the response leg, where the member-level check is off by design, so it stays a silent no-op.
 - **The compose-site sweep** (§ *Nebula*) warns that *"a method on a nested plain object is not in the mesh surface"*. A marked field would have refuted that. ⇒ Fields do not ship (§ *The request leg*), so the row stands as written — and it is worth a line saying a getter gate is how a plane exposes one.
-- **Broadcast-to-client could go fully async** (§ *Lumenize Mesh*) proposes replacing the synchronous ack with a Gateway fire-back. `$undeliverable` rides that ack. ⇒ The row gains a line: whatever carries the delivery verdict must move with the leg.
+- **Broadcast-to-client could go fully async** (§ *Lumenize Mesh*) proposes replacing the synchronous ack with a Gateway fire-back. ⇒ **No disposition needed, and that is the point:** § *R2* adds nothing to the ack, so the leg can move without dragging a delivery-verdict shape with it. A design that added one would have owed this row a line.
 
 ## Context and current state
 
@@ -146,7 +146,7 @@ ctn<Galaxy>().svc.sql(['SELECT 1']);       // refused — `svc` is not marked, a
 
 ## The response leg — two holes, one defect
 
-**Both are the same mistake: the node treats a value the far side authored as if the framework had authored it.** One is a marker, the other an identity. Each gets its own fix, and neither fix depends on the other.
+**Both are the same mistake: the node treats a value the far side authored as if the framework had authored it.** One is a marker, the other an identity — and both fixes are the same move, taking the answer from something the far side cannot write. Neither depends on the other.
 
 ### R1 — a substituted result is re-scanned as a nested marker
 
@@ -162,49 +162,48 @@ Measured 2026-09-23 against the real executor, with a handler chain of `handler(
 
 **The fix: resolve once.** `replaceNestedOperationMarkers` already knows which argument positions it filled, so it says so and `resolveNestedOperations` skips them. Said structurally: **the marker shape is a property of a CHAIN, which `processArgumentsForNesting` builds; a result is data and can never be one.** Nothing weighs against this, it costs no capability, and the request-leg work rewrites that loop anyway.
 
-### R2 — a client's reply can pass for a delivery failure
+### R2 — the reaper takes its victim from the payload
 
-**What happens, in order.** A Galaxy fans a query update to its subscribers, one 4-arg `lmz.call` per target, every target sharing one `onResult` chain that carries the `queryHash` and nothing identifying the target. The Gateway for one client computes `clientInstanceName` from `envelope.metadata.callee.instanceName`, which is the address the caller used and is authoritative. Wherever it concludes for itself that the client is unreachable — no socket, no reconnect, null attachment, expired token — it returns `{ $error: preprocess(new ClientDisconnectedError(msg, clientInstanceName)) }`. All but one of those are correct; § *Backlog rows this task trips* records the exception. Otherwise it forwards to the client and awaits the reply. **If the client's handler throws, `#handleIncomingCallResponse` runs `postprocess(error)` and rejects with the result, and the `catch` re-wraps it in the identical `{ $error }` shape.** `postprocess` constructs by class name, so a reply naming `ClientDisconnectedError` arrives as a real instance carrying whatever `clientInstanceName` the client set. `onQueryBroadcastResult` tests `result.name`, reads that property, and deletes the named row.
-
-**So `$error` carries two meanings — "delivery failed, and the framework says who" and "the callee ran and threw" — and the reaper acts on the first while reading the second.**
-
-**The risk is one unsubscription, and it needs hand-written client code.** No disclosure, no authority change, nothing persisted: the DELETE is exact-match on `(queryHash, clientId)`, so one subscriber row goes, and the victim's UI silently goes stale until they reload, since they are still connected and never learn. Attacker and victim are members of the same Star.
-
-⚠️ **What lifts this above theoretical is that the victim's clientId is handed to the attacker.** A clientId is `${sub}.${tabId}` with 8 hex characters of randomness, and the roster pushed to watchers deliberately carries `{ sub, profileId }` only. But `#forwardToClient` forwards `callContext.callChain` verbatim, and a broadcast inherits the writer's chain, so `callChain[0].instanceName` is the full clientId of whoever's mutation triggered the push. The line beside it withholds `originRequest` for exactly this reason; the clientId was not withheld.
-
-**The fix: split the ack shape, so a delivery failure is something only the Gateway can assert.** The Gateway's return value is the right carrier — it builds it on every path, and the client neither sees nor writes it.
+**What happens.** A Galaxy fans a query update to its subscribers with one 4-arg `lmz.call` per target, and **every target shares one handler chain**: `this.ctn<Galaxy>().onQueryBroadcastResult(queryHash)`. That chain carries the `queryHash` and nothing identifying which target a result came back from. So when the reaper runs, its only source of *who died* is the payload:
 
 ```ts
-// Gateway, wherever IT concludes the client is unreachable — each site already has the
-// authoritative name from `envelope.metadata.callee.instanceName`
-return { $undeliverable: { instanceName: clientInstanceName, reason: 'Client is not connected' } };
-
-// Gateway, on the client's reply — unchanged in shape, and now honest: the callee ran and threw
-return { $error: preprocess(error) };
-
-// Caller (`lmz-api.ts`) — mint the error LOCALLY from the field only the Gateway can set
-if ('$undeliverable' in ack) {
-  errorObj = new ClientDisconnectedError(ack.$undeliverable.reason, ack.$undeliverable.instanceName);
-}
+onQueryBroadcastResult(queryHash: string, result?: unknown): void {
+  if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+    const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+    if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
 ```
 
-⚠️ **The response TIMEOUT is a delivery failure that arrives through the same `catch` as the client's reply, and a naive split gets it wrong.** `#forwardToClient` rejects its promise with a `ClientDisconnectedError` when the client does not answer in time, so it lands where a thrown reply lands. Leaving that `catch` untouched would classify a real timeout as "the callee threw" and stop reaping a client that went away mid-push — a regression, and one no forged-reply test would catch. The timeout must therefore resolve to `$undeliverable` at its own site rather than reject into the shared path. ⚠️ It also takes its name from `#getInstanceName()`, which reads the attachment, and the attachment is absent exactly when the client is gone — so that site needs the envelope's name like the others, which is a pre-existing bug this fix has to carry.
+A client's handler throws an `Error` it built, naming any `clientInstanceName` it likes. `postprocess` restores `name` and copies every own key onto a plain `Error` **whatever the constructor**, so the guard matches and the named row is deleted. **Nothing about the reply is forged** — it is correctly identified as coming from the client that sent it. What is forged is a field in the payload that names somebody else.
 
-**Four things follow:**
+⚠️ **The push hands the attacker its victim.** `#forwardToClient` sends `callContext.callChain` to the client verbatim, and a broadcast inherits the mutating client's chain, so a push triggered by B's transaction arrives at A carrying B's clientId in `callChain[0].instanceName`. A does not have to guess, and A and B share the query by definition. ⓘ A clientId is `${sub}.${tabId}` and the roster pushed to watchers deliberately carries `{ sub, profileId }` only — the `callChain` is the leak, and whether a clientId belongs there at all is tracked separately in § *What R2 leaves to settle*.
 
-1. **The handler signature does not change**, so no per-target handler chains and no framework-wide protocol change. Binding the target into each handler was the alternative, and this is smaller.
-2. **`clientInstanceName` is minted by the caller's own code** and never carried from the far side. A client may still throw something calling itself `ClientDisconnectedError`; it arrives as `$error` and the node never mints the class for it.
-3. **The reapers' bodies do not change at all.** `.claude/rules/mesh.md` § *Errors across mesh calls* binds the detection form — *"Structured signals MUST be detected by `err.name === 'MyTypedError'` + a property-presence check, never `err instanceof MyTypedError`"* — and the three Galaxy reapers and the Star's are already written that way. A locally minted error satisfies the name guard exactly as a wire-borne one did, so R2 changes what reaches them and nothing about how they read it. ⓘ Promoting to `instanceof` was considered and dropped: `tasks/backlog.md` § *Lumenize Mesh* refuses it because a check that varies by bundle is worse than one uniformly false — though that row's own premise, that the repo registers zero classes, is falsified by `gateway-messages.ts` and needs a disposition (§ *Backlog rows this task trips*).
-4. **The Gateway gets simpler.** One shape stops carrying two meanings, which is the whole defect — this removes an overload rather than adding a check.
+**The risk is one unsubscription, and it needs hand-written client code.** No disclosure, no authority change, nothing persisted: the DELETE is exact-match on `(queryHash, clientId)`, so one subscriber row goes and the victim's UI silently goes stale until they reload. Attacker and victim are members of the same Star.
+
+**The fix: delete `clientInstanceName` from the error, and take the victim from the address the CALLER used.** `dispatchEnvelope` already holds `calleeInstanceName` as a parameter — the same function that runs the local handler — so the unforgeable value is in scope at the line that currently hands the forged one to the reaper. The framework supplies it; the payload stops carrying it.
+
+**This deletes the class rather than guarding it, and it closes BOTH legs:**
+
+- **The response leg.** A forges an error, the reaper reads the callee — which is A — and reaps **A**. A can already unsubscribe itself, so that is a no-op rather than an attack.
+- **The request leg, which no guard on the reply could have reached.** Every reaper carries a bare `@mesh()`, `onBeforeCall` enforces passage only, and structured clone carries an `Error` as an ordinary argument — so any Star member calls `ctn<Star>().onQueryBroadcastResult(hash, forgedError)` directly, with no reply involved, and **§ *The request leg*'s entry rule permits it**. After this fix there is no `clientInstanceName` to read, and the framework-supplied callee on such a call is the Star itself, which matches no subscriber row. ⓘ `profile.ts`'s `onProfileBroadcastResult` JSDoc already documents this hazard as its reason for staying undecorated, and the sibling's undecorated `resourcesResults` gate independently refuses the chain — that stays good hygiene, but it stops being what carries the security.
+
+⚠️ **Rejected, and recording why because both looked right for a while:** *wrapping the client's thrown error* at the Gateway so its `name` no longer matches, and *a Symbol-keyed marker* the wire cannot carry that the reapers would check. Both guard the reply; neither touches the request leg, and neither removes the forgeable field. `calibration.md` §2 — the second guard on a mechanism whose problem can be made structurally impossible.
+
+**Two questions the file used to run together, and only one of them is ours.** *Who failed?* is the security question, answered by the address. *Did delivery fail?* is a correctness question, and the name guard already answers it: a client's ordinary bug carries its own error name, so the reaper never matches it. Trying to make one mechanism carry both is why the earlier design did not close the hole.
+
+⚠️ **The Gateway uses ONE error class for two of its own conclusions, and that is the only real conflation left.** `ClientDisconnectedError` covers both a client that is gone — no socket, no reconnect, null attachment, timeout — and one whose token just lapsed, which gets `ws.close(4401)` and is back in about 100 ms. The second is self-healing and reaping it is already wrong (`tasks/backlog.md` § *Lumenize Mesh*, the `subscriptionRequired` row, argues exactly that at this site). **It gets its own class; the reaper's name guard then refuses it for free.** Nothing else in the Gateway's vocabulary changes, and the timeout keeps returning `ClientDisconnectedError`, which is correct.
+
+ⓘ **A distinct ACK SHAPE for delivery failure was designed and then dropped** (`$undeliverable`, 2026-09-24). Once the victim comes from the address, a forged name reaps only the forger, and the name guard already discriminates an ordinary client bug — so the shape had no consumer left, while costing a protocol change, an edit to `lmz-api`'s ack handling, and a rule that the timeout resolve rather than reject. `$error` therefore still carries two meanings, and nobody reads the difference. ⇒ **The trigger to re-derive: the first consumer that genuinely needs to tell "never reached them" from "they ran and threw"** — then the distinction is worth a shape, and not before (`calibration.md` §4).
+
+
+**What this means for the reapers.** Their bodies **do** change: they stop reading `clientInstanceName` and take the callee the framework hands them. `.claude/rules/mesh.md` § *Errors across mesh calls* is untouched — the name guard still identifies the *kind* of error, it just no longer answers *who*.
 
 **What R2 leaves to settle:**
 
-- **A refusal by `onBeforeCallToClient` is not a delivery failure.** The client is connected and fine, so reaping it would be wrong; it stays `$error`. Worth pinning, because the site sits beside the ones that change.
-- **⚠️ The EXPIRED-TOKEN branch stays outside `$undeliverable` too (decided 2026-09-24).** A live socket whose `exp` just passed gets `ws.close(4401)` and refreshes in about 100 ms, so it is self-healing and reaping it is already wrong — `tasks/backlog.md`'s `subscriptionRequired` row argues exactly that, at the site this fix converts. Promoting it would cement a misclassification into the new shape for the later fix to unpick. Nothing depends on reaping it today, since `NebulaClient` ignores the flag and re-subscribes unconditionally. **The residual is a bounded leak** — a client that lapses and never returns keeps its row until the next push finds no socket and reaps it through a branch that IS `$undeliverable`.
-- **The tier path** must carry `$undeliverable` through `__forwardBroadcastResult` if the tier is ever unpinned (§ *Gotchas*, item 3).
-- **Whether `ClientDisconnectedError` still needs to be a wire-constructible global.** `#rejectReconnectWaiters` uses it internally, so check before removing the registration.
-- **Whether a clientId belongs in a forwarded `callChain` at all**, given the roster withholds it on purpose. Separate from this fix and tracked on its own.
-- **`$undeliverable` rides the Gateway's SYNCHRONOUS ack**, which is the leg § *Backlog rows this task trips* records a proposal to replace with a fire-back. Whatever carries the delivery verdict has to move with the leg.
+- **How the callee reaches the handler.** Appending it after the result extends the existing last-argument convention and is non-breaking, since a handler that does not declare the parameter ignores it. ⚠️ The wrinkle is a handler using an explicit `$result` marker, where nothing is appended today. A phase decision, not a Pass-1 one.
+- **A refusal by `onBeforeCallToClient` is not a delivery failure.** The client is connected and fine, so it stays `$error`. Worth pinning, because the site sits beside the ones that change.
+- **What the expired-token class is CALLED**, and whether anything else should stop reaping on it. Nothing depends on reaping it today, since `NebulaClient` ignores the flag and re-subscribes unconditionally. **The residual is a bounded leak**: a client that lapses and never returns keeps its row until the next push finds no socket.
+- **The tier path** must carry the CALLEE through `__forwardBroadcastResult` if the tier is ever unpinned, since it forwards 3-arg and the address is what the reaper now needs (§ *Gotchas*, item 3).
+- **Whether a clientId belongs in a forwarded `callChain` at all**, given the roster withholds it on purpose. This fix removes the attacker's *use* for it, not the leak.
 
 ### R3 — a response-leg member-level check, considered and NOT built
 
@@ -212,7 +211,7 @@ if ('$undeliverable' in ack) {
 
 **R1 is strictly stronger on the attack they share.** R1 stops a value becoming a chain at all, so the only chain that runs is the one the node authored. A decorator leaves the injection working and merely narrows where it lands: an attacker would still reach any marked method with arguments of their choosing. `Galaxy.onQueryBroadcastResult(queryHash, result)` would carry the mark, so a forged result could name it with a different `queryHash` and reap a subscriber of a query the attacker never subscribed to — worse than R2's hole. Deleting the class beats narrowing it (`calibration.md` §2), and adding both is the second guard that entry warns about.
 
-**What the decorator would uniquely cover is a future regression, and two things already cover most of it.** No attacker-controlled chain reaches the response leg today: the local handler is the node's own, `__handleResponse` takes its chain from a `response` descriptor the Gateway builds from the verified attachment, and `Fetch.__handleProxyFetchResult`'s continuation argument and a stored `svc.alarms.schedule` chain both close with `svc`. Beyond that, § *The request leg*'s prototype fence is unconditional, so even a hostile chain arriving here could not reach `Object.prototype` or `Function`.
+**What the decorator would uniquely cover is a future regression, and two things already cover most of it.** No attacker-controlled chain reaches the response leg today: the local handler is the node's own, `__handleResponse` takes its chain from a `response` descriptor the Gateway builds from the verified attachment, and `Fetch.__handleProxyFetchResult`'s continuation argument and a stored `svc.alarms.schedule` chain both close with `svc`. ⓘ The forged-error vector § *R2* closes was never a chain addressed here either — it is an ARGUMENT to a legitimate handler. Beyond that, § *The request leg*'s prototype fence is unconditional, so even a hostile chain arriving here could not reach `Object.prototype` or `Function`.
 
 **The cost is paid by the people we promise no foot-guns.** A handler missing the mark throws in the detached post-ack task, and a fire-back envelope carries no `response` descriptor, so `fireResponse` takes its `!response` branch and logs *"post-ack chain threw with no handler to receive the error"*. The handler silently never ran, and a log line is the only evidence. Nebula's user-developers write `NebulaClient` subclasses full of handlers, so that failure would be theirs to hit.
 
@@ -254,7 +253,8 @@ Every row below is red today **except the last two, which are marked and must be
 | `svc.fetch` walked to an undecorated method on the node | refused | `NadisPlugin`'s fields are `protected`, not `#`-private |
 | after a gate, a write to `Object.prototype` via `constructor` | refused at the `constructor` op, **and** `({}).<key>` is still `undefined` | nothing after the first call is checked |
 | after a gate, `constructor` reached from a returned string, and from a returned FACADE | refused at the `constructor` op in both | same; the facade case is the one an owner-based rule missed, and in a browser client the string case reaches `Function` |
-| a reply naming `ClientDisconnectedError` and another client | that client's row is intact | `$error` carries both meanings, so the reaper reads the reply |
+| a reply naming `ClientDisconnectedError` and ANOTHER client | the named client's row is intact, **and** the replying client's own row is the only one touched | the reaper takes its victim from the payload |
+| the same forged error passed DIRECTLY to a reaper, no reply involved | no subscriber row changes | a reaper carries a bare `@mesh()`, so the chain is permitted |
 | a marker-shaped reply, with a chain naming a method that records it ran | that method did NOT run, **and** the handler received the reply itself | the substituted result is re-scanned by `resolveNestedOperations` |
 | `svc.alarms.schedule` with a caller-chosen chain | refused | red — or unreachable; unknown until checked (§ *Gotchas*, item 2) |
 | ✅ a genuine disconnect, same push | the disconnected client's row IS dropped | **GREEN** — the cleanup the reaper exists for |
@@ -299,9 +299,9 @@ All five decisions are settled (2026-09-24). They stay listed with their answers
 
 1. ✅ **DECIDED 2026-09-24 — methods, getters and accessors ship; fields do not.** All three carry the mark on their function value; a field would need a second carrier, which is `workflow.md`'s named exception to the cost test. Fields are additive later. The gate form is a **getter** where the entry takes no arguments, which also makes `ctn<Galaxy>().resources.transaction(…)` match the `client.resources.transaction(…)` the sibling pins — D5 and D6 there are amended to match. § *The request leg* carries the reasoning.
 2. ✅ **DECIDED 2026-09-24 — the same rule applies one level down.** A nested marker's op 0 must name a marked member. `calls.mdx` § *Operation Nesting* and its `@check-example` keep working unedited, since every nested chain there already opens on a `@mesh()` method. Refusing them off the wire was rejected: `callChain[0]` names the original origin, so it cannot tell a client's chain from a node's chain serving that client. § *The request leg* carries the reasoning.
-3. ✅ **DECIDED 2026-09-24 — no; it stays outside `$undeliverable`.** A live socket with a lapsed token is self-healing, so reaping it is already wrong and promoting it would cement that into the new shape. The underlying conflation stays owed on `tasks/backlog.md`'s `subscriptionRequired` row, which now points back here. § *R2*.
+3. ✅ **DECIDED 2026-09-24 — a client whose token just lapsed is not reaped, and it gets its own error class to say so.** A live socket with a lapsed token is back in about 100 ms, so the reaper's name guard simply stops matching it. The wider conflation stays owed on `tasks/backlog.md`'s `subscriptionRequired` row, which points back here. § *R2*.
 4. ✅ **DONE 2026-09-24 — the milestone has a row for this task**, `deploy`-gated and ordered above ④, and its decision 3 now names this file as ④'s remaining gate. § *Relationships* states the ordering fact rather than borrowing *"before the wipe"*, which that file drains of force.
-5. ✅ **DECIDED 2026-09-24 — `$undeliverable` it is.** It names the Gateway's own verdict that a client was unreachable, as against `$error`, which now means the callee ran and threw. `$undelivered` and `$deliveryFailed` were rejected for reading as an attempt that did not land, which fits only the timeout and misdescribes the sites that never attempt anything — no socket, no reconnect, null attachment.
+5. ⊘ **MOOT 2026-09-24 — the thing it named is not being built.** `$undeliverable` was to be a distinct ack shape for delivery failure; taking the victim from the address left it with no consumer, so it was dropped along with the protocol change it required. § *R2* records the trigger that would bring it back.
 
 ## Constraints and future state
 
