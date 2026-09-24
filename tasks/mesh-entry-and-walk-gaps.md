@@ -142,7 +142,7 @@ ctn<Galaxy>().svc.sql(['SELECT 1']);       // refused — `svc` is not marked, a
 
 **A nested marker's chain gets the SAME rule, one level down (decided 2026-09-24).** Its op 0 must name a marked member too. That refuses `ctn<Star>().transaction(ctn<any>().env.SECRET, e, o)` and a nested `svc` chain, while `website/docs/mesh/calls.mdx` § *Operation Nesting* keeps working unedited — its `@check-example` target is a browser client whose nested arguments each open with a call to a `@mesh()` method, so the canonical case already conforms. It is also close to free: `resolveNestedOperations` already passes its `config` into the recursive `executeOperationChain`, so the nested chain inherits the rule as soon as the rule exists.
 
-⚠️ **The check MUST run after `$result` substitution**, or every 4-arg handler breaks — `ctn().handler(ctn().$result)` would have its `[get '$result']` chain checked and refused (§ *Gotchas*, item 1). R1's resolve-once fix already gives that ordering, by marking substituted positions so nothing re-scans them.
+⚠️ **The check MUST run after `$result` substitution**, or every 4-arg handler breaks — `ctn().handler(ctn().$result)` would have its `[get '$result']` chain checked and refused (§ *Gotchas*, item 1). ⓘ That ordering already holds unconditionally and needs nothing built: `replaceNestedOperationMarkers` has no call site inside `executeOperationChain`, so substitution always precedes the executor, and every filled-handler sink runs at `requireMeshDecorator: false` besides. § *R1* adds skipping, not ordering.
 
 ⓘ **Refusing nested markers off the wire was the alternative, and it is not merely costlier — it cannot be built correctly here.** It needs to know a chain came from a client, and `lmz-api.ts` appends each hop as `[...currentContext.callChain, callerIdentity]`, so `callChain[0]` stays the *original* origin: a Star→Galaxy call made while serving a client still shows a client there. It would refuse legitimate node-to-node nesting whenever a client started the flow, and scoping it properly means doing it at the Gateway.
 
@@ -162,15 +162,21 @@ Measured 2026-09-23 against the real executor, with a handler chain of `handler(
 
 ⚠️ **This is not a guarded method with its guard skipped — it is any chain at all, on the node, at `requireMeshDecorator: false`.** The second entry matters too: the handler then received that chain's return value rather than the result, so the substitution is silently displaced.
 
-**The fix: resolve once.** `replaceNestedOperationMarkers` already knows which argument positions it filled, so it says so and `resolveNestedOperations` skips them. Said structurally: **the marker shape is a property of a CHAIN, which `processArgumentsForNesting` builds; a result is data and can never be one.** Nothing weighs against this, it costs no capability, and the request-leg work rewrites that loop anyway.
+**The fix: a FILLED chain is data, and the executor never resolves data (decided 2026-09-24, Larry).** Said structurally: **the marker shape is a property of a CHAIN, which `processArgumentsForNesting` builds; a result is data and can never be one.** The callee already populates the handler completely before it goes over the wire, so the caller has no populating left to do — running the fill step again on an arrival is the whole defect, and the cure is to stop running it rather than to record what it wrote.
 
-⚠️ **That mechanism is ISOLATE-LOCAL, and one of the four runners crosses a wire — so "resolve once" as written covers three of them (open, 2026-09-24).** On a node-to-node 4-arg call the substitution happens at the **callee**: `fireResponse` computes `preprocess(replaceNestedOperationMarkers(handlerChain, outcome))` and ships the filled chain, and the caller's `__handleResponse` runs `postprocess(envelope.chain)` at `requireMeshDecorator: false`, where `resolveNestedOperations` re-scans those same arguments with no record of what was already filled. Only `dispatchEnvelope`'s local run and the client's in-heap run are same-isolate. ⓘ Reachable without a thrown Error: `outcome` is whatever the callee's chain returned, so attacker data stored earlier and read back later is enough, and `checkForMarkers` recurses into a returned plain object.
+**Scope: the substitution writes ONLY the final apply, so that is the only position that stops resolving.** `replaceNestedOperationMarkers` has **two branches and both write there** — it replaces every marker in the last `apply`, and when there is no marker it APPENDS the result as a last argument. ⚠️ **The append branch is the one production uses**: a reaper is `onQueryBroadcastResult(queryHash, result?)` with no `$result` marker, which `broadcast.ts`'s JSDoc states as *the framework appends the result at each leaf*. A fix written against the `$result` repro alone turns every limb green with the only live path open. An EARLIER apply may still carry a marker the author genuinely nested — `ctn().a(ctn().x()).b($result)` — and that one still resolves.
 
-**Two ways to close it, and the phase picks one:**
-- **Carry the filled-position set on the fire-back envelope**, beside the chain. It is a protocol addition, but forging the annotation can only make a sink **skip** resolution — never run an extra chain — so the failure direction is safe, which is what makes a wire field acceptable here at all.
-- **Neutralise the substituted value at `fireResponse`**, before `preprocess`, so nothing downstream can read it as a marker. No protocol change; the cost is touching the result itself, which is the shape the original defect had.
+**Shape: TWO ENTRY POINTS, not a flag.** `executeOperationChain` runs a template and resolves nesting; a second entry runs a filled chain and does not, both sharing one walk so the entry rule and the fence still live in one place (§ *The request leg*). The choice is static at every call site, never a runtime decision, so a named entry cannot be forgotten or inverted the way a defaulted boolean can.
 
-⇒ The criteria limb goes on the **node-to-node fire-back**, not only the local-handler path, or the fix ships covering the runners nobody attacked.
+⚠️ **The distinction is irreducible and cannot be borrowed from `requireMeshDecorator`, which is ORTHOGONAL in both directions.** A template's final apply is exactly where legitimate nesting lives — `calculator-client.ts` builds `[get 'add'][apply(marker, marker)]`, the file's one positive control — so the executor cannot simply always skip. And the existing flag does not partition the same way: `alarms.ts` runs a never-substituted chain with the flag OFF, while `__forwardBroadcastResult` sends a pre-filled chain into a door where it is ON.
+
+**FOUR sites substitute, and the entry-point split covers three of them statically.** `lmz-api.ts` does it twice — the dispatch-rejected local handler, and `fireResponse`, which fills at the **callee** and ships the filled chain to a caller whose `__handleResponse` re-scans it — plus the client's in-heap run. Each of those hands the chain straight to an executor in the same breath, so each simply names the filled entry. (`@lumenize/fetch` substitutes too and is ignored throughout — § *What needs Larry*, item 6.) ⓘ Reachable without a thrown Error: `outcome` is whatever the callee's chain returned, so attacker data stored earlier and read back later is enough, and `checkForMarkers` recurses into a returned plain object.
+
+⚠️ **The fourth site defeats a static split and is fixed by DELETING the case, not accommodating it.** `__forwardBroadcastResult` fills locally and then sends the filled chain over a fresh `lmz.call` to a generic request door, which cannot know what it is holding. **It should not pre-fill at all** — it is forwarding a *result*, so it ships the unfilled chain plus the result and the receiving node substitutes locally, exactly as every other path does. Then no filled chain ever crosses a wire into a template door, and nothing has to travel to say so. It costs nothing to defer: the tier is pinned at `directThreshold: Infinity`, so the condition rides that backlog row (§ *Backlog rows this task trips*).
+
+⇒ The criteria limb goes on the **node-to-node fire-back**, not only the local-handler path, or the fix ships covering the runner nobody attacked.
+
+⚠️ **ADR-002 is what rules out the tempting alternative.** *Neutralising* the substituted value before `preprocess` — stripping or renaming the two keys — would close it with no protocol change and no entry-point split, and it contradicts [ADR-002](../docs/adr/002-structured-clone-everywhere.md): every surface round-trips the full structured-clone value space including own properties, with no reserved-key carve-out. A result carrying those keys must arrive **intact and unexecuted**, which is a criterion rather than a hope.
 
 ### R2 — the reaper takes its victim from the payload
 
@@ -246,7 +252,9 @@ A client's handler throws an `Error` it built, naming any `clientInstanceName` i
 
 These are the places the framework's own services travel the paths being closed, so any fix must handle them. They apply to both legs.
 
-1. **`$result` is itself a get-only nested marker.** `ctn().handler(ctn().$result)` puts a marker in the handler's arguments, and `replaceNestedOperationMarkers` in `execute.ts` swaps a marker for the result before the chain runs. ⚠️ **It substitutes only in the chain's FINAL operation, and only when that op is an `apply`** — its own comment says so — so a marker in an earlier apply is *executed* rather than overwritten. So any alternative that refuses get-only markers, or requires every nested marker to open with a `@mesh` call, must apply **after** that substitution — otherwise every 4-arg handler, alarm and `svc.fetch` continuation using `$result` breaks. Note too that within that final apply it replaces every marker, not only `$result`, so a handler nesting a real sub-continuation there has it overwritten. ⚠️ A marker the substitution leaves behind is **not** caught by the nested rule: a filled handler chain runs at `requireMeshDecorator: false` and the nested chain inherits that `config`, so it keeps resolving silently to `undefined`, which § *Backlog rows this task trips* already records as an open ergonomics issue.
+1. **`$result` is itself a get-only nested marker.** `ctn().handler(ctn().$result)` puts a marker in the handler's arguments, and `replaceNestedOperationMarkers` in `execute.ts` swaps a marker for the result before the chain runs. ⚠️ **It substitutes only in the chain's FINAL operation, and only when that op is an `apply`** — its own comment says so — so a marker in an earlier apply is *executed* rather than overwritten. So any alternative that refuses get-only markers, or requires every nested marker to open with a `@mesh` call, must apply **after** that substitution — otherwise every 4-arg handler, alarm and `svc.fetch` continuation using `$result` breaks. Note too that within that final apply it replaces every marker, not only `$result`, so a handler nesting a real sub-continuation there has it overwritten.
+   - ⚠️ **When it finds NO marker it takes its other branch and APPENDS the result as a last argument** — which is the branch production uses, since a reaper is `onQueryBroadcastResult(queryHash, result?)` and spells no marker at all. Both branches write the final apply, which is what lets § *R1* name one position rather than record two cases.
+   - ⚠️ **A marker the substitution leaves behind is not caught by the nested rule:** a filled handler chain runs at `requireMeshDecorator: false` and the nested chain inherits that `config`, so it keeps resolving silently to `undefined`, which § *Backlog rows this task trips* already records as an open ergonomics issue.
 2. **Alarms run stored continuations with the member-level check OFF** — `executor(parse(row.operationChain), { requireMeshDecorator: false })` in `alarms.ts`. A fix keyed on that flag leaves alarms alone. A structural rule applied regardless of the flag also hits alarm handlers, which are undecorated local handlers by design.
 
    ⚠️ **Answered from source, and the answer is that it is closed today (2026-09-24).** `Alarms.schedule` recovers a chain only through `getOperationChain`, a module-scoped WeakMap keyed on proxies registered **in this isolate**, and a hand-shaped nested marker is resolved to its *result* before it reaches the argument list — so no wire-borne value can become a stored continuation. ⚠️ **The WeakMap alone is not what closes it**, and writing only that invites the reader to stop early: a nested chain rooted at `svc` can walk `svc.fetch.doInstance.ctn()` — the probe table's own measured-allowed row, since `NadisPlugin.doInstance` is `protected`, i.e. runtime-public — toward a genuine registered proxy. What closes *that* is that `executeOperationChain` awaits every `apply` and returns from an `async` function while a continuation proxy is a never-settling thenable, so the chain **hangs** instead of yielding one. ⓘ Either way `svc` stops being an entry (§ *The request leg*), so the design does not turn on this — what turned on it was the red-first evidence, and the row is now a green-before-and-after limb.
@@ -287,7 +295,9 @@ Every row below is red today unless its own Status cell says otherwise, so the t
 | after a gate, `__defineGetter__` given a function obtained as a get-only nested marker on a marked member | refused at the `__defineGetter__` op, **and** `({}).<key>` is still `undefined` | unknown until checked: a chain names `get`/`apply` only, so whether the argument can be a function is what the first phase measures (§ *The request leg*) |
 | a reply naming `ClientDisconnectedError` and ANOTHER client | the named client's row is intact, **and** the replying client's own row is the only one touched | the reaper takes its victim from the payload |
 | the same forged error passed DIRECTLY to a reaper that still carries `@mesh()`, no reply involved | the call was PERMITTED — it returned normally, and the failure text is not `is not mesh-callable` — **and** no subscriber row changes | a reaper carries a bare `@mesh()`, so the chain is permitted |
-| a marker-shaped reply, with a chain naming a method that records it ran | that method did NOT run, **and** the handler received the reply itself | the substituted result is re-scanned by `resolveNestedOperations` |
+| a marker-shaped reply on the LOCAL handler path, with a chain naming a method that records it ran | that method did NOT run, **and** the handler received the reply itself | the substituted result is re-scanned by `resolveNestedOperations` |
+| the same, on the node-to-node FIRE-BACK, and separately on a reaper-shaped handler with NO `$result` marker so the result is APPENDED | neither method ran, and each handler received the reply itself | unknown until checked — § *R1* calls the fire-back half open, and the appended branch is the one production uses |
+| a result whose own properties include `__isNestedOperation` and `__operationChain`, delivered to a handler | it arrives **intact and unexecuted** — both keys present, nothing ran | the chain runs; [ADR-002](../docs/adr/002-structured-clone-everywhere.md) is what this row protects, and it is what rules out closing R1 by stripping the value |
 | `svc.alarms.schedule` with a caller-chosen chain | refused | red — or unreachable; unknown until checked (§ *Gotchas*, item 2) |
 | ✅ a genuine disconnect, same push | the disconnected client's row IS dropped | **GREEN** — the cleanup the reaper exists for |
 | ✅ a client that never answers a push | the timed-out client's row IS dropped, and it is the TIMED-OUT one | **GREEN** — the second way the Gateway concludes a client is gone |
@@ -341,7 +351,7 @@ Every row below is red today unless its own Status cell says otherwise, so the t
 
 Each row below states something a later reader would act on, and this task's deliverables falsify or narrow it. Found by reading rather than by a complete sweep, so treat the list as open.
 
-- **`directThreshold: Infinity`** (§ *Lumenize Mesh*) says *"Lifting it takes all three together"*. ⇒ **The count is what breaks, not the list.** This task adds one condition — a forwarded reaper meets the member-level check on the way through `__executeOperation` (§ *Gotchas*, item 3) — and the sibling adds its own, which is the sibling's to record. The row states its conditions structurally instead of counting them.
+- **`directThreshold: Infinity`** (§ *Lumenize Mesh*) says *"Lifting it takes all three together"*. ⇒ **The count is what breaks, not the list.** This task adds TWO conditions and the sibling adds its own, which is the sibling's to record; the row states its conditions structurally instead of counting them. **First**, an undecorated forwarded reaper would meet the member-level check on the way through `__executeOperation` — which costs nothing until the sibling sheds those decorators (§ *Gotchas*, item 3). **Second, and it is a correctness condition rather than a cost:** `__forwardBroadcastResult` pre-fills a handler chain and then sends it over a fresh `lmz.call` to a generic request door, which cannot tell filled data from a template (§ *R1*). Unpinning the tier without changing that re-opens R1 on the forwarded path. **The fix is to stop pre-filling** — forward the unfilled chain plus the result and let the receiving node substitute locally, as every other path does — and it also carries the callee § *R2* needs, so the two conditions have one answer.
 - **`subscriptionRequired` is broken** (§ *Lumenize Mesh*) diagnoses the expired-token branch at the exact Gateway site § *R2* converts, and argues the conflation itself is the bug: *"a live-socket-expired-token client is self-healing."* ⇒ **Half of it lands here.** § *R2* gives that branch its own error class, so the reaper's name guard stops matching it and a self-healing client is no longer reaped. What stays owed on the row is the wider conflation — the Gateway deciding reachability from its grace alarm while the Star decides it reactively, with the two uncoordinated.
 - **The `globalThis` registration row** rests on *"the repo registers zero classes"*, which a grep for `(globalThis as any).<Name> =` over `packages/*/src apps/nebula/src` falsifies. ⇒ The row keeps its verdict: the name guard stays the contract, and § *The response leg* leans on it rather than on `instanceof`. What it gains is the corrected premise — **registrations exist**, stated as that grep rather than as a number — which strengthens the row's own argument, since a check that varies by bundle is worse where registrations actually exist. ⚠️ **State it as the grep, not a count.** An earlier draft here named three files and concluded "three classes"; all three register the SAME class, `ClientDisconnectedError`, and the real population is three distinct classes across six sites — `FetchTimeoutError` and `LoginRequiredError` too, and a fourth `ClientDisconnectedError` site in `lumenize-container.ts`. **Four modules registering one class is itself the interesting fact for that row**, since whichever loads last wins.
 - **"Improve continuation ergonomics"** (§ *Lumenize Mesh*) ⇒ **neither issue is settled by this task, and one claim about it was wrong.** Issue 1's `$defer` want SURVIVES, because nesting survives (§ *The request leg*), and it lives in the very loop R1 rewrites — so the row gains a line that the two are designed together or `$defer` pays for the rewrite twice. Issue 2, `this.ctn().handleResult` with no call, is **untouched**: a get-only handler chain runs on the response leg, where the member-level check is off by design, so it stays a silent no-op.
@@ -374,10 +384,9 @@ Every decision here is settled. They stay listed with their answers, so a later 
 Numbering is executable order. § *Criteria to carry into the phases* is the source for every
 criterion below; a phase names which rows it owns rather than restating why they exist.
 
-⚠️ **Standing-guidance edits are deliberately pooled in Phase 11 rather than sitting in the phase
+⚠️ **Standing-guidance edits are deliberately pooled in Phase 10 rather than sitting in the phase
 that causes them.** An enumeration's correctness is a property of the task's END state: the four
-JSDoc parentheticals are falsified by Phase 5 *and again* by Phase 9, and ADR-007's sentence by
-Phase 5 alone — so any earlier home ships a rule that is wrong by the time the task lands
+JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4 too — so any earlier home ships a rule that is wrong by the time the task lands
 (`/write-task`, the enumeration trap). Code comments a phase's own diff creates stay with that phase.
 
 1. **Every hole is proven red before anything is fixed.** Write one limb per row of § *Criteria*'s
@@ -393,7 +402,7 @@ Phase 5 alone — so any earlier home ships a rule that is wrong by the time the
      red here does not ship; deleting the criterion is the correct outcome when the hole turns out
      not to exist, and saying so is the finding.
    - ⓘ **No fix lands.** Member-kind limbs are NOT written here — a marked getter does not exist
-     until Phase 4, so those limbs are new capability rather than holes and land with the capability.
+     until Phase 5, so those limbs are new capability rather than holes and land with the capability.
 
 2. **The executor walks a chain once, carrying the parent forward.** `findParentObject` restarts from
    the DO and re-runs every earlier op, synchronously and unawaited, which runs a gate body twice per
@@ -406,33 +415,25 @@ Phase 5 alone — so any earlier home ships a rule that is wrong by the time the
    - **Mutation note:** restore the re-run and the call count goes to two; drop the `await` and the
      `async` gate throws again.
 
-3. **A substituted result is never re-read as a marker (R1).** `replaceNestedOperationMarkers` records
-   which argument positions it filled and `resolveNestedOperations` skips them. § *R1* pins the
-   structural claim and leaves one choice to this phase: how the filled-position set survives the
-   node-to-node fire-back, where the substitution happens at the callee and the chain crosses a wire.
-   Landing before Phase 6 is what gives the entry rule its ordering — the nested check must run after
-   `$result` substitution or every 4-arg handler breaks.
-   - **Success criteria:** the marker-shaped-reply row is GREEN on the local-handler path **and** on
-     the node-to-node fire-back — the named method did NOT run, and the handler received the reply
-     itself rather than a chain's return value. The `$result` regression guard and the stored alarm
-     continuation stay GREEN.
-   - **Mutation note:** drop the filled-position record and the injected chain runs again; drop it
-     only from the wire-borne half and the fire-back limb alone reds, which is what makes the two
-     limbs separable.
+3. **A filled chain is data, so the executor stops resolving it (R1).** Two entry points over one
+   shared walk — a template resolves nesting, a filled chain does not — and the three same-breath
+   substitution sites name the filled entry (§ *R1*). `__forwardBroadcastResult` is fixed by no
+   longer pre-filling: it forwards the unfilled chain plus the result and the receiving node
+   substitutes locally, which also carries the callee § *R2* needs. It lands before Phase 5 because
+   it closes an open hole in the loop Phase 5 edits next, not for any ordering reason — substitution
+   already precedes the executor unconditionally.
+   - **Success criteria:** the marker-shaped-reply rows are GREEN on the local-handler path, on the
+     node-to-node fire-back, **and** on a reaper-shaped handler with no `$result` marker, where the
+     result is APPENDED — each asserting the named method did not run and the handler received the
+     reply itself. The ADR-002 fidelity row is GREEN: a result carrying both marker keys arrives
+     intact and unexecuted. `calls.mdx`'s nesting positive control, a `$result` handler, and a stored
+     alarm continuation all stay GREEN — the first proves a template's final apply still resolves.
+   - **Mutation note:** point a filled site at the template entry and its limb reds; cover only the
+     replacement branch and the appended limb alone reds; skip the final apply on a TEMPLATE too and
+     the `calculator-client.ts` control reds, which is what pins the two entries apart. Strip the two
+     keys from the value instead and every marker limb goes green while the fidelity row reds.
 
-4. **`@mesh()` marks a getter as well as a method.** The decorator is typed over
-   `ClassMethodDecoratorContext` alone today, so this task's own `@mesh(requireAdmin) get admin()`
-   fails `tsc --strict` with TS1241. It ships as an overload pair over
-   `ClassMethodDecoratorContext | ClassGetterDecoratorContext` and no wider (§ *The request leg*).
-   - **Success criteria:** `tsc --strict` accepts `@mesh()` and `@mesh(guard)` on a method and on a
-     getter, and REJECTS both on an `accessor` and on a field. A marked getter's mark is readable off
-     its descriptor's `get`. Member-kind limbs land here: a marked method and a marked getter each
-     reach their target, and a getter gate's guard runs before its body.
-   - **Mutation note:** widen the signature to the probe's four-kind form and the `accessor`/field
-     rejection criteria red at compile time — which is the point, since a runtime refusal alone lets
-     the foot-gun compile.
-
-5. **The prototype fence refuses the doors JavaScript opens on every object.** Six keys plus a `get`
+4. **The prototype fence refuses the doors JavaScript opens on every object.** Six keys plus a `get`
    resolving on `Function.prototype`, from op 0, on every leg, at every flag setting — inside
    `executeOperationChain`, which is what makes the browser client and both `__localChainExecutor`
    getters inherit it by composition (§ *The request leg*). An empty chain and an apply-first chain
@@ -441,27 +442,49 @@ Phase 5 alone — so any earlier home ships a rule that is wrong by the time the
      `constructor`, `__proto__`, a `Function.prototype` member, and the four Annex-B accessors. The
      prototype-write limb asserts `({}).<key>` is still `undefined` afterwards, on a key nothing reads.
      The response-leg limbs are GREEN with `constructor` at op 1 **and** at op 0. The browser limb is
-     GREEN. Empty and apply-first chains are refused.
+     GREEN. Empty and apply-first chains are refused, each on its own message.
    - **Mutation note:** close only `constructor` and the five other clause limbs red while every
      pre-existing row stays green; gate the fence on `requireMeshDecorator` and the response-leg limbs
      red; write it at the envelope seam instead of in the executor and the browser limb alone reds —
      which is the limb's whole reason for existing.
 
-6. **The first op of a wire-borne chain names a member the host class marked `@mesh()`.** Descriptor
-   lookup, so an unmarked getter is refused WITHOUT running; the `isServiceCall` exemption is deleted
-   outright; the same rule applies one level down to a nested marker's op 0; a chain the node authored
-   itself may still root anywhere, including `ctx` and `svc`.
-   - **Success criteria:** the `env` read, the nested `env` read, `svc.sql(['SELECT 1'])`, the nested
-     `svc` chain and the `svc.fetch` walk are all REFUSED. The `ctx`-rooted node-authored handler, the
+5. **`@mesh()` marks a getter, and the first op of a wire-borne chain names a marked member.** The
+   decorator and the rule that gives it meaning land together, because a mark on a getter is INERT
+   until the check moves to op 0: today the check fires at the first `apply` and keys on `prevOp`, so
+   `ctn<Galaxy>().admin.addUser(u)` tests `facade.addUser` and never consults the mark on `admin`.
+   Splitting them would leave a phase whose only green spelling is a bare `ctn().admin` read — which
+   passes because reads are unchecked, the vulnerability itself. So this phase carries: the overload
+   pair over `ClassMethodDecoratorContext | ClassGetterDecoratorContext` and no wider; descriptor
+   lookup, so an unmarked getter is refused WITHOUT running; the `isServiceCall` exemption deleted
+   outright; the same rule one level down for a nested marker's op 0; and the carve-out that a chain
+   the node authored itself may still root anywhere, including `ctx` and `svc`.
+   - **Success criteria — refusals:** the `env` read, a wire-borne `ctx.<anything>` read, the nested
+     `env` read, `svc.sql(['SELECT 1'])`, the nested `svc` chain and the `svc.fetch` walk are all
+     REFUSED. An `@mesh() accessor` and an `@mesh()` field are refused **at runtime**, not only by the
+     compiler — an own-property fallback added beside the descriptor walk would defeat a compile-only
+     check silently.
+   - **Success criteria — the member kinds work:** a marked method and a marked getter each reach
+     their target; a getter gate's guard runs BEFORE its body; a getter gate's body runs **once** per
+     chain (§ *The request leg* derives three today; § *Gotchas* item 6's two is a METHOD-gate number
+     and is not substitutable); an `async` getter is refused with its own message or proven to work;
+     and an unmarked getter is refused **without running**, which is the property that justifies
+     reading descriptors rather than `parent[key]`.
+   - **Success criteria — types:** `tsc --strict` accepts `@mesh()` and `@mesh(guard)` on a method and
+     a getter and REJECTS both on an `accessor` and a field, spelled `@ts-expect-error` so widening
+     the signature reds it (`packages/mesh/tsconfig.json` includes `test/**/*`).
+   - **Success criteria — what must keep working:** the `ctx`-rooted node-authored handler, the
      `calls.mdx` nesting positive control, the alarm continuation and `dagTree().setPermission(…)` are
      all still GREEN. `@lumenize/fetch`'s proxy round trip is RED, which is the intended outcome
      (§ *What needs Larry*, item 6) and is recorded rather than fixed.
    - **Mutation note:** keep the exemption and the two `svc` rows red; read `parent[key]` instead of
-     the descriptor and the unmarked-getter row reds by side effect; skip the recursion into nested
-     markers and the two nested rows red while the top-level ones stay green.
+     the descriptor and the unmarked-getter-does-not-run limb reds; skip the recursion into nested
+     markers and the two nested rows red while the top-level ones stay green; carve out `ctx`/`svc` by
+     ROOT KEY instead of keying on the flag and the `ctx` read reds while the node-authored positive
+     stays green, which is what pins the carve-out to the flag and nothing else; widen the decorator
+     signature and the `accessor`/field limbs red at compile time.
 
-7. **`meshFn` and `Unprotected<T>` leave the published surface.** `meshFn` marks a function reached
-   through a path of `get`s, which is exactly what Phase 6 refuses; `Unprotected<T>` types a remote
+6. **`meshFn` and `Unprotected<T>` leave the published surface.** `meshFn` marks a function reached
+   through a path of `get`s, which is exactly what Phase 5 refuses; `Unprotected<T>` types a remote
    chain opening on `ctx`, so every chain written with it would now compile and throw.
    - **Success criteria:** `grep -rn '\bmeshFn\b' packages/*/src packages/*/test apps website` and the
      same for `Unprotected` return nothing outside a release note. `packages/mesh/test/node-import.test.mjs`
@@ -469,18 +492,18 @@ Phase 5 alone — so any earlier home ships a rule that is wrong by the time the
    - **Mutation note:** leave either barrel export in place and its grep is non-empty. ⚠️ Scope the
      grep away from `dist/`, which is gitignored but present on a working tree.
 
-8. **The framework tells a handler who the callee was, and a lapsed token stops looking like a death.**
+7. **The framework tells a handler who the callee was, and a lapsed token stops looking like a death.**
    A `callContext` field set in `dispatchEnvelope`, `fireResponse` and `executeEnvelope` from sources
    the caller does not write (§ *R2*), and a distinct error class for the Gateway's expired-token
    branch so the reaper's name guard stops matching it.
    - **Success criteria:** the field is present on all three paths and ABSENT from the outbound context
      the Gateway sends a client. A client whose token lapses on a live socket is not reaped, and its
      row survives the reconnect. Both ✅ reaper rows stay GREEN, and each reaps the RIGHT client.
-   - **Mutation note:** set the field from a handler argument instead and the Phase 9 direct-call limb
+   - **Mutation note:** set the field from a handler argument instead and the Phase 8 direct-call limb
      reds; add it to the Gateway's outbound rebuild and the withheld-from-client criterion reds; keep
      one error class for both conclusions and the lapsed-token criterion reds.
 
-9. **Every reaper takes its victim from the address, and `clientInstanceName` leaves the error.** The
+8. **Every reaper takes its victim from the address, and `clientInstanceName` leaves the error.** The
    field goes from `ClientDisconnectedError`, with the sites that stamp it; the reapers across
    `apps/nebula` and `packages/nebula-auth` read the callee instead. `ClientResultEnvelope`'s
    same-named field stays — the framework supplies that one (§ *R2*).
@@ -492,7 +515,7 @@ Phase 5 alone — so any earlier home ships a rule that is wrong by the time the
      `apps/nebula` reapers but not `packages/nebula-auth/src/profile.ts` and the third-package limb
      reds, which is why that limb exists.
 
-10. **The docs describe the decorator we ship, and one checked example carries both legs.** Sweep
+9. **The docs describe the decorator we ship, and one checked example carries both legs.** Sweep
     `@mesh` across the whole of `website/docs/` — not `website/docs/mesh/` — for method-only framings
     and for gate examples whose recommended spelling changed; add the getter-gate pair to
     `packages/mesh/test/for-docs/security/` on a neutral class, and turn `mesh-api.mdx`'s `@mesh()`
@@ -505,7 +528,7 @@ Phase 5 alone — so any earlier home ships a rule that is wrong by the time the
     - **Mutation note:** revert the `mesh-api.mdx` block to the pre-fix wording and the checker reds;
       edit `nebula-client.md` without regenerating and `apps/nebula`'s suite reds.
 
-11. **Standing guidance says what the code now does, and the suites prove it.** The vocabulary sweep
+10. **Standing guidance says what the code now does, and the suites prove it.** The vocabulary sweep
     (`@mesh` over `website/docs/`, `allowlist` over `.claude/rules packages/*/src apps/nebula/src`),
     the four JSDoc parentheticals that gain a sentence, ADR-007's widened sentence, `mesh.md`'s two
     false statements and its § *Object-capability access* additions, the backlog rows § *Backlog rows
