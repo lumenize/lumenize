@@ -368,3 +368,155 @@ Every decision here is settled. They stay listed with their answers, so a later 
 **Constraints.** [ADR-003](../docs/adr/003-continuation-messaging.md) — continuations are the only call shape, so a fix must not break nesting between mesh nodes or the fire-back. [ADR-007](../docs/adr/007-shared-node-security-core.md) — the guard core is shared, so the fix lands once in the package for every node type. `CLAUDE.md` — a package gap is fixed in the package, never worked around in Nebula. `security.md` governs the fail-closed behaviour.
 
 **Future state.** Every bold row of the probe table turns refused, and every plain row still reads as it does today — including the three that reach something undecorated and say on the line why they stay: past a gate that is the author's choice to make, and on the response leg it is the node's own chain running. `@mesh()` marks a method or a getter, and every page that describes it as a method decorator says so — found by the `@mesh` grep over `website/docs/`, never from a list. `mesh.md` § *Object-capability access* and `continuations.mdx` state the boundary as the code enforces it, including what a gate may hand back.
+
+## Phases
+
+Numbering is executable order. § *Criteria to carry into the phases* is the source for every
+criterion below; a phase names which rows it owns rather than restating why they exist.
+
+⚠️ **Standing-guidance edits are deliberately pooled in Phase 11 rather than sitting in the phase
+that causes them.** An enumeration's correctness is a property of the task's END state: the four
+JSDoc parentheticals are falsified by Phase 5 *and again* by Phase 9, and ADR-007's sentence by
+Phase 5 alone — so any earlier home ships a rule that is wrong by the time the task lands
+(`/write-task`, the enumeration trap). Code comments a phase's own diff creates stay with that phase.
+
+1. **Every hole is proven red before anything is fixed.** Write one limb per row of § *Criteria*'s
+   table, run it against today's code, and record the result in the phase's commit message. The red
+   run also answers what § *Context and current state* leaves open — whether each hole is reachable
+   from a real browser session rather than only from the executor.
+   - **Success criteria (capable of failing):** every non-✅ row is RED, each matched on its refusal
+     message rather than on a boolean, and each with the mutation that isolates it; both ✅ rows are
+     GREEN; every regression guard listed in § *Criteria* is GREEN. The `svc.alarms.schedule` row and
+     the `__defineGetter__` row are the two whose status is unknown — each records an answer, and
+     either answer is a finding.
+   - **Mutation note:** the phase's own product IS the mutation evidence. A limb that cannot be shown
+     red here does not ship; deleting the criterion is the correct outcome when the hole turns out
+     not to exist, and saying so is the finding.
+   - ⓘ **No fix lands.** Member-kind limbs are NOT written here — a marked getter does not exist
+     until Phase 4, so those limbs are new capability rather than holes and land with the capability.
+
+2. **The executor walks a chain once, carrying the parent forward.** `findParentObject` restarts from
+   the DO and re-runs every earlier op, synchronously and unawaited, which runs a gate body twice per
+   `apply` and throws `parent[methodName] is not a function` on an `async` gate (§ *Gotchas*, item 6).
+   Replacing it with a parent carried along the walk is the loop every later phase edits, so it lands
+   first and alone.
+   - **Success criteria:** a gate that counts its calls runs **once** per chain; an `async` gate's
+     chain completes; a gate handed a nested marker receives the RESOLVED value on its only run. Unit
+     tier against a stand-in object, and the test says why it needs no running system.
+   - **Mutation note:** restore the re-run and the call count goes to two; drop the `await` and the
+     `async` gate throws again.
+
+3. **A substituted result is never re-read as a marker (R1).** `replaceNestedOperationMarkers` records
+   which argument positions it filled and `resolveNestedOperations` skips them. § *R1* pins the
+   structural claim and leaves one choice to this phase: how the filled-position set survives the
+   node-to-node fire-back, where the substitution happens at the callee and the chain crosses a wire.
+   Landing before Phase 6 is what gives the entry rule its ordering — the nested check must run after
+   `$result` substitution or every 4-arg handler breaks.
+   - **Success criteria:** the marker-shaped-reply row is GREEN on the local-handler path **and** on
+     the node-to-node fire-back — the named method did NOT run, and the handler received the reply
+     itself rather than a chain's return value. The `$result` regression guard and the stored alarm
+     continuation stay GREEN.
+   - **Mutation note:** drop the filled-position record and the injected chain runs again; drop it
+     only from the wire-borne half and the fire-back limb alone reds, which is what makes the two
+     limbs separable.
+
+4. **`@mesh()` marks a getter as well as a method.** The decorator is typed over
+   `ClassMethodDecoratorContext` alone today, so this task's own `@mesh(requireAdmin) get admin()`
+   fails `tsc --strict` with TS1241. It ships as an overload pair over
+   `ClassMethodDecoratorContext | ClassGetterDecoratorContext` and no wider (§ *The request leg*).
+   - **Success criteria:** `tsc --strict` accepts `@mesh()` and `@mesh(guard)` on a method and on a
+     getter, and REJECTS both on an `accessor` and on a field. A marked getter's mark is readable off
+     its descriptor's `get`. Member-kind limbs land here: a marked method and a marked getter each
+     reach their target, and a getter gate's guard runs before its body.
+   - **Mutation note:** widen the signature to the probe's four-kind form and the `accessor`/field
+     rejection criteria red at compile time — which is the point, since a runtime refusal alone lets
+     the foot-gun compile.
+
+5. **The prototype fence refuses the doors JavaScript opens on every object.** Six keys plus a `get`
+   resolving on `Function.prototype`, from op 0, on every leg, at every flag setting — inside
+   `executeOperationChain`, which is what makes the browser client and both `__localChainExecutor`
+   getters inherit it by composition (§ *The request leg*). An empty chain and an apply-first chain
+   become refusals rather than fall-throughs.
+   - **Success criteria:** every fence row in § *Criteria* is GREEN, each on its OWN refusal message —
+     `constructor`, `__proto__`, a `Function.prototype` member, and the four Annex-B accessors. The
+     prototype-write limb asserts `({}).<key>` is still `undefined` afterwards, on a key nothing reads.
+     The response-leg limbs are GREEN with `constructor` at op 1 **and** at op 0. The browser limb is
+     GREEN. Empty and apply-first chains are refused.
+   - **Mutation note:** close only `constructor` and the five other clause limbs red while every
+     pre-existing row stays green; gate the fence on `requireMeshDecorator` and the response-leg limbs
+     red; write it at the envelope seam instead of in the executor and the browser limb alone reds —
+     which is the limb's whole reason for existing.
+
+6. **The first op of a wire-borne chain names a member the host class marked `@mesh()`.** Descriptor
+   lookup, so an unmarked getter is refused WITHOUT running; the `isServiceCall` exemption is deleted
+   outright; the same rule applies one level down to a nested marker's op 0; a chain the node authored
+   itself may still root anywhere, including `ctx` and `svc`.
+   - **Success criteria:** the `env` read, the nested `env` read, `svc.sql(['SELECT 1'])`, the nested
+     `svc` chain and the `svc.fetch` walk are all REFUSED. The `ctx`-rooted node-authored handler, the
+     `calls.mdx` nesting positive control, the alarm continuation and `dagTree().setPermission(…)` are
+     all still GREEN. `@lumenize/fetch`'s proxy round trip is RED, which is the intended outcome
+     (§ *What needs Larry*, item 6) and is recorded rather than fixed.
+   - **Mutation note:** keep the exemption and the two `svc` rows red; read `parent[key]` instead of
+     the descriptor and the unmarked-getter row reds by side effect; skip the recursion into nested
+     markers and the two nested rows red while the top-level ones stay green.
+
+7. **`meshFn` and `Unprotected<T>` leave the published surface.** `meshFn` marks a function reached
+   through a path of `get`s, which is exactly what Phase 6 refuses; `Unprotected<T>` types a remote
+   chain opening on `ctx`, so every chain written with it would now compile and throw.
+   - **Success criteria:** `grep -rn '\bmeshFn\b' packages/*/src packages/*/test apps website` and the
+     same for `Unprotected` return nothing outside a release note. `packages/mesh/test/node-import.test.mjs`
+     no longer asserts the `meshFn` export. Both barrel exports are gone and `npm run type-check` passes.
+   - **Mutation note:** leave either barrel export in place and its grep is non-empty. ⚠️ Scope the
+     grep away from `dist/`, which is gitignored but present on a working tree.
+
+8. **The framework tells a handler who the callee was, and a lapsed token stops looking like a death.**
+   A `callContext` field set in `dispatchEnvelope`, `fireResponse` and `executeEnvelope` from sources
+   the caller does not write (§ *R2*), and a distinct error class for the Gateway's expired-token
+   branch so the reaper's name guard stops matching it.
+   - **Success criteria:** the field is present on all three paths and ABSENT from the outbound context
+     the Gateway sends a client. A client whose token lapses on a live socket is not reaped, and its
+     row survives the reconnect. Both ✅ reaper rows stay GREEN, and each reaps the RIGHT client.
+   - **Mutation note:** set the field from a handler argument instead and the Phase 9 direct-call limb
+     reds; add it to the Gateway's outbound rebuild and the withheld-from-client criterion reds; keep
+     one error class for both conclusions and the lapsed-token criterion reds.
+
+9. **Every reaper takes its victim from the address, and `clientInstanceName` leaves the error.** The
+   field goes from `ClientDisconnectedError`, with the sites that stamp it; the reapers across
+   `apps/nebula` and `packages/nebula-auth` read the callee instead. `ClientResultEnvelope`'s
+   same-named field stays — the framework supplies that one (§ *R2*).
+   - **Success criteria:** the forged-reply row is GREEN — the named client's row is intact and the
+     REPLYING client's is the only one touched. The direct-call row is GREEN on both halves: the call
+     was PERMITTED, and no subscriber row changed. `grep -rn 'clientInstanceName' packages/*/src apps/nebula/src`
+     returns only the `ClientResultEnvelope` sites.
+   - **Mutation note:** restore the field on the error and the forged-reply row reds; convert the two
+     `apps/nebula` reapers but not `packages/nebula-auth/src/profile.ts` and the third-package limb
+     reds, which is why that limb exists.
+
+10. **The docs describe the decorator we ship, and one checked example carries both legs.** Sweep
+    `@mesh` across the whole of `website/docs/` — not `website/docs/mesh/` — for method-only framings
+    and for gate examples whose recommended spelling changed; add the getter-gate pair to
+    `packages/mesh/test/for-docs/security/` on a neutral class, and turn `mesh-api.mdx`'s `@mesh()`
+    block from `@skip-check-approved` into a `@check-example` against it.
+    - **Success criteria:** `npm run test:doc` passes. The new example shows a marked getter and an
+      unmarked one on the same class and states that an unmarked getter is refused WITHOUT running.
+      After editing any `website/docs/nebula/*.md`, `node apps/nebula/scripts/gen-platform.mjs` has been
+      run and the embed committed — `gen-platform.mjs --check` is in `apps/nebula`'s `test` script, so
+      skipping it reds that suite rather than only the docs.
+    - **Mutation note:** revert the `mesh-api.mdx` block to the pre-fix wording and the checker reds;
+      edit `nebula-client.md` without regenerating and `apps/nebula`'s suite reds.
+
+11. **Standing guidance says what the code now does, and the suites prove it.** The vocabulary sweep
+    (`@mesh` over `website/docs/`, `allowlist` over `.claude/rules packages/*/src apps/nebula/src`),
+    the four JSDoc parentheticals that gain a sentence, ADR-007's widened sentence, `mesh.md`'s two
+    false statements and its § *Object-capability access* additions, the backlog rows § *Backlog rows
+    this task trips* disposes of, and the deletion of `auth.md`'s two gap notes.
+    - **Success criteria:** `grep -n '^> \*\*Today' docs/vision/auth.md` no longer returns the M4 or
+      § *Inside the node* notes, and returns every other note unchanged. No site glossing the response
+      leg still says the member-level check being off means nothing is checked. `npm run test:code`
+      passes and `npx tsx apps/nebula/harness/drive.ts all` is green — the sweep is a criterion, not a
+      cleanup, because every scenario depends on this executor.
+    - **Mutation note:** the guidance edits are prose and no test reds them, which is why they are
+      pooled here and checked by the two greps rather than by a suite. The suite-and-sweep criterion
+      is what catches a fix that closed a hole by breaking a service.
+    - ⚠️ **Not swept:** `nebula-data-plane-owns-its-guards.md`, which re-runs its own Stage 2 after
+      this lands, and ADR-012's `PUBLIC_FIELDS`, which is a real allow-list of three names.
