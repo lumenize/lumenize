@@ -67,15 +67,7 @@
 - **The Gateway's `#handleIncomingCallResponse`**, which takes a client's `success: false` error without checking it.
 - **The local handler run in `lmz-api.ts`** — `executeOperationChain(filled, nodeInstance, { requireMeshDecorator: false })`.
 
-**How a browser reaches the first holes — the ordinary API is enough, and none needs Workers RPC:**
-
-```ts
-lmz.call('GALAXY', scope, ctn<any>().svc.sql(['DELETE FROM Subscribers']));    // SQL, request leg
-lmz.call('STAR', scope, ctn<Star>().transaction(ctn<any>().env.SECRET, e, o)); // read, nested
-class Evil extends NebulaClient {                                               // response leg
-  handleQuerySubscriberListUpdate() { throw Object.assign(new Error(), { name: 'ClientDisconnectedError', clientInstanceName: victim }); }
-}
-```
+**Every hole is reachable from an ordinary browser session — the published client API is enough, and none of them needs Workers RPC.** What each one reaches is the Result column of the probe table above; what a test must assert about each is § *Criteria to carry into the phases*. ⓘ A worked code sketch used to sit here and was deleted 2026-09-24: it named a client handler that does not exist, so it could not have run, and it still described forging the field § *The response leg* removes. The table and the criteria carry the same ground with measured evidence behind each row.
 
 ⚠️ **Not yet driven end to end.** Every link was read in source and the executor links were run, but nobody has driven the full path from a real browser session through the Gateway to a DO. The first phase does that for each hole before anything is fixed.
 
