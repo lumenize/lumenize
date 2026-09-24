@@ -1,6 +1,6 @@
 # A remote caller reaches more than `@mesh` marks
 
-**Status:** Pass 1 — **design intent is COMPLETE and every open decision is settled (2026-09-24, § *What needs Larry*)**; phases are NOT written. **Both legs carry a settled design** (§ *The request leg* and § *The response leg*), reworked through a `/review-task` Stage 1 re-run on 2026-09-24. A response-leg member-level check was weighed and rejected, with the trigger to re-derive recorded (§ *R3*). Surfaced 2026-09-22/23 by `/review-task` Stage 2 of [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md). **These are pre-existing holes in `@lumenize/mesh`, not introduced by any Nebula task.** The urgency is not the wipe's ordering — that file notes there is exactly one deploy, so ordering by it means little — it is that `continuations.mdx` publishes the boundary promise TODAY, and the wipe is what invites the first readers who will rely on it. A reviewer agent queued a task chip for this work; this file supersedes it.
+**Status:** Pass 2 — **design intent is COMPLETE, every decision is settled (§ *What needs Larry*), and the ten phases are written.** `/review-task` Stage 1 ran twice and Stage 2 twice — the second time against the phases, which is the pass that can see decomposition, ordering and criteria that cannot fail. **Both legs carry a settled design** (§ *The request leg* and § *The response leg*), reworked through a `/review-task` Stage 1 re-run on 2026-09-24. A response-leg member-level check was weighed and rejected, with the trigger to re-derive recorded (§ *R3*). Surfaced 2026-09-22/23 by `/review-task` Stage 2 of [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md). **These are pre-existing holes in `@lumenize/mesh`, not introduced by any Nebula task.** The urgency is not the wipe's ordering — that file notes there is exactly one deploy, so ordering by it means little — it is that `continuations.mdx` publishes the boundary promise TODAY, and the wipe is what invites the first readers who will rely on it. A reviewer agent queued a task chip for this work; this file supersedes it.
 
 **Objective — a remote caller reaches exactly what `@mesh` marks and nothing else.**
 
@@ -285,6 +285,7 @@ Every row below is red today unless its own Status cell says otherwise, so the t
 | Hole | The test asserts | Status today |
 |---|---|---|
 | read `env.<name>` with no call | refused | a chain with no call is never checked |
+| a wire-borne `ctx.<anything>` read | refused, on the entry-rule message | same — and this is the probe table's `ctx` row, which had no limb |
 | the same read, as a nested argument | refused | a get-only marker is never checked |
 | `svc.sql(['SELECT 1'])` | refused | `svc` is exempt |
 | a nested `svc` chain as an argument | refused | the exemption applies per chain |
@@ -298,13 +299,15 @@ Every row below is red today unless its own Status cell says otherwise, so the t
 | a marker-shaped reply on the LOCAL handler path, with a chain naming a method that records it ran | that method did NOT run, **and** the handler received the reply itself | the substituted result is re-scanned by `resolveNestedOperations` |
 | the same, on the node-to-node FIRE-BACK, and separately on a reaper-shaped handler with NO `$result` marker so the result is APPENDED | neither method ran, and each handler received the reply itself | unknown until checked — § *R1* calls the fire-back half open, and the appended branch is the one production uses |
 | a result whose own properties include `__isNestedOperation` and `__operationChain`, delivered to a handler | it arrives **intact and unexecuted** — both keys present, nothing ran | the chain runs; [ADR-002](../docs/adr/002-structured-clone-everywhere.md) is what this row protects, and it is what rules out closing R1 by stripping the value |
-| `svc.alarms.schedule` with a caller-chosen chain | refused | red — or unreachable; unknown until checked (§ *Gotchas*, item 2) |
+| ✅ `svc.alarms.schedule` with a wire-borne chain | no stored continuation is created, asserted on a BOUNDED WAIT | **GREEN** — § *Gotchas*, item 2 answers it from source. ⚠️ Not a message match: the closing mechanism is a HANG, not a refusal |
+| a client whose token lapses on a live socket, same push | NOT reaped — its subscriber row survives the reconnect | the expired-token branch returns `ClientDisconnectedError`, which every reaper's name guard matches |
 | ✅ a genuine disconnect, same push | the disconnected client's row IS dropped | **GREEN** — the cleanup the reaper exists for |
 | ✅ a client that never answers a push | the timed-out client's row IS dropped, and it is the TIMED-OUT one | **GREEN** — the second way the Gateway concludes a client is gone |
 
 - **The walk rule gets a limb on the RESPONSE leg, not only the request leg.** A chain run at `requireMeshDecorator: false` must still be refused when it names `constructor` — **and a second limb puts `constructor` at op 0 there**, since that position is covered by the entry rule only on the request leg. These are the criteria that fail if the prototype fence is written inside the flag's branch or starts at op 1, and § *R3* rejects a response-leg member-level check partly on its being unconditional — so without them, that rejection has no test holding it up.
-- **Each fence clause gets its OWN limb, matched on its own message.** Today every fence row names `constructor`, so a fix closing only that key satisfies all of them: `__proto__`, a `Function.prototype` member such as `call` or `bind` — reachable precisely because the design encourages handing back methods — and the four Annex-B accessors each need one. An empty chain and an apply-first chain are **refusals**, not fall-throughs, and get a limb each; `validateOperationChain` accepts both today, after which the executor returns the target object itself.
-- **The BROWSER CLIENT gets a limb, in `packages/mesh/test/browser/`, and it is what proves the rules are composed rather than seam-written.** It drives a DO→client push whose chain names an unmarked member, `constructor`, and a `Function.prototype` member, and asserts refusal **on the client executor**. Two things make this the one limb no other tier substitutes for: it is the only place the probe table's `constructor`→`Function` row succeeds, since workerd refuses what unrestricted V8 allows; and a fix written at the envelope seam passes every other criterion in this file while leaving the client's door and both `__localChainExecutor` getters unfenced (§ *The request leg*). The lane already exists — a real Chromium client — and is cited nowhere else here.
+- **Each fence clause gets its OWN limb, matched on its own message.** Today every fence row names `constructor`, so a fix closing only that key satisfies all of them: `__proto__`, a `Function.prototype` member such as `call` or `bind` — reachable precisely because the design encourages handing back methods — and the four Annex-B accessors each need one. An empty chain and an apply-first chain are **refusals**, not fall-throughs, and get a limb each, matched on their own messages. `validateOperationChain` accepts both today, and they then behave differently: an EMPTY chain returns the target object itself, while an apply-first chain on a function target **calls it** — the executor throws only when the target is not a function.
+- **The BROWSER CLIENT gets a limb, in `packages/mesh/test/browser/`, and it is what proves the rules are composed rather than seam-written.** It drives a DO→client push whose chain names an unmarked member, `constructor`, and a `Function.prototype` member, and asserts refusal **on the client executor**. Two things make this the one limb no other tier substitutes for: it is the only place the probe table's `constructor`→`Function` row succeeds, since workerd refuses what unrestricted V8 allows; and a fix written at the envelope seam passes every other criterion in this file while leaving the client's door and both `__localChainExecutor` getters unfenced (§ *The request leg*).
+  - ⚠️ **It is a NEW SPEC, not an extra assertion on the existing one.** That lane is one narrative spec plus a small worker that re-exports the getting-started DOs as-is, and it boots through a real magic-link round trip — nothing there can currently send a caller-chosen chain to a named client. ⓘ It needs no chain-forging DO, though: the fence half rides the client's OWN response door, which runs the executor on a client-authored chain, and a forged incoming push needs only the existing Gateway binding, which reads the target binding off the client's message and relays.
 - **The direct-call limb asserts the call was PERMITTED as well as harmless, and must name a reaper that still carries `@mesh()`.** A refusal satisfies "no subscriber row changes" just as readily as R2 does — so without both halves the limb green-lights the sibling's Phase 7 shed, which this file says *"stops being what carries the security"*, and stops discriminating at all the moment that task lands and sheds the decorator from every Star and Galaxy reaper.
 - **The reaper's positive limbs cover BOTH ways the Gateway concludes a client is gone** — it refused delivery, and it timed out waiting. Both must reap, and must reap the RIGHT client, since a fix that supplies the callee wrongly on one path satisfies every refusal limb while quietly breaking real cleanup on it.
 - **The re-run bug gets its own red-first test:** a gate that counts its calls runs **once** per chain, an `async` gate's chain completes, and a gate given a nested marker receives the resolved value on its only run. It is a pure executor property, so a unit test against a stand-in object is the right tier, and the test says so.
@@ -322,8 +325,8 @@ Every row below is red today unless its own Status cell says otherwise, so the t
   - ⚠️ **ADR-007's widened sentence joins the when-the-fix-lands list, and this file nearly shipped the defect it names one bullet below.** This task rewrote it to *"are never an entry op, so nothing checks them"*, the ADR mentions the fence nowhere, and the file records the ADR as **done** — so once the walk rules are unconditional that sentence is incomplete in exactly the way the four JSDoc parentheticals are. It needs the same one-sentence addition (past the entry, the walk rules still refuse the six keys and `Function.prototype`), as a phase criterion. ⓘ *"Them"* scopes to a capability's methods, so the ADR is incomplete rather than false.
   - **TWO files of standing guidance are conformed, not all of it** (2026-09-24, done ahead of the phases because an ADR and an always-loaded rule steer every later reader and every review panel): [ADR-007](../docs/adr/007-shared-node-security-core.md) and `.claude/rules/mesh.md` now say *member-level check*. One ADR-007 sentence was improved rather than renamed — a capability's methods *"need no allowlist entry of their own"* became *"are never an entry op, so nothing checks them"*, which is what it was reaching for, since there are no entries to need.
   - ⚠️ **`CLAUDE.md`'s own table counts JSDoc as standing guidance, so `website/docs/` is the WRONG instrument for the rest.** A second one is needed: `grep -rn 'allowlist' .claude/rules packages/*/src apps/nebula/src`, discarding the CORS, `allowedHosts` and `PUBLIC_FIELDS` senses that legitimately keep the word. It finds a rule as well as source — `.claude/rules/testing.md` states the retired noun *and* the pre-fix rule in a file that loads for every test the phases will write.
-  - ⚠️ **Four JSDoc sites need a SENTENCE ADDED, not a word swapped, and no grep-and-replace will produce it.** The reaper and `onInviteResult` forwards in `star.ts`, `galaxy.ts` and `resource-data-plane.ts` each gloss the response leg as *"(allowlist off, scope-check on)"*. Once the prototype fence is unconditional that parenthetical is **materially incomplete** — the member-level check being off no longer means nothing is checked — and it is the note a builder reads at the moment they choose whether to decorate a reaper. ⓘ These are edited **when the fix lands, not before**: they would otherwise describe behaviour that does not exist, which is the un-annotated divergence `docs/vision/auth.md` just needed two blockquotes to repair.
-  - **`tasks/backlog.md` quotes two JSDoc comments VERBATIM by path** — `lmz-api.ts` and `lumenize-worker.ts`, *not* two of the four above — so rewording either source turns a real quotation into an invented one (`workflow.md` § *Referring to things across files*). § *Backlog rows this task trips* carries that row.
+  - ⚠️ **FIVE JSDoc sites need a SENTENCE ADDED, not a word swapped, and no grep-and-replace will produce it — and none of the four a grep finds is a reaper.** `star.ts`'s `onOntologyPulled`, the two `onInviteResult` forwards in `star.ts` and `galaxy.ts`, and `resource-data-plane.ts` each gloss the response leg as *"(allowlist off, scope-check on)"*. The fifth, `profile.ts`'s `onProfileBroadcastResult`, carries neither that phrase nor the word at all, so no instrument reaches it. Once the prototype fence is unconditional that parenthetical is **materially incomplete** — the member-level check being off no longer means nothing is checked — and it is the note a builder reads at the moment they choose whether to decorate a reaper. ⓘ These are edited **when the fix lands, not before**: they would otherwise describe behaviour that does not exist, which is the un-annotated divergence `docs/vision/auth.md` just needed two blockquotes to repair.
+  - **`tasks/backlog.md` quotes two JSDoc comments as VERBATIM by path** — `lmz-api.ts` and `lumenize-worker.ts`, *not* two of the five above — so rewording either source turns a quotation into an invented one (`workflow.md` § *Referring to things across files*). ⚠️ **Neither was ever verbatim**: the row drops *per-method*, and its `lmz-api.ts` line pointer resolves to fire-back transport logging rather than the JSDoc. So the fix is not re-quoting but replacing the quotation with a characterisation and a corrected pointer. § *Backlog rows this task trips* carries that row.
   - **What remains is user-facing and decision-dependent:** `website/docs/mesh/index.mdx` and `security.mdx` each carry a *"(method allowlist)"* table cell, where both words change — the noun for this reason and `method` for § *What needs Larry*, item 1. Sweep `website/docs/` with the `@mesh` grep above rather than these two paths.
   - **Usually the fix is to delete the noun and state the rule.** Where a sentence wants a mechanism name and reads worse for it, say the rule instead: *"a chain's entry op must name a mesh-callable member; nothing later in the chain is checked."*
   - ⚠️ **The sibling task file is deliberately NOT swept.** `nebula-data-plane-owns-its-guards.md` uses the old word throughout to describe today's behaviour, and it re-runs its Stage 2 after this lands; conforming it now is churn on prose that pass will rewrite.
@@ -345,7 +348,7 @@ Every row below is red today unless its own Status cell says otherwise, so the t
 - **`mesh.md` § *Object-capability access* has a sentence that this task turns false**, not merely reworded: *"(`svc.*` chains are the framework's built-in version — they skip the member-level check entirely.)"* They stop skipping it, because `svc` stops being an entry (§ *The request leg* § *no `svc` exemption*). It reads correctly today, so it is phase work rather than part of the vocabulary sweep.
 - **The GATE EXAMPLES change everywhere they are taught, because the recommended spelling changed.** A zero-argument gate is a getter — `@mesh(requireAdmin) get admin()` — and a gate taking arguments stays a method. ⚠️ **The method gate is NOT deprecated and nothing refuses it**; what changed is which one an example should show. `docs/adr/007-shared-node-security-core.md` § *Decision* is already updated as the one commitment-level instance; the rest are under `website/docs/mesh/` and `.claude/rules/mesh.md`. **Find them with the `@mesh` grep over `website/docs/` rather than from a list here** — a snapshot would be stale by the time anyone reads it, and the point of grepping is that the sweep is one pass over every page that teaches a gate.
 - **`mesh.md` § *Object-capability access* gains two things it does not carry today** (§ *Gotchas*, item 5), both guidance rather than rules the framework enforces. **What a gate hands back:** the whole of what the caller may then read and call, so hand back only methods (including getters) and take care not to hand back `this`, `this.ctx` or `this.svc` by accident. **What a getter entry owes:** side-effect-free, synchronous, cheap, idempotent — a gate returns a surface and does nothing else, and every other entry is a method whatever its arity. ⚠️ Keep it to that — it MUST NOT become a catalogue of ways to misuse the decorator. `feedback_check_example_exact_over_wildcard` governs any example it gains — exact match over `// ...`.
-- **FOUR breaking changes to the published surface, and the durable flag is a backlog row rather than this file.** `meshFn` goes (two barrel exports, no page mentions it), `Unprotected<T>` goes (a barrel export plus the `continuations.mdx` sentence), **`svc` stops being reachable from the wire — the break with no export to grep for**, since an outside caller's `ctn<T>().svc.…` still compiles and fails at runtime, and **`@lumenize/fetch`'s proxy callback stops arriving**, which is the same break reaching the one published consumer of it. `.claude/rules/workflow.md` § *Releases* requires the next release be flagged, and a task file archives, so the obligation lives in `tasks/backlog.md` § *Lumenize Mesh* where it is read per-row (`workflow.md` § *Referring to things across files*).
+- **The published surface breaks in several ways, and the durable flag is a backlog row rather than this file. ⚠️ State them structurally: `tasks/backlog.md`'s row is titled *"three changes"*, lists three and closes on *"all three"*, so a count there is already falsified and a new count would falsify again.** `meshFn` goes (two barrel exports, no page mentions it), `Unprotected<T>` goes (a barrel export plus the `continuations.mdx` sentence), **`svc` stops being reachable from the wire — the break with no export to grep for**, since an outside caller's `ctn<T>().svc.…` still compiles and fails at runtime, and **`@lumenize/fetch`'s proxy callback stops arriving**, which is the same break reaching the one published consumer of it. `.claude/rules/workflow.md` § *Releases* requires the next release be flagged, and a task file archives, so the obligation lives in `tasks/backlog.md` § *Lumenize Mesh* where it is read per-row (`workflow.md` § *Referring to things across files*).
 
 ## Backlog rows this task trips
 
@@ -358,6 +361,7 @@ Each row below states something a later reader would act on, and this task's del
 - **The compose-site sweep** (§ *Nebula*) warns that *"a method on a nested plain object is not in the mesh surface"*. A marked field would have refuted that. ⇒ Fields do not ship (§ *The request leg*), so the row stands as written — and it is worth a line saying a getter gate is how a plane exposes one.
 - **The task-file-handle sweep** (§ *Testing & Quality*) quotes `lmz-api.ts` ~:896 and `lumenize-worker.ts` ~:186 VERBATIM to show what a `(D5)` citation stands for. Both JSDoc comments are ones this task rewords. ⇒ The row gains a line: reword those two and the quotations become invented examples, so whoever edits the source updates the row in the same pass — the defect `workflow.md` § *Referring to things across files* describes, arriving from the other direction.
 - **The TTL-sweep row** (§ *Nebula*) owns the only tracked third reap and has no disposition here. ⇒ It gains one clause: decision 3 gives the expired-token branch its own error class, so the reactive reap's name guard stops matching it, and **a client that lapses and never returns keeps its row until the next push finds no socket** — a further reason the sweep is wanted. The row's own cited sentence stays true as written.
+- **The release-flag row** (§ *Lumenize Mesh*) is titled *"three changes"*, lists three and closes on *"all three"*. ⇒ **This task falsifies the count and adds a break with no home** — `svc` unreachable from the wire, plus `@lumenize/fetch`'s proxy callback. The row states its breaks structurally with no count in the heading or the close condition, and repoints its `CLAUDE.md` § *Releases* citation at `.claude/rules/workflow.md` § *Releases*, which is where that MUST actually lives.
 - **Broadcast-to-client could go fully async** (§ *Lumenize Mesh*) proposes replacing the synchronous ack with a Gateway fire-back. ⇒ **The row gains a CONDITION.** Nothing is owed on the ack's *shape* — § *R2* adds nothing to it, so the leg can move without dragging a delivery-verdict shape along, and a design that added one would have owed this row a line. But R2 creates a dependency the row must carry: the callee is set on `callContext` in `dispatchEnvelope`, which the reaper reaches on the **synchronous ack path**, and an early-ack Gateway fire-back arrives through `executeEnvelope` instead — where the node stamps its own name, not the client's. `LumenizeClientGateway extends DurableObject` directly with no `lmz` identity, so it cannot fall back on `fireResponse` either. **Whoever moves the leg carries the address, or silently re-breaks the reaper.**
 
 ## What needs Larry
@@ -397,12 +401,27 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
    from a real browser session rather than only from the executor.
    - **Success criteria (capable of failing):** every non-✅ row is RED, each matched on its refusal
      message rather than on a boolean, and each with the mutation that isolates it; both ✅ rows are
-     GREEN; every regression guard listed in § *Criteria* is GREEN. The `svc.alarms.schedule` row and
-     the `__defineGetter__` row are the two whose status is unknown — each records an answer, and
-     either answer is a finding.
+     GREEN; every regression guard listed in § *Criteria* is GREEN. **The `__defineGetter__` row is the
+     one whose status is unknown** — whether a chain can obtain a function argument at all is what this
+     phase measures, and either answer is a finding. The fire-back half of the marker-shaped-reply row
+     is the other: § *R1* calls it open, so it is checked here rather than assumed red.
+   - **Every limb lands SKIPPED, and a later phase un-skips its own.** Write them all, watch them all
+     fail, then skip them all; each fixing phase removes the skip from the limbs it closes and asserts
+     the rest of the registry is still green. That is what makes a later *"row X is GREEN"* attributable
+     to one phase: without it, Phase 1's reds make the sweep non-zero by construction all the way to
+     Phase 8, and `live.md`'s first-failing-limb rule then hides whatever comes after the first hole.
+     ⓘ For vitest limbs this is `it.skip`. For `/live` it needs a small harness change — `SCENARIOS` in
+     `drive.ts` is a plain name→module map with no skip flag, so an unwritten-off scenario would simply
+     be absent and therefore invisible; **add a `skip` flag the sweep reports**, so a parked scenario
+     prints rather than vanishing. Each scenario is registered here with `needsContainer` stated.
+   - **Both tier carve-outs this phase owns state their reason IN THE TEST FILE**, not only here —
+     `live.md` puts that MUST on the file, which outlives this task file (§ *Criteria*). And every limb
+     uses a harmless payload: `svc.sql(['SELECT 1'])` proves arbitrary SQL runs as well as a `DELETE`
+     would, because the harness can target a deployed worker through `HARNESS_TARGET_URL`.
    - **Mutation note:** the phase's own product IS the mutation evidence. A limb that cannot be shown
      red here does not ship; deleting the criterion is the correct outcome when the hole turns out
-     not to exist, and saying so is the finding.
+     not to exist, and saying so is the finding — **except** where § *Criteria* marks a row
+     green-before-and-after, which is kept deliberately.
    - ⓘ **No fix lands.** Member-kind limbs are NOT written here — a marked getter does not exist
      until Phase 5, so those limbs are new capability rather than holes and land with the capability.
 
@@ -412,10 +431,13 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
    Replacing it with a parent carried along the walk is the loop every later phase edits, so it lands
    first and alone.
    - **Success criteria:** a gate that counts its calls runs **once** per chain; an `async` gate's
-     chain completes; a gate handed a nested marker receives the RESOLVED value on its only run. Unit
-     tier against a stand-in object, and the test says why it needs no running system.
+     chain completes; and a gate handed a nested marker receives the RESOLVED value on its only run.
+     Unit tier against a stand-in object, and the test says why it needs no running system.
    - **Mutation note:** restore the re-run and the call count goes to two; drop the `await` and the
-     `async` gate throws again.
+     `async` gate throws again. ⚠️ The resolved-value criterion needs its OWN mutation — pass
+     `operation.args` at the single apply rather than the resolved ones — because the executor already
+     resolves before it walks, so under the re-run mutation the FIRST run was always resolved and an
+     assertion on it stays green.
 
 3. **A filled chain is data, so the executor stops resolving it (R1).** Two entry points over one
    shared walk — a template resolves nesting, a filled chain does not — and the three same-breath
@@ -519,9 +541,18 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
    A `callContext` field set in `dispatchEnvelope`, `fireResponse` and `executeEnvelope` from sources
    the caller does not write (§ *R2*), and a distinct error class for the Gateway's expired-token
    branch so the reaper's name guard stops matching it.
-   - **Success criteria:** the field is present on all three paths and ABSENT from the outbound context
-     the Gateway sends a client. A client whose token lapses on a live socket is not reaped, and its
-     row survives the reconnect. Both ✅ reaper rows stay GREEN, and each reaps the RIGHT client.
+   - **Success criteria — the field.** Each of the three sites OVERWRITES it unconditionally with THIS
+     hop's source, and a wire-supplied value is DISCARDED — `dispatchEnvelope` from the instance the
+     caller addressed, `executeEnvelope` from this node's own name, `fireResponse` from the fire-back
+     return address. ⚠️ **Presence is not the criterion**: a set-if-absent implementation leaves an
+     upstream node's name in place and the reaper reads someone else's address, so the security fix is
+     silently a no-op. One limb per path, read back through a handler, since the reaper rows exercise
+     `dispatchEnvelope` alone. Both spread sites that carry *"any later immutable field ride through"*
+     are amended to exclude it, and `CallContext` labels it per-hop rather than Immutable.
+   - **Success criteria — the lapse.** A client whose token lapses on a live socket is NOT reaped and
+     its row survives the reconnect; the phase states whether the lapse is a real wait or
+     `vi.setSystemTime`, which `testing.md` measures as moving the clock both isolates see. Both ✅
+     reaper rows stay GREEN, and each reaps the RIGHT client.
    - **Mutation note:** set the field from a handler argument instead and the Phase 8 direct-call limb
      reds; add it to the Gateway's outbound rebuild and the withheld-from-client criterion reds; keep
      one error class for both conclusions and the lapsed-token criterion reds.
@@ -532,8 +563,17 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
    same-named field stays — the framework supplies that one (§ *R2*).
    - **Success criteria:** the forged-reply row is GREEN — the named client's row is intact and the
      REPLYING client's is the only one touched. The direct-call row is GREEN on both halves: the call
-     was PERMITTED, and no subscriber row changed. `grep -rn 'clientInstanceName' packages/*/src apps/nebula/src`
-     returns only the `ClientResultEnvelope` sites.
+     was PERMITTED, and no subscriber row changed. `grep -rn 'clientInstanceName' packages/*/src
+     packages/*/test apps/nebula/src .claude/rules website/docs` returns only the `ClientResultEnvelope`
+     sites — § *R2*'s full scope, plus the test tier, which no narrower grep reaches. ⚠️ **Do not count
+     the construction sites**: four spell the literal identifier and the rest pass `#getInstanceName()`,
+     so a grep for the identifier misses them and `tsc` is what enumerates them all.
+   - **The third package gets a BEHAVIOURAL limb, not just a grep.** `packages/nebula-auth/src/profile.ts`
+     pushes through a hand-rolled `lmz.call` fan-out rather than `svc.broadcast`, so it is the one path
+     § *R2* says differs — and a grep proves only that the field is gone, never that the callee ARRIVES
+     there. Assert over the Profile's own push: a real disconnect reaps its subscriber row, and a forged
+     reply reaps no other. Without it a Phase 7 miss on that path leaves every other criterion green
+     while real cleanup silently dies.
    - **Suites this phase changes:** deleting the constructor parameter makes `tsc` enumerate every
      construction site, since `gateway-messages.ts` declares it as a parameter property — so
      `npm run type-check` IS the inventory here, and it is a criterion. `packages/mesh`,
@@ -547,24 +587,67 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
     and for gate examples whose recommended spelling changed; add the getter-gate pair to
     `packages/mesh/test/for-docs/security/` on a neutral class, and turn `mesh-api.mdx`'s `@mesh()`
     block from `@skip-check-approved` into a `@check-example` against it.
+    ⚠️ **This phase owns the ENTIRE `website/docs/` sweep, including the `allowlist` cells** — Phase 10
+    keeps the standing-guidance instruments only. `index.mdx` and `security.mdx` each read
+    *"(method allowlist)"*, where both words change, so splitting the page between two phases means
+    fixing the same cells twice or half-changing them.
+    - **Three pages no grep reaches, each named because no instrument finds them.** `broadcast.mdx`
+      teaches a bare `@mesh()` reaper reading `clientInstanceName` — the exact request-leg vector
+      § *R2* names — inside a `@skip-check-approved('conceptual')` block the checker never reads, and
+      states the field as the published contract in prose; both go, and its `@mesh()` gains the
+      consequence rather than simply being removed, since the tier reason is dead only inside Nebula.
+      `creating-plugins.mdx` has ZERO `@mesh` and zero `allowlist` and documents `doInstance`, `ctx` and
+      `svc` as the plugin extension point — it says those stay `protected` and why the fence plus the
+      deleted `svc` exemption close the hole without touching them. `continuations.mdx`'s line 48 gains
+      the consequence on its third clause: a fire-back handler needs no mark, and a mark on one makes it
+      callable as an ordinary request with caller-chosen arguments.
     - **Success criteria:** `npm run test:doc` passes. The new example shows a marked getter and an
       unmarked one on the same class and states that an unmarked getter is refused WITHOUT running.
       After editing any `website/docs/nebula/*.md`, `node apps/nebula/scripts/gen-platform.mjs` has been
       run and the embed committed — `gen-platform.mjs --check` is in `apps/nebula`'s `test` script, so
       skipping it reds that suite rather than only the docs.
+    - ⚠️ **The new fixture is DRIVEN, and that is a criterion rather than an afterthought.** It lands in
+      the directory where `testing.md`'s `createTestingClient` ban was written after the `requireSubscriber`
+      incident, and `npm run test:doc` runs only the `@check-example` checker — never
+      `packages/mesh/test/for-docs/` — so a fixture class with no assertions passes this phase and the
+      whole-suite run alike, never instantiated, while the published block teaches an access check the
+      test never performs. Drive it `LumenizeClient` → Worker → Gateway → DO and assert BOTH halves:
+      refused, then permitted.
     - **Mutation note:** revert the `mesh-api.mdx` block to the pre-fix wording and the checker reds;
-      edit `nebula-client.md` without regenerating and `apps/nebula`'s suite reds.
+      edit `nebula-client.md` without regenerating and `apps/nebula`'s suite reds; leave the fixture
+      unasserted and the driven-both-halves criterion reds where `test:doc` would not.
 
-10. **Standing guidance says what the code now does, and the suites prove it.** The vocabulary sweep
-    (`@mesh` over `website/docs/`, `allowlist` over `.claude/rules packages/*/src apps/nebula/src`),
-    the four JSDoc parentheticals that gain a sentence, ADR-007's widened sentence, `mesh.md`'s two
-    false statements and its § *Object-capability access* additions, the backlog rows § *Backlog rows
-    this task trips* disposes of, and the deletion of `auth.md`'s two gap notes.
+10. **Standing guidance says what the code now does, and the suites prove it.** The `allowlist` sweep
+    over `.claude/rules packages/*/src apps/nebula/src` (Phase 9 owns everything under `website/docs/`),
+    the response-leg JSDoc parentheticals, ADR-007's widened sentence, `mesh.md`'s edits, the backlog
+    rows § *Backlog rows this task trips* disposes of, and the deletion of `auth.md`'s two gap notes.
+    - **`mesh.md` owes THREE edits, enumerated rather than counted:** its § *Object-capability access*
+      `svc.*` sentence, which this task turns false; that section's two guidance additions on what a
+      gate may hand back and what a getter entry owes; and § *`lmz.call` 4-arg*, whose MUST advises
+      adding `@mesh()` to a forwarded reaper **and** whose canonical `onBroadcastResult` example reads
+      `clientInstanceName` off the error. That last section escaped all three named instruments.
+    - **The response-leg JSDoc population is FIVE sites and is not what an earlier draft called it.**
+      The four `(allowlist off, scope-check on)` parentheticals are `star.ts`'s `onOntologyPulled`, the
+      two `onInviteResult` forwards in `star.ts` and `galaxy.ts`, and `resource-data-plane.ts` — **no
+      reaper among them**. The fifth is `profile.ts`'s `onProfileBroadcastResult` JSDoc, which justifies
+      staying undecorated by the forgeable-field hazard Phase 8 retires and contains neither phrase, so
+      no grep finds it; it is edited in Phase 8's own diff. State the rule structurally: undecorated
+      stays right as hygiene, and what carries the security is the framework-supplied callee.
+    - **Two backlog corrections this task owes beyond the disposition rows.** The release-flag row is
+      titled *"three changes"*, lists three and closes on *"all three"*, while this task makes four and
+      the fourth has no home — restate it structurally with no count, and repoint its `CLAUDE.md`
+      § *Releases* citation at `.claude/rules/workflow.md`. And the task-file-handle row quotes two
+      JSDoc comments as VERBATIM when neither ever was — both sources read *"only the **per-method**
+      @mesh allowlist is skipped"* — so the quotation becomes a characterisation with a corrected
+      pointer, which is what `workflow.md` § *Referring to things across files* asks for anyway.
     - **Success criteria:** `grep -n '^> \*\*Today' docs/vision/auth.md` no longer returns the M4 or
       § *Inside the node* notes, and returns every other note unchanged. No site glossing the response
       leg still says the member-level check being off means nothing is checked. `npm run test:code`
-      passes and `npx tsx apps/nebula/harness/drive.ts all` is green — the sweep is a criterion, not a
-      cleanup, because every scenario depends on this executor.
+      passes, every limb Phase 1 parked is un-skipped, and `npx tsx apps/nebula/harness/drive.ts all` is
+      green — the sweep is a criterion, not a cleanup, because every scenario depends on this executor.
+      ⓘ Earlier phases already ran their own: `npm run test:code` on each phase touching
+      `packages/mesh/src`, and `drive.ts all --fast` at the three executor seams (after phases 2, 5 and
+      8), where a red scenario is signal rather than flake.
     - **Mutation note:** the guidance edits are prose and no test reds them, which is why they are
       pooled here and checked by the two greps rather than by a suite. The suite-and-sweep criterion
       is what catches a fix that closed a hole by breaking a service.
