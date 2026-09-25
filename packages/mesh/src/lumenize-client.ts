@@ -1293,10 +1293,14 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
   async #handleIncomingCall(message: IncomingCallMessage): Promise<void> {
     const { callId, chain: preprocessedChain, callContext: preprocessedCallContext } = message;
+    // Declared out here so the catch can name the member that failed. The WIRE form is not
+    // readable for this — `preprocess` re-shapes the array — so the catch needs the postprocessed
+    // one, and gets `undefined` when postprocessing is itself what threw.
+    let chain: OperationChain | undefined;
 
     try {
       // Postprocess fields that were preprocessed for WebSocket transport
-      const chain = postprocess(preprocessedChain);
+      chain = postprocess(preprocessedChain) as OperationChain;
       // No `originRequest`: it stays server-side, so the Gateway never sends one.
       const callContext: ClientCallContext = {
         callChain: preprocessedCallContext.callChain,  // Plain strings - no postprocessing
@@ -1329,6 +1333,26 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#send(JSON.stringify(response));
 
     } catch (error) {
+      // ⚠️ LOG BEFORE SENDING. The response below is the only other place this failure goes, and it
+      // travels AWAY from the node that is usually stuck: a push refused here is typically the very
+      // thing this client is awaiting, so the error leaves for the caller while the local waiter
+      // hangs. The response leg already logs its handler throws (`#handleCallResponse` above); the
+      // request leg did not, and an unmarked override that shadowed a `@mesh()` method was therefore
+      // invisible on every node — the refusal went onto the wire, the caller had no result handler
+      // for a fire-and-forget push, and the symptom was a hang with no message anywhere.
+      //
+      // The MEMBER NAME and the message, never the args: an inbound chain's arguments are payload.
+      const entry = chain?.[0];
+      const entryKey = entry && entry.type === 'get' ? entry.key : undefined;
+      this.#debugFactory('lmz.mesh.LumenizeClient.#handleIncomingCall').error(
+        'inbound call refused or threw',
+        {
+          callId,
+          member: entryKey === undefined ? '(unknown)' : String(entryKey),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+
       // Send error response
       // Preprocess error (Error objects need special handling for JSON)
       const response: IncomingCallResponseMessage = {

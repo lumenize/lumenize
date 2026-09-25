@@ -269,6 +269,14 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
   chatHostBinding?: string;
   /** The chat host's instance — the galaxy `{u}.{g}` (see {@link chatHostBinding}). */
   chatScope?: string;
+  /**
+   * How long `subscribe` / `subscribeProfile` wait for their FIRST push before giving up, in ms.
+   * Default {@link SUBSCRIBE_TIMEOUT_MS}. A subscribe settles on the host's push rather than on the
+   * call's own return, so without this bound an undelivered push is an unsettleable promise — see
+   * {@link NebulaClient.subscribe}. Lower it in a test that asserts the abandon path; there is no
+   * reason to raise it in an app.
+   */
+  subscribeTimeoutMs?: number;
 }
 
 /** Bounded retry for an `installing` OntologyStaleError — the host fired a registry
@@ -276,6 +284,13 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
  *  round trip, so a few short retries cover it without masking a genuinely stale client. */
 const INSTALLING_RETRY_LIMIT = 4;
 const INSTALLING_RETRY_DELAY_MS = 400;
+
+/**
+ * Default ceiling on a subscribe's wait for its first push. Matches the Gateway's own
+ * `CLIENT_CALL_TIMEOUT_MS` deliberately: the leg this bound covers ENDS at a mesh→client push, so a
+ * client that gave up sooner would abandon subscribes the Gateway is still willing to deliver.
+ */
+const SUBSCRIBE_TIMEOUT_MS = 30000;
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
 
@@ -365,6 +380,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /** The chat host pair — NO default; chat paths throw when unset (see the config JSDoc). */
   #chatHostBinding?: string;
   #chatScope?: string;
+  /** Ceiling on a subscribe's wait for its first push — see {@link NebulaClientConfig.subscribeTimeoutMs}. */
+  #subscribeTimeoutMs: number;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   #onReload?: () => void;
   #onPreviewReady?: (scope: string) => void;
@@ -638,6 +655,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#resourceHostBinding = resourceHostBinding ?? 'STAR';
     this.#chatHostBinding = chatHostBinding;
     this.#chatScope = chatScope;
+    this.#subscribeTimeoutMs = config.subscribeTimeoutMs ?? SUBSCRIBE_TIMEOUT_MS;
     // The inheritance contract for a child from `impersonate()`, captured as ONE field because a
     // method cannot reach the constructor's `config` (see `#baseUrl` above) and `LumenizeClient`'s
     // own `#config` is private. Deliberately EXCLUDES `onLoginRequired`: a child must not hold the
@@ -654,6 +672,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       resourceHostBinding: this.#resourceHostBinding,
       chatHostBinding: this.#chatHostBinding,
       chatScope: this.#chatScope,
+      subscribeTimeoutMs: this.#subscribeTimeoutMs,
     };
     this.#mintedFrom = (config as unknown as Record<symbol, unknown>)[INTERNAL_PARENT] as NebulaClient | undefined;
     this.#onShouldRefreshUI = onShouldRefreshUI;
@@ -1533,9 +1552,16 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
     const key = `${resourceType}:${resourceId}`;
     this.#subscriptionRegistry.set(key, { resourceType, resourceId });
-    return this.#subscribeVia(key, () =>
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId)));
+    return this.#subscribeVia(
+      key,
+      () => this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId)),
+      this.#pendingSubscribes,
+      // Through the SAME door the host's own error push uses, so abandoning runs that branch's
+      // cleanup — the registry entry goes too, which is what stops a reconnect replaying a
+      // subscribe that was never acknowledged.
+      (reason) => this.handleResourceUpdate(resourceType, resourceId, reason),
+    );
   }
 
   /**
@@ -1596,6 +1622,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       profileId,
       () => this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe()),
       this.#profilePending,
+      (reason) => this.handleProfileUpdate(profileId, reason),
     );
     let disposed = false;
     return {
@@ -1672,15 +1699,26 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * given `pending` map, else register a pending entry and `fire()` the subscribe call. Extracted so the
    * Star-resource path (`#pendingSubscribes`) and the dedicated global-Profile path (`#profilePending`)
    * share the pending/coalesce logic — only the callee binding+instance and the pending map differ.
+   *
+   * ⚠️ **The wait is BOUNDED, and that bound is the only thing standing between an undelivered push
+   * and a permanent hang.** The push handler is what settles this promise, so anything that stops the
+   * handler RUNNING — a mesh refusal at the entry rule, a dropped socket, a host that never answers —
+   * leaves nothing in this process able to settle it. `abandon` hands the timeout back through the
+   * SAME door a host-reported error uses, so the abandon path runs the handler's existing cleanup
+   * (pending delete, registry/refcount unwind, reject) rather than a second copy of it.
    */
   #subscribeVia(
     key: string,
     fire: () => void,
     pending: Map<string, PendingSubscribe> = this.#pendingSubscribes,
+    abandon: (reason: Error) => void = () => {},
   ): Promise<Snapshot | null> {
     // Coalesce with an in-flight subscribe for the same key. Capture the entry's CURRENT resolve/reject
     // as plain function values (not via the entry object) — aliasing the object would make the chained
     // closure read the newly-installed function back through itself, recursing.
+    //
+    // The timer belongs to the FIRST caller's entry and is cleared by its wrapped settlers below, which
+    // every chained settler calls through — so a coalescing subscriber neither re-arms nor orphans it.
     const inFlight = pending.get(key);
     if (inFlight) {
       return new Promise<Snapshot | null>((resolve, reject) => {
@@ -1691,7 +1729,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       });
     }
     return new Promise<Snapshot | null>((resolve, reject) => {
-      pending.set(key, { resolve, reject });
+      const timer = setTimeout(() => {
+        abandon(new Error(
+          `Subscribe to '${key}' was never acknowledged within ${this.#subscribeTimeoutMs}ms — no push ` +
+          `arrived. Either the host never delivered, or this client refused the inbound push; a refusal ` +
+          `is logged here under 'lmz.mesh.LumenizeClient.#handleIncomingCall'.`
+        ));
+      }, this.#subscribeTimeoutMs);
+      pending.set(key, {
+        resolve: (snap) => { clearTimeout(timer); resolve(snap); },
+        reject: (err) => { clearTimeout(timer); reject(err); },
+      });
       fire();
     });
   }

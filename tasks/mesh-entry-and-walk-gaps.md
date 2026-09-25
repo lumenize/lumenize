@@ -538,11 +538,14 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      and an unmarked getter is refused **without running**, which is the property that justifies
      reading descriptors rather than `parent[key]`.
    - **Success criteria — an UNMARKED OVERRIDE is refused, and it says so.** The mark lives on the
-     function value, so a subclass override is a new function that does not carry it — and today the
-     refusal is invisible: the client catches it, ships it over the wire, and the pushing node's
-     reaper name-guard drops it, while the subscription never settles. Four silences, one hang. The
-     descriptor walk MUST therefore name the cause when an unmarked OWN member shadows a marked
-     ancestor, rather than emitting the generic text.
+     function value, so a subclass override is a new function that does not carry it — and when this
+     phase was written the refusal was invisible: the client caught it, shipped it over the wire, and
+     the pushing node's reaper name-guard dropped it, while the subscription never settled. Four
+     silences, one hang. The descriptor walk MUST therefore name the cause when an unmarked OWN member
+     shadows a marked ancestor, rather than emitting the generic text. ⓘ Naming it closes ONE of the
+     four, and only for a reader who sees the message; Phase 11 closes the two that decide whether
+     anyone does — the client logs the refusal before answering, and the subscription settles as a
+     rejection instead of never.
      - ⚠️ **The mark does NOT become a property of the member name** — the walk does not keep
        climbing to a marked ancestor and permit the override. Every one of `NebulaClient`'s push
        handlers already has a designed non-override seam (the store, `QuerySubscription.onChange`,
@@ -795,17 +798,56 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
       about them. It now cites the symbol and characterises the clause. ⓘ The `globalThis` row's
       corrected premise is measured rather than asserted: the grep returns four modules registering
       `ClientDisconnectedError` alone, plus three other classes, so load order decides `instanceof`.
-    - ⚠️ **The FULL sweep is 24/30, and the six are UNVERIFIED rather than red.** Every failure is a
-      container scenario, every one timed out at the same ~300 s, and none of them reached its
-      scenario at all — `grep -c 'running scenario'` is 0 for all six, so they died inside
-      `spawnWranglerDev`'s readiness wait, before a line of changed code could run. The cause is on
-      the machine rather than in the tree: ten orphaned `workerd-nebula-Galaxy-*-proxy` containers
-      are up, aged six days to two weeks, which `containers.md` names as the thing that blocks new
-      containers from starting. The image itself builds (`naming to docker.io/cloudflare-dev/galaxy`
-      completes). ⇒ **`docker rm -f $(docker ps -q --filter name=workerd-nebula)` then re-run**; left
-      for Larry rather than run unasked, since one of those may be a hand-debug he still wants.
-      All 24 container-free scenarios pass, including both this task added.
+    - ✅ **The FULL sweep is 30/30, container lane included (re-run 2026-09-25).** The first attempt
+      read 24/30, and the six were UNVERIFIED rather than red: every failure was a container
+      scenario, every one timed out at the same ~300 s, and `grep -c 'running scenario'` was 0 for
+      all six, so they died inside `spawnWranglerDev`'s readiness wait, before a line of changed code
+      could run. The cause was on the machine rather than in the tree — ten orphaned
+      `workerd-nebula-Galaxy-*-proxy` containers, aged six days to two weeks, which `containers.md`
+      names as what blocks new containers from starting. `docker rm -f $(docker ps -q --filter
+      name=workerd-nebula)` cleared them and all thirty passed: `build-box` 108 s, `first-app-built`
+      82 s, `studio-guidance-loop` 116 s, and this task's own `mesh-entry-reach` and
+      `reaper-victim-is-the-address` among them.
     - ⓘ **The compose-site row needed a different correction than the file expected.** It was going
       to stand unchanged because fields do not ship; what actually changed for it is that a GETTER
       gate now marks, so a host can expose a composed plane with one member instead of a forward per
       method — which is the shape that row is asking for.
+
+11. **The refusal stops being silent, and the wait it stalls stops being unbounded.** Agreed after the
+    verifier panel, from a question about what a continuation naming a nonexistent member returns.
+    Tracing that turned up something the ten phases had not: a refused push IS already returned to its
+    caller — the client ships an `IncomingCallResponse`, the Gateway rejects the pending call — but it
+    travels AWAY from the node that is stuck. In the Phase 1 hour the refusing node and the waiting node
+    were the same process, the DO that pushed had no result handler for a fire-and-forget push, and so
+    the error landed nowhere while `await subscribe(...)` hung.
+    - **Two changes, and the second is the one with reach.** `LumenizeClient.#handleIncomingCall` logs
+      before it answers — the member name and the message, never the args, which are payload. And
+      `NebulaClient`'s `#subscribeVia` arms a timer whose expiry calls `abandon`, handed in by each call
+      site as that site's OWN update handler carrying an Error. The timeout therefore runs the existing
+      error branch — pending delete, registry unwind, reject — rather than a second copy of it, and
+      `NebulaClientConfig.subscribeTimeoutMs` (default 30 s, matching the Gateway's `CLIENT_CALL_TIMEOUT_MS`
+      because this leg ENDS at a mesh→client push) is what a test shortens.
+    - **Why the log is not enough on its own, which is the whole finding.** A log reaches whoever is
+      tailing the refusing node, and for a client that is a browser console nobody has open. The bound
+      needs no one to be watching: any cause that stops the handler running — a refusal, a dropped
+      socket, a host that never answers — becomes a rejection in seconds instead of a hang.
+    - **Success criteria:** `apps/nebula/test/test-apps/baseline/subscribe-is-bounded.test.ts` drives a
+      `NebulaClientTest` subclass whose `handleResourceUpdate` override carries NO mark, and asserts the
+      subscribe rejects with *never acknowledged* plus a captured refusal naming the override. Its
+      positive control is the same drive on `NebulaClientTest`, whose override IS marked, so the two
+      differ by the decorator alone. `npm test` in `apps/nebula` green; `website/docs/nebula/nebula-client.md`
+      § *Calling `@mesh()` members locally* names the rejection and the log namespace a reader should
+      start from, with `platform-embed.ts` regenerated.
+    - **Mutation note — both assertions, separately.** Deleting the log statement reds the capture
+      assertion alone and leaves the positive control green. Neutering the bound (a 10-minute timer in
+      place of the configured one) reproduces the original defect exactly: the test times out at 20 s
+      rather than failing an assertion, which is the hang this phase exists to convert.
+    - ✅ **DONE 2026-09-25.** The log's first cut read op 0 off the WIRE chain and reported `(unknown)`
+      — caught by the test on its first run, because `preprocess` reshapes the array; the catch now
+      reads the postprocessed `chain`, hoisted out of the `try` so it is in scope. ⚠️ The full mesh
+      suite has ONE red, `ws-roundtrip-browser`'s `bootstrapAndGetAccessToken` 401 — reproduced
+      identically with this phase's mesh change stashed, so it is pre-existing and environmental
+      (it passes when that file runs alone). Every other workspace passes, and the doc checker
+      verifies 235 examples. ⓘ `drive.ts all` is 30/30 AFTER the change as well as before it — owed
+      because `#subscribeVia` is on the path every scenario rides, so a bound set too low would have
+      reddened somebody else's subscribe rather than this phase's own test.

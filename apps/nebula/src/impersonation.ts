@@ -66,6 +66,9 @@ export interface ChildConfigBase {
    *  its parent does (absent when the parent holds none — the chat paths then throw). */
   chatHostBinding?: string;
   chatScope?: string;
+  /** Inherited so a child abandons an unacknowledged subscribe on the same schedule its parent does;
+   *  a child left on the default would outwait a test that deliberately shortened the parent's. */
+  subscribeTimeoutMs?: number;
 }
 
 /** The `refresh` shape `LumenizeClient` expects. */
