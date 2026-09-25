@@ -1,6 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { newContinuation, executeOperationChain, getOperationChain, validateOperationChain, isNestedOperationMarker } from '../index.js';
-import { mesh, meshFn } from '../../mesh-decorator.js';
+import { mesh, MESH_CALLABLE } from '../../mesh-decorator.js';
+
+/**
+ * Mark a standalone function as mesh-callable, LOCALLY.
+ *
+ * `meshFn` was exported for this and is gone: a marked function reached through a path of `get`s is
+ * exactly what the entry rule refuses, so a published helper whose whole purpose was to create one
+ * is a foot-gun. The MECHANISM is unchanged and still public (`MESH_CALLABLE`), and these tests
+ * need it to build the two shapes worth telling apart — a marked function reached AS op 0, which is
+ * a legitimate entry, and one reached through gets, which is not.
+ */
+function markFn<F extends (...args: any[]) => any>(fn: F): F {
+  (fn as any)[MESH_CALLABLE] = true;
+  return fn;
+}
 import type { OperationChain } from '../index.js';
 
 // Test target object with various methods - all methods decorated with @mesh()
@@ -41,7 +55,7 @@ class TestObject {
   // Nested objects with mesh-decorated method
   nested = {
     deep: {
-      method: meshFn((x: number) => x * 3)
+      method: markFn((x: number) => x * 3)
     }
   };
 }
@@ -181,7 +195,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
     });
     
     it('should REFUSE a chain that walks to a marked function through unmarked gets', async () => {
-      // Used to return 15. `meshFn` marks a function sitting in a plain object, and the old check
+      // Used to return 15. A marked function can sit in a plain object, and the old check
       // fired at the first APPLY — so `c.nested.deep.method(5)` passed because `method` carried the
       // mark, whatever it was reached through. Op 0 here is `get 'nested'`, an unmarked field, and
       // the entry rule reads THAT.
@@ -200,7 +214,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
     it('still reaches a marked function held as an own property of the target', async () => {
       // The other side of the same rule, and the reason the lookup reads DESCRIPTORS rather than
       // prototypes only: op 0 may name an own data property whose value carries the mark.
-      const target = { entry: meshFn((x: number) => x * 3) };
+      const target = { entry: markFn((x: number) => x * 3) };
       const result = await executeOperationChain(
         [{ type: 'get', key: 'entry' }, { type: 'apply', args: [5] }], target,
       );
@@ -408,7 +422,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
 
     it('should preserve identity when no nested markers exist', async () => {
       const target = {
-        checkIdentity: meshFn((obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr }))
+        checkIdentity: markFn((obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr }))
       };
 
       const testObj = { prop: 'value' };

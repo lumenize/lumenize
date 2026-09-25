@@ -33,7 +33,6 @@ export type {
 // @mesh decorator infrastructure (marking methods as mesh-callable)
 export {
   mesh,
-  meshFn,
   isMeshCallable,
   getMeshGuard,
   MESH_CALLABLE,

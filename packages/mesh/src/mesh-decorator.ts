@@ -58,30 +58,7 @@ export function getMeshGuard<T>(method: any): MeshGuard<T> | undefined {
 }
 
 /**
- * Mark a standalone function as mesh-callable.
- *
- * Use this for functions that aren't class methods but need to be mesh-callable,
- * such as functions stored in object properties.
- *
- * @example
- * ```typescript
- * const nested = {
- *   deep: {
- *     method: meshFn((x: number) => x * 3)
- *   }
- * };
- * ```
- *
- * @param fn - The function to mark as mesh-callable
- * @returns The same function, marked as mesh-callable
- */
-export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
-  (fn as any)[MESH_CALLABLE] = true;
-  return fn;
-}
-
-/**
- * `@mesh()` decorator for marking methods as mesh-callable
+ * `@mesh()` decorator for marking a member as mesh-callable
  *
  * Use this decorator on methods that should be callable from remote mesh nodes.
  * Methods without this decorator cannot be invoked via `this.lmz.call()`.

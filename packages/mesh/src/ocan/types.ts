@@ -171,30 +171,3 @@ export interface OcanConfig {
    */
   requireMeshDecorator?: boolean;
 }
-
-/**
- * Unwraps protected members (ctx, env) for use with continuation proxies.
- * 
- * When calling remote DOs or accessing protected members via `this.ctn<T>()`,
- * TypeScript complains about accessing protected ctx/env from a different class.
- * The continuation proxy system allows this at runtime, so use this type to
- * satisfy TypeScript.
- * 
- * @example
- * ```typescript
- * import type { Unprotected } from '@lumenize/debug';
- * 
- * // Instead of @ts-expect-error:
- * const op = this.ctn<RemoteDO>().ctx.storage.kv.get('key');
- * 
- * // Use Unprotected:
- * const op = this.ctn<Unprotected<RemoteDO>>().ctx.storage.kv.get('key');
- * ```
- * 
- * @typeParam T - The DO class type that extends a base class with protected ctx/env
- */
-export type Unprotected<T> = T & {
-  readonly ctx: DurableObjectState;
-  readonly env: any;
-};
-

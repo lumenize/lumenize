@@ -53,7 +53,7 @@ export type {
 export * from './ocan/index';
 
 // @mesh decorator for marking methods as mesh-callable
-export { mesh, meshFn, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from './mesh-decorator';
+export { mesh, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from './mesh-decorator';
 export type { MeshGuard } from './mesh-decorator';
 
 // LumenizeClientGateway - WebSocket bridge for mesh clients

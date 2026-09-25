@@ -601,6 +601,15 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      `meshFn` export. `npm run type-check` and `packages/mesh`'s suite pass at this commit.
    - **Mutation note:** leave either barrel export in place and its grep returns more than the two CORS
      cells. ⚠️ Scope the grep away from `dist/`, which is gitignored but present on a working tree.
+   - ✅ **DONE 2026-09-24.** The `Unprotected` grep returns exactly the two CORS cells, as predicted.
+     ⚠️ **The `meshFn` grep cannot be clean, and that is the criterion's defect rather than the
+     build's:** `node-import.test.mjs` now asserts `mod.meshFn === undefined`, which NAMES the
+     identifier and is a strictly better instrument than the grep — restoring either barrel export
+     reds it, where a grep only reds if someone remembers to run it. The other hit is a comment
+     explaining the removal. ⇒ Read the criterion as *no USE outside prose recording the removal*.
+     ⓘ The tests that legitimately needed a marked standalone function now mark one locally: the
+     MECHANISM is still public (`MESH_CALLABLE`), and what went is the published helper whose whole
+     purpose was to build the shape the entry rule refuses.
 
 7. **The framework tells a handler who the callee was, and a lapsed token stops looking like a death.**
    A `callContext` field set in `dispatchEnvelope`, `fireResponse` and `executeEnvelope` from sources

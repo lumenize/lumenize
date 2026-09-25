@@ -22,7 +22,7 @@ test('LumenizeClient imports cleanly from @lumenize/mesh/client', async () => {
   assert.ok(mod.LumenizeClient, 'LumenizeClient exported');
   assert.equal(typeof mod.LumenizeClient, 'function', 'LumenizeClient is a class');
   assert.equal(typeof mod.mesh, 'function', 'mesh() decorator exported');
-  assert.equal(typeof mod.meshFn, 'function', 'meshFn() helper exported');
+  assert.equal(mod.meshFn, undefined, 'meshFn() is GONE — a marked function reached through gets is what the entry rule refuses');
   assert.ok(mod.GatewayMessageType, 'GatewayMessageType exported');
   assert.equal(mod.GatewayMessageType.CALL, 'call', 'GatewayMessageType.CALL value correct');
   assert.ok(mod.ClientDisconnectedError, 'ClientDisconnectedError exported');
