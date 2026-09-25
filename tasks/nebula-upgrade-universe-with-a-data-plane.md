@@ -58,10 +58,12 @@ export class Universe extends NebulaDO {
 }
 ```
 
-- **`Galaxy` and `Star` each compose `ResourceDataPlane`** with six arguments — `ctx`, a call-context
-  thunk, an ontology provider, the `ResourceHostBridge` of host-side mesh I/O, an `onDagChanged` hook
-  and a host-name thunk. *Adapted:* the Universe supplies the same six. Its `onDagChanged` is the
-  Galaxy's no-op rather than the Star's org-tree broadcast, since no org tree subscribes here yet.
+- **`Galaxy` and `Star` each compose `ResourceDataPlane`** with six arguments today — `ctx`, a
+  call-context thunk, an ontology provider, the `ResourceHostBridge` of host-side mesh I/O, an
+  `onDagChanged` hook and a host-name thunk. *Adapted:*
+  [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) lands first and deletes
+  `onDagChanged` (its D15), because the plane fans out its own orgTree changes — every plane has an
+  orgTree. So the Universe supplies five, and has no hook to choose.
 - **A platform ontology is authored in code and precompiled before deploy.** `chat-constants.ts` is
   the input, `scripts/gen-validator-seeds.ts` emits a committed row into `validator-seeds.ts`, the
   package `test` script runs that generator with `--check` ahead of vitest so a drifted literal reds

@@ -14,7 +14,8 @@ returns, and the allocation of every plane method to a surface. Do not re-derive
 ⚠️ **The injected authorizer is THIS file's, not the parent's.** The plane takes a DAG-backed
 authorizer for the Galaxy and the Star and behaves as it does today; only this host needs a second
 kind, so the constructor argument that introduces it lands here. That keeps the parent's plane at
-six constructor arguments, which is what the Universe sibling states it inherits.
+five constructor arguments once its D15 deletes `onDagChanged`, which is what the Universe sibling
+states it inherits.
 
 **Today, on disk:** `packages/nebula-auth/src/profile.ts` — `class Profile extends
 ComposedMeshDO(DurableObject, 'Profile')`, storing a bespoke `ProfileFields (field, value)` k-v
