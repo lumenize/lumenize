@@ -1702,7 +1702,8 @@ export class Galaxy extends NebulaDO {
   /**
    * The node invite's result handler — travels with the facade call (never awaited).
    * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
-   * (allowlist off, scope-check on), and an `@mesh` here would let any in-scope caller
+   * (the member-level check off, the scope check on — and the walk rules still refuse the six
+   * doors JavaScript opens on every object, so "off" has never meant "nothing is checked"), and an `@mesh` here would let any in-scope caller
    * forge an invite outcome and write themselves grants. Body in the plane.
    * TEMP → target=resources() gate.
    */

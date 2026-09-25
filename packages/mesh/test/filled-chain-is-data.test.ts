@@ -13,7 +13,8 @@
  *
  * Every payload is harmless: the injected chain names a recorder, never a destructive call.
  *
- * Written RED-first. Each limb below fails on today's code, which is what shows the hole is real.
+ * Written RED-first: each limb below ran the injected chain before the fix — on the fire-back, on
+ * the appended branch and on the local-handler path alike — which is what shows the hole was real.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';

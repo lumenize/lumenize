@@ -770,3 +770,31 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
       is what catches a fix that closed a hole by breaking a service.
     - ⚠️ **Not swept:** `nebula-data-plane-owns-its-guards.md`, which re-runs its own Stage 2 after
       this lands, and ADR-012's `PUBLIC_FIELDS`, which is a real allow-list of three names.
+    - ✅ **DONE 2026-09-25.** Both named instruments were run and both produce output. The `allowlist`
+      grep over `.claude/rules packages/*/src apps/nebula/src` returns only the CORS and npm
+      `allowScripts` senses; the response-leg grep found exactly the four parentheticals the file
+      predicted, and each gained the SENTENCE it needed rather than a word swap — the member-level
+      check being off has never meant nothing is checked. ADR-007's bullet was already over its
+      150-word budget, so the walk-rules clause SPLIT it rather than growing it, which brought the
+      file's average sentence down too. `auth.md`'s register goes 13 notes to 11, with neither of
+      this task's remaining and every other one unchanged.
+    - ⚠️ **The backlog's handle row proved its own point while being edited.** It quoted two JSDoc
+      comments verbatim to show what a `(D5)` citation stands for — and this phase reworded both
+      sources, so the quotation would have become an invented example inside the very row that warns
+      about them. It now cites the symbol and characterises the clause. ⓘ The `globalThis` row's
+      corrected premise is measured rather than asserted: the grep returns four modules registering
+      `ClientDisconnectedError` alone, plus three other classes, so load order decides `instanceof`.
+    - ⚠️ **The FULL sweep is 24/30, and the six are UNVERIFIED rather than red.** Every failure is a
+      container scenario, every one timed out at the same ~300 s, and none of them reached its
+      scenario at all — `grep -c 'running scenario'` is 0 for all six, so they died inside
+      `spawnWranglerDev`'s readiness wait, before a line of changed code could run. The cause is on
+      the machine rather than in the tree: ten orphaned `workerd-nebula-Galaxy-*-proxy` containers
+      are up, aged six days to two weeks, which `containers.md` names as the thing that blocks new
+      containers from starting. The image itself builds (`naming to docker.io/cloudflare-dev/galaxy`
+      completes). ⇒ **`docker rm -f $(docker ps -q --filter name=workerd-nebula)` then re-run**; left
+      for Larry rather than run unasked, since one of those may be a hand-debug he still wants.
+      All 24 container-free scenarios pass, including both this task added.
+    - ⓘ **The compose-site row needed a different correction than the file expected.** It was going
+      to stand unchanged because fields do not ship; what actually changed for it is that a GETTER
+      gate now marks, so a host can expose a composed plane with one member instead of a forward per
+      method — which is the shape that row is asking for.

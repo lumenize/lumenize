@@ -964,7 +964,8 @@ async function fireResponse(
  * `LumenizeDO`/`LumenizeWorker`/`LumenizeContainer`, for BOTH RPC entries:
  * `__executeOperation` (requests, `requireMeshDecorator: true`) and `__handleResponse`
  * (fire-backs, `requireMeshDecorator: false`). `onBeforeCall` runs on **both** — the
- * response leg is scope-gated by construction, only the @mesh allowlist toggles.
+ * response leg is scope-gated by construction, and the walk rules are unconditional; only the
+ * member-level check toggles.
  *
  * **Early ack:** admission (version/callContext/identity/`onBeforeCall`) runs first
  * and returns `{ $ack: true }` the instant the callee is admitted — BEFORE the chain. The
@@ -1168,7 +1169,8 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
     /**
      * Fire-back seam (D5/D17): the caller's traveling handler, filled with a result/Error. Same
      * `executeEnvelope` path with `requireMeshDecorator: false` — `onBeforeCall` still runs, only the
-     * per-method @mesh allowlist is skipped (the handler is the caller's own continuation). @internal
+     * member-level check is skipped (the handler is the caller's own continuation). The walk rules
+     * still apply. @internal
      */
     async __handleResponse(envelope: CallEnvelope): Promise<any> {
       const base = this as unknown as { ctx: DurableObjectState; env: any };

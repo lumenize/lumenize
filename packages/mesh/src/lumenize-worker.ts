@@ -187,7 +187,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
   /**
    * Receive a fire-back response — the second mesh RPC entry (D5/D17). Same shared
    * `executeEnvelope` path as `__executeOperation`, `requireMeshDecorator: false`:
-   * `onBeforeCall` still runs, only the per-method @mesh allowlist is skipped.
+   * `onBeforeCall` still runs, and so do the walk rules; only the member-level check is skipped.
    * A tier Worker's fire-back (`__forwardBroadcastResult`) lands here on a fresh
    * stateless instance — correct because the handler travels (svc.broadcast pin a).
    *

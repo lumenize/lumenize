@@ -13,8 +13,9 @@
  * than by a destructive call. That is a standing rule for this task's limbs, because the same
  * assertions run against a deployed worker via `HARNESS_TARGET_URL` in the `/live` lane.
  *
- * Written RED-first: on today's code every `REFUSED` limb below fails, which is the evidence that
- * the hole exists. They land `it.skip`ped and each fixing phase un-skips the ones it closes.
+ * Written RED-first: every `REFUSED` limb below failed before the fix, which is the evidence that
+ * the hole was real rather than the assertion vacuous. What each one returned instead is recorded
+ * in the commit that added them.
  */
 import { describe, it, expect } from 'vitest';
 import { executeOperationChain } from '../index.js';

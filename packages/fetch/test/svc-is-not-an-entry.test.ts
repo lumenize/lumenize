@@ -14,7 +14,8 @@
  * § *What needs Larry*, item 6 accepts that rather than building it a door. Nothing here keeps the
  * round trip alive; the package is just the one vehicle that made this hole reachable.
  *
- * Written RED-first: on today's code `svc` is exempt from the member-level check, so both limbs fail.
+ * Written RED-first: `svc` used to be exempt from the member-level check, and both limbs failed —
+ * one of them by running an undecorated method on the host.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';

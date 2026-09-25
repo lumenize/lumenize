@@ -289,7 +289,9 @@ export class ResourceDataPlane {
    * `_InviteStatus` row to `sent`/`submission-failed`.
    *
    * ⚠️ The host's forward MUST be `public` and NOT `@mesh()` — the fire-back lands via
-   * `__handleResponse` (allowlist off, scope-check on), and an `@mesh` there would let
+   * `__handleResponse` (the member-level check off, the scope check on — and the walk rules still
+   * refuse the six doors JavaScript opens on every object, so "off" has never meant "nothing is
+   * checked"), and an `@mesh` there would let
    * any in-scope caller forge an invite outcome and write themselves grants. The whole
    * body is wrapped: an uncaught throw in a fire-back handler is silently lost, so
    * failures are logged with identifiers only.

@@ -55,8 +55,6 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 - **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response.
 - **M7 — The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
 
-> **Today's code differs.** The check catches one thing — an undecorated method as a chain's first CALL. A chain that only reads is never checked, one opening on `svc` is exempt, nothing after the first call is checked at all, and the response leg runs with the check off. So `ctx`, `env` and `svc` are reachable today, and the fence above does not exist yet. Both are closed by [mesh-entry-and-walk-gaps.md](../../tasks/mesh-entry-and-walk-gaps.md); delete this note when it lands.
-
 **Why relationships rather than roles?** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `scopeAdmin` bit that dominion reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
 **Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
@@ -272,8 +270,6 @@ What that totality means for user data — a bypass over a Star's whole permissi
 Passage means the call is accepted at the node's outer boundary. Three things still stand between it and any state.
 
 First, only methods decorated with `@mesh` are callable over `lmz.call()` at all. Everything else on the node — its storage, its helpers, its private methods — is unreachable from outside, so the node's callable surface is exactly what it chose to publish and nothing more.
-
-> **Today's code differs.** Its storage, its `env` and its services are reachable from outside, because only a chain's first CALL is checked and a chain that merely reads is not. [mesh-entry-and-walk-gaps.md](../../tasks/mesh-entry-and-walk-gaps.md) closes it; delete this note when it lands.
 
 Second, a decorated method may also carry a guard, which runs before the method body. Read-only operations usually carry none, because passing the boundary was already enough. Almost anything that changes state carries one — a check that the caller is an admin of this node, say.
 

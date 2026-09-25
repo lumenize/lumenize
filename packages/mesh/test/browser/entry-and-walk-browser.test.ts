@@ -17,8 +17,8 @@
  * chain pushed back down to itself and run on its own executor — the same inbound door a genuine
  * DO push arrives at.
  *
- * Written RED-first: on today's code the client checks only the first `apply`, so every walk limb
- * below is permitted.
+ * Written RED-first: the client used to check only the first `apply`, so every walk limb below was
+ * permitted — including the one that reaches `Function`, which only a browser can drive.
  */
 import { describe, it, expect, inject, vi } from 'vitest';
 import { EditorClient } from '../for-docs/getting-started/editor-client';
