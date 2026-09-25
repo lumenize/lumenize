@@ -101,7 +101,7 @@ describe('a filled chain is data — the executor never resolves it', () => {
   /**
    * GREEN before and after: a wire-borne chain cannot turn into a stored continuation.
    *
-   * § *Gotchas*, item 2 of `tasks/mesh-entry-and-walk-gaps.md` answers this from source —
+   * § *Gotchas*, item 2 of `tasks/archive/mesh-entry-and-walk-gaps.md` answers this from source —
    * `Alarms.schedule` recovers a chain only through a module-scoped WeakMap of proxies registered
    * in THIS isolate, and a hand-shaped nested marker resolves to its RESULT before it reaches the
    * argument list. ⚠️ The closing mechanism is a HANG, not a refusal: the executor awaits every

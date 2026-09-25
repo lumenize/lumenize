@@ -10,7 +10,7 @@
  * the way it would in production.
  *
  * ⚠️ **Both limbs assert the RULE, not the package.** `@lumenize/fetch`'s proxy callback opens on
- * `svc` across a hop and therefore stops working by decision — `tasks/mesh-entry-and-walk-gaps.md`
+ * `svc` across a hop and therefore stops working by decision — `tasks/archive/mesh-entry-and-walk-gaps.md`
  * § *What needs Larry*, item 6 accepts that rather than building it a door. Nothing here keeps the
  * round trip alive; the package is just the one vehicle that made this hole reachable.
  *

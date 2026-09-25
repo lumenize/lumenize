@@ -1,6 +1,6 @@
 # A remote caller reaches more than `@mesh` marks
 
-**Status:** Pass 2 — **design intent is COMPLETE, every decision is settled (§ *What needs Larry*), and the ten phases are written.** `/review-task` Stage 1 ran twice and Stage 2 twice — the second time against the phases, which is the pass that can see decomposition, ordering and criteria that cannot fail. **Both legs carry a settled design** (§ *The request leg* and § *The response leg*), reworked through a `/review-task` Stage 1 re-run on 2026-09-24. A response-leg member-level check was weighed and rejected, with the trigger to re-derive recorded (§ *R3*). Surfaced 2026-09-22/23 by `/review-task` Stage 2 of [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md). **These are pre-existing holes in `@lumenize/mesh`, not introduced by any Nebula task.** The urgency is not the wipe's ordering — that file notes there is exactly one deploy, so ordering by it means little — it is that `continuations.mdx` publishes the boundary promise TODAY, and the wipe is what invites the first readers who will rely on it. A reviewer agent queued a task chip for this work; this file supersedes it.
+**Status:** ✅ **BUILT AND ARCHIVED 2026-09-25 — twelve phases, all green.** `npm run test:code` passes every workspace, `drive.ts all` is 30/30 container lane included, and the doc checker verifies every example. Phases 1–10 were the reviewed plan; 11 and 12 were agreed with Larry after the verifier panel and close the two things the panel could not see — a refused push that reached nobody, and a refusal that named the wrong cause. The pre-build status read: Pass 2 — **design intent is COMPLETE, every decision is settled (§ *What needs Larry*), and the ten phases are written.** `/review-task` Stage 1 ran twice and Stage 2 twice — the second time against the phases, which is the pass that can see decomposition, ordering and criteria that cannot fail. **Both legs carry a settled design** (§ *The request leg* and § *The response leg*), reworked through a `/review-task` Stage 1 re-run on 2026-09-24. A response-leg member-level check was weighed and rejected, with the trigger to re-derive recorded (§ *R3*). Surfaced 2026-09-22/23 by `/review-task` Stage 2 of [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md). **These are pre-existing holes in `@lumenize/mesh`, not introduced by any Nebula task.** The urgency is not the wipe's ordering — that file notes there is exactly one deploy, so ordering by it means little — it is that `continuations.mdx` publishes the boundary promise TODAY, and the wipe is what invites the first readers who will rely on it. A reviewer agent queued a task chip for this work; this file supersedes it.
 
 **Objective — a remote caller reaches exactly what `@mesh` marks and nothing else.**
 
@@ -851,3 +851,27 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
       verifies 235 examples. ⓘ `drive.ts all` is 30/30 AFTER the change as well as before it — owed
       because `#subscribeVia` is on the path every scenario rides, so a bound set too low would have
       reddened somebody else's subscribe rather than this phase's own test.
+
+12. **A refusal names WHICH of three things went wrong.** Agreed with Larry 2026-09-25, from the
+    question Phase 11 started: what does a continuation naming a member that does not exist get
+    back? The answer was the unmarked case's message — *"Add the @mesh decorator"* — in front of a
+    member with nothing to add it to. `security.mdx` meanwhile told readers all three cases give a
+    not-found, so neither the docs nor the code described the behaviour, and the doc was promising
+    the semantics Larry had proposed from the other side.
+    - **Three causes, three messages, because each has a different fix and only the author applies
+      it:** the member is absent, it exists and carries no `@mesh()`, or it is an unmarked override
+      shadowing a marked one. The third was Phase 5's and stays as it was.
+    - **Disclosing whether a member exists is the deliberate half.** One uniform refusal was the
+      alternative and buys close to nothing — mesh publishes MIT, so a node's member names are
+      readable by anyone who looks, and a caller can already probe by calling. What it costs is the
+      diagnosis of the commonest authoring mistake, which is not a trade worth making.
+    - **Success criteria:** `entry-and-walk.test.ts` pins the absent case both ways — the message it
+      carries and the message it MUST NOT, since a bare `rejects` passes on the old collapsed
+      behaviour. `security.mdx` § *Layered Security Model* describes the three. Every workspace's
+      suite green; the doc checker verifies 236 examples.
+    - **Mutation note:** collapsing the absent branch back into the generic message — the exact
+      pre-2026-09-25 behaviour — reds that one test and nothing else. ⓘ The inverse (the absent
+      branch firing for everything) reds five, which proves nothing per `/build-task`'s rule; it is
+      recorded only so the next reader does not repeat it expecting a signal.
+    - ✅ **DONE 2026-09-25.** The absent case had no test at all before this, which is why a message
+      nobody could follow survived ten phases, two Stage 1 panels, a Stage 2 and a verifier fan-out.

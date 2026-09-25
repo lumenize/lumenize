@@ -6,7 +6,7 @@
  * `onQueryBroadcastResult(queryHash)` for a query — which carries what changed and nothing
  * identifying which target answered. So the reaper's only source of *who died* today is the payload:
  * a `ClientDisconnectedError` whose `clientInstanceName` names anyone the replying client likes.
- * `tasks/mesh-entry-and-walk-gaps.md` § *R2* deletes that field and takes the victim from the
+ * `tasks/archive/mesh-entry-and-walk-gaps.md` § *R2* deletes that field and takes the victim from the
  * address the caller used.
  *
  * ⚠️ **The harm is what this asserts, not a proxy for it.** A reaped subscriber stops receiving

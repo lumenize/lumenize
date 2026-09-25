@@ -79,7 +79,7 @@ export class _TestSimpleDO extends LumenizeDO {
     return this.ctx.storage.kv.get(`__test_call_count:${url}`) || 0;
   }
 
-  // ─── `svc` as a wire entry (tasks/mesh-entry-and-walk-gaps.md) ─────────────────────────────
+  // ─── `svc` as a wire entry (tasks/archive/mesh-entry-and-walk-gaps.md) ─────────────────────────────
   // A real mesh hop, deliberately: `__localChainExecutor` runs the same rule in the same function,
   // but this is the door an off-the-wire chain actually arrives at, and the 4-arg handler brings
   // the refusal MESSAGE back so a limb can match on it rather than on a boolean.

@@ -8,7 +8,7 @@
  *    `executeEnvelope`'s two doors, the two `__localChainExecutor` getters, and the browser client,
  *    which calls `executeOperationChain(chain, this)` with no config and therefore takes the secure
  *    default. A fix written at the envelope seam satisfies every OTHER criterion in
- *    `tasks/mesh-entry-and-walk-gaps.md` while leaving this door wide open.
+ *    `tasks/archive/mesh-entry-and-walk-gaps.md` while leaving this door wide open.
  * 2. **It is the only place `constructor` reaches `Function`.** workerd refuses that walk with an
  *    `EvalError`; unrestricted V8 does not. The probe table's V8 row can only be driven here.
  *

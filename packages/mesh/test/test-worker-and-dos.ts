@@ -1067,7 +1067,7 @@ export class TestDO extends LumenizeDO<Env> {
    * Run an arbitrary chain on THIS DO at the wire's flag setting, bounded.
    *
    * ⚠️ The bound is the assertion's mechanism, not impatience: § *Gotchas*, item 2 of
-   * `tasks/mesh-entry-and-walk-gaps.md` measured that a wire-borne `svc.alarms.schedule` chain
+   * `tasks/archive/mesh-entry-and-walk-gaps.md` measured that a wire-borne `svc.alarms.schedule` chain
    * HANGS rather than being refused — `executeOperationChain` awaits every apply and a
    * continuation proxy is a never-settling thenable — so a test that simply awaited it would hang
    * with it, and one that only matched a message would assert against a refusal that never comes.
