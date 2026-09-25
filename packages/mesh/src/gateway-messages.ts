@@ -216,8 +216,34 @@ export class ClientDisconnectedError extends Error {
   }
 }
 
+/**
+ * The client's token lapsed while its socket was live — a SELF-HEALING condition, and deliberately
+ * NOT a `ClientDisconnectedError`.
+ *
+ * The Gateway closes the socket with 4401 and the client is back in about 100 ms with a fresh
+ * token. Reaping its subscriptions in that window is simply wrong, and it used to happen for one
+ * reason: the Gateway answered both of its own conclusions — "this client is gone" and "this
+ * client's token just lapsed" — with the same class, so every reaper's `name === 'ClientDisconnected
+ * Error'` guard matched a client that was about to reconnect.
+ *
+ * Giving the lapse its own name is the whole fix: the existing guards stop matching it, with no
+ * per-reaper change and nothing new to remember. A caller that genuinely wants to treat both alike
+ * names both.
+ */
+export class ClientTokenExpiredError extends Error {
+  name = 'ClientTokenExpiredError';
+
+  constructor(
+    message: string = 'Client token expired',
+    public readonly clientInstanceName?: string
+  ) {
+    super(message);
+  }
+}
+
 // Register on globalThis for @lumenize/structured-clone deserialization
 (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
+(globalThis as any).ClientTokenExpiredError = ClientTokenExpiredError;
 
 // ============================================
 // WebSocket Attachment / Connection Info

@@ -44,6 +44,7 @@ export type { MeshGuard } from './mesh-decorator';
 export {
   GatewayMessageType,
   ClientDisconnectedError,
+  ClientTokenExpiredError,
   WS_CLOSE_SUPERSEDED,
   WS_TOKEN_PREFIX,
   extractWebSocketToken,

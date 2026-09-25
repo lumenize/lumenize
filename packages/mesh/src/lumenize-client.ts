@@ -75,10 +75,13 @@ function buildClientOutgoingContext(
     ? { ...parentContext.state, ...options.state }
     : parentContext.state;
   // Spread the parent context and override only what this hop changes — originAuth and any
-  // immutable field added later ride through unnamed.
+  // immutable field added later ride through unnamed. ⚠️ `callee` is PER-HOP and is named so it
+  // does NOT. The receiving node overwrites it regardless, so this states the field's kind rather
+  // than guarding anything — see the same note in `lmz-api.ts`.
   return {
     ...parentContext,
     callChain: newCallChain,
+    callee: undefined,
     state: newState,
   };
 }

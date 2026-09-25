@@ -127,6 +127,66 @@ describe('LumenizeClientGateway', () => {
     });
   });
 
+  describe('a lapsed token is not a death', () => {
+    /**
+     * The Gateway used to answer BOTH of its own conclusions — "this client is gone" and "this
+     * client's token just lapsed" — with `ClientDisconnectedError`, so every reaper's name guard
+     * matched a client that was about to reconnect. The lapse has its own class now, and the rename
+     * IS the fix: nothing per-reaper changes.
+     *
+     * ⚠️ **A REAL lapse on a REAL clock**, not a token born expired. `vi.setSystemTime` would move
+     * the clock both isolates see and would be legitimate, but the wait here is two and a half
+     * seconds — and what a token born expired proves is that the branch runs, not that a live
+     * socket survives its token lapsing under it.
+     */
+    it('answers a push to a live socket whose token lapsed with ClientTokenExpiredError', async () => {
+      const instance = 'lapsed.tab1';
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName(instance);
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ sub: 'lapsed', exp: Math.floor(Date.now() / 1000) + 2 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': instance,
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+        },
+      });
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      // The socket stays OPEN across the lapse — that is the condition under test.
+      await new Promise((r) => setTimeout(r, 2500));
+
+      const caller = env.TEST_DO.getByName('lapsed-caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'lapsed-caller' });
+      caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', instance);
+
+      await vi.waitFor(async () => {
+        expect(await caller.getLastCallErrorName()).toBeTruthy();
+      }, { timeout: 8000 });
+
+      // The discrimination IS the fix: a reaper guards on this name, so a lapse stops matching.
+      expect(await caller.getLastCallErrorName()).toBe('ClientTokenExpiredError');
+      expect(await caller.getLastCallErrorName()).not.toBe('ClientDisconnectedError');
+    }, 20000);
+
+    it('still answers a push to a client that never connected with ClientDisconnectedError', async () => {
+      // The control. Without it, a change that renamed BOTH conclusions would satisfy the limb
+      // above while leaving the two just as conflated as before.
+      const caller = env.TEST_DO.getByName('never-connected-caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'never-connected-caller' });
+      caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', 'nobody.tab1');
+
+      await vi.waitFor(async () => {
+        expect(await caller.getLastCallErrorName()).toBeTruthy();
+      }, { timeout: 8000 });
+      expect(await caller.getLastCallErrorName()).toBe('ClientDisconnectedError');
+    }, 20000);
+  });
+
   describe('Client-initiated calls', () => {
     it('forwards client call to EchoDO and returns result', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('caller.tab1');

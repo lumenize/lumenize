@@ -630,6 +630,20 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
    - **Mutation note:** set the field from a handler argument instead and the Phase 8 direct-call limb
      reds; add it to the Gateway's outbound rebuild and the withheld-from-client criterion reds; keep
      one error class for both conclusions and the lapsed-token criterion reds.
+   - ✅ **DONE 2026-09-24.** The field is `callContext.callee`, a `NodeIdentity` — not a coinage:
+     `envelope.metadata.callee` already carries the same meaning, so a reader meets one word. A
+     limb per path, each asserting the VALUE rather than presence, plus a discard limb that supplies
+     a wire value to be overwritten. The lapse is a REAL 2.5 s wait on a live socket, not a token
+     born expired, with a never-connected control so a change renaming BOTH conclusions cannot pass.
+     Mutations: set-if-absent reds the discard limb alone, taking the callee from the payload reds
+     the `dispatchEnvelope` limb alone, and one class for both conclusions reds the lapse limb alone.
+   - ⚠️ **One criterion is not load-bearing, and saying so beats implying otherwise.** Amending the
+     two spread sites to exclude `callee` reds NOTHING, and no test can: every receiver overwrites
+     it unconditionally, and the Gateway builds a client's context from an explicit four-field list,
+     so an inherited value is discarded before anything reads it. The lines stay — the comments they
+     sit under promise that an unnamed field rides through, so the next per-hop field should be
+     added deliberately rather than by omission — but they are documentation, not a guard, and both
+     comments now say that rather than dressing it as security.
 
 8. **Every reaper takes its victim from the address, and `clientInstanceName` leaves the error.** The
    field goes from `ClientDisconnectedError`, with the sites that stamp it; the reapers across

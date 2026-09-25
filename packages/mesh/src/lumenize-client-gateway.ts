@@ -8,6 +8,7 @@ import type { NodeType, NodeIdentity, CallContext, OriginAuth, OriginRequest, Or
 import {
   GatewayMessageType,
   ClientDisconnectedError,
+  ClientTokenExpiredError,
   WS_CLOSE_SUPERSEDED,
   type CallMessage,
   type CallResponseMessage,
@@ -23,6 +24,7 @@ import {
 export {
   GatewayMessageType,
   ClientDisconnectedError,
+  ClientTokenExpiredError,
   WS_CLOSE_SUPERSEDED,
 };
 export type {
@@ -506,7 +508,10 @@ export class LumenizeClientGateway extends DurableObject<any> {
     if (tokenExp && tokenExp < Date.now() / 1000) {
       log.warn('Token expired, closing connection');
       ws.close(4401, 'Token expired');
-      return { $error: preprocess(new ClientDisconnectedError(
+      // Its OWN class: the socket closes with 4401 and the client is back in about 100 ms, so a
+      // reaper must not treat this as a death. Every reaper guards on the name, so the rename IS
+      // the fix — nothing per-reaper changes.
+      return { $error: preprocess(new ClientTokenExpiredError(
         'Client token expired',
         clientInstanceName
       )) };

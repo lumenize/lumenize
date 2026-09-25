@@ -129,9 +129,16 @@ export function buildOutgoingCallContext(
 
   // Spread the inherited context and override only what this hop changes — so originAuth,
   // originRequest, and any immutable field added later ride through without being named here.
+  // ⚠️ `callee` is PER-HOP, and is named here precisely BECAUSE the comment above says an unnamed
+  // field rides through — which is right for every other field and wrong for this one.
+  // ⓘ Honestly: no test reds without this line, and none can. Every receiver overwrites the field
+  // unconditionally (`executeEnvelope`), and the Gateway builds a client's context from an explicit
+  // four-field list, so an inherited value is discarded before anything reads it. What the line
+  // buys is that the next per-hop field added here is added deliberately rather than by omission.
   return {
     ...currentContext,
     callChain: newCallChain,
+    callee: undefined,
     state: newState
   };
 }
@@ -238,7 +245,19 @@ async function dispatchEnvelope(
   // 4-arg: run the caller's handler LOCALLY with the Error (no hop — caller still hot).
   try {
     const filled = replaceNestedOperationMarkers(handlerChain, errorObj);
-    await runWithCallContext(envelope.callContext, () =>
+    // The handler runs HERE, so the address that matters to it is the one this call was sent to —
+    // taken from the dispatch's own parameter, never from anything the reply carries. OVERWRITTEN
+    // unconditionally: a set-if-absent would leave an upstream node's address in place, and a
+    // reaper reading it would act on somebody else's.
+    const handlerContext: CallContext = {
+      ...envelope.callContext,
+      callee: {
+        type: calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker',
+        bindingName: calleeBindingName,
+        instanceName: calleeInstanceName,
+      },
+    };
+    await runWithCallContext(handlerContext, () =>
       executeFilledChain(filled, nodeInstance, { requireMeshDecorator: false }));
   } catch (handlerError) {
     log.error('failed to deliver a dispatch-rejected result to the local handler', {
@@ -880,6 +899,14 @@ async function fireResponse(
       callContext: {
         ...inboundContext,  // originAuth, originRequest, and any later immutable field ride through
         callChain: [...inboundContext.callChain, calleeIdentity],
+        // PER-HOP, and overwritten unconditionally: the handler is about to run at the caller, so
+        // the address that matters to it is where this fire-back is going. ⚠️ Self-reported here —
+        // see `CallContext.callee`.
+        callee: {
+          type: response.returnAddr.type,
+          bindingName: response.returnAddr.bindingName,
+          instanceName: response.returnAddr.instanceName,
+        },
       },
       metadata: {
         caller: { type: calleeIdentity.type, bindingName: calleeIdentity.bindingName, instanceName: calleeIdentity.instanceName },
@@ -1010,7 +1037,17 @@ export async function executeEnvelope(
 
     // Postprocess the chain (aliases/cycles, custom Error types).
     operationChain = postprocess(envelope.chain);
-    callContext = envelope.callContext;
+    // OVERWRITTEN unconditionally from this node's own identity — whatever the envelope carried is
+    // DISCARDED. That is the whole point: the value must come from a source the caller cannot
+    // write, and the only such source at the receiving end is the receiver itself.
+    callContext = {
+      ...envelope.callContext,
+      callee: {
+        type: node.lmz.type,
+        bindingName: node.lmz.bindingName!,
+        instanceName: node.lmz.instanceName,
+      },
+    };
 
     // onBeforeCall is the guard — it runs under the call context and may read/mutate
     // state; a throw here rejects admission (scope/auth). This is the D5 gate on the

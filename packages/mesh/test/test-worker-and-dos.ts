@@ -958,6 +958,54 @@ export class TestDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('cache');
   }
 
+  // ─── who the framework says this hop was addressed to ──────────────────────────────────
+
+  /** A 4-arg handler that records the per-hop `callee` rather than the result. */
+  recordCallee(_result: unknown): void {
+    this.ctx.storage.kv.put('seen_callee', this.lmz.callContext.callee ?? null);
+  }
+
+  /** Path 1 — `dispatchEnvelope`: the callee rejects at admission, so the handler runs HERE. */
+  testCalleeOnLocalHandler(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().ping();
+    this.lmz.call(binding, instance, remote, this.ctn().recordCallee(remote));
+  }
+
+  /** Path 3 — `fireResponse`: the callee admits, runs, and fires the handler back. */
+  testCalleeOnFireBack(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().remoteEcho('callee');
+    this.lmz.call(binding, instance, remote, this.ctn().recordCallee(remote));
+  }
+
+  /**
+   * Path 2 — `executeEnvelope`: a method reading the field AT the receiving node.
+   * It STORES rather than returns, because `callContext` exists only during a mesh call and a
+   * plain RPC read of the return value would have to happen outside one.
+   */
+  @mesh()
+  reportCallee(): void {
+    const callee = this.lmz.callContext.callee;
+    this.ctx.storage.kv.put('received_callee', callee
+      ? { bindingName: callee.bindingName, instanceName: callee.instanceName }
+      : null);
+  }
+
+  async getReceivedCallee(): Promise<unknown> {
+    return this.ctx.storage.kv.get('received_callee');
+  }
+
+  async clearReceivedCallee(): Promise<void> {
+    this.ctx.storage.kv.delete('received_callee');
+  }
+
+  async getSeenCallee(): Promise<unknown> {
+    return this.ctx.storage.kv.get('seen_callee');
+  }
+
+  async clearSeenCallee(): Promise<void> {
+    this.ctx.storage.kv.delete('seen_callee');
+  }
+
   /** 4-arg call whose reply is marker-shaped, with the handler spelling `$result`. */
   testCallForMarkerReply(binding: string, instance: string | undefined, json: string): void {
     const remote = this.ctn<TestDO>().replyFromStoredJson(json);

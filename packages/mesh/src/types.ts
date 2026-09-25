@@ -100,6 +100,24 @@ export interface CallContext {
   // authors) and NOT in state (which any hop may mutate). Server-side only: never sent to a client.
   originRequest?: OriginRequest;
 
+  /**
+   * PER-HOP — the node THIS hop was addressed to, stamped by the framework from a source the
+   * caller does not write. Unlike every other field here it does NOT ride through: each hop
+   * overwrites it, and a wire-supplied value is discarded.
+   *
+   * It exists because a handler otherwise has no unforgeable way to learn WHICH target answered.
+   * A fan-out gives every target the same handler chain, so a reply is the only thing that differs
+   * — and a reply is authored by the far side, which is how a client could name somebody else as
+   * the one that died and have their subscription reaped.
+   *
+   * ⚠️ **Trust differs by leg, and over-trusting it is the likelier mistake.** On the request leg
+   * (`dispatchEnvelope`) and at the receiving node (`executeEnvelope`) it is the address the caller
+   * used or the node's own name, so it is unforgeable. On a mesh FIRE-BACK (`fireResponse`) it is
+   * the callee's SELF-REPORTED identity, which is trustworthy on the Gateway and local-handler
+   * paths and not generally.
+   */
+  callee?: NodeIdentity;
+
   // Mutable — can be modified by onBeforeCall or any handler along the way
   state: Record<string, unknown>;
 }
