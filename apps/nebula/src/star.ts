@@ -174,11 +174,9 @@ export class Star extends NebulaDO {
   }
 
   /**
-   * True iff `version` matches the latest cached version. Star's `_index`
-   * holds Galaxy's full ordered history at the moment of the last fetch, so
-   * the latest is the last entry — the cached row matches that label.
-   * Older entries in `_index` are part of the migration chain (5.5) but no
-   * row is cached for them.
+   * True iff `version` is the INSTALLED version. `_index` holds this Star's install history
+   * with the installed version LAST — `setOntology` keeps it there, re-install included — so
+   * the last entry names the one row cached. No row is cached for any earlier entry.
    */
   #isCachedVersion(version: string): boolean {
     const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
@@ -232,8 +230,8 @@ export class Star extends NebulaDO {
 
   /**
    * Replace the cached ontology with a fresh state from Galaxy, atomically.
-   * Drops the previous row, writes the new latest row, and stores the full
-   * version history (oldest → newest) in `_index`. The history travels with
+   * Drops the previous row, writes the new one, and stores the install history in
+   * `_index` with the installed version LAST (`setOntology` orders it). The history travels with
    * the row so 5.5's lazy migration has the chain order without needing a
    * separate Galaxy round-trip.
    */
@@ -318,8 +316,8 @@ export class Star extends NebulaDO {
   /**
    * Install a compiled ontology row — the INTERNAL install primitive, the one door
    * every install path goes through: the lazy-pull handler ({@link onOntologyPulled})
-   * for both the client-pinned and first-touch pulls, and the test subclasses'
-   * `applyOntologyForTest` (which compile in a test Worker and call this on `this`).
+   * and the test subclasses' `applyOntologyForTest` (which compile in a test Worker and
+   * call this on `this`).
    * **Deliberately NOT `@mesh`** — the deleted eager-push flow was the only remote
    * caller, and a remote entry would let an in-scope admin hand this Star an arbitrary
    * validator bundle outside the Galaxy registry, the one source. Absence of `@mesh`
@@ -333,43 +331,39 @@ export class Star extends NebulaDO {
    */
   setOntology(row: OntologyVersionRow): void {
     const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-    const history = prevIndex.includes(row.version) ? prevIndex : [...prevIndex, row.version];
+    // The installed version is the LAST entry, always — every reader (`#isCachedVersion`,
+    // `#currentVersion`, `#ensureFacet`) takes it from there. So re-installing a version the
+    // history already holds MOVES it to the end: left in place, a revert installed one row while
+    // every reader still named another, and the next cold start found no row at all.
+    const history = [...prevIndex.filter((v) => v !== row.version), row.version];
     this.#installState({ row, history });
   }
 
   /**
-   * Fire the registry lazy-pull: fetch `version`'s row from the parent Galaxy with a
-   * traveling install handler ({@link onOntologyPulled}). Rides the CURRENT op's
-   * callContext (the asking member's own claims — an upward call every member has
-   * passage for); fire-and-forget, never awaited (ADR-003 — the refused op answers
-   * `installing` and the client retries). Idempotent: a concurrent pull's second
-   * install lands on `setOntology`'s already-present no-op.
+   * Fire the registry lazy-pull: ask the parent Galaxy for its CURRENT row, with a traveling
+   * install handler ({@link onOntologyPulled}). Rides the asking op's callContext (the asking
+   * member's own claims — an upward call every member has passage for); fire-and-forget, never
+   * awaited (ADR-003 — the refused op answers `installing` and the client retries). Idempotent:
+   * a concurrent pull's second install lands on the handler's already-installed no-op.
+   *
+   * ⚠️ **It asks for CURRENT, never for the version the asking op pinned.** A Star serves one
+   * version, its Galaxy's current one, so a tab on an older bundle is told to refresh rather than
+   * installed back onto. Pulling the pinned version let one stale tab move the whole Star off
+   * current — dropping every subscriber and validating current tabs against the old schema.
+   * `pinned` rides along for the handler's log line only; `invite`'s first touch passes `''`.
    */
-  #pullOntology(version: string): void {
-    this.lmz.call('GALAXY', this.galaxyId,
-      this.ctn<Galaxy>().getOntologyVersion(version),
-      this.ctn<Star>().onOntologyPulled(version));
-  }
-
-  /**
-   * The server-originated first-touch arm: pull whatever the parent Galaxy says is
-   * CURRENT (its workspace ontology file's applied row — `Galaxy.getCurrentOntology`).
-   * Only for a Star with no install at all, where no client ever pinned a version —
-   * a client op always pulls its pinned version via {@link #pullOntology} instead.
-   * Same traveling handler; the empty expected-version means "accept what current is".
-   */
-  #pullOntologyCurrent(): void {
+  #pullOntology(pinned: string): void {
     this.lmz.call('GALAXY', this.galaxyId,
       this.ctn<Galaxy>().getCurrentOntology(),
-      this.ctn<Star>().onOntologyPulled(''));
+      this.ctn<Star>().onOntologyPulled(pinned));
   }
 
   /**
    * The lazy-pull's result handler — travels with the call (survives this DO's
-   * eviction). Installs the pulled row; a `wipeOnInstall` row pulled over an OLDER
-   * installed version wipes first (the breaking-edit bargain, decided + dominion-checked
-   * Galaxy-side when the version was appended — a property of the row, never pending
-   * state). `null` (version unknown to the registry) installs nothing — the client's
+   * eviction). Installs the Galaxy's current row unless it is already installed; a
+   * `wipeOnInstall` row pulled over any prior install wipes first (the breaking-edit bargain,
+   * decided + dominion-checked Galaxy-side when the version was appended — a property of the
+   * row, never pending state). `null` (nothing applied yet) installs nothing — the client's
    * bounded retries exhaust and surface the ordinary stale signal.
    *
    * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
@@ -379,25 +373,21 @@ export class Star extends NebulaDO {
    * as `onInviteResult`. ⚠️ Pre-alpha the only puller is the `.dev` star; a wipeOnInstall
    * pull on a non-`.dev` star logs + skips (the prod install path is the fast-follow's).
    */
-  public async onOntologyPulled(version: string, result?: unknown): Promise<void> {
+  public async onOntologyPulled(pinned: string, result?: unknown): Promise<void> {
     const log = debug('nebula.Star.ontologyPull');
     try {
       if (result instanceof Error) {
-        log.warn('ontology pull failed', { version, error: result.message });
+        log.warn('ontology pull failed', { pinned, error: result.message });
         return;
       }
       const row = result as OntologyVersionRow | null;
       if (!row) {
-        log.warn('ontology pull returned no row — version unknown to the registry', { version });
+        log.warn('ontology pull returned no row — nothing applied yet', { pinned });
         return;
       }
-      // An empty expected version is the first-touch pull-current arm ({@link
-      // #pullOntologyCurrent}) — whatever the Galaxy answered IS current, so there is
-      // no label to enforce. A pinned pull still refuses a mismatched row.
-      if (version !== '' && row.version !== version) {
-        log.error('ontology pull returned a DIFFERENT version — not installing', { version, got: row.version });
-        return;
-      }
+      // Whatever the Galaxy answered IS current, and the Star converges on it whether or not it
+      // is what the asking tab pinned. A tab pinned to anything else is stale on its retry, which
+      // is the signal it needs; installing ITS version instead is what moved a Star off current.
       if (this.#isCachedVersion(row.version)) return; // already current — idempotent
       const hadPrior = (this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? []).length > 0;
       if (row.wipeOnInstall && hadPrior) {
@@ -405,17 +395,19 @@ export class Star extends NebulaDO {
         if (!(segs.length === 3 && segs[2] === 'dev')) {
           // resetDevData is .dev-guarded; the prod wipe-on-install story is the
           // fast-follow's prod install path. Refuse loudly rather than half-install.
-          log.error('wipeOnInstall pull on a non-.dev star — not installing (prod install path pending)', { version });
+          log.error('wipeOnInstall pull on a non-.dev star — not installing (prod install path pending)', { version: row.version });
           return;
         }
         await this.resetDevData();
       }
       this.setOntology(row);
-      log.debug('ontology pulled + installed', { version, wiped: Boolean(row.wipeOnInstall && hadPrior) });
+      log.debug('ontology pulled + installed', {
+        pinned, version: row.version, wiped: Boolean(row.wipeOnInstall && hadPrior),
+      });
     } catch (err) {
       // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
       log.error('ontology pull handling failed', {
-        version, error: err instanceof Error ? err.message : String(err),
+        pinned, error: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -502,7 +494,7 @@ export class Star extends NebulaDO {
     // the same retry contract every data op carries. Nothing partial happened: the gate
     // sits before any invite work.
     if ((this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? []).length === 0) {
-      this.#pullOntologyCurrent();
+      this.#pullOntology('');
       throw new OntologyStaleError('', '', { installing: true });
     }
     return this.#dataPlane.invite(nodeId, invitees, (valid) =>

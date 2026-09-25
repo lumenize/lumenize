@@ -48,6 +48,7 @@ import * as broadcastPastThreshold from './scenarios/broadcast-past-threshold';
 import * as studioGuidanceLoop from './scenarios/studio-guidance-loop';
 import * as meshEntryReach from './scenarios/mesh-entry-reach';
 import * as reaperVictimIsTheAddress from './scenarios/reaper-victim-is-the-address';
+import * as starServesCurrentOntology from './scenarios/star-serves-current-ontology';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -125,6 +126,8 @@ const SCENARIOS: Record<string, Scenario> = {
   // ── what a logged-in browser session reaches past `@mesh` — red until the executor closes it ──
   'mesh-entry-reach': meshEntryReach,           // every chain a remote caller must not run, refused past a real gate (no Docker)
   'reaper-victim-is-the-address': reaperVictimIsTheAddress,  // a forged reply reaps only its author; a real disconnect still reaps (no Docker)
+  // ── a Star converges on its Galaxy's CURRENT ontology, never on the asking tab's ──────────
+  'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — two real Applies)
 };
 
 /**

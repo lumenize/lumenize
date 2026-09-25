@@ -90,6 +90,26 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     client[Symbol.dispose]();
   });
 
+  it('re-installing an earlier version serves it — the installed version is the one every reader sees', async () => {
+    // A revert: v1 is current again after v2. Left in place in the install history, v1's row was
+    // installed while every reader still named v2 — a v1 op was answered stale until it gave up,
+    // and the next cold start found no row at all. The `star-serves-current-ontology` scenario
+    // drives the same revert through a real Apply; this pins the install half where CI runs it.
+    const { galaxy, dev } = uniqueGalaxyScope();
+    const { client } = await devAdminClient(galaxy, dev);
+    await installOntology(client, dev, 'v1', TODO_V1);
+    await installOntology(client, dev, 'v2', TODO_V2_ADDITIVE);
+    await installOntology(client, dev, 'v1', TODO_V1);
+
+    const rid = crypto.randomUUID();
+    client.callStarTransaction(dev, 'v1', {
+      [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'after the revert', done: false } },
+    });
+    expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
+
+    client[Symbol.dispose]();
+  });
+
   it('resetDevData wipes the sandbox and re-inits (M2)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);

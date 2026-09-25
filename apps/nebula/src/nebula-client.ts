@@ -1094,9 +1094,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       // Ontology-stale is delivered as a RETURNED value (resolve, not reject) — the engine treats it
       // as a version-skew signal, not an infrastructure error (asymmetric with `read`, which rejects).
       if (isOntologyStaleError(result)) {
-        // `installing` = the host fired a registry lazy-pull for exactly this version inside
-        // our op's call context (an install it cannot await — ADR-003), so the op is expected
-        // to succeed shortly. Retry the replay-idempotent submission (same `newETag`) a few
+        // `installing` = the host fired a registry lazy-pull of the CURRENT version inside our
+        // op's call context (an install it cannot await — ADR-003), so the op succeeds shortly
+        // if this version is current. Retry the replay-idempotent submission (same `newETag`) a few
         // times before treating the version as genuinely stale.
         if (result.installing && attempt < INSTALLING_RETRY_LIMIT) {
           await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));

@@ -29,7 +29,7 @@ const ONTOLOGY = `interface todo { title: string; description?: string; status?:
 describe('async-modal conflict handler (real chromium, real WS + dialog)', () => {
   // ⏭️ SKIPPED — but the ORIGINAL blocker has expired (re-derived 2026-08-29). The 2026-07-25
   // banner argued the prod lazy-pull was unbuilt so a Galaxy-appended ontology never reached the
-  // Star; since then the lazy-pull LANDED (`Star.#pullOntology` → `getOntologyVersion`) AND the
+  // Star; since then the lazy-pull LANDED (`Star.#pullOntology` → `getCurrentOntology`) AND the
   // seed below was re-pointed to install directly on the STAR via `StarTest.applyOntologyForTest`
   // (the Galaxy test-install path is deleted — nebula-move-compilers-out-of-the-worker.md phase 3),
   // so the ontology-stale failure the old banner predicted should no longer occur. What is still

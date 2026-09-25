@@ -551,10 +551,10 @@ export class Galaxy extends NebulaDO {
   // caller-supplied-types append was a test-install path with no production caller.
 
   /**
-   * The row a star with NO installed ontology should run — the server-originated
-   * first-touch arm of the lazy-pull (a client op always pins a version; a
-   * server-originated write like `Star.invite` has no client to pin one, so it asks
-   * for "current"). **The ontology IS the workspace file**: the version is derived
+   * The row every Star under this Galaxy should run — what a Star's lazy-pull asks for,
+   * whether a client op pinned a version or a server-originated write like `Star.invite`
+   * found nothing installed. A Star converges on this row and never on the version a
+   * client pinned, so one tab on an older bundle cannot move it. **The ontology IS the workspace file**: the version is derived
    * here by READING `src/ontology.d.ts` and hashing it, never by trusting a stored
    * pointer — storage holds only the immutable compiled row per version, keyed by
    * that hash. A row exists only for an APPLIED version, so when the file is
@@ -608,8 +608,9 @@ export class Galaxy extends NebulaDO {
     return (await this.#registryRows()).at(-1) ?? null;
   }
 
-  /** Specific row by label, or `null` if absent. Bare `@mesh()` on purpose: a Star's
-   *  lazy-pull is an UPWARD call — every member of a descendant scope has passage here. */
+  /** Specific row by label, or `null` if absent. Bare `@mesh()`: an upward read every member of
+   *  a descendant scope has passage for. No Star calls it since the lazy-pull asks for the
+   *  CURRENT row ({@link getCurrentOntology}) instead of the version a client pinned. */
   @mesh()
   async getOntologyVersion(version: string): Promise<OntologyVersionRow | null> {
     return this.#registryRow(version);
@@ -692,8 +693,8 @@ export class Galaxy extends NebulaDO {
    * The dev apply step: compile the Workspace's ontology `.d.ts` and APPEND it to this
    * Galaxy's registry — there is NO downward push (deleted 2026-08-28, the second of the
    * two system hops the collapse removes). A Star acquires the version by LAZY-PULL: on
-   * a data op whose expected version it doesn't hold, it pulls
-   * `getOntologyVersion(version)` from this Galaxy inside that op's own call context —
+   * a data op whose expected version it doesn't hold, it pulls this Galaxy's CURRENT row
+   * ({@link getCurrentOntology}) inside that op's own call context —
    * upward passage is free for every member, so it works under any claims (the auth
    * story the eager push never had), and dev unifies with the prod (Flow 2b) design.
    *
