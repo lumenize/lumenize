@@ -22,7 +22,9 @@ import { createNebulaClient } from '@lumenize/nebula/frontend';
 interface NebulaScope {
   activeScope: string; // {u}.{g}.dev in dev; the deployed star in prod
   authScope: string;   // parent galaxy {u}.{g}
-  ontologyVersion: string;
+  // ABSENT until an ontology is applied. An app with no resources never needs one and boots
+  // without it; the resource plane refuses per op with NoOntologyInstalledError.
+  ontologyVersion?: string;
 }
 
 function readInjectedScope(): NebulaScope {

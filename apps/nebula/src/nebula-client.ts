@@ -22,7 +22,7 @@ import type {
 // it types the continuation below and is erased at compile.
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import { debug } from '@lumenize/debug';
-import { isOntologyStaleError } from './errors';
+import { isOntologyStaleError, NoOntologyInstalledError } from './errors';
 // Impersonation's own knowledge lives in its module — this client keeps only the two touchpoints
 // (the construction seam below, and one hook in `disconnect()`). Relative import: deliberately not
 // on the package barrel, and Node/browser-safe like the rest of this file.
@@ -212,11 +212,17 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
   /** Active scope — baked into JWT aud claim AND Star DO instance name (e.g., 'acme.app.tenant-a') */
   activeScope: string;
   /**
-   * App version this client was built against (lock-step with the server's
-   * ontology version). Auto-attached to every `client.resources.*` call.
-   * Studio bakes this in at app build time.
+   * App version this client was built against (lock-step with the server's ontology version).
+   * Auto-attached to every `client.resources.*` call. The serving layer injects it, from the
+   * version the Galaxy has APPLIED.
+   *
+   * **Optional, because an app with no resources is a first-class app.** Until an Apply runs there
+   * is no version to pin, and a client without one still connects, authenticates, chats and reads
+   * profiles — only the resource plane is unavailable, and it refuses per operation with
+   * {@link NoOntologyInstalledError} rather than refusing to construct. Requiring it here is what
+   * used to blank a freshly generated app's preview at mount.
    */
-  ontologyVersion: string;
+  ontologyVersion?: string;
   /**
    * Optional hook invoked when the server signals the client's ontology
    * version is stale (deploys happened since this client started). Typical
@@ -374,7 +380,8 @@ interface ProfileSubscribeTarget {
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
   #activeScope: string;
-  #ontologyVersion: string;
+  /** Absent when no ontology has been applied — see {@link NebulaClientConfig.ontologyVersion}. */
+  #ontologyVersion?: string;
   /** Binding hosting this client's Resources (default 'STAR'; the resource pair). */
   #resourceHostBinding: string;
   /** The chat host pair — NO default; chat paths throw when unset (see the config JSDoc). */
@@ -1081,7 +1088,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const meshNewETag = subs[0]!.newETag;
     const result = await this.lmz.callAsync(
       this.#resourceHostBinding, this.#activeScope,
-      this.ctn<Star>().transaction(this.#ontologyVersion, meshNewETag, this.#buildMeshOps(subs)),
+      this.ctn<Star>().transaction(this.#requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
     );
     if (result instanceof Error) {
       // Ontology-stale is delivered as a RETURNED value (resolve, not reject) — the engine treats it
@@ -1175,9 +1182,18 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // (Global Profiles are NOT in this registry — they walk `#profileRefcount` below on their dedicated
     // PROFILE binding. This is what fixes the shipped mis-route where a dev-user `Profile`-typed resource
     // was re-routed to the global PROFILE DO — tasks/nebula-subscriber-lists.md.)
-    for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId));
+    // ⚠️ The version gates THIS LOOP ONLY — never the method. The profile, query and roster loops
+    // below need no ontology version, and an early return here silently stopped all three from
+    // re-firing on reconnect (caught by `first-app-built`, 2026-09-25). Reading it once and
+    // skipping the loop is right: without a version nothing can have subscribed, because every
+    // subscribe pins one, so the registry is empty and the loop is a no-op anyway — and a
+    // reconnect handler is the wrong place to throw.
+    const version = this.#ontologyVersion;
+    if (version) {
+      for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
+        this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+          this.ctn<Star>().subscribe(version, resourceType, resourceId));
+      }
     }
     // Re-fire every live global-Profile sub on its own PROFILE binding (binding-agnostic, instance = profileId).
     for (const profileId of this.#profileRefcount.keys()) {
@@ -1550,12 +1566,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
+    // BEFORE any state. Refusing inside `fire()` instead would leave a registry entry and an armed
+    // abandon timer behind a subscribe that never went out.
+    const version = this.#requireOntologyVersion('subscribe');
     const key = `${resourceType}:${resourceId}`;
     this.#subscriptionRegistry.set(key, { resourceType, resourceId });
     return this.#subscribeVia(
       key,
       () => this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId)),
+        this.ctn<Star>().subscribe(version, resourceType, resourceId)),
       this.#pendingSubscribes,
       // Through the SAME door the host's own error push uses, so abandoning runs that branch's
       // cleanup — the registry entry goes too, which is what stops a reconnect replaying a
@@ -1695,6 +1714,24 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
+   * The ontology version this op pins, or a refusal naming why there is none.
+   *
+   * Every resource op sends a version the host ENFORCES, so an op cannot proceed without one — but
+   * the client itself can, and does. That asymmetry is the whole point: an app with no resources is
+   * a first-class app, and refusing at CONSTRUCTION instead would stop a freshly generated app
+   * rendering at all. It did exactly that until 2026-09-25, blanking the Studio preview on
+   * `<div id="app"></div>` with a mount-time throw as the only trace.
+   *
+   * ⚠️ Studio's own client is never the one that trips this — it is constructed with
+   * {@link CHAT_MESSAGE_ONTOLOGY_VERSION}, a platform constant rather than an applied version. Only
+   * a generated app's client, whose version comes from the Galaxy's applied head, can be without one.
+   */
+  #requireOntologyVersion(operation: string): string {
+    if (!this.#ontologyVersion) throw new NoOntologyInstalledError(operation);
+    return this.#ontologyVersion;
+  }
+
+  /**
    * Shared subscribe plumbing (binding-agnostic): coalesce with an in-flight subscribe for `key` in the
    * given `pending` map, else register a pending entry and `fire()` the subscribe call. Extracted so the
    * Star-resource path (`#pendingSubscribes`) and the dedicated global-Profile path (`#profilePending`)
@@ -1754,7 +1791,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // per Star). Kept in the client signature for API symmetry with
     // subscribe/transaction and for future addressing changes.
     void resourceType;
-    const version = options?.ontologyVersion ?? this.#ontologyVersion;
+    const version = options?.ontologyVersion ?? this.#requireOntologyVersion('read');
     // `callAsync` returns the snapshot (framework fire-back, D5 pattern (a)) — resilient across
     // reconnect/freeze, bounded by the default timeout. Concurrent reads are correlated by the
     // primitive's `callId`. On a stale version `Star.read` throws `OntologyStaleError` → the reject
@@ -1794,7 +1831,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     try {
       this.#onShouldRefreshUI({
         reason: 'ontology-stale',
-        clientVersion: clientVersion || this.#ontologyVersion,
+        clientVersion: clientVersion || this.#ontologyVersion || '',
         currentVersion,
       });
     } catch (err) {
@@ -2042,7 +2079,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // mismatch (Star's asymmetry); everything else is the ordinary TransactionResult.
     const result = await this.lmz.callAsync(
       binding, scope,
-      this.ctn<Galaxy>().transaction(this.#ontologyVersion, newETag, {
+      this.ctn<Galaxy>().transaction(this.#requireOntologyVersion('postUserMessage'), newETag, {
         [messageId]: {
           op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
           value: { chat: DEFAULT_CHAT_ID, content },

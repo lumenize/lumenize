@@ -11,8 +11,15 @@ import type { OntologyStaleInfo } from '../../src/nebula-client';
 const STALE: OntologyStaleInfo = { reason: 'ontology-stale', clientVersion: 'v1', currentVersion: 'v2' };
 
 describe('resolveNebulaClientConfig', () => {
-  it('requires ontologyVersion', () => {
-    expect(() => resolveNebulaClientConfig({ authScope: 'a.b.c' } as never)).toThrow(/ontologyVersion/);
+  it('RESOLVES without an ontologyVersion — an app with no resources is still an app', () => {
+    // This asserted the opposite until 2026-09-25, and the old rule is what blanked a freshly
+    // generated Studio preview: the serving layer injects the Galaxy's APPLIED ontology version,
+    // and before anyone runs Apply there is none, so the scaffold threw at mount and the page
+    // stayed `<div id="app"></div>`. Refusal moved to the resource ops, which are the only things
+    // that actually need a version.
+    const resolved = resolveNebulaClientConfig({ authScope: 'a.b.c' });
+    expect(resolved.ontologyVersion).toBeUndefined();
+    expect(resolved.activeScope).toBe('a.b.c');
   });
 
   it('throws a clear error when authScope is omitted (URL auto-detect deferred)', () => {

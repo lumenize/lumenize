@@ -56,7 +56,8 @@ export const INTERNAL_PARENT = Symbol('lumenize.nebula.impersonation.parent');
 /** Exactly the parent config a child inherits. Named so the contract is a type, not a convention. */
 export interface ChildConfigBase {
   baseUrl?: string;
-  ontologyVersion: string;
+  /** Absent when the parent holds none — an app with no applied ontology still runs. */
+  ontologyVersion?: string;
   fetch?: typeof fetch;
   WebSocket?: unknown;
   sessionStorage?: unknown;

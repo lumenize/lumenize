@@ -113,3 +113,34 @@ export class NodeIdCollisionError extends Error {
   }
 }
 
+
+/**
+ * Thrown by a resource operation on a client that holds no ontology version.
+ *
+ * **An app with no resources is a first-class app, so the client BOOTS without a version** — it
+ * connects, authenticates, chats and reads profiles. What it cannot do is touch the resource plane,
+ * because every op there pins a version the host enforces, and there is nothing to pin: the serving
+ * layer injects the version the Galaxy has APPLIED, and until someone runs Apply in Studio no
+ * version exists. A counter with an increment button never needs one.
+ *
+ * This is deliberately a refusal at the OPERATION rather than at construction. Refusing to
+ * construct would mean a freshly generated app cannot render at all — which it did, blanking the
+ * Studio preview on `<div id="app"></div>` with the mount error the only trace.
+ */
+export class NoOntologyInstalledError extends Error {
+  override name = 'NoOntologyInstalledError';
+  constructor(public readonly operation: string) {
+    super(
+      `${operation} needs an ontology version and this app has none installed. Run Apply in ` +
+      `Studio to install one; an app that uses no resources runs fine without it.`,
+    );
+  }
+}
+
+export function isNoOntologyInstalledError(err: unknown): err is NoOntologyInstalledError {
+  return (
+    err instanceof Error &&
+    err.name === 'NoOntologyInstalledError' &&
+    typeof (err as { operation?: unknown }).operation === 'string'
+  );
+}

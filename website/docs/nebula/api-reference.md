@@ -65,11 +65,11 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 
 ### Config
 
-`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. In a browser session that has completed the auth discovery flow, **only `ontologyVersion` is required** — all other fields auto-detect from the environment. The remaining fields stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no browser cookie or no same-origin server.
+`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. In a browser session that has completed the auth discovery flow, **every field auto-detects** — the serving layer injects scope and ontology version into the app shell, and the scaffold reads them. The remaining fields stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no browser cookie or no same-origin server.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `ontologyVersion` | `string` | required | The installed ontology version this client's resource ops ride (the server enforces the match). Auto-attached to every `resources.*` call. Studio's bootstrap substitutes this at deploy time; that's the entire reason Studio's `nebula.ts` has substitution markup. |
+| `ontologyVersion` | `string` | injected | The **applied** ontology version this client's resource ops ride (the server enforces the match). Auto-attached to every `resources.*` call. It arrives in the server-injected `<meta name="nebula-scope">`, which the scaffold reads — there is no build-time substitution. **Absent until someone runs Apply**, and that is fine: the client still connects, authenticates and renders, and only `resources.*` refuses, with `NoOntologyInstalledError`. An app that uses no resources never needs one. |
 | `baseUrl` | `string` | `window.location.origin` | Origin of the back end. Default works whenever UI and API share an origin, which is Nebula's standard deployment shape (the tenant's Star serves both). Specify only for cross-origin admin/scripting use. |
 | `authScope` | `string` | from deployment URL | The scope whose per-scope refresh endpoint (`/auth/{authScope}/refresh-token`) and path-scoped cookie this client uses. A deployed app is pinned to one scope, taken from the deployment URL (`window.location`). NOT readable from the refresh cookie (it's HttpOnly). Specify only for cross-origin admin/scripting callers. |
 | `activeScope` | `string` | same as `authScope` | The scope a call's JWT is bound to (`aud`) — where you're currently working. Defaults to `authScope`. A Galaxy/Universe admin sets it to any scope at or below their own to work in a child Star or back in the parent (see [Auth flows § Admin active-scope switching](./auth-flows.md#admin-active-scope-switching-within-one-scopes-subtree)). Sent in the refresh body; the server bounds it against the scope on their membership. Differs from `authScope` by at least the active branch once branches exist. |
@@ -90,12 +90,17 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 
 The Studio-generated `nebula.ts` in a browser app:
 
-```typescript @skip-check
-// nebula.ts (Studio bootstrap)
-import { createNebulaClient } from '@lumenize/nebula/frontend';
-
+```typescript @check-example('apps/nebula/container/app/src/nebula.ts')
+// nebula.ts (the scaffold). Scope is SERVER-DERIVED: the serving layer injects
+// `<meta name="nebula-scope">` and this reads it. `ontologyVersion` is absent until an
+// Apply has run, which is why it is optional — a resource-free app boots without one.
+const { activeScope, authScope, ontologyVersion } = readInjectedScope();
+// ...
 export const { client, store, ready } = createNebulaClient({
-  ontologyVersion: __APP_VERSION__,   // Studio substitutes at deploy time
+  ontologyVersion,
+  authScope,
+  activeScope,
+  ...(isDevPreview ? { onReload: () => window.location.reload() } : {}),
 });
 
 // Top-level await: main.ts (and every component) imports this module, so the

@@ -62,6 +62,7 @@ export {
   OntologyStaleError, isOntologyStaleError,
   PermissionDeniedError, isPermissionDeniedError,
   NodeNotFoundError, isNodeNotFoundError,
+  NoOntologyInstalledError, isNoOntologyInstalledError,
 } from './errors';
 
 // DAG tree

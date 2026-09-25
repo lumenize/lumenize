@@ -20,7 +20,7 @@ const client = new NebulaClient({
 });
 ```
 
-Browser apps don't construct `NebulaClient` directly — they use [`createNebulaClient`](./api-reference.md#createnebulaclient), where `baseUrl`, `activeScope`, and `onShouldRefreshUI` auto-detect. `ontologyVersion` is always required; `authScope` is currently required-in-practice too (its URL auto-detect is deferred — omitting it throws a clear error), and the explicit scopes above are the admin/scripting escape hatch.
+Browser apps don't construct `NebulaClient` directly — they use [`createNebulaClient`](./api-reference.md#createnebulaclient), where `baseUrl`, `activeScope`, and `onShouldRefreshUI` auto-detect. `ontologyVersion` is injected by the serving layer and is absent until an Apply has run — a resource-free app boots without it, and only `resources.*` refuses (`NoOntologyInstalledError`). `authScope` is currently required-in-practice (its URL auto-detect is deferred — omitting it throws a clear error), and the explicit scopes above are the admin/scripting escape hatch.
 
 Switching active scope means creating a new `NebulaClient` with a different `activeScope`. The refresh cookie (scoped to the auth scope path) carries over automatically.
 

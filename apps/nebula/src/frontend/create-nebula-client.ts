@@ -728,8 +728,8 @@ export function createNebulaStore(
 export { effectScope, vueComputed as computed };
 
 /**
- * Configuration for {@link createNebulaClient}. Only `ontologyVersion` is required;
- * `baseUrl` / `activeScope` / `onShouldRefreshUI` auto-detect, and all the
+ * Configuration for {@link createNebulaClient}. `baseUrl` / `activeScope` /
+ * `onShouldRefreshUI` auto-detect, and all the
  * inherited `NebulaClient` fields (`fetch`, `sessionStorage`, `onLoginRequired`,
  * `onConnectionStateChange`, …) stay available as escape hatches for
  * admin/scripting/tests. api-reference § createNebulaClient is the contract.
@@ -789,19 +789,23 @@ function defaultOnShouldRefreshUI(_info: OntologyStaleInfo): void {
 
 /**
  * Pure config resolution (auto-detect + defaults), split out so it's unit-testable
- * without opening a connection. Throws on a missing `ontologyVersion` or `authScope`
- * (the latter's URL auto-detect is deferred — see {@link CreateNebulaClientConfig}).
+ * without opening a connection. Throws on a missing `authScope` (its URL auto-detect is
+ * deferred — see {@link CreateNebulaClientConfig}).
+ *
+ * ⚠️ **A missing `ontologyVersion` is NOT an error here.** An app with no applied ontology has no
+ * version to pin, and it is still an app — it connects, authenticates and renders. The resource
+ * plane refuses per operation with `NoOntologyInstalledError` instead, which is the difference
+ * between a counter app that works and a blank page. Requiring it here is what blanked a freshly
+ * generated Studio preview until 2026-09-25: the serving layer injects the Galaxy's APPLIED
+ * version, and before the first Apply there is none.
  */
 export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   baseUrl?: string;
   authScope: string;
   activeScope: string;
-  ontologyVersion: string;
+  ontologyVersion?: string;
   onShouldRefreshUI: (info: OntologyStaleInfo) => void;
 } {
-  if (!config.ontologyVersion) {
-    throw new Error('createNebulaClient: `ontologyVersion` is required.');
-  }
   if (config.authScope === undefined) {
     throw new Error(
       'createNebulaClient: `authScope` auto-detect from the deployment URL is not yet implemented ' +

@@ -823,7 +823,13 @@ export class Galaxy extends NebulaDO {
         authScope: `${segs[0]}.${segs[1]}`,
         // The SAME derivation getCurrentOntology serves — one definition of "current",
         // so the version a client pins here is always one a Star can pull.
-        ontologyVersion: (await this.#appliedHead())?.version ?? '',
+        //
+        // ⚠️ ABSENT rather than empty when nothing has been applied, and `JSON.stringify` drops it.
+        // An app with no resources never applies an ontology, and it is still an app: the client
+        // boots without a version and refuses only resource ops. The `?? ''` this replaces made
+        // that case indistinguishable from a real version to every reader, and the scaffold's
+        // `createNebulaClient` threw on it — a freshly generated preview blanked at mount.
+        ontologyVersion: (await this.#appliedHead())?.version,
       }).replace(/'/g, '&#39;'); // the meta rides a single-quoted attribute
       return new HTMLRewriter()
         .on('head', {
