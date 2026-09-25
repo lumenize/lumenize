@@ -78,6 +78,24 @@ class StandInNode {
     this.ran.push('plain');
     return 'plain ran';
   }
+
+  // ─── the single walk (§ Gotchas, item 6) ───────────────────────────────────────────────
+  /** Every invocation of a gate body, and what argument it was handed. */
+  gateCalls: unknown[][] = [];
+
+  /** A counting gate. Synchronous, like the one gate on disk. */
+  @mesh()
+  countingGate(...args: unknown[]) {
+    this.gateCalls.push(args);
+    return { helper: () => 'helper ran' };
+  }
+
+  /** An ASYNC gate. Two of the three real zero-arg `@mesh` members on disk are `async`. */
+  @mesh()
+  async asyncGate() {
+    await Promise.resolve();
+    return { helper: () => 'async helper ran' };
+  }
 }
 
 /** Build a get-only nested marker carrying `chain`, exactly as `processArgumentsForNesting` does. */
@@ -310,5 +328,47 @@ describe('a chain shape the executor cannot mean is refused, not fallen through'
       [{ type: 'apply', args: [5] }], target,
     )).rejects.toThrow(/first operation/);
     expect(called).toEqual([]);
+  });
+});
+
+describe('the executor walks a chain once, carrying the parent forward', () => {
+  // Same tier reason as the rest of this file: how the executor finds the object a method hangs
+  // off is a pure property of `executeOperationChain`, so a stand-in object is the whole system
+  // under test.
+
+  it('runs a gate body ONCE per chain', async () => {
+    const node = new StandInNode();
+    expect(await executeOperationChain([
+      { type: 'get', key: 'countingGate' }, { type: 'apply', args: [] },
+      { type: 'get', key: 'helper' }, { type: 'apply', args: [] },
+    ], node)).toBe('helper ran');
+    // Before the parent was carried along the walk, `findParentObject` restarted from the node and
+    // re-ran every earlier op to find the object a method hangs off — so the gate body ran a second
+    // time per later apply.
+    expect(node.gateCalls).toHaveLength(1);
+  });
+
+  it('completes a chain through an ASYNC gate', async () => {
+    const node = new StandInNode();
+    // That re-run was synchronous and unawaited, so its parent was a Promise and the method lookup
+    // on it yielded undefined — `parent[methodName] is not a function`.
+    expect(await executeOperationChain([
+      { type: 'get', key: 'asyncGate' }, { type: 'apply', args: [] },
+      { type: 'get', key: 'helper' }, { type: 'apply', args: [] },
+    ], node)).toBe('async helper ran');
+  });
+
+  it('hands a gate the RESOLVED value of a nested marker, on its only run', async () => {
+    const node = new StandInNode();
+    await executeOperationChain([
+      { type: 'get', key: 'countingGate' },
+      { type: 'apply', args: [nest([{ type: 'get', key: 'marked' }, { type: 'apply', args: [21] }])] },
+      { type: 'get', key: 'helper' }, { type: 'apply', args: [] },
+    ], node);
+    // Two assertions, because they fail to different mutations: an extra invocation adds a second
+    // call, and a walk that passed `operation.args` rather than the resolved ones would hand the
+    // gate an unresolved `{ __isNestedOperation: true, … }` object on the run it does make.
+    expect(node.gateCalls).toHaveLength(1);
+    expect(node.gateCalls[0]).toEqual([42]);
   });
 });

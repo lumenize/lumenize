@@ -78,11 +78,16 @@ export async function executeOperationChain(
   // Validate before execution
   validateOperationChain(operations, config);
 
-  let current: any = target; // Start from the target object
+  let current: any = target;  // the value produced by the op just executed
+  // The value one op BEHIND `current` — what a method call binds `this` to. Carried along the
+  // walk rather than recomputed, which is what makes each op run exactly once. It starts at the
+  // target so an apply-first chain calls the target with itself as `this`, as it always has.
+  let parent: any = target;
   let entryPointChecked = false; // Track if we've checked the entry point
 
   for (let i = 0; i < operations.length; i++) {
     const operation = operations[i];
+    const previous = current;
 
     if (operation.type === 'get') {
       // Property/element access
@@ -93,31 +98,28 @@ export async function executeOperationChain(
         throw new Error(`TypeError: ${String(current)} is not a function`);
       }
 
+      const prevOp = i > 0 ? operations[i - 1] : null;
+
       // Check @mesh decorator on entry point method (first apply operation)
       if (finalConfig.requireMeshDecorator && !entryPointChecked) {
         entryPointChecked = true;
-        const prevOp = i > 0 ? operations[i - 1] : null;
 
         // Skip @mesh check for service methods (svc.*)
         // Service methods are trusted internal framework methods
         const isServiceCall = operations[0]?.type === 'get' && operations[0]?.key === 'svc';
 
         if (prevOp?.type === 'get' && !isServiceCall) {
-          const methodName = prevOp.key;
-          // Find the parent object that contains this method
-          const parent = findParentObject(operations.slice(0, i), target);
-          const method = parent[methodName];
-
-          // Check if method has @mesh decorator
-          if (!isMeshCallable(method)) {
+          // `current` IS `parent[prevOp.key]` — the value the preceding get produced — so the
+          // check reads the member the walk already holds instead of reading it a second time.
+          if (!isMeshCallable(current)) {
             throw new Error(
-              `Method '${String(methodName)}' is not mesh-callable. ` +
+              `Method '${String(prevOp.key)}' is not mesh-callable. ` +
               `Add the @mesh decorator to allow remote calls.`
             );
           }
 
           // Execute guard if present
-          const guard = getMeshGuard(method);
+          const guard = getMeshGuard(current);
           if (guard) {
             guard(target);
           }
@@ -129,18 +131,16 @@ export async function executeOperationChain(
 
       // Call the method on its parent object to preserve 'this' context.
       // This works for both regular methods and Workers RPC stub methods.
-      const parent = findParentObject(operations.slice(0, i), target);
-      const prevOp = i > 0 ? operations[i - 1] : null;
-
       if (prevOp?.type === 'get') {
         // Previous operation was property access, call as method
-        const methodName = prevOp.key;
-        current = await parent[methodName](...resolvedArgs);
+        current = await parent[prevOp.key](...resolvedArgs);
       } else {
         // Direct function call (no property access), use apply
         current = await current.apply(parent, resolvedArgs);
       }
     }
+
+    parent = previous;
   }
 
   return current;
@@ -244,30 +244,6 @@ async function resolveNestedOperations(
   }
   
   return resolved;
-}
-
-/**
- * Find the parent object for a method call by executing all operations
- * up to (but not including) the last operation.
- * 
- * @internal
- */
-function findParentObject(operations: OperationChain, target: any): any {
-  if (operations.length === 0) return target;
-  
-  let parent: any = target;
-  // Execute all operations except the last one to find the parent
-  for (const operation of operations.slice(0, -1)) {
-    if (operation.type === 'get') {
-      parent = parent[operation.key];
-    } else if (operation.type === 'apply') {
-      // For apply operations, we need to execute them to get the result
-      // Note: This is synchronous execution for parent lookup
-      const grandParent = findParentObject(operations.slice(0, operations.indexOf(operation)), target);
-      parent = parent.apply(grandParent, operation.args);
-    }
-  }
-  return parent;
 }
 
 /**

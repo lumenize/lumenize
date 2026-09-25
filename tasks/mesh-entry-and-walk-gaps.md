@@ -59,7 +59,7 @@
 
 **The parts implicated:**
 
-- **The entry-point check** in `executeOperationChain`, and **`findParentObject`**, which re-runs earlier calls (§ *Gotchas*, item 6).
+- **The entry-point check** in `executeOperationChain`, and the way it found the object a method hangs off — `findParentObject`, which re-ran earlier calls (§ *Gotchas*, item 6; **deleted in Phase 2**, which carries the parent along the walk instead).
 - **The `isServiceCall` exemption.** Its comment calls `svc` methods *"trusted internal framework methods"*.
 - **`resolveNestedOperations`**, which executes any argument shaped like `{ __isNestedOperation: true, __operationChain }` against the DO. `processArgumentsForNesting` in `ocan/proxy-factory.ts` builds these from ordinary `ctn()` calls.
 - **`@mesh()` and `meshFn`** in `mesh-decorator.ts`, and **`Unprotected<T>`** in `ocan/types.ts` — a published export whose only purpose is to type a remote chain opening on `ctx`.
@@ -110,7 +110,7 @@ ctn<Galaxy>().svc.sql(['SELECT 1']);       // refused — `svc` is not marked, a
 
 ⚠️ **Scoped to gates, NOT to arity — arity was a proxy and it is wrong in both directions.** The three real zero-arg `@mesh` members on disk are `Star.resetDevData()`, `Galaxy.getCurrentOntology()` and `getGalaxyConfig()`; an arity rule says make them getters, and `resetDevData` **destroys and rebuilds data**, so that turns an action into a mutation on property read. Two of the three are `async` besides, which § *Gotchas*, item 6 measured as throwing `parent[methodName] is not a function`. A gate taking a selector argument would want a method too. ⓘ Both readings agree on `resources`, which is the case actually decided, so this narrows the rule rather than reopening it.
 
-**What a getter entry OWES, because nothing at the call site says code runs:** it is side-effect-free, synchronous, cheap and idempotent. `findParentObject` replays every `get`, and is called twice per `apply`, so a getter entry's body runs **three times to its guard's once**. That obligation belongs in `mesh.md` § *Object-capability access* beside the gate-return recommendation already headed there.
+**What a getter entry OWES, because nothing at the call site says code runs:** it is side-effect-free, synchronous, cheap and idempotent. ⓘ **The number that motivated this is gone, and the obligation is not.** Before Phase 2 the executor replayed every `get` to find a method's parent, so a getter entry's body ran **three times to its guard's once**; carrying the parent along the walk makes it **once**. The obligation stands on what a getter IS — code behind a property read, where nothing at the call site says so — which is why `mesh.md` § *Object-capability access* is still where it belongs, beside the gate-return recommendation already headed there.
 
 **The SHIPPED signature accepts `ClassMethodDecoratorContext | ClassGetterDecoratorContext` and nothing else** — an overload pair, since `ClassGetterDecoratorContext` types `target` as a zero-argument function. ⚠️ **It is deliberately NARROWER than the probe's**, which took one signature across all four kinds: widening that far lets `@mesh() accessor` and `@mesh()` field **compile**, leaving the runtime refusal limb as the only net, which is the foot-gun the cut exists to avoid. ⓘ Today `mesh()` is typed over `ClassMethodDecoratorContext` alone, so this file's own `@mesh(requireAdmin) get admin()` example fails `tsc --strict` with TS1241 until the pair lands.
 
@@ -266,7 +266,7 @@ These are the places the framework's own services travel the paths being closed,
    - The second run got the raw arguments, so a nested marker arrived as an unresolved `{ __isNestedOperation: true, … }` object instead of its value.
    - An `async` gate threw `parent[methodName] is not a function`, because the re-run's parent is a Promise.
 
-   No gate has hit this yet: `dagTree()` is the only one on disk, and it is synchronous with no side effects. (`resources` is the sibling's, not yet built.) **The fix: carry the parent forward while walking**, so each call runs once and is awaited. The member-level-check fix rewrites this loop anyway, so it lands there.
+   No gate had hit this yet: `dagTree()` is the only one on disk, and it is synchronous with no side effects. (`resources` is the sibling's, not yet built.) ✅ **FIXED in Phase 2 (2026-09-24): the parent is carried along the walk**, so each op runs exactly once and every call is awaited, and `findParentObject` is deleted. All three measurements above were re-run red first and are now green. ⓘ It landed in its own phase rather than inside the member-level-check rewrite, because every later phase edits this loop.
 7. **The prototype fence costs almost nothing, because it names six keys rather than an ancestry.** `Array.prototype.map`, `Map.prototype.get`, the `RequestSync`/`ResponseSync` methods, and all six benign `Object.prototype` members on a returned value — `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable`, `toString`, `toLocaleString`, `valueOf` — all still pass. What stops working is a chain naming one of the six (§ *The request leg*), or reaching a `Function.prototype` member such as `call` or `bind`. Nothing in the repo does either, which the first phase confirms by running the suites rather than by grep.
 
 ## Criteria to carry into the phases
@@ -452,6 +452,13 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      `operation.args` at the single apply rather than the resolved ones — because the executor already
      resolves before it walks, so under the re-run mutation the FIRST run was always resolved and an
      assertion on it stays green.
+   - ✅ **DONE 2026-09-24.** All three limbs were red first — the gate body ran twice, the `async`
+     gate threw `parent[methodName] is not a function`, and the second run received the unresolved
+     marker — and all three are green. `findParentObject` is deleted; `parent` now lags `current` by
+     one op, which is what that function computed, so no call form changed. Four mutations, each
+     isolating what it should: restoring the re-run reds all three, an extra awaited invocation reds
+     the count alone, dropping the `await` reds the `async` limb alone, and raw args red the
+     resolved-value limb alone.
 
 3. **A filled chain is data, so the executor stops resolving it (R1).** Two entry points over one
    shared walk — a template resolves nesting, a filled chain does not — and the three same-breath
@@ -506,8 +513,8 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      check silently.
    - **Success criteria — the member kinds work:** a marked method and a marked getter each reach
      their target; a getter gate's guard runs BEFORE its body; a getter gate's body runs **once** per
-     chain (§ *The request leg* derives three today; § *Gotchas* item 6's two is a METHOD-gate number
-     and is not substitutable); an `async` getter is refused with its own message or proven to work;
+     chain — which is what Phase 2 already makes true for a METHOD gate, so the limb is asserting
+     that a GETTER entry inherits it rather than re-deriving a number; an `async` getter is refused with its own message or proven to work;
      and an unmarked getter is refused **without running**, which is the property that justifies
      reading descriptors rather than `parent[key]`.
    - **Success criteria — types:** `tsc --strict` accepts `@mesh()` and `@mesh(guard)` on a method and
