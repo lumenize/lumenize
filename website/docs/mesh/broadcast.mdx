@@ -75,7 +75,9 @@ class RoomDO extends LumenizeDO<Env> {
     });
   }
 
-  @mesh()
+  // No `@mesh()` — a fire-back lands on the response leg, where the member-level check is off.
+  // Adding one would make this reaper callable as an ordinary request, with caller-chosen
+  // arguments; it is only the framework-supplied callee below that makes that harmless.
   onMessageDelivered(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
       const clientId = this.lmz.callContext.callee?.instanceName;

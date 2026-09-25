@@ -719,6 +719,17 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
     - **Mutation note:** revert the `mesh-api.mdx` block to the pre-fix wording and the checker reds;
       edit `nebula-client.md` without regenerating and `apps/nebula`'s suite reds; leave the fixture
       unasserted and the driven-both-halves criterion reds where `test:doc` would not.
+    - ✅ **DONE 2026-09-24.** `GatePairDO` is the neutral class — a marked `settings` getter and an
+      unmarked `settingsForResults` beside it — driven `LumenizeClient` → Worker → Gateway → DO, both
+      halves plus a guard control. `mesh-api.mdx`'s `@mesh()` section is now a `@check-example`
+      against it, an exact slice rather than a wildcard, so the recorder that proves the unmarked
+      body never ran sits in a private helper outside the block. All four mutations red: the pre-fix
+      wording, the un-regenerated embed, dropping the guard, and marking the unmarked half.
+      `npm run test:doc` verifies 235 examples.
+    - ⚠️ **The checker caught a PHASE 7 residue, which is the point of running it.** `mesh-api.mdx`
+      mirrors `CallContext` as a checked block, and adding `callee` in Phase 7 made it stale — text
+      falsified by a change three phases earlier, outside every diff since. It now carries the field
+      and the property a reader cannot infer: `callee` is the one field that does NOT ride through.
 
 10. **Standing guidance says what the code now does, and the suites prove it.** The `allowlist` sweep
     over `.claude/rules packages/*/src apps/nebula/src` (Phase 9 owns everything under `website/docs/`),

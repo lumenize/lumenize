@@ -88,7 +88,7 @@ The same payload is exposed on the client side as [`client.claims`](./lumenize-c
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | **Class-wide** | `onBeforeCall()` hook | WHO can call (authentication) |
-| **Entry Point** | `@mesh()` decorator | WHAT is exposed (method allowlist) |
+| **Entry Point** | `@mesh()` decorator | WHAT is exposed (the marked members — a chain's first op must name one) |
 | **Capability Trust** | Automatic | Returned objects trusted if returned from an already-checked call |
 
 Methods without the `@mesh()` decorator behave as if they don't exist — callers receive a not found error. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Handling](./calls#error-handling) for details.

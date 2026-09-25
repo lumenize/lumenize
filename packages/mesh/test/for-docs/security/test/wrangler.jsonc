@@ -17,6 +17,10 @@
         "class_name": "TeamDocDO"
       },
       {
+        "name": "GATE_PAIR_DO",
+        "class_name": "GatePairDO"
+      },
+      {
         "name": "LUMENIZE_AUTH",
         "class_name": "LumenizeAuth"
       }
@@ -26,6 +30,7 @@
     "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
     "UserProfileDO": { "type": "durable-object", "storage": "sqlite" },
     "TeamDocDO": { "type": "durable-object", "storage": "sqlite" },
+    "GatePairDO": { "type": "durable-object", "storage": "sqlite" },
     "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" }
   },
   "ratelimits": [

@@ -127,7 +127,7 @@ const pending = this.ctx.storage.kv.get(`task:${taskId}`) as PendingTask | undef
 const { chain, context } = pending;
 
 // Execute the chain - context is available for manual use
-// requireMeshDecorator: false allows calling methods without @mesh decorator.
+// requireMeshDecorator: false lets a chain you authored root anywhere — the walk rules still apply.
 // This is safe here because we're executing a chain we created and stored ourselves.
 await executeOperationChain(chain, this, { requireMeshDecorator: false });
 ```
@@ -166,7 +166,7 @@ await executeOperationChain(chain, this, { requireMeshDecorator: false });
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `requireMeshDecorator` | `true` | When `true`, the entry-point method must have `@mesh()` decorator. Set to `false` only for trusted chains you created yourself. |
+| `requireMeshDecorator` | `true` | When `true`, the chain's FIRST operation must name a member marked `@mesh()` — a method or a getter. Set to `false` only for chains you created yourself (a `$result` handler, a stored alarm continuation); those may root anywhere, including `ctx` and `svc`. ⚠️ It does **not** turn off the walk rules: `constructor`, `__proto__`, the four Annex-B accessors and anything resolving on `Function.prototype` are refused at every setting, on every leg. |
 | `maxDepth` | `50` | Maximum chain length (security limit) |
 | `maxArgs` | `100` | Maximum arguments per method call (security limit) |
 

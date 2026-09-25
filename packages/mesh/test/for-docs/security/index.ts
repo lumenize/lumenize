@@ -17,6 +17,7 @@ import { LumenizeClientGateway } from '../../../src/index.js';
 export { LumenizeClientGateway, LumenizeAuth };
 export { UserProfileDO } from './user-profile-do.js';
 export { TeamDocDO } from './team-doc-do.js';
+export { GatePairDO } from './gate-pair-do.js';
 
 // Create auth routes and hooks once at module level
 const authRoutes = createAuthRoutes(env);

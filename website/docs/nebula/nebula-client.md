@@ -24,8 +24,10 @@ Browser apps don't construct `NebulaClient` directly — they use [`createNebula
 
 Switching active scope means creating a new `NebulaClient` with a different `activeScope`. The refresh cookie (scoped to the auth scope path) carries over automatically.
 
-## Calling `@mesh()` methods locally
+## Calling `@mesh()` members locally
 
-`NebulaClient` subclasses can have `@mesh()` methods that DOs call through the Gateway. The `@mesh()` decorator is pure metadata — it marks the method as remotely callable but does not wrap it. Calling a `@mesh()` method directly from surrounding JavaScript (e.g., `client.echo('hello')`) executes the method normally with no interception and no guard check. Guards only run when the call arrives via the mesh.
+`NebulaClient` subclasses can have `@mesh()` members — a method, or a getter — that DOs reach through the Gateway. The decorator is pure metadata: it marks the member as remotely reachable but does not wrap it. Calling one directly from surrounding JavaScript (e.g., `client.echo('hello')`) executes it normally, with no interception and no guard check. Guards only run when the call arrives via the mesh.
+
+⚠️ **An OVERRIDE needs its own `@mesh()`.** The mark lives on the function, so a subclass member that shadows a marked one carries nothing and a push to it is refused. Prefer the seams the client already gives you — the store, `subscribeQuery(...).onChange`, `onReload`, `setOnStreamChunk`, `onPreviewReady` — which is what these handlers are built to be extended through.
 
 See [Auth flows](./auth-flows.md) for the full login, returning user, and scope-switching sequences.
