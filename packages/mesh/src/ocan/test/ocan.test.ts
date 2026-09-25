@@ -370,15 +370,18 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       expect(result).toBe(10);
     });
 
-    it('should handle direct function calls without property access', async () => {
+    it('should REFUSE an apply-first chain rather than calling the target', async () => {
+      // Used to return 10: an apply-first chain called the target directly. A chain whose first op
+      // is an apply is a shape the executor cannot mean, so it is a refusal now rather than a
+      // fall-through — on its own message, distinct from the fence's and the entry rule's.
       const target = (x: number) => x * 2;
-      
+
       const operations: OperationChain = [
         { type: 'apply', args: [5] }
       ];
-      
-      const result = await executeOperationChain(operations, target);
-      expect(result).toBe(10);
+
+      await expect(executeOperationChain(operations, target))
+        .rejects.toThrow(/first operation must be a get/);
     });
 
     it('should preserve identity when no nested markers exist', async () => {

@@ -160,7 +160,7 @@ describe('the entry op must name a mesh-callable member (request leg)', () => {
 });
 
 describe('the walk rules fence the doors JavaScript opens on every object', () => {
-  it.skip('REFUSES a WRITE to Object.prototype reached by constructor, and nothing lands', async () => {
+  it('REFUSES a WRITE to Object.prototype reached by constructor, and nothing lands', async () => {
     const node = new StandInNode();
     try {
       // The chain really writes: `constructor` -> `prototype` -> `__defineGetter__`, whose function
@@ -182,7 +182,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     }
   });
 
-  it.skip('REFUSES constructor reached from a returned STRING', async () => {
+  it('REFUSES constructor reached from a returned STRING', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([
       { type: 'get', key: 'gate' }, { type: 'apply', args: [] },
@@ -191,7 +191,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     ], node)).rejects.toThrow(/'constructor'/);
   });
 
-  it.skip('REFUSES constructor reached from a returned FACADE — the case an ancestry rule missed', async () => {
+  it('REFUSES constructor reached from a returned FACADE — the case an ancestry rule missed', async () => {
     // A class instance, not a plain object: `constructor` own-resolves on its own prototype, so
     // the retired "refuse a get resolving on Object.prototype" rule never fired here -- and the
     // shape this task promotes is exactly this one, a gate handing back a facade.
@@ -205,7 +205,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     ], withFacade)).rejects.toThrow(/'constructor'/);
   });
 
-  it.skip('REFUSES __proto__ past a gate, on its own message', async () => {
+  it('REFUSES __proto__ past a gate, on its own message', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([
       { type: 'get', key: 'gate' }, { type: 'apply', args: [] },
@@ -213,7 +213,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     ], node)).rejects.toThrow(/'__proto__'/);
   });
 
-  it.skip('REFUSES __lookupGetter__, which names neither fenced key and reaches the same prototype', async () => {
+  it('REFUSES __lookupGetter__, which names neither fenced key and reaches the same prototype', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([
       { type: 'get', key: 'gate' }, { type: 'apply', args: [] },
@@ -221,7 +221,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     ], node)).rejects.toThrow(/'__lookupGetter__'/);
   });
 
-  it.skip('REFUSES __lookupSetter__, on its own message', async () => {
+  it('REFUSES __lookupSetter__, on its own message', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([
       { type: 'get', key: 'gate' }, { type: 'apply', args: [] },
@@ -229,7 +229,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     ], node)).rejects.toThrow(/'__lookupSetter__'/);
   });
 
-  it.skip('REFUSES __defineGetter__ — the only property WRITE a chain can name — and writes nothing', async () => {
+  it('REFUSES __defineGetter__ — the only property WRITE a chain can name — and writes nothing', async () => {
     const node = new StandInNode();
     try {
       // The argument is a FUNCTION obtained as a get-only nested marker on a marked member: whether
@@ -250,7 +250,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     }
   });
 
-  it.skip('REFUSES __defineSetter__, on its own message', async () => {
+  it('REFUSES __defineSetter__, on its own message', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([
       { type: 'get', key: 'plainGate' }, { type: 'apply', args: [] },
@@ -259,7 +259,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     expect(Object.getOwnPropertyDescriptor(node.facade, PROBE_KEY)).toBeUndefined();
   });
 
-  it.skip('REFUSES a get that resolves on Function.prototype — reachable because the design hands back methods', async () => {
+  it('REFUSES a get that resolves on Function.prototype — reachable because the design hands back methods', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([
       { type: 'get', key: 'gate' }, { type: 'apply', args: [] },
@@ -271,7 +271,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
   // ── the walk rules are UNCONDITIONAL: they are not the member-level check, so the flag that
   //    turns that off must not turn these off. Writing the fence inside the flag's branch is the
   //    plausible mistake, and these two limbs are what catch it.
-  it.skip('REFUSES constructor on the RESPONSE leg (requireMeshDecorator: false), at op 1', async () => {
+  it('REFUSES constructor on the RESPONSE leg (requireMeshDecorator: false), at op 1', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([
       { type: 'get', key: 'plainGate' }, { type: 'apply', args: [] },
@@ -279,7 +279,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
     ], node, { requireMeshDecorator: false })).rejects.toThrow(/'constructor'/);
   });
 
-  it.skip('REFUSES constructor on the RESPONSE leg at OP 0, where no entry rule covers it', async () => {
+  it('REFUSES constructor on the RESPONSE leg at OP 0, where no entry rule covers it', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'constructor' }, { type: 'get', key: 'prototype' }], node,
@@ -316,12 +316,12 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
 });
 
 describe('a chain shape the executor cannot mean is refused, not fallen through', () => {
-  it.skip('REFUSES an empty chain rather than handing back the node itself', async () => {
+  it('REFUSES an empty chain rather than handing back the node itself', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain([], node)).rejects.toThrow(/at least one operation/);
   });
 
-  it.skip('REFUSES an apply-first chain rather than calling the target', async () => {
+  it('REFUSES an apply-first chain rather than calling the target', async () => {
     const called: string[] = [];
     const target = Object.assign((x: number) => { called.push('target'); return x * 2; }, {});
     await expect(executeOperationChain(

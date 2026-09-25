@@ -136,16 +136,25 @@ export async function run(stack: DevStack): Promise<void> {
       const message = err instanceof Error ? err.message : String(err);
       wrote = /'constructor'/.test(message) ? 'refused at constructor' : `refused on the WRONG message: ${short(message)}`;
     }
+    // The criterion is that nothing LANDED, which the read-back answers two ways: the key reads as
+    // `undefined` because no write happened, or the read is itself refused once a bare `ctn()[key]`
+    // stops being a permitted entry. Requiring the second alone would hold this limb red through
+    // the phase that closes the write, for a property that phase does not own.
+    let landed: boolean;
     let readBack: string;
     try {
-      readBack = `the polluted key READ BACK -> ${short(await call((c) => c[PROBE_KEY]))}`;
+      const value = await call((c) => c[PROBE_KEY]);
+      landed = value !== undefined;
+      readBack = `the key reads back as ${short(value)}`;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      readBack = NOT_MESH_CALLABLE.test(message) ? 'the key is unreachable' : `unreadable: ${short(message)}`;
+      landed = false;
+      readBack = NOT_MESH_CALLABLE.test(message)
+        ? 'the key is unreachable' : `unreadable: ${short(message)}`;
     }
     results.push({
       name: 'a WRITE to Object.prototype past the gate',
-      refused: wrote === 'refused at constructor' && readBack === 'the key is unreachable',
+      refused: wrote === 'refused at constructor' && !landed,
       detail: `${wrote}; ${readBack}`,
     });
 

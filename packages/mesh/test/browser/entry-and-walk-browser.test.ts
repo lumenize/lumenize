@@ -29,7 +29,7 @@ import type { OperationChain } from '../../src/ocan/index';
 const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 describe('@lumenize/mesh entry + walk rules on the client executor (real chromium)', () => {
-  it.skip('refuses what a remote caller must not reach, in the browser', async () => {
+  it('refuses what a remote caller must not reach, in the browser', async () => {
     const proxyPath = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
     const baseUrl = globalThis.location!.origin + proxyPath;
