@@ -142,6 +142,25 @@ describe('the entry op must name a mesh-callable member (request leg)', () => {
     )).rejects.toThrow(NOT_MESH_CALLABLE);
   });
 
+  // ── the refusal says WHICH of three causes, because each has a different fix. Collapsed into
+  //    one message until 2026-09-25, which is how a member that does not exist was told to add a
+  //    decorator to itself. `security.mdx` had documented a not-found for all three; neither the
+  //    docs nor the code described what actually happened.
+  it('names an ABSENT member as absent — never "add the decorator", which it has nothing to add it to', async () => {
+    const node = new StandInNode();
+    const chain: OperationChain = [{ type: 'get', key: 'noSuchMemberAnywhere' }, { type: 'apply', args: [] }];
+    await expect(executeOperationChain(chain, node)).rejects.toThrow(/No member named 'noSuchMemberAnywhere' exists/);
+    // The discriminator: the absent case must NOT carry the unmarked case's advice.
+    await expect(executeOperationChain(chain, node)).rejects.not.toThrow(NOT_MESH_CALLABLE);
+  });
+
+  it('names an UNMARKED member that exists as unmarked, with the fix it can actually apply', async () => {
+    const node = new StandInNode();
+    await expect(executeOperationChain(
+      [{ type: 'get', key: 'plain' }, { type: 'apply', args: [] }], node,
+    )).rejects.toThrow(NOT_MESH_CALLABLE);
+  });
+
   // ── positive controls: green BEFORE and after. A rule that refuses everything satisfies
   //    every refusal limb above, and these are what catch it.
   it('PERMITS a marked method (positive control)', async () => {

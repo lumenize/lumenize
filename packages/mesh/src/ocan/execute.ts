@@ -236,11 +236,25 @@ async function walkChain(
     const fn = found ? markedFunctionOf(found.descriptor) : undefined;
 
     if (!isMeshCallable(fn)) {
-      // An OVERRIDE is the case worth naming. The mark lives on the function value, so a subclass
-      // method that shadows a marked one is a new function carrying nothing — and the failure is
-      // otherwise silent all the way down: the refusal is caught, shipped over the wire, and
-      // dropped by a name-guard that does not match, while whatever awaited the handler hangs.
-      const shadowed = found && findMember(Object.getPrototypeOf(found.owner), key);
+      // THREE causes, three messages, because each has a DIFFERENT fix and only the author can
+      // apply it. Collapsing them is what made the middle one's advice — "add the decorator" —
+      // arrive for a member that does not exist, which is advice nobody can follow.
+      //
+      // ⚠️ This deliberately discloses whether a member exists. The alternative was one uniform
+      // refusal, and it buys almost nothing: mesh is published MIT, so a node's member names are
+      // readable by anyone who cares, and a caller can already probe by calling. What it costs is
+      // real — the commonest authoring mistake becomes undiagnosable from the message.
+      if (!found) {
+        throw new Error(
+          `No member named '${String(key)}' exists on this node. ` +
+          `Check the spelling, and the type argument to ctn<T>().`
+        );
+      }
+      // An OVERRIDE is the case worth naming apart. The mark lives on the function value, so a
+      // subclass method that shadows a marked one is a new function carrying nothing — and the
+      // failure is otherwise silent all the way down: the refusal is caught, shipped over the wire,
+      // and dropped by a name-guard that does not match, while whatever awaited the handler hangs.
+      const shadowed = findMember(Object.getPrototypeOf(found.owner), key);
       if (shadowed && isMeshCallable(markedFunctionOf(shadowed.descriptor))) {
         throw new Error(
           `Member '${String(key)}' overrides a mesh-callable member but is not itself marked. ` +
