@@ -34,7 +34,7 @@ async function wireOutcome(name: string, chain: OperationChain): Promise<string>
 }
 
 describe('svc stops being a wire entry', () => {
-  it.skip('REFUSES a chain that walks svc.fetch to an undecorated method on the node', async () => {
+  it('REFUSES a chain that walks svc.fetch to an undecorated method on the node', async () => {
     // `NadisPlugin` declares `doInstance` `protected`, which TypeScript enforces and the runtime
     // does not — so any DO importing `@lumenize/fetch` can be walked back to itself through the
     // plugin and have an undecorated method called.
@@ -52,7 +52,7 @@ describe('svc stops being a wire entry', () => {
     expect(await env.TEST_SIMPLE_DO.getByName(name).getStoredValue('svc-walk')).toBeUndefined();
   });
 
-  it.skip('REFUSES the proxy callback, the one svc-opening chain that crossed a hop', async () => {
+  it('REFUSES the proxy callback, the one svc-opening chain that crossed a hop', async () => {
     // `svc.fetch.__handleProxyFetchResult(reqId, result)` is how the FetchExecutor Worker delivers,
     // and a pending `reqId` — a random UUID — was all that stood in front of it.
     const name = uniq('svc-callback');

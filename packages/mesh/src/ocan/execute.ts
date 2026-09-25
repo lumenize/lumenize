@@ -61,6 +61,36 @@ function resolvesOnFunctionPrototype(owner: any, key: string | number | symbol):
 }
 
 /**
+ * Find the member `key` names on `target`, by DESCRIPTOR rather than by reading it.
+ *
+ * ⚠️ **Reading the member is what this exists to avoid.** `parent[key]` on an unmarked getter RUNS
+ * the getter — the very code the entry rule is deciding whether to admit — so the lookup walks the
+ * prototypes with `Object.getOwnPropertyDescriptor` instead. A method and a getter both live there,
+ * and both carry the mark on their function value; an own data property (a DO's `ctx` and `env` are
+ * constructor-assigned ones) is found too, and is never marked.
+ *
+ * @returns the first owner that has the key, or `undefined` if nothing does.
+ * @internal
+ */
+function findMember(
+  target: any,
+  key: string | number | symbol
+): { owner: any; descriptor: PropertyDescriptor } | undefined {
+  let o: any = target;
+  while (o !== null && o !== undefined) {
+    const descriptor = Object.getOwnPropertyDescriptor(o, key);
+    if (descriptor) return { owner: o, descriptor };
+    o = Object.getPrototypeOf(o);
+  }
+  return undefined;
+}
+
+/** The function a descriptor carries the mark on: a getter's getter, or a method's value. */
+function markedFunctionOf(descriptor: PropertyDescriptor): any {
+  return descriptor.get ?? descriptor.value;
+}
+
+/**
  * Validate an operation chain against security limits.
  * Throws if validation fails.
  * 
@@ -189,7 +219,40 @@ async function walkChain(
   // walk rather than recomputed, which is what makes each op run exactly once. It starts at the
   // target so an apply-first chain calls the target with itself as `this`, as it always has.
   let parent: any = target;
-  let entryPointChecked = false; // Track if we've checked the entry point
+  // THE ENTRY RULE. Op 0 of a wire-borne chain must name a member the host class marked, and that
+  // op is where the guard runs. `requireMeshDecorator: false` is the carve-out for a chain the NODE
+  // authored itself — a `$result` handler, a stored alarm continuation — which may root anywhere,
+  // including `ctx` and `svc`.
+  if (finalConfig.requireMeshDecorator) {
+    const entry = operations[0];
+    // validateOperationChain has already refused an apply-first chain, so op 0 is a get.
+    const key = (entry as { key: string | number | symbol }).key;
+    const found = findMember(target, key);
+    const fn = found ? markedFunctionOf(found.descriptor) : undefined;
+
+    if (!isMeshCallable(fn)) {
+      // An OVERRIDE is the case worth naming. The mark lives on the function value, so a subclass
+      // method that shadows a marked one is a new function carrying nothing — and the failure is
+      // otherwise silent all the way down: the refusal is caught, shipped over the wire, and
+      // dropped by a name-guard that does not match, while whatever awaited the handler hangs.
+      const shadowed = found && findMember(Object.getPrototypeOf(found.owner), key);
+      if (shadowed && isMeshCallable(markedFunctionOf(shadowed.descriptor))) {
+        throw new Error(
+          `Member '${String(key)}' overrides a mesh-callable member but is not itself marked. ` +
+          `Add the @mesh decorator to the override.`
+        );
+      }
+      throw new Error(
+        `Member '${String(key)}' is not mesh-callable. ` +
+        `Add the @mesh decorator to allow remote calls.`
+      );
+    }
+
+    const entryGuard = getMeshGuard(fn);
+    if (entryGuard) {
+      entryGuard(target);
+    }
+  }
 
   for (let i = 0; i < operations.length; i++) {
     const operation = operations[i];
@@ -223,32 +286,6 @@ async function walkChain(
       }
 
       const prevOp = i > 0 ? operations[i - 1] : null;
-
-      // Check @mesh decorator on entry point method (first apply operation)
-      if (finalConfig.requireMeshDecorator && !entryPointChecked) {
-        entryPointChecked = true;
-
-        // Skip @mesh check for service methods (svc.*)
-        // Service methods are trusted internal framework methods
-        const isServiceCall = operations[0]?.type === 'get' && operations[0]?.key === 'svc';
-
-        if (prevOp?.type === 'get' && !isServiceCall) {
-          // `current` IS `parent[prevOp.key]` — the value the preceding get produced — so the
-          // check reads the member the walk already holds instead of reading it a second time.
-          if (!isMeshCallable(current)) {
-            throw new Error(
-              `Method '${String(prevOp.key)}' is not mesh-callable. ` +
-              `Add the @mesh decorator to allow remote calls.`
-            );
-          }
-
-          // Execute guard if present
-          const guard = getMeshGuard(current);
-          if (guard) {
-            guard(target);
-          }
-        }
-      }
 
       // Process arguments to resolve any nested operation markers. A FILLED chain's last apply is
       // where the substitution wrote, so its arguments are data and are passed through untouched.

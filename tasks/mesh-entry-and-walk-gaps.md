@@ -565,6 +565,27 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      ROOT KEY instead of keying on the flag and the `ctx` read reds while the node-authored positive
      stays green, which is what pins the carve-out to the flag and nothing else; widen the decorator
      signature and the `accessor`/field limbs red at compile time.
+   - ✅ **DONE 2026-09-24.** All ten `/live` limbs are GREEN from a real logged-in session — every
+     entry-rule chain and every walk chain refused past the real `dagTree()` gate. Four mutations
+     isolate: reading the member instead of its descriptor reds the three getter limbs, deferring
+     the guard reds the ordering limb alone, dropping the override branch reds the override-naming
+     limb alone, and widening the decorator signature turns both `@ts-expect-error`s into *Unused
+     directive* — which is the type-checker verifying the compile-time half for us.
+   - ⚠️ **Three things the phase's own text got wrong, found by building it.**
+     - **The "suites this phase changes" list over-predicts.** `lumenize-client-gateway.test.ts`,
+       `test-worker-and-dos.ts` and `continuation-only-feasibility.test.ts` needed NO rewriting —
+       the whole mesh suite stayed green, because every chain they drive already names a marked
+       member or runs at flag-off. Only two `ocan.test.ts` cases changed, and one of those (the
+       `is not a function` message) belongs here rather than to Phase 4, since the arity check
+       precedes the member check and it is the ENTRY rule that answers first.
+     - **The `checkIdentity` own-data-property case did not need rewriting either**, and the reason
+       is worth keeping: the descriptor walk finds own data properties, and `meshFn` marks the
+       function one holds — so a marked function reached AS op 0 is still a legitimate entry. What
+       the rule refuses is reaching one through a path of `get`s. A limb now asserts that positively,
+       so Phase 6 has to face the distinction rather than delete the case by accident.
+     - **The fetch count is six, not eight** — six round trips in `proxy-fetch.test.ts` plus seven
+       in `for-docs/basic-usage.test.ts`, thirteen parked in all, each `describe.skip`ped under one
+       reason that says revival is live rather than theoretical.
 
 6. **`meshFn` and `Unprotected<T>` leave the published surface.** `meshFn` marks a function reached
    through a path of `get`s, which is exactly what Phase 5 refuses; `Unprotected<T>` types a remote

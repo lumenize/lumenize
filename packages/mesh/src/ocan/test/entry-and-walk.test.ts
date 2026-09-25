@@ -102,28 +102,28 @@ class StandInNode {
 const nest = (chain: OperationChain) => ({ __isNestedOperation: true, __operationChain: chain });
 
 describe('the entry op must name a mesh-callable member (request leg)', () => {
-  it.skip('REFUSES a read of env with no call at all', async () => {
+  it('REFUSES a read of env with no call at all', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'env' }, { type: 'get', key: 'SECRET' }], node,
     )).rejects.toThrow(NOT_MESH_CALLABLE);
   });
 
-  it.skip('REFUSES a read of ctx with no call at all', async () => {
+  it('REFUSES a read of ctx with no call at all', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'ctx' }, { type: 'get', key: 'id' }], node,
     )).rejects.toThrow(NOT_MESH_CALLABLE);
   });
 
-  it.skip('REFUSES svc.sql — nothing exempts svc', async () => {
+  it('REFUSES svc.sql — nothing exempts svc', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'svc' }, { type: 'get', key: 'sql' }, { type: 'apply', args: [['SELECT 1']] }], node,
     )).rejects.toThrow(NOT_MESH_CALLABLE);
   });
 
-  it.skip('REFUSES a get-only nested marker reading env, passed as an argument to a MARKED member', async () => {
+  it('REFUSES a get-only nested marker reading env, passed as an argument to a MARKED member', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'sink' }, { type: 'apply', args: [
@@ -132,7 +132,7 @@ describe('the entry op must name a mesh-callable member (request leg)', () => {
     )).rejects.toThrow(NOT_MESH_CALLABLE);
   });
 
-  it.skip('REFUSES a nested svc chain passed as an argument to a MARKED member', async () => {
+  it('REFUSES a nested svc chain passed as an argument to a MARKED member', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'sink' }, { type: 'apply', args: [

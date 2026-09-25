@@ -3,7 +3,7 @@ import { LumenizeWorker } from '../src/lumenize-worker';
 import { mesh } from '../src/mesh-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '../src/alarms';
-import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
+import { getOperationChain, continuationFromChain, type OperationChain } from '../src/ocan/index.js';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 
 // Export LumenizeClientGateway for testing
@@ -930,6 +930,34 @@ export class TestDO extends LumenizeDO<Env> {
     this.ctx.storage.kv.put('handler_received_hash', queryHash);
   }
 
+  /**
+   * Fire an arbitrary chain at ANOTHER binding over a real `lmz.call`, and keep the outcome.
+   * The outcome lands in `handler_received` via {@link handleReply}, so `getHandlerReceived`
+   * reads back either the value or the refusal Error.
+   */
+  testWireChainAt(binding: string, instance: string, chain: OperationChain): void {
+    const remote = continuationFromChain<any>(chain);
+    this.lmz.call(binding, instance, remote, this.ctn().handleReply(remote));
+  }
+
+  /**
+   * THE CARVE-OUT, driven: a handler the NODE authored may root anywhere, including `ctx`.
+   *
+   * `this.ctn().ctx.storage.kv.put('cache', remote)` is the example on
+   * `replaceNestedOperationMarkers`'s own JSDoc, and until now it appeared only there — nothing
+   * exercised it. It is the case the entry rule would miss if the carve-out were keyed on anything
+   * but the flag: `ctx` is a constructor-assigned OWN property, so the descriptor walk finds it
+   * and finds it unmarked, exactly as it does for `env`.
+   */
+  testCtxRootedHandler(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().remoteEcho('rooted-at-ctx');
+    this.lmz.call(binding, instance, remote, (this.ctn() as any).ctx.storage.kv.put('cache', remote));
+  }
+
+  async getCtxRootedCache(): Promise<unknown> {
+    return this.ctx.storage.kv.get('cache');
+  }
+
   /** 4-arg call whose reply is marker-shaped, with the handler spelling `$result`. */
   testCallForMarkerReply(binding: string, instance: string | undefined, json: string): void {
     const remote = this.ctn<TestDO>().replyFromStoredJson(json);
@@ -1011,6 +1039,75 @@ export class TestDO extends LumenizeDO<Env> {
     this.ctx.storage.kv.delete('injected_ran');
     this.ctx.storage.kv.delete('handler_received');
     this.ctx.storage.kv.delete('handler_received_hash');
+  }
+}
+
+/**
+ * The member kinds `@mesh()` ships, on a class built for them.
+ *
+ * Kept off `TestDO` deliberately: a marked getter, an unmarked getter and a call recorder are the
+ * fixture, and putting them on the DO every other suite shares would make each of those suites
+ * carry a surface it never asked for.
+ */
+export class MemberKindDO extends LumenizeDO<Env> {
+  /** Everything a getter body or a guard did, in order, read back THROUGH the mesh. */
+  #trace(entry: string): void {
+    const seen = (this.ctx.storage.kv.get('trace') as string[] | undefined) ?? [];
+    seen.push(entry);
+    this.ctx.storage.kv.put('trace', seen);
+  }
+
+  #facade = {
+    reached: (): string => 'facade reached',
+  };
+
+  /** A METHOD entry — the shape every entry took before getters shipped. */
+  @mesh()
+  markedMethod(value: string): string {
+    return `method reached: ${value}`;
+  }
+
+  /** A GETTER entry, ungated. The form for a gate: it returns a surface and does nothing else. */
+  @mesh()
+  get markedGate(): { reached: () => string } {
+    this.#trace('getter body');
+    return this.#facade;
+  }
+
+  /** A GETTER entry with a guard, so a test can see which of the two runs first. */
+  @mesh((instance: MemberKindDO) => { (instance as any).noteGuard(); })
+  get guardedGate(): { reached: () => string } {
+    this.#trace('guarded getter body');
+    return this.#facade;
+  }
+
+  /** @internal Reached by the guard above — guards take the instance, not a continuation. */
+  noteGuard(): void {
+    this.#trace('guard');
+  }
+
+  /**
+   * An UNMARKED getter. The property the descriptor lookup exists for: a chain naming it is
+   * refused WITHOUT the body running, which reading `parent[key]` to make the decision could not do.
+   */
+  get unmarkedGate(): { reached: () => string } {
+    this.#trace('unmarked getter body RAN');
+    return this.#facade;
+  }
+
+  /** An `async` marked getter — whether it works or is refused is a measurement, not a guess. */
+  @mesh()
+  get asyncGate(): Promise<{ reached: () => string }> {
+    this.#trace('async getter body');
+    return Promise.resolve(this.#facade);
+  }
+
+  async getTrace(): Promise<string[]> {
+    return (this.ctx.storage.kv.get('trace') as string[] | undefined) ?? [];
+  }
+
+  async clearTrace(): Promise<void> {
+    this.ctx.storage.kv.delete('trace');
   }
 }
 

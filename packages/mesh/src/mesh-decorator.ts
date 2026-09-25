@@ -1,7 +1,7 @@
 /**
- * @mesh decorator for marking methods as mesh-callable
+ * @mesh decorator for marking members as mesh-callable
  *
- * Methods decorated with `@mesh()` can be called from remote mesh nodes.
+ * Members decorated with `@mesh()` can be reached from remote mesh nodes.
  * Without this decorator, methods cannot be invoked via `this.lmz.call()`.
  *
  * This provides an explicit security boundary - only methods you explicitly
@@ -130,22 +130,34 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  *                Throw an error to reject the call, or return void to allow it.
  * @returns A decorator that marks the method as mesh-callable
  */
-export function mesh<T = any>(
-  guard?: MeshGuard<T>
-): <This, Args extends any[], Return>(
-  target: (this: This, ...args: Args) => Return,
-  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
-) => (this: This, ...args: Args) => Return {
-  return function <This, Args extends any[], Return>(
+export interface MeshDecorator<T> {
+  /** A METHOD entry — the default, and right for any entry that takes arguments. */
+  <This extends T, Args extends any[], Return>(
     target: (this: This, ...args: Args) => Return,
-    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
-  ): (this: This, ...args: Args) => Return {
-    // Mark the method as mesh-callable
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
+  ): (this: This, ...args: Args) => Return;
+  /** A GETTER entry — the form for a GATE, which returns a capability surface and does nothing else. */
+  <This extends T, Return>(
+    target: (this: This) => Return,
+    context: ClassGetterDecoratorContext<This, Return>
+  ): (this: This) => Return;
+}
+
+export function mesh<T = any>(guard?: MeshGuard<T>): MeshDecorator<T> {
+  return function (target: any, _context: any): any {
+    // Mark the member as mesh-callable. A method and a getter both carry the mark on their
+    // FUNCTION value, which is what lets one decorator serve both.
+    //
+    // ⚠️ The guard is deliberate: an `accessor` hands the decorator `{ get, set }` and a field hands
+    // it `undefined`, and neither kind ships. Marking the wrapper would make `isMeshCallable` answer
+    // false anyway, but silently — so nothing is marked, and the entry rule refuses the chain at
+    // runtime. The signature above is what refuses them at COMPILE time, which is the primary net;
+    // this is what stops a compile-only check from being the only one.
+    if (typeof target !== 'function') return target;
     (target as any)[MESH_CALLABLE] = true;
-    // Store the guard if provided
     if (guard) {
       (target as any)[MESH_GUARD] = guard;
     }
     return target;
-  };
+  } as MeshDecorator<T>;
 }

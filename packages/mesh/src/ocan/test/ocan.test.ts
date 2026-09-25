@@ -180,7 +180,11 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       expect(result).toBe(100);
     });
     
-    it('should execute property access chains', async () => {
+    it('should REFUSE a chain that walks to a marked function through unmarked gets', async () => {
+      // Used to return 15. `meshFn` marks a function sitting in a plain object, and the old check
+      // fired at the first APPLY — so `c.nested.deep.method(5)` passed because `method` carried the
+      // mark, whatever it was reached through. Op 0 here is `get 'nested'`, an unmarked field, and
+      // the entry rule reads THAT.
       const target = new TestObject();
       const operations: OperationChain = [
         { type: 'get', key: 'nested' },
@@ -188,8 +192,18 @@ describe('OCAN - Operation Chaining And Nesting', () => {
         { type: 'get', key: 'method' },
         { type: 'apply', args: [5] }
       ];
-      
-      const result = await executeOperationChain(operations, target);
+
+      await expect(executeOperationChain(operations, target))
+        .rejects.toThrow(/Member 'nested' is not mesh-callable/);
+    });
+
+    it('still reaches a marked function held as an own property of the target', async () => {
+      // The other side of the same rule, and the reason the lookup reads DESCRIPTORS rather than
+      // prototypes only: op 0 may name an own data property whose value carries the mark.
+      const target = { entry: meshFn((x: number) => x * 3) };
+      const result = await executeOperationChain(
+        [{ type: 'get', key: 'entry' }, { type: 'apply', args: [5] }], target,
+      );
       expect(result).toBe(15);
     });
     
@@ -333,8 +347,16 @@ describe('OCAN - Operation Chaining And Nesting', () => {
         { type: 'get', key: 'value' }, // value is a number, not a function
         { type: 'apply', args: [] }
       ];
-      
-      await expect(executeOperationChain(operations, target)).rejects.toThrow('is not a function');
+
+      // On the REQUEST leg the entry rule now answers first: a data property carries no mark, so
+      // the chain never reaches the arity check.
+      await expect(executeOperationChain(operations, target))
+        .rejects.toThrow(/Member 'value' is not mesh-callable/);
+
+      // The arity check still exists and still says so — reachable on a leg where the entry rule
+      // is off, which is where a node's own continuation runs.
+      await expect(executeOperationChain(operations, target, { requireMeshDecorator: false }))
+        .rejects.toThrow('is not a function');
     });
 
     it('should handle circular references in nested operations', async () => {

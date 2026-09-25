@@ -123,10 +123,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // ── the guidance tree: the MODEL in the loop, observed — limbs reported, never gated ───────
   'studio-guidance-loop': studioGuidanceLoop,   // a stated convention lands in AGENTS.md and holds; a data-bound request uses resources; skills activate (no Docker; REST lane; ~10 real turns)
   // ── what a logged-in browser session reaches past `@mesh` — red until the executor closes it ──
-  'mesh-entry-reach': {
-    ...meshEntryReach,
-    skip: 'red-first: proves the entry/walk holes are reachable from a real session; Phase 4 and Phase 5 of tasks/mesh-entry-and-walk-gaps.md un-skip it',
-  },
+  'mesh-entry-reach': meshEntryReach,           // every chain a remote caller must not run, refused past a real gate (no Docker)
   'reaper-victim-is-the-address': {
     ...reaperVictimIsTheAddress,
     skip: 'red-first: a reply naming another client reaps it; Phase 7 and Phase 8 of tasks/mesh-entry-and-walk-gaps.md un-skip it',

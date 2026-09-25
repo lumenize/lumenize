@@ -71,6 +71,10 @@
       {
         "name": "MARKER_REJECTING_DO",
         "class_name": "MarkerRejectingDO"
+      },
+      {
+        "name": "MEMBER_KIND_DO",
+        "class_name": "MemberKindDO"
       }
     ]
   },
@@ -86,7 +90,8 @@
     "TaskSchedulerDO": { "type": "durable-object", "storage": "sqlite" },
     "OnRequestTestDO": { "type": "durable-object", "storage": "sqlite" },
     "RejectingDO": { "type": "durable-object", "storage": "sqlite" },
-    "MarkerRejectingDO": { "type": "durable-object", "storage": "sqlite" }
+    "MarkerRejectingDO": { "type": "durable-object", "storage": "sqlite" },
+    "MemberKindDO": { "type": "durable-object", "storage": "sqlite" }
   },
   "ratelimits": [
     {
