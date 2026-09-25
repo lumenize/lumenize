@@ -31,8 +31,22 @@ const ORIGIN = 'http://localhost';
 /** Captures pushes on the dedicated profile channel — the subscribe() leg of the neither-list test. */
 class MeshProbe extends LumenizeClient {
   profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
+  /**
+   * When set, this tab answers every push by throwing a `ClientDisconnectedError` naming SOMEBODY
+   * ELSE. `postprocess` restores `name` and copies every own key onto a plain Error whatever the
+   * constructor, so the reaper's name guard matches and reads whatever the payload carries.
+   *
+   * ⚠️ Armed on the SAME class rather than by a subclass override, deliberately: an override is a
+   * new function and does not inherit the `@mesh()` mark, which the entry rule refuses.
+   */
+  forgedVictim?: string;
   @mesh()
   handleProfileUpdate(profileId: string, snapshot: ProfileSnapshot): void {
+    if (this.forgedVictim) {
+      throw Object.assign(new Error('client went away'), {
+        name: 'ClientDisconnectedError', clientInstanceName: this.forgedVictim,
+      });
+    }
     this.profileUpdates.push({ profileId, snapshot });
   }
 }
@@ -114,6 +128,48 @@ const readNotes = (c: LumenizeClient<any>, pid: string) => c.lmz.callAsync('PROF
 const writeNotes = (c: LumenizeClient<any>, pid: string, n: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writePrivateNotes(n));
 
 describe('Profile DO — Phase 2', () => {
+  /**
+   * The THIRD package's reaper, driven rather than grepped.
+   *
+   * `Profile` pushes through a hand-rolled `lmz.call` fan-out rather than `svc.broadcast` —
+   * deliberately, so a tier Worker cannot rewrite `metadata.caller` and defeat its cross-scope
+   * fence — so it is the one path whose plumbing differs. A grep proves the forgeable field is
+   * gone; only a drive proves the framework-supplied callee ARRIVES here.
+   */
+  it('reaps the subscriber that ANSWERED, never the one a forged reply names', async () => {
+    const pid = uuid();
+    await seedIdentity(pid, 'acme.app.tenant');
+    using owner = await makeClient({ profileId: pid });
+    using victim = await makeClient({ activeScope: 'acme.app.tenant' });
+    using attacker = await makeClient({ activeScope: 'acme.app.tenant' });
+
+    await victim.lmz.callAsync('PROFILE', pid, victim.ctn<Profile>().subscribe());
+    await attacker.lmz.callAsync('PROFILE', pid, attacker.ctn<Profile>().subscribe());
+
+    // POSITIVE CONTROL: both are live subscribers. Without it, "the victim stopped hearing" could
+    // mean either subscription was never there, and every assertion below would pass vacuously.
+    await write(owner, pid, { name: 'one' });
+    await vi.waitFor(() => {
+      expect(victim.profileUpdates.length).toBeGreaterThan(0);
+      expect(attacker.profileUpdates.length).toBeGreaterThan(0);
+    });
+
+    // Arm, push once so the forged reply lands, then disarm so the forger's own row is readable.
+    attacker.forgedVictim = victim.lmz.instanceName;
+    await write(owner, pid, { name: 'two' });
+    await new Promise((r) => setTimeout(r, 250));   // the fire-back, then the reaper's DELETE
+    attacker.forgedVictim = undefined;
+
+    const victimBefore = victim.profileUpdates.length;
+    const attackerBefore = attacker.profileUpdates.length;
+    await write(owner, pid, { name: 'three' });
+    await vi.waitFor(() => {
+      expect(victim.profileUpdates.length).toBeGreaterThan(victimBefore);
+    });
+    // The named client keeps its row; the one that ANSWERED is the one that goes.
+    expect(attacker.profileUpdates.length).toBe(attackerBefore);
+  });
+
   it('public read is OPEN — a cross-scope non-admin caller reads, firing ZERO registry reads (#3)', async () => {
     const pid = uuid();
     await seedIdentity(pid, 'other-universe.app.tenant');            // the profile lives in a DIFFERENT scope

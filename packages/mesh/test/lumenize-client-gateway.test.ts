@@ -498,13 +498,23 @@ describe('LumenizeClientGateway', () => {
 
   describe('ClientDisconnectedError', () => {
     it('is properly serializable with structured-clone', () => {
-      const error = new ClientDisconnectedError('Test error', 'alice.tab1');
+      const error = new ClientDisconnectedError('Test error');
       const serialized = stringify(error);
       const restored = parse(serialized);
 
       expect(restored).toBeInstanceOf(ClientDisconnectedError);
       expect(restored.message).toBe('Test error');
-      expect((restored as ClientDisconnectedError).clientInstanceName).toBe('alice.tab1');
+    });
+
+    it('carries NO clientInstanceName — who died comes from the address, not the payload', () => {
+      // The field was the whole vulnerability: `postprocess` copies every own key onto a plain
+      // Error whatever the constructor, so a client's handler could throw one naming ANY other
+      // client and have that subscriber's row deleted. A reaper reads `callContext.callee` now.
+      const error = new ClientDisconnectedError('Test error');
+      expect('clientInstanceName' in error).toBe(false);
+      // And it does not survive a round trip either, which is the half that mattered on the wire.
+      const restored = parse(stringify(error)) as Record<string, unknown>;
+      expect(restored.clientInstanceName).toBeUndefined();
     });
   });
 

@@ -453,13 +453,14 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Combined result/error handler (runs at __handleResponse, requireMeshDecorator:false).
   // D6: the handler always receives handler($result) where $result is the value OR the Error.
-  // Captures the Error's name + clientInstanceName too, so tests can assert the structured
-  // ClientDisconnectedError round-trips (the two fields drop-on-failed-broadcast keys on).
+  // Captures the Error's name, and the per-hop `callee` the framework stamped — the two things
+  // drop-on-failed-broadcast keys on. The error itself carries no identity: who failed comes from
+  // the address the push was sent to, which the far side cannot write.
   handleOutcome(resultOrError: any): void {
     if (resultOrError instanceof Error) {
       this.ctx.storage.kv.put('last_call_error', resultOrError.message);
       this.ctx.storage.kv.put('last_call_error_name', resultOrError.name);
-      const cin = (resultOrError as { clientInstanceName?: string }).clientInstanceName;
+      const cin = this.lmz.callContext.callee?.instanceName;
       if (cin !== undefined) this.ctx.storage.kv.put('last_call_error_client', cin);
     } else {
       this.ctx.storage.kv.put('last_call_result', resultOrError);
@@ -1599,7 +1600,7 @@ export class RejectingDO extends LumenizeDO<Env> {
  *
  * Separate from {@link RejectingDO} on purpose: that one backs the plain dispatch-reject tests, and
  * giving ITS error a chain would make those tests run one. Structured clone carries own keys across
- * a hop, which is exactly how `clientInstanceName` rides an Error today.
+ * a hop, which is how an Error carries any own property it was given.
  */
 export class MarkerRejectingDO extends LumenizeDO<Env> {
   override onBeforeCall(): void {

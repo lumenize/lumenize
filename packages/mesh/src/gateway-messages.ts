@@ -208,10 +208,7 @@ export type GatewayMessage =
 export class ClientDisconnectedError extends Error {
   name = 'ClientDisconnectedError';
 
-  constructor(
-    message: string = 'Client is not connected',
-    public readonly clientInstanceName?: string
-  ) {
+  constructor(message: string = 'Client is not connected') {
     super(message);
   }
 }
@@ -233,10 +230,7 @@ export class ClientDisconnectedError extends Error {
 export class ClientTokenExpiredError extends Error {
   name = 'ClientTokenExpiredError';
 
-  constructor(
-    message: string = 'Client token expired',
-    public readonly clientInstanceName?: string
-  ) {
+  constructor(message: string = 'Client token expired') {
     super(message);
   }
 }

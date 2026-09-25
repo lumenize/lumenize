@@ -418,8 +418,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     // Reject all pending reconnect waiters
     this.#rejectReconnectWaiters(new ClientDisconnectedError(
-      'Client did not reconnect within grace period',
-      this.#getInstanceName()
+      'Client did not reconnect within grace period'
     ));
   }
 
@@ -443,7 +442,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
     // this Gateway DO (carried in the envelope metadata). Source it from there,
     // NOT from the active-WebSocket attachment via #getInstanceName(): the
     // attachment is absent exactly when the client is disconnected — which is
-    // the case where ClientDisconnectedError.clientInstanceName is needed, so
+    // the case where the RESULT envelope's clientInstanceName is needed, so
     // the caller can drop the leaked subscriber row (drop-on-failed-broadcast
     // cleanup; see Star.onBroadcastResult). Fall back to the attachment for the
     // (rare) case where metadata is absent.
@@ -472,22 +471,16 @@ export class LumenizeClientGateway extends DurableObject<any> {
           // The waiter-rejection error originates in alarm()/#waitForReconnect,
           // which have no envelope in scope, so re-stamp the disconnected client's
           // instance name here where the envelope is available.
-          return { $error: preprocess(this.#withClientInstanceName(err, clientInstanceName)) };
+          return { $error: preprocess(err) };
         }
         ws = this.#getActiveWebSocket();
 
         if (!ws) {
-          return { $error: preprocess(new ClientDisconnectedError(
-            'Client did not reconnect in time',
-            clientInstanceName
-          )) };
+          return { $error: preprocess(new ClientDisconnectedError('Client did not reconnect in time')) };
         }
       } else {
         // Not in grace period - client is disconnected
-        return { $error: preprocess(new ClientDisconnectedError(
-          'Client is not connected',
-          clientInstanceName
-        )) };
+        return { $error: preprocess(new ClientDisconnectedError('Client is not connected')) };
       }
     }
 
@@ -498,10 +491,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
     if (!attachment) {
       log.error('Null attachment in __executeOperation — closing WebSocket');
       ws.close(1011, 'Connection not properly initialized');
-      return { $error: preprocess(new ClientDisconnectedError(
-        'Connection not properly initialized',
-        clientInstanceName
-      )) };
+      return { $error: preprocess(new ClientDisconnectedError('Connection not properly initialized')) };
     }
 
     const tokenExp = attachment.claims?.exp as number | undefined;
@@ -511,10 +501,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // Its OWN class: the socket closes with 4401 and the client is back in about 100 ms, so a
       // reaper must not treat this as a death. Every reaper guards on the name, so the rename IS
       // the fix — nothing per-reaper changes.
-      return { $error: preprocess(new ClientTokenExpiredError(
-        'Client token expired',
-        clientInstanceName
-      )) };
+      return { $error: preprocess(new ClientTokenExpiredError('Client token expired')) };
     }
 
     // Let subclass validate/reject the incoming call before forwarding
@@ -770,8 +757,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       const timeout = setTimeout(() => {
         this.#pendingCalls.delete(callId);
         reject(new ClientDisconnectedError(
-          'Client call timed out',
-          this.#getInstanceName()
+          'Client call timed out'
         ));
       }, this.#clientCallTimeoutMs);
 
@@ -805,24 +791,6 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return attachment?.instanceName;
     }
     return undefined;
-  }
-
-  /**
-   * Ensure a `ClientDisconnectedError` carries the disconnected client's instance
-   * name. Used to backfill errors that originate where the call envelope isn't in
-   * scope (alarm()/#waitForReconnect → #rejectReconnectWaiters), so the caller's
-   * drop-on-failed-broadcast cleanup can identify which subscriber row to drop.
-   * Non-disconnect errors, and errors that already carry a name, pass through.
-   */
-  #withClientInstanceName(err: unknown, clientInstanceName?: string): unknown {
-    if (
-      clientInstanceName &&
-      err instanceof ClientDisconnectedError &&
-      err.clientInstanceName === undefined
-    ) {
-      return new ClientDisconnectedError(err.message, clientInstanceName);
-    }
-    return err;
   }
 
   /**
@@ -864,16 +832,14 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     if (alarm === null) {
       throw new ClientDisconnectedError(
-        'Client is not connected and no grace period active',
-        this.#getInstanceName()
+        'Client is not connected and no grace period active'
       );
     }
 
     const remainingMs = alarm - Date.now();
     if (remainingMs <= 0) {
       throw new ClientDisconnectedError(
-        'Client grace period has expired',
-        this.#getInstanceName()
+        'Client grace period has expired'
       );
     }
 

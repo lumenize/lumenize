@@ -669,6 +669,21 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
    - **Mutation note:** restore the field on the error and the forged-reply row reds; convert the
      `apps/nebula` reapers (Star and Galaxy) but not `packages/nebula-auth/src/profile.ts`, and the
      third-package limb reds.
+   - ✅ **DONE 2026-09-24.** All five `/live` reaper limbs are GREEN from a real session: a forged
+     reply leaves the named client subscribed, the forger reaps ITSELF — which it could have done by
+     unsubscribing — the direct call to a bare-`@mesh()` reaper is PERMITTED and changes no row, and
+     a genuine disconnect still reaps, and only it. `tsc` was the inventory exactly as predicted: it
+     named all nine construction sites the moment the parameter went, including the ones that pass
+     `#getInstanceName()` rather than a literal. The third package's limb reds when `profile.ts`
+     alone is left on the payload read, which is what shows the callee ARRIVES there.
+   - ⓘ **`ClientTokenExpiredError` was born WITHOUT the field**, not stripped of it later — Phase 7
+     gave it the same shape as its sibling and Phase 8 took it from both, so the new class never
+     shipped the defect.
+   - ⓘ **One test's intent survived with a better source rather than being rewritten.**
+     `continuation-only-feasibility.test.ts` asserted that a `ClientDisconnectedError` carries the
+     dead client's name; `handleOutcome` now records `callContext.callee` instead, so the assertion
+     holds unchanged and asserts the new mechanism. The phase listed that file as one it changes; it
+     changed only a comment.
 
 9. **The docs describe the decorator we ship, and one checked example carries both legs.** Sweep
     `@mesh` across the whole of `website/docs/` — not `website/docs/mesh/` — for method-only framings

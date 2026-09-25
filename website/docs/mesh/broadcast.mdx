@@ -78,7 +78,7 @@ class RoomDO extends LumenizeDO<Env> {
   @mesh()
   onMessageDelivered(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as ClientDisconnectedError).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) {
         const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
         subscribers.delete(clientId);
@@ -89,7 +89,7 @@ class RoomDO extends LumenizeDO<Env> {
 }
 ```
 
-The handler's `result` argument is appended automatically. For failed Gateway deliveries the result is a `ClientDisconnectedError` whose `clientInstanceName` field tells you exactly which subscriber dropped — no separate `target` argument is needed in the handler signature.
+The handler's `result` argument is appended automatically. For failed Gateway deliveries the result is a `ClientDisconnectedError`, and WHICH subscriber dropped comes from `this.lmz.callContext.callee` — the address the framework sent that push to. It is deliberately not on the error: a reply is authored by the far side, so a field there could name anyone.
 
 :::warning[Errors-only handler dispatch]
 

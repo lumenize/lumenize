@@ -1728,7 +1728,7 @@ export class Galaxy extends NebulaDO {
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
     }
   }
@@ -1754,7 +1754,7 @@ export class Galaxy extends NebulaDO {
   @mesh()
   onQueryBroadcastResult(queryHash: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
     }
   }
@@ -1764,7 +1764,7 @@ export class Galaxy extends NebulaDO {
   @mesh()
   onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
     }
   }

@@ -111,7 +111,7 @@ doInstance.lmz.call(t.bindingName, t.instanceName, remote, opts.onResult,
 @mesh()
 onBroadcastResult(resourceId: string, result?: unknown): void {
   if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-    const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+    const clientId = this.lmz.callContext.callee?.instanceName;
     if (clientId) this.#subscriptions.removeSubscriber(resourceId, clientId);
   }
 }

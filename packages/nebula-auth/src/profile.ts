@@ -260,15 +260,22 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
 
   /**
    * Dead-subscriber cleanup — the 4-arg fire-back from a failed fanout delivery. Drops the subscriber
-   * row when the Gateway reports the client disconnected. Mirrors `Star.onBroadcastResult`, BUT is
-   * **`public` and deliberately NOT `@mesh()`**: the fire-back lands via `__handleResponse`
-   * (`requireMeshDecorator: false`), so no decorator is needed — and with this DO's open `onBeforeCall`,
-   * an `@mesh` here would let any client forge a `ClientDisconnectedError` to drop another subscriber's
-   * row (a DoS surface). Detect by `name` (custom Error classes don't keep `instanceof` — mesh.md).
+   * row when the Gateway reports the client disconnected. Mirrors `Star.onBroadcastResult`.
+   *
+   * **WHICH row comes from `callContext.callee`** — the address this push was sent to, stamped by the
+   * framework from a source the caller does not write. The error says only THAT delivery failed.
+   *
+   * ⚠️ **That is what carries the security; staying undecorated is hygiene.** The older reason —
+   * that with this DO's open `onBeforeCall` an `@mesh` here would let any client forge a
+   * `ClientDisconnectedError` naming another subscriber — described a real hole and no longer does:
+   * the error carries no identity to forge, so the worst a direct call achieves is reaping whoever
+   * made it. `public` and un-decorated stays right (the fire-back lands via `__handleResponse` at
+   * `requireMeshDecorator: false`, so no decorator is needed), but it is now the second line rather
+   * than the first. Detect by `name` (custom Error classes don't keep `instanceof` — mesh.md).
    */
   onProfileBroadcastResult(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientId = ?`, clientId);
     }
   }

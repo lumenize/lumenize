@@ -786,14 +786,14 @@ export class Star extends NebulaDO {
 
   /**
    * Per-target reload-broadcast result handler — drop a subscriber whose Gateway
-   * reported it disconnected (`ClientDisconnectedError.clientInstanceName`),
-   * mirroring `onTreeBroadcastResult`. `@mesh()` for the tier-worker dispatch path, which
+   * reported it disconnected, mirroring `onTreeBroadcastResult`. WHICH subscriber comes from
+   * `callContext.callee`, the address this push was sent to, never from the reply. `@mesh()` for the tier-worker dispatch path, which
    * `NebulaDO.broadcast` pins that path off today (TEMP) — the decorator is what keeps lifting it a one-line change.
    */
   @mesh()
   onReloadBroadcastResult(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#reloadSubscriptions.removeSubscriber(clientId);
     }
   }
@@ -832,7 +832,8 @@ export class Star extends NebulaDO {
    * **Drop-on-failed-fanout (v2):** `svc.broadcast` is given an `onResult` partial
    * continuation the framework completes with the per-target result. On
    * `ClientDisconnectedError`, `onBroadcastResult` drops the leaked subscriber row
-   * (via the capability) using `clientInstanceName` carried on the error.
+   * (via the capability), identified by `callContext.callee` — the address the push was sent
+   * to, which the far side cannot write.
    *
    * The `STAR_BROADCAST_*` env knobs exist only for the fanout-scaling bench;
    * production sets none.
@@ -864,8 +865,8 @@ export class Star extends NebulaDO {
    * (success or failure) by `svc.broadcast`'s plumbing. The framework
    * appends `result` to the partial continuation Star passed via
    * `opts.onResult`, so this method's signature is
-   * `(resourceId, result)`; the target clientId comes from
-   * `ClientDisconnectedError.clientInstanceName` when delivery fails.
+   * `(resourceId, result)`; the target clientId comes from `callContext.callee` when delivery
+   * fails — the reply says only THAT it failed, never who.
    *
    * Public visibility because mesh handler-continuations resolve by name
    * on the local DO; `@mesh()` because in the tree branch the tier worker dispatches this call
@@ -875,7 +876,7 @@ export class Star extends NebulaDO {
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
     }
     // Success path or non-disconnect error: nothing to do here.
@@ -912,7 +913,7 @@ export class Star extends NebulaDO {
   @mesh()
   onQueryBroadcastResult(queryHash: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
     }
   }
@@ -927,7 +928,7 @@ export class Star extends NebulaDO {
   @mesh()
   onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
     }
   }
@@ -935,14 +936,14 @@ export class Star extends NebulaDO {
   /**
    * Per-target result handler for the org-tree broadcast (`#onDagChanged`).
    * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
-   * the failed client comes from `ClientDisconnectedError.clientInstanceName`,
+   * the failed client comes from `callContext.callee`,
    * mirroring `onBroadcastResult`. `@mesh()` for the tier-worker dispatch path (this one fans
    * out to every connected client), which `NebulaDO.broadcast` pins that path off today (TEMP).
    */
   @mesh()
   onTreeBroadcastResult(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      const clientId = this.lmz.callContext.callee?.instanceName;
       if (clientId) this.#treeSubscriptions.removeSubscriber(clientId);
     }
   }

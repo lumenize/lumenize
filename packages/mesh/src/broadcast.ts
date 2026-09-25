@@ -9,7 +9,7 @@
  * results back to a handler on this DO. The framework appends the
  * call's result to the partial's args via the standard last-argument
  * convention (same as the 4-arg `lmz.call` form). For drop-on-failed-fanout
- * style cleanup: the result is `ClientDisconnectedError.clientInstanceName`
+ * style cleanup: the result is a `ClientDisconnectedError` and WHICH target it came from is
  * for failures; success path is `undefined`.
  *
  * **Two dispatch branches:**
@@ -89,14 +89,14 @@ export interface BroadcastOptions {
    *   @mesh()
    *   onBroadcastResult(resourceId: string, result: unknown): void {
    *     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-   *       const target = (result as ClientDisconnectedError).clientInstanceName;
+   *       const target = this.lmz.callContext.callee?.instanceName;
    *       if (target) this.#subscriptions.removeSubscriber(resourceId, target);
    *     }
    *   }
    *   ```
    *
    * Then pass `onResult: this.ctn<this>().onBroadcastResult(resourceId)`. The
-   * framework appends `result` at each leaf. `ClientDisconnectedError.clientInstanceName`
+   * framework appends `result` at each leaf. `callContext.callee`
    * tells you which target failed; success-path calls don't need a target
    * arg because there's nothing to clean up.
    *

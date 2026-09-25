@@ -124,10 +124,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'studio-guidance-loop': studioGuidanceLoop,   // a stated convention lands in AGENTS.md and holds; a data-bound request uses resources; skills activate (no Docker; REST lane; ~10 real turns)
   // ── what a logged-in browser session reaches past `@mesh` — red until the executor closes it ──
   'mesh-entry-reach': meshEntryReach,           // every chain a remote caller must not run, refused past a real gate (no Docker)
-  'reaper-victim-is-the-address': {
-    ...reaperVictimIsTheAddress,
-    skip: 'red-first: a reply naming another client reaps it; Phase 7 and Phase 8 of tasks/mesh-entry-and-walk-gaps.md un-skip it',
-  },
+  'reaper-victim-is-the-address': reaperVictimIsTheAddress,  // a forged reply reaps only its author; a real disconnect still reaps (no Docker)
 };
 
 /**
