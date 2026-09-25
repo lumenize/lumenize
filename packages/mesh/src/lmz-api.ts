@@ -2,7 +2,7 @@ import { debug } from '@lumenize/debug';
 import { isDurableObjectId, isDONamespace, getDOStub } from '@lumenize/routing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getCurrentCallContext, runWithCallContext } from '#lmz-api-context';
-import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
+import { getOperationChain, executeOperationChain, executeFilledChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
 
 // Re-export types for convenience
@@ -239,7 +239,7 @@ async function dispatchEnvelope(
   try {
     const filled = replaceNestedOperationMarkers(handlerChain, errorObj);
     await runWithCallContext(envelope.callContext, () =>
-      executeOperationChain(filled, nodeInstance, { requireMeshDecorator: false }));
+      executeFilledChain(filled, nodeInstance, { requireMeshDecorator: false }));
   } catch (handlerError) {
     log.error('failed to deliver a dispatch-rejected result to the local handler', {
       error: handlerError instanceof Error ? handlerError.message : String(handlerError),
@@ -956,6 +956,16 @@ export async function executeEnvelope(
     nodeTypeName?: string;
     includeInstanceName?: boolean;
     requireMeshDecorator?: boolean;
+    /**
+     * True when every chain arriving at this door has ALREADY been filled with a result — the
+     * fire-back door, never the request door. Its final `apply` then carries data rather than a
+     * template's arguments, so it is not scanned for nested markers.
+     *
+     * ⚠️ **Orthogonal to `requireMeshDecorator` in both directions, so it MUST NOT be folded into
+     * it.** `alarms.ts` runs a never-substituted chain with that flag off, and a pre-filled chain
+     * used to reach the request door, where it is on.
+     */
+    filled?: boolean;
     /** The node's `ctx.waitUntil`. Keeps an ephemeral `LumenizeWorker` alive for the detached
      * post-ack tail; a **no-op on DOs** (Worker-API parity only — see the ADMITTED block). */
     waitUntil?: (promise: Promise<any>) => void;
@@ -1017,7 +1027,8 @@ export async function executeEnvelope(
     let outcome: unknown;
     let isError = false;
     try {
-      outcome = await executeOperationChain(operationChain, node, { requireMeshDecorator });
+      const run = options?.filled ? executeFilledChain : executeOperationChain;
+      outcome = await run(operationChain, node, { requireMeshDecorator });
     } catch (err) {
       outcome = err instanceof Error ? err : new Error(String(err));
       isError = true;
@@ -1128,6 +1139,9 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
         nodeTypeName,
         includeInstanceName: true,
         requireMeshDecorator: false,
+        // Every chain that arrives here was filled by the callee's `fireResponse`, so its last
+        // apply is a result rather than a template's arguments.
+        filled: true,
         waitUntil: (p) => base.ctx.waitUntil(p),
         env: base.env,
         onValidationError: (error, details) => {

@@ -5,6 +5,7 @@ import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG, WS_HEARTBEAT_INTERVAL_MS } from '
 import {
   newContinuation,
   executeOperationChain,
+  executeFilledChain,
   getOperationChain,
   replaceNestedOperationMarkers,
   type OperationChain,
@@ -1275,7 +1276,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       const prev = this.#currentCallContext;
       this.#currentCallContext = handler.capturedContext ?? null;
       try {
-        await executeOperationChain(finalChain, this, { requireMeshDecorator: false });
+        await executeFilledChain(finalChain, this, { requireMeshDecorator: false });
       } finally {
         this.#currentCallContext = prev;
       }

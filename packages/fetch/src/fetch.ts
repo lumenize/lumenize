@@ -7,7 +7,7 @@
  */
 
 import { debug, type DebugLogger } from '@lumenize/debug';
-import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeDO } from '@lumenize/mesh';
+import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, executeFilledChain, type LumenizeDO } from '@lumenize/mesh';
 import { stringify, parse, RequestSync, type ResponseSync } from '@lumenize/structured-clone';
 import { FetchTimeoutError } from './errors';
 import type { ProxyFetchWorkerOptions } from './types';
@@ -256,7 +256,10 @@ export class Fetch extends NadisPlugin {
     // Skip @mesh decorator check since this is an internal framework continuation
     const userContinuation = parse(continuation);
     const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
-    await (this.doInstance as any).__localChainExecutor(filledChain, { requireMeshDecorator: false });
+    // The FILLED entry, not `__localChainExecutor`: this chain's last apply holds the fetch result,
+    // and the template entry would scan it for nested markers — so a response body the far side
+    // authored could become a chain and run on this DO.
+    await executeFilledChain(filledChain, this.doInstance, { requireMeshDecorator: false });
   }
 }
 

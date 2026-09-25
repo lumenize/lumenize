@@ -73,6 +73,52 @@ export async function executeOperationChain(
   target: any,
   config?: OcanConfig
 ): Promise<any> {
+  return walkChain(operations, target, config, false);
+}
+
+/**
+ * Execute a chain whose final `apply` has ALREADY been filled with a result — the second of the
+ * two entry points, and the one that treats that argument list as DATA.
+ *
+ * A handler chain is populated by {@link replaceNestedOperationMarkers} before it runs: markers in
+ * the last `apply` are replaced with the result, or the result is appended there when the handler
+ * spells none. Running the template's fill step again over an ARRIVAL is what let a reply the far
+ * side authored be re-read as a nested marker and executed — any chain at all, on the node, with
+ * the member-level check off. So a filled chain does not resolve nesting in that one position.
+ *
+ * **Two named entries rather than a flag.** Which one a site wants is static at every call site, so
+ * a named entry cannot be forgotten or inverted the way a defaulted boolean can. Both share one
+ * walk, so the entry rule and the walk rules still live in one place.
+ *
+ * ⚠️ **Only the FINAL apply stops resolving.** An earlier apply may carry a marker the author
+ * genuinely nested — `ctn().a(ctn().x()).b($result)` — and that one still resolves.
+ *
+ * @see docs/adr/002-structured-clone-everywhere.md — a result carrying those keys must arrive
+ *      intact and unexecuted, which is why the cure is to stop resolving rather than to strip or
+ *      rename them.
+ * @internal
+ */
+export async function executeFilledChain(
+  operations: OperationChain,
+  target: any,
+  config?: OcanConfig
+): Promise<any> {
+  return walkChain(operations, target, config, true);
+}
+
+/**
+ * The one walk both entry points share.
+ *
+ * @param filled - true when the chain's final `apply` holds a substituted result rather than a
+ *                 template's arguments, so that position is not scanned for nested markers.
+ * @internal
+ */
+async function walkChain(
+  operations: OperationChain,
+  target: any,
+  config: OcanConfig | undefined,
+  filled: boolean
+): Promise<any> {
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
 
   // Validate before execution
@@ -126,8 +172,12 @@ export async function executeOperationChain(
         }
       }
 
-      // Process arguments to resolve any nested operation markers
-      const resolvedArgs = await resolveNestedOperations(operation.args, target, config);
+      // Process arguments to resolve any nested operation markers. A FILLED chain's last apply is
+      // where the substitution wrote, so its arguments are data and are passed through untouched.
+      const isSubstitutedApply = filled && i === operations.length - 1;
+      const resolvedArgs = isSubstitutedApply
+        ? operation.args
+        : await resolveNestedOperations(operation.args, target, config);
 
       // Call the method on its parent object to preserve 'this' context.
       // This works for both regular methods and Workers RPC stub methods.

@@ -34,6 +34,7 @@ export {
 // Execution
 export {
   executeOperationChain,
+  executeFilledChain,
   validateOperationChain,
   replaceNestedOperationMarkers
 } from './execute.js';

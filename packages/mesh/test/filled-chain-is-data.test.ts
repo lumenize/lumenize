@@ -1,5 +1,5 @@
 /**
- * A reply the far side authored is re-read as a nested marker and executed (§ R1).
+ * A reply the far side authored is re-read as a nested marker and executed.
  *
  * **Why this tier and not `/live`** (`.claude/rules/live.md` puts that reason on the test file,
  * which outlives the task file): these are properties of the framework's own substitution sites —
@@ -52,7 +52,7 @@ async function awaitHandler(caller: { getHandlerReceived: () => Promise<unknown>
 }
 
 describe('a filled chain is data — the executor never resolves it', () => {
-  it.skip('does not run an injected chain on the node-to-node FIRE-BACK', async () => {
+  it('does not run an injected chain on the node-to-node FIRE-BACK', async () => {
     const caller = await freshCaller('r1-fireback-caller');
     caller.testCallForMarkerReply('TEST_DO', 'r1-fireback-callee', markerShapedJson('fire-back'));
 
@@ -61,7 +61,7 @@ describe('a filled chain is data — the executor never resolves it', () => {
     expect(received.payload, 'the handler must receive the reply itself').toBe('reply-fire-back');
   });
 
-  it.skip('does not run an injected chain when the result is APPENDED (the reaper shape)', async () => {
+  it('does not run an injected chain when the result is APPENDED (the reaper shape)', async () => {
     const caller = await freshCaller('r1-appended-caller');
     caller.testCallForMarkerReplyAppended(
       'TEST_DO', 'r1-appended-callee', markerShapedJson('appended'), 'query-hash-1',
@@ -73,7 +73,7 @@ describe('a filled chain is data — the executor never resolves it', () => {
       .toBe('reply-appended');
   });
 
-  it.skip('does not run an injected chain on the LOCAL handler path (an admission reject)', async () => {
+  it('does not run an injected chain on the LOCAL handler path (an admission reject)', async () => {
     const caller = await freshCaller('r1-local-caller');
     caller.testCallToMarkerRejecter('MARKER_REJECTING_DO', 'r1-local-rejecter');
 
@@ -84,7 +84,7 @@ describe('a filled chain is data — the executor never resolves it', () => {
       .toMatch(/admission rejected with a marker-shaped error/);
   });
 
-  it.skip('delivers a result carrying BOTH marker keys intact and unexecuted (ADR-002)', async () => {
+  it('delivers a result carrying BOTH marker keys intact and unexecuted (ADR-002)', async () => {
     // What rules out closing R1 by neutralising the value — stripping or renaming the two keys
     // would satisfy every limb above and contradict ADR-002's full structured-clone round trip.
     const caller = await freshCaller('r1-fidelity-caller');

@@ -116,6 +116,22 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
     expect(await origin.getBroadcastErrorMsg()).toContain('Remote error for testing');
   }, 10000);
 
+  // The forward lands at the origin's FIRE-BACK door, not its request door — so a forwarded
+  // onResult handler no longer needs `@mesh()`. Capable of failing: point `__forwardBroadcastResult`
+  // back at `lmz.call` and this reds with "is not mesh-callable" while the decorated sibling above
+  // stays green, which is what separates the two doors.
+  test('svc.broadcast tree path: a forwarded result reaches an UNDECORATED handler', async () => {
+    const origin = env.TEST_DO.getByName('tier-origin-undecorated');
+    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'tier-origin-undecorated' });
+
+    origin.testTierBroadcastUndecorated('tier-target-undecorated');
+
+    await vi.waitFor(async () => {
+      expect(await origin.getUndecoratedBroadcastError()).toBeTruthy();
+    }, { timeout: 8000 });
+    expect(await origin.getUndecoratedBroadcastError()).toContain('Remote error for testing');
+  }, 10000);
+
   test('result handler receives success result', async () => {
     const storeDO = env.TEST_DO.getByName('worker-call-result-store-1');
 

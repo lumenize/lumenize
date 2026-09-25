@@ -9,6 +9,10 @@ import {
   type AnyContinuation,
 } from './ocan/index.js';
 import { createLmzApiForWorker, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import type { NodeIdentity } from './types.js';
+import { getDOStub } from '@lumenize/routing';
+import { preprocess } from '@lumenize/structured-clone';
+import { debug } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 import { mesh } from './mesh-decorator.js';
 import { BROADCAST_TIER_BINDING, type BroadcastTarget } from './broadcast.js';
@@ -194,6 +198,9 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
       nodeTypeName: 'LumenizeWorker',
       includeInstanceName: false,
       requireMeshDecorator: false,
+      // Every chain that arrives here was filled by the callee's `fireResponse`, so its last apply
+      // is a result rather than a template's arguments.
+      filled: true,
       waitUntil: (p) => this.ctx.waitUntil(p),
       env: this.env,
     });
@@ -283,10 +290,24 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *      partial continuation built by the originating DO) using
    *      `replaceNestedOperationMarkers` — the same helper that powers the
    *      4-arg `lmz.call` form's result wiring.
-   *   2. Forward the resolved chain to `callChain[0]` (the originating DO)
-   *      via a fresh `lmz.call`. `callChain[0]` is the DO that started
-   *      this broadcast because `__broadcastTier` was originally invoked
-   *      from there.
+   *   2. Deliver it to `callChain[0]` (the originating DO) at that node's FIRE-BACK door, which
+   *      is the only door that knows it is holding a filled chain.
+   *
+   * ⚠️ **It MUST NOT go through `lmz.call`.** That lands at `__executeOperation`, a generic
+   * request door which cannot tell a filled chain from a template — so the substituted result was
+   * scanned for nested markers, and a value the far side authored could become a chain and run on
+   * the origin with the member-level check off. `__handleResponse` is where a filled chain belongs,
+   * and it is the door `fireResponse` uses for exactly the same reason.
+   *
+   * ⓘ **A forwarded `onResult` handler therefore no longer needs `@mesh()`** — the fire-back door
+   * does not consult the mark. `captureUndecoratedBroadcastResult` in the test worker is the limb
+   * that holds that property up.
+   *
+   * ⚠️ **A CLIENT origin keeps the old path**, because the Gateway's `__handleResponse` takes a
+   * different shape entirely (a `ClientResultEnvelope`, not a `CallEnvelope`). That path is
+   * independently broken — `svc.broadcast` starts no fresh chain, so `callChain[0]` is whoever
+   * originated the write, and a failure is forwarded to that client rather than to the broadcasting
+   * DO. Both conditions ride the `directThreshold` row in `tasks/backlog.md` § *Lumenize Mesh*.
    *
    * @internal Framework method — do not override or call directly.
    */
@@ -314,11 +335,40 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
       return;
     }
     const resolved = replaceNestedOperationMarkers(onResultChain, result);
-    // `lmz.call` requires a Continuation proxy. Wrap the resolved chain.
-    this.lmz.call(
-      origin.bindingName,
-      origin.instanceName,
-      continuationFromChain<any>(resolved),
+
+    if (origin.type === 'LumenizeClient') {
+      // See the CLIENT origin note above — unchanged, and tracked rather than fixed here.
+      this.lmz.call(origin.bindingName, origin.instanceName, continuationFromChain<any>(resolved));
+      return;
+    }
+
+    const selfIdentity: NodeIdentity = {
+      type: this.lmz.type,
+      bindingName: this.lmz.bindingName!,
+      instanceName: this.lmz.instanceName,
+    };
+    const fireEnvelope: CallEnvelope = {
+      version: 1,
+      chain: preprocess(resolved),
+      callContext: {
+        ...this.lmz.callContext,
+        callChain: [...this.lmz.callContext.callChain, selfIdentity],
+      },
+      metadata: {
+        caller: selfIdentity,
+        callee: { type: origin.type, bindingName: origin.bindingName, instanceName: origin.instanceName },
+      },
+    };
+    const target = origin.instanceName !== undefined
+      ? getDOStub((this.env as any)[origin.bindingName], origin.instanceName)
+      : (this.env as any)[origin.bindingName];
+    this.ctx.waitUntil(
+      Promise.resolve(target.__handleResponse(fireEnvelope)).catch((err: unknown) => {
+        debug('lmz.mesh.LumenizeWorker.__forwardBroadcastResult')
+          .error('forwarding a broadcast result to the origin failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+      }),
     );
   }
 }

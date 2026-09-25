@@ -508,6 +508,33 @@ export class TestDO extends LumenizeDO<Env> {
     this.lmz.call(gatewayBinding, clientInstance, remote, this.ctn().handleOutcome(remote));
   }
 
+  /**
+   * The same onResult handler, UNDECORATED — the limb that shows a forwarded broadcast result no
+   * longer needs `@mesh()`.
+   *
+   * It used to: the tier forwarded through `lmz.call`, which lands at `__executeOperation` with the
+   * member-level check ON, so every `svc.broadcast` reaper carried a mark for that one dispatch
+   * path. The forward now goes to the origin's fire-back door instead — the only door that knows it
+   * is holding a filled chain — and that door does not consult the mark.
+   */
+  captureUndecoratedBroadcastResult(result?: unknown): void {
+    if (result instanceof Error) {
+      this.ctx.storage.kv.put('undecorated_broadcast_error', result.message);
+    }
+  }
+
+  testTierBroadcastUndecorated(targetInstance: string): void {
+    this.svc.broadcast(
+      [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
+      this.ctn<TestDO>().throwError(),
+      { onResult: this.ctn<TestDO>().captureUndecoratedBroadcastResult(), directThreshold: 0 },
+    );
+  }
+
+  async getUndecoratedBroadcastError(): Promise<string | undefined> {
+    return this.ctx.storage.kv.get('undecorated_broadcast_error') as string | undefined;
+  }
+
   // crit 7a: fire a broadcast FORCED through the tree path (directThreshold:0) to an erroring
   // target. The per-target fire-back lands on a FRESH tier-Worker instance whose
   // __forwardBroadcastResult forwards the Error back to callChain[0] (this origin) — the real
@@ -521,7 +548,10 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // onResult handler — the tier Worker's __forwardBroadcastResult forwards here (callChain[0]) with
-  // the per-target Error appended. @mesh because it arrives as a normal mesh call from the tier.
+  // the per-target Error appended. ⚠️ The `@mesh()` no longer earns its keep on THIS path: the
+  // forward lands at `__handleResponse`, where the member-level check is off. Kept because other
+  // tests read this method, and because shedding reaper decorators is a separate piece of work;
+  // `captureUndecoratedBroadcastResult` below is what proves the mark is no longer required.
   @mesh()
   captureBroadcastResult(result?: unknown): void {
     if (result instanceof Error) {
@@ -858,7 +888,7 @@ export class TestDO extends LumenizeDO<Env> {
     this.ctx.storage.kv.delete('two_one_way_result');
   }
 
-  // ─── A reply the FAR SIDE authored, re-read as a chain (§ R1) ───────────────────────────
+  // ─── A reply the FAR SIDE authored, re-read as a chain ──────────────────────────────────
   // The members below back `test/filled-chain-is-data.test.ts`. They exist because the defect is
   // a property of the framework's own substitution sites, so the node under test has to be one
   // the framework calls — a stand-in object cannot reach `fireResponse` or `dispatchEnvelope`.
@@ -866,7 +896,7 @@ export class TestDO extends LumenizeDO<Env> {
   /**
    * Hand back a value this node PARSED rather than one its caller composed. A JSON string crosses
    * the request leg as a string, so nothing resolves it on the way in — which is the point: the
-   * shape reached here is the one § R1 names, attacker data stored earlier and read back later.
+   * shape reached here is the one that matters: attacker data stored earlier and read back later.
    */
   @mesh()
   replyFromStoredJson(json: string): unknown {
@@ -940,7 +970,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   /**
-   * The POSITIVE CONTROL for § R1: a TEMPLATE chain whose final apply carries a genuine nested
+   * The POSITIVE CONTROL for the two entry points: a TEMPLATE chain whose final apply carries a genuine nested
    * marker still resolves. An executor that simply stopped resolving would satisfy every refusal
    * limb in `filled-chain-is-data.test.ts` and break this, which is what pins the two entry
    * points apart.
