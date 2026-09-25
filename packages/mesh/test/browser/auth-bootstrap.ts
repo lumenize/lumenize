@@ -1,50 +1,68 @@
 /**
- * Auth bootstrap for the mesh browser e2e test — drives a real magic-link
+ * Auth bootstrap for the mesh browser e2e project — drives a real magic-link
  * email round-trip end-to-end:
  *
- *   1. Test → wrangler-dev:  POST /auth/email-magic-link
+ *   1. globalSetup → wrangler-dev:  POST /auth/email-magic-link
  *   2. wrangler-dev → Cloudflare Email Sending → SMTP
  *   3. Cloudflare Email Routing → deployed `email-test` Worker
- *   4. email-test Worker → WebSocket push back to test
- *   5. Test → wrangler-dev: GET <magic-link URL> (cookie captured by browser)
- *   6. Test → wrangler-dev: POST /auth/refresh-token (cookie sent, JWT
- *      returned for use as `accessToken` on LumenizeClient)
+ *   4. email-test Worker → WebSocket push back to globalSetup
+ *   5. globalSetup → wrangler-dev: GET <magic-link URL> (cookie captured by the jar)
+ *   6. globalSetup → wrangler-dev: POST /auth/refresh-token (cookie sent, JWT
+ *      returned and provided to every test as `adminAccessToken`)
  *
- * Runs in a real chromium browser (via @vitest/browser-playwright), so
- * browser-native fetch + cookie jar + WebSocket are used directly. Unlike
- * apps/nebula's helper (which uses @lumenize/testing's Browser class to
- * simulate cookies in Node), nothing here is shimmed.
+ * ⚠️ **This runs ONCE, in Node, for the whole project — not per test file.** Every browser test
+ * here needs the SAME identity, because the worker pins `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` and only
+ * the first subject registered with that address is auto-approved. Two test files each doing their
+ * own round trip is therefore not two logins but two races for one mailbox: both waiters take
+ * whichever email lands first, both pass the recipient check (same address), and the second click
+ * finds a link the first already consumed — a 401 `No refresh token provided` that reads as flake.
+ * That is a shared-fixture bug, not a timing one, so the fix is one login rather than a retry or a
+ * serialized project. A test gets the token with `inject('adminAccessToken')`.
+ *
+ * ⚠️ **The emailed link is followed AS SENT.** An earlier version rewrote its host onto the vite
+ * proxy origin so a browser-side jar would hold the cookie; that is the compensating-helper shape
+ * `.claude/rules/live.md` forbids, and it hid whatever the real link pointed at. In Node the jar is
+ * ours, so the link needs no rewriting — and if the host it carries ever stops matching the stack
+ * that sent it, this throws instead of papering over it.
+ *
+ * The browser never needs the cookie: `LumenizeClient` skips its refresh round-trip entirely when
+ * an `accessToken` is supplied, refreshing only when the token is missing or near expiry, and an
+ * access token minted at setup is good for far longer than the suite runs.
  */
 
+import { Browser } from '@lumenize/testing';
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 interface BootstrapOptions {
-  baseUrl: string;
+  /** wrangler-dev's OWN base URL — not the vite proxy path. This runs in Node, so there is no proxy. */
+  wranglerUrl: string;
   email: string;
   testToken: string;
 }
 
 /**
- * Run the full magic-link flow, then exchange the resulting cookie for a
- * JWT via `/auth/refresh-token`. Returns the access token for use as
- * `LumenizeClientConfig.accessToken`.
- *
- * The browser-side cookie jar handles `Set-Cookie` automatically; we don't
- * have to thread cookies manually.
+ * Run the full magic-link flow, then exchange the resulting cookie for a JWT via
+ * `/auth/refresh-token`. Returns the access token for use as `LumenizeClientConfig.accessToken`.
  */
 export async function bootstrapAndGetAccessToken(options: BootstrapOptions): Promise<string> {
-  const { baseUrl, email, testToken } = options;
+  const { wranglerUrl, email, testToken } = options;
+  const browser = new Browser(fetch);
 
-  // 1. Set up email listener BEFORE triggering the send
+  // 1. Set up the email listener BEFORE triggering the send.
+  //
+  //    No `to` filter, deliberately. The address is PINNED by the worker's bootstrap binding, so it
+  //    has history — and `waitForEmail` clears the bucket only when `to` is absent. For a historied
+  //    address that clear is the isolation, because a filter alone would match a previous run's mail
+  //    and resolve instantly with a link already consumed. Safe here only because this project now
+  //    has exactly one waiter; a second one would need a unique recipient instead.
   const waiter = waitForEmail({ testToken });
 
   try {
-    // 2. Request magic link
-    const magicLinkResponse = await fetch(`${baseUrl}/auth/email-magic-link`, {
+    // 2. Request the magic link
+    const magicLinkResponse = await browser.fetch(`${wranglerUrl}/auth/email-magic-link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
-      credentials: 'include',
     });
     if (!magicLinkResponse.ok) {
       throw new Error(`email-magic-link request failed: ${magicLinkResponse.status} ${await magicLinkResponse.text()}`);
@@ -56,25 +74,24 @@ export async function bootstrapAndGetAccessToken(options: BootstrapOptions): Pro
       throw new Error(`Email recipient mismatch: expected '${email}', got '${receivedEmail.to?.[0]?.address}'`);
     }
 
-    // 4. Extract + click magic link — 302 sets the refresh cookie.
-    //    LumenizeAuth embeds its own host (wrangler-dev) in the magic-link
-    //    URL. Rewrite to the same-origin proxy path so the cookie set on
-    //    the 302 response is associated with the test page's origin (and
-    //    thus sent on the follow-up `/auth/refresh-token` POST).
-    const magicLinkUrlRaw = extractMagicLink(receivedEmail);
-    const magicLinkUrl = magicLinkUrlRaw.replace(/^https?:\/\/[^/]+/, baseUrl);
-    const clickResponse = await fetch(magicLinkUrl, { redirect: 'manual', credentials: 'include' });
-    if (clickResponse.status !== 302 && clickResponse.status !== 0) {
-      // status 0 = "opaqueredirect" mode (chromium returns 0 for manual-redirect
-      // responses); cookies are still saved either way.
-      throw new Error(`Magic-link click expected 302 (or 0 opaqueredirect), got ${clickResponse.status}`);
+    // 4. Click the link AS SENT — the 302 sets the refresh cookie on our jar.
+    const magicLinkUrl = extractMagicLink(receivedEmail);
+    const linkHost = new URL(magicLinkUrl).host;
+    const stackHost = new URL(wranglerUrl).host;
+    if (linkHost !== stackHost) {
+      throw new Error(
+        `Magic-link host '${linkHost}' is not the stack that sent it ('${stackHost}'). Fix what the ` +
+        `worker embeds rather than rewriting the link here — a rewritten link stops testing the one ` +
+        `thing this round trip exists to test (see .claude/rules/live.md).`,
+      );
+    }
+    const clickResponse = await browser.fetch(magicLinkUrl, { redirect: 'manual' });
+    if (clickResponse.status !== 302) {
+      throw new Error(`Magic-link click expected 302, got ${clickResponse.status}`);
     }
 
-    // 5. Mint access token via refresh-token endpoint
-    const refreshResponse = await fetch(`${baseUrl}/auth/refresh-token`, {
-      method: 'POST',
-      credentials: 'include',
-    });
+    // 5. Mint the access token via the refresh-token endpoint
+    const refreshResponse = await browser.fetch(`${wranglerUrl}/auth/refresh-token`, { method: 'POST' });
     if (!refreshResponse.ok) {
       throw new Error(`refresh-token request failed: ${refreshResponse.status} ${await refreshResponse.text()}`);
     }

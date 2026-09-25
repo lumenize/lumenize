@@ -17,8 +17,17 @@ import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
+import { bootstrapAndGetAccessToken } from './auth-bootstrap';
 
 const WRANGLER_CONFIG = './test/browser/worker/wrangler.jsonc';
+
+/**
+ * Must match `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` in `test/browser/worker/wrangler.jsonc` — only the
+ * first subject registered with that address is auto-approved, so this is the one identity that
+ * clears the auth gate. Every test in the project shares it, which is why the login happens here
+ * rather than per file (see `auth-bootstrap.ts`).
+ */
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 let cleanupWrangler: (() => Promise<void>) | null = null;
 
@@ -55,6 +64,16 @@ export default async function setup(project: TestProject) {
   project.provide('wranglerBaseUrl', '/worker');
   project.provide('emailTestToken', testToken);
 
+  // ONE real magic-link login for the whole project. Done here rather than per test file because
+  // every file needs the same pinned admin identity, so N logins are N races for one mailbox — see
+  // `auth-bootstrap.ts`. Node-side, against wrangler-dev directly: the vite proxy exists to keep the
+  // BROWSER same-origin for cookies, and nothing here runs in the browser.
+  project.provide('adminAccessToken', await bootstrapAndGetAccessToken({
+    wranglerUrl,
+    email: ADMIN_EMAIL,
+    testToken,
+  }));
+
   return async () => {
     await cleanupWrangler?.();
     cleanupWrangler = null;
@@ -65,5 +84,7 @@ declare module 'vitest' {
   export interface ProvidedContext {
     wranglerBaseUrl: string;
     emailTestToken: string;
+    /** A real magic-link login's access token, minted once for the whole project. */
+    adminAccessToken: string;
   }
 }

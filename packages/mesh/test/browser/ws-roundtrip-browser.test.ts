@@ -23,9 +23,7 @@
 import { describe, it, expect, inject, vi } from 'vitest';
 import { EditorClient } from '../for-docs/getting-started/editor-client';
 import type { SpellFinding } from '../for-docs/getting-started/spell-check-worker';
-import { bootstrapAndGetAccessToken } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
   it('drives full subscribe → save → broadcast + spell-check round-trip', async () => {
@@ -35,15 +33,12 @@ describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
     // `/worker/*` to wrangler-dev, keeping everything same-origin from
     // chromium's POV (so `SameSite=Strict` cookies flow normally).
     const proxyPath = inject('wranglerBaseUrl');
-    const testToken = inject('emailTestToken');
     const baseUrl = globalThis.location!.origin + proxyPath;
 
-    // 1. Real magic-link login → JWT (mirrors the documented onboarding path)
-    const accessToken = await bootstrapAndGetAccessToken({
-      baseUrl,
-      email: ADMIN_EMAIL,
-      testToken,
-    });
+    // 1. The token from globalSetup's ONE real magic-link login (see auth-bootstrap.ts for why the
+    //    login is not here: every file in this project shares one pinned admin identity, so a
+    //    per-file round trip is a race for one mailbox rather than an independent login).
+    const accessToken = inject('adminAccessToken');
     expect(accessToken.split('.')).toHaveLength(3);
 
     // 2. Construct the documented EditorClient. LumenizeClient auto-derives

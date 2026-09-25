@@ -9,7 +9,7 @@ Why this exists: the `@lumenize/debug` lazy-`import('cloudflare:workers')` regre
 | File | What it catches |
 |---|---|
 | `../lumenize-client-browser.test.ts` | Bundle-time regressions — any `cloudflare:workers` / `node:async_hooks` / browser-incompatible import slipped into `@lumenize/mesh/client` fails Vite resolution and the test never starts. Constructor-time runtime regressions (env-specific API access). |
-| `ws-roundtrip-browser.test.ts` | End-to-end runtime regressions — real Cloudflare Email Sending → Email Routing → email-test Worker → cookie → JWT → real WebSocket → `@mesh()` call. Any break anywhere in this pipeline trips the test. |
+| `ws-roundtrip-browser.test.ts` | End-to-end runtime regressions — real Cloudflare Email Sending → Email Routing → email-test Worker → cookie → JWT → real WebSocket → `@mesh()` call. Any break anywhere in this pipeline trips the test. The login half runs **once in `global-setup.ts`**, not per file; `auth-bootstrap.ts` says why. |
 
 ## Architecture
 
@@ -26,7 +26,9 @@ vite dev server                   dynamicEnvProxyPlugin (vitest.config.js)
                                   spawned by ./global-setup.ts
 ```
 
-The Vite plugin proxies `/worker/*` → wrangler-dev via an env var resolved per-request, so chromium and the worker share an origin and `SameSite=Strict` cookies (LumenizeAuth's refresh-token) flow naturally without rewriting attributes.
+The Vite plugin proxies `/worker/*` → wrangler-dev via an env var resolved per-request, so chromium and the worker share an origin and `SameSite=Strict` cookies (LumenizeAuth's refresh-token) flow naturally without rewriting attributes — which is what a real app needs, and the reason to copy this.
+
+⚠️ **This suite no longer exercises that cookie**, so do not read a green run as proof of it. The magic-link round trip moved to `global-setup.ts`, where it runs once in Node with its own jar and hands every test an access token; `LumenizeClient` skips its refresh entirely when given one. The login is shared because the worker pins `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` to a single auto-approved address, so a per-file login is not an independent login — it is a second waiter racing for one mailbox, and the loser clicks a magic link the winner already consumed. `auth-bootstrap.ts` carries the full reasoning.
 
 ## Adoption checklist for a new package
 

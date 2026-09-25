@@ -22,19 +22,17 @@
  */
 import { describe, it, expect, inject, vi } from 'vitest';
 import { EditorClient } from '../for-docs/getting-started/editor-client';
-import { bootstrapAndGetAccessToken } from './auth-bootstrap';
 import { continuationFromChain } from '../../src/ocan/index';
 import type { OperationChain } from '../../src/ocan/index';
 
-const ADMIN_EMAIL = 'test@lumenize-test.dev';
 
 describe('@lumenize/mesh entry + walk rules on the client executor (real chromium)', () => {
   it('refuses what a remote caller must not reach, in the browser', async () => {
     const proxyPath = inject('wranglerBaseUrl');
-    const testToken = inject('emailTestToken');
     const baseUrl = globalThis.location!.origin + proxyPath;
 
-    const accessToken = await bootstrapAndGetAccessToken({ baseUrl, email: ADMIN_EMAIL, testToken });
+    // globalSetup's ONE real magic-link login — see auth-bootstrap.ts for why it is not per file.
+    const accessToken = inject('adminAccessToken');
     const client = new EditorClient({
       baseUrl, accessToken, refresh: `${proxyPath}/auth/refresh-token`,
     });
