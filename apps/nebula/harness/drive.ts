@@ -46,6 +46,8 @@ import * as signupToFirstApp from './scenarios/signup-to-first-app';
 import * as firstAppBuilt from './scenarios/first-app-built';
 import * as broadcastPastThreshold from './scenarios/broadcast-past-threshold';
 import * as studioGuidanceLoop from './scenarios/studio-guidance-loop';
+import * as meshEntryReach from './scenarios/mesh-entry-reach';
+import * as reaperVictimIsTheAddress from './scenarios/reaper-victim-is-the-address';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -71,6 +73,20 @@ interface Scenario {
    * fails everything else — as it did, on the first hand-run of one.
    */
   sweepEnv?: Record<string, string>;
+  /**
+   * PARKED: a one-line reason this scenario is not run by the sweep. A red-first limb written
+   * before its fix exists lands with one of these, and the phase that closes the hole removes it.
+   *
+   * ⚠️ **A parked scenario is REPORTED, never omitted.** `SCENARIOS` is the registry the sweep
+   * reads, so a limb held back by simply not registering it is invisible — nothing prints, nothing
+   * counts, and the only record that it was meant to exist is a task file that archives. The sweep
+   * therefore prints every parked scenario with its reason and counts it apart from pass and fail.
+   *
+   * A DIRECT run (`drive.ts <name>`) still RUNS it, loudly. That is the whole point of parking
+   * rather than deleting: the phase that wrote it watches it go red, and the phase that fixes the
+   * hole watches it go green, both before the flag comes off.
+   */
+  skip?: string;
 }
 
 /** Registry of runnable scenarios (add new ones here — arbitrary, not a fixed test). */
@@ -106,6 +122,15 @@ const SCENARIOS: Record<string, Scenario> = {
   'broadcast-past-threshold': broadcastPastThreshold, // 120 subscribers on one query — the ONLY test anywhere that crosses svc.broadcast's direct cutoff (no Docker)
   // ── the guidance tree: the MODEL in the loop, observed — limbs reported, never gated ───────
   'studio-guidance-loop': studioGuidanceLoop,   // a stated convention lands in AGENTS.md and holds; a data-bound request uses resources; skills activate (no Docker; REST lane; ~10 real turns)
+  // ── what a logged-in browser session reaches past `@mesh` — red until the executor closes it ──
+  'mesh-entry-reach': {
+    ...meshEntryReach,
+    skip: 'red-first: proves the entry/walk holes are reachable from a real session; Phase 4 and Phase 5 of tasks/mesh-entry-and-walk-gaps.md un-skip it',
+  },
+  'reaper-victim-is-the-address': {
+    ...reaperVictimIsTheAddress,
+    skip: 'red-first: a reply naming another client reaps it; Phase 7 and Phase 8 of tasks/mesh-entry-and-walk-gaps.md un-skip it',
+  },
 };
 
 /**
@@ -139,11 +164,17 @@ async function sweep(fast: boolean): Promise<void> {
   const { tmpdir } = await import('node:os');
   const { join, resolve, dirname } = await import('node:path');
   const { createHash } = await import('node:crypto');
-  const names = Object.keys(SCENARIOS)
+  const registered = Object.keys(SCENARIOS)
     .filter((n) => !fast || (SCENARIOS[n].needsContainer ?? true) === false);
+  // PARKED scenarios are reported, never omitted — a limb held back by absence is a limb nobody
+  // can see. They are listed before the run so the count at the top is the count that will print.
+  const parked = registered.filter((n) => SCENARIOS[n].skip !== undefined);
+  const names = registered.filter((n) => SCENARIOS[n].skip === undefined);
   const logDir = join(tmpdir(), 'lumenize-sweep', new Date().toISOString().replace(/[:.]/g, '-'));
   mkdirSync(logDir, { recursive: true });
-  console.error(`[harness] sweeping ${names.length} scenario(s)${fast ? ' (container-free only)' : ''} — each one's output kept under ${logDir}\n`);
+  console.error(`[harness] sweeping ${names.length} scenario(s)${fast ? ' (container-free only)' : ''} — each one's output kept under ${logDir}`);
+  for (const n of parked) console.error(`⏭️  ${n.padEnd(26)} PARKED — ${SCENARIOS[n].skip}`);
+  console.error('');
 
   // The watched tree: the Worker's own source, the packages it bundles, and the container
   // image's context. mtime + size per file, hashed; a scan of a few hundred stats is the cost.
@@ -205,7 +236,8 @@ async function sweep(fast: boolean): Promise<void> {
   }
 
   const failed = results.filter((r) => !r.ok);
-  console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed`);
+  console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed${parked.length > 0 ? `, ${parked.length} parked` : ''}`);
+  for (const n of parked) console.log(`  ⏭️  ${n} — PARKED, not run: ${SCENARIOS[n].skip}`);
   for (const f of failed) console.log(`  ❌ ${f.name} — ${f.detail}\n     output: ${join(logDir, `${f.name}.log`)}`);
   if (failed.length > 0) console.log(`  (every scenario's full output is under ${logDir})`);
   if (taintedFrom !== undefined) {
@@ -221,11 +253,21 @@ async function main(): Promise<void> {
 
   const scenario = SCENARIOS[name];
   if (!scenario) {
-    console.error(`[harness] unknown scenario "${name}". Known: all, ${Object.keys(SCENARIOS).join(', ')}`);
+    const known = Object.entries(SCENARIOS)
+      .map(([n, sc]) => (sc.skip === undefined ? n : `${n} (parked)`))
+      .join(', ');
+    console.error(`[harness] unknown scenario "${name}". Known: all, ${known}`);
     process.exitCode = 2;
     return;
   }
   const needsContainer = scenario.needsContainer ?? true;
+  // A direct run of a PARKED scenario still runs it — that is what parking is for: the phase that
+  // writes a red-first limb watches it fail here, and the phase that closes the hole watches it
+  // pass, both before the flag comes off. The sweep is the venue that holds back.
+  if (scenario.skip !== undefined) {
+    console.error(`[harness] ⚠️  "${name}" is PARKED (the sweep does not run it) — ${scenario.skip}`);
+    console.error('[harness] running it anyway, because you named it directly.');
+  }
 
   // DEPLOYED target — run the very same scenarios against a real Worker instead of a
   // local boot. Both venues run the FULL contract, including the mount-dependent limbs:
