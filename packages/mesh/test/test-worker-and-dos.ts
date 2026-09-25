@@ -3,7 +3,7 @@ import { LumenizeWorker } from '../src/lumenize-worker';
 import { mesh } from '../src/mesh-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '../src/alarms';
-import { getOperationChain } from '../src/ocan/index.js';
+import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 
 // Export LumenizeClientGateway for testing
@@ -857,6 +857,131 @@ export class TestDO extends LumenizeDO<Env> {
     this.#twoOneWayCallbackContext = null;
     this.ctx.storage.kv.delete('two_one_way_result');
   }
+
+  // ─── A reply the FAR SIDE authored, re-read as a chain (§ R1) ───────────────────────────
+  // The members below back `test/filled-chain-is-data.test.ts`. They exist because the defect is
+  // a property of the framework's own substitution sites, so the node under test has to be one
+  // the framework calls — a stand-in object cannot reach `fireResponse` or `dispatchEnvelope`.
+
+  /**
+   * Hand back a value this node PARSED rather than one its caller composed. A JSON string crosses
+   * the request leg as a string, so nothing resolves it on the way in — which is the point: the
+   * shape reached here is the one § R1 names, attacker data stored earlier and read back later.
+   */
+  @mesh()
+  replyFromStoredJson(json: string): unknown {
+    return JSON.parse(json);
+  }
+
+  /**
+   * What an injected chain names. UNDECORATED deliberately: a filled handler chain runs at
+   * `requireMeshDecorator: false`, so the absence of a mark is not what would stop it — only
+   * refusing to resolve the value at all is.
+   */
+  recordInjected(tag: string): string {
+    const seen = (this.ctx.storage.kv.get('injected_ran') as string[] | undefined) ?? [];
+    seen.push(tag);
+    this.ctx.storage.kv.put('injected_ran', seen);
+    return 'injected ran';
+  }
+
+  /** A handler spelling an explicit `$result` marker — the REPLACEMENT branch of the substitution. */
+  handleReply(result: unknown): void {
+    this.ctx.storage.kv.put('handler_received', result);
+  }
+
+  /**
+   * A REAPER-shaped handler: no `$result` marker anywhere, so the framework APPENDS the result as
+   * a last argument. This is the branch production actually uses (`onQueryBroadcastResult`), and a
+   * fix written against the `$result` repro alone leaves it open.
+   */
+  handleAppended(queryHash: string, result?: unknown): void {
+    this.ctx.storage.kv.put('handler_received', result);
+    this.ctx.storage.kv.put('handler_received_hash', queryHash);
+  }
+
+  /** 4-arg call whose reply is marker-shaped, with the handler spelling `$result`. */
+  testCallForMarkerReply(binding: string, instance: string | undefined, json: string): void {
+    const remote = this.ctn<TestDO>().replyFromStoredJson(json);
+    this.lmz.call(binding, instance, remote, this.ctn().handleReply(remote));
+  }
+
+  /** The same, with a reaper-shaped handler, so the result is APPENDED rather than substituted. */
+  testCallForMarkerReplyAppended(
+    binding: string, instance: string | undefined, json: string, queryHash: string,
+  ): void {
+    const remote = this.ctn<TestDO>().replyFromStoredJson(json);
+    this.lmz.call(binding, instance, remote, this.ctn().handleAppended(queryHash));
+  }
+
+  /** 4-arg call to a callee that rejects at ADMISSION with a marker-shaped Error — the local-handler path. */
+  testCallToMarkerRejecter(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().ping();
+    this.lmz.call(binding, instance, remote, this.ctn().handleReply(remote));
+  }
+
+  async getInjectedRan(): Promise<string[]> {
+    return (this.ctx.storage.kv.get('injected_ran') as string[] | undefined) ?? [];
+  }
+
+  async getHandlerReceived(): Promise<unknown> {
+    return this.ctx.storage.kv.get('handler_received');
+  }
+
+  /** Two marked members the positive control below nests, so both ops are legitimate entries. */
+  @mesh()
+  double(n: number): number {
+    return n * 2;
+  }
+
+  @mesh()
+  addTen(n: number): number {
+    return n + 10;
+  }
+
+  /**
+   * The POSITIVE CONTROL for § R1: a TEMPLATE chain whose final apply carries a genuine nested
+   * marker still resolves. An executor that simply stopped resolving would satisfy every refusal
+   * limb in `filled-chain-is-data.test.ts` and break this, which is what pins the two entry
+   * points apart.
+   */
+  async testNestedTemplate(): Promise<number> {
+    const c = this.ctn() as any;
+    const chain = getOperationChain(c.addTen(c.double(10)))!;
+    return await this.__localChainExecutor(chain);
+  }
+
+  /** Every stored continuation on this DO — what a wire-borne `svc.alarms` chain must not add to. */
+  async countSchedules(): Promise<number> {
+    return this.svc.alarms.getSchedules().length;
+  }
+
+  /**
+   * Run an arbitrary chain on THIS DO at the wire's flag setting, bounded.
+   *
+   * ⚠️ The bound is the assertion's mechanism, not impatience: § *Gotchas*, item 2 of
+   * `tasks/mesh-entry-and-walk-gaps.md` measured that a wire-borne `svc.alarms.schedule` chain
+   * HANGS rather than being refused — `executeOperationChain` awaits every apply and a
+   * continuation proxy is a never-settling thenable — so a test that simply awaited it would hang
+   * with it, and one that only matched a message would assert against a refusal that never comes.
+   */
+  async testBoundedChain(chain: OperationChain, ms: number): Promise<string> {
+    try {
+      const outcome = await Promise.race([
+        this.__localChainExecutor(chain),
+        new Promise<string>((resolve) => setTimeout(() => resolve('__lmz_timed_out'), ms)),
+      ]);
+      return outcome === '__lmz_timed_out' ? 'NEVER SETTLED' : `PERMITTED: ${String(outcome)}`;
+    } catch (err) {
+      return `REFUSED: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  async clearMarkerProbe(): Promise<void> {
+    this.ctx.storage.kv.delete('injected_ran');
+    this.ctx.storage.kv.delete('handler_received');
+    this.ctx.storage.kv.delete('handler_received_hash');
+  }
 }
 
 // Test DO that implements onRequest() lifecycle hook
@@ -1286,6 +1411,31 @@ export class AlarmTestDO extends LumenizeDO<Env> {
 export class RejectingDO extends LumenizeDO<Env> {
   override onBeforeCall(): void {
     throw new Error('admission rejected by onBeforeCall');
+  }
+
+  @mesh()
+  ping(): string {
+    return 'should-never-run';
+  }
+}
+
+/**
+ * Rejects at admission with an Error carrying the two marker keys as OWN properties.
+ *
+ * Separate from {@link RejectingDO} on purpose: that one backs the plain dispatch-reject tests, and
+ * giving ITS error a chain would make those tests run one. Structured clone carries own keys across
+ * a hop, which is exactly how `clientInstanceName` rides an Error today.
+ */
+export class MarkerRejectingDO extends LumenizeDO<Env> {
+  override onBeforeCall(): void {
+    const err = Object.assign(new Error('admission rejected with a marker-shaped error'), {
+      __isNestedOperation: true,
+      __operationChain: [
+        { type: 'get', key: 'recordInjected' },
+        { type: 'apply', args: ['local-handler'] },
+      ],
+    });
+    throw err;
   }
 
   @mesh()

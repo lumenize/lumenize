@@ -2,7 +2,8 @@ import '@lumenize/fetch';       // Registers fetch in this.svc
 import { LumenizeDO, mesh } from '@lumenize/mesh';
 import { FetchExecutorEntrypoint } from '@lumenize/fetch';
 import { RequestSync, ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
-import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';
+import { replaceNestedOperationMarkers, getOperationChain, continuationFromChain } from '@lumenize/mesh';
+import type { OperationChain } from '@lumenize/mesh';
 
 // Export FetchExecutorEntrypoint for service binding
 export { FetchExecutorEntrypoint };
@@ -76,6 +77,44 @@ export class _TestSimpleDO extends LumenizeDO {
 
   getCallCount(url: string): number {
     return this.ctx.storage.kv.get(`__test_call_count:${url}`) || 0;
+  }
+
+  // ─── `svc` as a wire entry (tasks/mesh-entry-and-walk-gaps.md) ─────────────────────────────
+  // A real mesh hop, deliberately: `__localChainExecutor` runs the same rule in the same function,
+  // but this is the door an off-the-wire chain actually arrives at, and the 4-arg handler brings
+  // the refusal MESSAGE back so a limb can match on it rather than on a boolean.
+
+  /** Fire an arbitrary chain at this same DO over a real `lmz.call`, and keep the outcome. */
+  testWireChain(instance: string, chain: OperationChain): void {
+    // The constructor stamps only the binding; the fire-back's return address needs the INSTANCE
+    // too, or `resolveStub` hands back the namespace and `__handleResponse` is not a function.
+    this.lmz.__init({ bindingName: 'TEST_SIMPLE_DO', instanceName: instance });
+    const remote = continuationFromChain<any>(chain);
+    this.lmz.call('TEST_SIMPLE_DO', instance, remote, this.ctn().recordWireOutcome(remote));
+  }
+
+  /** The 4-arg handler. Undecorated: it runs on the response leg, where the mark is not consulted. */
+  recordWireOutcome(outcome: unknown): void {
+    this.ctx.storage.kv.put('__wire_outcome', outcome instanceof Error
+      ? `REFUSED: ${outcome.message}`
+      : `PERMITTED: ${String(outcome)}`);
+  }
+
+  getWireOutcome(): string | undefined {
+    return this.ctx.storage.kv.get('__wire_outcome');
+  }
+
+  clearWireOutcome(): void {
+    this.ctx.storage.kv.delete('__wire_outcome');
+    this.ctx.storage.kv.delete('__test_value:svc-walk');
+  }
+
+  /** What a chain walking `svc.fetch.doInstance` reaches. Undecorated, so nothing but the entry
+   *  rule stands in front of it — and `NadisPlugin` declares `doInstance` `protected`, which
+   *  TypeScript enforces and the runtime does not. */
+  walkedToHere(tag: string): string {
+    this.ctx.storage.kv.put('__test_value:svc-walk', tag);
+    return `walked: ${tag}`;
   }
 
   wasNoop(reqId: string): boolean {
