@@ -509,9 +509,16 @@ export class DagTree {
 
   // ─── State & Traversal Queries ────────────────────────────────────
 
+  /**
+   * The whole tree, as a COPY. `#cached` is what every permission decision reads (`#view` is built
+   * over it), and this method is reachable from the wire past the tree gate, where the walk runs any
+   * method the returned value carries — `Map.prototype.set` included. Returned by reference, a member
+   * could grant themselves admin at the root inside one chain, then pass `setPermission`'s own check
+   * to make it durable. Nothing reachable from a gate may hand back state the node decides with.
+   */
   getState(): DagTreeState {
     this.#requireAuth()
-    return this.#cached
+    return structuredClone(this.#cached)
   }
 
   getNodeAncestors(nodeId: string): Set<string> {

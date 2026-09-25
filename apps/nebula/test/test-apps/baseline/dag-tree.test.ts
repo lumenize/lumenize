@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { DagTreeState } from '@lumenize/nebula';
+import type { DagTreeState, Star } from '@lumenize/nebula';
 import { adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -929,6 +929,34 @@ describe('dag-tree', () => {
       });
 
       client[Symbol.dispose]();
+    });
+
+    it('returns a COPY — editing what it hands back changes no permission decision', async () => {
+      // `getState` is reachable from the wire past the tree gate, and the walk past a gate runs any
+      // method the returned value carries, `Map.prototype.set` included. Returned by reference, the
+      // state IS the cache every permission decision reads, so a member could grant themselves admin
+      // at the root inside one chain — and then pass `setPermission`'s own check to make it durable.
+      const star = uniqueStar();
+      const { client: admin } = await adminClient(star);
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'seed', 'Seed'); // the tree exists before the member arrives
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      admin[Symbol.dispose]();
+
+      const { client: user, payload } = await userClient(star, '');
+      user.resetResults();
+      const edit = ((user.ctn<Star>() as any).dagTree().getState().permissions as any)
+        .set(ROOT_NODE_ID, new Map([[payload.sub, 'admin']]));
+      user.lmz.call('STAR', star, edit, user.ctn().handleResult(edit));
+      await vi.waitFor(() => expect(user.callCompleted).toBe(true));
+      // The chain RAN — so the refusal below is the copy at work, not a walk rule refusing `set`.
+      expect(user.lastError).toBeUndefined();
+
+      user.callStarSetPermission(star, ROOT_NODE_ID, payload.sub, 'admin');
+      await vi.waitFor(() => expect(user.callCompleted).toBe(true));
+      expect(user.lastError ?? 'no error — the member granted themselves admin at the root')
+        .toContain('admin permission required');
+
+      user[Symbol.dispose]();
     });
   });
 
