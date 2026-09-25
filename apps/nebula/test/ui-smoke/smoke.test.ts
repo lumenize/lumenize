@@ -277,6 +277,19 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     expect(authed, 'login step must have established a session').not.toBeNull();
     const { page } = authed!;
 
+    // ⚠️ A preview that serves its shell but mounts nothing leaves `<div id="app"></div>` and no
+    // other trace — the failure is a JS error or a missing bundle INSIDE the iframe, and neither
+    // reaches the test otherwise. These listeners cover every frame on the page, so the sample
+    // below can say WHICH of the two it was instead of only that the text stayed empty.
+    const previewErrors: string[] = [];
+    page.on('pageerror', (err) => previewErrors.push(`pageerror: ${String(err).split('\n')[0]}`));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') previewErrors.push(`console: ${msg.text().slice(0, 200)}`);
+    });
+    page.on('requestfailed', (req) => {
+      previewErrors.push(`requestfailed: ${req.url().slice(-80)} ${req.failure()?.errorText ?? ''}`);
+    });
+
     // Snapshot the preview src; a completed chat turn appends a ?t= cache-buster
     // (App.vue reloadPreview), so its appearance proves the full
     // chat → Galaxy codegen → build → /app preview loop ran.
@@ -300,13 +313,34 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     // The regenerated app actually RENDERS in the container-served preview — catches the
     // blank-`<script setup>` bug (sfc-compile-needs-bindingmetadata) AND proves the container
     // received the new source, not just that the chat turn completed + the iframe reloaded.
+    //
+    // ⚠️ The sample REPORTS what it saw. An earlier cut was `.catch(() => '')`, which collapsed
+    // "the app rendered nothing", "the frame was unreadable" and "the iframe points at a 404" into
+    // the same `expected 0 to be greater than 0` — a failure that says only that the number stayed
+    // zero, which is the least useful thing about it. Every diagnosis then costs a 2-minute rerun.
     const previewBody = page.frameLocator('iframe[title="Preview"]').locator('body');
-    await expect
-      .poll(async () => (await previewBody.textContent().catch(() => ''))?.trim().length ?? 0, {
-        timeout: 60_000,
-        interval: 1000,
-      })
-      .toBeGreaterThan(0);
+    let seen = 'never sampled';
+    const renderedTextLength = async (): Promise<number> => {
+      const src = await page.locator('iframe[title="Preview"]').getAttribute('src') ?? '(no src)';
+      try {
+        const text = ((await previewBody.textContent()) ?? '').trim();
+        const html = (await previewBody.innerHTML()).replace(/\s+/g, ' ').trim();
+        seen = `src=${src} textLen=${text.length} html(300)=${JSON.stringify(html.slice(0, 300))}`;
+        return text.length;
+      } catch (err) {
+        seen = `src=${src} frame unreadable: ${String(err).split('\n')[0]}`;
+        return 0;
+      }
+    };
+    try {
+      await expect.poll(renderedTextLength, { timeout: 60_000, interval: 1000 }).toBeGreaterThan(0);
+    } catch (err) {
+      throw new Error(
+        `the rebuilt preview rendered no text in 60s — last sample: ${seen}\n`
+        + `  in-frame errors (${previewErrors.length}): ${previewErrors.slice(0, 6).join(" | ") || "none"}`,
+        { cause: err },
+      );
+    }
 
     // A studio reply bubble landed (the turn produced a response, not an error).
     const errorBubbles = await page.locator('.chat-bubble-error').count();
