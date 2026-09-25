@@ -55,7 +55,7 @@ export async function loginToStudio(opts: {
   await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
 
   // Arm the email waiter BEFORE driving the form (listen first, then send).
-  const waiter = waitForEmail({ testToken, instance: '_scopeless' });
+  const waiter = waitForEmail({ testToken, instance: '_scopeless', to: email });
   let link: string;
   try {
     await page.getByPlaceholder('you@example.com').fill(email);

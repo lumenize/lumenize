@@ -48,14 +48,13 @@ export async function bootstrapAndGetAccessToken(options: BootstrapOptions): Pro
   const { wranglerUrl, email, testToken } = options;
   const browser = new Browser(fetch);
 
-  // 1. Set up the email listener BEFORE triggering the send.
+  // 1. Set up the email listener BEFORE triggering the send — the DO pushes only to already-open
+  //    sockets, so a listener attached afterwards misses the mail entirely.
   //
-  //    No `to` filter, deliberately. The address is PINNED by the worker's bootstrap binding, so it
-  //    has history — and `waitForEmail` clears the bucket only when `to` is absent. For a historied
-  //    address that clear is the isolation, because a filter alone would match a previous run's mail
-  //    and resolve instantly with a link already consumed. Safe here only because this project now
-  //    has exactly one waiter; a second one would need a unique recipient instead.
-  const waiter = waitForEmail({ testToken });
+  //    `to` guards against mail from ANOTHER workspace, which uses this same pinned address. It
+  //    cannot guard against a second waiter HERE, because that one would match too — which is why
+  //    this function runs once for the project rather than once per file.
+  const waiter = waitForEmail({ testToken, to: email });
 
   try {
     // 2. Request the magic link

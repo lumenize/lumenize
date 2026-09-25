@@ -59,7 +59,7 @@ async function claimAndClick(
   // Arm the listener BEFORE triggering the send. `instance: scope` routes only this hop's email here
   // (via the `X-Lumenize-Auth-Instance` header the sender stamps), so the universe hop and the star
   // hop below never pick up each other's link, and concurrent runs don't collide.
-  let waiter = waitForEmail({ testToken, instance: scope });
+  let waiter = waitForEmail({ testToken, instance: scope, to: email });
   try {
     const res = await fetch(`${baseUrl}/auth/${endpoint}`, {
       method: 'POST',

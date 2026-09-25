@@ -133,7 +133,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     // 2. Arm the email waiter BEFORE driving the form (listen first, then send). ⚠️ The instance
     //    tag is `_scopeless`, not the universe — a scope-less request cannot name a scope, so a
     //    waiter filtered on TEST_UNIVERSE would hang for its full timeout and read as a slow boot.
-    const waiter = waitForEmail({ testToken, instance: '_scopeless' });
+    const waiter = waitForEmail({ testToken, instance: '_scopeless', to: ADMIN_EMAIL });
     let link: string;
     try {
       await page.getByPlaceholder('you@example.com').fill(ADMIN_EMAIL);

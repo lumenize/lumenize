@@ -45,8 +45,9 @@ export interface WaitForEmailOptions {
    * Omit to subscribe to ALL emails. ⚠️ **`uniqueTestEmail()` + `to` is still the better isolation
    * default**, and the reason has changed: not because mail might be untagged, but because two
    * listeners on the SAME instance race for the next-arriving mail. Supplying `to` also skips the
-   * startup `clear` this helper otherwise issues (see `emailPromise` below), which a unique
-   * recipient never needs — so it requires no cooperation from the sender and cannot collide.
+   * startup `clear` this helper otherwise issues — which NO waiter needs for its own sake, because
+   * the socket only ever carries mail that arrives after it opens (see `emailPromise` below). So a
+   * recipient filter requires no cooperation from the sender and cannot collide.
    */
   instance?: string;
   /**
@@ -132,10 +133,16 @@ export function waitForEmail(options: WaitForEmailOptions): {
   };
 
   const emailPromise = (async () => {
-    // Clearing exists to stop a PREVIOUS run's mail resolving us instantly. A
-    // unique recipient can't have any, so skip it — and skipping matters: the
-    // clear wipes a shared bucket, which would destroy a concurrent test's
-    // stored mail. No clear + a recipient filter = genuinely independent tests.
+    // ⚠️ The clear does NOT protect this waiter, and reading it that way is how a caller talks
+    // itself out of `to`. The DO pushes an email to open sockets ONLY as it arrives (its one
+    // `ws.send` of a message is in the receipt path; the `/ws` handler replays nothing), so a
+    // previous run's mail can never resolve us however full the bucket is. What the clear actually
+    // does is reset the STORED list the `/emails` HTTP endpoint reads — and it wipes a bucket
+    // shared with every concurrent test, which is why supplying `to` skips it.
+    //
+    // ⇒ `to` is safe on ANY address, historied ones included. It does not make two waiters on the
+    // SAME address independent, though — both match — so that needs a unique recipient, or one
+    // waiter (verified 2026-09-25; the older wording here claimed the opposite and was believed).
     if (to === undefined) {
       await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}${instanceParam}`, { method: 'POST' });
     }

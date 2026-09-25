@@ -78,14 +78,11 @@ not. ⚠️ If a run seems to take minutes, **suspect your own scenario before t
 `waitForEmail` waiter keeps Node's event loop alive, so the process prints its verdict and then hangs,
 which is indistinguishable from a slow boot. That exact bug is what made this tier *look* expensive.
 
-⚠️ **The sibling failure blames the mail instead: `waitForEmail({ instance })` filters SERVER-side, so
-a waiter armed on the wrong tag waits out its full timeout and reports "No email received" — a
-delivery symptom for what is a filter bug.** It arises whenever the tag is decided AFTER the waiter is
-armed: a helper that claims a scope but falls back to the scope-less login on a 409 sends `_scopeless`
-mail to a waiter listening for the scope, so it fails only for an address with history — which reads
-as flaky. ⇒ **When a later branch decides the tag, do not filter on it**; a unique recipient is the
-filter that always discriminates. Cost of learning this the other way, 2026-09-01: two sessions and
-three wrong theories about the email provider.
+⚠️ **The sibling failure blames the mail instead — a waiter that cannot tell whose email it got
+reports as a slow or missing send, never as the filter bug it is.** `testing.md` § *An email waiter
+MUST name whose mail it is waiting for* owns it, along with the two shapes it takes and the audit
+that checks them; it moved there because it is not a `/live` property and this file loads only when
+you edit a scenario, which is the one place the rule was already followed.
 
 ⚠️ **DO NOT ASSERT THAT YOU LACK THE ACCESS — CHECK.** The most insidious skip is not "this is slow",
 it is *"I can't run that here, it needs Docker / real email / a deployed Worker"* — because it reads as
