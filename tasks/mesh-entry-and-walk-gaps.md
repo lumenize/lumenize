@@ -134,7 +134,7 @@ ctn<Galaxy>().svc.sql(['SELECT 1']);       // refused — `svc` is not marked, a
 
 **BOTH RULES LIVE INSIDE `executeOperationChain`, and that is a composition requirement rather than a preference.** [ADR-007](../docs/adr/007-shared-node-security-core.md) makes the guards core something every node type gets by composition and never reimplements, and its one licensed divergence is the client's **receive shell** — no `AsyncLocalStorage` in a browser, no addressable fire-back door — explicitly *not* the engine: the client *"runs the same continuation-dispatch engine as the server node types (including the `@mesh()` member-level check)"*. So the engine is where a rule reaches every node for free, and the envelope seam is where it reaches only the two that compose `executeEnvelope`.
 
-- **FIVE runners execute a chain, not four.** `executeEnvelope`'s two doors, the two `__localChainExecutor` getters (`lumenize-do.ts`, `lumenize-worker.ts`), and **the browser client** — `lumenize-client.ts` calls `executeOperationChain(chain, this)` with no config, so `requireMeshDecorator` takes its `true` default and a wire-borne request leg runs the member-level check **in a browser**. `apps/nebula/src/nebula-client.ts` has thirteen `@mesh()` push handlers behind that door.
+- **FIVE runners execute a chain, not four.** `executeEnvelope`'s two doors, the two `__localChainExecutor` getters (`lumenize-do.ts`, `lumenize-worker.ts`), and **the browser client** — `lumenize-client.ts` calls `executeOperationChain(chain, this)` with no config, so `requireMeshDecorator` takes its `true` default and a wire-borne request leg runs the member-level check **in a browser**. `grep -c '^  @mesh()$' apps/nebula/src/nebula-client.ts` is the population of push handlers behind that door — stated as the grep because the earlier count said thirteen and the tree says eight.
 - **Writing the rules at the seam is MORE code for LESS reach**, and it buys a divergence ADR-007 calls a defect unless justified: the client cannot compose `executeEnvelope`, so it would need its own copy of a security rule — the same logic written per host that `calibration.md` §11 names as the reflex to resist. One composed location serves all five.
 - ⇒ **It is a phase criterion, proven by a limb rather than by inspection** (§ *Criteria*), because "the rule is in the right function" is exactly the kind of claim a reviewer confirms by reading and a builder breaks by refactoring.
 
@@ -526,6 +526,20 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      that a GETTER entry inherits it rather than re-deriving a number; an `async` getter is refused with its own message or proven to work;
      and an unmarked getter is refused **without running**, which is the property that justifies
      reading descriptors rather than `parent[key]`.
+   - **Success criteria — an UNMARKED OVERRIDE is refused, and it says so.** The mark lives on the
+     function value, so a subclass override is a new function that does not carry it — and today the
+     refusal is invisible: the client catches it, ships it over the wire, and the pushing node's
+     reaper name-guard drops it, while the subscription never settles. Four silences, one hang. The
+     descriptor walk MUST therefore name the cause when an unmarked OWN member shadows a marked
+     ancestor, rather than emitting the generic text.
+     - ⚠️ **The mark does NOT become a property of the member name** — the walk does not keep
+       climbing to a marked ancestor and permit the override. Every one of `NebulaClient`'s push
+       handlers already has a designed non-override seam (the store, `QuerySubscription.onChange`,
+       `onReload`, `setOnStreamChunk`, `onPreviewReady`), so overriding is reaching past a seam
+       rather than a use case — and inheriting the mark would let a later `@mesh()` member on a base
+       retroactively publish a subclass's same-named method. ⓘ The limb that found this was a harness
+       fixture, not a user (`calibration.md` §3(d)); the silence is what earns the criterion, not the
+       frequency.
    - **Success criteria — types:** `tsc --strict` accepts `@mesh()` and `@mesh(guard)` on a method and
      a getter and REJECTS both on an `accessor` and a field, spelled `@ts-expect-error` so widening
      the signature reds it (`packages/mesh/tsconfig.json` includes `test/**/*`).
