@@ -31,7 +31,7 @@ Pass `Date`, `Map`, `Set`, `Error` with cause chains, objects with cycles, `Arra
 
 ### Secure by Default
 
-Required [auth](/docs/auth) and fine-grained access control at every layer. Class-wide hooks, method-level `@mesh()` guards, and zero-trust security out of the box — powered by `@lumenize/auth` with passwordless magic-link login and JWT tokens.
+Required [auth](/docs/auth) and fine-grained access control at every layer. Class-wide hooks, per-member `@mesh()` guards, and zero-trust security out of the box — powered by `@lumenize/auth` with passwordless magic-link login and JWT tokens.
 
 ### Engineering Excellence
 

@@ -293,21 +293,31 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *   2. Deliver it to `callChain[0]` (the originating DO) at that node's FIRE-BACK door, which
    *      is the only door that knows it is holding a filled chain.
    *
-   * ⚠️ **It MUST NOT go through `lmz.call`.** That lands at `__executeOperation`, a generic
-   * request door which cannot tell a filled chain from a template — so the substituted result was
-   * scanned for nested markers, and a value the far side authored could become a chain and run on
-   * the origin with the member-level check off. `__handleResponse` is where a filled chain belongs,
+   * ⚠️ **A MESH-NODE origin MUST NOT be reached through `lmz.call`.** That lands at
+   * `__executeOperation`, a generic request door which cannot tell a filled chain from a template —
+   * so the substituted result was scanned for nested markers, and a value the far side authored
+   * could become a chain and run on the origin. `__handleResponse` is where a filled chain belongs,
    * and it is the door `fireResponse` uses for exactly the same reason.
    *
    * ⓘ **A forwarded `onResult` handler therefore no longer needs `@mesh()`** — the fire-back door
    * does not consult the mark. `captureUndecoratedBroadcastResult` in the test worker is the limb
    * that holds that property up.
    *
-   * ⚠️ **A CLIENT origin keeps the old path**, because the Gateway's `__handleResponse` takes a
-   * different shape entirely (a `ClientResultEnvelope`, not a `CallEnvelope`). That path is
-   * independently broken — `svc.broadcast` starts no fresh chain, so `callChain[0]` is whoever
-   * originated the write, and a failure is forwarded to that client rather than to the broadcasting
-   * DO. Both conditions ride the `directThreshold` row in `tasks/backlog.md` § *Lumenize Mesh*.
+   * ⚠️ **A CLIENT origin keeps the old path, and it is NOT covered by the above.** The Gateway's
+   * `__handleResponse` takes a different shape entirely (a `ClientResultEnvelope`, not a
+   * `CallEnvelope`), so this branch still ships a FILLED chain over `lmz.call` — and it lands at
+   * the client's own push door, which runs the TEMPLATE entry. Nothing here closes that.
+   *
+   * What stops an injected chain there today is INCIDENTAL rather than designed: a forwarded chain's
+   * op 0 names a DO method, which is not mesh-callable on a client, so the entry rule refuses it.
+   * That defence evaporates the moment a forwarded chain names a marked CLIENT member.
+   *
+   * The branch is also independently misrouted — `svc.broadcast` starts no fresh chain, so
+   * `callChain[0]` is whoever originated the write, and a failure goes to that client rather than
+   * to the broadcasting DO. ⚠️ **And on the mesh-node branch a reaper now reads the RECEIVING node's
+   * own name**, because `executeEnvelope` overwrites `callContext.callee` at `__handleResponse` —
+   * so the tier path's cleanup deletes nothing. All three ride the `directThreshold` row in
+   * `tasks/backlog.md` § *Lumenize Mesh*, which is what governs unpinning.
    *
    * @internal Framework method — do not override or call directly.
    */

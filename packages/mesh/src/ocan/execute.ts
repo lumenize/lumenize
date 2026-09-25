@@ -216,8 +216,13 @@ async function walkChain(
 
   let current: any = target;  // the value produced by the op just executed
   // The value one op BEHIND `current` — what a method call binds `this` to. Carried along the
-  // walk rather than recomputed, which is what makes each op run exactly once. It starts at the
-  // target so an apply-first chain calls the target with itself as `this`, as it always has.
+  // walk rather than recomputed, which is what stops an earlier op being RE-EXECUTED to find it:
+  // a gate body runs once per chain rather than once per later apply.
+  //
+  // ⚠️ Precisely: no op is re-EXECUTED. An `apply` still READS its method off the parent a second
+  // time (`parent[prevOp.key]`), which is free for a method and would invoke a getter twice — a
+  // chain that applies a getter's value directly. Kept because the property-call form is what
+  // works for a Workers RPC stub method, where extracting the function first does not.
   let parent: any = target;
   // THE ENTRY RULE. Op 0 of a wire-borne chain must name a member the host class marked, and that
   // op is where the guard runs. `requireMeshDecorator: false` is the carve-out for a chain the NODE

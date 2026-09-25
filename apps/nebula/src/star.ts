@@ -789,8 +789,8 @@ export class Star extends NebulaDO {
   /**
    * Per-target reload-broadcast result handler — drop a subscriber whose Gateway
    * reported it disconnected, mirroring `onTreeBroadcastResult`. WHICH subscriber comes from
-   * `callContext.callee`, the address this push was sent to, never from the reply. `@mesh()` for the tier-worker dispatch path, which
-   * `NebulaDO.broadcast` pins that path off today (TEMP) — the decorator is what keeps lifting it a one-line change.
+   * `callContext.callee`, the address this push was sent to, never from the reply.
+   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onReloadBroadcastResult(result?: unknown): void {
@@ -811,9 +811,9 @@ export class Star extends NebulaDO {
    * (the mutation that triggered this is always authenticated).
    *
    * Drop-on-failed-broadcast cleanup rides `onTreeBroadcastResult` (its own
-   * handler keyed by `clientId`, NOT the resourceId path). That handler carries
-   * `@mesh()` for tier-worker dispatch — the tree broadcast goes to ALL connected clients, so it
-   * is the likeliest of these to exceed `directThreshold` once `NebulaDO.broadcast` pins that path off today (TEMP).
+   * handler keyed by `clientId`, NOT the resourceId path). That handler is the likeliest of these to
+   * exceed `directThreshold` once the pin lifts, since the tree broadcast goes to ALL connected
+   * clients. ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   #onDagChanged() {
     const subscribers = this.#treeSubscriptions.all();
@@ -871,9 +871,7 @@ export class Star extends NebulaDO {
    * fails — the reply says only THAT it failed, never who.
    *
    * Public visibility because mesh handler-continuations resolve by name
-   * on the local DO; `@mesh()` because in the tree branch the tier worker dispatches this call
-   * across the service binding, so the framework must recognize it as call-callable. `NebulaDO.broadcast` pins that path off today (TEMP),
-   * and the decorator stays so lifting the pin needs no change here.
+   * on the local DO. ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
@@ -909,8 +907,8 @@ export class Star extends NebulaDO {
   /**
    * Per-target result handler for query pushes (both the no-denial broadcast and
    * the per-subscriber has-denial deliveries — m6). Keyed by `queryHash`; drops the
-   * dead client's query-sub row on a `ClientDisconnectedError`. `@mesh()` for the tier-worker
-   * broadcast path, which `NebulaDO.broadcast` pins that path off today (TEMP).
+   * dead client's query-sub row on a `ClientDisconnectedError`.
+   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onQueryBroadcastResult(queryHash: string, result?: unknown): void {
@@ -925,7 +923,7 @@ export class Star extends NebulaDO {
    * single-target `deliverRosterUpdate`). Keyed by `queryHash`; on a `ClientDisconnectedError` drops the
    * dead WATCHER's row from the WATCHER table ONLY (`removeQuerySubscriberListWatcher`), NOT
    * `QuerySubscribers` — so a dual-role client (data-subscriber AND watcher of Q) keeps its data sub.
-   * `@mesh()` for the tier-worker broadcast path, which `NebulaDO.broadcast` pins that path off today (TEMP).
+   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
@@ -939,8 +937,8 @@ export class Star extends NebulaDO {
    * Per-target result handler for the org-tree broadcast (`#onDagChanged`).
    * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
    * the failed client comes from `callContext.callee`,
-   * mirroring `onBroadcastResult`. `@mesh()` for the tier-worker dispatch path (this one fans
-   * out to every connected client), which `NebulaDO.broadcast` pins that path off today (TEMP).
+   * mirroring `onBroadcastResult`. This one fans out to every connected client.
+   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onTreeBroadcastResult(result?: unknown): void {

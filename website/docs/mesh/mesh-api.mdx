@@ -118,7 +118,7 @@ For context propagation and persistence patterns, see [Managing Context](./manag
 
 ## Decorator: `@mesh()`
 
-Marks a **member** as a mesh entry point — a method, or a getter. A chain arriving off the wire must open on one: its first operation names a marked member, and that is where the guard runs. Everything after that runs on whatever the member handed back, unchecked. A member without `@mesh()` cannot be reached from outside the node, and that absence is the security boundary — not visibility, which the runtime does not see.
+Marks a **member** as a mesh entry point — a method, or a getter. A chain arriving off the wire must open on one: its first operation names a marked member, and that is where the guard runs. Everything after that runs on whatever the member handed back — unchecked by the entry rule, though the walk rules still apply (see `requireMeshDecorator` in [Managing Context](./managing-context)). A member without `@mesh()` cannot be reached from outside the node, and that absence is the security boundary — not visibility, which the runtime does not see.
 
 ```typescript @skip-check-approved('conceptual')
 @mesh()                       // Basic entry point

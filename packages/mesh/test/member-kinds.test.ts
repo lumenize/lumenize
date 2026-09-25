@@ -66,11 +66,22 @@ describe('@mesh() marks a method and a getter, and nothing else', () => {
     expect(await node.getTrace()).toEqual([]);
   });
 
-  it('an ASYNC marked getter — measured, either way is a finding', async () => {
-    const outcome = await wire('mk-async', [GET('asyncGate'), GET('reached'), APPLY()]);
-    // A getter entry OWES side-effect-free and synchronous, so an async one working is not a
-    // promise we make; what matters is that it does not fail obscurely.
-    expect(outcome).toMatch(/PERMITTED|REFUSED/);
+  it('a getter entry returning a PROMISE fails, and fails obscurely — the measured answer', async () => {
+    // The criterion allowed two outcomes — "refused with its own message, or proven to work". It is
+    // NEITHER, and that is the finding: the walk awaits every `apply` but never a `get`, so the
+    // Promise this getter returns is the value the NEXT op reads off, `reached` is `undefined`, and
+    // the chain dies on the arity check with a message naming nothing useful.
+    //
+    // ⚠️ It cannot be made to fail better at the entry: `async get` is a syntax error in JS, so
+    // there is no async-ness to detect on the descriptor — only a sync getter that happens to
+    // return a thenable, which is knowable solely by calling it, which is what the descriptor walk
+    // exists to avoid. This is why `mesh.md` states SYNCHRONOUS as an obligation a getter entry
+    // owes rather than a rule the framework enforces. Filed under continuation ergonomics.
+    //
+    // ⚠️ Asserted as the specific string. The earlier `/PERMITTED|REFUSED/` matched every value
+    // this helper can return, so it held on any tree — and hid exactly this.
+    expect(await wire('mk-async', [GET('asyncGate'), GET('reached'), APPLY()]))
+      .toMatch(/^REFUSED: TypeError: .* is not a function/);
   });
 });
 

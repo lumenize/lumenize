@@ -118,7 +118,7 @@ ctn<Galaxy>().svc.sql(['SELECT 1']);       // refused — `svc` is not marked, a
 
 **What comes with the rule:**
 
-- **THE ENTRY RULE — op 0 is the entry, and only a wire-borne chain must have it name a marked member.** A chain the node authored itself — a `$result` handler, a stored alarm continuation, `@lumenize/fetch`'s callback — may root anywhere, including `ctx` or `svc`: `this.ctn().ctx.storage.kv.put('cache', remote)` is the JSDoc example on `replaceNestedOperationMarkers` and must keep working. The prototype fence applies from op 1 on every leg regardless.
+- **THE ENTRY RULE — op 0 is the entry, and only a wire-borne chain must have it name a marked member.** A chain the node authored itself — a `$result` handler, a stored alarm continuation, `@lumenize/fetch`'s callback — may root anywhere, including `ctx` or `svc`: `this.ctn().ctx.storage.kv.put('cache', remote)` is the JSDoc example on `replaceNestedOperationMarkers` and must keep working. The prototype fence applies on every leg regardless — **from op 0**, as this section's own § *THE PROTOTYPE FENCE* bullet states and as the code does. ⓘ This clause used to read "from op 1", which contradicted that bullet; op 0 is what shipped, because on the response, alarm and local-handler legs the entry rule is off and a chain whose FIRST op names `constructor` would otherwise meet no rule at all.
 - **DESCRIPTOR LOOKUP — the check reads descriptors and never reads the member.** It walks the prototypes with `Object.getOwnPropertyDescriptor`, which is where both a method and a getter live, and never evaluates `parent[key]` — so an unmarked getter is refused without running. ⓘ An own-property read is the branch a field entry would add if fields are ever brought in; the first cut does not need it. Both carry the mark on their function value, exactly as methods do today.
 - **THE PROTOTYPE FENCE — after the entry, a `get` of `constructor`, `__proto__`, `__lookupGetter__`, `__lookupSetter__`, `__defineGetter__` or `__defineSetter__` is refused, as is one resolving on `Function.prototype`.** Those are the doors JavaScript puts on every object, and no amount of careful authoring removes them; everything else past the entry is the author's business.
   - ⚠️ **Naming keys is not the deny-list `calibration.md` §2 warns about, because the spec fixes what every object carries — and the list is SIX, not two (measured 2026-09-24).** `Object.getOwnPropertyNames(Object.prototype)` returns twelve names in workerd `2026-08-15` and in Node 24: `constructor`, `__proto__`, the four Annex-B accessors above, and six benign ones — `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable`, `toString`, `toLocaleString`, `valueOf` — which stay reachable. The four matter for two different reasons. **`__lookupGetter__('__proto__')` hands back the `__proto__` getter**, so it is a third named route to a facade's own prototype without naming either of the first two keys. **`__defineGetter__`/`__defineSetter__` are the only property WRITES a chain can name** — a chain expresses `get` and `apply` only, but a write reached as a method call is still a write, and a get-only nested marker naming a marked member yields the function argument they take.
@@ -356,7 +356,7 @@ Every row below is red today unless its own Status cell says otherwise, so the t
 
 Each row below states something a later reader would act on, and this task's deliverables falsify or narrow it. Found by reading rather than by a complete sweep, so treat the list as open.
 
-- **`directThreshold: Infinity`** (§ *Lumenize Mesh*) says *"Lifting it takes all three together"*. ⇒ **Both conditions this task would have added are already DISCHARGED, and a different one remains.** Phase 3 moved the tier's forward from `lmz.call` to the origin's fire-back door, which settles them together: a filled chain no longer reaches a template door, so unpinning cannot re-open R1 on the forwarded path; and the member-level check is not consulted there, so an undecorated forwarded reaper passes — which retires the condition the sibling's decorator-shedding would otherwise have created. **What the row gains instead is the CLIENT-origin path**, which keeps the old `lmz.call` forward because the Gateway's fire-back door takes a different shape: `svc.broadcast` starts no fresh chain, so `callChain[0]` is whoever originated the write, and a failure is forwarded to that client rather than to the broadcasting DO. Unpinning the tier without fixing that misroutes every client-triggered broadcast failure.
+- **`directThreshold: Infinity`** (§ *Lumenize Mesh*) says *"Lifting it takes all three together"*. ⇒ **Both conditions this task would have added are already DISCHARGED, and a different one remains.** Phase 3 moved the tier's forward from `lmz.call` to the origin's fire-back door, which settles them together: a filled chain no longer reaches a template door, so unpinning cannot re-open R1 on the MESH-NODE forwarded path; and the member-level check is not consulted there, so an undecorated forwarded reaper passes — which retires the condition the sibling's decorator-shedding would otherwise have created. **What the row gains instead is three conditions, enumerated on the row itself** (a forwarded reaper reading the receiving node's own name rather than the failed target's; R1 still open on the client-origin branch, refused today only incidentally; and that branch's long-standing misroute). The row is where they belong, because it outlives this file and it is what anyone unpinning the tier reads.
 - **`subscriptionRequired` is broken** (§ *Lumenize Mesh*) diagnoses the expired-token branch at the exact Gateway site § *R2* converts, and argues the conflation itself is the bug: *"a live-socket-expired-token client is self-healing."* ⇒ **Half of it lands here.** § *R2* gives that branch its own error class, so the reaper's name guard stops matching it and a self-healing client is no longer reaped. What stays owed on the row is the wider conflation — the Gateway deciding reachability from its grace alarm while the Star decides it reactively, with the two uncoordinated.
 - **The `globalThis` registration row** rests on *"the repo registers zero classes"*, which a grep for `(globalThis as any).<Name> =` over `packages/*/src apps/nebula/src` falsifies. ⇒ The row keeps its verdict: the name guard stays the contract, and § *The response leg* leans on it rather than on `instanceof`. What it gains is the corrected premise — **registrations exist**, stated as that grep rather than as a number — which strengthens the row's own argument, since a check that varies by bundle is worse where registrations actually exist. ⚠️ **State it as the grep, not a count.** An earlier draft here named three files and concluded "three classes"; all three register the SAME class, `ClientDisconnectedError`, and the real population is three distinct classes across six sites — `FetchTimeoutError` and `LoginRequiredError` too, and a fourth `ClientDisconnectedError` site in `lumenize-container.ts`. **Four modules registering one class is itself the interesting fact for that row**, since whichever loads last wins.
 - **"Improve continuation ergonomics"** (§ *Lumenize Mesh*) ⇒ **neither issue is settled by this task, and one claim about it was wrong.** Issue 1's `$defer` want SURVIVES, because nesting survives (§ *The request leg*), and it lives in the very loop R1 rewrites — so the row gains a line that the two are designed together or `$defer` pays for the rewrite twice. Issue 2, `this.ctn().handleResult` with no call, is **untouched**: a get-only handler chain runs on the response leg, where the member-level check is off by design, so it stays a silent no-op.
@@ -431,12 +431,14 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      through the Gateway, ending with a write that landed on the Galaxy's `Object.prototype` and
      was read back by a second chain. Both ✅ rows are GREEN and every positive control was
      mutation-isolated. The two rows § *Criteria* marked unknown are answered there.
-   - ⚠️ **One finding with no row, and it is a user-developer foot-gun rather than a hole:
-     OVERRIDING a `@mesh()` method drops the mark.** The mark lives on the function value, and a
-     subclass override is a new function, so the Gateway's push then fails the client's own
-     member-level check and the subscription's initial snapshot never arrives — a hang with no
-     subscriber, not an error. It cost an hour of this phase. `Studio` generates `NebulaClient`
-     subclasses, so it wants a backlog row rather than a fix here.
+   - ⚠️ **One finding with no row: OVERRIDING a `@mesh()` method drops the mark.** The mark lives on
+     the function value, and a subclass override is a new function, so the Gateway's push fails the
+     client's own member-level check and the subscription's initial snapshot never arrives — a hang
+     with no subscriber, not an error. It cost an hour of this phase. ⓘ **It went to the backlog on
+     a premise that turned out false** — that Studio generates `NebulaClient` subclasses; it does
+     not, and `grep -rn 'extends NebulaClient'` returns only test and harness fixtures. The row was
+     withdrawn and the finding became a Phase 5 criterion instead: what earns the fix is the
+     silence, not the frequency.
    - ⓘ **No fix lands.** Member-kind limbs are NOT written here — a marked getter does not exist
      until Phase 5, so those limbs are new capability rather than holes and land with the capability.
 
@@ -504,6 +506,15 @@ JSDoc parentheticals are falsified by Phase 4, and ADR-007's sentence by Phase 4
      pre-existing row stays green; gate the fence on `requireMeshDecorator` and the response-leg limbs
      red; write it at the envelope seam instead of in the executor and the browser limb alone reds —
      which is the limb's whole reason for existing.
+   - ✅ **DONE 2026-09-24.** All three mutations behaved exactly as predicted, the third most
+     usefully: leaving the CLIENT's own door unfenced left twenty unit limbs green and reddened the
+     browser limb alone, which is that limb's whole reason for existing. `/live` refuses all five
+     walk chains past the real `dagTree()` gate, including the write that used to land on the
+     Galaxy's `Object.prototype` and read back through a second chain.
+   - ⓘ **The phase's suite list was half right.** `ocan.test.ts`'s apply-first case did need
+     rewriting here; its `is not a function` case did NOT — the arity check precedes the member
+     check, so that message survived Phase 4 and changed in Phase 5, where the entry rule answers
+     first.
 
 5. **`@mesh()` marks a getter, and the first op of a wire-borne chain names a marked member.** The
    decorator and the rule that gives it meaning land together, because a mark on a getter is INERT

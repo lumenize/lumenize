@@ -438,16 +438,10 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return { $error: preprocess(new Error(`Unsupported RPC envelope version: ${envelope.version}`)) };
     }
 
-    // The authoritative instance name is the name the caller used to address
-    // this Gateway DO (carried in the envelope metadata). Source it from there,
-    // NOT from the active-WebSocket attachment via #getInstanceName(): the
-    // attachment is absent exactly when the client is disconnected — which is
-    // the case where the RESULT envelope's clientInstanceName is needed, so
-    // the caller can drop the leaked subscriber row (drop-on-failed-broadcast
-    // cleanup; see Star.onBroadcastResult). Fall back to the attachment for the
-    // (rare) case where metadata is absent.
-    const clientInstanceName =
-      envelope.metadata?.callee?.instanceName ?? this.#getInstanceName();
+    // ⓘ A local here used to resolve "which client is this" from the envelope metadata, for the
+    // helper that stamped it onto a `ClientDisconnectedError`. Both are gone: a reaper reads
+    // `callContext.callee`, which the framework sets from the address the caller used, so nothing
+    // on this path needs to name the client any more.
 
     // Get active WebSocket connection
     let ws = this.#getActiveWebSocket();
@@ -468,9 +462,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
           // flattens custom Error subclasses into plain Error with the class name
           // embedded in the message.
           //
-          // The waiter-rejection error originates in alarm()/#waitForReconnect,
-          // which have no envelope in scope, so re-stamp the disconnected client's
-          // instance name here where the envelope is available.
+          // The error is forwarded as it stands. It carries no client identity — who failed comes
+          // from `callContext.callee` at the caller, not from anything this reply says.
           return { $error: preprocess(err) };
         }
         ws = this.#getActiveWebSocket();

@@ -1724,8 +1724,8 @@ export class Galaxy extends NebulaDO {
   }
 
   /** Per-target broadcast result handler — drop a subscriber whose Gateway reported
-   *  it disconnected (`ClientDisconnectedError`). `@mesh()` for the tier-worker path, which
-   *  `NebulaDO.broadcast` pins that path off today (TEMP). */
+   *  it disconnected (`ClientDisconnectedError`). WHICH subscriber comes from
+   *  `callContext.callee`, the address this push was sent to. ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's. */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {

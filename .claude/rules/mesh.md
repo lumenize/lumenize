@@ -64,7 +64,7 @@ Two adjacent callContext fields are **immutable** and filled automatically, and 
 - **Tracing/provenance** → `callContext.callChain` (the immutable `[origin, …, caller]` path, extended every hop). It *is* the tracing mechanism — trace markers MUST NOT go in `state`. Reset with `CallOptions.newChain: true` when a node should become a fresh origin.
 
 ## Object-capability access: gate once, then chain
-The `@mesh()` member-level check runs **only on a chain's entry op** (the first method invoked on the node); later calls in the same chain run on whatever that returned, un-re-checked. Beyond per-method `@mesh(guard)`, this enables an **object-capability** model: a gate method returns a **class instance whose methods *are* the capability** — they need no `@mesh` of their own and are reachable **only by first passing the gate**, in one round trip, so holding the returned instance *is* the authorization.
+The `@mesh()` member-level check runs **only on a chain's entry op** (`operations[0]` — the first member NAMED, which for `ctn<T>().admin.addUser(u)` is `admin`, not `addUser`); later calls in the same chain run on whatever that returned, un-re-checked. Beyond per-method `@mesh(guard)`, this enables an **object-capability** model: a gate method returns a **class instance whose methods *are* the capability** — they need no `@mesh` of their own and are reachable **only by first passing the gate**, in one round trip, so holding the returned instance *is* the authorization.
 
 ```typescript
 // Callee — onlyAdmins() is the ONLY @mesh door; it returns a capability instance
@@ -115,8 +115,8 @@ Use the 4-arg form for reactive cleanup, retry, and observability — anything t
 doInstance.lmz.call(t.bindingName, t.instanceName, remote, opts.onResult,
   { onErrorOnly: true });
 
-// Star's handler — drop a subscriber whose Gateway reported it disconnected
-@mesh()
+// Star's handler — drop a subscriber whose Gateway reported it disconnected.
+// No `@mesh()`: a fire-back lands on the response leg, where the member-level check is off.
 onBroadcastResult(resourceId: string, result?: unknown): void {
   if (result instanceof Error && result.name === 'ClientDisconnectedError') {
     const clientId = this.lmz.callContext.callee?.instanceName;

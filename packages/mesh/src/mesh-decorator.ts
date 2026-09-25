@@ -57,6 +57,19 @@ export function getMeshGuard<T>(method: any): MeshGuard<T> | undefined {
   return undefined;
 }
 
+export interface MeshDecorator<T> {
+  /** A METHOD entry — the default, and right for any entry that takes arguments. */
+  <This extends T, Args extends any[], Return>(
+    target: (this: This, ...args: Args) => Return,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
+  ): (this: This, ...args: Args) => Return;
+  /** A GETTER entry — the form for a GATE, which returns a capability surface and does nothing else. */
+  <This extends T, Return>(
+    target: (this: This) => Return,
+    context: ClassGetterDecoratorContext<This, Return>
+  ): (this: This) => Return;
+}
+
 /**
  * `@mesh()` decorator for marking a member as mesh-callable
  *
@@ -103,23 +116,10 @@ export function getMeshGuard<T>(method: any): MeshGuard<T> | undefined {
  * }
  * ```
  *
- * @param guard - Optional guard function called before method execution.
+ * @param guard - Optional guard function called at the chain's ENTRY op, before the member runs.
  *                Throw an error to reject the call, or return void to allow it.
- * @returns A decorator that marks the method as mesh-callable
+ * @returns A decorator that marks the member as mesh-callable
  */
-export interface MeshDecorator<T> {
-  /** A METHOD entry — the default, and right for any entry that takes arguments. */
-  <This extends T, Args extends any[], Return>(
-    target: (this: This, ...args: Args) => Return,
-    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
-  ): (this: This, ...args: Args) => Return;
-  /** A GETTER entry — the form for a GATE, which returns a capability surface and does nothing else. */
-  <This extends T, Return>(
-    target: (this: This) => Return,
-    context: ClassGetterDecoratorContext<This, Return>
-  ): (this: This) => Return;
-}
-
 export function mesh<T = any>(guard?: MeshGuard<T>): MeshDecorator<T> {
   return function (target: any, _context: any): any {
     // Mark the member as mesh-callable. A method and a getter both carry the mark on their

@@ -899,14 +899,11 @@ async function fireResponse(
       callContext: {
         ...inboundContext,  // originAuth, originRequest, and any later immutable field ride through
         callChain: [...inboundContext.callChain, calleeIdentity],
-        // PER-HOP, and overwritten unconditionally: the handler is about to run at the caller, so
-        // the address that matters to it is where this fire-back is going. ⚠️ Self-reported here —
-        // see `CallContext.callee`.
-        callee: {
-          type: response.returnAddr.type,
-          bindingName: response.returnAddr.bindingName,
-          instanceName: response.returnAddr.instanceName,
-        },
+        // ⓘ `callee` is deliberately NOT set here. A mesh fire-back can only land at
+        // `__handleResponse`, and `executeEnvelope` overwrites the field there from the receiving
+        // node's own identity — so a value set on this envelope is discarded before any handler
+        // sees it. Measured: removing a stamp here reds nothing, which is what it means for a
+        // line to be unnecessary rather than untested.
       },
       metadata: {
         caller: { type: calleeIdentity.type, bindingName: calleeIdentity.bindingName, instanceName: calleeIdentity.instanceName },

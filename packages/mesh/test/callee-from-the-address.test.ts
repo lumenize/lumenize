@@ -40,12 +40,18 @@ describe('callContext.callee is stamped per hop, from the address', () => {
     });
   });
 
-  it('fireResponse: the fire-back return address', async () => {
+  it('the FIRE-BACK leg shows the receiving node, never the remote it called', async () => {
+    // A handler reached by a fire-back runs at the CALLER, and `executeEnvelope` stamps the field
+    // there from that node's own identity — so what it sees is itself, not `callee-fireback-target`.
+    // ⚠️ Worth stating because the obvious reading is the other one: `fireResponse` is where a
+    // fire-back is built, so a return address set THERE looks like the natural source. It is not,
+    // and it is not set: `__handleResponse` overwrites, so such a value never reaches a handler.
+    // The assertion that discriminates is the negative — the remote's name must not appear.
     const c = await caller('callee-fireback');
     c.testCalleeOnFireBack('TEST_DO', 'callee-fireback-target');
-    expect(await seenBy(c)).toMatchObject({
-      bindingName: 'TEST_DO', instanceName: 'callee-fireback',
-    });
+    const seen = await seenBy(c) as { instanceName?: string };
+    expect(seen.instanceName).toBe('callee-fireback');
+    expect(seen.instanceName).not.toBe('callee-fireback-target');
   });
 
   it("executeEnvelope: the receiving node's OWN name", async () => {

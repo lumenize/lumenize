@@ -160,12 +160,17 @@ export interface OcanConfig {
   maxArgs?: number;
 
   /**
-   * Require entry point method to have `@mesh` decorator
+   * Require the chain's ENTRY OP to name a mesh-callable member.
    *
-   * When true, the first method accessed in the chain must be decorated
-   * with `@mesh`, otherwise an error is thrown. This enforces explicit
-   * security boundaries - only methods you explicitly mark as mesh-callable
-   * can be invoked remotely.
+   * When true, `operations[0]` must name a member — a method or a getter — the host class marked
+   * with `@mesh()`, looked up by descriptor so an unmarked getter is refused without running.
+   * That op is also where the member's guard runs.
+   *
+   * Set false only for a chain the NODE authored itself (a `$result` handler, a stored alarm
+   * continuation); those may root anywhere, including `ctx` and `svc`.
+   *
+   * ⚠️ It does NOT turn off the walk rules. `constructor`, `__proto__`, the four Annex-B accessors
+   * and anything resolving on `Function.prototype` are refused at every setting, on every leg.
    *
    * @default true (secure by default)
    */

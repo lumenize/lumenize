@@ -9,8 +9,9 @@
  * results back to a handler on this DO. The framework appends the
  * call's result to the partial's args via the standard last-argument
  * convention (same as the 4-arg `lmz.call` form). For drop-on-failed-fanout
- * style cleanup: the result is a `ClientDisconnectedError` and WHICH target it came from is
- * for failures; success path is `undefined`.
+ * style cleanup: the result is a `ClientDisconnectedError` on a failure and `undefined` on the
+ * success path, and WHICH target it came from is `callContext.callee` — the address the framework
+ * sent that push to, never anything the reply carries.
  *
  * **Two dispatch branches:**
  *

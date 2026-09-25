@@ -110,11 +110,11 @@ export interface CallContext {
    * — and a reply is authored by the far side, which is how a client could name somebody else as
    * the one that died and have their subscription reaped.
    *
-   * ⚠️ **Trust differs by leg, and over-trusting it is the likelier mistake.** On the request leg
-   * (`dispatchEnvelope`) and at the receiving node (`executeEnvelope`) it is the address the caller
-   * used or the node's own name, so it is unforgeable. On a mesh FIRE-BACK (`fireResponse`) it is
-   * the callee's SELF-REPORTED identity, which is trustworthy on the Gateway and local-handler
-   * paths and not generally.
+   * **Two sources, both unforgeable, and no third.** `dispatchEnvelope` sets it from the address the
+   * caller addressed — the value a reaper reads. `executeEnvelope` sets it at the receiving node
+   * from that node's own identity, overwriting whatever arrived. ⓘ A mesh fire-back adds nothing:
+   * it can only land at `__handleResponse`, where `executeEnvelope` overwrites, so a handler running
+   * there sees ITS OWN node rather than the remote it called.
    */
   callee?: NodeIdentity;
 
