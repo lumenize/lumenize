@@ -41,7 +41,13 @@ Alongside it: two calls in `packages/mesh/test/test-worker-and-dos.ts`, and five
 
 ## What this does NOT fix, so nobody reads it as fixed
 
-**The tier path still rewrites `metadata.caller`.** `tasks/backlog.md`'s fence-safe row asks for a primitive with *"no tier hop (so `metadata.caller` stays the origin node → the fence stays reliable at any N)"*, and moving a method changes no dispatch behaviour. So this task delivers the **composition** half of that row and none of the fence half: a bare composer can now reach `broadcast`, and a bare composer that needs a caller-gated cross-scope fan-out still cannot use it. ⇒ That row stays open, and gains a line saying which half is done.
+**Reaching `broadcast` and being able to USE it are different things, and this task only fixes the first.** Whether a node should fan out through it depends on one property of its receivers: is delivery gated on who sent the push?
+
+- **`broadcast` picks its branch on target count alone.** Below `directThreshold` the originating node calls each target itself; above it, the tier Worker makes the leaf calls. So the caller a target sees is the origin on one branch and the tier Worker on the other.
+- **That matters wherever a receiver reads the caller.** `NebulaClientGateway.onBeforeCallToClient` opens a cross-scope profile push only for `caller.bindingName === 'PROFILE'` and otherwise throws *Active-scope mismatch* — so a Profile fan-out would deliver fine up to the threshold and then be refused for being legitimate, triggered by nothing but popularity.
+- **Two different things keep that from biting today.** Nebula pins `directThreshold: Infinity`, so every Nebula fan-out stays on the direct branch; the Profile hand-rolls its own loop, which cannot tier at all. A pin is a number anyone can change, which is why the Profile does not rely on one.
+
+⇒ **The Profile keeps its hand-rolled loop after this task**, and `tasks/backlog.md`'s fence-safe row stays open unchanged — it asks for a primitive that structurally cannot tier, which is a second thing to build rather than a half of this one. That row now says so on its own line, along with the reciprocal on the flat-loop row: enabling the tier removes the caller preservation the fence depends on.
 
 **The Profile still cannot compose the Resources plane**, for a reason unrelated to broadcast: `ResourceDataPlane` lives in `apps/nebula/src`, and `packages/nebula-auth` cannot import from the app — the dependency runs the other way. This task removes one of that host's blockers, not both, and the other belongs to [on-hold/nebula-profile-storage.md](on-hold/nebula-profile-storage.md) as a stated precondition.
 
