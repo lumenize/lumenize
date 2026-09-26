@@ -35,6 +35,8 @@ Alongside it: two calls in `packages/mesh/test/test-worker-and-dos.ts`, and five
 
 **`broadcast.ts` keeps its module, its exported types and `BROADCAST_TIER_BINDING`.** What moves is the registration line and which object the function hangs off, which is what keeps this a detour rather than a rewrite.
 
+**ADR-007's core gains `broadcast`** (Larry, 2026-09-26). The ADR defines the core as *"exactly comms + guards"* and lists receiving calls, `callContext` propagation, `lmz.ctn()`, `onBeforeCall` and `@mesh()`; broadcast belongs there because it is one continuation sent to many addresses and needs nothing else — no storage, no alarm, no lifecycle hook. So it is comms, and the enumeration was simply written before anyone asked. ⚠️ **This AMENDS an Accepted ADR rather than changing its status**, which is a different act from ratifying one: it gains an `**Amended**:` header line in the shape ADR-008 already uses, and its one-liner in `.claude/rules/workflow.md` gains the member, because that line is what an always-loaded session reads instead of the ADR.
+
 **`NebulaDO.broadcast` survives this task with one line changed inside it.** Its JSDoc calls it *"the ONE place a Nebula node reaches `svc.broadcast`"*, and that stays true with `lmz` in place of `svc`, so Nebula's `directThreshold: Infinity` pin keeps its single home. The sibling task is what deletes the wrapper, once every fan-out has moved into the plane and the pin moves with them — and that ordering is deliberate, because deleting it here would strand the pin in a task that has no plane to put it in.
 
 ## What this does NOT fix, so nobody reads it as fixed
@@ -45,11 +47,10 @@ Alongside it: two calls in `packages/mesh/test/test-worker-and-dos.ts`, and five
 
 ## Open questions
 
-Three, each a decision to make before phases are written.
+Two, each a decision to make before phases are written.
 
-1. **Does `broadcast` join ADR-007's core, or ride along beside it?** [ADR-007](../docs/adr/007-shared-node-security-core.md) is **Accepted** and defines the core as *"exactly comms + guards"*, listing receiving calls, `callContext` propagation, `lmz.ctn()`, `onBeforeCall` and `@mesh()`; its *Deliberately narrow* clause then names storage, alarms, lifecycle initialization, `fetch` and a driven container as per-type capabilities instead. Broadcast is comms by nature — it is one continuation to many addresses, built on `lmz.call` — but the enumeration does not name it, and that enumeration is the thing a reader checks a new member against. So either the ADR's core gains a member, or the task states that `broadcast` is *derived from* the core and shipped with it while the core's definition stays as written. The second needs no ADR edit and is the smaller claim; the first is more honest if `lmz` is the core's surface.
-2. **Does a Worker's `lmz` get it too, or is it DO-only?** `createLmzApiForWorker` exists beside `createLmzApiForDO`, and a `LumenizeWorker` has both `ctn` and `lmz.call`, so "both" costs nothing to implement. But a Worker that fans out is a shape nobody has designed, and `LumenizeWorker` already carries `__broadcastTier` for the tier role — so the two could be confused at the call site. DO-only is the narrow answer and `workflow.md`'s cost test argues against narrowing for its own sake; this is a judgement about what `lmz` should teach a reader who meets both names.
-3. **Is this the first step of retiring `svc`, or does `svc` keep `sql` and `alarms` indefinitely?** After broadcast leaves, the registry holds those two plus whatever a plugin registers. The answer changes nothing this task builds, and someone will ask it the moment they see one service move — so it is worth a sentence in the file rather than a re-derivation later.
+1. **Does a Worker's `lmz` get it too, or is it DO-only?** `createLmzApiForWorker` exists beside `createLmzApiForDO`, and a `LumenizeWorker` has both `ctn` and `lmz.call`, so "both" costs nothing to implement. But a Worker that fans out is a shape nobody has designed, and `LumenizeWorker` already carries `__broadcastTier` for the tier role — so the two could be confused at the call site. DO-only is the narrow answer and `workflow.md`'s cost test argues against narrowing for its own sake; this is a judgement about what `lmz` should teach a reader who meets both names.
+2. **Is this the first step of retiring `svc`, or does `svc` keep `sql` and `alarms` indefinitely?** After broadcast leaves, the registry holds those two plus whatever a plugin registers. The answer changes nothing this task builds, and someone will ask it the moment they see one service move — so it is worth a sentence in the file rather than a re-derivation later.
 
 ## Non-goals
 
@@ -64,6 +65,7 @@ Three, each a decision to make before phases are written.
 
 **Standing guidance and docs this changes**, listed because most of it is prose a grep for the call finds:
 
+- [ADR-007](../docs/adr/007-shared-node-security-core.md) — the core enumeration in § *Decision*, plus an `**Amended**:` line; and its one-liner in `.claude/rules/workflow.md`, which spells the core as `` (`lmz.call`, `lmz.ctn`, `callContext`, `onBeforeCall`, `@mesh()`) `` and needs the new member.
 - `.claude/rules/mesh.md` — the section **titled** *A Nebula node broadcasts through `NebulaDO.broadcast`, never `this.svc.broadcast`*, plus its neighbouring 4-arg example and the naming paragraph that calls `this.svc.broadcast` the Lumenize primitive.
 - `.claude/rules/containers.md` — the raw-path paragraph listing `svc.alarms` / `svc.sql` / `svc.broadcast` as free to use.
 - `website/docs/mesh/broadcast.mdx` — five conceptual blocks and the prose around them, including its *When Not to Use* heading.
