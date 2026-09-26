@@ -1,6 +1,6 @@
 # Broadcast is core to every mesh node, and it delivers directly
 
-**Status:** Pass 1 — design intent, for hand review. No phases yet. Rewritten 2026-09-26 after the review conversation, which grew the scope from one move to a move, a removal and one adoption.
+**Status:** Pass 2 — design intent **hand-reviewed** (Larry, 2026-09-26; that review is where the tier removal, the Profile's scope and the ADR-007 answer came from), and phases written against it. **Stage 2 conformance runs next.**
 
 **A deliberate detour** from [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md), which cannot collapse its host bridge until this lands. Still small enough for a **condensed process** (Larry, 2026-09-26): a hand review of this file rather than a `/review-task` panel, phases written straight after it, then a Stage 2 conformance pass only.
 
