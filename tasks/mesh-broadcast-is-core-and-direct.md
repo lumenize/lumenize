@@ -70,7 +70,7 @@ What a forged hop buys depends on the reader:
 
 ## What the removal costs, stated plainly
 
-- **Tail latency at high N becomes the only option.** The flat loop reaches the last of 1,000 subscribers in about 1.7 s deployed, where the tier's measured median was roughly 2.2× better. We keep working-but-slower and delete broken-but-faster; the measurement that would justify rebuilding stays in the 2026-06-06 blog post.
+- **Tail latency at high N becomes the only option.** With 1,000 subscribers deployed, the flat loop's median subscriber waited about 1.7 s and its last about 5.4 s, where the tier's median was roughly 2.2× better (corrected at build: the 1.7 s is the median, not the last subscriber — the post's own table). We keep working-but-slower and delete broken-but-faster; the measurement that would justify rebuilding stays in the 2026-06-06 blog post.
 - **That blog post documents a capability that stops existing.** It is still a draft, so the row that publishes it (`tasks/backlog.md` § *Website, Blog, etc.*) gains one requirement: a postscript saying the tier was removed and the measurements stand. The body is not edited ([[blog-posts-frozen]]), and a reader following it finds no `directThreshold`. This is the real cost of removal, named here rather than discovered later.
 - **Rebuilding is not free, but nothing is lost.** The design is in the blog, the three defects are in `tasks/backlog.md`'s flat-loop row, and the code is in git. What is deferred is work nobody has done. The row also gains what the facade's relay teaches: a rebuilt tier's entry is not a member every `LumenizeWorker` inherits, refuses a chain a client started, and never takes `branch` from its caller.
 
@@ -214,3 +214,11 @@ Not executable at write time, and named so nobody assumes otherwise: every behav
      - the subdomain file's § *A push speaks for the node, not the writer* names `lmz.broadcast` and drops the wrapper clause and the tree-path bullet; its acceptance criteria for the flip are already there;
      - the master plan marks this task built. ④ is not edited here: its D22 pass conforms it.
    - **Mutation note:** the guidance edits are prose and no test reds them, which is exactly why the Phase 5 grep is the check rather than the suite.
+
+## Build notes
+
+Where the build met something the text above did not say, recorded as it happened (2026-09-27).
+
+- **Phase 1's scenario is `gateway-stamps-the-chain`, and its data-plane limb runs on a Galaxy.** A Star serves resources only for an installed ontology, and installing one takes a container build; the Galaxy's chat plane runs the same `ResourceDataPlane` subscribe and post-commit fan-out without one.
+- **Its red-first run measured two claims § *Context and current state* makes.** A Profile row whose subscribe threw is still there, since the next write threw at it. A Galaxy rename after a forged subscribe returned `infrastructure-error`.
+- **§ *What the removal costs* carried a wrong number, corrected in place.** At N=1,000, 1.7 s was the flat loop's median wait; its last subscriber waited about 5.4 s, per the 2026-06-06 post's table.

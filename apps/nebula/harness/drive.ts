@@ -48,6 +48,7 @@ import * as broadcastPastThreshold from './scenarios/broadcast-past-threshold';
 import * as studioGuidanceLoop from './scenarios/studio-guidance-loop';
 import * as meshEntryReach from './scenarios/mesh-entry-reach';
 import * as reaperVictimIsTheAddress from './scenarios/reaper-victim-is-the-address';
+import * as gatewayStampsTheChain from './scenarios/gateway-stamps-the-chain';
 import * as starServesCurrentOntology from './scenarios/star-serves-current-ontology';
 
 /**
@@ -92,11 +93,11 @@ interface Scenario {
 
 /** Registry of runnable scenarios (add new ones here — arbitrary, not a fixed test). */
 const SCENARIOS: Record<string, Scenario> = {
-  'message-roundtrip': messageRoundtrip,   // Phase 1 — API driver round-trip + negative control
+  'message-roundtrip': messageRoundtrip,   // API driver round-trip + negative control
   'downward-dominion': downwardDominion,        // real-login covering admin acts in a Star beneath; non-admin denied
   'superuser-end-to-end': superuserEndToEnd,    // real bootstrap login: verify → refresh → enumerate → Profile gate
   'passage-not-dominion': passageNotDominion,   // upward read RETURNS while upward write REFUSES; sibling Star refused
-  'studio-chat-reload': studioChatReload,  // Phase 2 — browser driver: login→chat→reload + capture
+  'studio-chat-reload': studioChatReload,  // browser driver: login→chat→reload + capture
   'turnstile-canary': turnstileCanary,     // Turnstile ON (test secret) — gate + bypass + widget path
   'impersonation-expiry': impersonationExpiry, // impersonate() across a REAL token lapse (no Docker)
   'impersonation-lifecycle': impersonationLifecycle, // impersonate() end-to-end: identity → refusals → teardown
@@ -108,7 +109,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → founder stamp (no Docker)
   'node-invite-roundtrip': nodeInviteRoundtrip, // Star.invite → both planes → real email → invitee acts at the node (no Docker)
   'build-box': buildBox,                   // ephemeral build drive: per-step BuildReport, sequential + overlap + failed-bundle + serve readback (Docker)
-  'four-party-chat': fourPartyChat,        // Phase 4 HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
+  'four-party-chat': fourPartyChat,        // HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
   // ── prove-then-choose: the login re-order, driven end to end on real mail (no Docker) ──────────
   'login-two-memberships': loginTwoMemberships, // one email → a session per membership; the multi-membership dead end is gone
   'signup-one-email': signupOneEmail,           // both newbie arms cost exactly ONE email — asserted by counting real mail
@@ -126,6 +127,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // ── what a logged-in browser session reaches past `@mesh` — red until the executor closes it ──
   'mesh-entry-reach': meshEntryReach,           // every chain a remote caller must not run, refused past a real gate (no Docker)
   'reaper-victim-is-the-address': reaperVictimIsTheAddress,  // a forged reply reaps only its author; a real disconnect still reaps (no Docker)
+  'gateway-stamps-the-chain': gatewayStampsTheChain,        // a tab's appended hop reaches no subscriber row and no co-member's guard (no Docker)
   // ── a Star converges on its Galaxy's CURRENT ontology, never on the asking tab's ──────────
   'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — two real Applies)
 };

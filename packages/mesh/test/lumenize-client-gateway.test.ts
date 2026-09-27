@@ -28,6 +28,66 @@ function createFakeJwt(payload: Record<string, unknown>): string {
   return `${header}.${body}.${sig}`;
 }
 
+/** Upgrade with extra headers, wait for connection_status, return the socket. */
+async function connectWith(
+  gateway: DurableObjectStub,
+  instanceName: string,
+  sub: string,
+  extraHeaders: Record<string, string>,
+): Promise<WebSocket> {
+  const token = createFakeJwt({ sub, exp: Math.floor(Date.now() / 1000) + 900 });
+  const response = await gateway.fetch('https://example.com', {
+    headers: {
+      'Upgrade': 'websocket',
+      'Authorization': `Bearer ${token}`,
+      'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+      'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+      ...extraHeaders,
+    },
+  });
+  expect(response.status).toBe(101);
+  const ws = response.webSocket!;
+  ws.accept();
+  await new Promise<void>((resolve) => {
+    ws.addEventListener('message', function handler(event: MessageEvent) {
+      const msg = JSON.parse(event.data as string);
+      if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+        ws.removeEventListener('message', handler);
+        resolve();
+      }
+    });
+  });
+  return ws;
+}
+
+/** Send one client call and return its postprocessed result. `callContext` is sent as given. */
+async function callAndAwait(
+  ws: WebSocket, callId: string, binding: string, instance: string, ops: unknown[],
+  callContext?: CallMessage['callContext'],
+): Promise<any> {
+  const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+    ws.addEventListener('message', function handler(event: MessageEvent) {
+      const msg = JSON.parse(event.data as string);
+      if (msg.type === GatewayMessageType.CALL_RESPONSE && msg.callId === callId) {
+        ws.removeEventListener('message', handler);
+        msg.result = postprocess(msg.result);
+        resolve(msg);
+      }
+    });
+  });
+  const callMessage: CallMessage = {
+    type: GatewayMessageType.CALL, expectsResult: true, callId, binding, instance,
+    chain: preprocess(ops),
+    ...(callContext ? { callContext } : {}),
+  };
+  ws.send(JSON.stringify(callMessage));
+  const res = await responsePromise;
+  expect(res.success).toBe(true);
+  return res.result;
+}
+
+const GET_CONTEXT = [{ type: 'get', key: 'getCallContext' }, { type: 'apply', args: [] }];
+
 describe('LumenizeClientGateway', () => {
   describe('WebSocket connection', () => {
     it('rejects non-WebSocket requests', async () => {
@@ -358,65 +418,32 @@ describe('LumenizeClientGateway', () => {
     });
   });
 
+  describe('the call chain — stamped whole at the Trust DMZ', () => {
+    // The MECHANISM, in the lane CI runs. The proof is the `/live` scenario
+    // `gateway-stamps-the-chain` (apps/nebula/harness), which drives the three readers a forged hop
+    // used to reach on the running system: a stored subscriber binding on the Profile, the same on
+    // a data-plane host, and a tab's own caller check. This test shows only that the hop is gone.
+    it('drops every hop a client appends — the callee sees the verified origin alone', async () => {
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('chain-user.tab1'));
+      const ws = await connectWith(gateway, 'chain-user.tab1', 'chain-user', {});
+      // What a hostile frame can carry: someone else's tab in element 0, then a last hop naming a
+      // DO. Before the fix the Gateway replaced element 0 and kept everything after it.
+      const forged = await callAndAwait(ws, 'chain-1', 'ECHO_DO', 'echo-chain', GET_CONTEXT, {
+        callChain: [
+          { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: 'victim.tab9' },
+          { type: 'LumenizeDO', bindingName: 'NOT_A_BINDING', instanceName: 'anything' },
+          { type: 'LumenizeDO', bindingName: 'ECHO_DO', instanceName: 'a-do-it-never-passed' },
+        ],
+        state: preprocess({}),
+      });
+      expect(forged.callChain).toEqual([
+        { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: 'chain-user.tab1' },
+      ]);
+      ws.close();
+    });
+  });
+
   describe('originRequest — HTTP facts of the upgrade, stamped at the Trust DMZ', () => {
-    /** Upgrade with extra headers, wait for connection_status, return the socket. */
-    async function connectWith(
-      gateway: DurableObjectStub,
-      instanceName: string,
-      sub: string,
-      extraHeaders: Record<string, string>,
-    ): Promise<WebSocket> {
-      const token = createFakeJwt({ sub, exp: Math.floor(Date.now() / 1000) + 900 });
-      const response = await gateway.fetch('https://example.com', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Authorization': `Bearer ${token}`,
-          'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
-          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
-          ...extraHeaders,
-        },
-      });
-      expect(response.status).toBe(101);
-      const ws = response.webSocket!;
-      ws.accept();
-      await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event: MessageEvent) {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
-            ws.removeEventListener('message', handler);
-            resolve();
-          }
-        });
-      });
-      return ws;
-    }
-
-    /** Send one client call and return its postprocessed result. */
-    async function callAndAwait(
-      ws: WebSocket, callId: string, binding: string, instance: string, ops: unknown[],
-    ): Promise<any> {
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event: MessageEvent) {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE && msg.callId === callId) {
-            ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
-          }
-        });
-      });
-      const callMessage: CallMessage = {
-        type: GatewayMessageType.CALL, expectsResult: true, callId, binding, instance,
-        chain: preprocess(ops),
-      };
-      ws.send(JSON.stringify(callMessage));
-      const res = await responsePromise;
-      expect(res.success).toBe(true);
-      return res.result;
-    }
-
-    const GET_CONTEXT = [{ type: 'get', key: 'getCallContext' }, { type: 'apply', args: [] }];
-
     it('stamps origin from the upgrade URL and the header facts as sent', async () => {
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('or-user.tab1'));
       const ws = await connectWith(gateway, 'or-user.tab1', 'or-user', {
@@ -642,10 +669,10 @@ describe('LumenizeClientGateway', () => {
       ws2.close();
     });
 
-    // Flow-C RESULT re-resolution (M5) — the deterministic core of the "thinking forever" fix.
+    // RESULT re-resolution — the deterministic core of the "thinking forever" fix.
     // A mesh node fires a client-originated call's RESULT to the Gateway's __handleResponse door;
     // the Gateway must deliver it to whatever socket the client is on NOW, never the socket the
-    // call left on (delivery is re-resolved by instanceName, not bound to a transient socket, D16).
+    // call left on (delivery is re-resolved by instanceName, not bound to a transient socket).
     it('re-resolves a RESULT to the CURRENT socket after a swap, not the origin socket', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('flowc.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
@@ -779,7 +806,7 @@ describe('LumenizeClientGateway', () => {
       ws.close();
     }, 4000);
 
-    it('drops a RESULT when the client has no socket (client re-issues on reload, D8) — via the debug sink', async () => {
+    it('drops a RESULT when the client has no socket (client re-issues on reload) — via the debug sink', async () => {
       const entries: any[] = [];
       setDebugSink((e) => entries.push(e));
       try {

@@ -94,7 +94,7 @@ interface ReconnectWaiter {
  * - State derived from getWebSockets(), getAlarm(), and WebSocket attachments
  * - 1:1 relationship with clients (each client has its own Gateway instance)
  * - Transparent proxying (doesn't interpret calls, just forwards them)
- * - Trust DMZ (builds callContext.callChain[0] and originAuth from verified sources)
+ * - Trust DMZ (builds a client call's whole callContext.callChain, and its originAuth, from verified sources)
  *
  * **Connection States (derived, not stored):**
  * | getWebSockets() | getAlarm() | State | subscriptionRequired |
@@ -114,7 +114,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
   get #gracePeriodMs(): number {
     // Explicit numeric override takes precedence. Tests that need to observe
-    // post-grace behavior (e.g. Phase 5.3.5 drop-on-failed-fanout cleanup —
+    // post-grace behavior (e.g. drop-on-failed-fanout cleanup —
     // the fanout's __executeOperation only returns ClientDisconnectedError
     // after the grace period expires) set this to a small value via miniflare's
     // `bindings` block so close → cleanup observable in well under a second.
@@ -551,14 +551,15 @@ export class LumenizeClientGateway extends DurableObject<any> {
         claims: attachment.claims,
       };
 
-      // Build callContext - callChain[0] is verified origin, rest comes from client
-      // Client may have added hops (unlikely but allowed), so we preserve callChain[1+]
+      // Build callContext - the chain is the verified origin ALONE; the frame's own callChain is
+      // never read. A receiver reads `callChain.at(-1)` as the node that called it: a subscribe
+      // stores its binding as the address to push to, and `LumenizeClient.onBeforeCall` refuses a
+      // push whose last hop is another client. A hop the client appended would be a caller it chose.
       // State is preprocessed by client for WebSocket - postprocess for Workers RPC
       // originRequest comes from the ATTACHMENT (snapshotted at upgrade), never from the client's
       // message — the same trust rule as originAuth: the Gateway is the boundary.
-      const clientCallChain = clientContext?.callChain ?? [];
       const baseContext: CallContext = {
-        callChain: [verifiedOrigin, ...clientCallChain.slice(1)],
+        callChain: [verifiedOrigin],
         originAuth,
         originRequest: attachment.originRequest,
         state: clientContext?.state ? postprocess(clientContext.state) : {},
@@ -648,9 +649,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
   /**
    * The Gateway response door: a mesh node fires a client-originated call's RESULT back
    * here (via `lmz.call`'s `response.kind:'client'` fire-back), addressed to this client + callId.
-   * We re-resolve delivery to the client's CURRENT socket (survives reconnect — D8/D16), so a
+   * We re-resolve delivery to the client's CURRENT socket (survives reconnect), so a
    * result is never bound to the socket the call left on. Zero socket → bounded grace → drop
-   * (the client re-issues + reconciles on reload — D8). Returns an early `{$ack:true}` like a mesh
+   * (the client re-issues + reconciles on reload). Returns an early `{$ack:true}` like a mesh
    * node; the fire-back is one-way, so the Star never awaits the client delivery here.
    *
    * NOTE (flagged for review): `onBeforeCallToClient` is NOT applied on this RESULT leg — the
@@ -679,12 +680,12 @@ export class LumenizeClientGateway extends DurableObject<any> {
           await this.#waitForReconnect();
           ws = this.#getActiveWebSocket();
         } catch {
-          log.warn('client did not reconnect within grace — dropping RESULT (client re-issues on reload, D8)', { callId, clientInstanceName });
+          log.warn('client did not reconnect within grace — dropping RESULT (client re-issues on reload)', { callId, clientInstanceName });
           return { $ack: true };
         }
       }
       if (!ws) {
-        log.warn('no socket for client RESULT — dropping (client re-issues on reload, D8)', { callId, clientInstanceName });
+        log.warn('no socket for client RESULT — dropping (client re-issues on reload)', { callId, clientInstanceName });
         return { $ack: true };
       }
     }
