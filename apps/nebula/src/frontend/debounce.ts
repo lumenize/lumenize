@@ -550,10 +550,11 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
       return;
     }
     // Reconnected: an in-flight mesh submission recovers via its OWN `callAsync` re-resolution
-    // (D16/D17) — do NOT re-fire a fresh mesh call (which would orphan the original `callAsync`). Keep
+    // — do NOT re-fire a fresh mesh call (which would orphan the original `callAsync`). Keep
     // the SAME attempt so the original submit Promise's `.then`/`.catch` settle THIS batch when the
     // RESULT re-resolves on the new socket; just re-arm the in-flight timeout (cleared on disconnect)
-    // as the backstop for a genuinely-lost RESULT (→ timeout → retry). Then flush held writes.
+    // as the backstop for a genuinely-lost RESULT (→ timeout → rolled back, reported `retryable` to
+    // the app). Then flush held writes.
     for (const batch of [...openBatches]) {
       if (batch.suspendedByDisconnect && !batch.settled) {
         batch.suspendedByDisconnect = false;

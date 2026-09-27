@@ -618,8 +618,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // a reconnect (registry is empty anyway).
         if (this.#prevConnectionState === 'reconnecting' && state === 'connected') {
           // The in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the
-          // drop and its RESULT re-resolves to the new socket, or the default timeout
-          // rejects → the engine retries. No submit-gate to clear (it was retired).
+          // drop and its RESULT re-resolves to the new socket. A RESULT that is truly lost ends in a
+          // timeout instead, and the engine rolls the write back and reports it `retryable` — the
+          // app decides whether to resubmit. No submit-gate to clear (it was retired).
           this.#resubscribeAll();
         }
         // Gate the engine's submission queue: not-'connected' suspends flush +
@@ -1080,7 +1081,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`
    * (resolve → `{ontologyStale}`, not reject); an infra throw/timeout rejects → the engine's
    * infrastructure-error. Resilient across reconnect: a dropped RESULT re-resolves to the
-   * new socket, or `callAsync`'s default timeout rejects → the engine retries.
+   * new socket. A RESULT that never arrives ends in a timeout, and the engine rolls the write back
+   * and reports it `retryable`; resubmitting is the app's call, as the platform docs tell it.
    */
   async #meshSubmit(subs: QueueSubmission[], attempt = 0): Promise<ServerBatchResponse> {
     // One mesh `newETag` per batch (the server writes it as every resource's eTag — resources.ts
