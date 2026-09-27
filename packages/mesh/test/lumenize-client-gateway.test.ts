@@ -60,10 +60,13 @@ async function connectWith(
   return ws;
 }
 
-/** Send one client call and return its postprocessed result. `callContext` is sent as given. */
+/**
+ * Send one client call and return its postprocessed result. `callContext` is sent as given,
+ * including any field outside the protocol, which is how a test plays a hostile client.
+ */
 async function callAndAwait(
   ws: WebSocket, callId: string, binding: string, instance: string, ops: unknown[],
-  callContext?: CallMessage['callContext'],
+  callContext?: NonNullable<CallMessage['callContext']> & Record<string, unknown>,
 ): Promise<any> {
   const responsePromise = new Promise<CallResponseMessage>((resolve) => {
     ws.addEventListener('message', function handler(event: MessageEvent) {
@@ -426,8 +429,9 @@ describe('LumenizeClientGateway', () => {
     it('drops every hop a client appends — the callee sees the verified origin alone', async () => {
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('chain-user.tab1'));
       const ws = await connectWith(gateway, 'chain-user.tab1', 'chain-user', {});
-      // What a hostile frame can carry: someone else's tab in element 0, then a last hop naming a
-      // DO. Before the fix the Gateway replaced element 0 and kept everything after it.
+      // An honest client sends no chain, and `CallMessage` has no field for one, but a hostile frame
+      // can carry anything: here someone else's tab in element 0, then a last hop naming a DO.
+      // Before the fix the Gateway replaced element 0 and kept everything after it.
       const forged = await callAndAwait(ws, 'chain-1', 'ECHO_DO', 'echo-chain', GET_CONTEXT, {
         callChain: [
           { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: 'victim.tab9' },

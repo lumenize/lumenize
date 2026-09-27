@@ -551,10 +551,11 @@ export class LumenizeClientGateway extends DurableObject<any> {
         claims: attachment.claims,
       };
 
-      // Build callContext - the chain is the verified origin ALONE; the frame's own callChain is
-      // never read. A receiver reads `callChain.at(-1)` as the node that called it: a subscribe
-      // stores its binding as the address to push to, and `LumenizeClient.onBeforeCall` refuses a
-      // push whose last hop is another client. A hop the client appended would be a caller it chose.
+      // Build callContext - the chain is the verified origin ALONE. A client's frame carries no
+      // chain (`CallMessage` has no field for one), and one a hostile frame adds is never read. A
+      // receiver reads `callChain.at(-1)` as the node that called it: a subscribe stores its binding
+      // as the address to push to, and `LumenizeClient.onBeforeCall` refuses a push whose last hop
+      // is another client. A hop a client could append would be a caller it chose.
       // State is preprocessed by client for WebSocket - postprocess for Workers RPC
       // originRequest comes from the ATTACHMENT (snapshotted at upgrade), never from the client's
       // message — the same trust rule as originAuth: the Gateway is the boundary.

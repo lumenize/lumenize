@@ -54,10 +54,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
-- [ ] **Flag in the next release notes, as BREAKING: four changes to `@lumenize/mesh`'s public surface (2026-09-27).**
+- [ ] **Flag in the next release notes, as BREAKING: five changes to `@lumenize/mesh`'s public surface (2026-09-27).**
   - **`this.svc.broadcast` is now `this.lmz.broadcast`**, and `LumenizeServices.broadcast` is gone. It is on every node's `lmz` — `LumenizeDO`, `LumenizeWorker`, `LumenizeClient`, and a `ComposedMeshDO` host — and its `newChain` and `state` options are additive.
   - **The recursive broadcast tier is removed**: `directThreshold`, `branch`, `BROADCAST_TIER_BINDING`, `LumenizeWorker.__broadcastTier` and `LumenizeWorker.__forwardBroadcastResult` no longer exist, and a `LUMENIZE_BROADCAST_TIER` binding is no longer read. Every broadcast is a direct loop at any N.
   - **The Gateway no longer forwards hops a client appended to its call chain.** A client's call reaches its callee with a one-element `callChain`: the verified client.
+  - **A client's CALL frame no longer carries `callContext.callChain`, and `CallMessage` no longer types it.** Only `state` remains, since the Gateway builds the chain from the socket's verified identity. A client that still sends the field keeps working, because the Gateway never reads it; code that builds a `CallMessage` literal with it stops compiling.
   - **`continuationFromChain` is no longer exported.** Its one production caller was the tier. To send a call later, hold its parameters and build the continuation with `ctn()` when you send it; to run a stored chain on the same node, `executeFilledChain` takes it as it is.
 
 - [ ] **Flag in the next release notes, as BREAKING: a client no longer receives `callContext.originRequest` (2026-09-18).** Published `@lumenize/mesh@0.26.0` copied it into every `incoming_call` frame, so a push that inherits the writer's chain (`svc.broadcast`, both paths) handed every subscriber the writer's IP, `User-Agent`, `Accept-Language` and Cloudflare `cf` location on every write. `LumenizeClientGateway` now leaves it out, `IncomingCallMessage.callContext` no longer declares it, and `LumenizeClient` no longer copies it into `this.lmz.callContext`, whose type now omits it.

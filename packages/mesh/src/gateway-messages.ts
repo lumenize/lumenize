@@ -127,9 +127,11 @@ export interface CallMessage {
    * (the Gateway attaches no fire-back descriptor). See `LumenizeClientGateway.#handleClientCall`.
    */
   expectsResult?: boolean;
+  /**
+   * All a client sends of its call context. It carries no chain: the Gateway builds a client
+   * call's `callChain` from the socket's verified identity, so a frame has nothing to add.
+   */
   callContext?: {
-    /** Plain strings - no preprocessing needed */
-    callChain: NodeIdentity[];
     /** User-defined, preprocessed for WebSocket (may contain Maps, Sets, etc.) */
     state: any;
   };

@@ -112,7 +112,7 @@ When a caller receives `ClientDisconnectedError`, it is expected to clean up any
 
 The Gateway is the **trust DMZ** between less trusted clients and more trusted mesh. When forwarding a client's call to the mesh, the Gateway builds the call context from **verified sources only** (JWT claims and connection data). Even if a malicious client sends fake identity information in a call message, the Gateway ignores it and uses only the verified data from the WebSocket attachment.
 
-This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed. The same goes for `callContext.callChain`: the Gateway builds it as a single element, the calling client, and drops every hop the frame carried — so a callee reading `callChain.at(-1)` finds the client itself, never a node the client named.
+This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed. The same goes for `callContext.callChain`: a client's frame carries none, and the Gateway builds it as a single element, the calling client, ignoring any chain a hostile frame adds — so a callee reading `callChain.at(-1)` finds the client itself, never a node the client named.
 
 > **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
 

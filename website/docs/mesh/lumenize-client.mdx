@@ -155,7 +155,7 @@ Or call `disconnect()` manually. Monitor state via `onConnectionStateChange` cal
 
 LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The one additional restriction: a **direct client-to-client call is rejected by default** — identified by the call's **immediate caller** (`callChain.at(-1)`), not its origin.
 
-That check holds because a client cannot write its own chain. The [Gateway](./gateway) builds every client call's `callChain` from the socket's verified identity alone and drops any hop the client appended, so a direct call always arrives with the calling client as its immediate caller.
+That check holds because a client cannot write its own chain: its call frames carry none, and the [Gateway](./gateway) builds every client call's `callChain` from the socket's verified identity alone, ignoring any chain a hostile client adds. So a direct call always arrives with the calling client as its immediate caller.
 
 - ✅ Calls whose immediate caller is a LumenizeDO or LumenizeWorker are allowed — this covers every DO/Worker-mediated push (fanout, direct-delivery, `lmz.broadcast`), **even when the call originated from another client** (client A mutates → a DO fans out → client B receives it).
 - ✅ A call whose immediate caller is this same client instance (a response flowing back through the mesh) is allowed.

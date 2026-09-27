@@ -53,38 +53,17 @@ import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './
 type ClientCallContext = LmzApiClient['callContext'];
 
 /**
- * Build the outgoing CallContext from an explicit parent context.
- *
- * Mirrors `buildOutgoingCallContext` from `lmz-api.ts` but takes the parent
- * as a parameter instead of looking it up via ALS. Returns a fresh chain
- * when `parentContext` is undefined or `options.newChain` is set.
+ * The `state` a client call carries — all it sends of its context, since the Gateway builds the
+ * chain and `originAuth` from the socket's verified identity. The call-site context's state merged
+ * with `options.state`, or `options.state` alone for a `newChain` call or one made outside a mesh call.
+ * The parent is a parameter rather than looked up, because a browser has no `AsyncLocalStorage`.
  */
-function buildClientOutgoingContext(
-  callerIdentity: NodeIdentity,
+function outgoingClientState(
   parentContext: ClientCallContext | undefined,
   options?: CallOptions,
-): ClientCallContext {
-  if (options?.newChain || !parentContext) {
-    return {
-      callChain: [callerIdentity],
-      originAuth: undefined,
-      state: options?.state ?? {},
-    };
-  }
-  const newCallChain = [...parentContext.callChain, callerIdentity];
-  const newState = options?.state
-    ? { ...parentContext.state, ...options.state }
-    : parentContext.state;
-  // Spread the parent context and override only what this hop changes — originAuth and any
-  // immutable field added later ride through unnamed. ⚠️ `callee` is PER-HOP and is named so it
-  // does NOT. The receiving node overwrites it regardless, so this states the field's kind rather
-  // than guarding anything — see the same note in `lmz-api.ts`.
-  return {
-    ...parentContext,
-    callChain: newCallChain,
-    callee: undefined,
-    state: newState,
-  };
+): ClientCallContext['state'] {
+  if (options?.newChain || !parentContext) return options?.state ?? {};
+  return options?.state ? { ...parentContext.state, ...options.state } : parentContext.state;
 }
 import {
   GatewayMessageType,
@@ -96,7 +75,7 @@ import {
   type ConnectionStatusMessage,
   type GatewayMessage
 } from './gateway-messages.js';
-import type { NodeIdentity, CallContext, CallOptions } from './types.js';
+import type { CallContext, CallOptions } from './types.js';
 import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 
 // ============================================
@@ -1517,13 +1496,6 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   ): void {
     const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
 
-    const callerIdentity: NodeIdentity = {
-      type: 'LumenizeClient',
-      bindingName: this.#config.gatewayBindingName,
-      instanceName: this.#instanceName!,
-    };
-    const callContext = buildClientOutgoingContext(callerIdentity, parentContext, options);
-
     const message: CallMessage = {
       type: GatewayMessageType.CALL,
       callId,
@@ -1532,8 +1504,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       chain: preprocess(chain),
       expectsResult,
       callContext: {
-        callChain: callContext.callChain,      // Plain strings - no preprocessing
-        state: preprocess(callContext.state),  // User-defined - may contain extended types
+        // User-defined - may contain extended types
+        state: preprocess(outgoingClientState(parentContext, options)),
       },
     };
 

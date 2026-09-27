@@ -1398,6 +1398,29 @@ describe('call() fire-and-forget', () => {
     client.disconnect();
   });
 
+  it('sends its state in the frame and no chain — the Gateway builds that from the socket', async () => {
+    const { postprocess: pp } = await import('@lumenize/structured-clone');
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+
+    client.lmz.call('SOME_DO', 'instance1', client.ctn<TestClient>().handleMessage('x'), undefined, {
+      state: { tenant: 'acme' },
+    });
+
+    const frame = JSON.parse(ws.getSentMessages()[0]);
+    expect(Object.keys(frame.callContext)).toEqual(['state']);
+    expect(pp(frame.callContext.state)).toEqual({ tenant: 'acme' });
+
+    client.disconnect();
+  });
+
   it('sends call with handler continuation', async () => {
     const client = new TestClient({
       instanceName: 'user.tab1',

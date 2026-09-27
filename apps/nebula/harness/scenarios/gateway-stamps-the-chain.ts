@@ -1,15 +1,18 @@
 /**
  * A tab cannot extend the call chain its own call carries.
  *
- * A client's CALL frame carries a `callContext.callChain`. The Gateway used to stamp element 0 from
- * the socket's verified attachment and copy every element after it from the frame. Three readers
+ * A client's CALL frame used to carry a `callContext.callChain`, and a hostile tab can still write one.
+ * The Gateway used to stamp element 0 from the socket's verified attachment and copy every element
+ * after it from the frame. Three readers
  * take the LAST element, `callChain.at(-1)`, as the node that called them, so a hop the tab appended
  * became a caller it chose:
  *
  *  1. **The Profile** stores that element's binding as the address it pushes a subscriber's updates
  *     to. A binding absent from `env` makes `lmz.call` throw synchronously at that row on every later
  *     update, and the loop has no per-target catch — so every subscriber ordered after the row stops
- *     hearing, and the writer's own call fails.
+ *     hearing, and the writer's own call fails. The Profile's `subscribe` now reads element 0, the
+ *     one the Gateway stamps, so this limb holds unless that read AND the Gateway both regress: it
+ *     no longer singles out the Gateway, and the two limbs below do.
  *  2. **A data-plane host** stores it the same way. There the throw lands in the fan-out that runs
  *     after a commit, so a write lands and still fails its writer's call.
  *  3. **A tab's own `onBeforeCall`** refuses a push whose last hop is another client. A forged last
@@ -20,8 +23,8 @@
  *
  * ⚠️ **The only forged thing is what an attacker controls: the bytes its own tab sends.** Every tab
  * is one REAL login (ADR-009 rung 1) on its own connection, as `reaper-victim-is-the-address` does,
- * and every tab is a real `NebulaClient`. The forging tab's injected `WebSocket` rewrites its
- * outgoing CALL frames to append one hop, and nothing else — the rewrite lives in this file, never
+ * and every tab is a real `NebulaClient`. The forging tab's injected `WebSocket` writes a
+ * forged chain into its outgoing CALL frames — a placeholder origin, then one hop — and nothing else — the rewrite lives in this file, never
  * in a shared helper, because a helper that shapes frames is a fixture.
  *
  * ⚠️ **The data-plane limb runs on the Galaxy's chat plane, not a Star's.** A Star serves resources
@@ -70,19 +73,28 @@ const ABSENT_BINDING_HOP: NodeIdentity = {
 /** A last hop naming a DO, which a tab's own guard accepts as the caller of a push. */
 const DO_HOP: NodeIdentity = { type: 'LumenizeDO', bindingName: 'GALAXY', instanceName: SCOPE };
 
+/**
+ * Element 0 of the chain the forging tab writes. An honest frame carries no chain, so a hostile tab
+ * writes a whole one. The old Gateway replaced element 0 with the verified origin and copied the rest,
+ * so what stands here never mattered: the hop after it is the forgery.
+ */
+const PLACEHOLDER_ORIGIN: NodeIdentity = {
+  type: 'LumenizeClient', bindingName: GATEWAY, instanceName: 'placeholder.forged',
+};
+
 /** The title the forged push carries, so the honest tab can tell it from a real update. */
 const FORGED_TITLE = 'forged-by-a-co-member';
 
-/** What the forging tab appends to its outgoing CALL frames, and how many it has rewritten. */
+/** The hop the forging tab writes after its placeholder origin, and how many frames it has rewritten. */
 interface Forge {
   hop: NodeIdentity | null;
   rewritten: number;
 }
 
 /**
- * The forging tab's socket: the runtime's own `WebSocket`, whose `send` appends `forge.hop` to the
- * `callContext.callChain` of every outgoing CALL frame while a hop is set. Every other byte is what
- * `NebulaClient` wrote.
+ * The forging tab's socket: the runtime's own `WebSocket`, whose `send` writes a `callContext.callChain`
+ * of {@link PLACEHOLDER_ORIGIN} then `forge.hop` into every outgoing CALL frame while a hop is set.
+ * Every other byte is what `NebulaClient` wrote.
  */
 function forgingWebSocket(forge: Forge): typeof WebSocket {
   return class ForgingWebSocket extends WebSocket {
@@ -92,7 +104,7 @@ function forgingWebSocket(forge: Forge): typeof WebSocket {
         if (frame.type === GatewayMessageType.CALL) {
           frame.callContext = {
             ...frame.callContext,
-            callChain: [...(frame.callContext?.callChain ?? []), forge.hop],
+            callChain: [PLACEHOLDER_ORIGIN, forge.hop],
           };
           forge.rewritten += 1;
           message = JSON.stringify(frame);
@@ -253,7 +265,7 @@ export async function run(stack: DevStack): Promise<void> {
     return read() > from;
   };
 
-  /** Send `work`'s frames with `hop` appended, and report how many frames the rewrite touched. */
+  /** Send `work`'s frames with a forged chain ending in `hop`, and report how many frames it touched. */
   const forging = async (forge: Forge, hop: NodeIdentity, work: () => Promise<unknown>) => {
     const before = forge.rewritten;
     forge.hop = hop;
