@@ -12,7 +12,7 @@
  *  - the **codegen engine**: the sole writer of source, driving the bounded self-correcting
  *    tool-calling loop (`runCodegenLoop`) against `env.AI` / the Workers-AI REST lane.
  *  - the **chat Session/Message Resources** via the composed {@link ResourceDataPlane}.
- *  - (Phase 3) the co-located **ephemeral build container** via raw `ctx.container` — a
+ *  - the co-located **ephemeral build container** via raw `ctx.container` — a
  *    stateless build-box, never `extends Container` (containers.md).
  *
  * `extends NebulaDO` for the structural tenant-isolation `onBeforeCall` (passage into
@@ -631,7 +631,7 @@ export class Galaxy extends NebulaDO {
    * (local, durable — the source-of-truth write). Returns the commit oid. There is
    * NO push step: the container's `/workspace` IS this tree via the FUSE mount
    * (containers.md § There is NO source-push step), and the built `dist/` is served
-   * from this same VFS (Phase 3).
+   * from this same VFS.
    *
    * Guarded at the chat floor ({@link requireChatWrite}), and the path rule runs FIRST
    * ({@link assertModelPath}): only the user-owned tree is writable. A call with a
@@ -875,7 +875,7 @@ export class Galaxy extends NebulaDO {
    * ontology change rides along (compiled for FEEDBACK — the row is written to the
    * mount but NOT appended to the registry; only {@link applyOntology}, the
    * Apply — chat floor, with its wipe bit decided at dominion — appends; the loop
-   * cannot reach it, which is the secure-by-default D2 line).
+   * cannot reach it, which is the secure-by-default line).
    *
    * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
    * `build()` made every faked build silently stop announcing — the suite caught it.
@@ -1732,7 +1732,7 @@ export class Galaxy extends NebulaDO {
 
   /** Per-target broadcast result handler — drop a subscriber whose Gateway reported
    *  it disconnected (`ClientDisconnectedError`). WHICH subscriber comes from
-   *  `callContext.callee`, the address this push was sent to. ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's. */
+   *  `callContext.callee`, the address this push was sent to. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's. */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {

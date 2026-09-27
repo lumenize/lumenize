@@ -68,7 +68,7 @@ describe('Galaxy @mesh surface freeze (m5) — three guard tiers', () => {
         // The resource data-plane surface — chat participants are non-admin but DAG-granted.
         'read', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers',
         'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
-        // Broadcast fire-back handlers (the tier-worker dispatch path).
+        // Broadcast fire-back handlers — still marked, though no framework path dispatches to them as a request.
         'onBroadcastResult', 'onQueryBroadcastResult', 'onQuerySubscriberListBroadcastResult',
         // (No reload channel here: cb1e878 deleted the Galaxy reload fan-out — a build
         // replies to whoever asked via announceBuildToRequester; Star's channel stays.)
@@ -120,7 +120,7 @@ describe('Galaxy @mesh surface freeze (m5) — three guard tiers', () => {
   });
 
   it('the mesh surface offers NO `chat` method at all — the commit IS the trigger', () => {
-    // Phase 4 (collapse): the committed human Message triggers codegen; an invocable
+    // Since the Galaxy collapse, the committed human Message triggers codegen; an invocable
     // `chat` husk — even bare-@mesh — would let a mere passage-holder run the loop with
     // no door (the DAG write check on the Message commit is the ONLY door). The runner
     // survives as the non-mesh `runTriggeredTurn`, unreachable remotely.

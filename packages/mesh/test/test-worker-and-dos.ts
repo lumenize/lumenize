@@ -304,9 +304,9 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // ============================================
-  // Continuation-only feasibility (Phase 1a): long callee, early-ack + fire-back,
+  // Continuation-only feasibility: long callee, early-ack + fire-back,
   // interleaved-call isolation. Proves DurableObjectState.waitUntil keeps a DO alive
-  // for a long post-ack fire-back (D15/criterion 10) and ALS isolation across early-ack.
+  // for a long post-ack fire-back and ALS isolation across early-ack.
   // ============================================
 
   // Long-running callee: early-acks, THEN does REAL multi-second post-ack work under
@@ -452,7 +452,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Combined result/error handler (runs at __handleResponse, requireMeshDecorator:false).
-  // D6: the handler always receives handler($result) where $result is the value OR the Error.
+  // The handler always receives handler($result), where $result is the value OR the Error.
   // Captures the Error's name, and the per-hop `callee` the framework stamped — the two things
   // drop-on-failed-broadcast keys on. The error itself carries no identity: who failed comes from
   // the address the push was sent to, which the far side cannot write.
@@ -495,28 +495,24 @@ export class TestDO extends LumenizeDO<Env> {
     return 'pong';
   }
   // Initiator: 4-arg call to a callee that rejects at admission — the caller's handler must run
-  // LOCALLY with the Error (D6 tier 2, the early-ack reject path).
+  // LOCALLY with the Error (the early-ack reject path).
   testCallToRejecter(binding: string, instance: string | undefined): void {
     const remote = this.ctn<TestDO>().ping();
     this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote));
   }
 
-  // Initiator: 4-arg call to a DISCONNECTED client via the Gateway — the Gateway (not a mesh node,
-  // svc.broadcast pin b) awaits client delivery and returns ClientDisconnectedError, which the
-  // framework routes to the handler LOCALLY (the mesh side of the broadcast-to-disconnected drop).
+  // Initiator: 4-arg call to a DISCONNECTED client via the Gateway — the Gateway (not a mesh node)
+  // awaits client delivery and returns ClientDisconnectedError, which the framework routes to the
+  // handler LOCALLY (the mesh side of the broadcast-to-disconnected drop).
   testCallToDisconnectedClient(gatewayBinding: string, clientInstance: string): void {
     const remote = (this.ctn() as any).clientMethod();
     this.lmz.call(gatewayBinding, clientInstance, remote, this.ctn().handleOutcome(remote));
   }
 
   /**
-   * The same onResult handler, UNDECORATED — the limb that shows a forwarded broadcast result no
-   * longer needs `@mesh()`.
-   *
-   * It used to: the tier forwarded through `lmz.call`, which lands at `__executeOperation` with the
-   * member-level check ON, so every `svc.broadcast` reaper carried a mark for that one dispatch
-   * path. The forward now goes to the origin's fire-back door instead — the only door that knows it
-   * is holding a filled chain — and that door does not consult the mark.
+   * The same onResult handler, UNDECORATED — the limb that shows a broadcast result needs no
+   * `@mesh()`. Each target fires its filled handler back to this node's fire-back door, the only
+   * door that knows it is holding a filled chain, and that door does not consult the mark.
    */
   captureUndecoratedBroadcastResult(result?: unknown): void {
     if (result instanceof Error) {
@@ -524,11 +520,11 @@ export class TestDO extends LumenizeDO<Env> {
     }
   }
 
-  testTierBroadcastUndecorated(targetInstance: string): void {
+  testBroadcastToThrowerUndecorated(targetInstance: string): void {
     this.svc.broadcast(
       [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
       this.ctn<TestDO>().throwError(),
-      { onResult: this.ctn<TestDO>().captureUndecoratedBroadcastResult(), directThreshold: 0 },
+      { onResult: this.ctn<TestDO>().captureUndecoratedBroadcastResult() },
     );
   }
 
@@ -536,23 +532,20 @@ export class TestDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('undecorated_broadcast_error') as string | undefined;
   }
 
-  // crit 7a: fire a broadcast FORCED through the tree path (directThreshold:0) to an erroring
-  // target. The per-target fire-back lands on a FRESH tier-Worker instance whose
-  // __forwardBroadcastResult forwards the Error back to callChain[0] (this origin) — the real
-  // svc.broadcast Worker-caller fire-back path (pin a), not a stand-in handler.
-  testTierBroadcast(targetInstance: string): void {
+  // Broadcast to one erroring target. The target acks, throws, and fires the filled onResult
+  // handler back to this origin with the Error appended — the path every broadcast result takes.
+  testBroadcastToThrower(targetInstance: string): void {
     this.svc.broadcast(
       [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
       this.ctn<TestDO>().throwError(),
-      { onResult: this.ctn<TestDO>().captureBroadcastResult(), directThreshold: 0 },
+      { onResult: this.ctn<TestDO>().captureBroadcastResult() },
     );
   }
 
-  // onResult handler — the tier Worker's __forwardBroadcastResult forwards here (callChain[0]) with
-  // the per-target Error appended. ⚠️ The `@mesh()` no longer earns its keep on THIS path: the
-  // forward lands at `__handleResponse`, where the member-level check is off. Kept because other
-  // tests read this method, and because shedding reaper decorators is a separate piece of work;
-  // `captureUndecoratedBroadcastResult` below is what proves the mark is no longer required.
+  // onResult handler — each target's fire-back lands here with its Error appended. ⚠️ The `@mesh()`
+  // does not earn its keep: the fire-back lands at `__handleResponse`, where the member-level check
+  // is off. Kept because shedding reaper decorators is a separate piece of work;
+  // `captureUndecoratedBroadcastResult` above is what proves the mark is not required.
   @mesh()
   captureBroadcastResult(result?: unknown): void {
     if (result instanceof Error) {
@@ -1415,8 +1408,8 @@ export class TestWorker extends LumenizeWorker<Env> {
     this.lmz.call('TEST_DO', 'some-instance', remote);
   }
 
-  // Result handler (runs on a fresh tier Worker instance via __handleResponse — the handler
-  // travels, svc.broadcast pin a): fire a one-way call to persist the result on a DO.
+  // Result handler (runs on a fresh Worker instance via __handleResponse — the handler travels):
+  // fire a one-way call to persist the result on a DO.
   forwardResultToDO(resultStoreDOInstance: string, result: any): void {
     this.lmz.call('TEST_DO', resultStoreDOInstance, this.ctn<TestDO>().storeForwardedResult(result));
   }
@@ -1583,7 +1576,7 @@ export class AlarmTestDO extends LumenizeDO<Env> {
 }
 
 // A DO that rejects EVERY incoming call at admission (its onBeforeCall throws). Used to exercise
-// the D6 tier-2 early-ack reject path: the caller's handler runs LOCALLY with the Error.
+// the early-ack reject path: the caller's handler runs LOCALLY with the Error.
 export class RejectingDO extends LumenizeDO<Env> {
   override onBeforeCall(): void {
     throw new Error('admission rejected by onBeforeCall');

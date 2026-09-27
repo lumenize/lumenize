@@ -1,21 +1,13 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import {
   newContinuation,
-  continuationFromChain,
   executeOperationChain,
-  replaceNestedOperationMarkers,
   type OperationChain,
   type Continuation,
   type AnyContinuation,
 } from './ocan/index.js';
 import { createLmzApiForWorker, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
-import type { NodeIdentity } from './types.js';
-import { getDOStub } from '@lumenize/routing';
-import { preprocess } from '@lumenize/structured-clone';
-import { debug } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
-import { mesh } from './mesh-decorator.js';
-import { BROADCAST_TIER_BINDING, type BroadcastTarget } from './broadcast.js';
 
 // Re-export continuation types from ocan for convenience
 export type { Continuation, AnyContinuation };
@@ -185,11 +177,11 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * Receive a fire-back response — the second mesh RPC entry (D5/D17). Same shared
+   * Receive a fire-back response — the second mesh RPC entry. Same shared
    * `executeEnvelope` path as `__executeOperation`, `requireMeshDecorator: false`:
    * `onBeforeCall` still runs, and so do the walk rules; only the member-level check is skipped.
-   * A tier Worker's fire-back (`__forwardBroadcastResult`) lands here on a fresh
-   * stateless instance — correct because the handler travels (svc.broadcast pin a).
+   * A fire-back to a Worker caller lands here on a fresh stateless instance — correct because
+   * the handler travels.
    *
    * @internal Fired at by the framework, not for direct use.
    */
@@ -204,182 +196,6 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
       waitUntil: (p) => this.ctx.waitUntil(p),
       env: this.env,
     });
-  }
-
-  /**
-   * Recursive tier handler for `svc.broadcast` (Phase 5b primitive).
-   *
-   * The originating DO calls `svc.broadcast(targets, remote, opts)` which,
-   * when `targets.length > directThreshold`, dispatches into this method via
-   * the `LUMENIZE_BROADCAST_TIER` service binding (which the user wires to
-   * their own Worker entry; any LumenizeWorker subclass inherits this
-   * method). The tier:
-   *
-   *   - if `targets.length <= branch`, dispatches `remote` to each target
-   *     directly (fire-and-forget, no result handler in v1);
-   *   - otherwise partitions targets into `branch` groups and recurses
-   *     through itself via the same service binding — each child runs in
-   *     a fresh Worker isolate with its own subrequest budget.
-   *
-   * `remote` arrives as a pre-extracted `OperationChain` rather than a
-   * `Continuation` because it's already been serialized across the wire;
-   * `lmz.call` accepts either form. We re-dispatch it as-is at each leaf.
-   *
-   * v1 is fire-and-forget. v2 will add a per-target onResult handler that
-   * forwards results back to `callChain[0]` (the originating DO).
-   *
-   * @internal Framework method — do not override or call directly.
-   */
-  @mesh()
-  __broadcastTier(
-    targets: BroadcastTarget[],
-    remote: OperationChain,
-    branch: number,
-    onResultChain?: OperationChain,
-  ): void {
-    if (targets.length === 0) return;
-    if (targets.length <= branch) {
-      // Re-wrap the incoming serialized chain back into a Continuation
-      // (lmz.call only accepts proxies, not raw OperationChain arrays).
-      const remoteContinuation = continuationFromChain<any>(remote);
-      if (onResultChain) {
-        // 4-arg form: result comes back here on this tier worker via
-        // `__forwardBroadcastResult`, which substitutes the result into the
-        // onResult chain and forwards to callChain[0] (the originating DO).
-        // `onErrorOnly: true` skips the success-path handler dispatch — both
-        // a CPU save and (on workerd) a structural latency lift, since
-        // success-path .then() handlers attached to outbound subrequests
-        // appear to keep the tier worker's invocation alive until they
-        // settle.
-        for (const t of targets) {
-          this.lmz.call(
-            t.bindingName,
-            t.instanceName,
-            remoteContinuation,
-            this.ctn<LumenizeWorker>().__forwardBroadcastResult(onResultChain),
-            { onErrorOnly: true },
-          );
-        }
-      } else {
-        for (const t of targets) {
-          this.lmz.call(t.bindingName, t.instanceName, remoteContinuation);
-        }
-      }
-      return;
-    }
-    const groupSize = Math.ceil(targets.length / branch);
-    for (let g = 0; g < branch; g++) {
-      const start = g * groupSize;
-      if (start >= targets.length) break;
-      const slice = targets.slice(start, start + groupSize);
-      this.lmz.call(
-        BROADCAST_TIER_BINDING,
-        undefined,
-        this.ctn<LumenizeWorker>().__broadcastTier(slice, remote, branch, onResultChain),
-      );
-    }
-  }
-
-  /**
-   * Tier-side helper for `svc.broadcast`'s `onResult` path. Runs locally on
-   * the tier worker when each per-target leaf call settles (success or
-   * error). The framework appends the call's `result` to this method's
-   * args via the standard last-argument convention. We then:
-   *
-   *   1. Substitute `result` into the caller-supplied `onResultChain` (the
-   *      partial continuation built by the originating DO) using
-   *      `replaceNestedOperationMarkers` — the same helper that powers the
-   *      4-arg `lmz.call` form's result wiring.
-   *   2. Deliver it to `callChain[0]` (the originating DO) at that node's FIRE-BACK door, which
-   *      is the only door that knows it is holding a filled chain.
-   *
-   * ⚠️ **A MESH-NODE origin MUST NOT be reached through `lmz.call`.** That lands at
-   * `__executeOperation`, a generic request door which cannot tell a filled chain from a template —
-   * so the substituted result was scanned for nested markers, and a value the far side authored
-   * could become a chain and run on the origin. `__handleResponse` is where a filled chain belongs,
-   * and it is the door `fireResponse` uses for exactly the same reason.
-   *
-   * ⓘ **A forwarded `onResult` handler therefore no longer needs `@mesh()`** — the fire-back door
-   * does not consult the mark. `captureUndecoratedBroadcastResult` in the test worker is the limb
-   * that holds that property up.
-   *
-   * ⚠️ **A CLIENT origin keeps the old path, and it is NOT covered by the above.** The Gateway's
-   * `__handleResponse` takes a different shape entirely (a `ClientResultEnvelope`, not a
-   * `CallEnvelope`), so this branch still ships a FILLED chain over `lmz.call` — and it lands at
-   * the client's own push door, which runs the TEMPLATE entry. Nothing here closes that.
-   *
-   * What stops an injected chain there today is INCIDENTAL rather than designed: a forwarded chain's
-   * op 0 names a DO method, which is not mesh-callable on a client, so the entry rule refuses it.
-   * That defence evaporates the moment a forwarded chain names a marked CLIENT member.
-   *
-   * The branch is also independently misrouted — `svc.broadcast` starts no fresh chain, so
-   * `callChain[0]` is whoever originated the write, and a failure goes to that client rather than
-   * to the broadcasting DO. ⚠️ **And on the mesh-node branch a reaper now reads the RECEIVING node's
-   * own name**, because `executeEnvelope` overwrites `callContext.callee` at `__handleResponse` —
-   * so the tier path's cleanup deletes nothing. All three ride the `directThreshold` row in
-   * `tasks/backlog.md` § *Lumenize Mesh*, which is what governs unpinning.
-   *
-   * @internal Framework method — do not override or call directly.
-   */
-  @mesh()
-  __forwardBroadcastResult(
-    onResultChain: OperationChain,
-    // The framework appends the per-target call result here via the
-    // last-argument convention; declared optional so call-site code that
-    // pre-binds only `onResultChain` (which is what the tier does) still
-    // type-checks.
-    result?: unknown,
-  ): void {
-    // **Tier optimization**: only forward to `callChain[0]` when the result
-    // is an Error. Success-path callbacks would otherwise pile up on the
-    // originating DO's input gate at high N (e.g., 1000 incoming
-    // `onBroadcastResult` calls all serialized through Star's gate measurably
-    // slows throughput). Drop-on-failed-fanout style cleanup only cares about
-    // errors anyway. Direct-branch behavior is unchanged — there the
-    // handler always runs locally on the originating DO via the 4-arg
-    // `lmz.call` form, success or error.
-    if (!(result instanceof Error)) return;
-    const origin = this.lmz.callContext.callChain[0];
-    if (!origin) {
-      // No origin to forward to — silently drop.
-      return;
-    }
-    const resolved = replaceNestedOperationMarkers(onResultChain, result);
-
-    if (origin.type === 'LumenizeClient') {
-      // See the CLIENT origin note above — unchanged, and tracked rather than fixed here.
-      this.lmz.call(origin.bindingName, origin.instanceName, continuationFromChain<any>(resolved));
-      return;
-    }
-
-    const selfIdentity: NodeIdentity = {
-      type: this.lmz.type,
-      bindingName: this.lmz.bindingName!,
-      instanceName: this.lmz.instanceName,
-    };
-    const fireEnvelope: CallEnvelope = {
-      version: 1,
-      chain: preprocess(resolved),
-      callContext: {
-        ...this.lmz.callContext,
-        callChain: [...this.lmz.callContext.callChain, selfIdentity],
-      },
-      metadata: {
-        caller: selfIdentity,
-        callee: { type: origin.type, bindingName: origin.bindingName, instanceName: origin.instanceName },
-      },
-    };
-    const target = origin.instanceName !== undefined
-      ? getDOStub((this.env as any)[origin.bindingName], origin.instanceName)
-      : (this.env as any)[origin.bindingName];
-    this.ctx.waitUntil(
-      Promise.resolve(target.__handleResponse(fireEnvelope)).catch((err: unknown) => {
-        debug('lmz.mesh.LumenizeWorker.__forwardBroadcastResult')
-          .error('forwarding a broadcast result to the origin failed', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-      }),
-    );
   }
 }
 

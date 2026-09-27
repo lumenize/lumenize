@@ -248,7 +248,7 @@ export class Star extends NebulaDO {
       }
       this.ctx.storage.kv.put(rowKey(row.version), row);
       this.ctx.storage.kv.put(INDEX_KEY, history);
-      // Deploy-driven subscriber cleanup (Phase 5.3.2). Only clear when we're
+      // Deploy-driven subscriber cleanup. Only clear when we're
       // actually installing a *different* version — the first install on a
       // fresh Star has no prior subscribers to drop, and re-installing the
       // same version (defensive: shouldn't happen given #isCachedVersion
@@ -288,7 +288,7 @@ export class Star extends NebulaDO {
       },
     );
 
-    // Push-on-clear (Phase 5.3.4b): notify each dropped subscriber once via the
+    // Push-on-clear: notify each dropped subscriber once via the
     // existing fanout plumbing. Sentinel rt='' / rid='' on `handleResourceUpdate`
     // is harmless — the client's error branch routes `OntologyStaleError` into
     // its `onShouldRefreshUI` hook regardless of which (rt, rid) pair carried
@@ -536,7 +536,7 @@ export class Star extends NebulaDO {
   // ─── Transaction (Handler 1 → capability Handler 2) ─────────────────
 
   /** Handler 1: validate the requested ontology version, then RETURN the transaction result — the
-   *  framework fires it back to the caller's `callAsync` (D5 pattern (a)). On a stale version RETURN
+   *  framework fires it back to the caller's `callAsync`. On a stale version RETURN
    *  the `OntologyStaleError` as a VALUE (resolve, not reject): the client's submit wrapper maps it to
    *  the engine's `{ontologyStale}` signal (asymmetric with `read`, which THROWS on stale). The
    *  version-gate is Galaxy-multi-version-specific and stays on Star; the capability never sees
@@ -563,7 +563,7 @@ export class Star extends NebulaDO {
   // ─── Read (Handler 1 → capability Handler 2) ────────────────────────
 
   /** Handler 1: validate the requested ontology version, then RETURN the read value — the framework
-   *  fires it back to the caller's `callAsync` (D5 pattern (a)). On a stale version THROW
+   *  fires it back to the caller's `callAsync`. On a stale version THROW
    *  `OntologyStaleError` (→ error RESULT → the client's `callAsync` rejects → its `.catch` fires
    *  `onShouldRefreshUI`). */
   @mesh()
@@ -634,10 +634,10 @@ export class Star extends NebulaDO {
 
   /**
    * Handler 1: register a query subscription + push the initial membership. **Void**
-   * (ADR-003 / D7) — the client computed the canonical `queryHash` locally and keys
+   * (ADR-003) — the client computed the canonical `queryHash` locally and keys
    * its handle before firing; the initial state arrives as a `handleQueryUpdate`
    * push. `@mesh()` not `@mesh(requireDominionHere)`: query subs are non-admin but
-   * DAG-gated (authorization is per-push at delivery, D4). No ontology-version gate —
+   * DAG-gated (authorization is per-push at delivery). No ontology-version gate —
    * the query validates against the capability's current `relationships` and the
    * membership enumerates current snapshots (version-independent). `clientId` /
    * `subscriberBinding` come from `callChain` (m2/m3), never params.
@@ -742,7 +742,7 @@ export class Star extends NebulaDO {
    * checks (a reload marker is none of those).
    *
    * **Kept channel, trigger deferred:** its former trigger (`DevStar.compileSFC`)
-   * was deleted in Phase 4 (vite owns compile now). The channel survives as the
+   * was deleted when vite took over compiling. The channel survives as the
    * **publish-refresh signal** — when publish lands a new app-version, it will fan
    * out `broadcastReload` so live previews re-fetch. `@mesh()` not
    * `@mesh(requireDominionHere)` — gated only by `onBeforeCall`'s aud-lock, like
@@ -766,7 +766,7 @@ export class Star extends NebulaDO {
    * Fan out a reload signal to every reload subscriber — mirrors `#onDagChanged`
    * (`svc.broadcast` + drop-on-failed-broadcast cleanup via `onReloadBroadcastResult`).
    * `protected` (not `@mesh`): never client-reachable. Its former internal trigger
-   * (`DevStar.compileSFC`) is gone (Phase 4); publish will call it as the
+   * (`DevStar.compileSFC`) is gone; publish will call it as the
    * publish-refresh signal. No originator exclusion — the reload channel has no
    * originator concept (any subscriber wanting the new bundle gets the signal).
    */
@@ -782,7 +782,7 @@ export class Star extends NebulaDO {
    * Per-target reload-broadcast result handler — drop a subscriber whose Gateway
    * reported it disconnected, mirroring `onTreeBroadcastResult`. WHICH subscriber comes from
    * `callContext.callee`, the address this push was sent to, never from the reply.
-   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onReloadBroadcastResult(result?: unknown): void {
@@ -803,9 +803,7 @@ export class Star extends NebulaDO {
    * (the mutation that triggered this is always authenticated).
    *
    * Drop-on-failed-broadcast cleanup rides `onTreeBroadcastResult` (its own
-   * handler keyed by `clientId`, NOT the resourceId path). That handler is the likeliest of these to
-   * exceed `directThreshold` once the pin lifts, since the tree broadcast goes to ALL connected
-   * clients. ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * handler keyed by `clientId`, NOT the resourceId path). ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   #onDagChanged() {
     const subscribers = this.#treeSubscriptions.all();
@@ -819,39 +817,19 @@ export class Star extends NebulaDO {
   /**
    * Host-side fanout for one mutated resource — the {@link ResourceHostBridge}
    * `broadcastResourceUpdate` impl the data-plane invokes per committed mutation.
-   * Builds the `handleResourceUpdate` continuation + dispatches {@link NebulaDO.broadcast},
-   * which pins the flat loop at any N (TEMP — its JSDoc carries why, and what lifting it needs).
+   * Builds the `handleResourceUpdate` continuation + dispatches {@link NebulaDO.broadcast}.
    * `targets` is already filtered (originator excluded) by the data-plane.
    *
-   * **Drop-on-failed-fanout (v2):** `svc.broadcast` is given an `onResult` partial
+   * **Drop-on-failed-fanout:** `svc.broadcast` is given an `onResult` partial
    * continuation the framework completes with the per-target result. On
    * `ClientDisconnectedError`, `onBroadcastResult` drops the leaked subscriber row
    * (via the capability), identified by `callContext.callee` — the address the push was sent
    * to, which the far side cannot write.
-   *
-   * The `STAR_BROADCAST_*` env knobs exist only for the fanout-scaling bench;
-   * production sets none.
    */
   #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]) {
-    //   STAR_BROADCAST_DIRECT_THRESHOLD — override svc.broadcast's
-    //     direct-vs-tree cutoff. `Infinity` forces direct (naive loop);
-    //     `0` forces tree; numeric overrides the framework default of 100.
-    //   STAR_BROADCAST_OMIT_ON_RESULT=1 — call svc.broadcast WITHOUT the
-    //     `onResult` partial. Strips drop-on-failed-fanout cleanup. Used
-    //     to isolate the cost of result-handler dispatch.
-    const rawThreshold = (this.env as any)?.STAR_BROADCAST_DIRECT_THRESHOLD;
-    const directThreshold = rawThreshold === undefined
-      ? undefined
-      : rawThreshold === 'Infinity'
-        ? Infinity
-        : parseInt(rawThreshold, 10);
-    const omitOnResult = (this.env as any)?.STAR_BROADCAST_OMIT_ON_RESULT === '1';
     const remote = this.ctn<NebulaClient>().handleResourceUpdate(
       snapshot.meta.typeName, resourceId, snapshot);
-    const opts: { directThreshold?: number; onResult?: any } = {};
-    if (!omitOnResult) opts.onResult = this.ctn<Star>().onBroadcastResult(resourceId);
-    if (directThreshold !== undefined) opts.directThreshold = directThreshold;
-    this.broadcast(targets, remote, opts);
+    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onBroadcastResult(resourceId) });
   }
 
   /**
@@ -863,7 +841,7 @@ export class Star extends NebulaDO {
    * fails — the reply says only THAT it failed, never who.
    *
    * Public visibility because mesh handler-continuations resolve by name
-   * on the local DO. ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * on the local DO. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
@@ -900,7 +878,7 @@ export class Star extends NebulaDO {
    * Per-target result handler for query pushes (both the no-denial broadcast and
    * the per-subscriber has-denial deliveries — m6). Keyed by `queryHash`; drops the
    * dead client's query-sub row on a `ClientDisconnectedError`.
-   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onQueryBroadcastResult(queryHash: string, result?: unknown): void {
@@ -915,7 +893,7 @@ export class Star extends NebulaDO {
    * single-target `deliverRosterUpdate`). Keyed by `queryHash`; on a `ClientDisconnectedError` drops the
    * dead WATCHER's row from the WATCHER table ONLY (`removeQuerySubscriberListWatcher`), NOT
    * `QuerySubscribers` — so a dual-role client (data-subscriber AND watcher of Q) keeps its data sub.
-   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
@@ -930,7 +908,7 @@ export class Star extends NebulaDO {
    * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
    * the failed client comes from `callContext.callee`,
    * mirroring `onBroadcastResult`. This one fans out to every connected client.
-   * ⚠️ The `@mesh()` is VESTIGIAL: it was here for the tier-worker dispatch path, and that forward now lands at the fire-back door where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onTreeBroadcastResult(result?: unknown): void {

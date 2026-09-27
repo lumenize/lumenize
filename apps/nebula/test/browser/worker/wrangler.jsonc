@@ -54,11 +54,6 @@
       "binding": "AUTH_EMAIL_SENDER",
       "service": "nebula-browser-test",
       "entrypoint": "TestNebulaEmailSender"
-    },
-    {
-      "binding": "LUMENIZE_BROADCAST_TIER",
-      "service": "nebula-browser-test",
-      "entrypoint": "BenchFanoutTier"
     }
   ],
   // NO Cloudflare Email Sending binding — the magic-link login is incidental
@@ -89,11 +84,6 @@
     // call this deployed-via-miniflare worker cross-origin. Empty in production
     // (single-origin deploy); per-test config provides whatever origins the
     // test runner serves the page from.
-    "LUMENIZE_APPROVED_ORIGINS": "http://localhost:5173,http://localhost:4173",
-    // Fanout-scaling bench overrides for Star.#broadcast. Comment out / unset
-    // both when not actively running an experiment to restore production
-    // behavior (svc.broadcast default threshold=100, onResult handler wired).
-    // "STAR_BROADCAST_DIRECT_THRESHOLD": "Infinity",
-    // "STAR_BROADCAST_OMIT_ON_RESULT": "1"
+    "LUMENIZE_APPROVED_ORIGINS": "http://localhost:5173,http://localhost:4173"
   }
 }

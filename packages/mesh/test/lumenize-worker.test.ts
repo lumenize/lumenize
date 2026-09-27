@@ -99,16 +99,14 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
     });
   });
 
-  // crit 7a / pin a: the svc.broadcast TREE path drives the REAL __forwardBroadcastResult on a
-  // FRESH stateless tier-Worker instance — the erroring target's fire-back lands there and the
-  // handler (which travels) forwards the Error to callChain[0] (the origin DO). directThreshold:0
-  // forces the tree path with one target. Capable-of-failing: if the Worker-caller fire-back didn't
-  // land on the fresh tier instance (or the handler didn't travel), no error reaches the origin.
-  test('svc.broadcast tree path: __forwardBroadcastResult forwards a target Error to the origin', async () => {
-    const origin = env.TEST_DO.getByName('tier-origin');
-    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'tier-origin' });
+  // A target's Error reaches the origin's `onResult`: the erroring target fires the filled handler
+  // back to the origin, where it runs with the Error appended. Capable-of-failing: send each target
+  // the 3-arg form, dropping `onResult`, and no error reaches the origin.
+  test('broadcast: a target Error reaches the origin\'s onResult', async () => {
+    const origin = env.TEST_DO.getByName('broadcast-origin');
+    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'broadcast-origin' });
 
-    origin.testTierBroadcast('tier-target');
+    origin.testBroadcastToThrower('broadcast-target');
 
     await vi.waitFor(async () => {
       expect(await origin.getBroadcastErrorName()).toBeTruthy();
@@ -116,15 +114,14 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
     expect(await origin.getBroadcastErrorMsg()).toContain('Remote error for testing');
   }, 10000);
 
-  // The forward lands at the origin's FIRE-BACK door, not its request door — so a forwarded
-  // onResult handler no longer needs `@mesh()`. Capable of failing: point `__forwardBroadcastResult`
-  // back at `lmz.call` and this reds with "is not mesh-callable" while the decorated sibling above
-  // stays green, which is what separates the two doors.
-  test('svc.broadcast tree path: a forwarded result reaches an UNDECORATED handler', async () => {
-    const origin = env.TEST_DO.getByName('tier-origin-undecorated');
-    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'tier-origin-undecorated' });
+  // The result lands at the origin's FIRE-BACK door, not its request door — so an `onResult`
+  // handler needs no `@mesh()`. Capable of failing: have the fire-back door require the mark and
+  // this reds while the decorated sibling above stays green, which is what separates the two doors.
+  test('broadcast: a target Error reaches an UNDECORATED onResult handler', async () => {
+    const origin = env.TEST_DO.getByName('broadcast-origin-undecorated');
+    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'broadcast-origin-undecorated' });
 
-    origin.testTierBroadcastUndecorated('tier-target-undecorated');
+    origin.testBroadcastToThrowerUndecorated('broadcast-target-undecorated');
 
     await vi.waitFor(async () => {
       expect(await origin.getUndecoratedBroadcastError()).toBeTruthy();

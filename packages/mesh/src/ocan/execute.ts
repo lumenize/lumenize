@@ -26,8 +26,8 @@ const DEFAULT_CONFIG: Required<OcanConfig> = {
  *
  * ⚠️ **Naming keys is not a deny-list of the kind that rots** — the language spec fixes what every
  * object carries, so the list is closed. Refusing every `__`-prefixed key instead is NOT available:
- * `__executeOperation`, `__handleResponse`, `__broadcastTier`, `__forwardBroadcastResult` and
- * `__handleProxyFetchResult` are all real mesh members.
+ * `__executeOperation`, `__handleResponse` and `__handleProxyFetchResult` are all real mesh
+ * members.
  *
  * @internal
  */

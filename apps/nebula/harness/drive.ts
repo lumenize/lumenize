@@ -44,7 +44,7 @@ import * as studioSignedOutLanding from './scenarios/studio-signed-out-landing';
 import * as studioOverlaysByUrl from './scenarios/studio-overlays-by-url';
 import * as signupToFirstApp from './scenarios/signup-to-first-app';
 import * as firstAppBuilt from './scenarios/first-app-built';
-import * as broadcastPastThreshold from './scenarios/broadcast-past-threshold';
+import * as broadcast120Subscribers from './scenarios/broadcast-120-subscribers';
 import * as studioGuidanceLoop from './scenarios/studio-guidance-loop';
 import * as meshEntryReach from './scenarios/mesh-entry-reach';
 import * as reaperVictimIsTheAddress from './scenarios/reaper-victim-is-the-address';
@@ -121,7 +121,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // ── the browser lane for a stranger's first hour: signup → first app → first build ──────────
   'signup-to-first-app': signupToFirstApp,       // the whole clean signup, driven by CLICKING — the app is created through the UI, never by API (no Docker)
   'first-app-built': firstAppBuilt,              // a prompt typed in the rendered composer produces a built app in the preview (Docker)
-  'broadcast-past-threshold': broadcastPastThreshold, // 120 subscribers on one query — the ONLY test anywhere that crosses svc.broadcast's direct cutoff (no Docker)
+  'broadcast-120-subscribers': broadcast120Subscribers, // one commit to 120 subscribers on one query all lands — the ONLY test anywhere past a hundred targets (no Docker)
   // ── the guidance tree: the MODEL in the loop, observed — limbs reported, never gated ───────
   'studio-guidance-loop': studioGuidanceLoop,   // a stated convention lands in AGENTS.md and holds; a data-bound request uses resources; skills activate (no Docker; REST lane; ~10 real turns)
   // ── what a logged-in browser session reaches past `@mesh` — red until the executor closes it ──
