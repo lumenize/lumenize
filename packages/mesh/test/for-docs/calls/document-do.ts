@@ -1,7 +1,7 @@
 /**
  * DocumentDO - Collaborative document storage
  *
- * Example of a LumenizeDO from getting-started.mdx and calls.mdx
+ * Example of a LumenizeDO from getting-started.mdx, calls.mdx and broadcast.mdx
  */
 
 import { LumenizeDO, mesh, getOperationChain, executeOperationChain, type OperationChain, type Continuation, type CallContext } from '../../../src/index.js';
@@ -310,6 +310,58 @@ export class DocumentDO extends LumenizeDO<Env> {
       // NO newChain → callChain stays [writerClient, this DO]; the receiver's at(-1) is this DO.
       this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId,
         this.ctn<EditorClient>().handleContentUpdate(documentId, content));
+    }
+  }
+
+  /**
+   * Push new content to every subscriber with one `lmz.broadcast` — broadcast.mdx § Basic Usage.
+   * Driven by `broadcast.test.ts`, which also shows what this leaves behind: a subscriber whose tab
+   * is gone stays listed, since nothing here hears that its push failed.
+   */
+  @mesh()
+  publish(content: string) {
+    this.ctx.storage.kv.put('content', content);
+    const documentId = this.lmz.instanceName!;
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+
+    // Every subscriber's Gateway gets the same `handleContentUpdate` call
+    const targets = [...subscribers].map((clientId) => ({
+      bindingName: 'LUMENIZE_CLIENT_GATEWAY',
+      instanceName: clientId,
+    }));
+    this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content));
+  }
+
+  /**
+   * The same push, with drop-on-failed-fanout cleanup — broadcast.mdx § Result Handling. Driven by
+   * `broadcast.test.ts`: the dead subscriber `publish` leaves listed is dropped by this one.
+   */
+  @mesh()
+  publishAndPrune(content: string) {
+    this.ctx.storage.kv.put('content', content);
+    const documentId = this.lmz.instanceName!;
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    const targets = [...subscribers].map((clientId) => ({
+      bindingName: 'LUMENIZE_CLIENT_GATEWAY',
+      instanceName: clientId,
+    }));
+
+    this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content), {
+      onResult: this.ctn().onContentDelivered(),
+    });
+  }
+
+  // No `@mesh()` — a Gateway answers inside its ack, so this runs on this node's own dispatch,
+  // where the member-level check is off. Adding one would make this reaper callable as an ordinary
+  // request, with caller-chosen arguments; only the framework-supplied callee makes that harmless.
+  onContentDelivered(result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = this.lmz.callContext.callee?.instanceName;
+      if (clientId) {
+        const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+        subscribers.delete(clientId);
+        this.ctx.storage.kv.put('subscribers', subscribers);
+      }
     }
   }
 
