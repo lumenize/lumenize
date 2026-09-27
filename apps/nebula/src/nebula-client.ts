@@ -457,9 +457,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #orgTreeListener: ((state: DagTreeState) => void) | null = null;
 
   /**
-   * Active subscriptions registry. Used by Phase 5.3.4 auto-resubscribe on
-   * reconnect, and (in 5.3.6) by refcount-with-grace. For 5.3.3a the entry
-   * is minimal — just enough to know what's subscribed.
+   * Active subscriptions registry. Used by auto-resubscribe on reconnect, and
+   * by refcount-with-grace. The entry is minimal — just enough to know what's
+   * subscribed.
    */
   #subscriptionRegistry = new Map<SubscribeKey, { resourceType: string; resourceId: string }>();
 
@@ -609,7 +609,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         return { access_token: data.access_token, sub: data.sub };
       }),
       onConnectionStateChange: (state) => {
-        // Phase 5.3.4a: re-subscribe everything on reconnect. The
+        // Re-subscribe everything on reconnect. The
         // `reconnecting → connected` transition is the precise signal that
         // a network-blip recovery just completed (LumenizeClient stays in
         // `reconnecting` across retry attempts and only flips to `connected`
@@ -619,7 +619,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         if (this.#prevConnectionState === 'reconnecting' && state === 'connected') {
           // The in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the
           // drop and its RESULT re-resolves to the new socket, or the default timeout
-          // rejects → the engine retries. No submit-gate to clear (retired, D7).
+          // rejects → the engine retries. No submit-gate to clear (it was retired).
           this.#resubscribeAll();
         }
         // Gate the engine's submission queue: not-'connected' suspends flush +
@@ -1079,7 +1079,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * (the engine's per-resource queue still serializes same-resource writes; ADR-005 + `resources.ts`
    * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`
    * (resolve → `{ontologyStale}`, not reject); an infra throw/timeout rejects → the engine's
-   * infrastructure-error. Resilient across reconnect (D16/D17): a dropped RESULT re-resolves to the
+   * infrastructure-error. Resilient across reconnect: a dropped RESULT re-resolves to the
    * new socket, or `callAsync`'s default timeout rejects → the engine retries.
    */
   async #meshSubmit(subs: QueueSubmission[], attempt = 0): Promise<ServerBatchResponse> {
@@ -1466,7 +1466,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * resilient Promise — reject-on-failure, NO optimistic local write-through (the
    * broadcast echo, originator included, is the only store update path). `callAsync`
    * holds the Promise in-heap keyed by callId and its delivery re-resolves to the
-   * current socket, so a WS reconnect or tab freeze no longer strands it (D16 — a
+   * current socket, so a WS reconnect or tab freeze no longer strands it (a
    * local Promise over one-way fire + re-resolvable fire-back, NOT a socket-bound
    * awaited RPC); a lost RESULT rejects on `callAsync`'s default timeout rather
    * than hanging, and a full reload/discard triggers orgTree-resync. Idempotent/retry-safe.
@@ -1792,7 +1792,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // subscribe/transaction and for future addressing changes.
     void resourceType;
     const version = options?.ontologyVersion ?? this.#requireOntologyVersion('read');
-    // `callAsync` returns the snapshot (framework fire-back, D5 pattern (a)) — resilient across
+    // `callAsync` returns the snapshot (framework fire-back) — resilient across
     // reconnect/freeze, bounded by the default timeout. Concurrent reads are correlated by the
     // primitive's `callId`. On a stale version `Star.read` throws `OntologyStaleError` → the reject
     // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting —
@@ -1820,7 +1820,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * take the framework down.
    *
    * When the inbound error's `clientVersion` is empty, substitute the client's
-   * own pinned version. This is load-bearing for the Phase 5.3.4b push-on-clear
+   * own pinned version. This is load-bearing for the push-on-clear
    * path: Star doesn't store per-subscriber `clientVersion` on the Subscribers
    * row, so the `OntologyStaleError` it sends carries an empty `clientVersion`.
    * The Handler-1 mismatch paths (transaction / read / subscribe) always carry
@@ -1846,7 +1846,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * Fire an `orgTree.*` mutation via `callAsync` — the Mesh client primitive that returns a Promise
-   * settled by the re-resolvable RESULT (D16/D17): resolves with the mutation's value (`createNode`
+   * settled by the re-resolvable RESULT: resolves with the mutation's value (`createNode`
    * → nodeId; other mutators → undefined) or rejects with its Error (e.g. permission denied). Resilient
    * by construction (survives WS reconnect + tab freeze) and bounded by `callAsync`'s default timeout,
    * so a lost RESULT rejects rather than hanging. No per-call `requestId` / settler handler — the
@@ -1997,11 +1997,11 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /**
    * Receive a dev-preview reload signal from the Star (`Star.broadcastReload`). The
    * channel is kept for the **publish-refresh signal** — its former trigger
-   * (`DevStar.compileSFC`) was retired in Phase 4 (vite owns compile); publish will
+   * (`DevStar.compileSFC`) was retired when vite took over compiling; publish will
    * fan this out so live previews re-fetch. Invokes the optional `onReload` hook
    * (the preview wires `() => window.location.reload()`); a non-preview client
    * without the hook ignores it. `@mesh()` because the signal arrives via
-   * `svc.broadcast` through the Gateway.
+   * `lmz.broadcast` through the Gateway.
    */
   @mesh()
   handleReload(): void {
@@ -2010,7 +2010,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * Receive a transient assistant-progress chunk for `messageId` (Child 3 option (b)).
-   * Server→client direct delivery (`svc.broadcast` from the Galaxy, addressed to this
+   * Server→client direct delivery (`lmz.broadcast` from the Galaxy, addressed to this
    * client's stable `instanceName`) as the codegen loop makes progress. Accumulates
    * into the ephemeral {@link #streamingMessages} cache + fires the optional live hook.
    * NOT durable: reconciled away when the durable `Message` lands ({@link handleResourceUpdate}),
@@ -2039,7 +2039,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /**
    * The chat host pair, or a LOUD throw when unset — the guard that kills the silent
    * misroute (a chat path falling back to the resource pair would land the user
-   * `Message` on the Star's plane and Phase 4's subscription would watch the wrong
+   * `Message` on the Star's plane and the chat's subscription would watch the wrong
    * host). Construct the client with `chatHostBinding: 'GALAXY', chatScope: '{u}.{g}'`
    * to chat.
    */

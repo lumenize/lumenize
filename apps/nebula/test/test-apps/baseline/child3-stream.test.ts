@@ -1,7 +1,7 @@
 /**
- * Child 3 Phase 3 — the option-(b) streaming mechanism (Stage-2 M1 + M3).
+ * Child 3 — the option-(b) streaming mechanism.
  *
- * The assistant's live progress rides a TRANSIENT `svc.broadcast(handleStreamChunk)`
+ * The assistant's live progress rides a TRANSIENT `lmz.broadcast(handleStreamChunk)`
  * push (no Resource write); at completion ONE durable `Message` is committed and the
  * client reconciles the ephemeral stream against it by `assistantMessageId`. Real `chat`
  * codegen is wrangler-dev-only, so these drive `streamProgress` + `commitAgentMessage`
@@ -41,7 +41,7 @@ function devClient(scope: string, email = 'admin@example.com') {
   );
 }
 
-describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)', () => {
+describe('child3 — transient progress stream + durable Message', () => {
   it('streams chunks BEFORE the durable Message, then reconciles the ephemeral away by id', async () => {
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);

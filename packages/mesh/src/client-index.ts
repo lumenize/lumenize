@@ -29,6 +29,8 @@ export type {
   LmzApiClient,
   Continuation as ClientContinuation,
 } from './lumenize-client';
+// The parameter types of `lmz.broadcast`, which the client's `lmz` carries too
+export type { BroadcastTarget, BroadcastOptions } from './broadcast';
 
 // @mesh decorator infrastructure (marking methods as mesh-callable)
 export {

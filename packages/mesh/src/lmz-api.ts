@@ -4,6 +4,7 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getCurrentCallContext, runWithCallContext } from '#lmz-api-context';
 import { getOperationChain, executeOperationChain, executeFilledChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
+import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './broadcast.js';
 
 // Re-export types for convenience
 export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
@@ -189,13 +190,13 @@ function resolveStub(env: any, calleeBindingName: string, calleeInstanceName: st
 }
 
 /**
- * The ONE awaited transport hop (D2/D15) — collapses the old `callRaw*` trio for the
+ * The ONE awaited transport hop — collapses the old `callRaw*` trio for the
  * `call()` path. Sends the envelope to the callee's `__executeOperation`, which **acks
  * EARLY** (as soon as it is admitted, before the remote chain runs). The caller holds
  * ZERO state and is freed at the ack; the result (if any) returns later via the callee's
  * fire-back, never on this hop.
  *
- * On an admission/guard/overload reject the ack carries `{ $error }` (D6 tier 2): for a
+ * On an admission/guard/overload reject the ack carries `{ $error }`: for a
  * 4-arg call the framework runs the handler **locally** with the Error (the caller is
  * still hot — it just awaited the short ack); a 3-arg reject is logged. A real
  * Workers-RPC transport reject (e.g. a non-`@mesh` `WorkerEntrypoint` with no
@@ -269,15 +270,15 @@ async function dispatchEnvelope(
 /**
  * Shared `lmz.call` body for the DO + Worker factories (and `LumenizeContainer`).
  *
- * Builds the envelope (validation sync-throws BEFORE the hop, D6 tier 1), attaches the
- * fire-back {@link EnvelopeResponse} descriptor (D3/D10/D11), and dispatches the one
+ * Builds the envelope (validation sync-throws BEFORE the hop), attaches the
+ * fire-back {@link EnvelopeResponse} descriptor, and dispatches the one
  * early-acking transport hop. The **caller holds ZERO state** — the 4-arg handler travels
  * with the call and the callee fires it back; nothing is parked here.
  *
  * The only per-node-type divergence: a `LumenizeWorker` is ephemeral, so `ctx.waitUntil`
  * keeps its runtime alive across the short ack hop; on a DO/Container `ctx.waitUntil` is a
  * **no-op** (Worker-API parity only) and the node stays alive during its active outbound RPC on
- * its own. (The browser `LumenizeClient` does NOT use this — it keeps its handler in-heap, D16,
+ * its own. (The browser `LumenizeClient` does NOT use this — it keeps its handler in-heap,
  * via its own `#call`.)
  *
  * @internal
@@ -292,7 +293,7 @@ function callShared(
   handlerContinuation?: AnyContinuation,
   options?: CallOptions,
 ): void {
-  // 1. Extract + validate chains — sync-throw, LOUD, before the async hop (D6 tier 1).
+  // 1. Extract + validate chains — sync-throw, LOUD, before the async hop.
   const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
   // 2. Validate caller knows its own binding (fail fast!)
@@ -306,7 +307,7 @@ function callShared(
     );
   }
 
-  // 3. Validate the target binding shape — sync-throw at the call site (D6 tier 1).
+  // 3. Validate the target binding shape — sync-throw at the call site.
   assertCallTarget(env, calleeBindingName, calleeInstanceName);
 
   // 4. Build the fire-back descriptor. 4-arg → the handler TRAVELS (mesh sink);
@@ -353,7 +354,7 @@ function callShared(
  * `ctx.waitUntil` and then delivers the outcome per `kind`:
  * - `discard` — 3-arg fire-and-forget: run, drop the result; a post-ack throw is logged.
  * - `mesh` — 4-arg DO/Worker caller: fill `handler` with the outcome and fire it one-way
- *   to `returnAddr.__handleResponse` (run there at `requireMeshDecorator:false`, D5/D10).
+ *   to `returnAddr.__handleResponse` (run there at `requireMeshDecorator:false`).
  * - `client` — 4-arg client-via-Gateway caller: fire the bare outcome to the Gateway's
  *   `__handleResponse` door keyed by `callId`; the client runs its own in-heap handler.
  *
@@ -368,7 +369,7 @@ export type EnvelopeResponse =
 
 /**
  * The bare-result payload a mesh node fires to the Gateway's `__handleResponse` door for a
- * client-originated 4-arg call (D16/D17). Unlike a mesh fire-back it carries NO handler chain —
+ * client-originated 4-arg call. Unlike a mesh fire-back it carries NO handler chain —
  * the client runs its own in-heap handler; the Gateway only re-resolves delivery by `callId` +
  * `clientInstanceName`. `$result`/`$error` are preprocessed for structured-clone transport.
  *
@@ -471,7 +472,8 @@ export interface CallEnvelope {
  * Lumenize API - Identity and RPC infrastructure for LumenizeDO and LumenizeWorker
  *
  * Provides clean abstraction over identity management (binding name, instance name)
- * and RPC infrastructure (`call`) for both Durable Objects and Worker Entrypoints.
+ * and RPC infrastructure (`call`, and `broadcast` built on it) for both Durable Objects and
+ * Worker Entrypoints.
  *
  * Properties are accessed via simple getters/setters (not a Proxy - properties are known and fixed).
  * Implementation details (storage vs private fields) are hidden from users.
@@ -575,6 +577,20 @@ export interface LmzApi {
     remoteContinuation: Continuation<T>,
     handlerContinuation?: AnyContinuation,
     options?: CallOptions
+  ): void;
+
+  /**
+   * Send one continuation to many targets — one `call` per target, from this node, at any N.
+   *
+   * `options.onResult` hears only failures; `newChain` and `state` pass through to each call.
+   * A target whose binding does not route throws synchronously, before any later target is sent.
+   *
+   * @see `broadcast.ts` — the chain each target sees, and where `callContext.callee` names the target
+   */
+  broadcast<T = any>(
+    targets: BroadcastTarget[],
+    remoteContinuation: Continuation<T>,
+    options?: BroadcastOptions
   ): void;
 }
 
@@ -714,6 +730,14 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     ): void {
       callShared(this, env, doInstance, calleeBindingName, calleeInstanceName, remoteContinuation, handlerContinuation, options);
     },
+
+    broadcast<T = any>(
+      targets: BroadcastTarget[],
+      remoteContinuation: Continuation<T>,
+      options?: BroadcastOptions
+    ): void {
+      broadcastShared(this, targets, remoteContinuation, options);
+    },
   };
 }
 
@@ -777,6 +801,14 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
     ): void {
       callShared(this, env, workerInstance, calleeBindingName, calleeInstanceName, remoteContinuation, handlerContinuation, options);
     },
+
+    broadcast<T = any>(
+      targets: BroadcastTarget[],
+      remoteContinuation: Continuation<T>,
+      options?: BroadcastOptions
+    ): void {
+      broadcastShared(this, targets, remoteContinuation, options);
+    },
   };
 }
 
@@ -838,7 +870,7 @@ function describeCallee(node: EnvelopeExecutorNode, chain: OperationChain): stri
  * - `discard` (3-arg): drop a success; **log** a post-ack throw — it has nowhere to go.
  * - `mesh` (4-arg DO/Worker): fill the traveling handler and fire it one-way to
  *   `returnAddr.__handleResponse`. The sink's ack carries `{ $error }` only if the
- *   response leg was **rejected at admission** (e.g. the D5 scope gate, now `requirePassage`) — logged
+ *   response leg was **rejected at admission** (e.g. the response-leg scope gate, `requirePassage`) — logged
  *   here; a handler that throws *post-ack at the sink* (N8) is logged on the sink itself.
  * - `client`: delivered via the Gateway door — built in the client-leg phase.
  * - A result that cannot be encoded (a `CryptoKey`, a native `Response`) reaches the
@@ -891,7 +923,7 @@ async function fireResponse(
       ));
     }
     // The fire-back rides the same transport as any mesh hop, so callContext propagates
-    // identically — the callee appends itself; originAuth is unchanged (D14/N4). No
+    // identically — the callee appends itself; originAuth is unchanged. No
     // `response` descriptor: the handler does not itself fire back.
     const fireEnvelope: CallEnvelope = {
       version: 1,
@@ -927,12 +959,12 @@ async function fireResponse(
     if (ack && '$error' in ack) {
       let sinkErr = 'unknown';
       try { const e = postprocess(ack.$error); sinkErr = e instanceof Error ? e.message : String(e); } catch { /* keep default */ }
-      log.error(`${nodeTypeName}: response leg rejected at the sink (D5 gate or admission)`, { error: sinkErr });
+      log.error(`${nodeTypeName}: response leg rejected at the sink (scope gate or admission)`, { error: sinkErr });
     }
     return;
   }
 
-  // response.kind === 'client' (D16/D17): the client keeps its handler in-heap, so we fire the
+  // response.kind === 'client': the client keeps its handler in-heap, so we fire the
   // BARE result (not a chain) to the Gateway's __handleResponse door, addressed to the client's
   // instanceName + callId. The Gateway re-resolves delivery to the client's current socket.
   let payload: Pick<ClientResultEnvelope, '$result' | '$error'>;
@@ -970,7 +1002,7 @@ async function fireResponse(
  * `callContext` via `runWithCallContext` — a fresh scope, not a captured closure). `ctx.waitUntil`
  * holds an ephemeral `LumenizeWorker` alive for that tail; on a DO it is a **no-op** and residency
  * relies on pending I/O — reliable for short chains, NOT for a long idle one (see the ADMITTED block).
- * An admission/guard failure returns `{ $error }` on the ack instead (D6 tier 2).
+ * An admission/guard failure returns `{ $error }` on the ack instead.
  *
  * @internal
  */
@@ -1048,7 +1080,7 @@ export async function executeEnvelope(
     };
 
     // onBeforeCall is the guard — it runs under the call context and may read/mutate
-    // state; a throw here rejects admission (scope/auth). This is the D5 gate on the
+    // state; a throw here rejects admission (scope/auth). This is the scope gate on the
     // response leg too (both entries call this path).
     runWithCallContext(callContext, () => { node.onBeforeCall(); });
   } catch (error) {
@@ -1122,8 +1154,8 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
     #lmzApi: LmzApi | null = null;
 
     /**
-     * Lumenize identity + RPC infrastructure — `bindingName`, `instanceName`, `callContext`, and
-     * `call` (the only cross-node call surface). Composed via the shared DO factory, never
+     * Lumenize identity + RPC infrastructure — the members of {@link LmzApi}: identity,
+     * `callContext`, `call`, and `broadcast` built on it. Composed via the shared DO factory, never
      * reimplemented; identity is read from DO storage (set by `routeDORequest` headers or envelope
      * metadata on the first incoming call).
      */
@@ -1138,7 +1170,7 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
 
     /**
      * Hook run at admission, before each incoming mesh call executes (inside `executeEnvelope`, on
-     * BOTH receive entries incl. the D5 response leg). Override for auth/scope guards — reject by
+     * BOTH receive entries incl. the response leg). Override for auth/scope guards — reject by
      * throwing, or cache derived context in `callContext.state`; call `super.onBeforeCall()` if a
      * parent adds logic. Does NOT run on the `fetch()` path (by design). Default: no-op.
      */
@@ -1164,7 +1196,7 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
     }
 
     /**
-     * Fire-back seam (D5/D17): the caller's traveling handler, filled with a result/Error. Same
+     * Fire-back seam: the caller's traveling handler, filled with a result/Error. Same
      * `executeEnvelope` path with `requireMeshDecorator: false` — `onBeforeCall` still runs, only the
      * member-level check is skipped (the handler is the caller's own continuation). The walk rules
      * still apply. @internal

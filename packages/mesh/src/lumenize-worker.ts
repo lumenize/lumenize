@@ -21,7 +21,8 @@ export type { Continuation, AnyContinuation };
  * 
  * Provides:
  * - Identity management via `this.lmz.*` (bindingName only, no persistence)
- * - RPC infrastructure via `this.lmz.call()` (the only cross-node call surface)
+ * - RPC infrastructure via the members of `LmzApi` — `this.lmz.call()`, and `this.lmz.broadcast()`
+ *   built on it
  * - Continuation support via `this.ctn()`
  * - Automatic envelope handling via `__executeOperation()`
  * 
@@ -53,7 +54,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *
    * Provides clean abstraction over identity management and RPC infrastructure:
    * - **Identity**: `bindingName`, `type` (instanceName/id always undefined for Workers)
-   * - **RPC**: `call()` (the only cross-node call surface)
+   * - **RPC**: the members of `LmzApi` — `call()`, and `broadcast()` built on it
    *
    * Properties use closure storage (no persistence across requests).
    * Identity is set automatically from envelope metadata when receiving mesh calls.

@@ -19,6 +19,7 @@ import {
   extractCallChains,
   type CallEnvelope,
 } from './lmz-api.js';
+import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './broadcast.js';
 
 // ---------------------------------------------------------------------------
 // Browser-safe call-context threading
@@ -355,10 +356,24 @@ export interface LmzApiClient {
   ): void;
 
   /**
-   * Resilient, `Promise`-returning cross-node call — **client-only** (D16/D17). Settled by the same
+   * Send one continuation to many targets — one `call` per target, each over this client's socket
+   * and stamped at its Gateway, so it grants nothing that many calls would not.
+   *
+   * `options.onResult` hears only failures; `newChain` and `state` pass through to each call.
+   *
+   * @see `broadcast.ts` — the chain each target sees, and where `callContext.callee` names the target
+   */
+  broadcast<T = any>(
+    targets: BroadcastTarget[],
+    remoteContinuation: Continuation<T>,
+    options?: BroadcastOptions
+  ): void;
+
+  /**
+   * Resilient, `Promise`-returning cross-node call — **client-only**. Settled by the same
    * in-heap re-resolvable-delivery mechanism as a 4-arg `call` (survives tab freeze + WS reconnect),
    * so it does NOT strand on a dead socket the way the removed `callRaw` did. Rejects on an error
-   * RESULT, on `signal` abort, or on the built-in default `timeoutMs` (D4; `0`/`Infinity` disables).
+   * RESULT, on `signal` abort, or on the built-in default `timeoutMs` (`0`/`Infinity` disables).
    *
    * ⚠️ Prefer a higher-level SDK method (`client.resources.*`) when one exists, and a `subscribe` for
    * live UI data. `callAsync` is the SDK-layer awaitable escape hatch — the ONLY awaitable on
@@ -461,7 +476,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #accessToken: string | null = null;
   #claims: Readonly<TClaims> | null = null;
   #refreshInFlight: Promise<void> | null = null;
-  // D16: 4-arg call handlers kept in-heap keyed by callId (survives freeze + reconnect).
+  // 4-arg call handlers kept in-heap keyed by callId (survives freeze + reconnect).
   #inHeapHandlers = new Map<string, InHeapHandler>();
   // callAsync: Promise settlers kept in-heap keyed by callId — parallel to #inHeapHandlers.
   #pendingAsyncCalls = new Map<string, PendingAsyncCall>();
@@ -613,6 +628,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       },
 
       call: self.#call.bind(self),
+      broadcast: (targets, remoteContinuation, options) =>
+        broadcastShared(api, targets, remoteContinuation, options),
       callAsync: self.#callAsync.bind(self),
     };
 
@@ -732,7 +749,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * Override to add authentication/authorization.
    * Default: block a DIRECT client-to-client call — one whose IMMEDIATE caller
    * (`callChain.at(-1)`) is another LumenizeClient. DO/Worker-mediated pushes
-   * (fanout, direct-delivery, `svc.broadcast`) have a DO/Worker as the caller and
+   * (fanout, direct-delivery, `lmz.broadcast`) have a DO/Worker as the caller and
    * are accepted — this is what every reactive app relies on, so no override is
    * needed for them. Override (and skip `super`) to opt into peer communication.
    *
@@ -1231,7 +1248,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
   /**
    * Handle a RESULT for a client-originated 4-arg call. Looks up the IN-HEAP handler by
-   * callId, runs it with the delivered value OR Error (D6 — `handler($result)`), and removes it.
+   * callId, runs it with the delivered value OR Error (`handler($result)`), and removes it.
    * The delete-on-delivery IS the dedup: a duplicate RESULT for the same callId finds no handler
    * and is dropped (M4). An unknown callId (a 3-arg call, or an already-handled one) is dropped.
    */
@@ -1393,7 +1410,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       return;
     }
     // Queue until reconnect (bounded). Dropped silently on overflow — the client holds
-    // no awaited per-call Promise (4-arg handlers live in #inHeapHandlers → D8 reconcile
+    // no awaited per-call Promise (4-arg handlers live in #inHeapHandlers → reconciled
     // on reload; 3-arg is fire-and-forget), so there is nothing to reject.
     if (this.#messageQueue.length >= MAX_QUEUE_SIZE) {
       this.#debugFactory('lmz.mesh.LumenizeClient.#sendOrQueue').warn(
@@ -1484,7 +1501,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     handlerContinuation?: Continuation<any>,
     options?: CallOptions
   ): void {
-    // 1. Extract + validate chains (sync-throw on an invalid continuation — D6 tier 1).
+    // 1. Extract + validate chains (sync-throw on an invalid continuation).
     const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
     // 2. Capture the call-site context synchronously (threaded explicitly — no ALS in the browser).
@@ -1509,7 +1526,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     options?: CallOptions & { timeoutMs?: number; signal?: AbortSignal }
   ): Promise<Awaited<T>> {
     // 1. Validate + extract the remote chain synchronously (sync-throw on an invalid
-    //    continuation — D6 tier 1, same as `call()`; a developer error, never a rejection).
+    //    continuation, same as `call()`; a developer error, never a rejection).
     const { remoteChain } = extractCallChains(remoteContinuation, undefined);
 
     // 2. Compose the caller's signal (external cancel) with the built-in default timeout, so
@@ -1542,7 +1559,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#pendingAsyncCalls.set(callId, { resolve, reject, signal, onAbort });
 
       // 5. Send the CALL with expectsResult:true — no handler travels; the client holds the Promise,
-      //    settled by the RESULT fired back for this callId (#handleCallResponse). Reuses the D17 path.
+      //    settled by the RESULT fired back for this callId (#handleCallResponse). Reuses the 4-arg path.
       this.#sendCall(
         callId, calleeBindingName, calleeInstanceNameOrId,
         remoteChain, capturedContext, true, options,
@@ -1552,7 +1569,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
   /**
    * Test-only: the number of in-flight `callAsync` Promises (`#pendingAsyncCalls` map size). The
-   * D16 map is per-session heap-bounded, so cleanup (delete-on-delivery, delete-on-abort) is a real
+   * map is per-session heap-bounded, so cleanup (delete-on-delivery, delete-on-abort) is a real
    * correctness property — but a settled Promise no-ops a second settle, making double-settle
    * behaviorally invisible. This read-only count is the transient surface a test asserts to prove the
    * entry was actually removed (no leak). NOT part of the public API.

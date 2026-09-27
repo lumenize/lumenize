@@ -78,6 +78,14 @@ export { TaskSchedulerDO } from './for-docs/alarms/basic-usage.test';
 // Export test DO for NadisPlugin tests
 export { NadisPluginTestDO } from './nadis-plugin-test-do';
 
+/** One outcome a broadcast's `onResult` handler received — see broadcast.test.ts. */
+export interface BroadcastOutcome {
+  name: string;
+  message: string;
+  /** The `callContext.callee` the framework stamped for the handler. */
+  callee?: string;
+}
+
 export class TestDO extends LumenizeDO<Env> {
   /** @internal - for tests only */
   executedAlarms: Array<{ payload: any; schedule: Schedule | null }> = [];
@@ -521,7 +529,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   testBroadcastToThrowerUndecorated(targetInstance: string): void {
-    this.svc.broadcast(
+    this.lmz.broadcast(
       [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
       this.ctn<TestDO>().throwError(),
       { onResult: this.ctn<TestDO>().captureUndecoratedBroadcastResult() },
@@ -535,7 +543,7 @@ export class TestDO extends LumenizeDO<Env> {
   // Broadcast to one erroring target. The target acks, throws, and fires the filled onResult
   // handler back to this origin with the Error appended — the path every broadcast result takes.
   testBroadcastToThrower(targetInstance: string): void {
-    this.svc.broadcast(
+    this.lmz.broadcast(
       [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
       this.ctn<TestDO>().throwError(),
       { onResult: this.ctn<TestDO>().captureBroadcastResult() },
@@ -559,6 +567,88 @@ export class TestDO extends LumenizeDO<Env> {
   }
   async getBroadcastErrorMsg() {
     return this.ctx.storage.kv.get('broadcast_error_msg');
+  }
+
+  // ============================================
+  // lmz.broadcast from a DO — driven by broadcast.test.ts
+  // ============================================
+
+  // Broadcast `this.ctn()[method](...args)` to TEST_DO targets, recording every outcome.
+  broadcastCall(targets: string[], method: string, args: unknown[] = []): void {
+    this.lmz.broadcast(
+      targets.map((instanceName) => ({ bindingName: 'TEST_DO', instanceName })),
+      (this.ctn() as any)[method](...args),
+      { onResult: this.ctn<TestDO>().recordBroadcastOutcome() },
+    );
+  }
+
+  // Broadcast to never-connected client Gateways. A Gateway answers a push inside its ack, so each
+  // outcome runs `recordBroadcastOutcome` here, on this node's own dispatch.
+  broadcastToGateways(clientInstances: string[]): void {
+    this.lmz.broadcast(
+      clientInstances.map((instanceName) => ({ bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName })),
+      (this.ctn() as any).clientMethod(),
+      { onResult: this.ctn<TestDO>().recordBroadcastOutcome() },
+    );
+  }
+
+  // Broadcast a success to `target`, then send the same target a plain 4-arg call whose handler
+  // marks a barrier. Once the barrier lands, a success the broadcast reported would have landed too.
+  broadcastThenBarrier(target: string): void {
+    this.broadcastCall([target], 'remoteEcho', ['broadcast']);
+    const barrier = this.ctn<TestDO>().remoteEcho('barrier');
+    this.lmz.call('TEST_DO', target, barrier, this.ctn<TestDO>().markBroadcastBarrier(barrier));
+  }
+
+  markBroadcastBarrier(_result?: unknown): void {
+    this.ctx.storage.kv.put('broadcast_barrier', true);
+  }
+
+  async getBroadcastBarrier(): Promise<boolean> {
+    return this.ctx.storage.kv.get('broadcast_barrier') === true;
+  }
+
+  // Broadcast `captureContext` with the given options. Reached from a client, so the chain it
+  // inherits by default has a client origin and that client's `originAuth`.
+  @mesh()
+  broadcastCaptureContext(targets: string[], options: { newChain?: boolean; state?: Record<string, unknown> }): void {
+    this.lmz.broadcast(
+      targets.map((instanceName) => ({ bindingName: 'TEST_DO', instanceName })),
+      this.ctn<TestDO>().captureContext(),
+      options,
+    );
+  }
+
+  // Throws only at the named instance, so one broadcast can succeed at one target and fail at another.
+  @mesh()
+  throwIfNamed(name: string): string {
+    if (this.lmz.instanceName === name) throw new Error(`refused by ${name}`);
+    return 'ok';
+  }
+
+  // The `onResult` handler: records the outcome and the `callee` the framework stamped for it.
+  recordBroadcastOutcome(result?: unknown): void {
+    this.#pushBroadcastOutcome({
+      name: result instanceof Error ? result.name : 'success',
+      message: result instanceof Error ? result.message : String(result),
+      callee: this.lmz.callContext.callee?.instanceName,
+    });
+  }
+
+  // Where a Worker's `onResult` handler reports, since a Worker has no storage of its own.
+  @mesh()
+  storeBroadcastOutcome(outcome: BroadcastOutcome): void {
+    this.#pushBroadcastOutcome(outcome);
+  }
+
+  #pushBroadcastOutcome(outcome: BroadcastOutcome): void {
+    const outcomes = (this.ctx.storage.kv.get('broadcast_outcomes') as BroadcastOutcome[] | undefined) ?? [];
+    outcomes.push(outcome);
+    this.ctx.storage.kv.put('broadcast_outcomes', outcomes);
+  }
+
+  async getBroadcastOutcomes(): Promise<BroadcastOutcome[]> {
+    return (this.ctx.storage.kv.get('broadcast_outcomes') as BroadcastOutcome[] | undefined) ?? [];
   }
 
   // ============================================
@@ -1421,6 +1511,26 @@ export class TestWorker extends LumenizeWorker<Env> {
       resultStoreDOInstance,
       this.ctn<TestDO>().storeForwardedError(error instanceof Error ? error.message : String(error)),
     );
+  }
+
+  // lmz.broadcast from a Worker — driven by broadcast.test.ts. Never-connected client Gateways
+  // answer inside their acks, so each outcome runs `forwardBroadcastOutcome` here.
+  broadcastToGateways(clientInstances: string[], storeInstance: string): void {
+    this.lmz.__init({ bindingName: 'TEST_WORKER' });
+    this.lmz.broadcast(
+      clientInstances.map((instanceName) => ({ bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName })),
+      (this.ctn() as any).clientMethod(),
+      { onResult: this.ctn<TestWorker>().forwardBroadcastOutcome(storeInstance) },
+    );
+  }
+
+  // A Worker has no storage, so it hands each outcome, and the `callee` it saw, to a DO.
+  forwardBroadcastOutcome(storeInstance: string, result?: unknown): void {
+    this.lmz.call('TEST_DO', storeInstance, this.ctn<TestDO>().storeBroadcastOutcome({
+      name: result instanceof Error ? result.name : 'success',
+      message: result instanceof Error ? result.message : String(result),
+      callee: this.lmz.callContext.callee?.instanceName,
+    }));
   }
 
   // Remote methods that can be called via RPC

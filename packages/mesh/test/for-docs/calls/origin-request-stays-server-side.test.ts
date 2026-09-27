@@ -4,7 +4,7 @@
  * `originRequest` is what the Gateway snapshots from a client's WebSocket upgrade: its IP,
  * `User-Agent`, `Accept-Language`, and Cloudflare's `cf` city, region, latitude, longitude,
  * timezone and colo. Server-side code reads it anywhere along the chain — an emailed link is built
- * from its `origin`. But a push that keeps the writer's chain, which is what `svc.broadcast` sends,
+ * from its `origin`. But a push that keeps the writer's chain, which `lmz.broadcast` sends by default,
  * used to carry it into every subscriber's socket, so each subscriber received the WRITER's
  * location and browser on every write. `originAuth` still reaches the client on purpose:
  * `LumenizeClient.onBeforeCall` authorizes an incoming call from it.
@@ -81,7 +81,8 @@ it("a subscriber receives the writer's originAuth, never its originRequest", asy
   });
   await vi.waitFor(() => expect(contents[0]).toBe(''), { timeout: 10000 }); // subscribed
 
-  // The push that keeps the WRITER's chain (no `newChain`) — the shape `svc.broadcast` sends.
+  // The push that keeps the WRITER's chain (no `newChain`) — the shape `lmz.broadcast` sends by
+  // default.
   writer.lmz.call('DOCUMENT_DO', documentId,
     writer.ctn<DocumentDO>().updatePreservingOrigin('hello from writer'));
   await vi.waitFor(() => expect(contents).toContain('hello from writer'), { timeout: 10000 });

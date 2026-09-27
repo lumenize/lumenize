@@ -1,6 +1,5 @@
 import type { sql } from './sql';
 import type { Alarms } from './alarms';
-import type { BroadcastFn } from './broadcast';
 
 // ============================================
 // Mesh Node Identity & Call Context
@@ -61,8 +60,8 @@ export type OriginCf = Pick<IncomingRequestCfProperties,
  * the Gateway leaves it out of every call it forwards down a socket, and a `LumenizeClient` types
  * `this.lmz.callContext` as `Omit<CallContext, 'originRequest'>`, so reading it there fails to
  * compile. These are the origin's IP, location and browser, and a push that inherits a writer's
- * chain (`svc.broadcast`) would otherwise hand them to every subscriber. `originAuth` does reach
- * the client.
+ * chain (`lmz.broadcast`, by default) would otherwise hand them to every subscriber.
+ * `originAuth` does reach the client.
  *
  * Trust, per field — this is what decides what each may be used for:
  * - `cf` is set by the runtime at the edge and `ip` by the edge from the connection; external
@@ -141,7 +140,7 @@ export interface CallOptions {
    *
    * Useful for fire-and-forget paths that want structured error handling
    * (retry, cleanup, escalation) without paying the per-call success-path
-   * dispatch cost — e.g. `svc.broadcast`'s drop-on-failed-fanout, where
+   * dispatch cost — e.g. `lmz.broadcast`'s drop-on-failed-fanout, where
    * the originator only cares about `ClientDisconnectedError`.
    *
    * Defaults to false — both success and error are dispatched.
@@ -182,8 +181,6 @@ export interface LumenizeServices {
   sql: ReturnType<typeof sql>;
   /** Built-in alarm scheduling service for DO */
   alarms: Alarms;
-  /** Built-in broadcast service — dispatch a continuation to many targets with tree-fanout offloading at scale */
-  broadcast: BroadcastFn;
   // Additional services are added via declaration merging in their respective NADIS packages
 }
 
@@ -194,8 +191,6 @@ declare global {
     sql: ReturnType<typeof sql>;
     /** Built-in alarm scheduling service for DO */
     alarms: Alarms;
-    /** Built-in broadcast service — dispatch a continuation to many targets with tree-fanout offloading at scale */
-    broadcast: BroadcastFn;
     // Additional services are added via declaration merging in their respective NADIS packages
   }
 }

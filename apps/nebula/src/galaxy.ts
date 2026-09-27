@@ -1511,7 +1511,7 @@ export class Galaxy extends NebulaDO {
 
   /**
    * Push ONE transient assistant-progress chunk to the session query's subscribers
-   * that may read `nodeId`. Fire-and-forget `svc.broadcast` of `handleStreamChunk` —
+   * that may read `nodeId`. Fire-and-forget `lmz.broadcast` of `handleStreamChunk` —
    * no Resource write, no fanout/rerun. Permission-filtered via {@link queryTargets}
    * (the transient path's point-of-action recheck, symmetric with the durable path —
    * a subscriber denied on `nodeId` gets NO chunk). No `onResult`: a missed chunk just
@@ -1531,7 +1531,7 @@ export class Galaxy extends NebulaDO {
     // liveness for its OWN turn. That is a hang: under single-flight a message posted
     // during a generation is skipped and never answered, yet its poster's idle window is
     // re-armed by the running turn's chunks and never fails.
-    this.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress, replyTo));
+    this.lmz.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress, replyTo));
   }
 
   /**
@@ -1722,17 +1722,17 @@ export class Galaxy extends NebulaDO {
 
   // ─── Host-side fanout (the ResourceHostBridge impls) ────────────────
 
-  /** Host-side fanout for one mutated resource — plain `svc.broadcast` with
+  /** Host-side fanout for one mutated resource — plain `lmz.broadcast` with
    *  drop-on-failed-fanout cleanup via {@link onBroadcastResult}. */
   #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]): void {
     const remote = this.ctn<NebulaClient>().handleResourceUpdate(
       snapshot.meta.typeName, resourceId, snapshot);
-    this.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onBroadcastResult(resourceId) });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onBroadcastResult(resourceId) });
   }
 
   /** Per-target broadcast result handler — drop a subscriber whose Gateway reported
    *  it disconnected (`ClientDisconnectedError`). WHICH subscriber comes from
-   *  `callContext.callee`, the address this push was sent to. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's. */
+   *  `callContext.callee`, the address this push was sent to. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's. */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
@@ -1742,11 +1742,11 @@ export class Galaxy extends NebulaDO {
   }
 
   /** Host-side fanout for a query membership push to the no-denial group. One
-   *  shared payload via `svc.broadcast`; dead-client cleanup rides
+   *  shared payload via `lmz.broadcast`; dead-client cleanup rides
    *  {@link onQueryBroadcastResult} keyed by `queryHash`. */
   #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]): void {
     const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
-    this.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQueryBroadcastResult(queryHash) });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQueryBroadcastResult(queryHash) });
   }
 
   /** Host-side fanout for a subscriber-list roster push — the distinct-by-`sub` roster to a
@@ -1754,7 +1754,7 @@ export class Galaxy extends NebulaDO {
    *  {@link onQuerySubscriberListBroadcastResult} (watcher table, NOT `QuerySubscribers`). */
   #broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]): void {
     const remote = this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, roster);
-    this.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQuerySubscriberListBroadcastResult(queryHash) });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQuerySubscriberListBroadcastResult(queryHash) });
   }
 
   /** Per-target query-push result handler (no-denial broadcast + has-denial

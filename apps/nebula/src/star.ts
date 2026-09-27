@@ -764,7 +764,7 @@ export class Star extends NebulaDO {
 
   /**
    * Fan out a reload signal to every reload subscriber — mirrors `#onDagChanged`
-   * (`svc.broadcast` + drop-on-failed-broadcast cleanup via `onReloadBroadcastResult`).
+   * (`lmz.broadcast` + drop-on-failed-broadcast cleanup via `onReloadBroadcastResult`).
    * `protected` (not `@mesh`): never client-reachable. Its former internal trigger
    * (`DevStar.compileSFC`) is gone; publish will call it as the
    * publish-refresh signal. No originator exclusion — the reload channel has no
@@ -775,14 +775,14 @@ export class Star extends NebulaDO {
     if (subscribers.length === 0) return;
     const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
     const remote = this.ctn<NebulaClient>().handleReload();
-    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onReloadBroadcastResult() });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onReloadBroadcastResult() });
   }
 
   /**
    * Per-target reload-broadcast result handler — drop a subscriber whose Gateway
    * reported it disconnected, mirroring `onTreeBroadcastResult`. WHICH subscriber comes from
    * `callContext.callee`, the address this push was sent to, never from the reply.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onReloadBroadcastResult(result?: unknown): void {
@@ -803,7 +803,7 @@ export class Star extends NebulaDO {
    * (the mutation that triggered this is always authenticated).
    *
    * Drop-on-failed-broadcast cleanup rides `onTreeBroadcastResult` (its own
-   * handler keyed by `clientId`, NOT the resourceId path). ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * handler keyed by `clientId`, NOT the resourceId path). ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
    */
   #onDagChanged() {
     const subscribers = this.#treeSubscriptions.all();
@@ -811,16 +811,16 @@ export class Star extends NebulaDO {
     const state = this.#dataPlane.dagTree.getState();
     const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
     const remote = this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state });
-    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
   }
 
   /**
    * Host-side fanout for one mutated resource — the {@link ResourceHostBridge}
    * `broadcastResourceUpdate` impl the data-plane invokes per committed mutation.
-   * Builds the `handleResourceUpdate` continuation + dispatches {@link NebulaDO.broadcast}.
+   * Builds the `handleResourceUpdate` continuation + dispatches it with `lmz.broadcast`.
    * `targets` is already filtered (originator excluded) by the data-plane.
    *
-   * **Drop-on-failed-fanout:** `svc.broadcast` is given an `onResult` partial
+   * **Drop-on-failed-fanout:** `lmz.broadcast` is given an `onResult` partial
    * continuation the framework completes with the per-target result. On
    * `ClientDisconnectedError`, `onBroadcastResult` drops the leaked subscriber row
    * (via the capability), identified by `callContext.callee` — the address the push was sent
@@ -829,19 +829,19 @@ export class Star extends NebulaDO {
   #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]) {
     const remote = this.ctn<NebulaClient>().handleResourceUpdate(
       snapshot.meta.typeName, resourceId, snapshot);
-    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onBroadcastResult(resourceId) });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onBroadcastResult(resourceId) });
   }
 
   /**
-   * Per-target broadcast result handler. Invoked once per subscriber
-   * (success or failure) by `svc.broadcast`'s plumbing. The framework
+   * Per-target broadcast result handler. Invoked once per subscriber whose
+   * push fails (`lmz.broadcast` skips the success path). The framework
    * appends `result` to the partial continuation Star passed via
    * `opts.onResult`, so this method's signature is
    * `(resourceId, result)`; the target clientId comes from `callContext.callee` when delivery
    * fails — the reply says only THAT it failed, never who.
    *
    * Public visibility because mesh handler-continuations resolve by name
-   * on the local DO. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * on the local DO. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onBroadcastResult(resourceId: string, result?: unknown): void {
@@ -855,30 +855,30 @@ export class Star extends NebulaDO {
   /**
    * Host-side fanout for a query membership push to the NO-DENIAL group — the
    * {@link ResourceHostBridge} `broadcastQueryUpdate` impl. One shared payload (the
-   * full `resourceIds`) via `svc.broadcast`; drop-on-failed-fanout cleanup rides
+   * full `resourceIds`) via `lmz.broadcast`; drop-on-failed-fanout cleanup rides
    * `onQueryBroadcastResult` keyed by `queryHash` (m6).
    */
   #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]) {
     const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
-    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
   }
 
   /**
    * Host-side fanout for a subscriber-list roster push (the `ResourceHostBridge` `broadcastRosterUpdate`
-   * impl) — the distinct-by-`sub` roster to a query's WATCHERS via `svc.broadcast`. Dead-WATCHER cleanup
+   * impl) — the distinct-by-`sub` roster to a query's WATCHERS via `lmz.broadcast`. Dead-WATCHER cleanup
    * uses the DEDICATED `onQuerySubscriberListBroadcastResult` (drops from the watcher table, NOT
-   * `QuerySubscribers`). NO `onErrorOnly` — `svc.broadcast` applies it internally for any `onResult`.
+   * `QuerySubscribers`). NO `onErrorOnly` — `lmz.broadcast` applies it internally for any `onResult`.
    */
   #broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]) {
     const remote = this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, roster);
-    this.broadcast(targets, remote, { onResult: this.ctn<Star>().onQuerySubscriberListBroadcastResult(queryHash) });
+    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onQuerySubscriberListBroadcastResult(queryHash) });
   }
 
   /**
    * Per-target result handler for query pushes (both the no-denial broadcast and
    * the per-subscriber has-denial deliveries — m6). Keyed by `queryHash`; drops the
    * dead client's query-sub row on a `ClientDisconnectedError`.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onQueryBroadcastResult(queryHash: string, result?: unknown): void {
@@ -893,7 +893,7 @@ export class Star extends NebulaDO {
    * single-target `deliverRosterUpdate`). Keyed by `queryHash`; on a `ClientDisconnectedError` drops the
    * dead WATCHER's row from the WATCHER table ONLY (`removeQuerySubscriberListWatcher`), NOT
    * `QuerySubscribers` — so a dual-role client (data-subscriber AND watcher of Q) keeps its data sub.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
@@ -908,7 +908,7 @@ export class Star extends NebulaDO {
    * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
    * the failed client comes from `callContext.callee`,
    * mirroring `onBroadcastResult`. This one fans out to every connected client.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results arrive at the fire-back door, where the mark is not consulted. Shedding it is the resources-plane task's work, not this file's.
+   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
    */
   @mesh()
   onTreeBroadcastResult(result?: unknown): void {

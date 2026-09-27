@@ -6,7 +6,7 @@
  */
 
 import { LumenizeDO, mesh } from '@lumenize/mesh';
-import type { AnyContinuation, BroadcastOptions, BroadcastTarget, CallContext } from '@lumenize/mesh';
+import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, hasPassageInto, isPlatformScope, parseId } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
@@ -185,18 +185,6 @@ export class NebulaDO extends LumenizeDO {
     await this.ctx.blockConcurrencyWhile(async () => {
       await this.ctx.storage.deleteAll();
     });
-  }
-
-  /**
-   * Fan `remote` out to `targets` through `svc.broadcast`, which sends every target from this
-   * node at any N. It states no dispatch policy of its own.
-   */
-  protected broadcast(
-    targets: BroadcastTarget[],
-    remote: AnyContinuation,
-    opts: BroadcastOptions = {},
-  ): void {
-    this.svc.broadcast(targets, remote, opts);
   }
 
   onBeforeCall() {

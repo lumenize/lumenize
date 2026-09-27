@@ -1,7 +1,7 @@
 /**
  * One commit, pushed to 120 subscribers on one query, reaches every one of them.
  *
- * `svc.broadcast` (`packages/mesh/src/broadcast.ts`) sends every target from the node that decided
+ * `lmz.broadcast` (`packages/mesh/src/broadcast.ts`) sends every target from the node that decided
  * to push, one `lmz.call` each, at any N. Its tail latency grows with N, and that is the cost the
  * framework accepts: a fan-out that is slow reaches everybody.
  *

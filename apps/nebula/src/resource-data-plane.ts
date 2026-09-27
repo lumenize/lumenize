@@ -11,7 +11,7 @@
  * broadcast). It deliberately does NOT own:
  *   - **Handler 1 / the ontology-version gate** — Galaxy's multi-version concern,
  *     stays per-host (Star gates; the Galaxy's fixed pre-Phase-2 ontology is never
- *     stale). See `nebula-devstudio-data-plane.md` D8.
+ *     stale). See `tasks/archive/nebula-devstudio-data-plane.md`.
  *   - **mesh I/O construction** — the capability has no `this.lmz`/`this.ctn`
  *     (like `Resources`/`DagTree`, which is why they take `()=>callContext`).
  *     All continuation construction stays host-side, reached via the injected
@@ -47,7 +47,7 @@ import type { OperationDescriptor, TransactionResult, Snapshot } from './resourc
  * `relationships` is the compiled ontology's relationship metadata
  * (`Record<typeName, Record<field, Relationship>>`) — needed by `subscribeQuery`
  * (Child 2) to validate that a query's `field` exists on `typeName` and is a
- * to-one relationship (D11/D1). Widened from Child 1's `{ version, facet }`; both
+ * to-one relationship. Widened from Child 1's `{ version, facet }`; both
  * providers already produce it (the Galaxy-cached row carries it; the Galaxy's
  * `compileOntologyVersion` emits it).
  */
@@ -99,18 +99,18 @@ export interface ResourceHostBridge {
     result: Snapshot | Error,
   ): void;
   /** Fan a committed mutation out to `targets` (originator already excluded). The
-   *  host owns the `svc.broadcast` call + its drop-on-failed-fanout cleanup. */
+   *  host owns the `lmz.broadcast` call + its drop-on-failed-fanout cleanup. */
   broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]): void;
   /** Fan a query membership push to the NO-DENIAL group — one identical payload
-   *  (the full `resourceIds`) via `svc.broadcast` (D4/D17). Attaches the 4-arg
+   *  (the full `resourceIds`) via `lmz.broadcast`. Attaches the 4-arg
    *  `onResult` so dead-client cleanup reaps these rows too (m6). */
   broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]): void;
   /** Deliver an INDIVIDUALIZED query push to one has-denial subscriber (always
-   *  carries `deniedNodes`; `resourceIds` iff `onPartial:'allow'` — D4/D14), or an
+   *  carries `deniedNodes`; `resourceIds` iff `onPartial:'allow'`), or an
    *  Error (validation failure). Also `onResult`-cleaned (m6). */
   deliverQueryUpdate(clientId: string, queryHash: string, result: QueryUpdatePayload | Error): void;
   /** Fan a subscriber-list roster (the query's distinct-by-`sub` `{ sub, profileId }` set) to its
-   *  WATCHERS — on any data-subscriber join/leave. `svc.broadcast`; drop-on-failed-fanout cleanup rides
+   *  WATCHERS — on any data-subscriber join/leave. `lmz.broadcast`; drop-on-failed-fanout cleanup rides
    *  the DEDICATED `onQuerySubscriberListBroadcastResult` (the WATCHER table, NOT `QuerySubscribers`).
    *  tasks/nebula-subscriber-lists.md. */
   broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]): void;
@@ -386,7 +386,7 @@ export class ResourceDataPlane {
    * write (Child 3 option (b): the Galaxy's assistant progress/thought stream fans to
    * the session query's subscribers, then commits ONE durable Message). The capability
    * owns targeting + the `access.scopeAdmin`-aware read recheck (never re-implemented
-   * host-side, D3/D16); the host owns delivery via its own `NebulaDO.broadcast`.
+   * host-side); the host owns delivery via its own `lmz.broadcast`.
    *
    * Per-CONNECTION (one entry per subscribed tab, no dedup by `sub`) — every open tab
    * is a delivery target. `nodeId` is the node the transient content will live under
@@ -560,7 +560,7 @@ export class ResourceDataPlane {
     try {
       const { version, facet } = this.#getOntology();
       // RETURN the result — the framework fires it back to the originating client's `callAsync`
-      // (D5 pattern (a)). The committed-mutation broadcasts to OTHER subscribers stay a fire-and-forget
+      // (the return-value pattern). The committed-mutation broadcasts to OTHER subscribers stay a fire-and-forget
       // side effect (originator excluded via `clientId`). An infra throw propagates → `callAsync` rejects.
       return await this.#resources.transaction(ops, version, newETag, facet, {
         onMutations: (mutations) => {
@@ -586,7 +586,7 @@ export class ResourceDataPlane {
   }
 
   /** Read a resource (DAG read-permission enforced in `Resources.read`) and RETURN it — the framework
-   *  fires the value back to the originating client's `callAsync` (D5 pattern (a)); a permission/not-found
+   *  fires the value back to the originating client's `callAsync`; a permission/not-found
    *  throw propagates → `callAsync` rejects. Logged for server-side observability, then re-thrown. */
   doRead(resourceId: string): Snapshot | null {
     try {
@@ -639,8 +639,8 @@ export class ResourceDataPlane {
   /**
    * Register a query subscriber (Flow 1) + push the initial membership state.
    * **Registration always succeeds** — no permission check (authorize at delivery,
-   * D2/D4) — but the query is FIRST validated against the ontology contract
-   * (`queryType` known, `field` a to-one relationship, `orderBy` supported, D1/D12).
+   * push by push) — but the query is FIRST validated against the ontology contract
+   * (`queryType` known, `field` a to-one relationship, `orderBy` supported).
    * On a validation failure NOTHING is registered and the error is delivered to the
    * client keyed by the (locally-computed) `queryHash` so its handle rejects (an
    * unknown `queryType` thus fails CLOSED). On success the membership-delivery
@@ -675,12 +675,12 @@ export class ResourceDataPlane {
   }
 
   /**
-   * Validate a query against the ontology contract (D1/D12). Throws on:
+   * Validate a query against the ontology contract. Throws on:
    *   - an unknown `queryType` (v1 supports only `'parentChild'` — fail closed so an
    *     app on a newer type gets a clean error, not garbage);
    *   - a `field` that isn't a to-one relationship on `typeName` (per the seam's
-   *     `relationships` metadata, D11);
-   *   - an unsupported `orderBy` (v1 only `'validFrom'`, D15).
+   *     `relationships` metadata);
+   *   - an unsupported `orderBy` (v1 only `'validFrom'`).
    */
   #validateQuery(query: QueryDescriptor): void {
     if (query.queryType !== 'parentChild') {
@@ -701,7 +701,7 @@ export class ResourceDataPlane {
   /**
    * The one queryType-specific step (D-generic routine): evaluate a query to its
    * current ordered result set. v1 `parentChild` → `enumerateCurrentByField` over
-   * current snapshots (full scan while D8 defers the index, M1).
+   * current snapshots (a full scan, while an index stays deferred).
    */
   #evaluateQuery(query: QueryDescriptor): Array<{ resourceId: string; nodeId: string }> {
     return this.#resources.enumerateCurrentByField(query.typeName, query.field, query.value);
@@ -713,10 +713,10 @@ export class ResourceDataPlane {
    * or permission change). Evaluates the query to its current result set, evaluates
    * each target's read permission (no short-circuit), then PARTITIONS:
    *   - **no-denial** targets (can read every match) share ONE identical payload
-   *     (the full `resourceIds`) → `bridge.broadcastQueryUpdate` (svc.broadcast);
+   *     (the full `resourceIds`) → `bridge.broadcastQueryUpdate` (`lmz.broadcast`);
    *   - **has-denial** targets each get an individualized `bridge.deliverQueryUpdate`
    *     per their own `onPartial` (read from the stored query — `onPartial` is NOT
-   *     in the queryHash, so co-`queryHash` subscribers may differ, D2/M3): `'allow'`
+   *     in the queryHash, so co-`queryHash` subscribers may differ): `'allow'`
    *     → `{ resourceIds (readable), deniedNodes }`; `'error'` → `{ deniedNodes }`.
    * The client REPLACES its set on every push (idempotent, self-healing — no delta).
    */
@@ -769,10 +769,9 @@ export class ResourceDataPlane {
   /**
    * Rerun the live queries matching `shouldRerun`, grouped by `queryHash` (all rows
    * sharing a hash are one query + its subscribers). Selection is a SCAN of the
-   * (small) subscription table (D8 — a decomposed-column index is the deferred
+   * (small) subscription table (a decomposed-column index is the deferred
    * optimization), not a per-mutation match. Shared by the commit trigger (filter by
-   * touched type, Phase 4) and the permission-change trigger (all live queries,
-   * Phase 5 / D6).
+   * touched type) and the permission-change trigger (all live queries).
    */
   #rerunQueries(shouldRerun: (q: QueryDescriptor) => boolean): void {
     const groups = new Map<string, { query: QueryDescriptor; rows: QuerySubscriberRow[] }>();
@@ -793,14 +792,14 @@ export class ResourceDataPlane {
    * Resource-mutation broadcast — invoked from `Resources.transaction` via the
    * `onMutations` callback after a successful commit. Looks up subscribers per
    * mutated resource, excludes the originator, and hands the target set to the
-   * host bridge for the actual `svc.broadcast`.
+   * host bridge for the actual `lmz.broadcast`.
    *
-   * D3 (Child 2): a per-push DAG read recheck closes the subscribe-time-only gap
+   * A per-push DAG read recheck (Child 2) closes the subscribe-time-only gap
    * Child 1 carried into the capability. A subscriber who lost read since
-   * subscribing is SKIPPED for this push — never dropped (ADR-008 / D5; readable
+   * subscribing is SKIPPED for this push — never dropped (ADR-008; readable
    * state returns via the Flow-3 permission rerun when access does). The recheck
    * is an explicit-sub `evaluatePermissions` honoring the row's stored
-   * `dominionOverHostAtSubscribe` (the `access.scopeAdmin` bypass, D16), NOT the live caller's
+   * `dominionOverHostAtSubscribe` (the `access.scopeAdmin` bypass), NOT the live caller's
    * `requirePermission`. Closing it in the capability protects Star AND Galaxy.
    */
   #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string): void {
