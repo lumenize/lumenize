@@ -18,7 +18,7 @@
 
 | # | Item | Task file | Gate |
 |---|---|---|---|
-| — | ✅ **BUILT 2026-09-27 — Broadcast is core to every mesh node, and it delivers directly** — `lmz.broadcast` is on every node so any node can fan out, the broken tier branch is deleted rather than guarded, and the Gateway no longer forwards hops a client appended | [mesh-broadcast-is-core-and-direct.md](mesh-broadcast-is-core-and-direct.md) — five phases, built 2026-09-27 | deploy · **enables ④** (its D22) |
+| — | ✅ **BUILT 2026-09-27 — Broadcast is core to every mesh node, and it delivers directly** — `lmz.broadcast` is on every node so any node can fan out, the broken tier branch is deleted rather than guarded, and the Gateway no longer forwards hops a client appended | [archive/mesh-broadcast-is-core-and-direct.md](archive/mesh-broadcast-is-core-and-direct.md) — five phases, built 2026-09-27 | deploy · **enables ④** (its D22) |
 | — | **The scope moves from a URL segment to a subdomain** — every scope its own host ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)), every session on the platform host ([ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md)), and the certificate wait shown on Galaxy create | [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) — not started; ② waits on it | **data** |
 | ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1 complete; Stage 1 run and every question answered 2026-09-08/09, verdicts in its § *Pinned*. Pass 2 writes the phases | deploy |
 | — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
