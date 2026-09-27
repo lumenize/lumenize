@@ -44,6 +44,21 @@ call<T = any>(
 
 For `call()` patterns including fire-and-forget, response handlers, chaining, and error handling, see [Making Calls](./calls).
 
+### `broadcast()` — One Continuation, Many Targets
+
+Sends one continuation to every target — one `call()` per target, from this node, at any number of targets. Every node type carries it, clients included.
+
+```typescript @check-example('packages/mesh/src/lmz-api.ts')
+// this.lmz.broadcast()
+broadcast<T = any>(
+  targets: BroadcastTarget[],
+  remoteContinuation: Continuation<T>,
+  options?: BroadcastOptions
+): void;
+```
+
+For its options, failure handling and limits, see [Broadcast](./broadcast).
+
 ### Awaiting a result
 
 `call()` never returns a value — it fires-and-forgets or delivers the outcome to a handler. The one place you can `await` a cross-node call is the **client-only** `callAsync` (a DO/Worker can't hold a Promise across hibernation, so it uses `call()` + a handler instead) — see [LumenizeClient § Awaiting a result](./lumenize-client#awaiting-a-result--callasync-client-only). The single awaited Workers-RPC hop that `call()` uses internally is private framework transport, not a public API.
@@ -65,7 +80,7 @@ When `newChain` is false (the default) and the `state` option is provided, it is
 
 `onSent` is invoked synchronously with the generated `callId` immediately before the call message is sent (or queued, when disconnected). Useful for correlating an outbound call with later inbound frames — e.g. tracing markers or custom Gateway-emitted WebSocket frames — without exposing the client's internal pending-call map.
 
-`onErrorOnly` applies only to the 4-arg `this.lmz.call(callee, instance, remote, handler, opts)` form: when `true`, the handler chain is invoked only on remote rejection; successful results are dropped without dispatch. Useful for fire-and-forget paths that want structured error handling (retry, escalation, cleanup) without paying the per-call success-path dispatch cost — `svc.broadcast`'s drop-on-failed-fanout cleanup uses this internally.
+`onErrorOnly` applies only to the 4-arg `this.lmz.call(callee, instance, remote, handler, opts)` form: when `true`, the handler chain is invoked only on remote rejection; successful results are dropped without dispatch. Useful for fire-and-forget paths that want structured error handling (retry, escalation, cleanup) without paying the per-call success-path dispatch cost — `broadcast()` adds it to every call whenever you pass an `onResult`.
 
 ## Interface: `CallContext`
 

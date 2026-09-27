@@ -226,7 +226,7 @@ than inherit its lifecycle. A correct raw drive replicates:
 - **`envVars` MUST be set before `start()`** — the container reads them at *start*, not at construction.
 
 **On the raw path the `extends Container` frictions disappear:** there is **no base alarm loop**, so
-`svc.alarms` / `svc.sql` / `svc.broadcast` are **free to use**. The old "never `svc.alarms` on a container
+`svc.alarms` / `svc.sql` are **free to use**. The old "never `svc.alarms` on a container
 node; route scheduling through `Container.schedule()`" constraint was an artifact of inheriting the base's
 perpetually-armed alarm — **gone** on a plain-DO container host. `onStart` is likewise yours (or just do
 lazy construction in a first-use getter).

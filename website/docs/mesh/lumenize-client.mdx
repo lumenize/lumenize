@@ -15,7 +15,7 @@ Each `LumenizeClient` connects via a hibernating WebSocket to its own dedicated 
 
 This architecture means:
 - **Server-initiated calls work** — A DO can call `this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)` and your client's handler executes
-- **Same API everywhere** — `this.lmz.call()`, `@mesh()`, and continuations work identically on clients
+- **Same API everywhere** — `this.lmz.call()`, `this.lmz.broadcast()`, `@mesh()`, and continuations work identically on clients
 - **Automatic reconnection** — The client reconnects seamlessly; the Gateway preserves state during brief disconnections and has mechanisms for seamless restoration of state for longer ones
 
 See [Gateway Internals](./gateway) for the full architecture and protocol details.
@@ -111,7 +111,7 @@ const isAdmin = client.claims?.isAdmin;   // typed via the client's own claim sh
 
 `LumenizeClient` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh()` decorator for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations.
 
-See [Making Calls](./calls) for `this.lmz.call()` patterns, continuations, and error handling.
+See [Making Calls](./calls) for `this.lmz.call()` patterns, continuations, and error handling, and [Broadcast](./broadcast) for `this.lmz.broadcast()`.
 
 ## Awaiting a result — `callAsync` (client-only)
 
@@ -155,7 +155,9 @@ Or call `disconnect()` manually. Monitor state via `onConnectionStateChange` cal
 
 LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The one additional restriction: a **direct client-to-client call is rejected by default** — identified by the call's **immediate caller** (`callChain.at(-1)`), not its origin.
 
-- ✅ Calls whose immediate caller is a LumenizeDO or LumenizeWorker are allowed — this covers every DO/Worker-mediated push (fanout, direct-delivery, `svc.broadcast`), **even when the call originated from another client** (client A mutates → a DO fans out → client B receives it).
+That check holds because a client cannot write its own chain. The [Gateway](./gateway) builds every client call's `callChain` from the socket's verified identity alone and drops any hop the client appended, so a direct call always arrives with the calling client as its immediate caller.
+
+- ✅ Calls whose immediate caller is a LumenizeDO or LumenizeWorker are allowed — this covers every DO/Worker-mediated push (fanout, direct-delivery, `lmz.broadcast`), **even when the call originated from another client** (client A mutates → a DO fans out → client B receives it).
 - ✅ A call whose immediate caller is this same client instance (a response flowing back through the mesh) is allowed.
 - ❌ A **direct** client-to-client call — another LumenizeClient as the immediate caller — is rejected by default.
 

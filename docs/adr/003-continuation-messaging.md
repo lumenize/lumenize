@@ -15,11 +15,11 @@ A distributed flow touches many nodes: client → Gateway → Star → Worker �
 
 **Mesh flows are one-way messages carrying continuations; no node holds a Promise (a reply channel) open across a hop for more than an instant.**
 
-A **continuation** (`lmz.ctn()`) is a *serializable description of work to be done in another place or time* — the property everything here rests on. Because a continuation is **data, not a live handle**, it can be sent, delivered, and stored rather than awaited:
+A **continuation** (`ctn()`) is a *serializable description of work to be done in another place or time* — the property everything here rests on. Because a continuation is **data, not a live handle**, it can be sent, delivered, and stored rather than awaited:
 
 - A call specifies the work it wants done **on the callee** as a continuation.
 - Request/response is *simulated without a held channel*: the work the caller wants done **with the result** (the value, or an Error) is *also* a continuation; the callee fills it with the result and sends it back with another `call()`. The outcome is **delivered** as a fresh one-way message, never **returned** up a channel the caller would otherwise hold open.
-- Those deliveries take a few concrete forms: the 4-arg `call` handler, `svc.broadcast`'s `onResult`, and the client's RESULT fire-back — each a one-way delivery to wherever the result is needed.
+- Those deliveries take a few concrete forms: the 4-arg `call` handler, `lmz.broadcast`'s `onResult`, and the client's RESULT fire-back — each a one-way delivery to wherever the result is needed.
 - Multi-hop flows hand off **forward** (client → Star → Worker → client), each hop naming only its own next node; they never unwind back through the intermediates (direct delivery).
 - `callContext` (identity, provenance, state) rides every hop automatically — that, not a held channel, is what makes flows composable.
 - Because a continuation is data, it can also be **persisted** — stashed in an alarm or in storage and re-executed later. That is a "Promise" that survives hibernation precisely because it stopped being one (`@lumenize/fetch` stringifies a continuation into an alarm as its delivery backstop).

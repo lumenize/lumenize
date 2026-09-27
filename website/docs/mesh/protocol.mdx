@@ -258,7 +258,7 @@ const GatewayMessageType = {
   instance?: string,         // Target instance (DO only)
   chain: LmzIntermediate,    // Preprocessed operation chain
   callContext?: {
-    callChain: NodeIdentity[],
+    callChain: NodeIdentity[], // Ignored: the Gateway builds the chain itself
     state: LmzIntermediate   // Preprocessed state
   }
 }
@@ -390,12 +390,12 @@ Continuations can be nested. The special markers `$result` and `$error` are subs
 ┌────────┴────────┐
 │ LumenizeClient  │  (untrusted - claims can be forged)
 │                 │
-│ Sends callChain │  ◄── Gateway REPLACES callChain[0] with
-│ with self       │      verified identity from JWT
+│ Sends callChain │  ◄── Gateway IGNORES it and builds the
+│ with self       │      chain from verified identity alone
 └─────────────────┘
 ```
 
-**Key Guarantee:** The Gateway always replaces `callChain[0]` with the verified identity from the WebSocket attachment. Client-provided identity is never trusted.
+**Key Guarantee:** The Gateway builds a client call's `callChain` from the verified identity in the WebSocket attachment alone — one element, the calling client — and keeps nothing the client sent. Client-provided identity is never trusted, and a client cannot append a hop to make another node look like its caller.
 
 ---
 

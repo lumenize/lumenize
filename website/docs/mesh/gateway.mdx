@@ -47,7 +47,7 @@ Gateway doesn't interpret the calls passing through it — it simply forwards th
   
 - **Ephemerality**: While the same client must reconnect with the same id to preserve subscriptions, resubscribing is expected frequently and there is no downside when a new tab/browser/nodejs instance/etc. connects with a different randomly generated tabId.
   
-- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare circumstances. Further, a single hop between regions can be on the order of tens to hundreds of ms so the already-insignificant addition of ~5-12ms becomes even more insignficant as distance increases. One exception: when a single application DO broadcasts to many connected clients (>~250 subscribers), the extra Gateway hop materially shows up in the originator's per-message round-trip — see [`svc.broadcast`](/docs/mesh/broadcast) for the recommended pattern (tiered fanout via a recursive Worker tier) and `tasks/fanout-scaling-benchmark.md` for the measured curve.
+- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare circumstances. Further, a single hop between regions can be on the order of tens to hundreds of ms so the already-insignificant addition of ~5-12ms becomes even more insignficant as distance increases. One exception: when a single application DO broadcasts to many connected clients (>~250 subscribers), the extra Gateway hop materially shows up in the originator's per-message round-trip, since [`lmz.broadcast`](/docs/mesh/broadcast) sends one call per subscriber from that DO — see its *Limits* section.
 
 - **Throughput**: With this design, authentication and routing CPU work is spread out across multiple DOs rather than serializing on the callee. Our benchmarks show this results in ~14% increase in peak throughput.
 
@@ -112,7 +112,7 @@ When a caller receives `ClientDisconnectedError`, it is expected to clean up any
 
 The Gateway is the **trust DMZ** between less trusted clients and more trusted mesh. When forwarding a client's call to the mesh, the Gateway builds the call context from **verified sources only** (JWT claims and connection data). Even if a malicious client sends fake identity information in a call message, the Gateway ignores it and uses only the verified data from the WebSocket attachment.
 
-This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed.
+This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed. The same goes for `callContext.callChain`: the Gateway builds it as a single element, the calling client, and drops every hop the frame carried — so a callee reading `callChain.at(-1)` finds the client itself, never a node the client named.
 
 > **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
 

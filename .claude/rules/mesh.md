@@ -10,9 +10,9 @@ paths:
 
 Applies to **mesh-based code** — `LumenizeDO` subclasses / `this.lmz` / `this.svc`: `packages/mesh`, `packages/fetch`, `apps/nebula`, `packages/nebula-frontend`. Communication MUST go through the Mesh abstraction and MUST NOT use raw DO primitives — the most common mistake is dropping to raw Workers RPC where a mesh call belongs. (Raw-DO infrastructure like `auth`/`testing` is a different layer → [raw-comm.md](raw-comm.md); to tell which layer you're in → [workers-projects.md](workers-projects.md). Local DO correctness → [durable-objects.md](durable-objects.md).)
 
-## Prefer `lmz.call()` / `lmz.ctn()` over raw RPC — always
+## Prefer `lmz.call()` / `ctn()` over raw RPC — always
 - Cross-node communication MUST go through `this.lmz.call(...)`; **raw Workers RPC** (`stub.method()`, `env.X.get(id).method()`) MUST NOT be used in application code without explicit human approval. Raw RPC **bypasses the Mesh security model** (callContext-based auth/identity propagation and the declared `@mesh()` call surface) and also holds a stub open (wall-clock billing). Framework code like the Gateway is the rare approved exception — see *`LumenizeClientGateway` is NOT a mesh participant* below.
-- Continuations (`this.lmz.ctn()`) propagate **`callContext`** across every hop automatically — identity (`originAuth`), provenance (`callChain`), and `state` — which raw RPC drops entirely. Identity MUST NOT be threaded by hand; for what rides in `callContext` vs. travels as continuation parameters, see § *Passing data to the callee*.
+- Continuations (`this.ctn()`) propagate **`callContext`** across every hop automatically — identity (`originAuth`), provenance (`callChain`), and `state` — which raw RPC drops entirely. Identity MUST NOT be threaded by hand; for what rides in `callContext` vs. travels as continuation parameters, see § *Passing data to the callee*.
 - **You MUST flag any pseudo-code or implementation that uses `stub.method()` directly instead of `lmz.call(binding, instance, continuation)`.**
 
 ## `call()` + a continuation is the ONLY cross-node call surface
@@ -21,7 +21,7 @@ There is **no awaited request/response form.** `callRaw` was removed (`mesh-cont
 - **4-arg** (`lmz.call(binding, instance, remote, this.ctn().handler(remote))`) — the callee **acks early** (before running the chain), does the work (may be long / hibernate freely), then **fires the outcome back** into your `handler`: the value on success, the Error on a chain throw. The caller holds **ZERO state** — a DO/Worker's handler *travels* with the call (runs on a cold, storage-restored instance if the caller was evicted); a client's handler stays *in-heap* keyed by callId and **delivery re-resolves to whatever socket the client is on now.**
 - **4-arg is RESILIENT by construction** — this inverts the old advice. It survives WS reconnect, tab sleep, and DO hibernation, so the old "thinking… forever" bug (an awaited result bound to a dead socket) is gone *by construction*. The old carve-out — "keep awaited `callRaw` for short reliable DO↔DO/Worker hops, fire-and-forget only for client-facing/long" — is **retired**: `call()`+continuation is the one path, and 4-arg is now the *safe* choice for exactly the client-crossing/long calls it used to be a workaround for. (The `[[client-calls-use-direct-delivery]]` memory's "callRaw fine for short hops" is stale — retire it.)
 - **A 4-arg target MUST be cross-node-self-contained:** it produces its result with local sync/async only (no *further* cross-node call). A result that depends on a downstream node MUST use 3-arg multi-hop or a **subscription** (for live UI data, a subscription SHOULD be preferred outright — see the Nebula reactive-UI note).
-- **`onErrorOnly` (5th arg) is the fanout tier**, not a single-call default: it skips the success fire-back callee-side, so a broadcast to N targets doesn't fire N discarded success handlers. Canonical: `svc.broadcast` drop-a-dead-subscriber cleanup.
+- **`onErrorOnly` (5th arg) is the fanout tier**, not a single-call default: it skips the success fire-back callee-side, so a broadcast to N targets doesn't fire N discarded success handlers. Canonical: `lmz.broadcast`, which adds it whenever an `onResult` is given, for drop-a-dead-subscriber cleanup.
 - **`client.lmz.callAsync(binding, instance, remote, opts?)` — the ONE sanctioned awaitable, client-only** (`mesh-client-callasync`, 2026-07-03). `callAsync<T>(): Promise<Awaited<T>>` is a resilient Promise wrapper over the same one-way-fire + re-resolvable fire-back as a 4-arg *client* `call`: the client keeps its handler **in-heap keyed by `callId`** rather than travelling it, and the Gateway re-resolves delivery to whatever socket the client is on now — so the Promise survives tab freeze + WS reconnect, and does NOT strand on a dead socket the way the removed `callRaw` did — it *realizes* ADR-003, doesn't violate it. Bounded by a built-in default `timeoutMs` (30s; `0`/`Infinity` disables) composed with an optional caller `AbortSignal` via `AbortSignal.any`. **The greppable rule: the only awaitable on `client.lmz` is `callAsync`; `lmz.call` stays `void`** — a `grep 'lmz\.call\b'` hit MUST NOT be `await`ed. **DOs/Workers MUST NOT get `callAsync`** — a held heap Promise dies on hibernation, so they use the traveling handler. ⚠️ Abort cancels the WAIT, not the server OP, so only idempotent ops MAY be retried (client-supplied UUID / ADR-005 eTag). A `subscribe` SHOULD be preferred for live UI data, as SHOULD higher-level SDK methods (`client.resources.*`) when they exist; `callAsync` is the one-shot read/mutation escape hatch. Callee side: a method reached by `callAsync` **returns its value** and the framework fires it back — it MUST NOT explicitly invoke a named handler by `requestId` (that pre-`callAsync` hand-roll is retired), the same as a 4-arg target. Canonical consumers: `apps/nebula/src/nebula-client.ts` `orgTree.*` / `#readResource` / `#meshSubmit`.
 
 ## DO vs Worker routing rule
@@ -108,15 +108,14 @@ Mesh code MUST schedule with `this.svc.alarms.schedule(delaySeconds, this.ctn().
 - **The handler is NOT necessarily local.** DO/Worker: it *travels* in the envelope and runs on the callee's fire-back (on a cold, storage-restored caller if the caller was evicted). Client: it stays *in-heap* keyed by callId and delivery re-resolves to the current socket. Either way you never `await` it.
 - **`onErrorOnly` + broadcast-to-clients:** the error path is only *delivery* failures — the Gateway (NOT a mesh node; it does not early-ack — the one deliberately-awaited hop) awaits the bounded client delivery and returns `ClientDisconnectedError`, routed to your handler locally as a *delivered* error rather than a sync throw. Never the client's own app error (delivery to the client is one-way). So `onErrorOnly` is for delivery reactions (drop a dead subscriber), not catching the callee's app errors.
 
-Use the 4-arg form for reactive cleanup, retry, and observability — anything that reacts to "did it land?" without `await`ing. A fire-back handler needs **no** `@mesh()` — it lands on the response leg, where the member-level check is off, and that holds for a `svc.broadcast` result forwarded by a tier Worker too: the forward goes to the origin's fire-back door, not its request door. The handler MUST carry `@mesh()` **only** if it must ALSO be dispatched as an ordinary request — and ⚠️ weigh what that costs, because a mark makes it callable by any caller who can reach the node, with arguments of their choosing. The "not remotely callable" boundary is the **absence of `@mesh`**, never visibility. A `this.ctn()` handler MUST be **`public`** (TS only surfaces `public` members on `Continuation<this>`; the modifier is erased at runtime, so non-public buys nothing while forcing an untyped `(this.ctn() as any)` cast). Canonical local-only public handlers: `Star.doTransaction`/`doRead`/`doSubscribe`/`applyFetchedState`. (User docs: [continuations.mdx](../../website/docs/mesh/continuations.mdx).)
+Use the 4-arg form for reactive cleanup, retry, and observability — anything that reacts to "did it land?" without `await`ing. A result handler needs **no** `@mesh()`. It runs either at the caller's fire-back door, for a DO or Worker that acked and then answered, or locally on the caller's own dispatch, for a Gateway or any target that refused at admission — and neither consults the mark. The handler MUST carry `@mesh()` **only** if it must ALSO be dispatched as an ordinary request — and ⚠️ weigh what that costs, because a mark makes it callable by any caller who can reach the node, with arguments of their choosing. The "not remotely callable" boundary is the **absence of `@mesh`**, never visibility. A `this.ctn()` handler MUST be **`public`** (TS only surfaces `public` members on `Continuation<this>`; the modifier is erased at runtime, so non-public buys nothing while forcing an untyped `(this.ctn() as any)` cast). Canonical local-only public handlers: `Star.doTransaction`/`doRead`/`doSubscribe`/`applyFetchedState`. (User docs: [continuations.mdx](../../website/docs/mesh/continuations.mdx).)
 
 ```typescript
-// svc.broadcast's direct path (broadcast.ts) — fire each push, react only to failures
-doInstance.lmz.call(t.bindingName, t.instanceName, remote, opts.onResult,
-  { onErrorOnly: true });
+// lmz.broadcast (broadcast.ts) — fire each push, react only to failures
+lmz.call(t.bindingName, t.instanceName, remote, onResult, { onErrorOnly: true });
 
 // Star's handler — drop a subscriber whose Gateway reported it disconnected.
-// No `@mesh()`: a fire-back lands on the response leg, where the member-level check is off.
+// No `@mesh()`: a Gateway answers inside its ack, so this runs locally, where the mark is not consulted.
 onBroadcastResult(resourceId: string, result?: unknown): void {
   if (result instanceof Error && result.name === 'ClientDisconnectedError') {
     const clientId = this.lmz.callContext.callee?.instanceName;
@@ -124,24 +123,24 @@ onBroadcastResult(resourceId: string, result?: unknown): void {
   }
 }
 ```
-Application code rarely writes the raw 4-arg form — it gets the same drop-on-failed-broadcast cleanup for free via `svc.broadcast(targets, remote, { onResult })`. Canonical: `svc.broadcast` in `packages/mesh/src/broadcast.ts` + `Star.onBroadcastResult` in `apps/nebula/src/star.ts`.
+Application code rarely writes the raw 4-arg form — it gets the same drop-on-failed-broadcast cleanup for free via `lmz.broadcast(targets, remote, { onResult })`. Canonical: `lmz.broadcast` in `packages/mesh/src/broadcast.ts` + `Star.onBroadcastResult` in `apps/nebula/src/star.ts`.
 
 ## "broadcast" vs "fanout" (naming — don't flip-flop)
-`broadcast` is the Lumenize primitive (`this.svc.broadcast`), its API symbols (`onBroadcastResult`, `STAR_BROADCAST_*`), and the user-facing concept — it MUST be used everywhere those apply. `fanout` MAY be used **only** as the generic CS technique: the recursive tree-dispatch *mechanism* inside `svc.broadcast`'s tier Worker (hence `broadcast.ts` doc-comments say "tree-fanout", "per-tier fanout factor"). When renaming toward broadcast, you MUST NOT "correct" the technique-level `fanout` back, and MUST NOT reintroduce `fanout` for the primitive. (The `fanout-scaling-benchmark` files + `bench:fanout` scripts predate this split and are a known straggler — not a counter-example.)
+`broadcast` is the Lumenize primitive (`this.lmz.broadcast`), its API symbols (`onBroadcastResult`, `BroadcastTarget`), and the user-facing concept — it MUST be used everywhere those apply. `fanout` MAY be used **only** for the generic technique, in the two names that carry it: the *drop-on-failed-fanout* cleanup pattern, and the Profile's private `#fanout()`, which calls `lmz.broadcast`. The recursive tier whose tree dispatch the word once named is gone. You MUST NOT "correct" either name to `broadcast`, and MUST NOT reintroduce `fanout` for the primitive. (The `fanout-scaling-benchmark` files + `bench:fanout` scripts predate this split and are a known straggler — not a counter-example.)
 
-## A Nebula node broadcasts through `NebulaDO.broadcast`, never `this.svc.broadcast`
-Star, Galaxy, and every other `NebulaDO` MUST fan out with `this.broadcast(targets, remote, opts?)`,
-and MUST NOT call `this.svc.broadcast(...)` directly. One method states Nebula's dispatch policy for
-all nine call sites: it defaults `directThreshold` to `Infinity`, which pins the flat loop at any N.
-An explicit `directThreshold` in `opts` still wins, so the fan-out bench can force either path. The
-pin is TEMP, and `NebulaDO.broadcast`'s JSDoc carries the argument and what lifting it needs.
+## A broadcast target's `bindingName` comes from a source the client cannot write
+**For a client subscriber, the stored binding MUST come from the Gateway-stamped chain, and MUST NOT
+come from a parameter or anything else the client sends.** The Gateway builds a client call's
+`callChain` from the socket's verified identity alone, so `callChain[0].bindingName` is its own
+binding; the Profile's `subscribe` reads it there.
 
-⚠️ **A site that reaches past the wrapper throws above 100 targets, and takes the writer's
-transaction down with it.** `svc.broadcast` picks the tree path on target count alone; the tree path
-calls a service binding named `LUMENIZE_BROADCAST_TIER`; `apps/nebula` declares none; and `lmz.call`
-validates its target synchronously. Measured 2026-09-05: with 120 subscribers on one query, the
-commit came back `infrastructure-error`. No vitest tier can see this, because every fan-out test
-there runs two clients — the witness is the `broadcast-past-threshold` `/live` scenario.
+⚠️ **The reason is that one unroutable row fails a write that has already landed.** `lmz.broadcast`
+checks each target synchronously and has no per-target catch, so the first row naming a binding the
+Worker does not declare throws out of the loop. Inside the fan-out that runs after a commit, that
+fails the writer's call and skips every target after the row. Measured 2026-09-05: a throw in that
+fan-out brought the commit back `infrastructure-error`. The `/live` scenario
+`gateway-stamps-the-chain` drives the forged-row case, and `broadcast-120-subscribers` is the one
+test anywhere that puts more than a hundred targets on one fan-out.
 
 ## Fire-and-forget error delivery
 When a handler delivers results via an explicit callback (e.g. `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), the **entire handler body** MUST be wrapped in try/catch. Uncaught exceptions are silently lost — the client never gets a response and `callCompleted` never becomes true.
