@@ -3,7 +3,8 @@ import { LumenizeWorker } from '../src/lumenize-worker';
 import { mesh } from '../src/mesh-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '../src/alarms';
-import { getOperationChain, continuationFromChain, type OperationChain } from '../src/ocan/index.js';
+import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
+import { continuationFromChain } from './continuation-from-chain.js';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 
 // Export LumenizeClientGateway for testing

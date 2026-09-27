@@ -2,11 +2,24 @@ import '@lumenize/fetch';       // Registers fetch in this.svc
 import { LumenizeDO, mesh } from '@lumenize/mesh';
 import { FetchExecutorEntrypoint } from '@lumenize/fetch';
 import { RequestSync, ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
-import { replaceNestedOperationMarkers, getOperationChain, continuationFromChain } from '@lumenize/mesh';
+import { replaceNestedOperationMarkers, getOperationChain, newContinuation } from '@lumenize/mesh';
 import type { OperationChain } from '@lumenize/mesh';
 
 // Export FetchExecutorEntrypoint for service binding
 export { FetchExecutorEntrypoint };
+
+/**
+ * Rebuild a continuation from a forged chain, so `lmz.call` — which accepts only a continuation —
+ * can send it. Replaying the chain's `get` and `apply` steps onto a fresh continuation reproduces
+ * it; `@lumenize/mesh` exported a function of this name until 2026-09-27.
+ */
+function continuationFromChain<T = any>(chain: OperationChain): T {
+  let continuation: any = newContinuation();
+  for (const op of chain) {
+    continuation = op.type === 'get' ? continuation[op.key] : continuation(...op.args);
+  }
+  return continuation as T;
+}
 
 /**
  * Test DO for proxyFetch

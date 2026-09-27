@@ -54,10 +54,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
-- [ ] **Flag in the next release notes, as BREAKING: three changes to `@lumenize/mesh`'s public surface (2026-09-27).**
+- [ ] **Flag in the next release notes, as BREAKING: four changes to `@lumenize/mesh`'s public surface (2026-09-27).**
   - **`this.svc.broadcast` is now `this.lmz.broadcast`**, and `LumenizeServices.broadcast` is gone. It is on every node's `lmz` — `LumenizeDO`, `LumenizeWorker`, `LumenizeClient`, and a `ComposedMeshDO` host — and its `newChain` and `state` options are additive.
   - **The recursive broadcast tier is removed**: `directThreshold`, `branch`, `BROADCAST_TIER_BINDING`, `LumenizeWorker.__broadcastTier` and `LumenizeWorker.__forwardBroadcastResult` no longer exist, and a `LUMENIZE_BROADCAST_TIER` binding is no longer read. Every broadcast is a direct loop at any N.
   - **The Gateway no longer forwards hops a client appended to its call chain.** A client's call reaches its callee with a one-element `callChain`: the verified client.
+  - **`continuationFromChain` is no longer exported.** Its one production caller was the tier. To send a call later, hold its parameters and build the continuation with `ctn()` when you send it; to run a stored chain on the same node, `executeFilledChain` takes it as it is.
 
 - [ ] **Flag in the next release notes, as BREAKING: a client no longer receives `callContext.originRequest` (2026-09-18).** Published `@lumenize/mesh@0.26.0` copied it into every `incoming_call` frame, so a push that inherits the writer's chain (`svc.broadcast`, both paths) handed every subscriber the writer's IP, `User-Agent`, `Accept-Language` and Cloudflare `cf` location on every write. `LumenizeClientGateway` now leaves it out, `IncomingCallMessage.callContext` no longer declares it, and `LumenizeClient` no longer copies it into `this.lmz.callContext`, whose type now omits it.
   - **What breaks:** TS that reads `originRequest` off a client's `this.lmz.callContext` or off an `IncomingCallMessage` stops compiling, because `LmzApiClient.callContext` is now `Omit<CallContext, 'originRequest'>`. Passing a client's context where a `CallContext` is expected still compiles, since the field is optional there. No in-repo client read it.
@@ -214,6 +215,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **No filled chain reaches a client's push door.** The old client-origin branch shipped one over `lmz.call`, stopped only because its op 0 happened to name a DO method, which is not mesh-callable on a client.
   - **The entry is not a member every `LumenizeWorker` inherits, it refuses a chain a client started, and it never takes `branch` from its caller.** The old `@mesh() __broadcastTier` sat on every `LumenizeWorker`, `NebulaAuthFacade` among them, so any client could have the facade re-send a chain it chose, to targets it chose, fanned out as wide as it chose.
   - **`broadcast-120-subscribers` in the `/live` registry is the tripwire** — 120 subscribers on one query, above where a rebuilt tier's cutoff would sit.
+  - **A relay has to send a chain it received, and `lmz.call` accepts only a continuation.** `continuationFromChain` did that until 2026-09-27, when it was deleted with no production caller left; git has its three lines. Restore it in `ocan`, or decide then whether `lmz.call` should accept a chain — deferred until something needs it (Larry, 2026-09-27).
 
 - [ ] **An outbound `lmz.call` that starts its own chain carries no `originAuth`, so `requirePassage` refuses it.** Alarm handlers and `newChain: true` calls have no inbound client call to inherit `aud` from. A `NebulaDO` knows its own scope (`onBeforeCall` stores it, readable at `ctx.storage.kv.get<string>('__nebula_universeGalaxyStarId')`), so it could compose a callContext itself. No production path needs this yet — the subscribe/update pattern always originates from a client call. Solve it when a real caller appears rather than designing for one.
 

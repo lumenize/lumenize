@@ -22,7 +22,7 @@
  */
 import { describe, it, expect, inject, vi } from 'vitest';
 import { EditorClient } from '../for-docs/getting-started/editor-client';
-import { continuationFromChain } from '../../src/ocan/index';
+import { continuationFromChain } from '../continuation-from-chain';
 import type { OperationChain } from '../../src/ocan/index';
 
 
