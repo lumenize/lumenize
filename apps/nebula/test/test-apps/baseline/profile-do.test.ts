@@ -1,5 +1,5 @@
 /**
- * Profile DO — Phase 2 (tasks/archive/nebula-profile-store.md): the global per-`profileId` DO's storage, the
+ * Profile DO (tasks/archive/nebula-profile-store.md): the global per-`profileId` DO's storage, the
  * OPEN public read, the `requireOwnerOrAdmin` gate (owner/super-admin short-circuit with NO read;
  * scoped-admin the ONE read), the private-notes gate, fail-closed, and LWW + forward-only eTag. Every
  * test is capable-of-failing.
@@ -127,14 +127,14 @@ const write = (c: LumenizeClient<any>, pid: string, f: { name?: string; nickname
 const readNotes = (c: LumenizeClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().readPrivateNotes());
 const writeNotes = (c: LumenizeClient<any>, pid: string, n: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writePrivateNotes(n));
 
-describe('Profile DO — Phase 2', () => {
+describe('Profile DO', () => {
   /**
    * The THIRD package's reaper, driven rather than grepped.
    *
-   * `Profile` pushes through a hand-rolled `lmz.call` fan-out rather than `svc.broadcast` —
-   * deliberately, so a tier Worker cannot rewrite `metadata.caller` and defeat its cross-scope
-   * fence — so it is the one path whose plumbing differs. A grep proves the forgeable field is
-   * gone; only a drive proves the framework-supplied callee ARRIVES here.
+   * The Profile's reaper is its own `onProfileBroadcastResult`, reached through `lmz.broadcast` on
+   * the one node that composes the mesh core without extending `LumenizeDO`. This drives it against
+   * a forged reply: a grep proves the forgeable field is gone; only a drive proves the
+   * framework-supplied callee ARRIVES here.
    */
   it('reaps the subscriber that ANSWERED, never the one a forged reply names', async () => {
     const pid = uuid();
@@ -316,7 +316,7 @@ describe('Profile DO — Phase 2', () => {
   // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
   // are a real star-scoped admin and a real invited member, and the token under test comes from the endpoint
   // via the production client capability, `admin.impersonate()`. (It was labelled rung 1 before
-  // Phase 4 of tasks/archive/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
+  // tasks/archive/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
   // transport, which the `baseline` lane does not use.)
   //
   // ⚠️ **This assertion was INVERTED, and the inversion is the design.** It used to assert a refusal,

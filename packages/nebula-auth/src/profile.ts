@@ -12,9 +12,9 @@
  * Layer: **raw-DO infrastructure that COMPOSES the mesh comms core** (`ComposedMeshDO`, ADR-007) — it
  * needs the client-facing mesh subscribe AND a raw-RPC read of the raw `NebulaAuthRegistry` (the
  * scoped-admin authz check), which a `LumenizeDO` (Mesh-layer, never-raw) could not do. It takes ONLY
- * the receive core — no `onStart`/`alarms`/`svc.broadcast` (a raw composer has no `onStart`; the fanout
- * is hand-rolled for the cross-scope PROFILE-fence). Code home is `@lumenize/nebula-auth`; it RUNS in
- * the one `nebula` Worker (re-exported there, bound as `PROFILE`).
+ * the comms core — no `onStart`, no `svc` (a raw composer has neither) — and fans updates out with
+ * `lmz.broadcast`, which the core carries. Code home is `@lumenize/nebula-auth`; it RUNS in the one
+ * `nebula` Worker (re-exported there, bound as `PROFILE`).
  *
  * AuthZ (ADR-012):
  *  - **Public read/subscribe is OPEN** — any authenticated caller holding the `profileId` reads the
@@ -135,15 +135,20 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
   /**
    * Subscribe the calling client to public-field updates: store its subscriber row, then deliver the
    * INITIAL snapshot. The initial push is fired INSIDE this subscribe call, so it inherits the
-   * subscriber's `originAuth` → passes the Gateway aud-check with or without the PROFILE-fence
-   * (§ Routing). Open — no authz. (The update-fanout leg + fence land in Phase 3.)
+   * subscriber's `originAuth` → passes the Gateway aud-check with or without the PROFILE-fence.
+   * Open — no authz.
+   *
+   * Both halves of the row come from `callChain[0]`, the element the Gateway stamps from the
+   * socket's verified attachment: the client's instance name, and the Gateway's own binding, which
+   * `routeDORequest` set at the upgrade. The chain's last element names whichever node relayed the
+   * call, which is not the address to push to.
    */
   @mesh()
   subscribe(): void {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) throw new Error('subscribe requires a client origin (callChain[0].instanceName)');
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) throw new Error('subscribe requires a gateway (callChain.at(-1).bindingName)');
+    const subscriberBinding = this.lmz.callContext.callChain[0]?.bindingName;
+    if (!subscriberBinding) throw new Error('subscribe requires a gateway (callChain[0].bindingName)');
 
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO Subscribers (clientId, subscriberBinding) VALUES (?, ?)`,
@@ -164,8 +169,8 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
   // ── Writes (gated by requireOwnerOrAdmin) ────────────────────────────────────────────────────────
 
   /**
-   * Replace the PUBLIC fields (last-writer-wins — NO ADR-004 history, NO ADR-005 OCC conflict-check)
-   * and advance the forward-only `eTag`. Owner/admin only. (Phase 3 appends the subscriber fanout.)
+   * Replace the PUBLIC fields (last-writer-wins — NO ADR-004 history, NO ADR-005 OCC conflict-check),
+   * advance the forward-only `eTag`, and push the new snapshot to every subscriber. Owner/admin only.
    */
   @mesh()
   async writeProfile(fields: ProfilePublicFields): Promise<void> {
@@ -236,31 +241,35 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
   }
 
   /**
-   * Push the new public snapshot to every subscriber — a HAND-ROLLED `lmz.call` loop (not
-   * `svc.broadcast`, which is `LumenizeDO`-only AND whose tier-worker path rewrites `metadata.caller`,
-   * defeating the cross-scope PROFILE-fence). The loop never hops a tier worker, so `metadata.caller`
-   * stays `PROFILE` and the Gateway fence is reliable at any N. 4-arg `onErrorOnly`: on a failed
-   * delivery the Gateway returns a `ClientDisconnectedError` to `onProfileBroadcastResult`, which drops
-   * the dead subscriber row (self-healing, per testing.md §self-healing-transient).
+   * Push the new public snapshot to every subscriber with `lmz.broadcast`, which sends each push
+   * from this Profile, so every leaf's `metadata.caller` is `PROFILE` and the Gateway's cross-scope
+   * PROFILE-fence holds at any N.
+   *
+   * The `newChain` option starts each push's chain here, so the writer's claims — `sub`, `aud`,
+   * `access`, and `act` under impersonation — stay behind rather than riding into every
+   * subscriber's scope. That is safe because the PROFILE-fence lets a Profile push through without
+   * reading a claim, and a client's `onBeforeCall` decides from the caller, which is this Profile.
+   * On a failed delivery the Gateway answers with a `ClientDisconnectedError`, and
+   * `onProfileBroadcastResult` drops that subscriber's row (self-healing, per
+   * testing.md §self-healing-transient).
    */
   #fanout(): void {
-    const snapshot = this.#publicSnapshot();
-    const profileId = this.#profileId();
-    for (const row of this.ctx.storage.sql.exec(`SELECT clientId, subscriberBinding FROM Subscribers`)) {
-      const clientId = (row as { clientId: string }).clientId;
-      const subscriberBinding = (row as { subscriberBinding: string }).subscriberBinding;
-      this.lmz.call(
-        subscriberBinding, clientId,
-        this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(profileId, snapshot),
-        this.ctn().onProfileBroadcastResult(),
-        { onErrorOnly: true },
-      );
-    }
+    const targets = this.ctx.storage.sql.exec(`SELECT clientId, subscriberBinding FROM Subscribers`)
+      .toArray()
+      .map((row) => ({
+        bindingName: (row as { subscriberBinding: string }).subscriberBinding,
+        instanceName: (row as { clientId: string }).clientId,
+      }));
+    this.lmz.broadcast(
+      targets,
+      this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()),
+      { onResult: this.ctn().onProfileBroadcastResult(), newChain: true },
+    );
   }
 
   /**
-   * Dead-subscriber cleanup — the 4-arg fire-back from a failed fanout delivery. Drops the subscriber
-   * row when the Gateway reports the client disconnected. Mirrors `Star.onBroadcastResult`.
+   * Dead-subscriber cleanup — the fan-out's `onResult`, run with a failed delivery's Error. Drops the
+   * subscriber row when the Gateway reports the client disconnected. Mirrors `Star.onBroadcastResult`.
    *
    * **WHICH row comes from `callContext.callee`** — the address this push was sent to, stamped by the
    * framework from a source the caller does not write. The error says only THAT delivery failed.
@@ -269,9 +278,10 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * that with this DO's open `onBeforeCall` an `@mesh` here would let any client forge a
    * `ClientDisconnectedError` naming another subscriber — described a real hole and no longer does:
    * the error carries no identity to forge, so the worst a direct call achieves is reaping whoever
-   * made it. `public` and un-decorated stays right (the fire-back lands via `__handleResponse` at
-   * `requireMeshDecorator: false`, so no decorator is needed), but it is now the second line rather
-   * than the first. Detect by `name` (custom Error classes don't keep `instanceof` — mesh.md).
+   * made it. `public` and un-decorated stays right (a Gateway answers inside its ack, so the Error
+   * runs this handler on the Profile's own dispatch, where the mark is not consulted), but it is now
+   * the second line rather than the first. Detect by `name` (custom Error classes don't keep
+   * `instanceof` — mesh.md).
    */
   onProfileBroadcastResult(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
@@ -299,10 +309,14 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
 
   // ── Internals ────────────────────────────────────────────────────────────────────────────────────
 
-  /** This DO's instance name == its `profileId` (stamped by the framework on first mesh entry). */
+  /**
+   * This DO's name, which is its `profileId`. Read from `ctx.id.name`, as the constructor does, and
+   * not from `lmz.instanceName`: the framework stamps that on the first MESH entry, and a brand-new
+   * person's Profile is first reached by the auth Worker's raw `setDisplayNames` at acceptance.
+   */
   #profileId(): string {
-    const id = this.lmz.instanceName;
-    if (!id) throw new Error('Profile DO has no instanceName (not reached via a routed mesh call)');
+    const id = this.ctx.id.name;
+    if (!id) throw new Error('Profile DO has no name (it must be addressed by its profileId)');
     return id;
   }
 

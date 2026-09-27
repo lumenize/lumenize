@@ -15,9 +15,11 @@ export class NebulaClientGateway extends LumenizeClientGateway {
     // PROFILE-fence (ADR-012; tasks/archive/nebula-profile-store.md § Routing model): a push from the global
     // Profile DO carries PUBLIC fields ONLY and public profile read is OPEN to any authenticated caller
     // holding the profileId, so cross-scope delivery is intentional — skip the same-aud check. `metadata.caller`
-    // is stamped by the trusted mesh (never the client); a hand-rolled fanout (no tier hop) keeps it
-    // reliably `PROFILE` at any N. Absent metadata falls through to the aud check (fail-closed). Every
-    // other push (STAR / GALAXY / …) keeps the same-Star aud gate, behavior-identical.
+    // is stamped by the trusted mesh (never the client), and every leaf of a Profile push is sent by the
+    // Profile itself — `lmz.broadcast` makes one call per target from the node that pushes — so it reads
+    // `PROFILE` at any N. The exemption reads no claim, which is what lets those pushes carry none.
+    // Absent metadata falls through to the aud check (fail-closed). Every other push (STAR / GALAXY / …)
+    // keeps the same-Star aud gate, behavior-identical.
     if (envelope.metadata?.caller?.bindingName === 'PROFILE') return;
 
     const aud = (envelope.callContext.originAuth?.claims as NebulaJwtPayload | undefined)?.aud;

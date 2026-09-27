@@ -1146,8 +1146,9 @@ type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
  * `LumenizeContainer` keeps `Container`'s `fetch`/`enableInternet`/`destroy` for `override`/`super`).
  *
  * Each node adds its à-la-carte capabilities on top — `svc`/`onStart`/hibernation-WS/`__localChainExecutor`
- * for `LumenizeDO`; egress + public-port pin for `LumenizeContainer`; reach helpers + storage + the
- * hand-rolled fanout for the Profile DO — none of which are part of the shared invariant.
+ * for `LumenizeDO`; egress + public-port pin for `LumenizeContainer`; reach helpers + storage for the
+ * Profile DO — none of which are part of the shared invariant. Its fan-out is not among them:
+ * `lmz.broadcast` is part of the core this mixin supplies.
  */
 export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, nodeTypeName: string) {
   abstract class MeshComposed extends Base {

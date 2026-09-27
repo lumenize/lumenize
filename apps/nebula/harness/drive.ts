@@ -49,6 +49,7 @@ import * as studioGuidanceLoop from './scenarios/studio-guidance-loop';
 import * as meshEntryReach from './scenarios/mesh-entry-reach';
 import * as reaperVictimIsTheAddress from './scenarios/reaper-victim-is-the-address';
 import * as gatewayStampsTheChain from './scenarios/gateway-stamps-the-chain';
+import * as displayNamesReachSubscribers from './scenarios/display-names-reach-subscribers';
 import * as starServesCurrentOntology from './scenarios/star-serves-current-ontology';
 
 /**
@@ -128,6 +129,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'mesh-entry-reach': meshEntryReach,           // every chain a remote caller must not run, refused past a real gate (no Docker)
   'reaper-victim-is-the-address': reaperVictimIsTheAddress,  // a forged reply reaps only its author; a real disconnect still reaps (no Docker)
   'gateway-stamps-the-chain': gatewayStampsTheChain,        // a tab's appended hop reaches no subscriber row and no co-member's guard (no Docker)
+  'display-names-reach-subscribers': displayNamesReachSubscribers, // consent's nickname lands at a first accept and reaches a live subscriber at a later one (no Docker)
   // ── a Star converges on its Galaxy's CURRENT ontology, never on the asking tab's ──────────
   'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — two real Applies)
 };

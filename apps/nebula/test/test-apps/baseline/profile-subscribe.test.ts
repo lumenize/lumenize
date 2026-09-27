@@ -1,7 +1,7 @@
 /**
- * Profile DO — Phase 3 (tasks/archive/nebula-profile-store.md): the client subscribe path (binding-agnostic,
+ * Profile DO (tasks/archive/nebula-profile-store.md): the client subscribe path (binding-agnostic,
  * instance = profileId ≠ activeScope), the Gateway PROFILE-fence (cross-scope delivery), and the
- * hand-rolled fanout + dead-subscriber-row drop. Every test is capable-of-failing; the fence is
+ * `lmz.broadcast` fan-out + dead-subscriber-row drop. Every test is capable-of-failing; the fence is
  * mutation-checked (see the mutation note in the headline test).
  *
  * ⚠️ **Rung 3 is LOAD-BEARING here** (ADR-009 in-place justification): the assertions read Profile-DO
@@ -15,7 +15,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { LumenizeClient, mesh } from '@lumenize/mesh';
+import { LumenizeClient, mesh, type CallEnvelope, type OriginAuth } from '@lumenize/mesh';
+import { preprocess } from '@lumenize/structured-clone';
 import { Browser } from '@lumenize/testing';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
@@ -28,14 +29,16 @@ function uuid(): string { return crypto.randomUUID(); }
  *  production path); ALSO captures `handleResourceUpdate` solely for the STAR-origin negative-control push
  *  in the fence test. Profiles ride their own channel now (tasks/archive/nebula-subscriber-lists.md). */
 class SubscriberProbe extends LumenizeClient {
-  profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
+  /** Each push on the profile channel, with the `originAuth` it arrived carrying. */
+  profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot; originAuth?: OriginAuth }> = [];
   updates: Array<{ resourceType: string; resourceId: string; snapshot: ProfileSnapshot }> = [];
   // No onBeforeCall override — the DEFAULT LumenizeClient guard accepts the fanned-out UPDATE because
-  // its immediate caller is the PROFILE DO (not another client), even though the UPDATE ORIGINATES in
-  // the writer's chain. The cross-scope boundary remains the Gateway's onBeforeCallToClient (PROFILE-fence).
+  // its immediate caller is the PROFILE DO (not another client); the Profile starts each update's
+  // chain afresh, so it is the origin too. The cross-scope boundary remains the Gateway's
+  // onBeforeCallToClient (PROFILE-fence).
   @mesh()
   handleProfileUpdate(profileId: string, snapshot: ProfileSnapshot): void {
-    this.profileUpdates.push({ profileId, snapshot });
+    this.profileUpdates.push({ profileId, snapshot, originAuth: this.lmz.callContext.originAuth });
   }
   @mesh()
   handleResourceUpdate(resourceType: string, resourceId: string, snapshot: ProfileSnapshot): void {
@@ -101,7 +104,7 @@ const subscribe = (c: SubscriberProbe, pid: string) =>
 const writeProfile = (c: SubscriberProbe, pid: string, f: { name?: string }) =>
   c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writeProfile(f));
 
-describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
+describe('Profile DO — subscribe + fence + fanout', () => {
   it('HEADLINE — a cross-scope subscriber receives the UPDATE via the PROFILE-fence; the initial snapshot rides its own aud (#2)', async () => {
     const pid = uuid();
     // Y owns the profile and lives in scope Y; X subscribes from a DISTINCT scope X (neither an admin).
@@ -114,8 +117,9 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     await vi.waitFor(() => expect(x.profileUpdates.length).toBe(1));
     expect(x.profileUpdates[0]).toMatchObject({ profileId: pid });
 
-    // Y mutates → the UPDATE fanout originates in Y's scope (aud Y ≠ X's connection aud), so it is
-    // delivered to X ONLY because the PROFILE-fence skips the same-aud check. ⚠️ MUTATION-CHECK: remove
+    // Y mutates → the UPDATE starts a fresh chain at the Profile and carries no claims, so no `aud`
+    // matches X's connection; it is delivered to X ONLY because the PROFILE-fence skips the same-aud
+    // check. ⚠️ MUTATION-CHECK: remove
     // the `bindingName === 'PROFILE'` early-return in NebulaClientGateway.onBeforeCallToClient and this
     // second update never arrives (profileUpdates stays length 1) while the initial snapshot above still
     // does — exactly isolating the fence to the update leg.
@@ -161,9 +165,9 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
   });
 
   it('a REAL NebulaClient receives a cross-scope profile UPDATE via subscribeProfile — production receive path (#5)', async () => {
-    // The whole point of Phase 3, on the REAL client. The fanned-out update rides the WRITER's chain,
-    // but its immediate CALLER is the PROFILE DO, so the corrected caller-based default onBeforeCall
-    // accepts it (no override needed); the Gateway fence remains the real cross-scope boundary.
+    // The whole point of the subscribe path, on the REAL client. The fanned-out update's immediate
+    // CALLER is the PROFILE DO, so the corrected caller-based default onBeforeCall accepts it (no
+    // override needed); the Gateway fence remains the real cross-scope boundary.
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     await writeProfile(owner, pid, { name: 'Ada' });
@@ -275,5 +279,59 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
   it('updateMyProfile throws loudly when the session carries no profileId claim', async () => {
     const owner = await nebulaClient({ activeScope: 'universe-z.app.tenant' });
     expect(() => owner.updateMyProfile({ name: 'Nope' })).toThrow(/no profileId claim/);
+  });
+
+  it('an UPDATE carries none of the writer\'s claims — the Profile starts each push\'s chain afresh', async () => {
+    const pid = uuid();
+    const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
+    const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
+
+    // POSITIVE CONTROL: the initial snapshot rides X's OWN subscribe call, so X's own claims arrive on
+    // it — which shows the probe records `originAuth` at all.
+    await subscribe(x, pid);
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(1));
+    expect(x.profileUpdates[0].originAuth?.sub).toBe(x.claims?.sub);
+
+    // The update is a Profile push, not the writer's call, so the writer's `sub`, `aud` and `access`
+    // stop at the Profile. MUTATION: drop `newChain: true` from `Profile.#fanout` and the owner's
+    // claims arrive here.
+    await writeProfile(owner, pid, { name: 'Grace' });
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
+    expect(x.profileUpdates[1].originAuth).toBeUndefined();
+  });
+
+  it('subscribe stores the binding from callChain[0] — the element the Gateway stamps — not the last one', async () => {
+    // ⓘ Below the Gateway on purpose (`testing.md` § *Philosophy*): the Gateway builds a client
+    // call's chain from the verified origin alone (the `/live` scenario `gateway-stamps-the-chain`),
+    // so on a client's own call both ends are one element and no client can build this shape. A
+    // chain that reaches the Profile through a relaying node can, and this hands the Profile one.
+    const pid = uuid();
+    const clientId = `${uuid()}.tab1`;
+    const stub: any = (env as any).PROFILE.getByName(pid);
+    const envelope: CallEnvelope = {
+      version: 1,
+      chain: preprocess([{ type: 'get', key: 'subscribe' }, { type: 'apply', args: [] }]),
+      callContext: {
+        callChain: [
+          { type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: clientId },
+          { type: 'LumenizeDO', bindingName: 'STAR', instanceName: 'acme.app.tenant' },
+        ],
+        state: {},
+      },
+      metadata: {
+        caller: { type: 'LumenizeDO', bindingName: 'STAR', instanceName: 'acme.app.tenant' },
+        callee: { type: 'LumenizeDO', bindingName: 'PROFILE', instanceName: pid },
+      },
+    };
+    expect(await stub.__executeOperation(envelope)).toEqual({ $ack: true });
+
+    // MUTATION: read `callChain.at(-1)` again and the row stores the relay's `STAR` instead.
+    const rows = await vi.waitFor(async () => {
+      const found = await (runInDurableObject as any)(stub, (_i: any, c: any) =>
+        c.storage.sql.exec('SELECT clientId, subscriberBinding FROM Subscribers').toArray());
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(rows[0]).toEqual({ clientId, subscriberBinding: 'NEBULA_CLIENT_GATEWAY' });
   });
 });
