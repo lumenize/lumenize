@@ -622,7 +622,7 @@ describe('LumenizeClient', () => {
 
   describe('clearAccessToken', () => {
     it('drops the in-memory token and claims so the next connect re-refreshes', async () => {
-      // P9: the mesh half of logout. disconnect() keeps the token (reconnect
+      // The mesh half of logout. disconnect() keeps the token (reconnect
       // works); clearAccessToken() forgets it — claims go null AND the next
       // connect() must call refresh again.
       let refreshCount = 0;
@@ -1242,32 +1242,127 @@ describe('Incoming calls from mesh', () => {
   });
 });
 
+// A refused or withdrawn call never leaves the client, so no Gateway or DO takes part: a mock socket
+// held in CONNECTING is the whole fixture, and a running system would add nothing to observe
+// (`.claude/rules/live.md` — the tier's pure-behaviour exception).
 describe('Message queue overflow', () => {
   beforeEach(() => {
     createdWebSockets = [];
   });
 
-  it('bounds the message queue at MAX_QUEUE_SIZE (overflow is dropped)', () => {
-    const client = new TestClient({
+  const QUEUE_LIMIT = 1000;
+
+  function disconnectedClient(): TestClient {
+    return new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
       accessToken: 'token',
       WebSocket: createMockWebSocketClass(),
     });
+  }
 
-    // Fire many fire-and-forget calls while not connected — they queue. Overflow past the cap is
-    // dropped (a client re-issues on reconnect; there is no awaited Promise to reject).
-    for (let i = 0; i < 150; i++) {
+  function fillQueue(client: TestClient): void {
+    for (let i = 0; i < QUEUE_LIMIT; i++) {
       client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod(i));
     }
+  }
 
-    // On connect the queue flushes; at most MAX_QUEUE_SIZE (100) messages survived.
+  function connect(): MockWebSocket {
     const ws = createdWebSockets[0];
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    return ws;
+  }
 
-    expect(ws.getSentMessages().length).toBeLessThanOrEqual(100);
-    expect(ws.getSentMessages().length).toBeGreaterThan(0);
+  it('holds exactly 1000 calls while disconnected, and flushes them on connect', () => {
+    const client = disconnectedClient();
+    fillQueue(client);
+    for (let i = 0; i < 50; i++) {
+      client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod(i));
+    }
+
+    const ws = connect();
+    expect(ws.getSentMessages().length).toBe(QUEUE_LIMIT);
+
+    client.disconnect();
+  });
+
+  it('a 4-arg call past the limit runs its handler with a QuotaExceededError, before any socket opens', async () => {
+    const client = disconnectedClient();
+    fillQueue(client);
+
+    const remote = (client.ctn() as any).someMethod('refused');
+    let refusedId: string | undefined;
+    client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote), {
+      onSent: (id) => { refusedId = id; },
+    });
+
+    // Delivered on a later task, like a RESULT: a handler that retries on failure yields between
+    // attempts instead of looping inside the call that was refused.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(client.getCallOutcomeCount()).toBe(0);
+
+    await vi.waitFor(() => {
+      expect(client.getLastCallOutcome()).toBeInstanceOf(DOMException);
+      expect(client.getLastCallOutcome().name).toBe('QuotaExceededError');
+    });
+    expect(client.getCallOutcomeCount()).toBe(1);
+
+    // Refused, not queued: the flush carries the first 1000 calls and never this one.
+    expect(refusedId).toBeDefined();
+    const ws = connect();
+    const sentIds = ws.getSentMessages().map((m) => JSON.parse(m).callId);
+    expect(sentIds).toHaveLength(QUEUE_LIMIT);
+    expect(sentIds).not.toContain(refusedId);
+
+    client.disconnect();
+  });
+
+  it('a callAsync past the limit rejects with a QuotaExceededError, with no timeout to wait for', async () => {
+    const client = disconnectedClient();
+    fillQueue(client);
+
+    // timeoutMs: 0 switches the timeout off, so the refusal is the only thing that can settle it.
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      timeoutMs: 0,
+    });
+    let outcome: unknown;
+    p.then(() => { outcome = 'resolved'; }, (e) => { outcome = e; });
+
+    // On a later task, not in the microtasks after the call: a caller that awaits and retries on
+    // failure would otherwise never yield to the socket event that empties the queue.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(outcome).toBeUndefined();
+
+    await vi.waitFor(() => {
+      expect(outcome).toBeInstanceOf(DOMException);
+      expect((outcome as DOMException).name).toBe('QuotaExceededError');
+    });
+    expect(client.getPendingAsyncCallCount()).toBe(0);
+
+    client.disconnect();
+  });
+
+  it('a queued callAsync that times out leaves the queue, so it is never sent', async () => {
+    const client = disconnectedClient();
+
+    let timedOutId: string | undefined;
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      timeoutMs: 50,
+      onSent: (id) => { timedOutId = id; },
+    });
+    // Positive control: a call queued beside it still goes out.
+    client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod('kept'));
+
+    const reason = await p.catch((e) => e);
+    expect(reason).toBeInstanceOf(DOMException);
+    expect(reason.name).toBe('TimeoutError');
+
+    expect(timedOutId).toBeDefined();
+    const ws = connect();
+    const sentIds = ws.getSentMessages().map((m) => JSON.parse(m).callId);
+    expect(sentIds).toHaveLength(1);
+    expect(sentIds).not.toContain(timedOutId);
 
     client.disconnect();
   });
@@ -1450,7 +1545,7 @@ describe('Message handling edge cases', () => {
 
     await vi.waitFor(() => { expect(client.getLastCallOutcome()).toBe('hello-result'); });
 
-    // Dedup (M4): a duplicate RESULT for the same callId is dropped (handler already removed).
+    // Dedup: a duplicate RESULT for the same callId is dropped (handler already removed).
     ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('again') }));
     await new Promise((r) => setTimeout(r, 50));
     expect(client.getCallOutcomeCount()).toBe(1);
@@ -1458,7 +1553,7 @@ describe('Message handling edge cases', () => {
     client.disconnect();
   });
 
-  it('runs the in-heap handler with the Error on an error RESULT (never stranded — Q4)', async () => {
+  it('runs the in-heap handler with the Error on an error RESULT (never stranded)', async () => {
     const { preprocess: pp } = await import('@lumenize/structured-clone');
     const client = new TestClient({
       instanceName: 'user.tab1',
@@ -1489,7 +1584,7 @@ describe('Message handling edge cases', () => {
     client.disconnect();
   });
 
-  it('onErrorOnly (N6): skips the in-heap handler on a SUCCESS RESULT (still deduped)', async () => {
+  it('onErrorOnly: skips the in-heap handler on a SUCCESS RESULT (still deduped)', async () => {
     const { preprocess: pp } = await import('@lumenize/structured-clone');
     const client = new TestClient({
       instanceName: 'user.tab1',
@@ -1541,7 +1636,7 @@ describe('Message handling edge cases', () => {
   });
 });
 
-describe('callAsync (client resilient awaitable — D16/D17)', () => {
+describe('callAsync (client resilient awaitable)', () => {
   beforeEach(() => { createdWebSockets = []; });
 
   // Connect a TestClient over a mock socket and return both. Mirrors the connect boilerplate used
@@ -1565,7 +1660,7 @@ describe('callAsync (client resilient awaitable — D16/D17)', () => {
 
     const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
     const sent = JSON.parse(ws.getSentMessages()[0]);
-    expect(sent.expectsResult).toBe(true); // no handler travels — the Star fires a RESULT back (D17)
+    expect(sent.expectsResult).toBe(true); // no handler travels — the Star fires a RESULT back
     expect(client.getPendingAsyncCallCount()).toBe(1); // in-flight
     const callId = sent.callId;
 
@@ -1604,7 +1699,7 @@ describe('callAsync (client resilient awaitable — D16/D17)', () => {
 
     ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('first') }));
     await expect(p).resolves.toBe('first');
-    // The entry was deleted on delivery → a duplicate RESULT finds nothing (M4). Capable-of-failing on
+    // The entry was deleted on delivery → a duplicate RESULT finds nothing. Capable-of-failing on
     // the transient surface: without delete-on-delivery the count would still be 1 here.
     expect(client.getPendingAsyncCallCount()).toBe(0);
 
@@ -1658,7 +1753,7 @@ describe('callAsync (client resilient awaitable — D16/D17)', () => {
     client.disconnect();
   });
 
-  it('rejects with a TimeoutError when the built-in default timeout elapses (D4)', async () => {
+  it('rejects with a TimeoutError when the built-in default timeout elapses', async () => {
     // Small REAL timeout — the mesh suite has no fake timers, and AbortSignal.timeout is a native
     // workerd primitive fake timers do not reliably patch (m1). Drive the pure-timeout path directly
     // through callAsync (no engine timer to confound it); never answer the RESULT.
@@ -1697,7 +1792,7 @@ describe('callAsync (client resilient awaitable — D16/D17)', () => {
 
   it('composes the caller signal WITH the default timeout (additive, AbortSignal.any) — either can reject', async () => {
     // Abort the caller signal while the timeout is far from elapsing: it must still reject, proving the
-    // two are composed (not one replacing the other — D4).
+    // two are composed (not one replacing the other).
     const [client] = connectClient();
     const controller = new AbortController();
     const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
@@ -1734,11 +1829,11 @@ describe('callAsync (client resilient awaitable — D16/D17)', () => {
     client.disconnect();
   });
 
-  it('survives a WS reconnect — the RESULT re-resolves to the new socket and settles (M1, client-heap)', async () => {
+  it('survives a WS reconnect — the RESULT re-resolves to the new socket and settles (client-heap)', async () => {
     const { preprocess: pp } = await import('@lumenize/structured-clone');
     // Test the CLIENT-heap re-settle: the #pendingAsyncCalls Promise survives the client's OWN socket
-    // dropping + reconnecting (D16). The parent Flow-C harness proves the Gateway re-resolution with no
-    // client in the loop; this proves the client-heap half — the two are complementary (M1).
+    // dropping + reconnecting. The parent Flow-C harness proves the Gateway re-resolution with no
+    // client in the loop; this proves the client-heap half — the two are complementary.
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
@@ -1769,7 +1864,7 @@ describe('callAsync (client resilient awaitable — D16/D17)', () => {
     client.disconnect();
   });
 
-  it('sync-throws on an invalid remoteContinuation at the call site (D6 tier 1)', () => {
+  it('sync-throws on an invalid remoteContinuation at the call site', () => {
     const [client] = connectClient();
     // A developer error (not a real continuation) is a loud synchronous throw, never a rejection —
     // same as call(). Capable-of-failing: drop the extractCallChains validation and this stops throwing.
@@ -1908,7 +2003,7 @@ describe('Disconnect cleanup', () => {
     const callId = JSON.parse(ws.getSentMessages()[0]).callId;
 
     // Explicit disconnect is a deliberate discard — the in-heap handler is dropped. A late RESULT
-    // arriving after disconnect finds no handler and is ignored (the client re-issues on reload, D8).
+    // arriving after disconnect finds no handler and is ignored (the client re-issues on reload).
     client.disconnect();
     ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('late') }));
     await new Promise((r) => setTimeout(r, 50));

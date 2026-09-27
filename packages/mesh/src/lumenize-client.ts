@@ -103,8 +103,12 @@ import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 // Constants
 // ============================================
 
-/** Maximum number of queued messages during disconnection */
-const MAX_QUEUE_SIZE = 100;
+/**
+ * The most calls a client holds while its socket is down or its token is being swapped. Past it a
+ * call is refused, and whoever waits on it hears so: a `callAsync` rejects and a 4-arg handler runs,
+ * each with a `QuotaExceededError` (a 3-arg call has nobody to tell).
+ */
+const MAX_QUEUE_SIZE = 1000;
 
 /**
  * Default `callAsync` timeout. A public awaitable escape hatch with no default would re-arm the
@@ -345,7 +349,8 @@ export interface LmzApiClient {
   /**
    * Fire-and-forget RPC call with optional handler
    *
-   * Returns immediately. If disconnected, queues the call.
+   * Returns immediately. If disconnected, queues the call — up to 1000 of them. Past that the call
+   * is refused, and a handler hears so as a `QuotaExceededError`.
    */
   call<T = any>(
     calleeBindingName: string,
@@ -361,7 +366,12 @@ export interface LmzApiClient {
    *
    * `options.onResult` hears only failures; `newChain` and `state` pass through to each call.
    *
-   * @see `broadcast.ts` — the chain each target sees, and where `callContext.callee` names the target
+   * ⚠️ On a client, `onResult` cannot tell WHICH target failed. The handler runs in the call site's
+   * context, where `callee` is never the failed target, and outside a mesh call reading `callContext`
+   * throws. To know which, send one `call` per target, with a handler that takes the target as an
+   * argument.
+   *
+   * @see `broadcast.ts` — the chain each target sees
    */
   broadcast<T = any>(
     targets: BroadcastTarget[],
@@ -373,13 +383,15 @@ export interface LmzApiClient {
    * Resilient, `Promise`-returning cross-node call — **client-only**. Settled by the same
    * in-heap re-resolvable-delivery mechanism as a 4-arg `call` (survives tab freeze + WS reconnect),
    * so it does NOT strand on a dead socket the way the removed `callRaw` did. Rejects on an error
-   * RESULT, on `signal` abort, or on the built-in default `timeoutMs` (`0`/`Infinity` disables).
+   * RESULT, on `signal` abort, on the built-in default `timeoutMs` (`0`/`Infinity` disables), or with
+   * a `QuotaExceededError` when the client already holds 1000 unsent calls.
    *
    * ⚠️ Prefer a higher-level SDK method (`client.resources.*`) when one exists, and a `subscribe` for
    * live UI data. `callAsync` is the SDK-layer awaitable escape hatch — the ONLY awaitable on
    * `client.lmz`; `call` stays fire-and-forget/`void`.
    *
-   * ⚠️ Abort cancels the WAIT, not the server OPERATION (the call already left one-way), so a
+   * ⚠️ Abort cancels the WAIT. It cancels the server OPERATION only if the call had not yet left the
+   * client — a queued call is dropped with its wait — and a call that has left runs regardless, so a
    * retry-after-abort is safe ONLY for idempotent ops (client-supplied UUID / ADR-005 eTag).
    */
   callAsync<T = any>(
@@ -1289,8 +1301,15 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
           return e instanceof Error ? e : new Error(String(e));
         })();
 
-    // Run the handler under the captured call-site context (so it, and any nested call, see the
-    // right context). Fire-and-forget with a defensive catch — a throwing handler must not crash.
+    this.#runInHeapHandler(message.callId, handler, resultOrError);
+  }
+
+  /**
+   * Run a 4-arg call's in-heap handler with its outcome, under the captured call-site context (so it,
+   * and any nested call, see the right context). Fire-and-forget with a defensive catch — a throwing
+   * handler must not crash.
+   */
+  #runInHeapHandler(callId: string, handler: InHeapHandler, resultOrError: unknown): void {
     const finalChain = replaceNestedOperationMarkers(handler.handlerChain, resultOrError);
     const runHandler = async () => {
       const prev = this.#currentCallContext;
@@ -1302,8 +1321,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       }
     };
     runHandler().catch((err) => {
-      this.#debugFactory('lmz.mesh.LumenizeClient.#handleCallResponse').error(
-        'in-heap call handler threw', { callId: message.callId, error: err instanceof Error ? err.message : String(err) },
+      this.#debugFactory('lmz.mesh.LumenizeClient.#runInHeapHandler').error(
+        'in-heap call handler threw', { callId, error: err instanceof Error ? err.message : String(err) },
       );
     });
   }
@@ -1409,17 +1428,46 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#ws!.send(message);
       return;
     }
-    // Queue until reconnect (bounded). Dropped silently on overflow — the client holds
-    // no awaited per-call Promise (4-arg handlers live in #inHeapHandlers → reconciled
-    // on reload; 3-arg is fire-and-forget), so there is nothing to reject.
+    // Queue until reconnect, up to MAX_QUEUE_SIZE; past that the call is refused, not queued.
     if (this.#messageQueue.length >= MAX_QUEUE_SIZE) {
-      this.#debugFactory('lmz.mesh.LumenizeClient.#sendOrQueue').warn(
-        'message queue full — dropping queued call', { callId },
-      );
+      this.#refuseCall(callId);
       return;
     }
     this.#messageQueue.push({ message, callId });
     if (socketOpen) this.#rotateSocketForFreshToken();
+  }
+
+  /**
+   * Refuse a call the queue has no room for, and tell whoever waits on it: a `callAsync` rejects and
+   * a 4-arg handler runs, each with a `QuotaExceededError`. A 3-arg call has nobody to tell, so it
+   * leaves only the log line.
+   *
+   * The outcome is delivered on a later task, as a RESULT or a timeout is. Settled at once, a caller
+   * that retries on failure would loop without ever yielding to the socket event that empties the
+   * queue.
+   */
+  #refuseCall(callId: string): void {
+    this.#debugFactory('lmz.mesh.LumenizeClient.#sendOrQueue').warn(
+      'message queue full — refusing call', { callId, limit: MAX_QUEUE_SIZE },
+    );
+    const refusal = new DOMException(
+      `LumenizeClient holds at most ${MAX_QUEUE_SIZE} calls while its socket is down; this one was refused`,
+      'QuotaExceededError',
+    );
+    const pending = this.#pendingAsyncCalls.get(callId);
+    if (pending) {
+      this.#pendingAsyncCalls.delete(callId);
+      if (pending.signal && pending.onAbort) {
+        pending.signal.removeEventListener('abort', pending.onAbort);
+      }
+      setTimeout(() => pending.reject(refusal), 0);
+      return;
+    }
+    const handler = this.#inHeapHandlers.get(callId);
+    if (handler) {
+      this.#inHeapHandlers.delete(callId);
+      setTimeout(() => this.#runInHeapHandler(callId, handler, refusal), 0);
+    }
   }
 
   #rotating = false;
@@ -1552,6 +1600,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
           // and reject with the abort reason (a DOMException: AbortError or TimeoutError). The
           // delete's return-value guards a settle/abort race — never double-settle.
           if (!this.#pendingAsyncCalls.delete(callId)) return;
+          // A call still in the queue has not left: take it out, or reconnect would send an
+          // operation its caller already gave up on — such as a write it has since rolled back.
+          const queued = this.#messageQueue.findIndex((q) => q.callId === callId);
+          if (queued !== -1) this.#messageQueue.splice(queued, 1);
           reject(signal.reason);
         };
         signal.addEventListener('abort', onAbort, { once: true });

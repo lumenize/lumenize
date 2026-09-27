@@ -78,7 +78,7 @@ interface CallOptions {
 
 When `newChain` is false (the default) and the `state` option is provided, it is merged with any inherited state from the current [call context](#interface-callcontext) (overlapping properties are overwritten). When `newChain` is true, the `state` option becomes the initial state for the new chain.
 
-`onSent` is invoked synchronously with the generated `callId` immediately before the call message is sent (or queued, when disconnected). Useful for correlating an outbound call with later inbound frames — e.g. tracing markers or custom Gateway-emitted WebSocket frames — without exposing the client's internal pending-call map.
+`onSent` is invoked synchronously with the generated `callId` immediately before the call message is sent — or queued, when disconnected, or refused, when the client already holds 1000 unsent calls. Useful for correlating an outbound call with later inbound frames — e.g. tracing markers or custom Gateway-emitted WebSocket frames — without exposing the client's internal pending-call map.
 
 `onErrorOnly` applies only to the 4-arg `this.lmz.call(callee, instance, remote, handler, opts)` form: when `true`, the handler chain is invoked only on remote rejection; successful results are dropped without dispatch. Useful for fire-and-forget paths that want structured error handling (retry, escalation, cleanup) without paying the per-call success-path dispatch cost — `broadcast()` adds it to every call whenever you pass an `onResult`.
 

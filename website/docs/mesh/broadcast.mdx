@@ -86,6 +86,8 @@ The handler's `result` argument is appended automatically. For failed Gateway de
 
 A Gateway answers a push inside its acknowledgement, and so does any target that refuses the call at admission. For those, the handler runs on the broadcaster's own dispatch and `callee` is the target — which is the case drop-on-failed-fanout cleanup reads. A DO or Worker that accepts the call and throws afterwards fires its Error back to the broadcaster instead, and there `callee` names the broadcaster itself.
 
+A client broadcaster never learns the failed target from `callee`: its handler runs in the call site's context, and outside a mesh call reading `callContext` throws. From a client, send one `call` per target, with a handler that takes the target as an argument.
+
 :::
 
 :::warning[Errors-only handler dispatch]
@@ -104,7 +106,7 @@ If you have a real need for success callbacks, file an issue; the design accommo
 - **No success callbacks**: see the warning above — `onResult` is errors-only.
 - **Tail latency grows with the number of targets.** Each target is its own call from one node, so the last subscriber of a large broadcast waits longest. An earlier release handed long lists to a recursive Worker tier that cut that tail; it was removed because its deliveries came from the tier rather than from the node that pushed.
 - **No per-target catch.** On a DO or Worker, a target whose binding does not route throws synchronously and stops the loop there, so a misconfigured address fails loudly at the first one. Store each target's binding from a source the client cannot write.
-- **From a client, targets past 100 can be lost.** A client's calls wait in a queue while its socket is down or it is refreshing a token about to expire, and the queue holds 100. A broadcast to more targets than that, in one of those windows, drops the rest, and `onResult` never hears about them.
+- **From a client, targets past 1000 are refused.** A client holds its calls while its socket is down or while it refreshes a token about to expire, and it holds at most 1000. A broadcast to more targets than that, in one of those windows, is refused for the rest, and `onResult` hears each refusal as a `QuotaExceededError`.
 
 ## Implementation
 
