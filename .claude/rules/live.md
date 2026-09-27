@@ -144,6 +144,13 @@ MUST report that half as not observable on a deployed target.** The capture does
 `HARNESS_TARGET_URL`. An unguarded read asserts over an empty string and reds every deployed run.
 Bit 2026-09-05 on `first-app-built`'s marker-pairing limb, caught by a verifier panel rather than a run.
 
+**A limb that COUNTS log lines MUST first wait for a line its own request logs after the thing it
+counts.** The stack's stdio reaches the harness late and in bursts, so a count read too soon passes on
+a tree where the failure it looks for happened. Bit 2026-09-27: `display-names-reach-subscribers`
+passed one run in two under the mutation it was written to catch, until it waited for the accept
+request's own access-log line, which wrangler prints after the Worker's warnings. That line arriving
+also shows the capture works.
+
 **A deployed pass MUST still run — at the wipe gate/milestones, and after changes to the container
 image, `@cloudflare/computer`, or the toolchain triple** (`bash apps/nebula/scripts/deploy-test.sh`,
 then the same drives with `HARNESS_TARGET_URL`). It is not the inner loop and MUST NOT be dropped
