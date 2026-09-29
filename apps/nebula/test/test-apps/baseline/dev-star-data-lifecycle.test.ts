@@ -317,13 +317,13 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     client[Symbol.dispose]();
   });
 
-  // BLOCKED on a `.dev`-scoped admin identity. `createStar` mints no identity and `claim-star`
-  // refuses the reserved `.dev` slug, so after the exact-star seed rule (2026-08-02) NO principal
-  // satisfies the gate on a `.dev` Star. Unblocks with the per-invitee admin mint INTO `.dev`
-  // (tasks/nebula-auth-identity-mint.md Phase 4); only the client's tier changes. ⚠️ The reseed half
-  // will fail when it unblocks: the plane's wipe drops the root grant but not the Star's one-shot
-  // seed latch, which the plane does not own. The seed itself is deleted by the subdomain build
-  // (tasks/nebula-scope-moves-to-subdomain.md), which is why no guard was added for it here.
+  // Skipped, and deleted with the seed by the subdomain build (tasks/nebula-scope-moves-to-subdomain.md).
+  // `devAdminClient` is a universe admin, which the exact-star seed rule (2026-08-02) never seeds.
+  // A `.dev` admin does exist: since 2026-08-27 a galaxy invite from someone with dominion co-mints
+  // the invitee's `.dev` membership with `scopeAdmin`. With that fixture the reseed half fails,
+  // because the plane's wipe drops the root grant but not the Star's one-shot seed latch, which the
+  // plane does not own. No capability rides on it: `requirePermission`'s bypass admits a `.dev`
+  // admin on equality, grant or no grant.
   it.skip('DataPlane root admin: absent immediately after reset, reseeded on the next admin call (honest test)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client, payload } = await devAdminClient(galaxy, dev);
