@@ -259,7 +259,7 @@ function findKnee(steps: StepSummary[]): { N: number; throughput: number } | nul
 describe('parse-validate throughput', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
-  // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
+  // the Star's ontology source, asking its parent Galaxy), and this setup was reworked before that
   // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('finds saturation', async () => {

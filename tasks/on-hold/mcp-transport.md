@@ -8,13 +8,13 @@
 
 **Built already:**
 - **The Gateway** — `LumenizeClientGateway`, a zero-storage hibernatable-WS bridge and trust boundary, 1:1 per client, whose `fetch()` today accepts *only* WebSocket upgrades (non-WS gets `426`). It rebuilds `callContext` from the **verified** connection identity, discarding client-supplied fields. Subclassable via `onBeforeAccept` / `onBeforeCallToMesh` / `onBeforeCallToClient` — `NebulaClientGateway` proves the pattern with zero raw-DO code.
-- **The subscription substrate** — Nebula's `Star.subscribe(...)` (`@mesh()`, returns `void`), the `Subscribers` SQL registry (stores the confined authz verdict for per-push re-authorization), `lmz.broadcast` push, and the client-side `handleResourceUpdate(rt, rid, Snapshot)` push handler. Recovery is **client re-subscribe** on reconnect, driven by the Gateway's `subscriptionRequired` signal.
+- **The subscription substrate** — Nebula's `Star.resources.subscribe(...)` (behind the `@mesh()` `resources` door, returns `void`), the `Subscriptions` SQL table (stores the confined authz verdict for per-push re-authorization), `lmz.broadcast` push, and the client-side `handleResourceUpdate(rt, rid, Snapshot)` push handler. Recovery is **client re-subscribe** on reconnect, driven by the Gateway's `subscriptionRequired` signal.
 - **The result/push transport** — a client-originated call's result already **fires back to the Gateway** (`__handleResponse`) via `call` continuation, and the mesh→client push path (`__executeOperation` → `incoming_call`) already exists. The Gateway is a stateless relay of both.
 - **Prior art** — a full MCP-over-WebSocket JSON-RPC server in `lumenize-monolith/` (`lumenize-server.ts` dispatch incl. `initialize`/`resources/read`; `notification-service.ts` emitting `notifications/resources/updated`; `entity-uri-router.ts` partial RFC-6570; `entity-subscriptions.ts`). Legacy, **not precedent**, but a working reference for the JSON-RPC half.
 
 **Missing:**
 1. An HTTP branch in the Gateway's `fetch()` terminating MCP Streamable-HTTP: JSON-RPC `POST` → JSON response; `subscriptions/listen` `POST` → a held-open SSE stream (`text/event-stream`), first frame `notifications/subscriptions/acknowledged`. (The 2026 stateless revision removed the GET endpoint — all POST.)
-2. A JSON-RPC ↔ mesh translation core: MCP `method`/`params` encoded as an OCAN chain against `Star`; request `id` ↔ `callId`; `resources/read` → Star read; `subscriptions/listen` `resourceSubscriptions:[uri…]` → one `Star.subscribe` per URI.
+2. A JSON-RPC ↔ mesh translation core: MCP `method`/`params` encoded as an OCAN chain against `Star`; request `id` ↔ `callId`; `resources/read` → Star read; `subscriptions/listen` `resourceSubscriptions:[uri…]` → one `Star.resources.subscribe` per URI.
 3. Rendering of `Snapshot` pushes as `notifications/resources/updated` JSON-RPC onto the held SSE stream — the Gateway branches on connection protocol at its push/`__handleResponse` door.
 4. A URI scheme mapping MCP resource URIs ↔ `(resourceType, resourceId)` on a Star.
 5. MCP-client → Gateway-instance addressing (an MCP client has no `{sub}.{tabId}`).
@@ -83,13 +83,13 @@ Invariants the phases must honor:
      - Every registered `(resourceType, resourceId)` round-trips through the URI parser/builder.
    - **Mutation note:** passing the structured-clone value through un-projected throws on the cycle; returning `[]` for missing reds not-found; switching the hop to an awaited call reds the eviction-simulation; dropping a URI segment reds the round-trip.
 
-3. **`subscriptions/listen` + held SSE + update push.** A `subscriptions/listen` POST opens a held SSE stream (first frame `notifications/subscriptions/acknowledged`), fans one `Star.subscribe` per `resourceSubscriptions` URI, and renders each Star `handleResourceUpdate` push as a `notifications/resources/updated` frame on that stream. Grounded on the real SDK.
+3. **`subscriptions/listen` + held SSE + update push.** A `subscriptions/listen` POST opens a held SSE stream (first frame `notifications/subscriptions/acknowledged`), fans one `Star.resources.subscribe` per `resourceSubscriptions` URI, and renders each Star `handleResourceUpdate` push as a `notifications/resources/updated` frame on that stream. Grounded on the real SDK.
    - **Success criteria (capable of failing):**
-     - A listen with N URIs writes N `Subscribers` rows across the target Star(s) and emits `notifications/subscriptions/acknowledged` as the first frame.
+     - A listen with N URIs writes N resource rows in `Subscriptions` across the target Star(s) and emits `notifications/subscriptions/acknowledged` as the first frame.
      - After a *different* client upserts a watched resource, the real-SDK listener receives a `notifications/resources/updated` frame for that URI, and a follow-up `resources/read` returns the new value.
      - The writer's own upsert is **not** echoed to its own subscription (BroadcastChannel semantics, matching the substrate).
      - After the SSE connection drops, a subsequent fanout attempt removes the subscriber rows via the existing drop-on-failed-fanout path (assert rows gone).
-   - **Mutation note:** skipping the per-URI `Star.subscribe` fan reds the row/ack criterion; writing the rendered frame to the wrong socket (or not at all) reds the update criterion; echoing own writes reds BroadcastChannel; ignoring the abort leaves subscriber rows.
+   - **Mutation note:** skipping the per-URI `Star.resources.subscribe` fan reds the row/ack criterion; writing the rendered frame to the wrong socket (or not at all) reds the update criterion; echoing own writes reds BroadcastChannel; ignoring the abort leaves subscriber rows.
 
 4. **Connected-time metering (pricing basis).** Resident-DO time while an MCP SSE stream is held is metered per verified identity, emitting the usage signal the billing lane consumes — no invoicing here.
    - **Success criteria (capable of failing):**

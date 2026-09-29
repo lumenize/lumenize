@@ -198,14 +198,14 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     a.client.callStarInspectSubscribers(star);
     expect(await waitForSuccess(a.client)).toHaveLength(1); // one row per (resourceId, clientId)
 
-    // First dispose: refcount 2→1, NO Star.unsubscribe. The unsubscribe (if a
+    // First dispose: refcount 2→1, NO Star.resources.unsubscribe. The unsubscribe (if a
     // buggy impl issued one) would precede this inspect on the same ordered
     // client→Star channel, so a per-call refcount regression shows 0 here.
     sub1[Symbol.dispose]();
     a.client.callStarInspectSubscribers(star);
     expect(await waitForSuccess(a.client)).toHaveLength(1); // still subscribed
 
-    // Second dispose: refcount 1→0 → Star.unsubscribe.
+    // Second dispose: refcount 1→0 → Star.resources.unsubscribe.
     sub2[Symbol.dispose]();
     await vi.waitFor(async () => {
       a.client.callStarInspectSubscribers(star);

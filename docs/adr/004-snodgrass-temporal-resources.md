@@ -3,7 +3,7 @@
 **Date**: 2026-06-11 (records the resource-model commitment, in force since Resources shipped)
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: `apps/nebula/src/resources.ts` (`Snapshots` table, `END_OF_TIME` sentinel), `tasks/on-hold/nebula-resource-history-r2.md` (history offload to R2), `.claude/rules/durable-objects.md` § SQL naming (`idx_Snapshots_current`), [original Lumenize on npm](https://www.npmjs.com/package/Lumenize) (the temporal-analytics heritage)
+**Evidence**: `apps/nebula/src/snapshots.ts` (`Snapshots` table, `END_OF_TIME` sentinel), `tasks/on-hold/nebula-resource-history-r2.md` (history offload to R2), `.claude/rules/durable-objects.md` § SQL naming (`idx_Snapshots_current`), [original Lumenize on npm](https://www.npmjs.com/package/Lumenize) (the temporal-analytics heritage)
 
 ## Context
 

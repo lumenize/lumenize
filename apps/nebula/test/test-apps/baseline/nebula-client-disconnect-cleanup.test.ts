@@ -2,10 +2,10 @@
  * Drop-on-failed-fanout subscriber cleanup
  *
  * When a client closes its WebSocket and doesn't reconnect within the
- * Gateway's grace period, that client's `Subscribers` rows leak. The
- * cleanup mechanism is **reactive**, not proactive: the next time `Star.#broadcast`
- * (via `this.lmz.broadcast`) tries to push to that client, the Gateway returns
- * `ClientDisconnectedError`, and Star's `onBroadcastResult` handler — the `onResult`
+ * Gateway's grace period, that client's resource rows leak. The
+ * cleanup mechanism is **reactive**, not proactive: the next time the plane's broadcast
+ * (`this.lmz.broadcast`) tries to push to that client, the Gateway returns
+ * `ClientDisconnectedError`, and the Star's `resourcesResults.onBroadcastResult` — the `onResult`
  * partial `lmz.broadcast` completes per target — deletes the offending row inline.
  *
  * For "quiet" resources that nobody mutates after the disconnect, the row
@@ -70,11 +70,11 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     // Both subscribe via the public API so registries are populated and Star
-    // has both rows in Subscribers.
+    // has both resource rows in Subscriptions.
     await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     await b.client.resources.subscribe('TestResource', resourceId).snapshot;
 
-    // Sanity: 2 rows in Subscribers (one per clientId, same resourceId).
+    // Sanity: 2 resource rows in Subscriptions (one per clientId, same resourceId).
     a.client.callStarInspectSubscribers(star);
     const rowsBefore = await waitForSuccess(a.client) as SubscriberRow[];
     expect(rowsBefore).toHaveLength(2);
@@ -89,9 +89,9 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     // miniflare-induced latency.
     await new Promise((r) => setTimeout(r, 500));
 
-    // a triggers a mutation. Star.#broadcast fans out via lmz.broadcast; one of
+    // a triggers a mutation. The plane's broadcast fans out via lmz.broadcast; one of
     // its targets is b (disconnected). The push to b's Gateway returns
-    // ClientDisconnectedError → onBroadcastResult deletes b's row inline.
+    // ClientDisconnectedError → resourcesResults.onBroadcastResult deletes b's row inline.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
       [resourceId]: { op: 'put', eTag, value: { title: 'Updated by a' } },
     });

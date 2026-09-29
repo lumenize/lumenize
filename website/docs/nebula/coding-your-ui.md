@@ -559,7 +559,7 @@ export interface TreeNodeData {
   children: TreeNodeData[];
 }
 
-// Walks from ROOT_NODE_ID through `dag.nodes`, rendering a node under each of
+// Walks from ROOT_NODE_ID through `orgTree.nodes`, rendering a node under each of
 // its parents. Skips deleted nodes during the main walk; collects them into a
 // __deleted__ subtree. Computes orphaned (nodes not reachable from root via
 // undeleted edges) into __orphaned__. When `query` is non-empty, splits each

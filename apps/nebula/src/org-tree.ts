@@ -1,5 +1,5 @@
 /**
- * DagTree — DAG tree with permission-based access control inside a Star DO
+ * OrgTree — DAG tree with permission-based access control, inside every host's resource plane
  *
  * Encapsulates all DAG tree operations: node CRUD, edge management,
  * permission grants, and permission resolution. Uses Star's SQLite storage
@@ -19,16 +19,16 @@ import {
   getEffectivePermission as getEffectivePermissionPure,
   getNodeAncestors as getNodeAncestorsPure,
   getNodeDescendants as getNodeDescendantsPure,
-  buildDagTreeView,
+  buildOrgTreeView,
   makeEdgeKey,
-} from './dag-ops';
-import type { PermissionTier, DagTreeState, DagTreeView, EdgeKey, DagTreeNodeData } from './dag-ops';
+} from './org-ops';
+import type { PermissionTier, OrgTreeState, OrgTreeView, EdgeKey, OrgTreeNodeData } from './org-ops';
 import { PermissionDeniedError, NodeNotFoundError, NodeIdCollisionError } from './errors';
 
-export class DagTree {
+export class OrgTree {
   #ctx: DurableObjectState
-  #_cached: DagTreeState | null = null
-  #_view: DagTreeView | null = null
+  #_cached: OrgTreeState | null = null
+  #_view: OrgTreeView | null = null
   #getCallContext: () => CallContext
   #onChanged: () => void
   #getHostName: () => string | undefined
@@ -94,7 +94,7 @@ export class DagTree {
 
   // ─── Cache ────────────────────────────────────────────────────────
 
-  get #cached(): DagTreeState {
+  get #cached(): OrgTreeState {
     if (!this.#_cached) {
       this.#_cached = this.#buildState()
       this.#_view = null
@@ -103,9 +103,9 @@ export class DagTree {
   }
 
   /** Adjacency-indexed view of `#cached`; rebuilt lazily on next read after a state change. */
-  get #view(): DagTreeView {
+  get #view(): OrgTreeView {
     if (!this.#_view) {
-      this.#_view = buildDagTreeView(this.#cached)
+      this.#_view = buildOrgTreeView(this.#cached)
     }
     return this.#_view
   }
@@ -116,8 +116,8 @@ export class DagTree {
     this.#_view = null
   }
 
-  #buildState(): DagTreeState {
-    const nodes = new Map<string, DagTreeNodeData>()
+  #buildState(): OrgTreeState {
+    const nodes = new Map<string, OrgTreeNodeData>()
     const edges = new Set<EdgeKey>()
     const permissions = new Map<string, Map<string, PermissionTier>>()
 
@@ -178,10 +178,10 @@ export class DagTree {
     // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
     // minted with an `aud` at or below the admin's `authScope`" — true, but it establishes that about
     // `aud`, NOT about THIS HOST, which is the question actually being asked.
-    // (It held only because every DagTree host WAS a star-tier leaf — an incidental property the
+    // (It held only because every OrgTree host WAS a star-tier leaf — an incidental property the
     // Galaxy collapse deleted: the collapsed Galaxy hosts a DAG at `{u}.{g}`, so a `{u}.{g}.dev`
     // admin now reaches a host their scope does not cover. That denial is the live case, and
-    // `confine-dag-plane.test.ts` drives it against the real chat plane.)
+    // `confine-org-plane.test.ts` drives it against the real chat plane.)
     // Fail closed on an absent host name by simply NOT granting the bypass — the caller falls
     // through to the ordinary DAG lookup and needs a real grant. Never coerce to a sentinel:
     // it would flow into `isAtOrAbove`, where a superuser's root scope covers any string.
@@ -454,10 +454,10 @@ export class DagTree {
    * caller) — the per-push read recheck + the query-membership filter
    * use this. Distinct from {@link requirePermission} on three axes:
    *   1. **Non-throwing** — returns `{ allowed, denied }` Sets, never throws (a
-   *      lost-read subscriber is skipped, never dropped — D5).
+   *      lost-read subscriber is skipped, never dropped).
    *   2. **No short-circuit** — every `nodeId` is evaluated so the `denied` set is
    *      COMPLETE (it drives request-access; a query caller already named these
-   *      nodes — ADR-008 / D14). Do NOT early-return on the first denial.
+   *      nodes — ADR-008). Do NOT early-return on the first denial.
    *   3. **Explicit `sub` + stored `hasDominionOverHost` VERDICT** — at push time we don't hold the
    *      subscriber's live JWT, so `requirePermission`'s scope-admin bypass (a Galaxy/Universe
    *      admin who holds no DAG grant) is replicated here from the flag stored on the subscriber
@@ -468,14 +468,17 @@ export class DagTree {
    * ⚠️ **This method takes no scope and no host name, so it is NOT a confinement point** — do not
    * add one, and do not claim it "inherits confinement from the store." It has TWO operand sources
    * and only one of them comes from the store:
-   *   - **Push path** (`resource-data-plane.ts` `targetsForQuery` / query-push / mutation-broadcast)
+   *   - **Push path** (`resources.ts` `#targetsForQuery` / query-push / mutation-broadcast)
    *     passes the stored row's verdict, which IS confined at write time. That is the path that
    *     matters, and the one tasks/archive/nebula-confine-admin-bypass.md closed.
-   *   - **Wire path** — `Star.dagTree()` / `Galaxy.dagTree()` are bare `@mesh()`, and mesh's
-   *     "gate once, then chain" checks the mark only on a chain's ENTRY op, so a caller can
+   *   - **Wire path** — every host's `resources` door is a bare `@mesh()` handing back
+   *     `resources.orgTree`, and mesh's "gate once, then chain" checks the mark only on a chain's
+   *     ENTRY op, so a caller can
    *     reach this method directly with an attacker-chosen `hasDominionOverHost`. **That is harmless for a
    *     separate reason**: this method is read-only, non-throwing, and echoes back only the
-   *     caller's OWN `nodeIds` — disclosing nothing ADR-008 doesn't already make Star-wide visible.
+   *     caller's OWN `nodeIds` — disclosing nothing the tree itself does not already show anyone
+   *     with passage into the host, on a Star or a Galaxy alike (ADR-008's visibility ≠ capability,
+   *     carried up the hierarchy for the tree kind in `subscriptions.ts`).
    *     A forged `hasDominionOverHost:true` therefore grants no capability, it only relabels a set the
    *     caller already named. Keep these two justifications distinct; conflating them would assert
    *     an invariant nothing enforces.
@@ -511,12 +514,12 @@ export class DagTree {
 
   /**
    * The whole tree, as a COPY. `#cached` is what every permission decision reads (`#view` is built
-   * over it), and this method is reachable from the wire past the tree gate, where the walk runs any
-   * method the returned value carries — `Map.prototype.set` included. Returned by reference, a member
+   * over it), and this method is reachable from the wire past the `resources` door, where the walk
+   * runs any method the returned value carries — `Map.prototype.set` included. Returned by reference, a member
    * could grant themselves admin at the root inside one chain, then pass `setPermission`'s own check
    * to make it durable. Nothing reachable from a gate may hand back state the node decides with.
    */
-  getState(): DagTreeState {
+  getState(): OrgTreeState {
     this.#requireAuth()
     return structuredClone(this.#cached)
   }

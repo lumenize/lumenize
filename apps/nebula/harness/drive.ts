@@ -51,6 +51,7 @@ import * as reaperVictimIsTheAddress from './scenarios/reaper-victim-is-the-addr
 import * as gatewayStampsTheChain from './scenarios/gateway-stamps-the-chain';
 import * as displayNamesReachSubscribers from './scenarios/display-names-reach-subscribers';
 import * as starServesCurrentOntology from './scenarios/star-serves-current-ontology';
+import * as grantRevealsDenied from './scenarios/grant-reveals-denied';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -108,7 +109,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'studio-codegen-rest': { ...studioCodegenRest, needsContainer: false }, // one real codegen turn over the Workers-AI REST transport — container-TOLERANT: a container-failed build step is a reported outcome, not a scenario failure
   'upward-invite-refused': upwardInviteRefused, // a real star admin's upward invite rejected by the facade's dominion message (no Docker)
   'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → founder stamp (no Docker)
-  'node-invite-roundtrip': nodeInviteRoundtrip, // Star.invite → both planes → real email → invitee acts at the node (no Docker)
+  'node-invite-roundtrip': nodeInviteRoundtrip, // Star.resources.invite → both planes → real email → invitee acts at the node (no Docker)
   'build-box': buildBox,                   // ephemeral build drive: per-step BuildReport, sequential + overlap + failed-bundle + serve readback (Docker)
   'four-party-chat': fourPartyChat,        // HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
   // ── prove-then-choose: the login re-order, driven end to end on real mail (no Docker) ──────────
@@ -132,6 +133,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'display-names-reach-subscribers': displayNamesReachSubscribers, // consent's nickname lands at a first accept and reaches a live subscriber at a later one (no Docker)
   // ── a Star converges on its Galaxy's CURRENT ontology, never on the asking tab's ──────────
   'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — two real Applies)
+  'grant-reveals-denied': grantRevealsDenied, // a grant with no write reveals what a real member was denied (Docker — one real Apply)
 };
 
 /**

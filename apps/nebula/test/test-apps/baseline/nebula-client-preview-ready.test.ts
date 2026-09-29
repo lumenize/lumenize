@@ -9,7 +9,7 @@
  * — `dist/` serves from the Galaxy's own VFS, so there was nothing to warm — and the echo
  * stand-in that used to drive this file went with it. What remains to assert is the hook
  * half: that the reply's scope reaches the application-level hook, which
- * `reload-version-contract.test.ts` T1 counts on the client subclass but never observes as
+ * `build-reply.test.ts` T1 counts on the client subclass but never observes as
  * the hook a UI would install.
  *
  * Mutation-validated (testing.md): commenting out `this.#onPreviewReady?.(scope)` in

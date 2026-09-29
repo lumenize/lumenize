@@ -1,6 +1,6 @@
 /**
  * **Scenario 5 on real infrastructure — a node invite writes BOTH planes, walked as the invitee.**
- * `Star.invite(nodeId, …)` → pending `_InviteStatus` → facade → Registry mint → REAL email through
+ * `Star.resources.invite(nodeId, …)` → pending `_InviteStatus` → facade → Registry mint → REAL email through
  * the catch-all → the invitee clicks, logs in AT the star, and acts at the node under the grant
  * written at invite time — nothing left to apply on arrival (the whole point of the design).
  *
@@ -84,7 +84,7 @@ export async function run(stack: DevStack): Promise<void> {
       try {
         ack = await admin.client.lmz.callAsync(
           'STAR', star,
-          admin.client.ctn<Star>().invite(ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
+          admin.client.ctn<Star>().resources.invite(ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
         );
       } catch (e) {
         const stale = (e as Error)?.name === 'OntologyStaleError' && (e as { installing?: boolean }).installing;

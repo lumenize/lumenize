@@ -98,7 +98,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // instance whose own id is the reserved agent id writes ALL THREE public fields (a partial
     // seed would render Nebula unlike every human — the set is exactly the PUBLIC_FIELDS
     // allow-list); every other instance does nothing. `ctx.id.name`, not `this.lmz.instanceName`
-    // — identity is not stamped this early (the same trap ResourceDataPlane documents), while a
+    // — identity is not stamped this early (the same trap Resources documents), while a
     // named DO's `ctx.id.name` is available at construction. INSERT OR IGNORE: one more
     // statement in this constructor's established seed pattern, and a later super-admin edit is
     // never clobbered on reconstruct. Write-authz needs no special-casing — #requireOwnerOrAdmin
@@ -159,7 +159,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
       this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()));
   }
 
-  /** Drop the caller's subscriber row (best-effort; mirrors Star.unsubscribe). */
+  /** Drop the caller's subscriber row (best-effort; mirrors the Resources plane's `requests.unsubscribe`). */
   @mesh()
   unsubscribe(): void {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
@@ -269,7 +269,8 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
 
   /**
    * Dead-subscriber cleanup — the fan-out's `onResult`, run with a failed delivery's Error. Drops the
-   * subscriber row when the Gateway reports the client disconnected. Mirrors `Star.onBroadcastResult`.
+   * subscriber row when the Gateway reports the client disconnected. Mirrors the Resources plane's
+   * `results.onBroadcastResult`.
    *
    * **WHICH row comes from `callContext.callee`** — the address this push was sent to, stamped by the
    * framework from a source the caller does not write. The error says only THAT delivery failed.

@@ -1,9 +1,9 @@
 /**
- * Child 2 Phase 3 — enumerateCurrentByField + QuerySubs registry + subscribeQuery
+ * Child 2 Phase 3 — enumerateCurrentByField + the registry's query rows + subscribeQuery
  * surface + initial push (Flow 1), on Star with a Parent/Child ontology.
  *
  * Covered: query evaluation (type/deleted/other-parent exclusion + (validFrom,
- * resourceId) ordering), no-denial vs has-denial delivery + onPartial, M3 canonical-
+ * resourceId) ordering), no-denial vs has-denial delivery, M3 canonical-
  * hash idempotency (one row for reordered/omitted-default queries), fail-closed
  * validation (unknown queryType, non-to-one field), register-succeeds-when-all-denied,
  * and m1 (ontology install signals a query-sub-only client).
@@ -121,7 +121,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     // Two logically-equal forms: omitted defaults vs explicit defaults + reordered keys.
     const formA = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
     const formB = { value: P, field: 'parent', typeName: 'Child', orderBy: 'validFrom' as const,
-                    onPartial: 'allow' as const, queryType: 'parentChild' as const };
+                    queryType: 'parentChild' as const };
     expect(canonicalQueryHash(formA)).toBe(canonicalQueryHash(formB));
 
     a.callStarSubscribeQuery(star, formA);
@@ -160,7 +160,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     a[Symbol.dispose]();
   });
 
-  it('has-denial subscriber: onPartial allow → {resourceIds, deniedNodes}; error → {deniedNodes} only', async () => {
+  it('has-denial subscriber: told what it can read and which nodes it cannot → {resourceIds, deniedNodes}', async () => {
     const star = uniqueStar();
     const { client: adminC, accessToken } = await admin(star);
     const P = crypto.randomUUID();
@@ -188,17 +188,10 @@ describe('child2 query subscriptions (Phase 3)', () => {
     adminC.callStarSetPermission(star, pubNode, payload.sub, 'read');
     await waitForSuccess(adminC);
 
-    // onPartial: 'allow' (default) → readable resourceIds + deniedNodes.
-    user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P, onPartial: 'allow' });
+    // The readable ids, and the node holding the one it cannot read.
+    user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
     await awaitQueryPush(user);
-    expect(user.lastQueryUpdate?.result.resourceIds).toEqual([c1]);
-    expect(user.lastQueryUpdate?.result.deniedNodes).toEqual([privNode]);
-
-    // onPartial: 'error' (same query → same hash, replaces row) → deniedNodes only.
-    user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P, onPartial: 'error' });
-    await awaitQueryPush(user);
-    expect(user.lastQueryUpdate?.result.resourceIds).toBeUndefined();
-    expect(user.lastQueryUpdate?.result.deniedNodes).toEqual([privNode]);
+    expect(user.lastQueryUpdate?.result).toEqual({ resourceIds: [c1], deniedNodes: [privNode] });
 
     adminC[Symbol.dispose](); user[Symbol.dispose]();
   });
@@ -250,15 +243,15 @@ describe('child2 query subscriptions (Phase 3)', () => {
     await awaitQueryPush(b);
     b.resetResults(); // clear lastErrorObject before the install
 
-    // Install v2, then trigger the install via a v2 read → #installState clears BOTH
-    // registries and pushes one stale signal per (binding, client) union (m1).
+    // Install v2 → the plane's install drains BOTH kinds and pushes one stale signal per
+    // (binding, client) union (m1); the v2 read after it is served.
     a.callStarInstallOntology(star, { version: 'v2', types: TYPES });
     await waitForResult(a);
     a.callStarRead(star, 'v2', P);
     await waitForResult(a);
 
     // The query-sub-only client receives the OntologyStaleError. Mutation: skip
-    // query-sub clients in #installState → b never gets signaled → red.
+    // query rows in the install's drain → b never gets signaled → red.
     await vi.waitFor(() => {
       expect(b.lastErrorObject?.name).toBe('OntologyStaleError');
     });

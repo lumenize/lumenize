@@ -65,7 +65,7 @@ export class ThroughputHarnessClient extends NebulaClient {
     this.#inFlight++;
     const newETag = crypto.randomUUID();
     return (this.lmz.callAsync('STAR', starName,
-      (this.ctn() as any).transaction(ontologyVersion, newETag, {
+      (this.ctn() as any).resources.transaction(ontologyVersion, newETag, {
         [resourceId]: {
           op: 'create',
           typeName: 'TestResource',

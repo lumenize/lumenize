@@ -34,7 +34,7 @@ describe('guard enforcement', () => {
       });
 
       // Non-admin calls getStarConfig → succeeds (no guard beyond @mesh())
-      // Config bag may contain defaults bootstrapped by Resources (e.g., coalesceWindowMs)
+      // Config bag may contain defaults bootstrapped by Snapshots (e.g., coalesceWindowMs)
       userClient.callStarGetConfig(star);
       await vi.waitFor(() => {
         expect(userClient.lastResult).toBeDefined();
@@ -65,7 +65,7 @@ describe('guard enforcement', () => {
         expect(adminClient.callCompleted).toBe(true);
       });
 
-      // Read it back — config bag also contains defaults bootstrapped by Resources
+      // Read it back — config bag also contains defaults bootstrapped by Snapshots
       adminClient.callStarGetConfig(star);
       await vi.waitFor(() => {
         expect(adminClient.lastResult).toMatchObject({ theme: 'dark' });

@@ -1,29 +1,28 @@
 /**
- * Phase 2 of tasks/nebula-confine-admin-bypass.md — the DAG permission plane is confined to the
+ * From tasks/archive/nebula-confine-admin-bypass.md — the DAG permission plane is confined to the
  * host it runs on. TWO confinement points:
- *   1. `DagTree.requirePermission` — the LIVE claim.
- *   2. `Subscriptions` / `QuerySubs` subscribe-time writers — the STORED verdict (the push path
+ *   1. `OrgTree.requirePermission` — the LIVE claim.
+ *   2. `Subscriptions`' subscribe-time writers of resource and query rows — the STORED verdict (the push path
  *      never re-reads the JWT, so confining only the live claim leaves that back door open).
  * `evaluatePermissions` is NOT a third point — it takes no pattern and no host name; it consumes
  * whatever the store wrote. The loop is closed here by feeding the persisted bit into it.
  *
- * ⚠️ WHY A SYNTHETIC HOST. Every DagTree host that exists today (Star `{u}.{g}.{s}`, DevStudio
- * `{u}.{g}.dev`) is a **star-tier leaf**, whose admin's `authScope` IS that exact id, so
- * admission already implies the confined predicate and the escalation CANNOT occur. Written against
- * a real host these assertions would be vacuously green — the exact trap this task exists to
- * eliminate. So we construct `DagTree` directly on a **non-leaf** host name (`{u}.{g}`), which is
- * what nebula-galaxy-collapse-and-chat.md lands for real.
+ * ⚠️ WHY A SYNTHETIC HOST as well as the real one. On a **star-tier leaf** host an admin's
+ * `authScope` IS that exact id, so admission already implies the confined predicate and the
+ * escalation CANNOT occur — written against a Star alone these assertions would be vacuously green.
+ * So the first block constructs `OrgTree` directly on a **non-leaf** host name (`{u}.{g}`), and the
+ * block after it runs the same escalation against the real non-leaf host, the Galaxy's plane.
  *
- * ⚠️ HOSTED IN A `Galaxy` DO — deliberately, because Galaxy builds NO `ResourceDataPlane`. A
- * co-resident host instance would own its own `DagTree` with its own cache; `DagTree` caches per
- * instance and `#invalidate()`s only on its own mutations, so a grant written through the host's
- * instance is invisible to the fixture's. Worse than a false red: `#requireNodeExists` runs first,
- * so a stale-cache miss throws `NodeNotFoundError` and a `toThrow` deny assertion would pass for
- * the WRONG reason.
+ * ⚠️ HOSTED IN A `Galaxy` DO, under a galaxy-shaped name, and every write and read goes through the
+ * FIXTURE's instances, never the host's. The Galaxy's own plane keeps its own `OrgTree` with its
+ * own cache, which `#invalidate()`s only on its own mutations, so a grant written through the
+ * host's instance is invisible to the fixture's. Worse than a false red: `#requireNodeExists` runs
+ * first, so a stale-cache miss throws `NodeNotFoundError` and a `toThrow` deny assertion would pass
+ * for the WRONG reason.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { DagTree, Subscriptions, QuerySubs, Resources, ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { OrgTree, Subscriptions, Snapshots, ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
@@ -36,13 +35,14 @@ const CHAT_QUERY = {
 
 const uniqueGalaxy = () => `cdp-${crypto.randomUUID().slice(0, 8)}.app`;
 
-/** A synthetic CallContext carrying exactly the claim shape under test. */
+/** A synthetic CallContext carrying exactly the claim shape under test — plus the `profileId`
+ *  every token carries, which a resource or query row cannot be written without. */
 function ctxFor(sub: string, access?: { admin?: boolean; authScope?: string }): CallContext {
-  return { callChain: [], state: {}, originAuth: { sub, claims: { aud: 'ignored', access } } } as any;
+  return { callChain: [], state: {}, originAuth: { sub, claims: { aud: 'ignored', access, profileId: `p-${sub}` } } } as any;
 }
 
 /**
- * Build a `DagTree` (+ optionally the two subscribe-time writers) on a real `ctx` inside a Galaxy
+ * Build an `OrgTree` (+ the registry's subscribe-time writers) on a real `ctx` inside a Galaxy
  * DO, with a NON-LEAF host name. `claims` is mutable so one fixture can re-issue calls as different
  * principals without rebuilding the tree — every write goes through THIS instance, so the cache
  * stays coherent (see the header warning).
@@ -50,9 +50,8 @@ function ctxFor(sub: string, access?: { admin?: boolean; authScope?: string }): 
 async function onNonLeafHost<T>(
   hostName: string,
   body: (h: {
-    tree: DagTree;
+    tree: OrgTree;
     subs: Subscriptions;
-    querySubs: QuerySubs;
     as: (sub: string, access?: { admin?: boolean; authScope?: string }) => void;
   }) => T | Promise<T>,
 ): Promise<T> {
@@ -61,14 +60,13 @@ async function onNonLeafHost<T>(
     let cc = ctxFor('nobody');
     const getCallContext = () => cc;
     const getHostName = () => hostName;
-    const tree = new DagTree(inst.ctx, getCallContext, () => {}, getHostName);
-    const resources = new Resources(inst.ctx, getCallContext, tree);
-    const subs = new Subscriptions(inst.ctx, getCallContext, tree, resources, getHostName);
-    const querySubs = new QuerySubs(inst.ctx, getCallContext, tree, resources, getHostName);
+    const tree = new OrgTree(inst.ctx, getCallContext, () => {}, getHostName);
+    const snapshots = new Snapshots(inst.ctx, getCallContext, tree);
+    const subs = new Subscriptions(inst.ctx, getCallContext, snapshots, getHostName);
     const as = (sub: string, access?: { admin?: boolean; authScope?: string }) => {
       cc = ctxFor(sub, access);
     };
-    return body({ tree, subs, querySubs, as });
+    return body({ tree, subs, as });
   });
 }
 
@@ -76,7 +74,7 @@ async function onNonLeafHost<T>(
 const COVERING = (g: string) => ({ scopeAdmin: true, authScope: `${g}` });   // reaches this host
 const DESCENDANT = (g: string) => ({ scopeAdmin: true, authScope: `${g}.dev` }); // exact-star, does NOT
 
-describe('Phase 2 — the DAG permission plane is confined to its host', () => {
+describe('the DAG permission plane is confined to its host', () => {
   describe('confinement point 1: requirePermission (live claim)', () => {
     it('a descendant-scope admin with NO DAG grant is DENIED on a non-leaf host', async () => {
       const g = uniqueGalaxy();
@@ -110,16 +108,16 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
   });
 
   describe('confinement point 2: the stored verdict (split by table — different admission paths)', () => {
-    // `registerQuerySubscriber` runs NO permission check at registration (authorize at delivery,
-    // D2/D4), so the row is written for any caller and the stored bit is directly observable.
-    it('QuerySubs stores 0 for a descendant-scope admin and 1 for a covering one', async () => {
+    // `registerQuery` runs NO permission check at registration (it authorizes at
+    // delivery), so the row is written for any caller and the stored bit is directly observable.
+    it('a query row stores 0 for a descendant-scope admin and 1 for a covering one', async () => {
       const g = uniqueGalaxy();
       const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: 'p1' };
-      const { descendant, covering } = await onNonLeafHost(g, ({ querySubs, as }) => {
+      const { descendant, covering } = await onNonLeafHost(g, ({ subs, as }) => {
         as('descendant-admin', DESCENDANT(g));
-        const d = querySubs.registerQuerySubscriber(query, 'client-d', 'BINDING');
+        const d = subs.registerQuery(query, 'client-d', 'BINDING');
         as('covering-admin', COVERING(g));
-        const c = querySubs.registerQuerySubscriber(query, 'client-c', 'BINDING');
+        const c = subs.registerQuery(query, 'client-c', 'BINDING');
         return { descendant: d.row.dominionOverHostAtSubscribe, covering: c.row.dominionOverHostAtSubscribe };
       });
       // Pre-fix BOTH were 1 (the raw bit). The stored value is a verdict, not a claim.
@@ -130,7 +128,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
     // The `Subscriptions` half — the deferred store-side assertion — now runs for REAL in
     // the integration block at the bottom of this file: the Galaxy chat plane is the
     // non-leaf host with an ontology this fixture could not stand up, so the granted
-    // `.dev` admin's stored bit is asserted on the actual `Subscribers` table there.
+    // `.dev` admin's stored bit is asserted on the actual resource row there.
   });
 
   describe('closing the loop on the consumer (evaluatePermissions)', () => {
@@ -140,11 +138,11 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
     it('the persisted verdict drives evaluatePermissions: descendant denied, covering allowed', async () => {
       const g = uniqueGalaxy();
       const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: 'p1' };
-      const { dAllowed, cAllowed } = await onNonLeafHost(g, ({ tree, querySubs, as }) => {
+      const { dAllowed, cAllowed } = await onNonLeafHost(g, ({ tree, subs, as }) => {
         as('descendant-admin', DESCENDANT(g));
-        const d = querySubs.registerQuerySubscriber(query, 'client-d', 'BINDING');
+        const d = subs.registerQuery(query, 'client-d', 'BINDING');
         as('covering-admin', COVERING(g));
-        const c = querySubs.registerQuerySubscriber(query, 'client-c', 'BINDING');
+        const c = subs.registerQuery(query, 'client-c', 'BINDING');
         // Neither holds a DAG grant, so ONLY the stored verdict can allow them.
         const dEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'descendant-admin', Boolean(d.row.dominionOverHostAtSubscribe));
         const cEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'covering-admin', Boolean(c.row.dominionOverHostAtSubscribe));
@@ -207,7 +205,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       // POSITIVE CONTROL: a covering admin grants write at the chat node → the SAME
       // caller's SAME op lands — the refusal above was the DAG's and nothing else's.
       await admin.lmz.callAsync('GALAXY', scope,
-        admin.ctn<Galaxy>().dagTree().setPermission(CHAT_NODE_ID, payload.sub, 'write'));
+        admin.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'write'));
       const granted = await devAdmin.postUserMessage('now granted');
       expect(typeof granted).toBe('string');
 
@@ -237,7 +235,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
         { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
       );
       await admin.lmz.callAsync('GALAXY', scope,
-        admin.ctn<Galaxy>().dagTree().setPermission(CHAT_NODE_ID, payload.sub, 'read'));
+        admin.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'read'));
 
       // Both principals subscribe the same seeded Message. The `.dev` admin is admitted
       // by the grant; the covering admin by dominion — so the stored verdicts must
@@ -247,7 +245,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       // convenience path cannot construct this caller — the escalation is a raw-caller
       // shape by nature, and the assertion below is server-side rows either way.
       await devAdmin.lmz.callAsync('GALAXY', scope,
-        devAdmin.ctn<Galaxy>().subscribe(CHAT_MESSAGE_ONTOLOGY_VERSION, 'Message', seeded));
+        devAdmin.ctn<Galaxy>().resources.subscribe(CHAT_MESSAGE_ONTOLOGY_VERSION, 'Message', seeded));
       using adminContent = admin.resources.subscribe('Message', seeded);
       await adminContent.snapshot;
 
@@ -255,7 +253,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       const rows: SubscriberRow[] = await (runInDurableObject as any)(
         (env as any).GALAXY.getByName(scope),
         (_i: any, c: any) => c.storage.sql.exec(
-          'SELECT clientId, dominionOverHostAtSubscribe FROM Subscribers WHERE resourceId = ?', seeded,
+          `SELECT clientId, dominionOverHostAtSubscribe FROM Subscriptions WHERE kind = 'resource' AND topic = ?`, seeded,
         ).toArray() as SubscriberRow[]);
       const devRow = rows.find((r) => r.clientId === devAdmin.lmz.instanceName);
       const adminRow = rows.find((r) => r.clientId === admin.lmz.instanceName);

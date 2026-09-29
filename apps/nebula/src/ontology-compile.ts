@@ -60,7 +60,7 @@ export interface OntologyVersionRow {
  * than a feature, or needs visibility other than org-visible; the out-of-band-events design
  * starts from that boundary.
  *
- * - `_InviteStatus` — one row per (email, node) a node invite has targeted (`Star.invite`), the
+ * - `_InviteStatus` — one row per (email, node) a node invite has targeted (`Star.resources.invite`), the
  *   live submission state the members panel query-subscribes (`pending` → `sent` /
  *   `submission-failed`). Org-visible like everything else at its node (ADR-008); rows get random
  *   opaque ids (ADR-010) with (email, node) as the uniqueness/query dimension, converged by the

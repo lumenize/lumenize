@@ -2,19 +2,16 @@
  * Subscriber-list — the STANDALONE subscription to a query's live `{ sub, profileId }` roster
  * (tasks/nebula-subscriber-lists.md). A WATCHER subscribes to the subscriber-LIST of query Q
  * (`subscribeQuerySubscribers`) WITHOUT being a data-subscriber of Q; the roster is projected from
- * `QuerySubscribers` (the data-subscribers) and delivered to the WATCHERS on any data-subscriber
- * join/leave. Reworks the presence build: the projection (dedup-by-`sub`, profileId capture, join/leave
- * guards) is reused verbatim; the AUDIENCE moved from data-subscribers → a separate watcher registry.
+ * Q's `query` rows (the data-subscribers) and delivered to its `roster` rows (the WATCHERS) on any
+ * data-subscriber join/leave. Both kinds live in the host's one `Subscriptions` table, keyed by kind.
  *
  * Harness — **rung 3 is LOAD-BEARING here, not a shortcut** (ADR-009 requires the justification in place):
- * the assertions name the exact identity values, e.g. `roster).toContainEqual({ sub: aSub, profileId: aPid })`,
- * and one case needs a token with the profileId claim ABSENT to prove the sub-only degrade. Real issuance
- * assigns `sub`/`profileId` server-side and can never omit the claim, so those cases are unreachable
- * through it. (`profile-channel-collision` had no such need and moved to rung 2.) `NebulaClientTest`
+ * the assertions name the exact identity values, e.g. `roster).toContainEqual({ sub: aSub, profileId: aPid })`.
+ * Real issuance assigns `sub`/`profileId` server-side, so a test cannot choose them through it. (`profile-channel-collision` had no such need and moved to rung 2.) `NebulaClientTest`
  * + `createNebulaTestToken` → real Gateway → Star/DevStudio. A WATCHER uses `client.subscribeQuerySubscribers`
  * and asserts on the `handleQuerySubscribersUpdate` capture (`lastQuerySubscribersUpdate`/count). Data
  * churn uses `client.resources.subscribeQuery`. Server branch decisions are asserted via the debug marker
- * `nebula.ResourceDataPlane.subscribers`. Every test is capable-of-failing.
+ * `nebula.Resources.subscribers`. Every test is capable-of-failing.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
@@ -45,7 +42,7 @@ async function connect(opts: {
   const { access_token } = await createNebulaTestToken({
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.star, instanceName: opts.star,
-    scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId, sub, ttlSeconds: 3600,
+    scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId ?? uuid(), sub, ttlSeconds: 3600,
   })();
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
@@ -72,16 +69,18 @@ async function admin(star: string): Promise<{ client: NebulaClientTest; sub: str
 /** Distinct-by-`sub` set in a watcher's latest roster push. */
 const rosterSubs = (c: NebulaClientTest) => new Set((c.lastQuerySubscribersUpdate?.roster ?? []).map((e) => e.sub));
 
-/** Row counts in the STAR's two subscription tables (dedicated-reap assertion needs BOTH). */
-async function tableRows(star: string, table: 'QuerySubscribers' | 'QuerySubscriberListSubs', queryHash: string): Promise<number> {
+/** Row counts of one kind on a query's topic in the STAR's `Subscriptions` table — a query's data
+ *  rows and its roster rows share the topic, so the dedicated-reap assertion reads BOTH kinds. */
+async function kindRows(star: string, kind: 'query' | 'roster', queryHash: string): Promise<number> {
   const stub: any = (env as any).STAR.getByName(star);
   return (runInDurableObject as any)(stub, (_i: any, c: any) =>
-    (c.storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table} WHERE queryHash = ?`, queryHash).toArray()[0].n as number));
+    (c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = ? AND topic = ?', kind, queryHash)
+      .toArray()[0].n as number));
 }
 
 let sink: any[] = [];
 const marks = (event: string, queryHash: string, clientId: string) =>
-  sink.filter((e) => e.namespace === 'nebula.ResourceDataPlane.subscribers'
+  sink.filter((e) => e.namespace === 'nebula.Resources.subscribers'
     && e.data?.event === event && e.data?.queryHash === queryHash && e.data?.clientId === clientId);
 beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });
 afterEach(() => {
@@ -91,7 +90,7 @@ afterEach(() => {
 });
 
 describe('subscriber-list — the STANDALONE roster of a query subscription', () => {
-  it('STANDALONE + content — a WATCHER (not a data-subscriber) receives the distinct-by-`sub` `{ sub, profileId }` roster; absent claim degrades to sub-only', async () => {
+  it('STANDALONE + content — a WATCHER (not a data-subscriber) receives the distinct-by-`sub` `{ sub, profileId }` roster', async () => {
     const star = uniqueStar();
     await admin(star);
     const query = mkQuery();
@@ -107,15 +106,6 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     await a.resources.subscribeQuery(query).ready;
     await vi.waitFor(() => expect(rosterSubs(w).has(aSub)).toBe(true));
     expect(w.lastQuerySubscribersUpdate?.roster).toContainEqual({ sub: aSub, profileId: aPid });
-
-    // A data-subscriber WITHOUT a profileId → sub-only entry, no throw (degrade).
-    const bSub = uuid();
-    const b = await connect({ star, sub: bSub });
-    await b.resources.subscribeQuery(query).ready;
-    await vi.waitFor(() => expect(rosterSubs(w).has(bSub)).toBe(true));
-    const bareEntry = w.lastQuerySubscribersUpdate?.roster?.find((e) => e.sub === bSub);
-    expect(bareEntry).toEqual({ sub: bSub });
-    expect(bareEntry).not.toHaveProperty('profileId');
   });
 
   it('WATCHERS not data-subscribers receive the re-push — a data-subscriber who is NOT a watcher gets NO roster push; a watcher who is NOT a data-subscriber DOES', async () => {
@@ -141,7 +131,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     expect(d.querySubscribersUpdateCount).toBe(dBaseline);
   });
 
-  it('ECHO-FREE — a watcher registration receives a roster push but NO query-DATA push, and does not enter the QuerySubscribers data table', async () => {
+  it('ECHO-FREE — a watcher registration receives a roster push but NO query-DATA push, and writes no query row', async () => {
     const star = uniqueStar();
     await admin(star);
     const query = mkQuery();
@@ -153,9 +143,9 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     // The watcher got a roster (subscriber-list) push but NO query-DATA push (it never subscribed to data).
     expect(w.querySubscribersUpdateCount).toBeGreaterThanOrEqual(1);
     expect(w.queryUpdateCount).toBe(0);
-    // And the watcher registration did NOT add a row to the QuerySubscribers DATA table (separate table).
-    expect(await tableRows(star, 'QuerySubscribers', qh)).toBe(0);
-    expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(1);
+    // And the watcher registration wrote a roster row, not a query (DATA) row.
+    expect(await kindRows(star, 'query', qh)).toBe(0);
+    expect(await kindRows(star, 'roster', qh)).toBe(1);
   });
 
   it('NO dead else-push — a 2nd tab of an already-present data-subscriber (non-`isNewSub`) fires ZERO roster pushes', async () => {
@@ -213,7 +203,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     await vi.waitFor(() => expect(w.lastQuerySubscribersUpdate?.error).toBeInstanceOf(Error));
   });
 
-  it('DEDICATED reap — a dual-role client (data-subscriber AND watcher of Q) that disconnects loses its WATCHER row on a failed roster push, but its DATA row is reaped SEPARATELY (assert BOTH tables)', async () => {
+  it('DEDICATED reap — a dual-role client (data-subscriber AND watcher of Q) that disconnects loses its WATCHER row on a failed roster push, but its DATA row is reaped SEPARATELY (assert BOTH kinds)', async () => {
     const star = uniqueStar();
     await admin(star);
     const query = mkQuery();
@@ -224,8 +214,8 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     const dr = await connect({ star, sub: drSub });
     await dr.resources.subscribeQuery(query).ready;
     await dr.subscribeQuerySubscribers(query).ready;
-    await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscribers', qh)).toBe(1));
-    await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(1));
+    await vi.waitFor(async () => expect(await kindRows(star, 'query', qh)).toBe(1));
+    await vi.waitFor(async () => expect(await kindRows(star, 'roster', qh)).toBe(1));
 
     // DR disconnects; a NEW data-subscriber joins → the roster grows → #broadcastRoster pushes to the
     // (now-dead) watcher DR → the DEDICATED onQuerySubscriberListBroadcastResult reaps DR's WATCHER row.
@@ -233,15 +223,15 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     const trigger = await connect({ star });
     await trigger.resources.subscribeQuery(query).ready;
 
-    // DR's WATCHER row is reaped from the watcher table (the dedicated onQuerySubscriberListBroadcastResult
-    // → removeQuerySubscriberListWatcher). A wrong reuse of removeQuerySubscriber (the DATA table) would
-    // instead leave the watcher row here (this stays 1) — so this alone catches the wrong-table mutation.
-    await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(0));
-    // ...and the roster reap did NOT touch the DATA table: DR's (now-stale) data row SURVIVES alongside the
-    // trigger's → 2 rows. (Both tables share the (queryHash, clientId) key, so a watcher-only check would
-    // false-pass; asserting the data table stayed at 2 proves the dedicated reap didn't clobber the data
+    // DR's WATCHER row is reaped (the dedicated onQuerySubscriberListBroadcastResult →
+    // removeQuerySubscriberListWatcher). A wrong reuse of removeQuerySubscriber (the query rows) would
+    // instead leave the roster row here (this stays 1) — so this alone catches the wrong-kind mutation.
+    await vi.waitFor(async () => expect(await kindRows(star, 'roster', qh)).toBe(0));
+    // ...and the roster reap did NOT touch the query rows: DR's (now-stale) data row SURVIVES alongside
+    // the trigger's → 2 rows. (Both kinds share the (topic, clientId) pair, so a roster-only check would
+    // false-pass; asserting the query rows stayed at 2 proves the dedicated reap didn't clobber the data
     // sub — DR's stale data row is reaped separately by a data broadcast, out of this test's scope.)
-    expect(await tableRows(star, 'QuerySubscribers', qh)).toBe(2);
+    expect(await kindRows(star, 'query', qh)).toBe(2);
   });
 
   it('REACHABILITY not read — a non-admin watcher with ZERO read grants still receives the FULL roster; no permission fields leak', async () => {
@@ -265,7 +255,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     expect(s).not.toContain('dominionOverHostAtSubscribe');
   });
 
-  it('GENERICITY — the standalone subscriber-list rides a Galaxy host too (same shared ResourceDataPlane + bridge)', async () => {
+  it('GENERICITY — the standalone subscriber-list rides a Galaxy host too (the same plane, composed on the Galaxy)', async () => {
     const scope = `sublist-ds-${uuid().slice(0, 8)}.app.tenant`;
     const query: QueryDescriptor = {
       queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
@@ -277,11 +267,11 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     const bSub = uuid();
     const b = await connect({ star: scope, sub: bSub, binding: 'GALAXY' });
     await b.resources.subscribeQuery(query).ready;
-    // The watcher sees the grown roster → the Galaxy's bridge impl works (ADR-007 composition).
+    // The watcher sees the grown roster → the plane's roster send works on the Galaxy (ADR-007 composition).
     await vi.waitFor(() => expect(rosterSubs(w).has(bSub)).toBe(true));
   });
 
-  it('ONTOLOGY-INSTALL — a watcher’s row is cleared on a new-version install (clearWatchers unioned into #installState)', async () => {
+  it('ONTOLOGY-INSTALL — a watcher’s row is cleared on a new-version install (the roster kind is in the install\'s drain)', async () => {
     const star = uniqueStar();
     const { client: adminClient } = await admin(star);
     const query = mkQuery();
@@ -289,14 +279,14 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
 
     const w = await connect({ star });
     await w.subscribeQuerySubscribers(query).ready;
-    await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(1));
+    await vi.waitFor(async () => expect(await kindRows(star, 'roster', qh)).toBe(1));
 
-    // A new-version ontology install drains ALL THREE registries (incl. watchers via clearWatchers) so a
+    // A new-version ontology install drains the resource, query AND roster kinds, so a
     // watcher whose watched type/field an install could remove is cleared, not left silently stale.
     adminClient.callStarInstallOntology(star, { version: 'v2', types: TYPES } as OntologyVersionConfig);
     await vi.waitFor(() => expect(adminClient.callCompleted).toBe(true));
-    // Reds if clearWatchers() is NOT unioned into #installState (the watcher row would survive the install).
-    await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(0));
+    // Reds if the roster kind leaves the plane's install drain (the watcher row would survive the install).
+    await vi.waitFor(async () => expect(await kindRows(star, 'roster', qh)).toBe(0));
   });
 
   it('WATCHER refcount — 2 handles of the same query share ONE server row; unsubscribeQuerySubscribers fires only on the LAST dispose', async () => {
@@ -309,7 +299,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     const h1 = w.subscribeQuerySubscribers(query);
     const h2 = w.subscribeQuerySubscribers(query); // coalesces (same canonical query, one client)
     await Promise.all([h1.ready, h2.ready]);
-    await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(1));
+    await vi.waitFor(async () => expect(await kindRows(star, 'roster', qh)).toBe(1));
 
     // Release ONE handle — the other still holds it open, so NO unsubscribe fires. Positive signal: a data
     // join still re-pushes the roster to w (its watcher row survived h1's dispose).
@@ -321,6 +311,6 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
 
     // Release the LAST handle → unsubscribeQuerySubscribers fires → the watcher row drops.
     h2[Symbol.dispose]();
-    await vi.waitFor(async () => expect(await tableRows(star, 'QuerySubscriberListSubs', qh)).toBe(0));
+    await vi.waitFor(async () => expect(await kindRows(star, 'roster', qh)).toBe(0));
   });
 });

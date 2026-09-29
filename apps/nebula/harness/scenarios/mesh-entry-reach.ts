@@ -25,7 +25,7 @@ import { connectDriver } from '../lib/harness';
 
 export const needsContainer = false;
 
-/** A galaxy-tier scope: two segments, so `GALAXY` owns resources and carries the `dagTree()` gate. */
+/** A galaxy-tier scope: two segments, so `GALAXY` owns resources and carries the `resources` gate. */
 const SCOPE = 'claude-reach.app';
 
 /** A key nothing in the framework, Nebula or the tests reads. Never `scopeAdmin`. */
@@ -79,27 +79,28 @@ export async function run(stack: DevStack): Promise<void> {
       },
 
       // ── the walk rules: past a real gate, the doors JavaScript opens on every object ──────
-      //    `dagTree()` is a shipped gate — a bare `@mesh()` on both Star and Galaxy that hands back
-      //    a `DagTree` facade, with per-op auth inside it. Everything past that op is unchecked.
+      //    `resources` is a shipped gate — a bare `@mesh()` getter on both Star and Galaxy that hands
+      //    back the plane's request surface, whose members check each op. Past that op only the walk
+      //    rules apply, so each limb walks past it.
       {
-        name: 'constructor past the dagTree() gate',
+        name: 'constructor past the resources gate',
         pattern: /'constructor'/,
-        run: () => call((c) => c.dagTree().constructor.name),
+        run: () => call((c) => c.resources.constructor.name),
       },
       {
         name: '__proto__ past the gate',
         pattern: /'__proto__'/,
-        run: () => call((c) => c.dagTree().__proto__.constructor.name),
+        run: () => call((c) => c.resources.__proto__.constructor.name),
       },
       {
         name: "__lookupGetter__('__proto__'), naming neither fenced key",
         pattern: /'__lookupGetter__'/,
-        run: () => call((c) => c.dagTree().__lookupGetter__('__proto__').name),
+        run: () => call((c) => c.resources.__lookupGetter__('__proto__').name),
       },
       {
         name: 'a Function.prototype member reached from a handed-back method',
         pattern: /Function\.prototype/,
-        run: () => call((c) => c.dagTree().getState.bind.name),
+        run: () => call((c) => c.resources.read.bind.name),
       },
     ];
 
@@ -126,7 +127,7 @@ export async function run(stack: DevStack): Promise<void> {
     try {
       // `getGalaxyConfig()` is a marked member handing back a PLAIN object, so its `constructor`
       // is `Object` and its `prototype` really is `Object.prototype` — a facade's own class
-      // prototype (`dagTree()`) pollutes only that facade's instances. The function argument
+      // prototype (`resources.orgTree`) pollutes only that facade's instances. The function argument
       // arrives as a get-only nested marker on a marked member, which is the one way a chain can
       // produce a function at all (a chain names `get` and `apply` and nothing else).
       await call((c) => c.getGalaxyConfig().constructor.prototype

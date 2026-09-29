@@ -54,7 +54,7 @@ describe('the pre-rename surface is gone', () => {
 describe('/mint-narrower-token (admin branch only)', () => {
   // ── FAITHFULNESS, the `admin` mirror ────────────────────────────────────────────────────────────
   // Was: "admin bit = CALLER". Inverted deliberately — the caller's bit is what made the token act
-  // with admin-derived dominion the subject may not have, so `dag-tree.ts`'s scope-admin bypass fired
+  // with admin-derived dominion the subject may not have, so `org-tree.ts`'s scope-admin bypass fired
   // and the denial an admin came to observe never happened.
   // Mutation: revert `scopeAdmin` to `payload.access.scopeAdmin === true` → this reds.
   it('an admin mints for a member — sub=subject, act.sub=caller, admin bit MIRRORS the subject (P1)', async () => {
@@ -382,6 +382,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
         instanceName: `${u}.gal`,
         activeScope: `${u}.gal`,
         scopeAdmin: true,
+        profileId: admin.parsed.profileId,
       })();
 
       const resp = await mintNarrowerRequest(SELF, narrow.access_token,
@@ -406,6 +407,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
         instanceName: u,
         activeScope: u,
         scopeAdmin: true,
+        profileId: admin.parsed.profileId,
         // → act: { sub: user, profileId } — an already act-bearing token
         actor: { sub: user.parsed.sub, profileId: user.parsed.profileId },
       })();
@@ -454,43 +456,10 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(parsed.act.profileId).toBe(admin.parsed.profileId);      // the ACTOR's
       expect(parsed.act.profileId).not.toBe(user.parsed.profileId);
       // The invariant top-level `sub` and top-level `profileId` ALWAYS describe the same person — the
-      // `QuerySubscribers` roster and `#rosterFor` persist that pair and must need no change.
+      // query rows of `apps/nebula`'s `Subscriptions` table and `#rosterFor` persist that pair.
       // Mutation: stamp the caller's `profileId` top-level → this reds.
       expect(parsed.sub).toBe(user.parsed.sub);
       expect(parsed.profileId).toBe(user.parsed.profileId);
-    });
-
-    // ⚠️ **Rung 3, justified IN PLACE (ADR-009's "a surface no client can construct" carve-out).**
-    // Every real identity is stamped with a `profileId` at `#mintIdentity` and `RefreshTokenKV
-    // .profileId` is a required `string`, so NO rung-1 caller token can lack the claim — the
-    // fixture is unreachable through real issuance. `NebulaJwtPayload.profileId` is nevertheless
-    // optional at every layer, so the mint must handle its absence.
-    // Mutation: make `actor.profileId` required → this reds.
-    // ⚠️ NOT a valid mutation: emitting `profileId: undefined`. `signJwt` encodes with
-    // `JSON.stringify`, which drops undefined-valued keys, so it is byte-identical on the wire — the
-    // conditional `profileId` spread INSIDE `act` is unobservable at the JWT boundary. The
-    // load-bearing half of that construct is the UNCONDITIONAL `act`, which the `toEqual` covers.
-    it('an ABSENT caller profileId still mints — act: { sub } with no profileId key', async () => {
-      const u = uni();
-      const admin = await foundUniverse(SELF, u, 'admin@example.com');
-      const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
-
-      const noProfile = await createNebulaTestToken({
-        privateKey: env.JWT_PRIVATE_KEY_BLUE,
-        sub: admin.parsed.sub,
-        instanceName: u,
-        activeScope: u,
-        scopeAdmin: true, // ...and deliberately NO `profileId`
-      })();
-
-      const resp = await mintNarrowerRequest(SELF, noProfile.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: u });
-      expect(resp.status).toBe(200);
-      const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
-      // `act` itself must still be PRESENT — the tenancy-summary refusal (`router.ts`'s
-      // `forwardWithSubject`) and the mint's root-identity gate both key on the chain's presence, so
-      // a conditional whole-`act` spread would silently defeat both.
-      expect(parsed.act).toEqual({ sub: admin.parsed.sub });
-      expect('profileId' in parsed.act).toBe(false);
     });
   });
 });

@@ -59,7 +59,7 @@ async function meshClient(opts: {
     refresh: createNebulaTestToken({
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope, instanceName: opts.instanceName ?? activeScope,
-      scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId, sub: uuid(),
+      scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId ?? uuid(), sub: uuid(),
     }),
     fetch: browser.fetch, WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
@@ -77,7 +77,7 @@ async function nebulaClient(opts: { activeScope: string; profileId?: string }): 
   const { access_token, sub } = await createNebulaTestToken({
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.activeScope, instanceName: opts.activeScope, scopeAdmin: false, ttlSeconds: 3600,
-    profileId: opts.profileId,
+    profileId: opts.profileId ?? uuid(),
   })();
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
@@ -274,11 +274,6 @@ describe('Profile DO — subscribe + fence + fanout', () => {
     // lands on the wrong Profile instance and this second update never arrives.
     await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
     expect(x.profileUpdates[1].snapshot.value).toEqual({ name: 'Sydney' });
-  });
-
-  it('updateMyProfile throws loudly when the session carries no profileId claim', async () => {
-    const owner = await nebulaClient({ activeScope: 'universe-z.app.tenant' });
-    expect(() => owner.updateMyProfile({ name: 'Nope' })).toThrow(/no profileId claim/);
   });
 
   it('an UPDATE carries none of the writer\'s claims — the Profile starts each push\'s chain afresh', async () => {

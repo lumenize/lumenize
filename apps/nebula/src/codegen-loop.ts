@@ -13,7 +13,7 @@
  * drive it too. The driver imports nothing from the Galaxy: the entries a tool reaches
  * arrive as {@link CodegenLoopDeps.tools}, built by the Galaxy from its `LOOP_TOOL_ENTRIES`
  * table, and it holds **no reference** to the `.dev` Star binding or the install/wipe
- * methods (`compileAndInstallOntology` / `resetDevData` / `setOntology`) — that absence is
+ * methods (`compileAndInstallOntology` / `resetDevData` / `onOntologyPulled`) — that absence is
  * the secure-by-default D2 guarantee (an autonomous tool can read, write and build but
  * never install or wipe; install/wipe stays the human-gated apply step fired AFTER the
  * loop). Path safety is the ENTRY's rule (`assertModelPath`, in `galaxy.ts`), so a refused

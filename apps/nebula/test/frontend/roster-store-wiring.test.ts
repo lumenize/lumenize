@@ -36,7 +36,7 @@ describe('Subscriber-list roster store-wiring — store.lmz.querySubscribers.*',
     // A roster push lands at the query-in-path as a reactive array → renders in the v-for.
     client.simulateRoster(
       { queryType: 'parentChild', typeName: 'Message', field: 'session', value: sessionId },
-      [{ sub: 'alice' }, { sub: 'bob', profileId: 'p-bob' }],
+      [{ sub: 'alice', profileId: 'p-alice' }, { sub: 'bob', profileId: 'p-bob' }],
     );
     await vi.waitFor(() => expect(document.querySelectorAll('#app li')).toHaveLength(2));
     expect([...document.querySelectorAll('#app li')].map((n) => n.textContent)).toEqual(['alice', 'bob']);

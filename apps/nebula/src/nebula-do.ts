@@ -180,7 +180,7 @@ export class NebulaDO extends LumenizeDO {
    * variant); it clears the entire private store (SQL + KV + alarms). `blockConcurrencyWhile`
    * closes the input gate so nothing lands mid-wipe (the sync `requireDominionHere` already ran).
    */
-  @mesh(requireDominionHere)
+  @mesh(requireDominionHere) // dominion over this host; a descendant's member is refused
   async teardown(): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
       await this.ctx.storage.deleteAll();

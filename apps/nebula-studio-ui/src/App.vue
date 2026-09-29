@@ -453,8 +453,7 @@ async function connect() {
     ...chatPair(activeScope.value),
     // The build reply lands here: the Galaxy answers whoever asked for the build. The
     // initial load needs no cue — `dist/` serves from the Galaxy's VFS and the iframe
-    // source is set below before anything is asked. No `onReload` — that gates the
-    // Star's parked publish channel, not this.
+    // source is set below before anything is asked.
     onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
     onLoginRequired: onSessionExpired,
   });
@@ -519,8 +518,9 @@ onMounted(() => {
 // reason (waking an idle-slept dev container, which served a self-healing "waking" page) is
 // GONE — the container is off the read path entirely and `dist` serves Galaxy-direct from
 // the DO's VFS, so there is nothing to wake. The behavior survives on a DIFFERENT reason: a
-// build that completes while this tab is hidden broadcasts a reload push the client may miss
-// if its gateway WS dropped, so on return the preview can be a version behind. Gated on a
+// build that completes while this tab is hidden answers its requester with a direct push the
+// client may miss if its gateway WS dropped, and a build another tab asked for sends this tab
+// nothing, so on return the preview can be a version behind. Gated on a
 // long absence, since a quick tab-switch cannot have missed a build. The mesh client
 // reconnects its own WS via backoff; this covers the preview the client doesn't own.
 let hiddenAt = 0;

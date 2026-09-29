@@ -1,7 +1,7 @@
 /**
- * Resources temporal storage tests
+ * Snapshots temporal storage tests
  *
- * Tests the Resources class: CRUD via transaction(), read(),
+ * Tests the Snapshots class: CRUD via transaction(), read(),
  * optimistic concurrency, debounce, DAG permission integration,
  * and rich type round-trip (Map, Set, Date, cycle).
  */
@@ -428,7 +428,7 @@ describe('star-resources', () => {
       // Grant write to user
       const { client: user } = await userClient(star, accessToken);
       admin.callStarSetPermission(star, nodeId, user.lastResult?.sub ?? '', 'write');
-      // Actually, let me grant via the dagTree
+      // Actually, let me grant via the orgTree
       // Get user sub first
       user.callStarWhoAmI(star);
       await waitForResult(user);

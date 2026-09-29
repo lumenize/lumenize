@@ -38,6 +38,8 @@ describe('client.resources.createAndSubscribe', () => {
 
     expect(snap).not.toBeNull();
     expect((snap!.value as { title: string }).title).toBe('made');
+    // Armed, the handle is an ordinary resource subscription that can read what it made.
+    expect(sub.deniedNodes).toEqual([]);
 
     // The resource really exists server-side: a plain read returns it.
     const read = await client.resources.read('Todo', rid);
@@ -85,6 +87,21 @@ describe('client.resources.createAndSubscribe', () => {
     // createAndSubscribe now can't create → .snapshot rejects (use subscribe instead).
     using sub = client.resources.createAndSubscribe('Todo', rid, ROOT_NODE_ID, { title: 'dup', done: false });
     await expect(sub.snapshot).rejects.toThrow(/did not commit|already exists/);
+
+    client[Symbol.dispose]();
+  });
+
+  it('a handle disposed before the create lands resolves .snapshot null and arms nothing', async () => {
+    const star = uniqueStar();
+    const { client } = await adminClient(star);
+    const rid = crypto.randomUUID();
+
+    const sub = client.resources.createAndSubscribe('Todo', rid, ROOT_NODE_ID, { title: 'early', done: false });
+    sub[Symbol.dispose](); // synchronously, while the create is still in flight
+    // Mutation: drop the handle's dispose hook → the create lands and arms the subscription → red.
+    expect(await sub.snapshot).toBeNull();
+    // The create itself still landed; only the subscription was not armed.
+    expect(((await client.resources.read('Todo', rid))!.value as { title: string }).title).toBe('early');
 
     client[Symbol.dispose]();
   });

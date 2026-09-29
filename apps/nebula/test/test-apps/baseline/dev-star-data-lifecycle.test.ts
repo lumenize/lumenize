@@ -5,9 +5,9 @@
  * instance — no `DevStar` class. Additive ontology edits preserve dev data for free
  * (reads return stored values verbatim; `@default` fills only on the next write). A
  * breaking edit invalidates stored snapshots, which we do NOT migrate — `resetDevData()`
- * wipes the sandbox (full `deleteAll` + `onStart` re-init, hard-guarded to `.dev`
- * instances) and the user-developer rebuilds. Ontology is applied via
- * `setOntology` (the Galaxy's dev apply path); the registry lazy-pull returns in Phase 2 of the collapse.
+ * wipes the sandbox (the plane's wipe — every table and key it owns, refused off `.dev`)
+ * and the user-developer rebuilds. Ontology is installed through
+ * `resourcesResults.onOntologyPulled`, where a Galaxy's answer lands.
  *
  * @see tasks/nebula-studio.md § Dev-data reset
  */
@@ -16,6 +16,7 @@ import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, Star, requireDominionHere } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
+import { meshEntries } from '../mesh-surface';
 import {
   universeAdminClient,
   createInvitedClient,
@@ -47,8 +48,7 @@ async function waitForSuccess(client: NebulaClientTest) {
 async function devAdminClient(galaxy: string, dev: string) {
   return universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com');
 }
-/** Apply an ontology version to the `.dev` Star (the setOntology path that replaced
- *  append + lazy-pull / deployToDev). */
+/** Install an ontology version on the `.dev` Star, the way a pulled row installs. */
 async function installOntology(client: NebulaClientTest, dev: string, version: string, types: string) {
   client.callStarInstallOntology(dev, { version, types });
   await waitForSuccess(client);
@@ -136,9 +136,8 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     expect(census.nodeCount).toBe(1);
     expect(census.orphanCount).toBe(0);
 
-    // resetDevData wipes the ontology too (full deleteAll); re-apply it as Flow 1b does
-    // (reset → setOntology). The DO + registration survive: the resource is gone, and
-    // the re-init'd schema accepts a fresh read.
+    // resetDevData wipes the ontology too; re-apply it as Flow 1b does (reset → install). The DO
+    // survives: the resource is gone, and the rebuilt schema accepts a fresh read.
     await installOntology(client, dev, 'v1', TODO_V1);
     client.callStarRead(dev, 'v1', rid);
     expect(await waitForSuccess(client)).toBeNull();
@@ -182,20 +181,28 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
       NebulaClientTest, new Browser(), galaxy, starA, 'admin@example.com',
     );
 
-    // Seed survivable state (config KV) — deleteAll() would wipe it.
-    client.callStarSetConfig(starA, 'survives', 'yes');
-    await waitForSuccess(client);
+    // Seed state the wipe owns — a committed Resource. (The Star's `config` would prove nothing:
+    // the wipe erases only what the plane owns, so config survives a wipe that ran.)
+    await installOntology(client, starA, 'v1', TODO_V1);
+    const rid = crypto.randomUUID();
+    client.callStarTransaction(starA, 'v1', {
+      [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'kept', done: false } },
+    });
+    expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
-    // Admin caller (requireDominionHere passes) but the .dev guard throws. Capable-of-failing:
-    // mutating the guard to always-pass → deleteAll runs → the config below is gone.
+    // Admin caller (requireDominionHere passes) but the plane's wipe refuses off `.dev`. Capable-of-
+    // failing: delete the check, and the Resource below is gone. This limb alone cannot tell WHERE
+    // the check lives — a copy moved into `resetDevData` would refuse the same way — so the
+    // install-path limbs in `plane-wipe.test.ts` (off `.dev`, on a Star and a Galaxy) are the other
+    // half: a check that left the plane's wipe lets an install-triggered wipe through there.
     client.callStarResetDevData(starA);
     await waitForResult(client);
     expect(client.lastError).toMatch(/only permitted on the \.dev sandbox Star/);
 
-    // Wipes nothing — the throw is BEFORE blockConcurrencyWhile/deleteAll, so the
-    // seeded key survives (a mutated always-pass guard → deleteAll → it's gone).
-    client.callStarGetConfig(starA);
-    expect(await waitForSuccess(client)).toMatchObject({ survives: 'yes' });
+    // Wipes nothing — the refusal comes before the wipe touches anything, so the Resource and the
+    // installed version survive.
+    client.callStarRead(starA, 'v1', rid);
+    expect((await waitForSuccess(client) as Snapshot).value).toMatchObject({ title: 'kept' });
 
     client[Symbol.dispose]();
   });
@@ -218,7 +225,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     await waitForResult(client);
     expect(client.lastError).toBeUndefined();
 
-    // Re-apply the ontology after the wipe (Flow 1b: reset → setOntology).
+    // Re-apply the ontology after the wipe (Flow 1b: reset → install).
     await installOntology(client, dev, 'v1', TODO_V1);
 
     // (a) The resource is gone (read → null).
@@ -226,7 +233,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     expect(await waitForSuccess(client)).toBeNull();
 
     // The pre-wipe node is absent — NodeNotFoundError is thrown by #requireNodeExists
-    // BEFORE the admin bypass, so a stale DagTree cache (node still present) would NOT
+    // BEFORE the admin bypass, so a stale OrgTree cache (node still present) would NOT
     // throw → this is capable-of-failing on cache-rebuild.
     client.callStarGetEffectivePermission(dev, childNodeId);
     await waitForResult(client);
@@ -313,8 +320,10 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   // BLOCKED on a `.dev`-scoped admin identity. `createStar` mints no identity and `claim-star`
   // refuses the reserved `.dev` slug, so after the exact-star seed rule (2026-08-02) NO principal
   // satisfies the gate on a `.dev` Star. Unblocks with the per-invitee admin mint INTO `.dev`
-  // (tasks/nebula-auth-identity-mint.md Phase 4); only the client's tier changes — the assertions
-  // below are the real reset/reseed contract and are left intact.
+  // (tasks/nebula-auth-identity-mint.md Phase 4); only the client's tier changes. ⚠️ The reseed half
+  // will fail when it unblocks: the plane's wipe drops the root grant but not the Star's one-shot
+  // seed latch, which the plane does not own. The seed itself is deleted by the subdomain build
+  // (tasks/nebula-scope-moves-to-subdomain.md), which is why no guard was added for it here.
   it.skip('DataPlane root admin: absent immediately after reset, reseeded on the next admin call (honest test)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client, payload } = await devAdminClient(galaxy, dev);
@@ -338,12 +347,8 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     client[Symbol.dispose]();
   });
 
-  // The bounded "in-flight write vs reset" edge (a doTransaction suspended at
-  // facet.parseBatch resumes AFTER resetDevData's wipe and commits a Snapshot into the
-  // emptied tables, possibly orphaning Snapshot.nodeId → Nodes) is bounded for the demo
-  // (single-admin; Studio quiesces its write queue before reset). The server-side hardening
-  // (a generation counter) is deferred → tasks/backlog.md § Testing & Quality; tracked there
-  // rather than as a placeholder test here.
+  // A transaction suspended at the validator while `resetDevData` wipes answers stale and writes
+  // nothing: `plane-wipe.test.ts` holds one there, on this path and the install's.
 
   it('breaking edit → reset loop: stale snapshot invalid under new version; reset; fresh write validates (M5)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
@@ -370,7 +375,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     expect(rBad.ok).toBe(false);
     if (!rBad.ok) expect(rBad.errors[rid].type).toBe('validation');
 
-    // Reset → empty; re-apply v2 (Flow 1b: reset → setOntology the new ontology).
+    // Reset → empty; re-apply v2 (Flow 1b: reset → install the new ontology).
     client.callStarResetDevData(dev);
     await waitForResult(client);
     expect(client.lastError).toBeUndefined();
@@ -387,21 +392,6 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   });
 });
 
-// Walk a class's OWN prototype, returning its mesh-callable methods whose guard is
-// requireDominionHere. Copied from scope-isolation.test.ts (B5).
-function adminMeshMethods(ctor: { prototype: object }): string[] {
-  const proto = ctor.prototype;
-  const out: string[] = [];
-  for (const name of Object.getOwnPropertyNames(proto)) {
-    if (name === 'constructor') continue;
-    const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
-    if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (getMeshGuard(fn) !== requireDominionHere) continue;
-    out.push(name);
-  }
-  return out.sort();
-}
-
 describe('resetDevData capability surface (Star.prototype)', () => {
   it('resetDevData lives on base Star.prototype, mesh-callable + admin-gated', () => {
     const fn = (Star.prototype as unknown as Record<string, unknown>).resetDevData as (...a: unknown[]) => unknown;
@@ -410,13 +400,18 @@ describe('resetDevData capability surface (Star.prototype)', () => {
     expect(getMeshGuard(fn)).toBe(requireDominionHere);
   });
 
-  it('Star.prototype @mesh-surface-freeze: the admin-gated set equals the frozen allow-list', () => {
-    // The one-good-way PRODUCTION surface: resetDevData + setStarConfig are the only
-    // admin-gated @mesh methods; a new one must be added deliberately + re-reviewed.
-    // `installOntology` and remote `setOntology` were the deleted eager-push flow's
-    // receiving ends — installs now arrive ONLY by lazy-pull from the Galaxy registry
-    // (setOntology survives as the internal, non-@mesh install primitive). Mutation-validated:
-    // removing requireDominionHere from either drops it from this set → != frozen list → RED.
-    expect(adminMeshMethods(Star)).toEqual(['resetDevData', 'setStarConfig']);
+  it('the Star\'s whole @mesh surface, by guard tier, equals the frozen allow-list', () => {
+    // Every entry reachable on the Star's prototype chain — the inherited `NebulaDO.teardown`
+    // included — read as the entry rule reads a mark. A new entry, a dropped guard, or a mark on
+    // the unmarked `resourcesResults` changes a list here. Installs arrive only by lazy-pull from
+    // the Galaxy registry, landing at `resourcesResults.onOntologyPulled` behind that unmarked gate;
+    // the eager push's remote `installOntology` / `setOntology` are gone.
+    const tier = (guard: unknown) => (guard === requireDominionHere ? 'dominion' : guard === undefined ? 'bare' : 'other');
+    const byTier: Record<string, string[]> = {};
+    for (const { name, guard } of meshEntries(Star)) (byTier[tier(guard)] ??= []).push(name);
+    expect(byTier).toEqual({
+      bare: ['getStarConfig', 'resources'],
+      dominion: ['resetDevData', 'setStarConfig', 'teardown'],
+    });
   });
 });

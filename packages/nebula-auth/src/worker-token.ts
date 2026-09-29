@@ -252,10 +252,10 @@ export async function mintAccessToken(
     universeGalaxyStarId: string;
     scopeAdmin: boolean;
     activeScope: string;
-    /** The bearer's PUBLIC profile address → the bare `profileId` claim (omitted when absent). */
-    profileId?: string;
+    /** The bearer's PUBLIC profile address → the bare `profileId` claim. */
+    profileId: string;
     /** RFC 8693 delegation actor pair → the `act` claim (omitted when absent). */
-    actor?: { sub: string; profileId?: string };
+    actor?: { sub: string; profileId: string };
     /**
      * Requested token lifetime. Clamped to {@link ACCESS_TOKEN_TTL} (it can only ever SHORTEN) and
      * warned about below {@link RECOMMENDED_MIN_TTL_SECONDS}. Validate with
@@ -794,7 +794,7 @@ function canMintFor(
  * the token could ever verify as, answered early as a 403 instead of late as a dead token), which
  * is a validation, never an authorization. Faithfulness — the subject's own bit and scope, not the
  * caller's — is the property the use case needs: it is what puts `resolvePermission` back in the
- * decision, so an admin can actually observe the denial they came to debug (`dag-tree.ts`'s
+ * decision, so an admin can actually observe the denial they came to debug (`org-tree.ts`'s
  * scope-admin bypass would otherwise fire off the caller's bit and the denial would never happen).
  *
  * @param payload the caller's already-verified access token (the route pipeline verifies the
@@ -888,7 +888,7 @@ export async function mintNarrowerToken(
     profileId: subjectIdentity.profileId,
     activeScope: body.activeScope,
     // The ACTOR pair — the caller. `profileId` rides alongside `sub` so a consumer never has to
-    // resolve it live; it is omitted when the caller's own token carries no `profileId` claim.
+    // resolve it live.
     actor: { sub: payload.sub, profileId: payload.profileId },
     ttlSeconds: body.ttlSeconds as number | undefined,
   });

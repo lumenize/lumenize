@@ -29,7 +29,7 @@ Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, w
                                     │                              │
                                     │ entrypoint.ts (Worker router)│
 @lumenize/nebula-auth (UNLICENSED)  │ Access Control (DAG tree)    │
-┌───────────────────────┐           │ Resources engine (DWL)       │
+┌───────────────────────┐           │ Snapshots engine (DWL)       │
 │ NebulaAuth DO         │─ import ─▶│ Schema evolution             │
 │ NebulaAuthRegistry    │           │ ResourcesWorker (DWL base)   │
 │ routeNebulaAuthRequest│           │ Vue frontend factory         │

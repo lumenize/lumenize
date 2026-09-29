@@ -49,12 +49,31 @@ import {
 // still carry it (this app never deploys), imported from the leaf directly.
 import { compileOntologyVersion } from '../../../src/ontology-compile';
 import { ROW_PATH, wsPath } from '../../../src/build-report';
-import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload } from '@lumenize/nebula';
+import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/nebula';
 import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
 // ============================================
+
+/**
+ * `row` with a validator whose `parseBatch` waits `ms` first — the seam that holds a transaction at
+ * the validator's await, so a test can land a wipe inside it. The module is the generated one with
+ * its class renamed and a subclass exported under the name the loader asks for.
+ */
+function holdingParse(row: OntologyVersionRow, ms: number): OntologyVersionRow {
+  const declaration = 'export class ParserValidator extends DurableObject';
+  if (row.validatorBundle.split(declaration).length !== 2) throw new Error('the generated validator changed shape');
+  const renamed = row.validatorBundle.replace(declaration, 'class HeldParserValidator extends DurableObject');
+  return {
+    ...row,
+    validatorBundle: `${renamed}
+export class ParserValidator extends HeldParserValidator {
+  async parseBatch(items) { await new Promise((r) => setTimeout(r, ${ms})); return super.parseBatch(items); }
+}
+`,
+  };
+}
 
 export class StarTest extends Star {
   @mesh()
@@ -115,96 +134,75 @@ export class StarTest extends Star {
   }
 
   /**
-   * Test-only (smoke/browser harness): compile + install an ontology version
-   * directly on this Star — the TEST-APP install door. Production installs arrive
-   * only by lazy-pull from the Galaxy registry (`Star.setOntology` is internal, not
-   * `@mesh`); tests pin a Star's ontology without a Galaxy loop through this entry
-   * instead. It takes SOURCE and compiles here, in the test Worker, because the only
-   * alternative is a remote entry taking a compiled row — the shape `setOntology`'s
-   * JSDoc refuses, a caller handing a Star a validator bundle from outside the
-   * registry. It is NOT an import limit: `ontology-compile.ts` loads in plain Node,
-   * so the Node-side callers could compile. It does keep the compiler, which is not
-   * browser-safe, out of the chromium lane's bundle (`test/chromium/ontology-admin.ts`).
+   * Test-only (smoke/browser harness): compile an ontology version and hand it to this Star the
+   * way its Galaxy's answer arrives — `resourcesResults.onOntologyPulled`, the path a production
+   * install takes — so a test pins a Star's ontology without a Galaxy loop. An installed version
+   * is skipped and a `wipeOnInstall` row wipes, exactly as a pulled row does. It takes SOURCE and
+   * compiles here, in the test Worker, because the only alternative is a remote entry taking a
+   * compiled row — a caller handing a Star a validator bundle from outside the registry, which
+   * the unmarked `resourcesResults` gate refuses. It is NOT an import limit: `ontology-compile.ts`
+   * loads in plain Node, so the Node-side callers could compile. It does keep the compiler, which
+   * is not browser-safe, out of the chromium lane's bundle (`test/chromium/ontology-admin.ts`).
    */
   @mesh(requireDominionHere)
-  applyOntologyForTest(versionConfig: OntologyVersionConfig): void {
-    this.setOntology(compileOntologyVersion(versionConfig));
+  applyOntologyForTest(versionConfig: OntologyVersionConfig, holdParseMs?: number): void {
+    const row = compileOntologyVersion(versionConfig);
+    this.resourcesResults.onOntologyPulled(holdParseMs ? holdingParse(row, holdParseMs) : row);
+  }
+
+  /** Hand `resourcesResults.onOntologyPulled` an answer that is not a row — the Galaxy's `null`
+   *  (nothing applied yet) or a delivered Error — the two shapes a real pull can come back as. */
+  @mesh(requireDominionHere)
+  deliverOntologyAnswerForTest(answer: 'null' | 'error'): void {
+    this.resourcesResults.onOntologyPulled(answer === 'null' ? null : new Error('the pull failed'));
+  }
+
+  /** Re-run `onStart` — a re-initialized DO, whose plane rebuilds every cache from storage. */
+  @mesh(requireDominionHere)
+  reInitForTest(): void {
+    this.onStart();
   }
 
   /**
-   * Test-only: dump the Subscribers table so tests can verify idempotency
-   * and row content. PK-ordered. Admin-gated to avoid client tests leaking
+   * Test-only: dump the resource rows of the `Subscriptions` table so tests can verify
+   * idempotency and row content. PK-ordered. Admin-gated to avoid client tests leaking
    * the registry shape unintentionally.
    */
   @mesh(requireDominionHere)
   inspectSubscribers(): SubscriberRow[] {
-    const rows = this.ctx.storage.sql.exec<SubscriberRow>(
-      `SELECT resourceId, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
-       FROM Subscribers ORDER BY resourceId, clientId`,
+    return this.ctx.storage.sql.exec<SubscriberRow>(
+      `SELECT topic AS resourceId, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
+       FROM Subscriptions WHERE kind = 'resource' ORDER BY topic, clientId`,
     ).toArray();
-    return rows;
   }
 
-  /** Test-only (Child 2): dump the QuerySubscribers table — idempotency / M3
-   *  single-row checks + content. PK-ordered. Admin-gated. */
+  /** Test-only (Child 2): dump the query rows — idempotency / M3 single-row checks + content.
+   *  PK-ordered. Admin-gated. */
   @mesh(requireDominionHere)
   inspectQuerySubscribers(): QuerySubscriberRow[] {
-    const rows = this.ctx.storage.sql.exec<QuerySubscriberRow>(
-      `SELECT queryHash, query, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
-       FROM QuerySubscribers ORDER BY queryHash, clientId`,
+    return this.ctx.storage.sql.exec<QuerySubscriberRow>(
+      `SELECT topic AS queryHash, query, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
+       FROM Subscriptions WHERE kind = 'query' ORDER BY topic, clientId`,
     ).toArray();
-    return rows;
   }
 
-  /** Test-only: dump the TreeSubscribers table (the dedicated org-tree channel). */
+  /** Test-only: dump the tree rows (the dedicated org-tree channel). */
   @mesh(requireDominionHere)
   inspectTreeSubscribers(): Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }> {
     const rows = this.ctx.storage.sql.exec(
-      `SELECT clientId, subscriberBinding, subscribedAt FROM TreeSubscribers ORDER BY clientId`,
+      `SELECT clientId, subscriberBinding, subscribedAt FROM Subscriptions WHERE kind = 'tree' ORDER BY clientId`,
     ).toArray();
     return rows as unknown as Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }>;
   }
 
-  /** Test-only (Phase 5): dump the ReloadSubscribers table (the dev-preview reload
-   *  channel) — used to assert connect-gated auto-subscribe + preservation across
-   *  resetDevData (Decision 12 / Flow 1d). */
-  @mesh(requireDominionHere)
-  inspectReloadSubscribers(): Array<{ clientId: string; subscriberBinding: string }> {
-    const rows = this.ctx.storage.sql.exec(
-      `SELECT clientId, subscriberBinding FROM ReloadSubscribers ORDER BY clientId`,
-    ).toArray();
-    return rows as unknown as Array<{ clientId: string; subscriberBinding: string }>;
-  }
-
-  /** Test-only: fan the Star's PARKED reload channel (its production trigger — the
-   *  publish-refresh signal — is not built; the ontology-install trigger was retired at
-   *  the collapse). Lets the preservation test still prove DELIVERY. */
-  @mesh(requireDominionHere)
-  broadcastReloadForTest(): void {
-    this.broadcastReload();
-  }
-
   /**
-   * Test-only: drop and recreate the Subscribers table. Used by 5.3.4a
-   * reconnect tests to verify that the client's resubscribe walk actually
-   * re-inserts rows. Without this hook, the absence of Phase 5.3.5
-   * (disconnect cleanup) means subscriber rows persist across WS close, so
-   * a missing resubscribe wouldn't be visible. Admin-gated.
+   * Test-only: delete every resource row, so a reconnect test can show that the client's
+   * re-subscribe walk is what re-inserts them — a row that simply survived the socket would
+   * otherwise hide a missing walk. Admin-gated.
    */
   @mesh(requireDominionHere)
   clearSubscribersForTest(): void {
-    this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS Subscribers (
-        resourceId TEXT NOT NULL,
-        clientId TEXT NOT NULL,
-        sub TEXT NOT NULL,
-        dominionOverHostAtSubscribe INTEGER NOT NULL DEFAULT 0,
-        subscriberBinding TEXT NOT NULL,
-        subscribedAt TEXT NOT NULL,
-        PRIMARY KEY (resourceId, clientId)
-      ) WITHOUT ROWID;
-    `);
+    this.ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'resource'`);
   }
 
   /**
@@ -225,7 +223,7 @@ export class StarTest extends Star {
 
   /**
    * Test-only (cold-start anatomy, 2026-07-22): the PURE mesh round-trip — returns
-   * its argument straight back, touching neither the ontology nor `#dataPlane`. The
+   * its argument straight back, touching neither the ontology nor the resources plane. The
    * 4-arg fire-back delivers the value to the client's `handleResult`. A COLD echo on
    * a fresh Star therefore isolates fresh-Star cold-wake (placement + onStart schema/
    * ROOT + onBeforeCall scope-check + root-admin seed) from any data-plane operation —
@@ -310,7 +308,7 @@ export class StarTest extends Star {
   @mesh(requireDominionHere)
   async resetAndProbeRootAdmin(starAdminSub: string): Promise<boolean> {
     await this.resetDevData();
-    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
+    return this.resources.orgTree.getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
   }
 
   /** Test-only (P3 criterion 7): does `starAdminSub` hold ROOT `admin`? Called as the
@@ -318,7 +316,7 @@ export class StarTest extends Star {
    *  caller observes `true`, documenting reseed-on-next-touch. */
   @mesh(requireDominionHere)
   inspectRootAdmin(starAdminSub: string): boolean {
-    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
+    return this.resources.orgTree.getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
   }
 }
 
@@ -440,31 +438,38 @@ export class GalaxyTest extends Galaxy {
     return out;
   }
 
-  /** Test-only: drop + recreate the QuerySubscribers table — the reconnect test's
-   *  server-side amnesia, so the client's re-subscribe walk is what restores fanout
-   *  (without it the walk's absence would be invisible: rows would just still exist). */
+  /** The row the chat-ontology source answers instead of the platform seed, when a test set one. */
+  #sourceRow: OntologyVersionRow | undefined;
+  protected override ontologySource(): OntologyVersionRow {
+    return this.#sourceRow ?? super.ontologySource();
+  }
+
+  /** Make the chat-ontology source answer `versionConfig`'s row — the way a newer platform seed
+   *  would arrive — or the platform seed again when none is given. Nothing installs until an op
+   *  finds its pinned version differs. */
+  @mesh(requireDominionHere)
+  setChatSourceForTest(versionConfig?: OntologyVersionConfig): void {
+    this.#sourceRow = versionConfig ? compileOntologyVersion(versionConfig) : undefined;
+  }
+
+  /** Re-run `onStart` — a re-initialized DO, whose plane rebuilds every cache from storage. */
+  @mesh(requireDominionHere)
+  async reInitForTest(): Promise<void> {
+    await this.onStart();
+  }
+
+  /** The installed chat ontology's version, read from the plane. */
+  @mesh(requireDominionHere)
+  installedChatVersionForTest(): string {
+    return this.chatOntology().version;
+  }
+
+  /** Test-only: delete every query row — the reconnect test's server-side amnesia, so the
+   *  client's re-subscribe walk is what restores fanout (without it the walk's absence would
+   *  be invisible: rows would just still exist). */
   @mesh(requireDominionHere)
   clearQuerySubscribersForTest(): void {
-    this.ctx.storage.sql.exec('DELETE FROM QuerySubscribers');
-  }
-
-  /** The permission-filtered query targets for the per-operand accessor test (M4).
-   *  Returns the clientIds among the query's subscribers that may read `nodeId`
-   *  (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
-  @mesh(requireDominionHere)
-  inspectQueryTargets(query: QueryDescriptor, nodeId: string): string[] {
-    return this.queryTargets(query, nodeId).map((t) => t.instanceName);
-  }
-
-  /** Push ONE transient progress chunk (the loop's `onProgress` seam is
-   *  wrangler-dev-only, so tests drive `streamProgress` directly with synthetic
-   *  progress). Kept separate from the commit so a test can observe a chunk arriving
-   *  BEFORE the durable Message (M3 transient-surface assertion). */
-  @mesh(requireDominionHere)
-  streamChunkForTest(
-    sessionId: string, messageId: string, chunk: string, nodeId: string, replyTo = 'test-user-message',
-  ): void {
-    this.streamProgress(sessionId, messageId, chunk, nodeId, replyTo);
+    this.ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'query'`);
   }
 
   /** Commit the durable agent Message (the completion step) — Nebula-attributed via the
@@ -503,6 +508,9 @@ export class NebulaClientTest extends NebulaClient {
   // --- handleResourceUpdate capture (separate from lastResult so multi-arg
   //     payload remains inspectable in subscribe tests) ---
   lastResourceUpdate: { resourceType: string; resourceId: string; snapshot: Snapshot | null } | undefined = undefined;
+  /** The raw `result` of the latest resource push — a snapshot, the denied frame, `null` or an
+   *  Error — so a test can assert a frame exactly, including keys the client drops. */
+  lastResourceResult: Snapshot | ResourceDenied | null | Error | undefined = undefined;
   resourceUpdateCount = 0;
 
   // --- handleProfileUpdate capture (the DEDICATED global-Profile channel — tasks/nebula-subscriber-lists.md).
@@ -515,12 +523,9 @@ export class NebulaClientTest extends NebulaClient {
   lastOrgTree: unknown = undefined;
   orgTreeUpdateCount = 0;
 
-  // --- handleReload capture (the dev-preview reload channel). CUMULATIVE — NOT
-  //     zeroed by resetResults (it's a channel counter; baseline it before the
-  //     action under test, per testing.md). ---
-  reloadCount = 0;
   /** `handlePreviewReady` capture — the BUILD reply's landing point (the Galaxy answers
-   *  whoever asked for the build). Cumulative, like reloadCount. */
+   *  whoever asked for the build). CUMULATIVE — NOT zeroed by resetResults (it's a channel
+   *  counter; baseline it before the action under test, per testing.md). */
   previewReadyCount = 0;
 
   // --- handleQueryUpdate capture (Child 2 query channel). Reset explicitly by the
@@ -542,6 +547,9 @@ export class NebulaClientTest extends NebulaClient {
   streamChunkCount = 0;
   /** The attribution the last chunk carried — the id of the USER message whose turn is streaming. */
   lastStreamReplyTo: string | undefined;
+  /** Every push as it arrived: which handler, whose `originAuth.sub` rode it (none when the chain
+   *  started fresh), and the call chain's binding names. CUMULATIVE — the identity probe's surface. */
+  pushOrigins: Array<{ handler: string; originSub?: string; chain: string[] }> = [];
 
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
@@ -561,6 +569,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lastErrorObject = undefined;
     this.callCompleted = false;
     this.lastResourceUpdate = undefined;
+    this.lastResourceResult = undefined;
     this.resourceUpdateCount = 0;
     this.lastOrgTree = undefined;
     this.orgTreeUpdateCount = 0;
@@ -578,16 +587,6 @@ export class NebulaClientTest extends NebulaClient {
   adminEcho(message: string): string {
     this.lastAdminEchoMessage = message;
     return `Admin client echoed: ${message}`;
-  }
-
-  /** Phase 5: count reload-channel deliveries from `Star.broadcastReload`. Calls
-   *  `super.handleReload()` so the real `handleReload → #onReload` path still runs
-   *  (in tests `#onReload` is usually unset → a no-op); the counter proves the
-   *  signal reached the client (Decision 12 / Flow 1d). */
-  @mesh()
-  override handleReload(): void {
-    this.reloadCount++;
-    super.handleReload();
   }
 
   /** Count the build reply. `super` keeps the real `handlePreviewReady → #onPreviewReady`
@@ -665,11 +664,11 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
   }
 
-  // --- DagTree test initiators ---
+  // --- OrgTree test initiators ---
 
-  callStarDagTreeGetState(starName: string): void {
+  callStarOrgTreeGetState(starName: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().getState();
+    const remote = this.ctn<Star>().resources.orgTree.getState();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
@@ -683,7 +682,7 @@ export class NebulaClientTest extends NebulaClient {
 
   callStarCreateNodeWithId(starName: string, nodeId: string, parentId: string, slug: string, label: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().createNode(nodeId, parentId, slug, label);
+    const remote = this.ctn<Star>().resources.orgTree.createNode(nodeId, parentId, slug, label);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
@@ -700,63 +699,63 @@ export class NebulaClientTest extends NebulaClient {
 
   callStarAddEdge(starName: string, parentId: string, childId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().addEdge(parentId, childId);
+    const remote = this.ctn<Star>().resources.orgTree.addEdge(parentId, childId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarRemoveEdge(starName: string, parentId: string, childId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().removeEdge(parentId, childId);
+    const remote = this.ctn<Star>().resources.orgTree.removeEdge(parentId, childId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarReparentNode(starName: string, childId: string, oldParentId: string, newParentId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().reparentNode(childId, oldParentId, newParentId);
+    const remote = this.ctn<Star>().resources.orgTree.reparentNode(childId, oldParentId, newParentId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarDeleteNode(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().deleteNode(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.deleteNode(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarUndeleteNode(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().undeleteNode(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.undeleteNode(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarRenameNode(starName: string, nodeId: string, newSlug: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().renameNode(nodeId, newSlug);
+    const remote = this.ctn<Star>().resources.orgTree.renameNode(nodeId, newSlug);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarRelabelNode(starName: string, nodeId: string, newLabel: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel);
+    const remote = this.ctn<Star>().resources.orgTree.relabelNode(nodeId, newLabel);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarSetPermission(starName: string, nodeId: string, targetSub: string, level: PermissionTier): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level);
+    const remote = this.ctn<Star>().resources.orgTree.setPermission(nodeId, targetSub, level);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarRevokePermission(starName: string, nodeId: string, targetSub: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub);
+    const remote = this.ctn<Star>().resources.orgTree.revokePermission(nodeId, targetSub);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarCheckPermission(starName: string, nodeId: string, tier: PermissionTier, targetSub?: string): void {
     this.resetResults();
     const remote = targetSub
-      ? this.ctn<Star>().dagTree().checkPermission(nodeId, tier, targetSub)
-      : this.ctn<Star>().dagTree().checkPermission(nodeId, tier);
+      ? this.ctn<Star>().resources.orgTree.checkPermission(nodeId, tier, targetSub)
+      : this.ctn<Star>().resources.orgTree.checkPermission(nodeId, tier);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
@@ -767,27 +766,27 @@ export class NebulaClientTest extends NebulaClient {
     starName: string, nodeIds: string[], tier: PermissionTier, sub: string, hasDominionOverHost: boolean,
   ): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().evaluatePermissions(nodeIds, tier, sub, hasDominionOverHost);
+    const remote = this.ctn<Star>().resources.orgTree.evaluatePermissions(nodeIds, tier, sub, hasDominionOverHost);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarGetEffectivePermission(starName: string, nodeId: string, targetSub?: string): void {
     this.resetResults();
     const remote = targetSub
-      ? this.ctn<Star>().dagTree().getEffectivePermission(nodeId, targetSub)
-      : this.ctn<Star>().dagTree().getEffectivePermission(nodeId);
+      ? this.ctn<Star>().resources.orgTree.getEffectivePermission(nodeId, targetSub)
+      : this.ctn<Star>().resources.orgTree.getEffectivePermission(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarGetNodeAncestors(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().getNodeAncestors(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.getNodeAncestors(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callStarGetNodeDescendants(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().getNodeDescendants(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.getNodeDescendants(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
@@ -807,7 +806,7 @@ export class NebulaClientTest extends NebulaClient {
     // `lastResult` / `lastError` / `callCompleted` fields the `callStarTransaction` tests assert on.
     try {
       const result = await this.lmz.callAsync('STAR', starName,
-        this.ctn<Star>().transaction(ontologyVersion, txnETag, ops));
+        this.ctn<Star>().resources.transaction(ontologyVersion, txnETag, ops));
       if (result instanceof Error) {
         this.lastErrorObject = result;
         this.lastError = result.message;
@@ -840,7 +839,7 @@ export class NebulaClientTest extends NebulaClient {
     // `lastError` / `callCompleted` fields that the `callStarRead` tests assert on (via `waitForResult`).
     try {
       this.lastResult = await this.lmz.callAsync('STAR', starName,
-        this.ctn<Star>().read(ontologyVersion, resourceId));
+        this.ctn<Star>().resources.read(ontologyVersion, resourceId));
       this.lastError = undefined;
     } catch (err) {
       this.lastErrorObject = err instanceof Error ? err : new Error(String(err));
@@ -853,7 +852,7 @@ export class NebulaClientTest extends NebulaClient {
   callStarSubscribe(starName: string, ontologyVersion: string, resourceType: string, resourceId: string): void {
     this.resetResults();
     this.lmz.call('STAR', starName,
-      this.ctn<Star>().subscribe(ontologyVersion, resourceType, resourceId));
+      this.ctn<Star>().resources.subscribe(ontologyVersion, resourceType, resourceId));
   }
 
   callStarInspectSubscribers(starName: string): void {
@@ -869,27 +868,11 @@ export class NebulaClientTest extends NebulaClient {
     this.lastQueryUpdate = undefined;
     this.lastQueryError = undefined;
     this.queryUpdateCount = 0;
-    this.lmz.call('STAR', starName, this.ctn<Star>().subscribeQuery(query));
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeQuery(query));
   }
 
   callStarUnsubscribeQuery(starName: string, queryHash: string): void {
-    this.lmz.call('STAR', starName, this.ctn<Star>().unsubscribeQuery(queryHash));
-  }
-
-  /** Fetch the Galaxy's permission-filtered query targets (M4 — subscriber clientIds
-   *  allowed to read `nodeId`) into `lastResult`. */
-  callGalaxyInspectQueryTargets(scope: string, query: QueryDescriptor, nodeId: string): void {
-    this.resetResults();
-    const remote = this.ctn<GalaxyTest>().inspectQueryTargets(query, nodeId);
-    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
-  }
-
-  /** Fire one transient progress chunk (fire-and-forget, like the server→client stream). */
-  callGalaxyStreamChunk(
-    scope: string, sessionId: string, messageId: string, chunk: string, nodeId: string, replyTo?: string,
-  ): void {
-    this.lmz.call('GALAXY', scope,
-      this.ctn<GalaxyTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId, replyTo));
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.unsubscribeQuery(queryHash));
   }
 
   /** Commit the durable agent Message (result-handler form to await). */
@@ -907,33 +890,12 @@ export class NebulaClientTest extends NebulaClient {
 
   callStarSubscribeTree(starName: string): void {
     this.resetResults();
-    this.lmz.call('STAR', starName, this.ctn<Star>().subscribeTree());
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeTree());
   }
 
   callStarInspectTreeSubscribers(starName: string): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().inspectTreeSubscribers();
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
-  }
-
-  /** Phase 5: subscribe to the Star's dev-preview reload channel. Result-handler form
-   *  (deterministic) so a test can await registration before triggering a reload. */
-  callStarSubscribeReload(starName: string): void {
-    this.resetResults();
-    const remote = this.ctn<Star>().subscribeReload();
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
-  }
-
-  callStarInspectReloadSubscribers(starName: string): void {
-    this.resetResults();
-    const remote = this.ctn<StarTest>().inspectReloadSubscribers();
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
-  }
-
-  /** Fan the Star's parked reload channel (delivery half of the preservation test). */
-  callStarBroadcastReloadForTest(starName: string): void {
-    this.resetResults();
-    const remote = this.ctn<StarTest>().broadcastReloadForTest();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
@@ -958,7 +920,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
-  /** Clear the GALAXY's QuerySubscribers (the reconnect test's server-side amnesia). */
+  /** Clear the GALAXY's query rows (the reconnect test's server-side amnesia). */
   callGalaxyClearQuerySubscribers(scope: string): void {
     this.resetResults();
     const remote = this.ctn<GalaxyTest>().clearQuerySubscribersForTest();
@@ -982,17 +944,23 @@ export class NebulaClientTest extends NebulaClient {
   // --- Resource result handlers (override base class) ---
 
   @mesh()
-  override handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | null | Error): void {
+  override handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | ResourceDenied | null | Error): void {
     // Delegate to base for Promise correlation + state write-through (5.3.3a).
     // The base no-ops state write when no StateManager is bound, so tests that
     // don't call bindToState still work.
     super.handleResourceUpdate(resourceType, resourceId, result);
+    this.#recordPush('handleResourceUpdate');
 
     this.resourceUpdateCount++;
+    this.lastResourceResult = result;
     if (result instanceof Error) {
       this.lastError = result.message;
       this.lastErrorObject = result;
       this.lastResourceUpdate = undefined;
+    } else if (result !== null && 'deniedNodes' in result) {
+      // A denied frame is not a snapshot: `lastResourceResult` carries it.
+      this.lastResourceUpdate = undefined;
+      this.lastError = undefined;
     } else {
       this.lastResourceUpdate = { resourceType, resourceId, snapshot: result };
       this.lastError = undefined;
@@ -1023,6 +991,7 @@ export class NebulaClientTest extends NebulaClient {
     // Delegate to base so the factory's listener fires (a no-op headless), then
     // capture the tree state for assertion on the dedicated org-tree channel.
     super.handleOrgTreeUpdate(envelope as { value: never });
+    this.#recordPush('handleOrgTreeUpdate');
     this.orgTreeUpdateCount++;
     this.lastOrgTree = envelope.value;
   }
@@ -1032,6 +1001,7 @@ export class NebulaClientTest extends NebulaClient {
   @mesh()
   override handleQueryUpdate(queryHash: string, result: QueryUpdatePayload | Error): void {
     super.handleQueryUpdate(queryHash, result);
+    this.#recordPush('handleQueryUpdate');
     this.queryUpdateCount++;
     if (result instanceof Error) {
       this.lastQueryError = result;
@@ -1046,6 +1016,7 @@ export class NebulaClientTest extends NebulaClient {
   @mesh()
   override handleQuerySubscribersUpdate(queryHash: string, result: SubscriberRosterPayload | Error): void {
     super.handleQuerySubscribersUpdate(queryHash, result);
+    this.#recordPush('handleQuerySubscribersUpdate');
     this.querySubscribersUpdateCount++;
     this.lastQuerySubscribersUpdate = result instanceof Error
       ? { queryHash, error: result }
@@ -1058,19 +1029,24 @@ export class NebulaClientTest extends NebulaClient {
   @mesh()
   override handleStreamChunk(messageId: string, progress: string, replyTo?: string): void {
     super.handleStreamChunk(messageId, progress, replyTo);
+    this.#recordPush('handleStreamChunk');
     this.lastStreamReplyTo = replyTo;
     this.streamChunkCount++;
     this.lastStreamChunk = { messageId, progress };
+  }
+
+  #recordPush(handler: string): void {
+    const cc = this.lmz.callContext;
+    this.pushOrigins.push({ handler, originSub: cc.originAuth?.sub, chain: cc.callChain.map((n) => n.bindingName) });
   }
 
   // --- Galaxy test initiators ---
 
   /** Seed a Star with an ontology for a test — via the test subclass's
    *  `applyOntologyForTest` entry, which compiles server-side (a test Worker may carry
-   *  the compiler; the deployed Worker never does) and installs through the internal
-   *  `setOntology`. Production installs arrive ONLY by lazy-pull from the Galaxy
-   *  registry; this initiator exists so a test can pin a Star's ontology without a
-   *  Galaxy loop, and goes through the test-app door rather than any production entry. */
+   *  the compiler; the deployed Worker never does) and hands the row to `resourcesResults.onOntologyPulled`,
+   *  where a Galaxy's answer lands. This initiator exists so a test can pin a Star's ontology
+   *  without a Galaxy loop, and goes through the test-app door rather than any production entry. */
   callStarInstallOntology(starName: string, versionConfig: OntologyVersionConfig): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().applyOntologyForTest(versionConfig);

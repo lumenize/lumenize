@@ -67,7 +67,7 @@ async function makeClient(opts: {
       activeScope,
       instanceName: opts.instanceName ?? activeScope, // drives access.authScope
       scopeAdmin: opts.scopeAdmin ?? false,
-      profileId: opts.profileId,
+      profileId: opts.profileId ?? uuid(), // every token carries one; a fresh one owns nothing
       sub: uuid(),
     }),
     fetch: browser.fetch,

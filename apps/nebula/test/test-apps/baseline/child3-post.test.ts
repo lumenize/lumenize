@@ -137,8 +137,8 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // The forged keys persisted (non-strict — assert the RENDER, never absence-from-storage)…
     expect((snap.value as { author?: string }).author).toBe('the-ceo');
     // …and change NOTHING: attribution derives from the verified stamp alone. A client
-    // cannot supply an `actor` either — the @mesh transaction entry has no such
-    // parameter (the trust fence), so `act` is absent and the kind is human.
+    // cannot supply an `actor` either — the door's `transaction` takes no such argument and
+    // the plane's op takes no options (the trust fence), so `act` is absent and the kind is human.
     expect(snap.meta.actingToken.sub).toBe(payload.sub);
     expect(snap.meta.actingToken.act).toBeUndefined();
     expect(deriveKind(snap.meta.actingToken)).toBe('human');
@@ -156,7 +156,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // `callContext.state` server-side → this stamps an act chain → red.
     const result = await client.lmz.callAsync(
       'GALAXY', scope,
-      client.ctn<GalaxyTest>().transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), {
+      client.ctn<GalaxyTest>().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), {
         [messageId]: {
           op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
           value: { chat: DEFAULT_CHAT_ID, content: 'hi' },

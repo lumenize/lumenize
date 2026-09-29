@@ -1,16 +1,15 @@
 /**
  * Push-on-clear ontology-stale notification — Phase 5.3.4b
  *
- * When `Star.#installState()` upgrades the cached ontology, it drops the
- * `Subscribers` table (`Subscriptions.clear()` returns the distinct
- * `(subscriberBinding, clientId)` pairs that were dropped). Before the rows
- * go away, Star sends each such subscriber a single `OntologyStaleError`
- * push via the existing fanout plumbing using sentinel rt='' / rid=''.
+ * When the plane installs a version that replaces another, it drains the resource, query and
+ * roster rows (`Subscriptions.clear` returns the distinct `(subscriberBinding, clientId)` pairs it
+ * dropped) and sends each such subscriber a single `OntologyStaleError` through its broadcast,
+ * using sentinel rt='' / rid=''.
  *
  * The client's `handleResourceUpdate` already routes `OntologyStaleError`
  * into `#dispatchOntologyStale` regardless of which `(rt, rid)` pair carried
  * it. The server doesn't store per-subscriber `clientVersion` on the
- * Subscribers row, so the wire's `clientVersion` is empty and the client
+ * subscription row, so the wire's `clientVersion` is empty and the client
  * substitutes its own pinned version.
  *
  * Two angles tested here:
@@ -74,10 +73,8 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
       { onShouldRefreshUI: refreshHookSpy },
     );
 
-    // Register v1 ontology on Galaxy. The first op at v1 will install it on
-    // Star (cache miss → fetch → install). prevLatest is empty before that
-    // first install, so push-on-clear does NOT fire for it (#installState
-    // skips clear when there's no prior version — see star.ts).
+    // Install v1 on the Star. A first install drains nothing, so push-on-clear does NOT fire for
+    // it (the plane's install drains only when it replaces a version).
     a.client.callStarInstallOntology(star, { version: 'v1', types: TEST_TYPES });
     await waitForResult(a.client);
 
@@ -88,7 +85,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
     }
 
     // Subscribe via the public API so #subscriptionRegistry is populated and
-    // Star's Subscribers table gets a row per (rt, rid).
+    // the Star gets a resource row per (rt, rid).
     for (const rid of resourceIds) {
       await a.client.resources.subscribe('TestResource', rid).snapshot;
     }
@@ -108,10 +105,8 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
     a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
     await waitForResult(a.client);
 
-    // Trigger Star.#installState(v2): use a v2 read via per-call override.
-    // Star's cache is at v1 → cache miss → Galaxy returns v2 state → doRead
-    // sees fetchedState.row.version === ontologyVersion (both v2) → installState
-    // → Subscribers cleared + push-on-clear fires.
+    // The v2 install above replaced v1, so the drain and its push-on-clear have run; a v2 read
+    // (per-call override) is now served.
     await a.client.resources.read('TestResource', resourceIds[0], { ontologyVersion: 'v2' });
 
     // The push-on-clear arrives via handleResourceUpdate(sentinel-rt, sentinel-rid,
@@ -131,7 +126,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
       currentVersion: 'v2',
     });
 
-    // Subscribers table is now empty — push-on-clear ran after the drop.
+    // The resource rows are gone — push-on-clear ran after the drop.
     a.client.callStarInspectSubscribers(star);
     const rowsAfter = await waitForSuccess(a.client) as SubscriberRow[];
     expect(rowsAfter).toHaveLength(0);

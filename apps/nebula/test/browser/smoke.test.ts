@@ -74,7 +74,7 @@ class HarnessNebulaClient extends NebulaClient {
 
   // Install an ontology directly on the Star through the test-app door.
   // `StarTest.applyOntologyForTest` takes SOURCE and compiles inside the test
-  // Worker because `Star.setOntology` is deliberately not `@mesh` — no remote
+  // Worker because the Star's `resourcesResults` gate is deliberately not `@mesh` — no remote
   // caller hands a Star a compiled row. This Node-side client could import the
   // compiler; it just has no door to send the row through.
   callStarInstallOntology(starInstanceName: string, versionConfig: { version: string; types: string }): void {

@@ -36,7 +36,11 @@
 10. **"checkpoint"** is the user-facing term for a named saved state — a **git tag** under the covers if/when Artifacts lands (CONFIRMED 2026-06-19).
 11. **Ontology-change lifecycle — `.dev` Star ≡ regular Star, except an optional wipe.** Setting the current ontology (the compiled validator) is a **general** Star op — DevStudio pushes it to the `.dev` Star on save; prod gets it via the published app-version — and it touches **no data**. **Additive** changes leave existing data valid; **breaking** changes (removed/renamed fields, or added-without-default) make it look corrupted to the new ontology. *Now* (no lazy migration), DevStudio does **not** try to detect breaking-ness — on **any** ontology `.d.ts` change it prompts the user via Studio UI (*"ontology changed — wipe `.dev` data? (wipe if your change is breaking)"*) and the user decides. If they keep it and the preview then misbehaves, a **standalone Studio-UI "Wipe `.dev` data" button** lets them wipe anytime. Both paths call the `.dev`-guarded **`resetDevData`**; the prompt itself is a direct **server→client mesh call** (see Flow 1b), and when an ontology change is part of a save the **source-push gates** on the wipe decision (callback-paused, not a held await) so the preview never renders new code on stale data. *Later*, lazy migration lands on **both** Stars (lockstep), demoting the wipe to a rare clean-slate; it rides the existing per-resource ontology-version stamp + version-on-request (`OntologyStaleError`); the runner/transforms are deferred.
 
-12. **Live dev-loop version contract — the preview speaks the *prod* contract, not a `.dev` shortcut** (2026-06-21; resolves the Phase-4 `appVersion:'dev'` gap — Flow 1d). The serving layer injects the **real, content-hashed** current version into the `nebula-scope` meta (dev: `DevContainer.fetch()` reads it from its DO `kv`, set by DevStudio's `setAppVersion`; prod: the static-serve injects the published app-version — **same meta, same client code**). The client sends it on every op; Handler-1 gates on it. **Version = `hashBlob(ontology source)`** — *idempotent* (re-applying unchanged source is a no-op — no Worker-Loader recompile) and **dev/prod label-pinned** (same source → same label in DevStudio and Galaxy); a GUID would lose both. (The Worker Loader does **not** content-address — the id is caller-chosen and the loaded-worker cache is *ephemeral*, so the validator bundle lives on the Star, fed to `loader.get`'s callback on cold isolates — verified against the CF Worker Loader API ref. Hence we supply the content-addressing by hashing.) An ontology change re-syncs the live preview over the **kept reload channel**, **triggered from `Star.#installState` on `isNewVersion`** — so dev (`setOntology` push) and prod (Galaxy lazy-pull) share **one** trigger; **no new `@mesh` surface, no `.dev` branch in any hot path** (Decision 11 holds). The reload subscription is **dev-preview-only** for now (gate on the `.dev` scope in the bootstrap — env detection, not a hot-path branch; the prod publish→reload UX is Flow 2). **Ordering invariant:** `setAppVersion` (+ the source push) run **before** the install, so the reloaded preview reads the new version. **No client lock needed** — `OntologyStaleError` (Handler-1) is a forward-only interlock: a version-skewed op is rejected *before* any validator runs (ADR-005), so the worst case mid-swap is a transient reload, never corruption. **Method rename:** DevStudio's `installOntology` → **`compileAndInstallOntology`** (reads the `.d.ts`, compiles the validator, optionally wipes, installs on the `.dev` Star). `resetDevData` **preserves `ReloadSubscribers`** across its `deleteAll` (live-connection state, not dev data) so the post-wipe reload still reaches the preview.
+12. **Live dev-loop version contract — the preview speaks the *prod* contract, not a `.dev` shortcut** (2026-06-21; resolves the Phase-4 `appVersion:'dev'` gap — Flow 1d). The serving layer injects the **real, content-hashed** current version into the `nebula-scope` meta (dev: `DevContainer.fetch()` reads it from its DO `kv`, set by DevStudio's `setAppVersion`; prod: the static-serve injects the published app-version — **same meta, same client code**). The client sends it on every op; Handler-1 gates on it. **No new `@mesh` surface, no `.dev` branch in any hot path** (Decision 11 holds).
+    - **Version = `hashBlob(ontology source)`** — *idempotent* (re-applying unchanged source is a no-op — no Worker-Loader recompile) and **dev/prod label-pinned** (same source → same label in DevStudio and Galaxy); a GUID would lose both. The Worker Loader does **not** content-address — the id is caller-chosen and the loaded-worker cache is *ephemeral*, so the validator bundle lives on the Star, fed to `loader.get`'s callback on cold isolates (verified against the CF Worker Loader API ref). Hence we supply the content-addressing by hashing.
+    - **An ontology change re-syncs the live preview without a reload channel** (the channel this decision first named was deleted 2026-09-28, [nebula-data-plane-owns-its-guards.md](../nebula-data-plane-owns-its-guards.md) D17). The preview's next op at the old version is answered `OntologyStaleError`, which fires the client's `onShouldRefreshUI` — whose default reloads the page once per session, so a second change in the same session reloads only through the build reply — and a build answers the client that asked for it (`handlePreviewReady`).
+    - **Ordering invariant:** `setAppVersion` (+ the source push) run **before** the install, so the reloaded preview reads the new version. **No client lock needed** — `OntologyStaleError` (Handler-1) is a forward-only interlock: a version-skewed op is rejected *before* any validator runs (ADR-005), so the worst case mid-swap is a transient reload, never corruption.
+    - **Method rename:** DevStudio's `installOntology` → **`compileAndInstallOntology`** (reads the `.d.ts`, compiles the validator, optionally wipes, installs on the `.dev` Star).
 
 ---
 
@@ -145,7 +149,7 @@ sequenceDiagram
     STU->>ST: resetDevData() (.dev-guarded)
 ```
 
-> **The point of this diagram:** DevStudio calls **Studio UI's `NebulaClient` directly** — in Lumenize mesh, *any node can call any other, including the browser client* (continuations name their destination; the client is a mesh node via its Gateway). No polling/subscription needed, unlike a normal web app. And since the human may take a while, the prompt is **fire-and-forget + a callback** (the client calls `wipeDecision` back when the user answers), not a blocking await — so DevStudio isn't billed waiting. **Segment A gates the save's source-push in Flow 1:** DevStudio pauses the save until `wipeDecision` arrives, so the preview never updates code onto stale data — the pause is that callback, not a held await. We prompt on **any** ontology change (the user judges breaking-ness — no detection logic); the standalone button (B) is the safety net if they declined and the preview then misbehaves. After the wipe the new version is re-installed and the preview is reloaded over the kept reload channel — `resetDevData` **preserves `ReloadSubscribers`** across its `deleteAll` so that reload still reaches it (Decision 12 / Flow 1d).
+> **The point of this diagram:** DevStudio calls **Studio UI's `NebulaClient` directly** — in Lumenize mesh, *any node can call any other, including the browser client* (continuations name their destination; the client is a mesh node via its Gateway). No polling/subscription needed, unlike a normal web app. And since the human may take a while, the prompt is **fire-and-forget + a callback** (the client calls `wipeDecision` back when the user answers), not a blocking await — so DevStudio isn't billed waiting. **Segment A gates the save's source-push in Flow 1:** DevStudio pauses the save until `wipeDecision` arrives, so the preview never updates code onto stale data — the pause is that callback, not a held await. We prompt on **any** ontology change (the user judges breaking-ness — no detection logic); the standalone button (B) is the safety net if they declined and the preview then misbehaves. After the wipe the new version is re-installed, and the preview's next op meets the version gate (Decision 12 / Flow 1d).
 
 ---
 
@@ -200,8 +204,6 @@ sequenceDiagram
     PV->>ST: read / subscribe (appVersion H)
     Note over ST: Handler-1 isCachedVersion(H)<br/>ok → dispatch
     ST-->>PV: snapshot
-    PV->>ST: subscribeReload() (dev preview only)
-    Note over ST: register clientId in ReloadSubscribers
 ```
 
 ### 1d-ii — ontology change → reload (the critical ordering)
@@ -222,9 +224,10 @@ sequenceDiagram
     STU->>DC: syncToDevContainer(source)
     Note over DC: vite HMR (.d.ts is types-only → no patch)
     STU->>ST: compileAndInstallOntology(Hnew)
-    Note over ST: setOntology → #installState<br/>current = Hnew (isNewVersion)<br/>→ broadcastReload()
-    ST-->>PV: handleReload()
-    Note over PV: onReload() → location.reload()
+    Note over ST: setOntology installs Hnew
+    PV->>ST: op at OLD version
+    ST-->>PV: OntologyStaleError
+    Note over PV: onShouldRefreshUI() → location.reload(), once per session
     PV->>DC: GET (re-fetch shell)
     DC-->>PV: shell + meta (appVersion Hnew)
     PV->>ST: ops at Hnew
@@ -232,15 +235,15 @@ sequenceDiagram
     ST-->>PV: result
 ```
 
-> **Ordering & why no lock.** `setAppVersion` + the source push run **before** the install
-> (which fires the reload), so the reloaded preview reads `Hnew`. Correctness needs **no
+> **Ordering & why no lock.** `setAppVersion` + the source push run **before** the install,
+> so the preview that reloads on its stale answer reads `Hnew`. Correctness needs **no
 > client lock**: Handler-1's version check is a forward-only interlock — a version-skewed op
 > (the preview still at OLD after the install, or a fresh load caught in the gap between
 > `setAppVersion` and the install) is rejected with `OntologyStaleError` *before* any
 > validator runs (ADR-005), so the worst case is a transient extra reload, never corruption
 > or wrong-validator execution. The race window is the gap between two awaited mesh calls
-> (low-ms). The wipe variant (Flow 1b) works the same — `resetDevData` preserves
-> `ReloadSubscribers` across its `deleteAll`, so `broadcastReload` still reaches the preview.
+> (low-ms). The wipe variant (Flow 1b) works the same — the wiped Star's next op at the old
+> version meets the same gate.
 
 ---
 

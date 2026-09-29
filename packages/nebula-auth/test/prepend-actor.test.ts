@@ -12,14 +12,9 @@ import { describe, it, expect } from 'vitest';
 import { prependActor, NEBULA_SUB } from '../src/access-claims';
 
 describe('prependActor (RFC 8693 chain nesting, written once)', () => {
-  it('no base: the actor pair becomes the whole chain (profileId spread conditionally)', () => {
+  it('no base: the actor pair becomes the whole chain', () => {
     expect(prependActor(undefined, { sub: NEBULA_SUB, profileId: NEBULA_SUB }))
       .toEqual({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
-    // No explicit-undefined key — a JSON hop would drop it anyway, so the shapes must
-    // agree byte-for-byte with buildNebulaJwtPayload's conditional spread.
-    const bare = prependActor(undefined, { sub: 'agent:x' });
-    expect(bare).toEqual({ sub: 'agent:x' });
-    expect('profileId' in bare).toBe(false);
   });
 
   it('with a base: the actor is the NEW OUTERMOST entry and the base survives BENEATH (a flatten reds here)', () => {
@@ -34,14 +29,17 @@ describe('prependActor (RFC 8693 chain nesting, written once)', () => {
   });
 
   it('nests recursively: prepending onto a depth-2 base yields depth 3, order outermost-first', () => {
-    const depth2 = prependActor({ sub: 'inner' }, { sub: 'middle' });
-    const depth3 = prependActor(depth2, { sub: 'outer' });
-    expect(depth3).toEqual({ sub: 'outer', act: { sub: 'middle', act: { sub: 'inner' } } });
+    const depth2 = prependActor({ sub: 'inner', profileId: 'p-inner' }, { sub: 'middle', profileId: 'p-middle' });
+    const depth3 = prependActor(depth2, { sub: 'outer', profileId: 'p-outer' });
+    expect(depth3).toEqual({
+      sub: 'outer', profileId: 'p-outer',
+      act: { sub: 'middle', profileId: 'p-middle', act: { sub: 'inner', profileId: 'p-inner' } },
+    });
   });
 
   it('does not mutate the base (the verified claims object is shared)', () => {
-    const base = { sub: 'coach-sub' };
-    prependActor(base, { sub: NEBULA_SUB });
-    expect(base).toEqual({ sub: 'coach-sub' });
+    const base = { sub: 'coach-sub', profileId: 'coach-profile' };
+    prependActor(base, { sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(base).toEqual({ sub: 'coach-sub', profileId: 'coach-profile' });
   });
 });

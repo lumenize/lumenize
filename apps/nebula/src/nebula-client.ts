@@ -45,13 +45,14 @@ import {
 } from './frontend/conflict-outcome';
 import type { ConflictResolverVerdict } from './frontend/text-merge';
 import type { QueueSubmission } from './frontend/debounce';
-import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
+import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './snapshots';
 import type { QueryUpdatePayload, QueryDescriptor, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
-import type { DagTreeState, PermissionTier } from './dag-ops';
+import type { OrgTreeState, PermissionTier } from './org-ops';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
 import type { Star } from './star';
 import type { Galaxy } from './galaxy';
+import type { NodeInvitee, NodeInviteAck } from './resources';
 
 const log = debug('lumenize.nebula-client');
 
@@ -71,16 +72,57 @@ export type OperationDescriptor = EngineOp;
 
 /**
  * A `using`-compatible subscription handle returned by
- * {@link NebulaClient.resources.subscribe}. `snapshot` resolves with the initial
- * snapshot on the first server push for `(rt, rid)` (subsequent fanout updates
- * write through to bound state but do not re-resolve it). `[Symbol.dispose]()`
- * is per-handle (idempotent); the server-side subscription releases when the
- * **last** handle for `(rt, rid)` disposes (refcounted — mirrors the factory's
- * auto-subscribe). api-reference § client.resources.subscribe is the contract.
+ * {@link NebulaClient.resources.subscribe}. `snapshot` resolves on the first server answer for
+ * `(rt, rid)` (later updates write through to bound state but do not re-resolve it).
+ * `[Symbol.dispose]()` is per-handle (idempotent); the server-side subscription releases when the
+ * **last** handle for `(rt, rid)` disposes (refcounted — mirrors the factory's auto-subscribe).
+ * api-reference § client.resources.subscribe is the contract.
+ *
+ * **A subscriber who cannot read the resource is told, not refused** (ADR-008). Its `snapshot`
+ * resolves `null` and never rejects for permission, and `deniedNodes` names the node it cannot read
+ * the resource under. The subscription stays live: a later update says whether access came back.
  */
 export interface ResourceSubscription extends Disposable {
+  /** The first answer: the snapshot, or `null` for a resource this subscriber cannot read (see
+   *  {@link deniedNodes}). Rejects for a refused subscribe — a missing resource, a wrong type. */
   readonly snapshot: Promise<Snapshot | null>;
+  /** The node this subscriber cannot read the resource under — `[]` when it can, never undefined. */
+  readonly deniedNodes: string[];
+  /** Register a callback fired when access is lost or gained. */
+  onChange(cb: () => void): void;
 }
+
+/** The update a resource subscriber gets instead of the snapshot when it cannot read it — the node,
+ *  and nothing from the snapshot. */
+export interface ResourceDenied {
+  deniedNodes: string[];
+}
+
+function isResourceDenied(result: unknown): result is ResourceDenied {
+  return typeof result === 'object' && result !== null && !(result instanceof Error)
+    && Array.isArray((result as { deniedNodes?: unknown }).deniedNodes) && !('meta' in result);
+}
+
+/**
+ * One resource's entry in the reactive store, at `store.resources[typeName][resourceId]`, written by
+ * the subscription that holds it. A subscriber who cannot read the resource has `deniedNodes` naming
+ * the node and no `value` or `meta` — the entry keeps nothing it can no longer read, and with no
+ * `meta.eTag` a `v-model` write to it submits nothing.
+ */
+export interface ResourceStoreEntry {
+  /** The resource's value; absent while denied. */
+  value?: unknown;
+  /** The snapshot's metadata; absent while denied, so `meta.eTag` is too. */
+  meta?: Snapshot['meta'];
+  /** The node this subscriber cannot read the resource under — `[]` when it can. */
+  deniedNodes: string[];
+}
+
+/** A handle for a subscription that no permission can deny — `deniedNodes` is always `[]`. */
+const NEVER_DENIED = { deniedNodes: [] as string[], onChange: (): void => {} };
+
+const sameNodes = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((n, i) => n === b[i]);
 
 /**
  * The minimal snapshot the DEDICATED global-Profile channel delivers — a public `value` + an eTag-only
@@ -232,13 +274,6 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    */
   onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   /**
-   * Optional hook invoked when the dev Star signals a fresh compile landed (the
-   * Studio dev-preview reload channel — `Star.broadcastReload`). Typical preview
-   * implementation: `() => window.location.reload()`. No default — undefined
-   * means opted-out (a non-preview client simply ignores reload signals).
-   */
-  onReload?: () => void;
-  /**
    * Optional hook invoked when the Galaxy answers a build this client asked for — the
    * {@link NebulaClient.handlePreviewReady} push, fired by the build reply
    * (`Galaxy.announceBuildToRequester`) and by nothing else. The Studio uses it to
@@ -247,16 +282,11 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    */
   onPreviewReady?: (scope: string) => void;
   /**
-   * Which mesh binding hosts this client's Resources (the data-plane: transaction /
-   * read / subscribe / unsubscribe / dagTree, + the org-tree & reload channels).
-   * Default `'STAR'` (generated apps + the published `client.resources.*` surface are
-   * untouched by the chat pair). The chat paths route via {@link chatHostBinding} +
-   * {@link chatScope}, never this field.
-   *
-   * NOTE: the org-tree channel (`subscribeTree`) rides THIS pair and the Galaxy does
-   * not host it; the reload channel routes by which pair the signal source is on —
-   * the chat pair (the Galaxy's build-completion push) when one is configured, else
-   * this pair (the Star's parked publish signal).
+   * Which mesh binding hosts this client's Resources — every `client.resources.*` op,
+   * `client.orgTree.*`, and the org-tree channel. Default `'STAR'`. Every host serves the
+   * same surface through its one `resources` door, so a client pointed at the Galaxy reads its
+   * tree the same way. The chat paths route via {@link chatHostBinding} + {@link chatScope},
+   * never this field.
    */
   resourceHostBinding?: string;
   /**
@@ -290,6 +320,11 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
  *  round trip, so a few short retries cover it without masking a genuinely stale client. */
 const INSTALLING_RETRY_LIMIT = 4;
 const INSTALLING_RETRY_DELAY_MS = 400;
+
+/** True for the answer a host gives while it installs its ontology — a retry lands it. */
+function isInstalling(result: unknown): boolean {
+  return isOntologyStaleError(result) && result.installing === true;
+}
 
 /**
  * Default ceiling on a subscribe's wait for its first push. Matches the Gateway's own
@@ -326,6 +361,9 @@ export interface NebulaStoreAdapter {
   rollbackTo(rt: string, rid: string, value: unknown): void;
   /** Broadcast push (held mid-edit by the engine): write the snapshot through. */
   applyFanout(rt: string, rid: string, snapshot: Snapshot): void;
+  /** A subscription's read access: write `deniedNodes` to the entry (`[]` when readable). On a loss
+   *  the entry drops its `value` and its `meta`, so with no `meta.eTag` no edit can submit against it. */
+  applyDenied(rt: string, rid: string, deniedNodes: string[]): void;
   /** `use-this`: paint the merged verdict value (a fresh optimistic write). */
   applyResolvedValue(rt: string, rid: string, value: unknown): void;
   /** Explicit-transaction op value + baseline eTag (create/put paint). */
@@ -351,6 +389,9 @@ function createInMemoryStoreAdapter(): NebulaStoreAdapter {
     readResource: (rt, rid) => m.get(k(rt, rid)) ?? { value: undefined, eTag: undefined },
     applyServer: (rt, rid, snap) => m.set(k(rt, rid), { value: snap.value, eTag: snap.meta.eTag }),
     applyFanout: (rt, rid, snap) => m.set(k(rt, rid), { value: snap.value, eTag: snap.meta.eTag }),
+    applyDenied: (rt, rid, deniedNodes) => {
+      if (deniedNodes.length > 0) m.delete(k(rt, rid));
+    },
     applyCommit: (rt, rid, eTag) => {
       const e = m.get(k(rt, rid));
       if (e) e.eTag = eTag;
@@ -384,13 +425,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #ontologyVersion?: string;
   /** Binding hosting this client's Resources (default 'STAR'; the resource pair). */
   #resourceHostBinding: string;
+  /** Retries used per subscribe channel (`resource:`, `query:` or `roster:` plus its key) while a
+   *  host installs its ontology — see {@link #retryInstalling}. */
+  #installingAttempts = new Map<string, number>();
   /** The chat host pair — NO default; chat paths throw when unset (see the config JSDoc). */
   #chatHostBinding?: string;
   #chatScope?: string;
   /** Ceiling on a subscribe's wait for its first push — see {@link NebulaClientConfig.subscribeTimeoutMs}. */
   #subscribeTimeoutMs: number;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
-  #onReload?: () => void;
   #onPreviewReady?: (scope: string) => void;
   // Captured for `logout()` (the embedded refresh closure reads them too, but a
   // method can't reach the constructor's `config`). `#baseUrl` may be undefined
@@ -452,9 +495,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Runtime org-tree listener registered by the factory ({@link onOrgTreeUpdate})
    * — it mirrors the tree state into `store.lmz.orgTree.value`. Single-handler;
    * a later call replaces it. Fed by the `handleOrgTreeUpdate` @mesh handler
-   * (initial `subscribeTree` snapshot + every `#onDagChanged` broadcast).
+   * (initial `subscribeTree` snapshot + every tree-change broadcast from the plane).
    */
-  #orgTreeListener: ((state: DagTreeState) => void) | null = null;
+  #orgTreeListener: ((state: OrgTreeState) => void) | null = null;
 
   /**
    * Active subscriptions registry. Used by auto-resubscribe on reconnect, and
@@ -467,11 +510,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Per-`(rt, rid)` subscription-handle refcount. Both `using` handles from
    * `resources.subscribe(...)` and the factory's auto-subscribe (one held handle
    * per component-bound resource) increment it; each `[Symbol.dispose]()` /
-   * standalone `unsubscribe` decrements. The server-side `Star.unsubscribe`
+   * standalone `unsubscribe` decrements. The server-side `Star.resources.unsubscribe`
    * fires only when the count reaches zero (the last interested party released),
    * so component bindings and explicit handles both keep the subscription open.
    */
   #subscribeRefcount = new Map<SubscribeKey, number>();
+  /**
+   * Per-`(rt, rid)` read-access state, shared by every handle of the resource: the nodes this
+   * client cannot read it under (`[]` when it can) and the `onChange` listeners. Created with the
+   * first handle, dropped with the last; `answered` is false until the first server answer.
+   */
+  #resourceAccess = new Map<SubscribeKey, { deniedNodes: string[]; answered: boolean; listeners: Set<() => void> }>();
 
   /**
    * In-flight `subscribe(rt, rid)` Promises awaiting their first
@@ -537,7 +586,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       activeScope,
       ontologyVersion,
       onShouldRefreshUI,
-      onReload,
       onPreviewReady,
       resourceHostBinding,
       chatHostBinding,
@@ -634,19 +682,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // tests) that don't render the tree don't register/broadcast needlessly.
         // Idempotent server-side (INSERT OR REPLACE).
         if (state === 'connected' && this.#orgTreeListener) {
-          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeTree());
-        }
-        // Preview-reload channel: (re)subscribe on every 'connected', gated on a
-        // configured `onReload`. This is the STAR's channel only — publish's future
-        // refresh signal, parked today. ⚠️ The BUILD-completion signal does NOT come
-        // this way: a build is somebody's request, so the Galaxy replies to whoever
-        // asked (`announceBuildToRequester` → `handlePreviewReady`) rather than fanning
-        // out to enrolled subscribers. Studio therefore needs no `onReload` at all —
-        // and the subscription shape is what let that break silently, since the whole
-        // fan-out ran to an empty list whenever a client forgot to set the hook.
-        // Idempotent server-side (INSERT OR REPLACE by clientId), like orgTree above.
-        if (state === 'connected' && this.#onReload) {
-          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeReload());
+          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeTree());
         }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
@@ -684,7 +720,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     };
     this.#mintedFrom = (config as unknown as Record<symbol, unknown>)[INTERNAL_PARENT] as NebulaClient | undefined;
     this.#onShouldRefreshUI = onShouldRefreshUI;
-    this.#onReload = onReload;
     this.#onPreviewReady = onPreviewReady;
     this.#baseUrl = config.baseUrl;
     this.#fetchFn = config.fetch ?? fetch;
@@ -736,7 +771,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * mirror the tree into `store.lmz.orgTree.value`. Single-handler; replaces.
    * Fed by every `handleOrgTreeUpdate` (initial subscribe snapshot + broadcasts).
    */
-  onOrgTreeUpdate(handler: ((state: DagTreeState) => void) | null): void {
+  onOrgTreeUpdate(handler: ((state: OrgTreeState) => void) | null): void {
     this.#orgTreeListener = handler;
   }
 
@@ -1077,7 +1112,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * The engine's `submitBatch` hook: submit a batch as one atomic mesh transaction via `callAsync`
    * and resolve with the raw server facts. The submit-gate is RETIRED — `callAsync` correlates
    * each transaction by its own `callId`, so concurrent independent-resource batches run in parallel
-   * (the engine's per-resource queue still serializes same-resource writes; ADR-005 + `resources.ts`
+   * (the engine's per-resource queue still serializes same-resource writes; ADR-005 + `snapshots.ts`
    * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`
    * (resolve → `{ontologyStale}`, not reject); an infra throw/timeout rejects → the engine's
    * infrastructure-error. Resilient across reconnect: a dropped RESULT re-resolves to the
@@ -1085,12 +1120,12 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * and reports it `retryable`; resubmitting is the app's call, as the platform docs tell it.
    */
   async #meshSubmit(subs: QueueSubmission[], attempt = 0): Promise<ServerBatchResponse> {
-    // One mesh `newETag` per batch (the server writes it as every resource's eTag — resources.ts
+    // One mesh `newETag` per batch (the server writes it as every resource's eTag — snapshots.ts
     // Step 4.5a); stable across reconnect replays, so a re-issued submission is replay-idempotent.
     const meshNewETag = subs[0]!.newETag;
     const result = await this.lmz.callAsync(
       this.#resourceHostBinding, this.#activeScope,
-      this.ctn<Star>().transaction(this.#requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
+      this.ctn<Star>().resources.transaction(this.#requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
     );
     if (result instanceof Error) {
       // Ontology-stale is delivered as a RETURNED value (resolve, not reject) — the engine treats it
@@ -1161,7 +1196,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Re-issue `Star.subscribe()` for every entry in `#subscriptionRegistry`.
+   * Re-issue `Star.resources.subscribe()` for every entry in `#subscriptionRegistry`.
    * Fired from the `reconnecting → connected` transition in the constructor's
    * connection-state callback.
    *
@@ -1194,7 +1229,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (version) {
       for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
         this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-          this.ctn<Star>().subscribe(version, resourceType, resourceId));
+          this.ctn<Star>().resources.subscribe(version, resourceType, resourceId));
       }
     }
     // Re-fire every live global-Profile sub on its own PROFILE binding (binding-agnostic, instance = profileId).
@@ -1208,13 +1243,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // re-subscribe loop above.
     for (const entry of this.#queryEntries.values()) {
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribeQuery(entry.query));
+        this.ctn<Star>().resources.subscribeQuery(entry.query));
     }
     // Re-fire every live STANDALONE subscriber-list watcher sub (the roster re-arrives via
     // handleQuerySubscribersUpdate; the server's INSERT OR REPLACE makes the re-register idempotent).
     for (const entry of this.#querySubscriberEntries.values()) {
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribeQuerySubscribers(entry.query));
+        this.ctn<Star>().resources.subscribeQuerySubscribers(entry.query));
     }
   }
 
@@ -1256,7 +1291,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
      * `(rt, rid)` (subsequent fanout pushes write through to bound state but do
      * not re-resolve). Each call increments the per-`(rt, rid)` handle refcount;
      * `[Symbol.dispose]()` decrements (per-handle, idempotent) and issues
-     * `Star.unsubscribe` only when the last handle releases.
+     * `Star.resources.unsubscribe` only when the last handle releases.
      *
      * If a pending subscribe for the same `(rt, rid)` already exists, `.snapshot`
      * piggybacks on that pending settlement instead of issuing a duplicate
@@ -1265,18 +1300,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
      * first-snapshot resolve.
      */
     subscribe: (resourceType: string, resourceId: string): ResourceSubscription => {
-      const key = `${resourceType}:${resourceId}`;
-      this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
-      const snapshot = this.#subscribeResource(resourceType, resourceId);
-      let disposed = false;
-      return {
-        snapshot,
-        [Symbol.dispose]: (): void => {
-          if (disposed) return; // per-handle idempotent
-          disposed = true;
-          this.#disposeSubscription(resourceType, resourceId);
-        },
-      };
+      this.#holdResource(resourceType, resourceId);
+      return this.#resourceHandle(resourceType, resourceId, this.#subscribeResource(resourceType, resourceId));
     },
 
     /**
@@ -1286,7 +1311,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
      * subscribe-before-create path). Returns a `using`-compatible
      * {@link ResourceSubscription} **synchronously** — refcount + `[Symbol.dispose]`
      * behave exactly as {@link resources.subscribe} — but the underlying
-     * `Star.subscribe` is deferred until the `create` transaction commits, so
+     * `Star.resources.subscribe` is deferred until the `create` transaction commits, so
      * `.snapshot` resolves with the freshly-created snapshot. If the create does
      * NOT commit (already exists, permission, validation), `.snapshot` **rejects**
      * — use plain `subscribe` for a resource that already exists.
@@ -1303,8 +1328,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       nodeId: string,
       value: unknown,
     ): ResourceSubscription => {
-      const key = `${resourceType}:${resourceId}`;
-      this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
+      this.#holdResource(resourceType, resourceId);
       let disposed = false;
       const snapshot = (async (): Promise<Snapshot | null> => {
         const outcome = await this.resources.transaction({
@@ -1319,14 +1343,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         if (disposed) return null; // disposed before the create landed — don't arm the subscription
         return this.#subscribeResource(resourceType, resourceId);
       })();
-      return {
-        snapshot,
-        [Symbol.dispose]: (): void => {
-          if (disposed) return; // per-handle idempotent
-          disposed = true;
-          this.#disposeSubscription(resourceType, resourceId);
-        },
-      };
+      return this.#resourceHandle(resourceType, resourceId, snapshot, () => { disposed = true; });
     },
 
     /**
@@ -1401,7 +1418,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     /**
      * Release a subscription. **Equivalent to one `[Symbol.dispose]()`** on a
      * {@link ResourceSubscription} handle — decrements the per-`(rt, rid)` handle
-     * refcount and issues `Star.unsubscribe` only when the last handle releases.
+     * refcount and issues `Star.resources.unsubscribe` only when the last handle releases.
      * Use this standalone form when the subscribe and release sites legitimately
      * differ; otherwise prefer the `using` handle.
      */
@@ -1437,7 +1454,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           listeners: new Set(),
         };
         this.#queryEntries.set(queryHash, entry);
-        this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeQuery(query));
+        this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeQuery(query));
       }
       entry.refcount++;
       const e = entry;
@@ -1458,13 +1475,38 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         },
       };
     },
+
+    /**
+     * Invite people onto a NODE of this host's org tree — a DAG grant at `nodeId`, never
+     * `scopeAdmin`. The caller needs `admin` at the node. Distinct from {@link NebulaClient.invite},
+     * which reaches the Registry and invites into a SCOPE; the first argument's kind and the
+     * `resources.` prefix tell them apart. Resolves with the submission ack; each invitee's row
+     * reaches the members panel through its query subscription. Retried while the host installs its
+     * ontology, which it answers before writing anything.
+     */
+    invite: (nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> =>
+      this.#inviteToNode(nodeId, invitees),
   };
+
+  async #inviteToNode(nodeId: string, invitees: NodeInvitee[], attempt = 0): Promise<NodeInviteAck> {
+    try {
+      return await this.lmz.callAsync(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().resources.invite(nodeId, invitees));
+    } catch (err) {
+      if (isInstalling(err) && attempt < INSTALLING_RETRY_LIMIT) {
+        await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));
+        return this.#inviteToNode(nodeId, invitees, attempt + 1);
+      }
+      if (isOntologyStaleError(err)) this.#dispatchOntologyStale(err.clientVersion, err.currentVersion);
+      throw err;
+    }
+  }
 
   /**
    * Org/permission-tree MUTATIONS (api-reference § client.orgTree). Reads are
    * NOT here — the tree is delivered on its own channel to `store.lmz.orgTree`
    * (auto-subscribed on connect). Each mutator fires a resilient 4-arg `call()`
-   * ({@link #orgTreeMutate} → `callAsync`) to Star's `dagTree` entry and returns a
+   * ({@link #orgTreeMutate} → `callAsync`) through the host's `resources` door and returns a
    * resilient Promise — reject-on-failure, NO optimistic local write-through (the
    * broadcast echo, originator included, is the only store update path). `callAsync`
    * holds the Promise in-heap keyed by callId and its delivery re-resolves to the
@@ -1477,31 +1519,72 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   readonly orgTree = {
     createNode: (nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().createNode(nodeId, parentNodeId, slug, label)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.createNode(nodeId, parentNodeId, slug, label)),
     addEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.addEdge(parentNodeId, childNodeId)),
     removeEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.removeEdge(parentNodeId, childNodeId)),
     reparentNode: (childNodeId: string, oldParentId: string, newParentId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.reparentNode(childNodeId, oldParentId, newParentId)),
     deleteNode: (nodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().deleteNode(nodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.deleteNode(nodeId)),
     undeleteNode: (nodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().undeleteNode(nodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.undeleteNode(nodeId)),
     renameNode: (nodeId: string, newSlug: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.renameNode(nodeId, newSlug)),
     relabelNode: (nodeId: string, newLabel: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.relabelNode(nodeId, newLabel)),
     setPermission: (nodeId: string, targetSub: string, level: PermissionTier): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.setPermission(nodeId, targetSub, level)),
     revokePermission: (nodeId: string, targetSub: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
+      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.revokePermission(nodeId, targetSub)),
   };
+
+  /** Count one more handle on `(rt, rid)`, creating the key's read-access state with the first. */
+  #holdResource(resourceType: string, resourceId: string): void {
+    const key = `${resourceType}:${resourceId}`;
+    this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
+    if (!this.#resourceAccess.has(key)) {
+      this.#resourceAccess.set(key, { deniedNodes: [], answered: false, listeners: new Set() });
+    }
+  }
+
+  /**
+   * One {@link ResourceSubscription} over `(rt, rid)`'s shared read-access state. `onChange`
+   * callbacks belong to the handle that registered them and go when it is disposed; `onDispose`
+   * runs first, for a caller with its own disposal state.
+   */
+  #resourceHandle(
+    resourceType: string,
+    resourceId: string,
+    snapshot: Promise<Snapshot | null>,
+    onDispose?: () => void,
+  ): ResourceSubscription {
+    const access = this.#resourceAccess.get(`${resourceType}:${resourceId}`)!;
+    const mine: Array<() => void> = [];
+    let disposed = false;
+    return {
+      snapshot,
+      get deniedNodes() { return access.deniedNodes; },
+      onChange: (cb: () => void): void => {
+        if (disposed) return;
+        mine.push(cb);
+        access.listeners.add(cb);
+      },
+      [Symbol.dispose]: (): void => {
+        if (disposed) return; // per-handle idempotent
+        disposed = true;
+        onDispose?.();
+        for (const cb of mine) access.listeners.delete(cb);
+        this.#disposeSubscription(resourceType, resourceId);
+      },
+    };
+  }
 
   /**
    * Decrement the per-`(rt, rid)` handle refcount; on the last release, drop the
    * local registry entry first (a reconnect mid-call can't resurrect it) then
-   * issue `Star.unsubscribe`. Shared by handle `[Symbol.dispose]()` and the
+   * issue `Star.resources.unsubscribe`. Shared by handle `[Symbol.dispose]()` and the
    * standalone `unsubscribe`.
    */
   #disposeSubscription(resourceType: string, resourceId: string): void {
@@ -1513,7 +1596,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.#subscribeRefcount.delete(key);
     this.#subscriptionRegistry.delete(key);
-    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
+    this.#resourceAccess.delete(key);
+    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.unsubscribe(resourceType, resourceId));
   }
 
   /**
@@ -1564,7 +1648,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       ws.sub[Symbol.dispose]();
     }
     entry.windowSubs.clear();
-    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().unsubscribeQuery(queryHash));
+    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.unsubscribeQuery(queryHash));
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -1576,7 +1660,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     return this.#subscribeVia(
       key,
       () => this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(version, resourceType, resourceId)),
+        this.ctn<Star>().resources.subscribe(version, resourceType, resourceId)),
       this.#pendingSubscribes,
       // Through the SAME door the host's own error push uses, so abandoning runs that branch's
       // cleanup — the registry entry goes too, which is what stops a reconnect replaying a
@@ -1598,9 +1682,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * every subscriber, back-filling names on earlier messages.
    */
   updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
-    const profileId = this.claims.profileId;
-    if (!profileId) throw new Error('updateMyProfile: this session carries no profileId claim');
-    return this.lmz.callAsync('PROFILE', profileId,
+    return this.lmz.callAsync('PROFILE', this.claims.profileId,
       this.ctn<ProfileSubscribeTarget>().writeProfile(fields)) as Promise<void>;
   }
 
@@ -1648,6 +1730,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     let disposed = false;
     return {
       snapshot,
+      // Holding a profileId IS the capability (ADR-012), so no permission denies a profile.
+      ...NEVER_DENIED,
       [Symbol.dispose]: (): void => {
         if (disposed) return; // per-handle idempotent
         disposed = true;
@@ -1691,7 +1775,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       entry = { query, refcount: 0, ready: { promise, resolve, reject, settled: false } };
       this.#querySubscriberEntries.set(queryHash, entry);
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribeQuerySubscribers(query));
+        this.ctn<Star>().resources.subscribeQuerySubscribers(query));
     }
     entry.refcount++;
     const e = entry;
@@ -1712,7 +1796,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (entry.refcount > 1) { entry.refcount--; return; } // other handles still hold it open
     this.#querySubscriberEntries.delete(queryHash);
     this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-      this.ctn<Star>().unsubscribeQuerySubscribers(queryHash));
+      this.ctn<Star>().resources.unsubscribeQuerySubscribers(queryHash));
   }
 
   /**
@@ -1788,7 +1872,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     resourceId: string,
     options?: ReadOptions,
   ): Promise<Snapshot | null> {
-    // `resourceType` is currently not used over the wire: `Resources.read`
+    // `resourceType` is currently not used over the wire: `Snapshots.read`
     // keys on `resourceId` alone (storage assumes globally unique resourceIds
     // per Star). Kept in the client signature for API symmetry with
     // subscribe/transaction and for future addressing changes.
@@ -1796,12 +1880,12 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const version = options?.ontologyVersion ?? this.#requireOntologyVersion('read');
     // `callAsync` returns the snapshot (framework fire-back) — resilient across
     // reconnect/freeze, bounded by the default timeout. Concurrent reads are correlated by the
-    // primitive's `callId`. On a stale version `Star.read` throws `OntologyStaleError` → the reject
+    // primitive's `callId`. On a stale version `Star.resources.read` throws `OntologyStaleError` → the reject
     // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting —
     // except an `installing` stale (the host is mid-lazy-pull), which retries the idempotent read.
     const attempt = (options as { installingAttempt?: number } | undefined)?.installingAttempt ?? 0;
     return this.lmz.callAsync<Snapshot | null>(this.#resourceHostBinding, this.#activeScope,
-      this.ctn<Star>().read(version, resourceId),
+      this.ctn<Star>().resources.read(version, resourceId),
     ).catch(async (err) => {
       if (isOntologyStaleError(err)) {
         if (err.installing && attempt < INSTALLING_RETRY_LIMIT) {
@@ -1817,15 +1901,32 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
 
   /**
+   * Schedule one more subscribe after an `installing` answer, and say whether one was scheduled.
+   * `false` once a channel has used its retries, so the caller ends at the stale signal the way
+   * `transaction` and `read` do. Keyed per channel and cleared by that channel's next real
+   * answer, so a later install starts a fresh count.
+   */
+  #retryInstalling(channel: string, resend: () => void): boolean {
+    const attempt = this.#installingAttempts.get(channel) ?? 0;
+    if (attempt >= INSTALLING_RETRY_LIMIT) {
+      this.#installingAttempts.delete(channel);
+      return false;
+    }
+    this.#installingAttempts.set(channel, attempt + 1);
+    setTimeout(resend, INSTALLING_RETRY_DELAY_MS);
+    return true;
+  }
+
+  /**
    * Fire the `onShouldRefreshUI` constructor hook (if registered) with the
    * staleness info. Swallows user-callback throws so an erroring hook can't
    * take the framework down.
    *
    * When the inbound error's `clientVersion` is empty, substitute the client's
    * own pinned version. This is load-bearing for the push-on-clear
-   * path: Star doesn't store per-subscriber `clientVersion` on the Subscribers
+   * path: the plane doesn't store per-subscriber `clientVersion` on a Subscriptions
    * row, so the `OntologyStaleError` it sends carries an empty `clientVersion`.
-   * The Handler-1 mismatch paths (transaction / read / subscribe) always carry
+   * The door's mismatch answers (transaction / read / subscribe) always carry
    * a real client version, so the substitution is a no-op for those.
    */
   #dispatchOntologyStale(clientVersion: string, currentVersion: string): void {
@@ -1859,28 +1960,42 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Receive a resource snapshot push from Star (initial subscribe snapshot or
-   * a later broadcast fanout).
+   * Receive a resource update from the host — the answer to a subscribe, or a later broadcast.
    *
-   * Two interleaved jobs:
-   *   1. Write the snapshot to the store via the engine's `notifyFanout`, which
-   *      implements the hold-pending-fanouts contract — a push that lands while
-   *      the resource has pending optimistic state is held (not clobbering the
-   *      user's in-progress edit) until the next submit's conflict resolution.
-   *   2. Settle the originating `subscribe(rt, rid)` Promise if one is pending
-   *      (first-call-wins).
+   * Three jobs:
+   *   1. Record what this subscriber may read: a snapshot means readable (`deniedNodes: []`), a
+   *      {@link ResourceDenied} names the node it cannot read the resource under. The store entry
+   *      takes it through the adapter's `applyDenied` — on a loss the entry drops its `value` and
+   *      `meta` — and each handle's `onChange` fires when it changes after the first answer.
+   *   2. Write a snapshot to the store via the engine's `notifyFanout`, which implements the
+   *      hold-pending-fanouts contract — a push that lands while the resource has pending
+   *      optimistic state is held (not clobbering the user's in-progress edit) until the next
+   *      submit's conflict resolution.
+   *   3. Settle the originating `subscribe(rt, rid)` Promise if one is pending (first-call-wins):
+   *      the snapshot, or `null` for a denied subscriber.
    *
-   * `result === null` means the resource is genuinely absent (subscribe-before-
-   * create); nothing is written (the store slot stays undefined). Soft-deleted
-   * resources arrive as a real Snapshot with `meta.deleted: true` and flow
-   * through `notifyFanout` like any other push.
+   * An Error is a refused subscribe — a missing resource or a wrong type; it rejects the pending
+   * Promise and writes nothing. Soft-deleted resources arrive as a real Snapshot with
+   * `meta.deleted: true` and flow through `notifyFanout` like any other push.
    */
   @mesh()
-  handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | null | Error): void {
+  handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | ResourceDenied | null | Error): void {
     const key = `${resourceType}:${resourceId}`;
     const pending = this.#pendingSubscribes.get(key);
 
     if (result instanceof Error) {
+      // The host is installing its ontology: ask again, and answer nothing yet. A subscribe no
+      // handle holds any more is not retried.
+      if (isInstalling(result) && this.#subscriptionRegistry.has(key)
+        && this.#retryInstalling(`resource:${key}`, () => {
+          const version = this.#ontologyVersion;
+          const registered = this.#subscriptionRegistry.get(key);
+          if (!version || !registered) return;
+          this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+            this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId));
+        })) {
+        return;
+      }
       // Ontology-stale path: fire the constructor hook so the UI can reload
       // even though there's no Promise outcome variant for subscribe (it
       // rejects on error). Same staleness signal as transaction / read.
@@ -1897,9 +2012,21 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       return;
     }
 
+    if (isResourceDenied(result)) {
+      this.#installingAttempts.delete(`resource:${key}`);
+      this.#applyAccess(resourceType, resourceId, result.deniedNodes);
+      if (pending) {
+        this.#pendingSubscribes.delete(key);
+        pending.resolve(null);
+      }
+      return;
+    }
+
+    this.#installingAttempts.delete(`resource:${key}`);
     // Write-through via the engine (hold-pending-fanouts). `null` (never-created)
     // writes nothing — the slot stays undefined until a real snapshot arrives.
     if (result !== null) {
+      this.#applyAccess(resourceType, resourceId, []);
       this.#engine.notifyFanout(resourceType, resourceId, result as unknown as EngineSnapshot);
       // Reconcile-by-id (Child 3 option (b)): the durable Message superseded any
       // ephemeral progress stream for the same id — drop it so the UI shows the
@@ -1911,6 +2038,24 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (pending) {
       this.#pendingSubscribes.delete(key);
       pending.resolve(result);
+    }
+  }
+
+  /**
+   * Record `(rt, rid)`'s read access from one update: mirror it into the store entry, update the
+   * handles' `deniedNodes`, and fire their `onChange` when it changed after the first answer. A
+   * push for a key no handle holds (a raw test initiator's) still reaches the store.
+   */
+  #applyAccess(resourceType: string, resourceId: string, deniedNodes: string[]): void {
+    this.#storeAdapter.applyDenied(resourceType, resourceId, deniedNodes);
+    const access = this.#resourceAccess.get(`${resourceType}:${resourceId}`);
+    if (!access) return;
+    const changed = access.answered && !sameNodes(access.deniedNodes, deniedNodes);
+    access.deniedNodes = deniedNodes;
+    access.answered = true;
+    if (!changed) return;
+    for (const cb of [...access.listeners]) {
+      try { cb(); } catch { /* a listener throw must not break the push channel */ }
     }
   }
 
@@ -1936,14 +2081,48 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * Receive an org-tree snapshot from Star — the initial `subscribeTree`
-   * snapshot or a `#onDagChanged` broadcast (originator included). Forwards the
+   * snapshot or the plane's tree-change broadcast (originator included). Forwards the
    * tree state to the factory's registered listener, which mirrors it to
    * `store.lmz.orgTree.value`. The tree is delivered on a dedicated channel (not
    * a resource), so this is wholly separate from `handleResourceUpdate`.
+   *
+   * Then asks again for whatever was denied, because a tree change is where a grant lands and the
+   * host re-runs nothing on a permission change (see {@link #askAgain}).
    */
   @mesh()
-  handleOrgTreeUpdate(envelope: { value: DagTreeState }): void {
+  handleOrgTreeUpdate(envelope: { value: OrgTreeState }): void {
     this.#orgTreeListener?.(envelope.value);
+    this.#askAgain();
+  }
+
+  /**
+   * Re-subscribe exactly the subscriptions whose last update named `deniedNodes` — the resource
+   * subscriptions and the queries — so a grant reaches this client at the next tree change rather
+   * than at the next write. The host answers each through its ordinary subscribe path. Filtered on
+   * purpose: every client `createNebulaClient` builds watches the tree, and each re-subscribe costs
+   * the host a billed write, so a tab with nothing denied costs nothing here. Never
+   * {@link #resubscribeAll}, which would re-subscribe everything on every tree change.
+   *
+   * On a reconnect the tree's first answer asks again for what `#resubscribeAll` asked a moment
+   * earlier: one extra idempotent write per denied subscription per reconnect. Accepted — telling
+   * that first answer apart would need a flag and an argument about arrival order to save it.
+   */
+  #askAgain(): void {
+    const version = this.#ontologyVersion;
+    if (version) {
+      for (const [key, access] of this.#resourceAccess) {
+        if (access.deniedNodes.length === 0) continue;
+        const registered = this.#subscriptionRegistry.get(key);
+        if (!registered) continue;
+        this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+          this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId));
+      }
+    }
+    for (const entry of this.#queryEntries.values()) {
+      if (entry.deniedNodes.length === 0) continue;
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().resources.subscribeQuery(entry.query));
+    }
   }
 
   /**
@@ -1964,9 +2143,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const entry = this.#queryEntries.get(queryHash);
     if (!entry) return;
     if (result instanceof Error) {
+      if (isInstalling(result) && this.#retryInstalling(`query:${queryHash}`, () => {
+        const live = this.#queryEntries.get(queryHash);
+        if (live) this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeQuery(live.query));
+      })) return;
+      if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
       return;
     }
+    this.#installingAttempts.delete(`query:${queryHash}`);
     entry.resourceIds = result.resourceIds ?? [];
     entry.deniedNodes = result.deniedNodes ?? [];
     this.#reconcileQueryWindow(entry);
@@ -1989,25 +2174,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const entry = this.#querySubscriberEntries.get(queryHash);
     if (!entry) return;
     if (result instanceof Error) {
+      if (isInstalling(result) && this.#retryInstalling(`roster:${queryHash}`, () => {
+        const live = this.#querySubscriberEntries.get(queryHash);
+        if (live) this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeQuerySubscribers(live.query));
+      })) return;
+      if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
       return;
     }
+    this.#installingAttempts.delete(`roster:${queryHash}`);
     this.#querySubscribersListener?.({ queryHash, query: entry.query, roster: result });
     if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.resolve(); }
-  }
-
-  /**
-   * Receive a dev-preview reload signal from the Star (`Star.broadcastReload`). The
-   * channel is kept for the **publish-refresh signal** — its former trigger
-   * (`DevStar.compileSFC`) was retired when vite took over compiling; publish will
-   * fan this out so live previews re-fetch. Invokes the optional `onReload` hook
-   * (the preview wires `() => window.location.reload()`); a non-preview client
-   * without the hook ignores it. `@mesh()` because the signal arrives via
-   * `lmz.broadcast` through the Gateway.
-   */
-  @mesh()
-  handleReload(): void {
-    this.#onReload?.();
   }
 
   /**
@@ -2077,11 +2254,11 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const { binding, scope } = this.#chatHost();
     const messageId = crypto.randomUUID();
     const newETag = crypto.randomUUID();
-    // The Galaxy's Handler-1 returns an OntologyStaleError as a VALUE on a version
-    // mismatch (Star's asymmetry); everything else is the ordinary TransactionResult.
+    // The door's `transaction` returns an OntologyStaleError as a VALUE on a version
+    // mismatch; everything else is the ordinary TransactionResult.
     const result = await this.lmz.callAsync(
       binding, scope,
-      this.ctn<Galaxy>().transaction(this.#requireOntologyVersion('postUserMessage'), newETag, {
+      this.ctn<Galaxy>().resources.transaction(this.#requireOntologyVersion('postUserMessage'), newETag, {
         [messageId]: {
           op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
           value: { chat: DEFAULT_CHAT_ID, content },

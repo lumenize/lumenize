@@ -109,7 +109,7 @@ function fmt(n: number, digits = 2): string {
 describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
-  // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
+  // the Star's ontology source, asking its parent Galaxy), and this setup was reworked before that
   // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('measures M=2 push delivery (one originator, one subscriber)', async () => {
@@ -488,7 +488,7 @@ function summarizeRampStep(step: RampStepResult): {
 describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
-  // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
+  // the Star's ontology source, asking its parent Galaxy), and this setup was reworked before that
   // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('measures fanout shape across N values', async () => {

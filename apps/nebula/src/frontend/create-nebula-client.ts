@@ -50,7 +50,7 @@ import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscripti
 /** The common shape the factory holds + disposes: a `ResourceSubscription`/profile handle (error-surface
  *  via `.snapshot`) OR a subscriber-list roster handle (via `.ready`). Both are `Disposable`. */
 type HeldHandle = Disposable & { readonly snapshot?: Promise<unknown>; readonly ready?: Promise<void> };
-import type { Snapshot } from '../resources';
+import type { Snapshot } from '../snapshots';
 
 const log = debug('lumenize.nebula-frontend');
 
@@ -243,10 +243,11 @@ export function createNebulaStore(
     refcount.set(key, prev + 1);
     if (prev === 0) {
       // 0 → 1: issue subscribe and HOLD the handle. Fanout writes arrive via the engine's `applyFanout` /
-      // the profile / roster listeners (the bound adapter). A failed subscribe (bad rid / no read
-      // permission / rejected query) leaves the path `undefined`; surface it to the developer via the
-      // handle's error-surface (`.snapshot` for resource/profile, `.ready` for a roster) instead of
-      // swallowing silently.
+      // the profile / roster listeners (the bound adapter). A subscriber who cannot read the resource
+      // is not a failure: its entry carries `deniedNodes` (the adapter's `applyDenied`). A failed
+      // subscribe (bad rid / wrong type / rejected query) leaves the path `undefined`; surface it to
+      // the developer via the handle's error-surface (`.snapshot` for resource/profile, `.ready` for
+      // a roster) instead of swallowing silently.
       const handle = subscribe();
       (handle.snapshot ?? handle.ready)?.catch((err: unknown) => {
         log.warn('auto-subscribe failed', {
@@ -547,11 +548,16 @@ export function createNebulaStore(
     const rid = match[2];
     const eTag = (root as any)?.resources?.[rt]?.[rid]?.meta?.eTag as string | undefined;
     if (!eTag) {
-      // User editing a never-subscribed resource: no baseline eTag to submit
-      // against, so no transaction. The `v-if` guard pattern is supposed to
-      // prevent this; an unguarded `v-model` would otherwise be invisibly
-      // broken in production, so surface it to the developer.
-      log.warn('synced-state write dropped: no meta.eTag (resource not subscribed)', { rt, rid, path });
+      // No baseline eTag to submit against, so no transaction: the resource was never subscribed,
+      // or this subscriber cannot read it (`deniedNodes`). The `v-if` guard pattern is supposed to
+      // prevent this; an unguarded `v-model` would otherwise be invisibly broken in production, so
+      // surface it to the developer.
+      const deniedNodes = (root as any)?.resources?.[rt]?.[rid]?.deniedNodes as string[] | undefined;
+      if (deniedNodes?.length) {
+        log.warn('synced-state write dropped: this subscriber cannot read the resource', { rt, rid, path, deniedNodes });
+      } else {
+        log.warn('synced-state write dropped: no meta.eTag (resource not subscribed)', { rt, rid, path });
+      }
       return undefined;
     }
     // Remember which input is driving this edit so its blur can flush precisely.
@@ -600,6 +606,22 @@ export function createNebulaStore(
         internalDeepWrite(['resources', rt, rid, 'meta', 'eTag'], eTag);
       });
     },
+    applyDenied(rt, rid, deniedNodes) {
+      // Written only when it changes, so a stream of readable pushes does not re-trigger every
+      // watcher of `deniedNodes`. A loss drops `value` and `meta` — the entry keeps nothing the
+      // subscriber can no longer read, and with no `meta.eTag` the synced-state middleware
+      // drops any write to it.
+      const entry = (root as any)?.resources?.[rt]?.[rid];
+      const current = entry?.deniedNodes as string[] | undefined;
+      const same = current !== undefined && current.length === deniedNodes.length
+        && current.every((n, i) => n === deniedNodes[i]);
+      withContext({ source: 'remote' }, () => {
+        if (!same) internalDeepWrite(['resources', rt, rid, 'deniedNodes'], [...deniedNodes]);
+        if (deniedNodes.length === 0) return;
+        if (entry?.value !== undefined) internalDeepWrite(['resources', rt, rid, 'value'], undefined);
+        if (entry?.meta !== undefined) internalDeepWrite(['resources', rt, rid, 'meta'], undefined);
+      });
+    },
     rollbackTo(rt, rid, value) {
       withContext({ source: 'rollback' }, () => {
         internalDeepWrite(['resources', rt, rid, 'value'], value);
@@ -613,10 +635,15 @@ export function createNebulaStore(
       });
     },
     applyOptimistic(rt, rid, value, eTag) {
-      // Explicit transactionOps create/put paint (value + baseline eTag).
+      // Explicit transactionOps create/put paint (value + baseline eTag). This is the one paint that
+      // can make an entry no subscription has answered for — every push records access first — so
+      // it owes `ResourceStoreEntry` its `deniedNodes`: `[]`, since the painter holds the value,
+      // and never over a subscription's own answer.
+      const entry = (root as any)?.resources?.[rt]?.[rid];
       withContext({ source: 'remote' }, () => {
         internalDeepWrite(['resources', rt, rid, 'value'], value);
         internalDeepWrite(['resources', rt, rid, 'meta', 'eTag'], eTag);
+        if (entry?.deniedNodes === undefined) internalDeepWrite(['resources', rt, rid, 'deniedNodes'], []);
       });
     },
     flash() {

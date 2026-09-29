@@ -1,13 +1,13 @@
 /**
  * DAG Tree access control tests
  *
- * Tests DagTree operations, authorization enforcement, permission resolution,
+ * Tests OrgTree operations, authorization enforcement, permission resolution,
  * and Star DO integration through the baseline test-app.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { DagTreeState, Star } from '@lumenize/nebula';
+import type { OrgTreeState, Star } from '@lumenize/nebula';
 import { adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -32,7 +32,7 @@ async function userClient(star: string, adminToken: string, email = 'user@exampl
   return createInvitedClient(NebulaClientTest, userBrowser, star, star, email);
 }
 
-describe('dag-tree', () => {
+describe('org-tree', () => {
 
   // ─── Schema & Root Node ───────────────────────────────────────────
 
@@ -41,12 +41,12 @@ describe('dag-tree', () => {
       const star = uniqueStar();
       const { client, payload } = await adminClient(star);
 
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
         expect(client.lastResult).toBeDefined();
       });
 
-      const state = client.lastResult as DagTreeState;
+      const state = client.lastResult as OrgTreeState;
       expect(state.nodes).toBeInstanceOf(Map);
       expect(state.nodes.size).toBe(1);
 
@@ -102,9 +102,9 @@ describe('dag-tree', () => {
         expect(client.lastError).toBeUndefined();
       });
 
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         expect(state.nodes.get(ROOT_NODE_ID)!.label).toBe('My Root');
       });
 
@@ -130,9 +130,9 @@ describe('dag-tree', () => {
 
       // ...and the grant is in the permissions map, so the request-access climb
       // can discover the root admin as the admin to ask.
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         expect(state.permissions.get(ROOT_NODE_ID)?.get(starAdminSub)).toBe('admin');
       });
 
@@ -160,9 +160,9 @@ describe('dag-tree', () => {
       expect(engId).toMatch(/^[0-9a-f-]{36}$/);
 
       // Verify via getState
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         const eng = state.nodes.get(engId);
         expect(eng).toBeDefined();
         expect(eng!.slug).toBe('engineering');
@@ -199,9 +199,9 @@ describe('dag-tree', () => {
       });
 
       // Verify structure
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         expect(state.edges.has(`${ROOT_NODE_ID}:${aId}`)).toBe(true);
         expect(state.edges.has(`${ROOT_NODE_ID}:${bId}`)).toBe(true);
         expect(state.edges.has(`${aId}:${cId}`)).toBe(true);
@@ -232,9 +232,9 @@ describe('dag-tree', () => {
       });
 
       // Exactly ONE node with that slug — the replay created no duplicate.
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         expect(state.nodes.has(nodeId)).toBe(true);
         expect([...state.nodes.values()].filter((n) => n.slug === 'eng')).toHaveLength(1);
       });
@@ -522,9 +522,9 @@ describe('dag-tree', () => {
       });
 
       // Verify: child now under newId, not oldId
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         expect(state.edges.has(`${newId}:${childId}`)).toBe(true);
         expect(state.edges.has(`${oldId}:${childId}`)).toBe(false);
       });
@@ -572,9 +572,9 @@ describe('dag-tree', () => {
         expect(client.lastError).toBeUndefined();
       });
 
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         expect(state.nodes.get(tempId)!.deleted).toBe(true);
       });
 
@@ -585,9 +585,9 @@ describe('dag-tree', () => {
         expect(client.lastError).toBeUndefined();
       });
 
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         expect(state.nodes.get(tempId)!.deleted).toBe(false);
       });
 
@@ -919,9 +919,9 @@ describe('dag-tree', () => {
       client.callStarSetPermission(star, nodeId, 'other-sub', 'read');
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
-      client.callStarDagTreeGetState(star);
+      client.callStarOrgTreeGetState(star);
       await vi.waitFor(() => {
-        const state = client.lastResult as DagTreeState;
+        const state = client.lastResult as OrgTreeState;
         const nodePerms = state.permissions.get(nodeId);
         expect(nodePerms).toBeInstanceOf(Map);
         expect(nodePerms!.get(payload.sub)).toBe('write');
@@ -932,7 +932,7 @@ describe('dag-tree', () => {
     });
 
     it('returns a COPY — editing what it hands back changes no permission decision', async () => {
-      // `getState` is reachable from the wire past the tree gate, and the walk past a gate runs any
+      // `getState` is reachable from the wire past the `resources` door, and the walk past a gate runs any
       // method the returned value carries, `Map.prototype.set` included. Returned by reference, the
       // state IS the cache every permission decision reads, so a member could grant themselves admin
       // at the root inside one chain — and then pass `setPermission`'s own check to make it durable.
@@ -944,7 +944,7 @@ describe('dag-tree', () => {
 
       const { client: user, payload } = await userClient(star, '');
       user.resetResults();
-      const edit = ((user.ctn<Star>() as any).dagTree().getState().permissions as any)
+      const edit = ((user.ctn<Star>() as any).resources.orgTree.getState().permissions as any)
         .set(ROOT_NODE_ID, new Map([[payload.sub, 'admin']]));
       user.lmz.call('STAR', star, edit, user.ctn().handleResult(edit));
       await vi.waitFor(() => expect(user.callCompleted).toBe(true));
@@ -957,6 +957,48 @@ describe('dag-tree', () => {
         .toContain('admin permission required');
 
       user[Symbol.dispose]();
+    });
+
+    // Every other public read that hands back an object, edited the same way inside one chain. Each
+    // edit is the one that would matter if the read returned what the tree decides with: a parent
+    // added to B's ancestors would let the member's `admin` at A reach B, a child added to A's
+    // descendants would change what the tree reports, and an id added to `allowed` would change the
+    // next verdict if the sets were kept. The tree's own answers must not move.
+    it.each([
+      ['getNodeAncestors', (ot: any, a: string, b: string) => ot.getNodeAncestors(b).add(a)],
+      ['getNodeDescendants', (ot: any, a: string, b: string) => ot.getNodeDescendants(a).add(b)],
+      ['evaluatePermissions', (ot: any, _a: string, b: string, sub: string) => ot.evaluatePermissions([b], 'admin', sub, false).allowed.add(b)],
+    ])('%s returns a COPY — editing it moves no verdict and no later answer', async (_name, edit) => {
+      const star = uniqueStar();
+      const { client: admin, accessToken } = await adminClient(star);
+      const a = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'a', 'A');
+      const b = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
+      // A child under A, so A's descendants are a set the tree keeps — an empty answer would be
+      // built fresh whatever the read returned, and could not show an edit landing.
+      const c = await admin.orgTree.createNode(crypto.randomUUID(), a, 'c', 'C');
+      const { client: user, payload } = await userClient(star, accessToken);
+      await admin.orgTree.setPermission(a, payload.sub, 'admin');
+
+      user.resetResults();
+      const chain = edit((user.ctn<Star>() as any).resources.orgTree, a, b, payload.sub);
+      user.lmz.call('STAR', star, chain, user.ctn().handleResult(chain));
+      await vi.waitFor(() => expect(user.callCompleted).toBe(true));
+      expect(user.lastError).toBeUndefined(); // the chain ran, so what follows is the copy at work
+
+      // The verdict: the member's `admin` at A still does not reach its sibling B.
+      user.callStarSetPermission(star, b, payload.sub, 'admin');
+      await vi.waitFor(() => expect(user.callCompleted).toBe(true));
+      expect(user.lastError ?? 'no error — the edit let the member grant itself admin at B')
+        .toContain('admin permission required');
+      // The later answers: B has no ancestor A, A no descendant B, and B is still denied.
+      const tree = (admin.ctn<Star>() as any).resources.orgTree;
+      expect([...await admin.lmz.callAsync('STAR', star, tree.getNodeAncestors(b)) as Set<string>]).toEqual([ROOT_NODE_ID]);
+      expect([...await admin.lmz.callAsync('STAR', star, tree.getNodeDescendants(a)) as Set<string>]).toEqual([c]);
+      const verdict = await admin.lmz.callAsync('STAR', star, tree.evaluatePermissions([b], 'admin', payload.sub, false)) as { allowed: Set<string>; denied: Set<string> };
+      expect([...verdict.allowed]).toEqual([]);
+      expect([...verdict.denied]).toEqual([b]);
+
+      admin[Symbol.dispose](); user[Symbol.dispose]();
     });
   });
 
@@ -1337,8 +1379,8 @@ describe('dag-tree', () => {
     });
   });
 
-  // ─── evaluatePermissions batch eval (Child 2 Phase 1, D16) ───────────
-  describe('evaluatePermissions (Child 2 Phase 1)', () => {
+  // ─── evaluatePermissions batch eval ───────────
+  describe('evaluatePermissions', () => {
     it('complete denied set; grant flips one; dominionOverHostAtSubscribe bypasses; Star DAG admin resolves allow-all', async () => {
       const star = uniqueStar();
       const { client: admin, payload: adminPayload } = await adminClient(star);
@@ -1380,7 +1422,7 @@ describe('dag-tree', () => {
       expect(res.denied.has(nB)).toBe(true);
 
       // dominionOverHostAtSubscribe:true → ALL allowed even with no grant on nB (Galaxy/Universe
-      // scope-admin bypass replicated, D16). Mutation: ignore dominionOverHostAtSubscribe → nB denied → red.
+      // scope-admin bypass replicated). Mutation: ignore dominionOverHostAtSubscribe → nB denied → red.
       admin.callStarEvaluatePermissions(star, [nA, nB], 'read', userSub, true);
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
       res = admin.lastResult as Eval;

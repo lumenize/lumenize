@@ -2,110 +2,56 @@
  * Star — singleton per star (e.g., instanceName = "acme.app.tenant-a")
  *
  * Owns a DAG tree for organizing resources and controlling access, and a
- * resource data-plane for temporal resource storage.
+ * temporal resource store — both inside the composed
+ * {@link Resources} plane (ADR-007 — composition, not reimplementation), which the
+ * Galaxy composes the same way. The plane owns the op, the ontology it validates
+ * against and the one version rule; the Star keeps only where its ontology comes from
+ * (its parent Galaxy's registry, asked by fire-back), its configuration, and the
+ * `.dev` reset that runs the plane's wipe.
  *
- * The data-plane (DagTree + Resources + Subscriptions + Handler 2 + the mutation
- * broadcast) is composed from the shared {@link ResourceDataPlane} capability
- * (ADR-007 — composition, not reimplementation), so the Galaxy can host Resources
- * the same way. Star retains the Galaxy-multi-version machinery the capability
- * deliberately excludes: the **Handler 1** ontology-version gate, ontology
- * install/cache (`#ensureFacet`/`#installState`/`setOntology`), and the
- * non-resource org-tree + dev-preview-reload channels.
- *
- * Resource operations use a two-handler continuation pattern: Handler 1 (on
- * Star) checks the local ontology cache and dispatches; Handler 2 (in the
- * capability) does the actual work against the per-version validator facet that
- * Star's `getOntology()` provider supplies.
+ * **One door.** `@mesh() get resources` returns the plane's request surface, whose
+ * members derive the caller's own address and check each op; the Star has no per-op
+ * entries of its own.
  */
 
 import { mesh } from '@lumenize/mesh';
-import { debug } from '@lumenize/debug';
-import {
-  getParserValidatorFacet,
-} from '@lumenize/ts-runtime-parser-validator/runtime';
-import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runtime';
 import { NebulaDO, requireDominionHere } from './nebula-do';
-import type { DagTree } from './dag-tree';
-import { ROOT_NODE_ID } from './dag-ops';
-import type { PermissionTier } from './dag-ops';
-// Type-only: types the facade continuation below without pulling a second mesh entry into this
-// module's value graph.
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
-import { TreeSubscriptions } from './tree-subscriptions';
-import { ReloadSubscriptions } from './reload-subscriptions';
-import { OntologyStaleError } from './errors';
-import { ResourceDataPlane } from './resource-data-plane';
-import type { BroadcastTarget, NodeInvitee, NodeInviteAck } from './resource-data-plane';
-import type { QueryDescriptor, SubscriberEntry } from './query-hash';
-import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
-import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
-import type { NebulaClient } from './nebula-client';
+import { ROOT_NODE_ID } from './org-ops';
+import { Resources } from './resources';
+import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from './resources';
+import type { Galaxy } from './galaxy';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
-const INDEX_KEY = 'ontology:_index';
-const rowKey = (version: string) => `ontology:${version}`;
-
-// Node-invite types re-exported from their new home (the composed data-plane) so
+// Node-invite types re-exported from their home (the composed plane) so
 // existing `@lumenize/nebula` import sites are unchanged.
-export type { NodeInvitee, NodeInviteAck } from './resource-data-plane';
+export type { NodeInvitee, NodeInviteAck } from './resources';
 
-export class Star extends NebulaDO {
-  #dataPlane!: ResourceDataPlane
-  #treeSubscriptions!: TreeSubscriptions
-  #reloadSubscriptions!: ReloadSubscriptions
-  #row: OntologyVersionRow | null = null
-  #facet: ParserValidator | null = null
+export class Star extends NebulaDO implements ResourcesHost {
+  #resources!: Resources
 
   onStart() {
-    this.#dataPlane = new ResourceDataPlane(
-      this.ctx,
-      () => this.lmz.callContext,
-      // Ontology-provider seam: Star's source is the Galaxy-cached row. The row
-      // already carries `relationships` (compiled by `compileOntologyVersion`),
-      // so widening the seam to surface it for `subscribeQuery` field validation
-      // costs nothing here.
-      () => {
-        const { row, facet } = this.#ensureFacet();
-        return { version: row.version, facet, relationships: row.relationships };
+    this.#resources = new Resources(this.ctx, () => this.lmz, this.#ontologySource())
+  }
+
+  /**
+   * The Star's ontology source: its parent Galaxy's CURRENT row, asked by a call whose answer
+   * lands at `resourcesResults.onOntologyPulled`, so `current()` answers `null` and the op is told
+   * `installing`. The call rides the asking op's context — an upward call every member has
+   * passage for — and asks for CURRENT, never for the version the op pinned: a Star serves its
+   * Galaxy's current version, so a tab on an older bundle is told to refresh rather than
+   * installed back onto. Sibling Stars share one validator bundle per version, keyed on the
+   * Galaxy.
+   */
+  #ontologySource(): OntologySource {
+    return {
+      current: () => {
+        this.lmz.call('GALAXY', this.galaxyId,
+          this.ctn<Galaxy>().getCurrentOntology(),
+          this.ctn<Star>().resourcesResults.onOntologyPulled());
+        return null
       },
-      // Host-side mesh I/O — continuations built with Star's own this.ctn/this.lmz/this.svc.
-      {
-        deliverResourceUpdate: (clientId, resourceType, resourceId, result) =>
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
-        broadcastResourceUpdate: (resourceId, snapshot, targets) =>
-          this.#broadcastResourceUpdate(resourceId, snapshot, targets),
-        broadcastQueryUpdate: (queryHash, resourceIds, targets) =>
-          this.#broadcastQueryUpdate(queryHash, resourceIds, targets),
-        deliverQueryUpdate: (clientId, queryHash, result) =>
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
-            this.ctn<Star>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
-        broadcastRosterUpdate: (queryHash, roster, targets) =>
-          this.#broadcastRosterUpdate(queryHash, roster, targets),
-        deliverRosterUpdate: (clientId, queryHash, result) =>
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, result),
-            this.ctn<Star>().onQuerySubscriberListBroadcastResult(queryHash), { onErrorOnly: true }),
-      },
-      () => this.#onDagChanged(),
-      // Host name as a THUNK, never a captured value — this runs inside `onStart()`, where
-      // `this.lmz.instanceName` is not yet stamped, and `resetDevData` re-runs `onStart()` after a
-      // `deleteAll()` that wipes the identity key. It is the scope the `access.scopeAdmin` bypass is
-      // confined to at both confinement points (requirePermission + the subscribe-time writers).
-      () => this.lmz.instanceName,
-    )
-    this.#treeSubscriptions = new TreeSubscriptions(this.ctx)
-    this.#reloadSubscriptions = new ReloadSubscriptions(this.ctx)
-    // Null the cached ontology row + validator facet so `onStart` is a COMPLETE
-    // (re)init, not just cold-start init. A no-op on cold start (already null),
-    // but load-bearing for `resetDevData`'s `this.onStart()` re-init
-    // after `deleteAll()`: `#ensureFacet`/`#installState` short-circuit on a
-    // populated `#row` ([star.ts] `#ensureFacet`), so a stale `#row` surviving a
-    // wipe would keep authorizing the dropped ontology. (The data-plane + helper
-    // objects above are likewise reassigned to fresh empty-cache instances.)
-    this.#row = null
-    this.#facet = null
+      bundleId: (version) => `${this.galaxyId}/${version}`,
+    }
   }
 
   /**
@@ -121,7 +67,7 @@ export class Star extends NebulaDO {
    * The grant's job is to give the request-access climb a findable terminus *inside the tree*: a
    * scope-admin holding only the `claims.access.scopeAdmin` bypass is **not** in the permissions map, so
    * the climb cannot discover them. `setPermission` satisfies its own `admin` gate via that same
-   * bypass (dag-tree.ts `requirePermission`), so no un-guarded path is needed.
+   * bypass (org-tree.ts `requirePermission`), so no un-guarded path is needed.
    *
    * ⚠️ **EXACT-star, not `hasDominionOver`** (2026-08-02). A covering Galaxy/Universe admin passes
    * `hasDominionOver` here, so under the old predicate whichever admin wandered in first took the
@@ -149,7 +95,7 @@ export class Star extends NebulaDO {
     // where the transient scope-admin bypass becomes a DURABLE DAG grant.
     const access = claims?.access
     if (access?.scopeAdmin !== true || access.authScope !== this.lmz.instanceName) return
-    this.#dataPlane.dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
+    this.#resources.requests.orgTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
     this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }
 
@@ -174,748 +120,50 @@ export class Star extends NebulaDO {
   }
 
   /**
-   * True iff `version` is the INSTALLED version. `_index` holds this Star's install history
-   * with the installed version LAST — `setOntology` keeps it there, re-install included — so
-   * the last entry names the one row cached. No row is cached for any earlier entry.
+   * The one `@mesh()` door onto the resource plane — its request surface, whose members derive
+   * the caller's own address and check each op themselves. A getter, so a chain reads
+   * `ctn<Star>().resources.transaction(…)`, the spelling `client.resources.*` already uses.
    */
-  #isCachedVersion(version: string): boolean {
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
-    return index !== undefined && index.length > 0 && index[index.length - 1] === version;
+  @mesh() // any member with passage: each member behind the door checks itself
+  get resources(): ResourcesRequests {
+    return this.#resources.requests
   }
-
-  /** The Star's current ontology version (latest `_index` entry), or `''` if none is
-   *  set yet. Carried in `OntologyStaleError` so a version-skewed client knows what to
-   *  refresh to. */
-  #currentVersion(): string {
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
-    return index && index.length > 0 ? index[index.length - 1] : '';
+  /**
+   * The plane's response-leg surface — where a failed update's reaper, the node invite's facade
+   * answer and this Star's ontology pull land. Deliberately NOT `@mesh()`: those answers arrive
+   * locally or at the fire-back door, and neither consults the mark. A mark would let any caller
+   * with passage call `onOntologyPulled`, which checks no permission and installs whatever row it
+   * is handed — a validator of their own, and on the `.dev` Star, the install's wipe.
+   */
+  get resourcesResults(): ResourcesResults {
+    return this.#resources.results
   }
 
   /**
-   * Populate `#row` and `#facet` from KV if not already in memory.
-   * The facet helper is a same-isolate cache lookup once `bundleId` is
-   * active, so this is near-zero on warm DOs.
+   * Reset the dev sandbox to empty — the breaking-edit bargain (a breaking ontology edit
+   * invalidates stored snapshots, which we do NOT migrate; the user-developer rebuilds test
+   * data). Runs the plane's wipe, which refuses anything but the `.dev` Star, erases only what the
+   * plane owns — every Resource, grant and subscription, and the installed ontology — and tells
+   * every subscriber. The source of truth is the Galaxy's git `Workspace`, never this Star, so a
+   * wipe destroys throwaway test data, never the user's code. The Star's `config` and mesh's
+   * identity survive, and the next op installs the Galaxy's current ontology as a first install.
    */
-  #ensureFacet(): { row: OntologyVersionRow; facet: ParserValidator } {
-    if (this.#row && this.#facet) return { row: this.#row, facet: this.#facet };
-
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
-    const version = index?.[index.length - 1];
-    if (!version) {
-      throw new Error('No ontology cached — Galaxy fetch should have run first');
-    }
-    const row = this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(version));
-    if (!row) {
-      throw new Error(`Ontology row missing for version '${version}' — index/row drift`);
-    }
-    this.#row = row;
-    const bundleId = `${this.galaxyId}/${row.version}`;
-    this.#facet = getParserValidatorFacet(
-      this.ctx,
-      this.env.LOADER,
-      bundleId,
-      () => {
-        // Cache miss — first reference to this bundleId on this Worker project.
-        // Warm path is the same-isolate cache lookup the helper already does.
-        debug('nebula.Star.ensureFacet').info('facet cold load', {
-          bundleId,
-          galaxyId: this.galaxyId,
-          ontologyVersion: row.version,
-        });
-        return row.validatorBundle;
-      },
-    );
-    return { row, facet: this.#facet };
-  }
-
-  /**
-   * Replace the cached ontology with a fresh state from Galaxy, atomically.
-   * Drops the previous row, writes the new one, and stores the install history in
-   * `_index` with the installed version LAST (`setOntology` orders it). The history travels with
-   * the row so 5.5's lazy migration has the chain order without needing a
-   * separate Galaxy round-trip.
-   */
-  #installState(state: OntologyState): void {
-    const { row, history } = state;
-    let droppedSubscribers: Array<{ subscriberBinding: string; clientId: string }> = [];
-    let isNewVersion = false;
-    this.ctx.storage.transactionSync(() => {
-      const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-      const prevLatest = prevIndex[prevIndex.length - 1];
-      isNewVersion = prevLatest !== row.version;
-      if (prevLatest && isNewVersion) {
-        this.ctx.storage.kv.delete(rowKey(prevLatest));
-      }
-      this.ctx.storage.kv.put(rowKey(row.version), row);
-      this.ctx.storage.kv.put(INDEX_KEY, history);
-      // Deploy-driven subscriber cleanup. Only clear when we're
-      // actually installing a *different* version — the first install on a
-      // fresh Star has no prior subscribers to drop, and re-installing the
-      // same version (defensive: shouldn't happen given #isCachedVersion
-      // guards upstream) shouldn't churn existing subscriptions.
-      if (isNewVersion && prevLatest) {
-        // Drain ALL THREE subscription registries and UNION by (subscriberBinding, clientId) so a client
-        // subscribed to any combination of a resource, a query, AND a query's subscriber-list (watcher)
-        // is signaled exactly once (m1). A query sub spans types, so an install almost always invalidates
-        // it; a watcher whose watched type/field an install removed is likewise cleared + signaled
-        // (tasks/nebula-subscriber-lists.md) rather than left silently stale.
-        const droppedResource = this.#dataPlane.clearSubscribers();
-        const droppedQuery = this.#dataPlane.clearQuerySubscribers();
-        const droppedWatchers = this.#dataPlane.clearWatchers();
-        const seen = new Set<string>();
-        droppedSubscribers = [];
-        for (const d of [...droppedResource, ...droppedQuery, ...droppedWatchers]) {
-          const k = `${d.subscriberBinding} ${d.clientId}`;
-          if (seen.has(k)) continue;
-          seen.add(k);
-          droppedSubscribers.push(d);
-        }
-      }
-    });
-    this.#row = row;
-    const bundleId = `${this.galaxyId}/${row.version}`;
-    this.#facet = getParserValidatorFacet(
-      this.ctx,
-      this.env.LOADER,
-      bundleId,
-      () => {
-        debug('nebula.Star.installState').info('facet cold load', {
-          bundleId,
-          galaxyId: this.galaxyId,
-          ontologyVersion: row.version,
-        });
-        return row.validatorBundle;
-      },
-    );
-
-    // Push-on-clear: notify each dropped subscriber once via the
-    // existing fanout plumbing. Sentinel rt='' / rid='' on `handleResourceUpdate`
-    // is harmless — the client's error branch routes `OntologyStaleError` into
-    // its `onShouldRefreshUI` hook regardless of which (rt, rid) pair carried
-    // the signal, and there is no pending subscribe Promise keyed at ':'. We
-    // can't fill in `clientVersion` server-side — the Subscribers row doesn't
-    // carry it — so the client substitutes its own pinned version when it sees
-    // an empty value (see NebulaClient.#dispatchOntologyStale). Fire-and-forget;
-    // a failed send is tolerable — 5.3.4a reconnect + Handler-1 lazy detection
-    // are the backstops.
-    if (droppedSubscribers.length > 0) {
-      const staleError = new OntologyStaleError('', row.version);
-      for (const { subscriberBinding, clientId } of droppedSubscribers) {
-        this.lmz.call(subscriberBinding, clientId,
-          this.ctn<NebulaClient>().handleResourceUpdate('', '', staleError));
-      }
-    }
-
-    // NO reload trigger here (retired at the Galaxy collapse): the ontology label is
-    // baked into the BUILD, so an install without a build gives a reload nothing new
-    // to fetch — the one reload per turn fires on build completion, Galaxy-side. The
-    // Star's reload channel stays parked as publish's future refresh signal.
-  }
-
-
-  /**
-   * Install a compiled ontology row — the INTERNAL install primitive, the one door
-   * every install path goes through: the lazy-pull handler ({@link onOntologyPulled})
-   * and the test subclasses' `applyOntologyForTest` (which compile in a test Worker and
-   * call this on `this`).
-   * **Deliberately NOT `@mesh`** — the deleted eager-push flow was the only remote
-   * caller, and a remote entry would let an in-scope admin hand this Star an arbitrary
-   * validator bundle outside the Galaxy registry, the one source. Absence of `@mesh`
-   * IS the not-remotely-callable boundary (mesh.md); visibility stays public for the
-   * subclass callers.
-   *
-   * `row.version` MUST be content-unique (the Galaxy derives it via `git.hashBlob` of
-   * the ontology source): the Worker Loader caches the validator bundle by
-   * `bundleId = galaxyId/version`, so a reused label silently serves a STALE
-   * validator (durable-objects.md § Worker Loader cache).
-   */
-  setOntology(row: OntologyVersionRow): void {
-    const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-    // The installed version is the LAST entry, always — every reader (`#isCachedVersion`,
-    // `#currentVersion`, `#ensureFacet`) takes it from there. So re-installing a version the
-    // history already holds MOVES it to the end: left in place, a revert installed one row while
-    // every reader still named another, and the next cold start found no row at all.
-    const history = [...prevIndex.filter((v) => v !== row.version), row.version];
-    this.#installState({ row, history });
-  }
-
-  /**
-   * Fire the registry lazy-pull: ask the parent Galaxy for its CURRENT row, with a traveling
-   * install handler ({@link onOntologyPulled}). Rides the asking op's callContext (the asking
-   * member's own claims — an upward call every member has passage for); fire-and-forget, never
-   * awaited (ADR-003 — the refused op answers `installing` and the client retries). Idempotent:
-   * a concurrent pull's second install lands on the handler's already-installed no-op.
-   *
-   * ⚠️ **It asks for CURRENT, never for the version the asking op pinned.** A Star serves one
-   * version, its Galaxy's current one, so a tab on an older bundle is told to refresh rather than
-   * installed back onto. Pulling the pinned version let one stale tab move the whole Star off
-   * current — dropping every subscriber and validating current tabs against the old schema.
-   * `pinned` rides along for the handler's log line only; `invite`'s first touch passes `''`.
-   */
-  #pullOntology(pinned: string): void {
-    this.lmz.call('GALAXY', this.galaxyId,
-      this.ctn<Galaxy>().getCurrentOntology(),
-      this.ctn<Star>().onOntologyPulled(pinned));
-  }
-
-  /**
-   * The lazy-pull's result handler — travels with the call (survives this DO's
-   * eviction). Installs the Galaxy's current row unless it is already installed; a
-   * `wipeOnInstall` row pulled over any prior install wipes first (the breaking-edit bargain,
-   * decided + dominion-checked Galaxy-side when the version was appended — a property of the
-   * row, never pending state). `null` (nothing applied yet) installs nothing — the client's
-   * bounded retries exhaust and surface the ordinary stale signal.
-   *
-   * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
-   * (the member-level check off, the scope check on — and the walk rules still refuse the six
-   * doors JavaScript opens on every object, so "off" has never meant "nothing is checked"); an `@mesh` here would let any in-scope caller hand
-   * this Star an arbitrary "ontology row" and swap the validator — the same forge fence
-   * as `onInviteResult`. ⚠️ Pre-alpha the only puller is the `.dev` star; a wipeOnInstall
-   * pull on a non-`.dev` star logs + skips (the prod install path is the fast-follow's).
-   */
-  public async onOntologyPulled(pinned: string, result?: unknown): Promise<void> {
-    const log = debug('nebula.Star.ontologyPull');
-    try {
-      if (result instanceof Error) {
-        log.warn('ontology pull failed', { pinned, error: result.message });
-        return;
-      }
-      const row = result as OntologyVersionRow | null;
-      if (!row) {
-        log.warn('ontology pull returned no row — nothing applied yet', { pinned });
-        return;
-      }
-      // Whatever the Galaxy answered IS current, and the Star converges on it whether or not it
-      // is what the asking tab pinned. A tab pinned to anything else is stale on its retry, which
-      // is the signal it needs; installing ITS version instead is what moved a Star off current.
-      if (this.#isCachedVersion(row.version)) return; // already current — idempotent
-      const hadPrior = (this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? []).length > 0;
-      if (row.wipeOnInstall && hadPrior) {
-        const segs = this.lmz.instanceName?.split('.') ?? [];
-        if (!(segs.length === 3 && segs[2] === 'dev')) {
-          // resetDevData is .dev-guarded; the prod wipe-on-install story is the
-          // fast-follow's prod install path. Refuse loudly rather than half-install.
-          log.error('wipeOnInstall pull on a non-.dev star — not installing (prod install path pending)', { version: row.version });
-          return;
-        }
-        await this.resetDevData();
-      }
-      this.setOntology(row);
-      log.debug('ontology pulled + installed', {
-        pinned, version: row.version, wiped: Boolean(row.wipeOnInstall && hadPrior),
-      });
-    } catch (err) {
-      // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
-      log.error('ontology pull handling failed', {
-        pinned, error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  /**
-   * Reset the dev sandbox to empty — the breaking-edit bargain (a breaking ontology
-   * edit invalidates stored snapshots, which we do NOT migrate; the user-developer
-   * rebuilds test data, Decision 11). The wipe is **data-only**: the source-of-truth
-   * is the Galaxy (its git `Workspace`, Decision 5), NOT the dev Star — so a
-   * wipe here destroys throwaway test data, never the user's code. (The old
-   * `dev-star.ts` precondition — "don't wire a live trigger until source-durability
-   * holds" — is SUPERSEDED: the source never lived on this Star.)
-   *
-   * **Hard-guarded to the `.dev` STAR-tier instance — segment-precise, NOT a suffix
-   * test** (matches `#starBinding`'s form at nebula-client.ts): `endsWith('.dev')`
-   * would also pass a galaxy-tier `acme.dev`. ⚠️ **Deliberate structural→runtime
-   * weakening** (Decision 2): the wipe used to live ONLY on the `DevStar` subclass so
-   * a tenant `Star` *structurally* couldn't carry a data-wiping reset; the single-
-   * `Star` collapse ends that, so the wipe now ships on EVERY `Star`, gated only by
-   * this runtime throw. Compensating controls: the hard `.dev` guard + `@mesh(
-   * requireDominionHere)` + the `Star.prototype` `@mesh`-surface-freeze test.
-   *
-   * **`async` + `@mesh(requireDominionHere)`** — `requireDominionHere` is a *synchronous* guard and
-   * the `.dev` check below is sync, so `blockConcurrencyWhile` (the first awaited
-   * work) still closes the gate before any yield. `deleteAll()` is the sanctioned
-   * async-storage exception (no sync variant); it wipes the entire private SQLite DB
-   * (SQL + KV + alarm rows). `onStart()` then reconstructs the helper objects (fresh
-   * empty caches), recreates schema + ROOT, and nulls `#row`/`#facet` (a stale facet
-   * would keep authorizing the dropped ontology). The DO + `{u}.{g}.dev` registration
-   * survive. The DataPlane root-admin grant reseeds on the next admin call's
-   * `onBeforeCall` first-touch (the `deleteAll` wiped the latch).
-   *
-   * **`ReloadSubscribers` are preserved across the wipe** (captured → wiped →
-   * restored, in the body) — they are live-preview connection state, not dev data,
-   * and the wipe-in-a-save flow reloads those previews onto the clean Star
-   * (Decision 12 / Flow 1d); forgetting them would strand the preview.
-   */
-  @mesh(requireDominionHere)
-  async resetDevData(): Promise<void> {
-    const s = this.lmz.instanceName?.split('.') ?? [];
-    if (!(s.length === 3 && s[2] === 'dev')) {
-      throw new Error('resetDevData is only permitted on the .dev sandbox Star');
-    }
-    await this.ctx.blockConcurrencyWhile(async () => {
-      // Preserve live-preview reload subscriptions across the wipe: they're
-      // live-connection state, NOT dev data, and the wipe-in-a-save flow (Flow 1b)
-      // then RELOADS those very previews onto the clean Star (Decision 12 / Flow 1d).
-      // Capture under the closed gate (no concurrent writes can land), wipe, re-init,
-      // restore onto the fresh `#reloadSubscriptions` (onStart recreated the table).
-      const reloadSubs = this.#reloadSubscriptions.all();
-      await this.ctx.storage.deleteAll();
-      this.onStart();
-      for (const r of reloadSubs) this.#reloadSubscriptions.register(r.clientId, r.subscriberBinding);
-    });
-  }
-
-  // ─── DagTree ───────────────────────────────────────────────────────
-
-  /**
-   * Single @mesh() entry point for the entire DagTree API.
-   * OCAN executor checks @mesh() only on this method;
-   * subsequent operations (e.g., .createNode(), .getState()) traverse freely.
-   * DagTree handles per-operation auth internally via requirePermission.
-   */
-  @mesh()
-  dagTree(): DagTree {
-    return this.#dataPlane.dagTree
-  }
-
-  // ─── Node invites (the security logic lives in the plane — written once) ────
-
-  /**
-   * Invite people onto a NODE — the whole two-plane operation (the DAG gate, the
-   * `pending` `_InviteStatus` rows, the grants + flips on the result) lives in
-   * {@link ResourceDataPlane.invite}, written once for every host; this forward
-   * supplies only the facade fire (the one mesh-typed line). TEMP → target=resources()
-   * gate (tasks/nebula-data-plane-owns-its-guards.md deletes all four host forwards).
-   */
-  @mesh()
-  async invite(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {
-    // A server-originated write with no client-pinned version: on a Star that has never
-    // installed an ontology (an admin inviting people before anyone has used the app),
-    // fire the first-touch pull-current at the parent Galaxy and answer `installing` —
-    // the same retry contract every data op carries. Nothing partial happened: the gate
-    // sits before any invite work.
-    if ((this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? []).length === 0) {
-      this.#pullOntology('');
-      throw new OntologyStaleError('', '', { installing: true });
-    }
-    return this.#dataPlane.invite(nodeId, invitees, (valid) =>
-      this.lmz.call(
-        'NEBULA_AUTH_FACADE', undefined,
-        this.ctn<NebulaAuthFacade>().invite(this.lmz.instanceName!, valid.map(({ email }) => ({ email }))),
-        this.ctn<Star>().onInviteResult(nodeId, Object.fromEntries(valid.map(v => [v.email, v.tier]))),
-      ));
-  }
-
-  /**
-   * The node invite's result handler — travels with the facade call (never awaited).
-   * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
-   * (the member-level check off, the scope check on — and the walk rules still refuse the six
-   * doors JavaScript opens on every object, so "off" has never meant "nothing is checked"), and an `@mesh` here would let any in-scope caller
-   * forge an invite outcome and write themselves grants. Body in the plane.
-   * TEMP → target=resources() gate.
-   */
-  public onInviteResult(
-    nodeId: string, tiers: Record<string, PermissionTier>, result?: unknown,
-  ): Promise<void> {
-    return this.#dataPlane.onInviteResult(nodeId, tiers, result);
+  @mesh(requireDominionHere) // dominion over this Star, and the plane's wipe refuses off `.dev`
+  resetDevData(): void {
+    this.#resources.wipe()
   }
 
   // ─── Config ────────────────────────────────────────────────────────
 
-  @mesh(requireDominionHere)
+  @mesh(requireDominionHere) // dominion over this Star
   setStarConfig(key: string, value: unknown) {
     const config = this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     config[key] = value;
     this.ctx.storage.kv.put('config', config);
   }
 
-  @mesh()
+  @mesh() // any member with passage: the Star's config is shared with its members
   getStarConfig(): Record<string, unknown> {
     return this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
   }
-
-  // ─── Transaction (Handler 1 → capability Handler 2) ─────────────────
-
-  /** Handler 1: validate the requested ontology version, then RETURN the transaction result — the
-   *  framework fires it back to the caller's `callAsync`. On a stale version RETURN
-   *  the `OntologyStaleError` as a VALUE (resolve, not reject): the client's submit wrapper maps it to
-   *  the engine's `{ontologyStale}` signal (asymmetric with `read`, which THROWS on stale). The
-   *  version-gate is Galaxy-multi-version-specific and stays on Star; the capability never sees
-   *  `ontologyVersion`. */
-  @mesh()
-  transaction(ontologyVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult> | OntologyStaleError {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('transaction requires a client origin with instanceName in callChain[0]');
-    }
-    if (!this.#isCachedVersion(ontologyVersion)) {
-      // LAZY-PULL (dev unified with the prod Flow-2b design): fire the registry fetch from
-      // the parent Galaxy INSIDE this op's own call context — upward passage is free for
-      // every member, so it works under any claims (the auth story the deleted eager push
-      // never had) — and answer `installing` so the client retries the replay-idempotent
-      // op instead of treating the version as stale. The op cannot await the pull
-      // (ADR-003); the traveling handler installs, the retry succeeds.
-      this.#pullOntology(ontologyVersion);
-      return new OntologyStaleError(ontologyVersion, this.#currentVersion(), { installing: true });
-    }
-    return this.#dataPlane.doTransaction(newETag, ops, clientId);
-  }
-
-  // ─── Read (Handler 1 → capability Handler 2) ────────────────────────
-
-  /** Handler 1: validate the requested ontology version, then RETURN the read value — the framework
-   *  fires it back to the caller's `callAsync`. On a stale version THROW
-   *  `OntologyStaleError` (→ error RESULT → the client's `callAsync` rejects → its `.catch` fires
-   *  `onShouldRefreshUI`). */
-  @mesh()
-  read(ontologyVersion: string, resourceId: string): Snapshot | null {
-    if (!this.#isCachedVersion(ontologyVersion)) {
-      // Same lazy-pull as `transaction` — reads retry freely, so `installing` rides the throw.
-      this.#pullOntology(ontologyVersion);
-      throw new OntologyStaleError(ontologyVersion, this.#currentVersion(), { installing: true });
-    }
-    return this.#dataPlane.doRead(resourceId);
-  }
-
-  // ─── Subscribe (Handler 1 → capability Handler 2) ───────────────────
-
-  /** Handler 1: Check cache, dispatch to Handler 2 */
-  @mesh()
-  subscribe(ontologyVersion: string, resourceType: string, resourceId: string) {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribe requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribe requires a gateway in callChain.at(-1)');
-    }
-
-    if (!this.#isCachedVersion(ontologyVersion)) {
-      // Same lazy-pull as `transaction`; the stale signal still pushes so the client's
-      // pending subscribe settles (a re-subscribe after the install succeeds).
-      this.#pullOntology(ontologyVersion);
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-          new OntologyStaleError(ontologyVersion, this.#currentVersion(), { installing: true })));
-      return;
-    }
-    this.#dataPlane.doSubscribe(resourceType, resourceId, clientId, subscriberBinding);
-  }
-
-  // ─── Unsubscribe ───────────────────────────────────────────────────
-
-  /**
-   * Drop the caller's subscriber row for `(resourceType, resourceId)`. Called
-   * via `client.resources.unsubscribe` — the factory's effect-scope refcount
-   * loop issues it after the grace period expires for a 1→0 transition.
-   * PK-targeted delete.
-   *
-   * `resourceType` is currently unused — `Subscribers` rows key on
-   * `(resourceId, clientId)` only; the type lives on the resource snapshot.
-   * Kept in the API for symmetry with `subscribe(rt, rid)` and so a future
-   * type-discriminated subscriber model (per Phase -1 § 7) doesn't churn the
-   * client surface.
-   *
-   * No ontology check — unsubscribe is best-effort. If the row doesn't exist
-   * (already cleaned up by drop-on-failed-fanout, ontology-install clear, or
-   * a prior call), the DELETE is a no-op.
-   */
-  @mesh()
-  unsubscribe(resourceType: string, resourceId: string): void {
-    void resourceType;
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('unsubscribe requires a client origin with instanceName in callChain[0]');
-    }
-    this.#dataPlane.removeSubscriber(resourceId, clientId);
-  }
-
-  // ─── Query subscriptions (Child 2, Handler 1 → capability) ──────────
-
-  /**
-   * Handler 1: register a query subscription + push the initial membership. **Void**
-   * (ADR-003) — the client computed the canonical `queryHash` locally and keys
-   * its handle before firing; the initial state arrives as a `handleQueryUpdate`
-   * push. `@mesh()` not `@mesh(requireDominionHere)`: query subs are non-admin but
-   * DAG-gated (authorization is per-push at delivery). No ontology-version gate —
-   * the query validates against the capability's current `relationships` and the
-   * membership enumerates current snapshots (version-independent). `clientId` /
-   * `subscriberBinding` come from `callChain` (m2/m3), never params.
-   */
-  @mesh()
-  subscribeQuery(query: QueryDescriptor): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribeQuery requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribeQuery requires a gateway in callChain.at(-1)');
-    }
-    this.#dataPlane.doSubscribeQuery(query, clientId, subscriberBinding);
-  }
-
-  /**
-   * Drop the caller's query-sub row for `queryHash`. `clientId` from `callChain[0]`
-   * (never a param), so a client can only drop its OWN row (m3). Best-effort — a
-   * missing row no-ops.
-   */
-  @mesh()
-  unsubscribeQuery(queryHash: string): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('unsubscribeQuery requires a client origin with instanceName in callChain[0]');
-    }
-    this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
-  }
-
-  /**
-   * Subscribe the caller to `query`'s live subscriber-LIST roster (the STANDALONE watcher subscription —
-   * NOT a data-subscriber of the query). **Void** (ADR-003): the client keys its handle by the local
-   * `queryHash` and the initial roster arrives as a `handleQuerySubscribersUpdate` push. `@mesh()`,
-   * reachability-gated (any Star member may watch any reachable query's roster, ADR-008); `clientId`/
-   * `subscriberBinding` from `callChain`, never params. tasks/nebula-subscriber-lists.md.
-   */
-  @mesh()
-  subscribeQuerySubscribers(query: QueryDescriptor): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribeQuerySubscribers requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribeQuerySubscribers requires a gateway in callChain.at(-1)');
-    }
-    this.#dataPlane.doSubscribeQuerySubscribers(query, clientId, subscriberBinding);
-  }
-
-  /**
-   * Drop the caller's subscriber-list WATCHER row for `queryHash`. `clientId` from `callChain[0]` (never
-   * a param), so a client can only drop its OWN watch (m3). Best-effort — a missing row no-ops.
-   */
-  @mesh()
-  unsubscribeQuerySubscribers(queryHash: string): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('unsubscribeQuerySubscribers requires a client origin with instanceName in callChain[0]');
-    }
-    this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
-  }
-
-  // ─── OrgTree (dedicated channel) ───────────────────────────────────
-
-  /**
-   * Subscribe the caller to the org/permission tree — a per-Star SINGLETON
-   * delivered on its own channel (NOT a resource; never touches the
-   * `Subscribers`/`Snapshots` tables). Registers the subscriber and pushes the
-   * initial `dagTree.getState()` snapshot via `handleOrgTreeUpdate`.
-   *
-   * **Auth is NOT "parity" with resource subscribe:** the only gates are
-   * `onBeforeCall`'s aud-lock (ran already) + `dagTree.getState()`'s auth check
-   * (a valid in-scope `sub`). There is intentionally **NO node-level read check**
-   * — the tree is universally visible by design. Ontology-version-independent, so
-   * no Handler-1/2 cache dance and no `ontologyVersion` argument.
-   */
-  @mesh()
-  subscribeTree(): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribeTree requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribeTree requires a gateway in callChain.at(-1)');
-    }
-    // getState() enforces the auth gate (#requireAuth) and is the value source.
-    const state = this.#dataPlane.dagTree.getState();
-    this.#treeSubscriptions.register(clientId, subscriberBinding);
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-      this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }));
-  }
-
-  // ─── Reload channel (dev preview) ──────────────────────────────────
-
-  /**
-   * Subscribe the caller to this Star's **reload channel** — a per-Star,
-   * non-resource signal modeled exactly on {@link subscribeTree}: registers the
-   * caller in `#reloadSubscriptions` with NO resource/typeName/`ontologyVersion`
-   * checks (a reload marker is none of those).
-   *
-   * **Kept channel, trigger deferred:** its former trigger (`DevStar.compileSFC`)
-   * was deleted when vite took over compiling. The channel survives as the
-   * **publish-refresh signal** — when publish lands a new app-version, it will fan
-   * out `broadcastReload` so live previews re-fetch. `@mesh()` not
-   * `@mesh(requireDominionHere)` — gated only by `onBeforeCall`'s aud-lock, like
-   * `subscribeTree`. There is no initial snapshot to push (the preview's own GET
-   * loads the current bundle); subscribing just registers for future reloads.
-   */
-  @mesh()
-  subscribeReload(): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribeReload requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribeReload requires a gateway in callChain.at(-1)');
-    }
-    this.#reloadSubscriptions.register(clientId, subscriberBinding);
-  }
-
-  /**
-   * Fan out a reload signal to every reload subscriber — mirrors `#onDagChanged`
-   * (`lmz.broadcast` + drop-on-failed-broadcast cleanup via `onReloadBroadcastResult`).
-   * `protected` (not `@mesh`): never client-reachable. Its former internal trigger
-   * (`DevStar.compileSFC`) is gone; publish will call it as the
-   * publish-refresh signal. No originator exclusion — the reload channel has no
-   * originator concept (any subscriber wanting the new bundle gets the signal).
-   */
-  protected broadcastReload(): void {
-    const subscribers = this.#reloadSubscriptions.all();
-    if (subscribers.length === 0) return;
-    const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
-    const remote = this.ctn<NebulaClient>().handleReload();
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onReloadBroadcastResult() });
-  }
-
-  /**
-   * Per-target reload-broadcast result handler — drop a subscriber whose Gateway
-   * reported it disconnected, mirroring `onTreeBroadcastResult`. WHICH subscriber comes from
-   * `callContext.callee`, the address this push was sent to, never from the reply.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
-   */
-  @mesh()
-  onReloadBroadcastResult(result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#reloadSubscriptions.removeSubscriber(clientId);
-    }
-  }
-
-  // ─── Internal ──────────────────────────────────────────────────────
-
-  /**
-   * Fired by `DagTree` after every tree mutation. Broadcasts the fresh
-   * `dagTree.getState()` to ALL tree subscribers — **including the originator**
-   * (unlike resource fanout): `client.orgTree.*` has no optimistic local
-   * write-through, so the echo is the only way the actor's own
-   * `store.lmz.orgTree` updates. `getState()` reads the mutating caller's auth
-   * (the mutation that triggered this is always authenticated).
-   *
-   * Drop-on-failed-broadcast cleanup rides `onTreeBroadcastResult` (its own
-   * handler keyed by `clientId`, NOT the resourceId path). ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
-   */
-  #onDagChanged() {
-    const subscribers = this.#treeSubscriptions.all();
-    if (subscribers.length === 0) return;
-    const state = this.#dataPlane.dagTree.getState();
-    const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
-    const remote = this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state });
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
-  }
-
-  /**
-   * Host-side fanout for one mutated resource — the {@link ResourceHostBridge}
-   * `broadcastResourceUpdate` impl the data-plane invokes per committed mutation.
-   * Builds the `handleResourceUpdate` continuation + dispatches it with `lmz.broadcast`.
-   * `targets` is already filtered (originator excluded) by the data-plane.
-   *
-   * **Drop-on-failed-fanout:** `lmz.broadcast` is given an `onResult` partial
-   * continuation the framework completes with the per-target result. On
-   * `ClientDisconnectedError`, `onBroadcastResult` drops the leaked subscriber row
-   * (via the capability), identified by `callContext.callee` — the address the push was sent
-   * to, which the far side cannot write.
-   */
-  #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]) {
-    const remote = this.ctn<NebulaClient>().handleResourceUpdate(
-      snapshot.meta.typeName, resourceId, snapshot);
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onBroadcastResult(resourceId) });
-  }
-
-  /**
-   * Per-target broadcast result handler. Invoked once per subscriber whose
-   * push fails (`lmz.broadcast` skips the success path). The framework
-   * appends `result` to the partial continuation Star passed via
-   * `opts.onResult`, so this method's signature is
-   * `(resourceId, result)`; the target clientId comes from `callContext.callee` when delivery
-   * fails — the reply says only THAT it failed, never who.
-   *
-   * Public visibility because mesh handler-continuations resolve by name
-   * on the local DO. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
-   */
-  @mesh()
-  onBroadcastResult(resourceId: string, result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
-    }
-    // Success path or non-disconnect error: nothing to do here.
-  }
-
-  /**
-   * Host-side fanout for a query membership push to the NO-DENIAL group — the
-   * {@link ResourceHostBridge} `broadcastQueryUpdate` impl. One shared payload (the
-   * full `resourceIds`) via `lmz.broadcast`; drop-on-failed-fanout cleanup rides
-   * `onQueryBroadcastResult` keyed by `queryHash` (m6).
-   */
-  #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]) {
-    const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
-  }
-
-  /**
-   * Host-side fanout for a subscriber-list roster push (the `ResourceHostBridge` `broadcastRosterUpdate`
-   * impl) — the distinct-by-`sub` roster to a query's WATCHERS via `lmz.broadcast`. Dead-WATCHER cleanup
-   * uses the DEDICATED `onQuerySubscriberListBroadcastResult` (drops from the watcher table, NOT
-   * `QuerySubscribers`). NO `onErrorOnly` — `lmz.broadcast` applies it internally for any `onResult`.
-   */
-  #broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]) {
-    const remote = this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, roster);
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Star>().onQuerySubscriberListBroadcastResult(queryHash) });
-  }
-
-  /**
-   * Per-target result handler for query pushes (both the no-denial broadcast and
-   * the per-subscriber has-denial deliveries — m6). Keyed by `queryHash`; drops the
-   * dead client's query-sub row on a `ClientDisconnectedError`.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
-   */
-  @mesh()
-  onQueryBroadcastResult(queryHash: string, result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
-    }
-  }
-
-  /**
-   * Per-target result handler for subscriber-list roster pushes (the `broadcastRosterUpdate` fanout + the
-   * single-target `deliverRosterUpdate`). Keyed by `queryHash`; on a `ClientDisconnectedError` drops the
-   * dead WATCHER's row from the WATCHER table ONLY (`removeQuerySubscriberListWatcher`), NOT
-   * `QuerySubscribers` — so a dual-role client (data-subscriber AND watcher of Q) keeps its data sub.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
-   */
-  @mesh()
-  onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
-    }
-  }
-
-  /**
-   * Per-target result handler for the org-tree broadcast (`#onDagChanged`).
-   * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
-   * the failed client comes from `callContext.callee`,
-   * mirroring `onBroadcastResult`. This one fans out to every connected client.
-   * ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's.
-   */
-  @mesh()
-  onTreeBroadcastResult(result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#treeSubscriptions.removeSubscriber(clientId);
-    }
-  }
-
 }

@@ -8,13 +8,13 @@
  * entry (`@lumenize/nebula`), which never imports this file, so vue tree-shakes
  * out of the Worker.
  *
- * For the vue-FREE client surface (headless NebulaClient + resource/dag types),
+ * For the vue-FREE client surface (headless NebulaClient + resource and org-tree types),
  * use `@lumenize/nebula/client`. This entry re-exports all of it, so `/frontend`
  * is a superset.
  */
 
 // vue-free client surface: NebulaClient, the canonical Snapshot/SnapshotMeta +
-// resource wire types, dag-ops, ontology config.
+// resource wire types, org-ops, ontology config.
 export * from './client-index';
 
 // Vue-reactive factory + helpers (this entry pulls in `vue`).

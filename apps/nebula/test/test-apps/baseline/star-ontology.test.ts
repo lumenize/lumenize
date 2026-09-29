@@ -2,7 +2,7 @@
  * Ontology integration tests
  *
  * Tests Star cache hit/miss, version mismatch, and validation integration through
- * `callStarInstallOntology` (client-side compile → `Star.setOntology`). The old
+ * `callStarInstallOntology` (test-Worker compile → `resourcesResults.onOntologyPulled`). The old
  * "Galaxy ontology" registry block died with the Galaxy's test-install method
  * (tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 3) — its duplicate-label /
  * index-listing / latest-round-trip assertions covered that method's own behaviour

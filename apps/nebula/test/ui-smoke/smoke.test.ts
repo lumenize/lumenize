@@ -43,7 +43,7 @@ import { resolveChromiumExecutable } from './helpers';
 // resolution logic would drift.)
 
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must be valid
- *  for BOTH slug validators: dag-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
+ *  for BOTH slug validators: org-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
  *  stricter nebula-auth `parse-id.isValidSlug` (ALSO no consecutive hyphens), so a single
  *  hyphen — NOT `test--`. Separate from any manually-claimed scope; the working scope is the
  *  GALAXY post-collapse — the Wipe teardown targets its `.dev` star (`{scope}.dev`). */

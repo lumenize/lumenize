@@ -2,7 +2,7 @@
  * Reconnect re-subscribe — Phase 5.3.4a
  *
  * On WebSocket reconnect (a `reconnecting → connected` state transition),
- * NebulaClient walks its `#subscriptionRegistry` and re-issues `Star.subscribe`
+ * NebulaClient walks its `#subscriptionRegistry` and re-issues `Star.resources.subscribe`
  * for every entry. Star's `INSERT OR REPLACE` makes this idempotent and pushes
  * a fresh initial snapshot back via `handleResourceUpdate`.
  *
@@ -100,7 +100,7 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     expect(rowsBefore[0].resourceId).toBe(resourceId);
     const subscribedAtBefore = rowsBefore[0].subscribedAt;
 
-    // Drop the Subscribers table — without our resubscribe walk, the row
+    // Delete the resource rows — without our resubscribe walk, the row
     // stays gone and no fanouts would reach a.client.
     a.client.callStarClearSubscribersForTest(star);
     await waitForResult(a.client);

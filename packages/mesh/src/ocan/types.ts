@@ -47,13 +47,15 @@ type AllowContinuationArgs<Args extends any[]> = {
  * Helper type that maps methods to return Continuation<ReturnType>.
  * Method arguments accept either the original type or a Continuation<T> that
  * resolves to that type, enabling nested continuation operations.
+ * A non-function member — a getter, say — follows its own type, so a chain that
+ * passes through a getter gate types the way it runs: `ctn<Host>().resources.transaction(...)`.
  * Only applied to object types (not primitives).
  */
 type ContinuationMethods<T> = T extends object
   ? {
       [K in keyof T]: T[K] extends (...args: infer A) => infer R
         ? (...args: AllowContinuationArgs<A>) => Continuation<R>
-        : never;
+        : Continuation<T[K]>;
     }
   : unknown;
 

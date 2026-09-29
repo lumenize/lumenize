@@ -18,6 +18,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
 import { requireDominionHere } from '../../../src/nebula-do';
+import { ROOT_NODE_ID } from '../../../src/org-ops';
 
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
@@ -47,18 +48,23 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 // and because these are 3-arg fire-and-forget calls, that denial is SILENT (it surfaces as a missing
 // downstream effect, e.g. `expected +0 to be 1`, not as an error). The value mirrors the real caller
 // that reaches a Galaxy: a universe admin, whose pattern is `{universe}.*`.
+// `method` is a name, or a PATH through a gate — `['resources', 'read']` reaches the plane's `read`
+// through the host's `resources` door, one `get` per segment, as a client's chain does.
+// `callChain` names the call's origin — a client's, for an op the door derives a client id from.
 const fire = (
-  binding: any, bindingName: string, instance: string, method: string,
+  binding: any, bindingName: string, instance: string, method: string | string[],
   args: unknown[] = [],
   claims: any = {
     aud: instance,
+    profileId: 'p-admin',
     access: { scopeAdmin: true, authScope: `${instance.split('.')[0]}` },
   },
+  callChain: unknown[] = [],
 ) =>
   binding.getByName(instance).__executeOperation({
     version: 1,
-    chain: preprocess([{ type: 'get', key: method }, { type: 'apply', args }]),
-    callContext: { callChain: [], state: {}, originAuth: { sub: 'admin', claims } } as any,
+    chain: preprocess([...[method].flat().map((key) => ({ type: 'get', key })), { type: 'apply', args }]),
+    callContext: { callChain, state: {}, originAuth: { sub: 'admin', claims } } as any,
     metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName: instance } },
   });
 
@@ -155,7 +161,7 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     // works for every member (the auth story the deleted eager push never had). The op
     // itself answers `installing`-stale (a cross-node pull cannot be awaited, ADR-003);
     // the traveling handler installs, which is the durable effect asserted here.
-    await fire(env.STAR, 'STAR', star, 'read', [version, crypto.randomUUID()],
+    await fire(env.STAR, 'STAR', star, ['resources', 'read'], [version, crypto.randomUUID()],
       { aud: star, access: { authScope: star } });
     await vi.waitFor(async () => {
       const index = (await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[];
@@ -176,10 +182,21 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
       expect(versions.length).toBe(1);
       v1 = versions[0];
     }, { timeout: 15000 });
-    await fire(env.STAR, 'STAR', star, 'read', [v1, crypto.randomUUID()], member);
+    await fire(env.STAR, 'STAR', star, ['resources', 'read'], [v1, crypto.randomUUID()], member);
     await vi.waitFor(async () => {
       expect((await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[]).toContain(v1);
     }, { timeout: 15000 });
+    // A v1 write warms v1's validator, so a facet that outlived the install would judge the v2
+    // writes below.
+    const client = [{ type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: 'admin.tab' }];
+    const admin = { aud: star, profileId: 'p-admin', access: { scopeAdmin: true, authScope: galaxy.split('.')[0] } };
+    const rows = (rid: string) => inDO(env.STAR, star, (s) =>
+      s.ctx.storage.sql.exec('SELECT COUNT(*) AS n FROM Snapshots WHERE resourceId = ?', rid).toArray()[0].n) as Promise<number>;
+    const todo = (value: object) => ({ op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value });
+    const warm = crypto.randomUUID();
+    await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
+      [v1, crypto.randomUUID(), { [warm]: todo({ title: 'v1', done: false }) }], admin, client);
+    await vi.waitFor(async () => expect(await rows(warm)).toBe(1), { timeout: 15000 });
     // V2 appended WITH the wipe decision → the pull wipes before installing, so ONLY v2
     // remains. Capable-of-failing on the WIPE: a no-wipe install yields [v1, v2].
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
@@ -190,12 +207,28 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
       expect(versions.length).toBe(2);
       v2 = versions[1];
     }, { timeout: 15000 });
-    await fire(env.STAR, 'STAR', star, 'read', [v2, crypto.randomUUID()], member);
+    await fire(env.STAR, 'STAR', star, ['resources', 'read'], [v2, crypto.randomUUID()], member);
     await vi.waitFor(async () => {
       const index = (await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[];
       expect(index).toContain(v2);
       expect(index).not.toContain(v1); // the wipe cleared the older install
     }, { timeout: 15000 });
+
+    // What the replacement plane SERVES, not only what its index says: v2's validator judges a
+    // v2 write — the create lacking v2's required `priority` is refused and the one carrying it
+    // lands — and an op pinned to v1 is answered stale.
+    const lacking = crypto.randomUUID();
+    const carrying = crypto.randomUUID();
+    await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
+      [v2, crypto.randomUUID(), { [lacking]: todo({ title: 'a', done: false }) }], admin, client);
+    await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
+      [v2, crypto.randomUUID(), { [carrying]: todo({ title: 'b', done: false, priority: 'high' }) }], admin, client);
+    await vi.waitFor(async () => expect(await rows(carrying)).toBe(1), { timeout: 15000 });
+    expect(await rows(lacking)).toBe(0);
+    const pinnedToV1 = await inDO(env.STAR, star, (s) => {
+      try { s.resources.read(v1, crypto.randomUUID()); return null; } catch (e) { return (e as Error).name; }
+    });
+    expect(pinnedToV1).toBe('OntologyStaleError');
   });
 });
 

@@ -59,8 +59,8 @@ export type EmailMessage =
  * actor's `profileId`, because the claims of a narrower token must describe **two people**: top-level
  * claims pertain to the subject, `act` to the actor who is driving.
  *
- * `profileId` is **optional**, matching every source of it (`NebulaJwtPayload.profileId` is optional at
- * every layer, and ADR-013 makes it display-only).
+ * `profileId` is **required**, like the top-level claim: every mint takes one, so every actor's own token
+ * carries it. ADR-013 makes it display-only.
  *
  * ⚠️ **Local, deliberately.** `@lumenize/crypto` is a shared primitive package with its own consumers; widening
  * its type is out of scope. ⚠️ **Not a pending reconciliation** — `tasks/archive/nebula-auth-decouple-from-auth.md`
@@ -76,9 +76,8 @@ export type EmailMessage =
  */
 export interface ActClaim {
   sub: string;
-  /** The actor's PUBLIC profile address — display-only (ADR-013). Omitted when the actor's own token
-   *  carries no `profileId` claim. */
-  profileId?: string;
+  /** The actor's PUBLIC profile address — display-only (ADR-013). */
+  profileId: string;
   act?: ActClaim;
 }
 
@@ -150,10 +149,11 @@ export interface NebulaJwtPayload {
   /**
    * The bearer's PUBLIC profile address (a UUID) — a bare, first-party CUSTOM claim (RFC 7519 §4.3),
    * NOT the OIDC `profile` page-URL claim. Sibling of `sub`. The Profile DO's owner check is a direct
-   * `claims.profileId === instanceName` equality (no URL to parse). Optional: a KV record predating the
-   * profileId rollout mints gracefully without it. tasks/archive/nebula-profile-store.md § JWT decisions.
+   * `claims.profileId === instanceName` equality (no URL to parse). Required: every source a mint reads
+   * carries one — the KV refresh record and the registry's identity row, whose `Emails.profileId` is
+   * `NOT NULL` — so a subscription row always names its person.
    */
-  profileId?: string;
+  profileId: string;
   /** Delegation chain per RFC 8693 (optional) */
   act?: ActClaim;
 }

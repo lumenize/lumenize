@@ -43,16 +43,16 @@ it('a MARKED getter gate is reachable and an UNMARKED one is refused without run
     // PERMITTED — the guard runs at the entry op, then the chain walks onto what it handed back.
     await admin.lmz.callAsync(
       'GATE_PAIR_DO', instance,
-      (admin.ctn() as any).settings.write('on'),
+      admin.ctn<GatePairDO>().settings.write('on'),
       { timeoutMs: 10_000 },
     );
     expect(await admin.lmz.callAsync(
-      'GATE_PAIR_DO', instance, (admin.ctn() as any).settings.read(), { timeoutMs: 10_000 },
+      'GATE_PAIR_DO', instance, admin.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },
     )).toBe('on');
 
     // REFUSED — the same capability, reached through the member that carries no mark.
     await expect(admin.lmz.callAsync(
-      'GATE_PAIR_DO', instance, (admin.ctn() as any).settingsForResults.read(), { timeoutMs: 10_000 },
+      'GATE_PAIR_DO', instance, admin.ctn<GatePairDO>().settingsForResults.read(), { timeoutMs: 10_000 },
     )).rejects.toThrow(/is not mesh-callable/);
 
     // …and refused WITHOUT running, which is the property a reader cannot infer from the
@@ -65,7 +65,7 @@ it('a MARKED getter gate is reachable and an UNMARKED one is refused without run
     const outsider = await connect(false);
     try {
       await expect(outsider.lmz.callAsync(
-        'GATE_PAIR_DO', instance, (outsider.ctn() as any).settings.read(), { timeoutMs: 10_000 },
+        'GATE_PAIR_DO', instance, outsider.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },
       )).rejects.toThrow(/Admin access required/);
     } finally {
       outsider[Symbol.dispose]();

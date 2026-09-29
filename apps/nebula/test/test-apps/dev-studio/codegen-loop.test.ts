@@ -591,7 +591,7 @@ describe('Phase 2 — D2 structural guard: the loop names no install/wipe sink',
   it('runCodegenLoop references none of the Star/DevContainer install/wipe symbols', () => {
     const src = runCodegenLoop.toString();
     for (const forbidden of [
-      'resetDevData', 'setOntology', 'compileAndInstallOntology', 'STAR_BINDING',
+      'resetDevData', 'onOntologyPulled', 'compileAndInstallOntology', 'STAR_BINDING',
     ]) {
       expect(src).not.toContain(forbidden);
     }
@@ -814,7 +814,7 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
     // is where compiling happens now, and this turn never called it)…
     expect(await inDO(env.GALAXY, dev, (s) => s.readSource('src/ontology.d.ts'))).toBe(VALID_ONTOLOGY);
     expect(result.lastBuild).toBeUndefined();
-    // …and it was NEVER installed on the derived .dev Star (no setOntology /
+    // …and it was NEVER installed on the derived .dev Star (no onOntologyPulled /
     // compileAndInstallOntology) and nothing was wiped. Capable-of-failing: an install
     // would leave a version in the Star's index. Only the dominion-gated
     // applyOntology appends; the loop cannot reach it.

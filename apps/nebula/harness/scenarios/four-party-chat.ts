@@ -105,7 +105,7 @@ export async function run(stack: DevStack): Promise<void> {
     let austenGalaxyToken: string; let austenDevToken: string;
     try {
       const ack = await owner.client.lmz.callAsync('GALAXY', SCOPE,
-        owner.client.ctn<Galaxy>().invite(CHAT_NODE_ID, [{ email: austenEmail, tier: 'write' }])) as NodeInviteAck;
+        owner.client.ctn<Galaxy>().resources.invite(CHAT_NODE_ID, [{ email: austenEmail, tier: 'write' }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const mail = await austenWaiter.emailPromise;
       const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(mail.html ?? '')?.[1];
@@ -209,7 +209,7 @@ export async function run(stack: DevStack): Promise<void> {
     let tree: unknown;
     austenDev.client.onOrgTreeUpdate((state: unknown) => { tree = state; });
     await austenDev.client.lmz.callAsync('STAR', `${SCOPE}.dev`,
-      austenDev.client.ctn<{ subscribeTree(): void }>().subscribeTree());
+      austenDev.client.ctn<{ resources: { subscribeTree(): void } }>().resources.subscribeTree());
     const treeDeadline = Date.now() + 15_000;
     while (tree === undefined && Date.now() < treeDeadline) await new Promise((r) => setTimeout(r, 250));
     assert.ok(tree !== undefined, 'Austen READ .dev Star data (the org tree arrived on her own dev session)');

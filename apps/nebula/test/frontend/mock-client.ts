@@ -24,9 +24,9 @@ import type { QueryDescriptor, SubscriberEntry } from '../../src/query-hash';
 import type { StoreClient } from '../../src/frontend/types';
 import type { ConnectionState } from '@lumenize/mesh/client';
 import type { QueueSubmission } from '../../src/frontend/debounce';
-import type { Snapshot as WireSnapshot } from '../../src/resources';
+import type { Snapshot as WireSnapshot } from '../../src/snapshots';
 
-/** Per-resource server fact (what `Star.transaction` resolves to per op). */
+/** Per-resource server fact (what `Star.resources.transaction` resolves to per op). */
 export type MockServerResult = ServerResourceResult;
 
 let etagCounter = 0;
@@ -106,6 +106,8 @@ export class MockClient implements StoreClient {
     let disposed = false;
     return {
       snapshot,
+      deniedNodes: [],
+      onChange: (): void => {},
       [Symbol.dispose]: (): void => {
         if (disposed) return;
         disposed = true;
@@ -139,6 +141,11 @@ export class MockClient implements StoreClient {
     return this.#engine.dispose();
   }
 
+  /** The engine's explicit-ops entry, which `client.resources.transaction(ops)` reaches. */
+  transactionOps(ops: Parameters<ConflictOutcomeEngine['transactionOps']>[0]) {
+    return this.#engine.transactionOps(ops);
+  }
+
   readonly resources = {
     write: (rt: string, rid: string, opts?: { quietMs?: number; preWriteValue?: unknown }): void => {
       this.#engine.write(rt, rid, opts);
@@ -149,6 +156,9 @@ export class MockClient implements StoreClient {
       let disposed = false;
       return {
         snapshot,
+        // The mock never denies; `nebula-client-denied.test.ts` drives the real client for that.
+        deniedNodes: [],
+        onChange: (): void => {},
         [Symbol.dispose]: (): void => {
           if (disposed) return;
           disposed = true;

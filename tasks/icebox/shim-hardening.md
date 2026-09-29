@@ -28,7 +28,7 @@ Production can NEVER forge a JWT. The offline-mint fallback in `createInDoExecut
 - [ ] Any mint helper kept for tests lives behind a test-only boundary the prod build can't import.
 
 ### 2. Confinement tests (the integration file makes the claim; this proves it)
-- [ ] Trace presents-token → `verifyNebulaAccessToken` → Gateway mints `originAuth` from the verified JWT → `onBeforeCall` scope-lock + `DagTree.requirePermission`. Confirm the agent caller is treated identically to a browser caller (caller-agnostic).
+- [ ] Trace presents-token → `verifyNebulaAccessToken` → Gateway mints `originAuth` from the verified JWT → `onBeforeCall` scope-lock + `OrgTree.requirePermission`. Confirm the agent caller is treated identically to a browser caller (caller-agnostic).
 - [ ] Negative test: an in-DO client holding scope-A's token attempting a scope-B Star op is rejected by the existing guards (not by shim-side logic).
 
 ### 3. Token lifetime + refresh in the DO

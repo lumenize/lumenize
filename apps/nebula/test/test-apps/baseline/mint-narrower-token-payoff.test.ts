@@ -4,7 +4,7 @@
  * Every other criterion for this endpoint reads claims off the mint response. This one asserts what
  * the feature is actually *for*: mirroring the subject's `admin` bit puts `resolvePermission` back in
  * the decision, so an admin can observe the denial they came to debug. With the caller's bit instead,
- * `dag-tree.ts`'s scope-admin bypass fires and the denial never happens — the token wears the
+ * `org-tree.ts`'s scope-admin bypass fires and the denial never happens — the token wears the
  * subject's name while acting with admin-derived authority they do not have.
  *
  * **Vehicle: `admin.impersonate(subjectSub, scope)`** — the production client capability, driven
@@ -68,7 +68,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
 
     // ── The verdict ──────────────────────────────────────────────────────────────────────────────
     const denied = await impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().transaction(VERSION, crypto.randomUUID(), {
+      impersonating.ctn<Star>().resources.transaction(VERSION, crypto.randomUUID(), {
         [crypto.randomUUID()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'nope' } },
       })) as TransactionResult;
     expect(denied.ok).toBe(false);
@@ -125,7 +125,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
 
     const rid = crypto.randomUUID();
     const commit = (label: string) => impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().transaction(VERSION, crypto.randomUUID(),
+      impersonating.ctn<Star>().resources.transaction(VERSION, crypto.randomUUID(),
         { [rid]: { op: 'create', typeName: 'Note', nodeId: node, value: { label } } }));
     const first = await commit('one') as TransactionResult;
     expect(first.ok).toBe(true);
@@ -152,13 +152,13 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     // asserted `access` does not. Direct coverage of act-chain INCLUSION on the wire (not only via
     // the coalesce compare). Mutation: drop `act` from `toWireActingToken` → this reds.
     const wire = await impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().read(VERSION, rid)) as Snapshot;
+      impersonating.ctn<Star>().resources.read(VERSION, rid)) as Snapshot;
     expect(wire.meta.actingToken.act).toEqual({ sub: adminPayload.sub, profileId: adminPayload.profileId });
     expect('access' in wire.meta.actingToken).toBe(false);
 
     // ...two same-actor writes inside the window still coalesce to ONE row...
     const second = await impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().transaction(VERSION, crypto.randomUUID(),
+      impersonating.ctn<Star>().resources.transaction(VERSION, crypto.randomUUID(),
         { [rid]: { op: 'put', eTag: (first as { ok: true; eTags: Record<string, string> }).eTags[rid], value: { label: 'two' } } })) as TransactionResult;
     expect(second.ok).toBe(true);
     expect(await rows()).toHaveLength(1);

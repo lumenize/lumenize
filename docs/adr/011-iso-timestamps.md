@@ -3,7 +3,7 @@
 **Date**: 2026-07-11
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: `apps/nebula/src/resources.ts` (Snapshots: `validFrom`/`validTo TEXT`, `END_OF_TIME = '9999-01-01T00:00:00.000Z'`, string-compared); the `nebula-auth` schema's epoch-`number` timestamps vs Snapshots' ISO strings (surfaced reviewing `tasks/archive/nebula-auth-surrogate-sub.md`); ADR-004 (the `END_OF_TIME` sentinel).
+**Evidence**: `apps/nebula/src/snapshots.ts` (Snapshots: `validFrom`/`validTo TEXT`, `END_OF_TIME = '9999-01-01T00:00:00.000Z'`, string-compared); the `nebula-auth` schema's epoch-`number` timestamps vs Snapshots' ISO strings (surfaced reviewing `tasks/archive/nebula-auth-surrogate-sub.md`); ADR-004 (the `END_OF_TIME` sentinel).
 
 ## Context
 

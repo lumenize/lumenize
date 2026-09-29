@@ -4,7 +4,7 @@
  * `write` at the chat node, the same check a Message create passes at the door — so a
  * collaborator whose message triggers a turn that writes and builds under their own claims
  * can make the same calls directly. Real invited identities, the shape of the real-host
- * block in `confine-dag-plane.test.ts`; every refusal is matched on its MESSAGE (a boundary
+ * block in `confine-org-plane.test.ts`; every refusal is matched on its MESSAGE (a boundary
  * refusal and a DAG refusal are indistinguishable as booleans).
  *
  *  - F1 the floor: an invited member's `writeSource` is refused without a grant and lands a
@@ -64,7 +64,7 @@ async function ownerAndMember(scope: string) {
   // anywhere — a co-minted `.dev` membership is a different `sub` on a different session.
   expect(payload.access?.scopeAdmin).toBeFalsy();
   const grantWrite = () => owner.lmz.callAsync('GALAXY', scope,
-    owner.ctn<Galaxy>().dagTree().setPermission(CHAT_NODE_ID, payload.sub, 'write'));
+    owner.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'write'));
   return { owner, member, payload, grantWrite };
 }
 
@@ -216,7 +216,7 @@ describe('the source entries sit at the chat floor', () => {
     ]);
     using sub = owner.resources.subscribeQuery(chatQuery); await sub.ready;
     const posted = await member.postUserMessage('are you there?');
-    await owner.lmz.callAsync('GALAXY', scope, owner.ctn<Galaxy>().dagTree().revokePermission(CHAT_NODE_ID, payload.sub));
+    await owner.lmz.callAsync('GALAXY', scope, owner.ctn<Galaxy>().resources.orgTree.revokePermission(CHAT_NODE_ID, payload.sub));
     try {
       await vi.waitFor(async () => {
         const snaps = await Promise.all(sub.resourceIds.map((id) => owner.resources.read('Message', id) as Promise<Snapshot | null>));

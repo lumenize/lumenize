@@ -16,13 +16,13 @@
 export class OntologyStaleError extends Error {
   override name = 'OntologyStaleError';
   /**
-   * Set when the host fired a registry lazy-pull for exactly `clientVersion` INSIDE the
-   * refused op's own call context (a Star pulling a version it doesn't yet hold from its
-   * parent Galaxy). The op is idempotent (transactions replay on `newETag`, reads and
-   * subscribes re-run freely), so the client RETRIES it briefly instead of treating the
-   * version as stale; only a retry-exhausted or non-`installing` stale surfaces to the
-   * refresh-UI path. A cross-node op cannot be awaited (ADR-003), which is why the pull's
-   * completion arrives as a successful retry rather than as this op's own result.
+   * Set when the host asked its ontology source for the CURRENT row and the answer will arrive
+   * later, by fire-back — a Star asking its Galaxy, on a version mismatch or with nothing
+   * installed. Every op is idempotent (transactions replay on `newETag`, reads and subscribes
+   * re-run freely), so the client RETRIES it briefly, every kind of op the same way, instead of
+   * treating the version as stale; only a retry-exhausted or non-`installing` stale surfaces to
+   * the refresh-UI path. A cross-node op cannot be awaited (ADR-003), which is why the install
+   * arrives as a successful retry rather than as this op's own result.
    */
   public readonly installing?: boolean;
   constructor(
@@ -52,12 +52,24 @@ export function isOntologyStaleError(err: unknown): err is OntologyStaleError {
   );
 }
 
-import type { PermissionTier } from './dag-ops';
+/**
+ * A transaction that awaited validation while its plane was wiped, refused before it could write
+ * into the rebuilt tables. Server-internal: the plane answers the caller with an
+ * {@link OntologyStaleError} instead, so this never crosses the wire.
+ */
+export class WipedMidTransactionError extends Error {
+  override name = 'WipedMidTransactionError';
+  constructor() {
+    super('The data plane was wiped while this transaction was validating — nothing was written');
+  }
+}
+
+import type { PermissionTier } from './org-ops';
 
 /**
- * Thrown by `DagTree.requirePermission` when the caller lacks the required
+ * Thrown by `OrgTree.requirePermission` when the caller lacks the required
  * permission tier on the target node. Carries `tier` and `nodeId` so callers
- * (like `Resources.transaction`'s permission-check loop) can construct a
+ * (like `Snapshots.transaction`'s permission-check loop) can construct a
  * structured `TransactionError` without string-matching the message.
  */
 export class PermissionDeniedError extends Error {
@@ -80,7 +92,7 @@ export function isPermissionDeniedError(err: unknown): err is PermissionDeniedEr
 }
 
 /**
- * Thrown by `DagTree.requirePermission` (and other DagTree mutators) when
+ * Thrown by `OrgTree.requirePermission` (and other OrgTree mutators) when
  * the target node doesn't exist. Distinct from `PermissionDeniedError` —
  * this one signals client misuse / stale local DAG, not an authorization
  * failure.
@@ -101,7 +113,7 @@ export function isNodeNotFoundError(err: unknown): err is NodeNotFoundError {
 }
 
 /**
- * Thrown by `DagTree.createNode` when the caller-supplied `nodeId` already
+ * Thrown by `OrgTree.createNode` when the caller-supplied `nodeId` already
  * exists but under a different parent/slug than the request — a reused UUID
  * or client bug, NOT an idempotent replay (which returns the existing node).
  * Loud by design: never a silent `INSERT OR IGNORE` of a mismatched create.

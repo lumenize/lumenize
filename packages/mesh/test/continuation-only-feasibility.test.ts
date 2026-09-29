@@ -180,7 +180,8 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
       expect(await caller.getLastCallError()).toBeTruthy();
     });
     // The structured error round-trips with the two fields drop-on-failed-broadcast keys on
-    // (Star.onBroadcastResult checks err.name === 'ClientDisconnectedError'; WHICH client it was
+    // (Nebula's reaper, the Resources plane's `results.onBroadcastResult`, checks
+    // err.name === 'ClientDisconnectedError'; WHICH client it was
     // comes from `callContext.callee`, never from the error, which carries no such field.)
     expect(await caller.getLastCallErrorName()).toBe('ClientDisconnectedError');
     expect(await caller.getLastCallErrorClient()).toBe('never-connected.tab1');

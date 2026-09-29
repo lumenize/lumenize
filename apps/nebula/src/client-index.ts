@@ -39,7 +39,7 @@ export type {
 // transactions and reading snapshots. These types reference @lumenize/mesh
 // and @lumenize/crypto via type-only imports (erased at compile time), so
 // they're safe to re-export here.
-export { END_OF_TIME } from './resources';
+export { END_OF_TIME } from './snapshots';
 export type {
   Snapshot,
   SnapshotMeta,
@@ -47,14 +47,12 @@ export type {
   OperationDescriptor,
   TransactionResult,
   TransactionError,
-} from './resources';
+} from './snapshots';
 
-// Org/permission-tree types + helpers. The underlying structure IS a DAG and
-// the server internals keep the `dag`-prefixed names (the `DagTree` class,
-// dag-ops.ts, detectCycle); the CLIENT surface is purpose-named `OrgTree*` so no
-// `dag`-flavored name leaks to user-developers. dag-ops.ts is pure logic with no
-// Cloudflare Workers runtime dependency. (The server entry `@lumenize/nebula`
-// still exports the `Dag*` names for platform internals.)
+// Org/permission-tree types + helpers — the same `OrgTree*` names the server entry exports. The
+// underlying structure is a DAG (hence `detectCycle`), but no `dag`-flavored name is exported.
+// org-ops.ts is pure logic with no Cloudflare Workers runtime dependency. `PermissionTier` and
+// `EdgeKey` take an `OrgTree` prefix here, since a client imports them beside its own types.
 export {
   ROOT_NODE_ID,
   validateSlug,
@@ -64,16 +62,16 @@ export {
   getEffectivePermission,
   getNodeAncestors,
   getNodeDescendants,
-  buildDagTreeView as buildOrgTreeView,
+  buildOrgTreeView,
   makeEdgeKey,
-} from './dag-ops';
+} from './org-ops';
 export type {
   PermissionTier as OrgTreePermissionTier,
-  DagTreeState as OrgTreeState,
-  DagTreeView as OrgTreeView,
-  DagTreeNodeData as OrgTreeNodeData,
+  OrgTreeState,
+  OrgTreeView,
+  OrgTreeNodeData,
   EdgeKey as OrgTreeEdgeKey,
-} from './dag-ops';
+} from './org-ops';
 
 // Ontology config types — shape contract for the test lanes' Star apply initiators
 // (callStarInstallOntology / StarTest.applyOntologyForTest).

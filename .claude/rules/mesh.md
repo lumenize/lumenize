@@ -93,6 +93,8 @@ A caller can't shortcut the gate: `ctn<MyDO>().resetTenant(...)` fails the membe
 - **Take care not to hand back `this`, `this.ctx`, `this.env` or `this.svc` by accident** — `@mesh() get self() { return this }` is a foot-gun, visible in your own source, and deliberately not refused: the carve-out that lets a node's own continuation root at `ctx` is the same mechanism.
 - **A GETTER entry owes four things**: side-effect-free, synchronous, cheap, idempotent. Nothing at the call site says code runs, which is the whole reason the discipline is worth stating — a gate returns a surface and does nothing else.
 
+**A gate the RESPONSE leg reaches MUST carry no `@mesh()` at all.** Its members are what the node's own continuations name as result handlers — reapers, a fire-back's answer — and both paths that reach them run with the member-level check off: the fire-back door, and the local dispatch when a Gateway answers inside its ack. Nothing is passed there, so the "holding it is the authorization" property above does not hold; what the missing mark buys is that a REQUEST naming the gate is refused as not mesh-callable. Canonical: each Nebula host's `get resourcesResults()`, returning the Resources plane's `results` surface (`apps/nebula/src/resources.ts`) — the reapers, the node invite's answer, and a Star's ontology pull. It sits beside the marked `get resources()` and looks like an oversight; marking it for symmetry would let any caller with passage call `onOntologyPulled`, which checks no permission and installs whatever validator bundle it is handed — and on a `.dev` Star, runs the install's wipe. (`onInviteResult` is the usual example and not the reason: a forged call runs under the forger's own claims, and `setPermission` re-checks `admin`.)
+
 ## Multi-hop / direct delivery
 A continuation names its *final* destination, so a call can hop client → Star → Worker → **directly back to the client** without unwinding through the intermediate hops — each hop fires a one-way call to the next node instead of awaiting and backtracking. This is architecturally motivated (skip the backtrack), independent of any cost argument, and is the pattern to reach for. Canonical: a spell-check kicked off by a doc edit reports straight to the client, not back through the document DO. See [calls.mdx](../../website/docs/mesh/calls.mdx) § Direct Delivery.
 
@@ -108,22 +110,24 @@ Mesh code MUST schedule with `this.svc.alarms.schedule(delaySeconds, this.ctn().
 - **The handler is NOT necessarily local.** DO/Worker: it *travels* in the envelope and runs on the callee's fire-back (on a cold, storage-restored caller if the caller was evicted). Client: it stays *in-heap* keyed by callId and delivery re-resolves to the current socket. Either way you never `await` it.
 - **`onErrorOnly` + broadcast-to-clients:** the error path is only *delivery* failures — the Gateway (NOT a mesh node; it does not early-ack — the one deliberately-awaited hop) awaits the bounded client delivery and returns `ClientDisconnectedError`, routed to your handler locally as a *delivered* error rather than a sync throw. Never the client's own app error (delivery to the client is one-way). So `onErrorOnly` is for delivery reactions (drop a dead subscriber), not catching the callee's app errors.
 
-Use the 4-arg form for reactive cleanup, retry, and observability — anything that reacts to "did it land?" without `await`ing. A result handler needs **no** `@mesh()`. It runs either at the caller's fire-back door, for a DO or Worker that acked and then answered, or locally on the caller's own dispatch, for a Gateway or any target that refused at admission — and neither consults the mark. The handler MUST carry `@mesh()` **only** if it must ALSO be dispatched as an ordinary request — and ⚠️ weigh what that costs, because a mark makes it callable by any caller who can reach the node, with arguments of their choosing. The "not remotely callable" boundary is the **absence of `@mesh`**, never visibility. A `this.ctn()` handler MUST be **`public`** (TS only surfaces `public` members on `Continuation<this>`; the modifier is erased at runtime, so non-public buys nothing while forcing an untyped `(this.ctn() as any)` cast). Canonical local-only public handlers: `Star.doTransaction`/`doRead`/`doSubscribe`/`applyFetchedState`. (User docs: [continuations.mdx](../../website/docs/mesh/continuations.mdx).)
+Use the 4-arg form for reactive cleanup, retry, and observability — anything that reacts to "did it land?" without `await`ing. A result handler needs **no** `@mesh()`. It runs either at the caller's fire-back door, for a DO or Worker that acked and then answered, or locally on the caller's own dispatch, for a Gateway or any target that refused at admission — and neither consults the mark. The handler MUST carry `@mesh()` **only** if it must ALSO be dispatched as an ordinary request — and ⚠️ weigh what that costs, because a mark makes it callable by any caller who can reach the node, with arguments of their choosing. The "not remotely callable" boundary is the **absence of `@mesh`**, never visibility. A `this.ctn()` handler MUST be **`public`** (TS only surfaces `public` members on `Continuation<this>`; the modifier is erased at runtime, so non-public buys nothing while forcing an untyped `(this.ctn() as any)` cast). Canonical local-only handlers: the members of a Resources plane's `results` surface, reached through each Nebula host's unmarked `resourcesResults` getter (`apps/nebula/src/resources.ts`). (User docs: [continuations.mdx](../../website/docs/mesh/continuations.mdx).)
 
 ```typescript
 // lmz.broadcast (broadcast.ts) — fire each push, react only to failures
 lmz.call(t.bindingName, t.instanceName, remote, onResult, { onErrorOnly: true });
 
-// Star's handler — drop a subscriber whose Gateway reported it disconnected.
-// No `@mesh()`: a Gateway answers inside its ack, so this runs locally, where the mark is not consulted.
-onBroadcastResult(resourceId: string, result?: unknown): void {
+// The Resources plane's reaper, on its `results` surface — drop a subscriber whose Gateway reported
+// it disconnected. The victim is the address the push went to, never a field of the reply. It is
+// reached through the host's unmarked `resourcesResults` getter: a Gateway answers inside its ack,
+// so this runs locally, where the mark is not consulted.
+onBroadcastResult: (resourceId: string, result?: unknown): void => {
   if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-    const clientId = this.lmz.callContext.callee?.instanceName;
-    if (clientId) this.#subscriptions.removeSubscriber(resourceId, clientId);
+    const clientId = this.#lmz().callContext.callee?.instanceName;
+    if (clientId) this.removeSubscriber(resourceId, clientId);
   }
-}
+},
 ```
-Application code rarely writes the raw 4-arg form — it gets the same drop-on-failed-broadcast cleanup for free via `lmz.broadcast(targets, remote, { onResult })`. Canonical: `lmz.broadcast` in `packages/mesh/src/broadcast.ts` + `Star.onBroadcastResult` in `apps/nebula/src/star.ts`.
+Application code rarely writes the raw 4-arg form — it gets the same drop-on-failed-broadcast cleanup for free via `lmz.broadcast(targets, remote, { onResult })`. Canonical: `lmz.broadcast` in `packages/mesh/src/broadcast.ts` + the plane's `results.onBroadcastResult` in `apps/nebula/src/resources.ts`.
 
 ## "broadcast" vs "fanout" (naming — don't flip-flop)
 `broadcast` is the Lumenize primitive (`this.lmz.broadcast`), its API symbols (`onBroadcastResult`, `BroadcastTarget`), and the user-facing concept — it MUST be used everywhere those apply. `fanout` MAY be used **only** for the generic technique, in the two names that carry it: the *drop-on-failed-fanout* cleanup pattern, and the Profile's private `#fanout()`, which calls `lmz.broadcast`. The recursive tier whose tree dispatch the word once named is gone. You MUST NOT "correct" either name to `broadcast`, and MUST NOT reintroduce `fanout` for the primitive. (The `fanout-scaling-benchmark` files + `bench:fanout` scripts predate this split and are a known straggler — not a counter-example.)
@@ -155,7 +159,7 @@ Errors thrown across a mesh call (DO ↔ Client, DO ↔ DO) are pre/post-process
 ## `LumenizeClientGateway` is NOT a mesh participant
 It extends `DurableObject` directly (not `LumenizeDO`) to keep its "zero storage" design, so **`this.lmz.call(...)` is unavailable**. Subclasses (`NebulaClientGateway`, etc.) inherit this. Outbound calls from a Gateway MUST either build mesh envelopes manually and call `stub.__executeOperation(envelope)` (see `packages/mesh/src/lumenize-client-gateway.ts` `#handleClientCall`), or use direct Workers RPC (`env.X.get(env.X.idFromName(name)).method(args)`) — bypassing mesh.
 
-For Gateway-originated cleanup, **reactive** patterns (e.g. drop-on-failed-broadcast via the 4-arg result handler above, run on the *callee's* side) SHOULD be preferred over **proactive** ones (alarm-driven calls into the mesh). Much simpler given the constraint. Canonical example: `Star.#broadcast` / `Star.onBroadcastResult` — cleanup runs on Star, not the Gateway, even though "user closed the tab" is a Gateway-observed event.
+For Gateway-originated cleanup, **reactive** patterns (e.g. drop-on-failed-broadcast via the 4-arg result handler above, run on the *callee's* side) SHOULD be preferred over **proactive** ones (alarm-driven calls into the mesh). Much simpler given the constraint. Canonical example: the Resources plane's broadcast and its `results.onBroadcastResult` — cleanup runs on the host that broadcast, a Star or a Galaxy, not the Gateway, even though "user closed the tab" is a Gateway-observed event.
 
 ## Nebula platform code never drops to raw primitives
 `apps/nebula` business logic (Galaxy, Star, Universe, Resources) MUST stay on the Mesh surface, and MUST NOT use raw Workers RPC, raw `acceptWebSocket`, or `extends DurableObject`. When a raw-level capability is genuinely needed, it MUST be solved **architecturally, not inline**:

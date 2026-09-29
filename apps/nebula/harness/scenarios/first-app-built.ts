@@ -67,10 +67,10 @@ import { provisionAndLogin } from '../../test/lib/email-login';
 
 /** The build box is the subject — this one genuinely needs Docker. */
 export const needsContainer = true;
-/** The Worker's warm, teardown, build and write markers, for limb 8 and the EXPLORATORY limb
- *  (g) below — read back off the dev stack's stdio; four namespaces only, so the boot is not
+/** The Worker's warm, teardown, build, write and stream markers, for limb 8 and the EXPLORATORY
+ *  limb (g) below — read back off the dev stack's stdio; only these namespaces, so the boot is not
  *  flooded. */
-export const bootVars = { DEBUG: 'nebula.Galaxy.warm,nebula.Galaxy.teardown,nebula.Galaxy.build,nebula.Galaxy.writeSource,nebula.Galaxy.stream' };
+export const bootVars = { DEBUG: 'nebula.Galaxy.warm,nebula.Galaxy.teardown,nebula.Galaxy.build,nebula.Galaxy.writeSource,nebula.Galaxy.stream,nebula.Resources.stream' };
 
 /** The Galaxy's own markers, parsed leniently off the dev stack's stdio — the log objects are
  *  pretty-printed JSON, one per `console.debug`; anything that is not one of ours is skipped. */

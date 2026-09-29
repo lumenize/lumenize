@@ -1,8 +1,8 @@
 /**
- * dag-ops — Pure functions on DagTreeState
+ * org-ops — Pure functions on OrgTreeState
  *
- * Shared between server (DagTree class) and client (pre-validation, permission checks, traversal).
- * No storage, no CallContext dependency — operates entirely on the in-memory DagTreeState.
+ * Shared between server (OrgTree class) and client (pre-validation, permission checks, traversal).
+ * No storage, no CallContext dependency — operates entirely on the in-memory OrgTreeState.
  */
 
 /**
@@ -10,53 +10,53 @@
  * `DEFAULT_CHAT_ID`'s convention in `chat-constants.ts`) so it lives in the
  * same id space as every client-supplied nodeId — distinct from the virtual
  * `__deleted__`/`__orphaned__` tree sentinels (those are underscore-prefixed,
- * a UUID can never equal them). Seeded server-side by `DagTree.#ensureRoot`,
+ * a UUID can never equal them). Seeded server-side by `OrgTree.#ensureRoot`,
  * never via `createNode`.
  */
 export const ROOT_NODE_ID = '00000000-0000-4000-8000-000000000000'
 
 export type PermissionTier = 'admin' | 'write' | 'read'
 
-/** Canonical edge key form for `DagTreeState.edges`. nodeIds are UUIDs (no `:`), so `:` is an unambiguous separator. */
+/** Canonical edge key form for `OrgTreeState.edges`. nodeIds are UUIDs (no `:`), so `:` is an unambiguous separator. */
 export type EdgeKey = `${string}:${string}`
 
 export function makeEdgeKey(parentNodeId: string, childNodeId: string): EdgeKey {
   return `${parentNodeId}:${childNodeId}` as EdgeKey
 }
 
-export interface DagTreeNodeData {
+export interface OrgTreeNodeData {
   slug: string;
   label: string;
   deleted: boolean;
 }
 
-export interface DagTreeState {
-  nodes: Map<string, DagTreeNodeData>;
+export interface OrgTreeState {
+  nodes: Map<string, OrgTreeNodeData>;
   edges: Set<EdgeKey>;
   permissions: Map<string, Map<string, PermissionTier>>; // nodeId → { sub → tier }
 }
 
 /**
- * Read-only adjacency-indexed view of a `DagTreeState`.
+ * Read-only adjacency-indexed view of an `OrgTreeState`.
  *
  * `state` is the canonical, wire-shippable form. `parentsByChild` and
  * `childrenByParent` are O(1) lookup indexes derived from `state.edges`,
  * built once per state rebuild so traversal/permission/cycle queries stay
  * fast.
  *
- * Build a fresh view from a state via `buildDagTreeView(state)`; consumers
+ * Build a fresh view from a state via `buildOrgTreeView(state)`; consumers
  * that mutate state must rebuild the view (or invalidate it) afterward.
  */
-export interface DagTreeView {
-  readonly state: DagTreeState;
+export interface OrgTreeView {
+  readonly state: OrgTreeState;
   readonly parentsByChild: ReadonlyMap<string, ReadonlySet<string>>;
   readonly childrenByParent: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>()
 
-/** Build a `DagTreeView` from a `DagTreeState`. O(E) over edges. */
-export function buildDagTreeView(state: DagTreeState): DagTreeView {
+/** Build an `OrgTreeView` from an `OrgTreeState`. O(E) over edges. */
+export function buildOrgTreeView(state: OrgTreeState): OrgTreeView {
   const parentsByChild = new Map<string, Set<string>>()
   const childrenByParent = new Map<string, Set<string>>()
   for (const edge of state.edges) {
@@ -97,7 +97,7 @@ export function validateSlug(slug: string): void {
   }
 }
 
-export function checkSlugUniqueness(view: DagTreeView, parentNodeId: string, slug: string, excludeNodeId?: string): void {
+export function checkSlugUniqueness(view: OrgTreeView, parentNodeId: string, slug: string, excludeNodeId?: string): void {
   const parent = view.state.nodes.get(parentNodeId)
   if (!parent) throw new Error(`Node ${parentNodeId} not found`)
   const children = view.childrenByParent.get(parentNodeId) ?? EMPTY_SET
@@ -110,7 +110,7 @@ export function checkSlugUniqueness(view: DagTreeView, parentNodeId: string, slu
   }
 }
 
-export function detectCycle(view: DagTreeView, parentNodeId: string, childNodeId: string): void {
+export function detectCycle(view: OrgTreeView, parentNodeId: string, childNodeId: string): void {
   // If adding parent→child would create a cycle, parent must be a descendant of child.
   // Walk up from parent via parentsByChild; if we find child, it's a cycle.
   const visited = new Set<string>()
@@ -137,7 +137,7 @@ export function detectCycle(view: DagTreeView, parentNodeId: string, childNodeId
  * Deleted nodes are climbed through and their grants are considered normally.
  */
 export function resolvePermission(
-  view: DagTreeView,
+  view: OrgTreeView,
   sub: string,
   nodeId: string,
   requiredTier: PermissionTier,
@@ -152,7 +152,7 @@ export function resolvePermission(
  * Returns null if no grant found on any ancestor.
  */
 export function getEffectivePermission(
-  view: DagTreeView,
+  view: OrgTreeView,
   sub: string,
   nodeId: string,
 ): PermissionTier | null {
@@ -191,7 +191,7 @@ export function getEffectivePermission(
 // ─── Traversal ──────────────────────────────────────────────────────
 
 /** Get all ancestor nodeIds (excludes the starting node). */
-export function getNodeAncestors(view: DagTreeView, nodeId: string): Set<string> {
+export function getNodeAncestors(view: OrgTreeView, nodeId: string): Set<string> {
   const ancestors = new Set<string>()
   const queue: string[] = []
   for (const pid of view.parentsByChild.get(nodeId) ?? EMPTY_SET) queue.push(pid)
@@ -207,7 +207,7 @@ export function getNodeAncestors(view: DagTreeView, nodeId: string): Set<string>
 }
 
 /** Get all descendant nodeIds (excludes the starting node). */
-export function getNodeDescendants(view: DagTreeView, nodeId: string): Set<string> {
+export function getNodeDescendants(view: OrgTreeView, nodeId: string): Set<string> {
   const descendants = new Set<string>()
   const queue: string[] = []
   for (const cid of view.childrenByParent.get(nodeId) ?? EMPTY_SET) queue.push(cid)

@@ -14,7 +14,7 @@ REST endpoints for resource operations. `If-Match` header for optimistic concurr
 
 ## HTTP Method → `transaction()` Operation Mapping
 
-Each HTTP method maps 1:1 to an `OperationDescriptor` variant from `resources.ts`:
+Each HTTP method maps 1:1 to an `OperationDescriptor` variant from `snapshots.ts`:
 
 | HTTP Method | Operation | Semantics |
 |---|---|---|

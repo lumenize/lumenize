@@ -15,10 +15,10 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
-import { Galaxy, Universe, requireDominionHere, requireChatWrite, requirePassage } from '@lumenize/nebula';
+import { Galaxy, Universe, requireDominionHere, requireChatWrite, requirePassage, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import { isAtOrAbove } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
+import { meshEntries } from '../mesh-surface';
 import {
   adminClientAt, universeAdminClient,
   createInvitedClient,
@@ -350,74 +350,62 @@ describe('onBeforeCall fail-closed branches (below the public API)', () => {
   });
 });
 
-// Walk a tier DO's own prototype, returning the names of its mesh-callable methods whose
-// guard is NEITHER requireDominionHere NOR requireChatWrite (identity comparisons — each is a
-// single import). Both guards are authorization walls of their own: dominion over the host,
-// and DAG `write` at the chat node (the door a Message passes; `security.md`). Derived
-// dynamically so a newly-added bare @mesh method changes the set and fails the frozen
-// allow-list below; the chat-floor set is frozen separately.
-function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
-  const proto = ctor.prototype;
-  const out: string[] = [];
-  for (const name of Object.getOwnPropertyNames(proto)) {
-    if (name === 'constructor') continue;
-    const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
-    if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    const guard = getMeshGuard(fn);
-    if (guard === requireDominionHere || guard === requireChatWrite) continue; // walled → not under the widening concern
-    out.push(name);
-  }
-  return out.sort();
-}
+// A tier DO's mesh entries over its WHOLE prototype chain, by guard. `requireDominionHere` and
+// `requireChatWrite` are authorization walls of their own — dominion over the host, and DAG `write`
+// at the chat node (the door a Message passes; `security.md`) — so the widening concern is the rest.
+// Walking the chain is what sees an inherited entry such as `NebulaDO.teardown`.
+const nonAdminMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
+  .filter(({ guard }) => guard !== requireDominionHere && guard !== requireChatWrite).map(({ name }) => name);
+const chatFloorMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
+  .filter(({ guard }) => guard === requireChatWrite).map(({ name }) => name);
+const dominionMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
+  .filter(({ guard }) => guard === requireDominionHere).map(({ name }) => name);
 
-/** The Galaxy's CHAT-FLOOR methods — guarded by `requireChatWrite`. */
-function chatFloorMeshMethods(ctor: { prototype: object }): string[] {
-  const proto = ctor.prototype;
-  const out: string[] = [];
-  for (const name of Object.getOwnPropertyNames(proto)) {
-    if (name === 'constructor') continue;
-    const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
-    if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (getMeshGuard(fn) === requireChatWrite) out.push(name);
-  }
-  return out.sort();
-}
+/**
+ * Why a stranger from a descendant Star may reach each member behind the Galaxy's door. The
+ * widening is sound only if every such member either checks the caller itself or shows only what
+ * passage already shows, so a new member fails the classification test below until its reason is
+ * written here. Past a gate nothing is checked, which is why the door's members — not the host's —
+ * are the population that needs it.
+ */
+const REQUESTS_REASONS: Record<string, string> = {
+  transaction: 'each op checks a DAG grant at its node; no grant is told `permission`',
+  read: 'checks `read` at the resource\'s node',
+  subscribe: 'checks `read` per update; a denied subscriber is told only which nodes',
+  unsubscribe: 'drops only the caller\'s own row, by the id the door derives',
+  subscribeQuery: 'checks `read` per update; a denied subscriber is told only which nodes',
+  unsubscribeQuery: 'drops only the caller\'s own row, by the id the door derives',
+  subscribeQuerySubscribers: 'the roster is visible to anyone with passage (ADR-008, up the hierarchy)',
+  unsubscribeQuerySubscribers: 'drops only the caller\'s own row, by the id the door derives',
+  subscribeTree: 'the tree is visible to anyone with passage (ADR-008, up the hierarchy)',
+  invite: 'requires `admin` at the node',
+  orgTree: 'each OrgTree method checks itself — classified below',
+};
+const ORG_TREE_REASONS: Record<string, string> = {
+  requirePermission: 'answers only about the caller\'s own grants',
+  createNode: 'requires `write` at the parent', addEdge: 'requires `write` at the parent and `admin` at the child',
+  removeEdge: 'requires `write` at the parent', reparentNode: 'requires `write` at both parents and `admin` at the child',
+  deleteNode: 'requires `write`', undeleteNode: 'requires `write`', renameNode: 'requires `write`',
+  relabelNode: 'requires `write`', setPermission: 'requires `admin`', revokePermission: 'requires `admin`',
+  checkPermission: 'a verdict over the tree passage already shows', evaluatePermissions: 'a verdict over the tree passage already shows',
+  getEffectivePermission: 'a verdict over the tree passage already shows', getState: 'the tree passage already shows, as a copy',
+  getNodeAncestors: 'a traversal of the tree passage already shows', getNodeDescendants: 'a traversal of the tree passage already shows',
+};
+/** Every `results` member is refused on the request leg, because `resourcesResults` carries no mark. */
+const UNMARKED = 'unreachable from a request: `resourcesResults` is unmarked';
+const RESULTS_REASONS: Record<string, string> = {
+  onBroadcastResult: UNMARKED, onInviteResult: UNMARKED, onOntologyPulled: UNMARKED,
+  onQueryBroadcastResult: UNMARKED, onQuerySubscriberListBroadcastResult: UNMARKED, onTreeBroadcastResult: UNMARKED,
+};
 
 describe('Galaxy/Universe widening invariant (B5)', () => {
-  // The `.*` widening is sound only if every NON-admin @mesh method on
-  // Galaxy/Universe holds galaxy/universe-shared data any descendant star may
-  // read. Freeze that set: adding a new non-admin @mesh method fails here,
-  // forcing the author to classify it as shared-tenant data (and update this
-  // list deliberately). Admin methods sit under the same boundary but their
-  // @mesh(requireDominionHere) is the authorization wall, so they're excluded.
+  // The `.*` widening is sound only if every NON-admin @mesh entry on Galaxy/Universe holds
+  // shared data any descendant Star may read, or checks the caller itself. The host's own bare
+  // set is frozen here; what the `resources` door hands back is classified member by member.
   it('B5: Galaxy non-admin @mesh surface equals the frozen shared-data allow-list', () => {
-    // Deliberately widened by the collapse: the Galaxy now hosts the chat resource
-    // data-plane, so the non-admin surface gains the DAG-gated resource methods, the
-    // invite entry, and the broadcast fire-back handlers — the same classification the
-    // per-host surface freeze pins in dev-studio/devstudio-resource-surface.test.ts.
-    // ⚠️ NARROWED again 2026-08-28: `subscribeReload` + `onReloadBroadcastResult` are
-    // GONE. A build is somebody's request, so its completion is answered to the asker
-    // (`announceBuildToRequester` → the client's `handlePreviewReady`) instead of fanned
-    // to enrolled subscribers — which deletes a client-callable entry, a registry, and
-    // a reaper along with it. This list shrinking is the intended direction.
-    expect(nonAdminMeshMethods(Galaxy)).toEqual([
-      'dagTree',
-      'getCurrentOntology',
-      'getGalaxyConfig',
-      'getOntologyVersion',
-      'invite',
-      'onBroadcastResult',
-      'onQueryBroadcastResult',
-      'onQuerySubscriberListBroadcastResult',
-      'read',
-      'subscribe',
-      'subscribeQuery',
-      'subscribeQuerySubscribers',
-      'transaction',
-      'unsubscribe',
-      'unsubscribeQuery',
-      'unsubscribeQuerySubscribers',
-    ]);
+    // The ontology reads serve a Star's upward pull; the config read is shared galaxy data; the door
+    // is where every resource op, the tree and the node invite live, each checking itself.
+    expect(nonAdminMeshMethods(Galaxy)).toEqual(['getCurrentOntology', 'getGalaxyConfig', 'getOntologyVersion', 'resources']);
   });
 
   it('B5: the Galaxy CHAT-FLOOR surface (requireChatWrite) equals the frozen source-entry list', () => {
@@ -429,10 +417,52 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
     expect(chatFloorMeshMethods(Universe)).toEqual([]);
   });
 
-  it('B5: Universe non-admin @mesh surface equals the frozen shared-data allow-list', () => {
+  it('B5: the Universe\'s surface equals the frozen lists — its inherited `teardown` pinned by guard identity', () => {
     expect(nonAdminMeshMethods(Universe)).toEqual(['getUniverseConfig']);
+    expect(dominionMeshMethods(Universe)).toEqual(['setUniverseConfig', 'teardown']);
+  });
+
+  it('B5: every member behind the Galaxy\'s door carries a written reason a descendant Star may reach it', async () => {
+    const names = await (runInDurableObject as any)((env as any).GALAXY.getByName(uniqueGalaxyScope().galaxy), (inst: any) => {
+      const own = (o: object) => {
+        const seen = new Set<string>();
+        for (let x: object | null = o; x && x !== Object.prototype; x = Object.getPrototypeOf(x)) {
+          for (const n of Object.getOwnPropertyNames(x)) if (n !== 'constructor') seen.add(n);
+        }
+        return [...seen].sort();
+      };
+      return { requests: own(inst.resources), results: own(inst.resourcesResults), orgTree: own(inst.resources.orgTree) };
+    });
+    expect(names.requests).toEqual(Object.keys(REQUESTS_REASONS).sort());
+    expect(names.orgTree).toEqual(Object.keys(ORG_TREE_REASONS).sort());
+    expect(names.results).toEqual(Object.keys(RESULTS_REASONS).sort());
+  });
+
+  it('B5 positive control: a door member\'s DAG refusal reaches a descendant\'s caller THROUGH the door, by message', async () => {
+    // Without this the lists above could shrink to nothing and stay green. A Star-tier caller — the
+    // galaxy invite's co-minted `.dev` admin, whose dominion stops at the `.dev` Star — passes the
+    // Galaxy's passage check and the door, and is refused by the op's own grant check.
+    const scope = `b5-${crypto.randomUUID().slice(0, 8)}.app`;
+    const pair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope };
+    const { client: owner, accessToken } = await universeAdminClient(
+      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, pair,
+    );
+    const posted = await owner.postUserMessage('behind the door');
+    const adminBrowser = new Browser();
+    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
+    await createSubject(adminBrowser, scope, accessToken, 'descendant@example.com');
+    const { client: descendant } = await createInvitedClient(
+      NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'descendant@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, pair,
+    );
+    let refusal = '';
+    try {
+      await descendant.lmz.callAsync('GALAXY', scope, descendant.ctn<Galaxy>().resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, posted));
+    } catch (e) { refusal = (e as Error).message; }
+    expect(refusal).toMatch(/read permission required on node/);
+    owner[Symbol.dispose](); descendant[Symbol.dispose]();
   });
 });
+
 
 describe('gate ignores the inert stored value (T-migration, B2)', () => {
   // The new onBeforeCall never reads `__nebula_universeGalaxyStarId`; the stale

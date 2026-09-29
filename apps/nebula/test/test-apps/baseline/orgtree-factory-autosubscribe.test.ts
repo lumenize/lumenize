@@ -56,7 +56,7 @@ async function loggedInFactory(star: string) {
 describe('orgTree auto-subscribe-on-connect via the factory (real Star)', () => {
   it('factory auto-subscribes on connect; a client.orgTree mutation broadcasts to both clients (incl. originator)', async () => {
     const star = uniqueStar();
-    // Two factory clients (same scope-admin, distinct tabs → distinct TreeSubscribers).
+    // Two factory clients (same scope-admin, distinct tabs → distinct tree rows).
     const a = await loggedInFactory(star);
     const b = await loggedInFactory(star);
 

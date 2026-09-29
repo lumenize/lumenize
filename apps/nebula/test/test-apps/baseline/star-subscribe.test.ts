@@ -4,6 +4,11 @@
  * Tests `@mesh() subscribe()` on Star, the Subscriptions class's idempotent
  * row insertion, and error-as-data delivery through `handleResourceUpdate`.
  * Fanout on mutation (Phase 5.3.2) is NOT covered here.
+ *
+ * A subscriber who cannot read the resource is told, not refused (ADR-008): it gets a row and the
+ * frame `{ deniedNodes: [nodeId] }`. A missing resource, a wrong type and an unauthenticated caller
+ * are still refused, and a refusal writes no row. The denied tests read the RAW frame the baseline
+ * override captures (`lastResourceResult`), because the client drops keys it does not read.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -109,6 +114,11 @@ describe('star-subscribe', () => {
     expect(err).toContain('not found');
     expect(err).toContain('subscribe before create');
 
+    // A refusal writes no row.
+    client.callStarInspectSubscribers(star);
+    const rows = await waitForSuccess(client) as SubscriberRow[];
+    expect(rows).toHaveLength(0);
+
     client[Symbol.dispose]();
   });
 
@@ -138,7 +148,7 @@ describe('star-subscribe', () => {
     client[Symbol.dispose]();
   });
 
-  it('subscribe without read permission returns permission error', async () => {
+  it('subscribe without read permission registers, and is told exactly the node it cannot read', async () => {
     const star = uniqueStar();
     const { client: admin, accessToken } = await adminClient(star);
 
@@ -154,8 +164,43 @@ describe('star-subscribe', () => {
     const { client: user } = await userClient(star, accessToken);
 
     user.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
+    await waitForResult(user);
+    // The whole frame, exactly: the node and nothing from the snapshot. Mutations: send the
+    // denial as an Error, or attach the snapshot to it → red.
+    expect(user.lastResourceResult).toEqual({ deniedNodes: [nodeId] });
+    expect(user.lastError).toBeUndefined();
+
+    // …and it registered, so the next update tells it again.
+    admin.callStarInspectSubscribers(star);
+    const rows = await waitForSuccess(admin) as SubscriberRow[];
+    expect(rows.filter((r) => r.clientId === user.lmz.instanceName && r.resourceId === resourceId)).toHaveLength(1);
+
+    admin[Symbol.dispose]();
+    user[Symbol.dispose]();
+  });
+
+  it('a no-read subscriber that names the wrong type is refused naming only the type it asked for, and writes no row', async () => {
+    const star = uniqueStar();
+    const { client: admin, accessToken } = await adminClient(star);
+    admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
+    await waitForResult(admin);
+    const nodeId = admin.lastResult as string;
+    const resourceId = crypto.randomUUID();
+    await createResource(admin, star, resourceId, 'Secret', nodeId);
+    const { client: user } = await userClient(star, accessToken);
+
+    user.callStarSubscribe(star, ONTOLOGY_VERSION, 'WrongType', resourceId);
     const err = await waitForError(user);
-    expect(err).toContain('read permission required');
+    // The permission verdict runs before the type check, so the refusal names only what the
+    // caller asked for. Mutation: check the type before the permission verdict → the message
+    // names the real type → red.
+    expect(err).toContain('WrongType');
+    expect(err).not.toContain('TestResource');
+    expect((user.lastResourceResult as Error).message).not.toContain('TestResource');
+
+    admin.callStarInspectSubscribers(star);
+    const rows = await waitForSuccess(admin) as SubscriberRow[];
+    expect(rows.filter((r) => r.clientId === user.lmz.instanceName)).toHaveLength(0);
 
     admin[Symbol.dispose]();
     user[Symbol.dispose]();

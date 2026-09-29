@@ -49,7 +49,7 @@ Scenarios (`apps/nebula/harness/scenarios/`, registered in `drive.ts`):
   foreign Star → enumerate → refuse an ungrammatical scope → pass the Profile gate. Re-points
   `NEBULA_AUTH_BOOTSTRAP_EMAIL` at the test catch-all for that boot only.
 - **`passage-not-dominion`** — upward passage RETURNS while upward dominion REFUSES, over named methods
-  (`Galaxy.getLatestOntologyVersion` vs `Galaxy.setGalaxyConfig`), plus a galaxy non-admin refused at a
+  (`Galaxy.getCurrentOntology` vs `Galaxy.setGalaxyConfig`), plus a galaxy non-admin refused at a
   Star beneath it. Each refusal matches its MESSAGE, since a boundary refusal and a dominion refusal
   look identical from outside.
 - **`studio-chat-reload`** — browser driver (real magic-link login): login → chat → reload, capturing

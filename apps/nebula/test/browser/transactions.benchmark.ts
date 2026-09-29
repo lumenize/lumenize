@@ -30,7 +30,7 @@
  *   - ping    — `Star.ping()` no-op handler (mesh-callback pattern). WS-leg
  *               baseline; comparing this Gateway-onward to transaction's
  *               isolates the parse-validate work.
- *   - warm    — same Star across iterations, hot Handler 1 cache, no Galaxy
+ *   - warm    — same Star across iterations, hot installed-ontology cache, no Galaxy
  *               hop. Steady-state cost of one transaction on a hot DO.
  *   - cold    — fresh Star per iteration (varies tenant segment only), its
  *               ontology pre-installed. Bundle stays warm; the measured op is
@@ -192,7 +192,7 @@ function buildMarkdown(args: {
     ``,
     `### Cross-block readings`,
     ``,
-    `- Subtracting **ping**'s \`Gateway-onward\` from **warm transaction**'s \`Gateway-onward\` isolates the parse-validate transaction work (parse + DagTree permission check + storage write + result construction). Both blocks share the same WS path, the same Workers RPC × 2 to Star and back, and the same mesh-callback shape.`,
+    `- Subtracting **ping**'s \`Gateway-onward\` from **warm transaction**'s \`Gateway-onward\` isolates the parse-validate transaction work (parse + OrgTree permission check + storage write + result construction). Both blocks share the same WS path, the same Workers RPC × 2 to Star and back, and the same mesh-callback shape.`,
     `- Subtracting **warm**'s \`Gateway-onward\` from **cold**'s \`Gateway-onward\` isolates the cache-miss + Galaxy-hop overhead.`,
     `- The **WS hop** column is the same shape across all three blocks (it's the client↔Gateway round trip, independent of what the Gateway does next), so any drift is harness/network noise. Stable WS hop ↔ trustworthy decomposition.`,
     ``,
@@ -236,7 +236,7 @@ async function runSequentialBlock(
 describe('transactions latency (decomposed)', () => {
   // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
   // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
-  // `Star.#pullOntology` at the parent Galaxy), and this setup was reworked before that
+  // the Star's ontology source, asking its parent Galaxy), and this setup was reworked before that
   // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
   // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('measures ping / warm / cold blocks with hop decomposition', async () => {
@@ -284,7 +284,7 @@ describe('transactions latency (decomposed)', () => {
       await client.callStarTransaction(warmupStar, ONTOLOGY_VERSION, createOp());
 
       // Warmup iterations on the warm Star — gets the harness, the WS, and
-      // Handler 1's cache hot before measurement starts.
+      // the plane's installed-ontology cache hot before measurement starts.
       console.log(`[transactions-bench] warmup (${WARMUP_ITERATIONS} iterations)`);
       for (let i = 0; i < WARMUP_ITERATIONS; i++) {
         await client.callStarTransaction(warmStar, ONTOLOGY_VERSION, createOp());
@@ -302,7 +302,7 @@ describe('transactions latency (decomposed)', () => {
 
       // Cold block: each Star gets its ontology installed up front (the install is
       // what CREATES the DO now, so "cold" measures a fresh Star's first data
-      // transaction — Handler-1 install-state read + facet mount — with no Galaxy
+      // transaction — the plane's installed-ontology read + facet mount — with no Galaxy
       // hop: the lazy-pull path needs a workspace-published registry row, which a
       // bench can no longer seed).
       console.log(`[transactions-bench] cold block (${COLD_ITERATIONS} iterations, fresh Star per iter)`);

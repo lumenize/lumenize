@@ -2,15 +2,14 @@
  * The platform chat ontology's COMPILED seed — the server half of the pair whose pure
  * strings live in the client-safe `./chat-constants` leaf.
  *
- * The Galaxy INSTALLS its chat ontology into its own KV registry the way it installs
- * one for a Star ({@link Galaxy.#ensureChatFacet} — a versioned row, a derived
- * Worker-Loader `bundleId`, `OntologyStaleError` enforcement). This module supplies
- * only the FIRST install's content: {@link chatOntologySeedRow} returns the COMMITTED
- * precompiled row (`./validator-seeds`, emitted by `scripts/gen-validator-seeds.ts`) —
- * the input is a platform constant, so no Worker ever runs the compiler for it. There
- * is no per-boot re-compile and no hand-bumped bundle id — staleness is solved by
- * DERIVATION (the loader `bundleId` embeds the installed version label, and labels are
- * append-only + duplicate-rejected), exactly as `Star` already does.
+ * The Galaxy's resources plane INSTALLS the chat ontology the way every host's plane installs
+ * its ontology — a versioned row, a derived Worker-Loader `bundleId`, and `OntologyStaleError`
+ * enforcement, all in `Resources`. This module supplies the Galaxy's ontology SOURCE:
+ * {@link chatOntologySeedRow} returns the COMMITTED precompiled row (`./validator-seeds`,
+ * emitted by `scripts/gen-validator-seeds.ts`) — the input is a platform constant, so no Worker
+ * ever runs the compiler for it. There is no per-boot re-compile and no hand-bumped bundle id —
+ * staleness is solved by DERIVATION (the loader `bundleId` embeds the installed version label, and
+ * labels are append-only + duplicate-rejected), exactly as on a Star.
  *
  * ⚠️ Keep it out of `client-index.ts` — the row embeds a ~30 KB validator module no
  * browser needs; clients take the version label from `./chat-constants`.

@@ -11,7 +11,7 @@
  *    (no container involved in fs or git work).
  *  - the **codegen engine**: the sole writer of source, driving the bounded self-correcting
  *    tool-calling loop (`runCodegenLoop`) against `env.AI` / the Workers-AI REST lane.
- *  - the **chat Session/Message Resources** via the composed {@link ResourceDataPlane}.
+ *  - the **chat Session/Message Resources** via the composed {@link Resources}.
  *  - the co-located **ephemeral build container** via raw `ctx.container` — a
  *    stateless build-box, never `extends Container` (containers.md).
  *
@@ -21,7 +21,7 @@
  * the chat floor: DAG `write` at the chat node, the same check a Message create passes
  * at the door, so a collaborator's direct call and the turn their message triggers agree.
  * Galaxy configuration (`setGalaxyConfig`) keeps `@mesh(requireDominionHere)`.
- * The chat data-plane surface is bare `@mesh()` — participants are non-admin but
+ * The resources door is bare `@mesh()` — chat participants are non-admin but
  * DAG-granted, and the per-op check lives inside the plane.
  */
 
@@ -49,23 +49,17 @@ import { withHeartbeat } from './turn-heartbeat';
 import { assembleStream } from './model-stream';
 import { TURN_HEARTBEAT_MS } from './turn-liveness';
 import type { BuildReport, StepResult } from './build-report';
-import { ResourceDataPlane } from './resource-data-plane';
-import type { BroadcastTarget, NodeInvitee, NodeInviteAck } from './resource-data-plane';
-import type { PermissionTier } from './dag-ops';
-import type { QueryDescriptor, SubscriberEntry } from './query-hash';
+import { Resources } from './resources';
+import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from './resources';
+import type { QueryDescriptor } from './query-hash';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
-import { OntologyStaleError } from './errors';
 import { serveApp } from './serve';
 import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
-import type { DagTree } from './dag-tree';
 import type { NebulaClient } from './nebula-client';
-// Type-only: types the facade continuation without pulling a second mesh entry into this
-// module's value graph.
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
-import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
+import type { Snapshot } from './snapshots';
 import { TOOL_ARGS_BUNDLE_ID } from './tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from './validator-seeds';
 import {
@@ -97,13 +91,9 @@ export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-compi
 // ─── Types ───────────────────────────────────────────────────────────
 
 /**
- * Reply shape for `getLatestOntologyVersion()`. Bundles the latest row with
- * the full ordered version history (oldest → newest, latest = last entry) so
- * Star fetches both atomically on a cache miss. Star caches `history` locally
- * to drive 5.5's lazy migration ordering without a follow-up Galaxy round-trip.
- *
- * `history` is computed at fetch time from `ontology:_index` — it's not stored
- * on any row, since the row is immutable but the index keeps growing.
+ * A registry row with its ordered version history (oldest → newest, the row's own version last).
+ * Nothing in Nebula returns or reads it today: the Star's pull asks `getCurrentOntology`, which
+ * answers the row alone.
  */
 export interface OntologyState {
   row: OntologyVersionRow;
@@ -131,13 +121,6 @@ const registryPath = (version: string) => `${REGISTRY_DIR}/${version}.json`;
  *  registry (ISO 8601 UTC — ADR-011). `appliedAt` is an APPLY fact, so the Galaxy
  *  stamps it at append; the job never writes it. */
 type RegistryFile = OntologyVersionRow & { appliedAt: string };
-
-// The Galaxy's OWN chat plane installs its ontology into a PARALLEL keyspace — never the
-// app-ontology registry above, whose latest row is what Stars pull (a chat version in that
-// index would become some Star's app ontology). Distinct keyspaces per component in one DO
-// (the sql-migrations markerKey rule, applied to KV).
-const CHAT_INDEX_KEY = 'chatOntology:_index';
-const chatRowKey = (version: string) => `chatOntology:${version}`;
 
 /** The per-client Gateway DO — codegen results and stream chunks are delivered back to
  *  the originating client through it (direct delivery, addressed by the client's stable
@@ -276,12 +259,12 @@ function tail(text: string, n: number): string {
  * scope-admin bypass inside `requirePermission`, so nothing changes for the owner.
  *
  * Distinct from {@link requireDominionHere}, which stays on the Galaxy's configuration
- * entries: this guard reads the DAG grant, so it inherits `DagTree.requirePermission`'s
+ * entries: this guard reads the DAG grant, so it inherits `OrgTree.requirePermission`'s
  * obligations — the host-confined dominion bypass and the `PermissionDeniedError` message
  * a boundary refusal is told apart by (`security.md`).
  */
 export function requireChatWrite(instance: Galaxy): void {
-  instance.dagTree().requirePermission(CHAT_NODE_ID, 'write');
+  instance.resources.orgTree.requirePermission(CHAT_NODE_ID, 'write');
 }
 
 /**
@@ -368,7 +351,7 @@ export function workersAiRestHeaders(opts: { token: string; gateway?: string; ex
 
 // ─── Galaxy DO ───────────────────────────────────────────────────────
 
-export class Galaxy extends NebulaDO {
+export class Galaxy extends NebulaDO implements ResourcesHost {
   // Cache over `ctx.storage` (the durable Workspace VFS) — reconstructed in onStart,
   // never the source of truth. `!`-asserted: onStart runs (inside the base
   // blockConcurrencyWhile) before any @mesh method.
@@ -376,12 +359,8 @@ export class Galaxy extends NebulaDO {
   // Re-derivable cache (loss acceptable) — the tool-args typia validator facet
   // (durable-objects.md "ephemeral caches").
   #toolArgsFacet?: ParserValidator;
-  // The composed resource data-plane — hosts the chat Chat/Message Resources.
-  #dataPlane!: ResourceDataPlane;
-  // Caches over the INSTALLED chat-ontology row (the Star pattern — reconstructed lazily,
-  // never the source of truth).
-  #chatRow: OntologyVersionRow | null = null;
-  #chatFacet: ParserValidator | null = null;
+  // The composed resources plane — hosts the chat Chat/Message Resources.
+  #resources!: Resources;
   // The container transport — the backend object is cheap coordination state (no
   // container starts until a build's exec connects); the API wrapper is constructed
   // LAZILY because its ctor throws where `ctx.container` is absent (pool-workers).
@@ -433,115 +412,56 @@ export class Galaxy extends NebulaDO {
       await this.#ws.git.commit({ dir: WS_ROOT, message: 'scaffold' });
       this.ctx.storage.kv.put(GIT_INITED_KEY, true);
     }
-    // Compose the resource data-plane — the chat Chat/Message host. The ontology
-    // provider reads the INSTALLED chat-ontology row (self-seeded on first touch from the
-    // platform constant — #ensureChatFacet), exactly the way Star reads its installed app
-    // row. No org-tree subscribe channel here, so onDagChanged is a no-op.
-    this.#dataPlane = new ResourceDataPlane(
+    // Compose the resources plane — the chat Chat/Message host. The plane installs the chat
+    // ontology from the source below on first touch, the way a Star installs its app ontology.
+    // The post-commit hook is THE codegen trigger's seam: a committed human Message starts a
+    // turn (#onChatCommitted's predicate owns what reacts).
+    this.#resources = new Resources(
       this.ctx,
-      () => this.lmz.callContext,
-      () => this.chatOntology(),
-      {
-        deliverResourceUpdate: (clientId, resourceType, resourceId, result) =>
-          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-            this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
-        broadcastResourceUpdate: (resourceId, snapshot, targets) =>
-          this.#broadcastResourceUpdate(resourceId, snapshot, targets),
-        broadcastQueryUpdate: (queryHash, resourceIds, targets) =>
-          this.#broadcastQueryUpdate(queryHash, resourceIds, targets),
-        deliverQueryUpdate: (clientId, queryHash, result) =>
-          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-            this.ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
-            this.ctn<Galaxy>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
-        broadcastRosterUpdate: (queryHash, roster, targets) =>
-          this.#broadcastRosterUpdate(queryHash, roster, targets),
-        deliverRosterUpdate: (clientId, queryHash, result) =>
-          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-            this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, result),
-            this.ctn<Galaxy>().onQuerySubscriberListBroadcastResult(queryHash), { onErrorOnly: true }),
-        // THE codegen trigger's seam — a committed human Message starts a turn
-        // (#onChatCommitted's predicate owns what reacts).
-        onCommitted: (mutations) => this.#onChatCommitted(mutations),
-      },
-      () => { /* no org-tree subscribe channel on Galaxy */ },
-      // Host name as a THUNK — `this.lmz.instanceName` is not stamped yet inside `onStart()`.
-      // It is the scope the `access.scopeAdmin` bypass is confined to at both confinement points.
-      () => this.lmz.instanceName,
+      () => this.lmz,
+      this.#chatOntologySource(),
+      (mutations) => this.#onChatCommitted(mutations),
     );
-    // Null the cached chat-ontology row + facet so `onStart` is a COMPLETE (re)init (a
-    // stale facet after a teardown+reconstruct would keep authorizing a dropped install —
-    // the same load-bearing nulling Star.onStart does).
-    this.#chatRow = null;
-    this.#chatFacet = null;
   }
 
   /**
-   * The Galaxy's own chat-ontology install — populate `#chatRow`/`#chatFacet` from the
-   * `chatOntology:` KV keyspace, SELF-SEEDING the platform version on first touch (never a
-   * deploy step). This is the registry that DELETED the breaking-ontology ritual: the
-   * loader `bundleId` derives from the installed label (labels are append-only +
-   * duplicate-rejected), so a new version structurally cannot reuse a warm bundle — no
-   * hand-bumped constant, nothing to remember.
+   * The Galaxy's chat-ontology source for its plane. It answers at once, so a Galaxy's op is never
+   * told `installing`. The loader `bundleId` derives from the version label (labels are
+   * append-only and duplicate-rejected), so a new version cannot reuse a warm bundle. Its
+   * `{u}.{g}/chat/{label}` form has two slashes, so it collides neither with a Star's app bundle
+   * `{u}.{g}/{label}` nor with the slash-less tool-args id.
    */
-  #ensureChatFacet(): { row: OntologyVersionRow; facet: ParserValidator } {
-    if (this.#chatRow && this.#chatFacet) return { row: this.#chatRow, facet: this.#chatFacet };
-
-    let index = this.ctx.storage.kv.get<string[]>(CHAT_INDEX_KEY) ?? [];
-    if (index.length === 0) {
-      // First touch — install the platform seed (one compile per Galaxy, then durable).
-      const seed = chatOntologySeedRow();
-      this.ctx.storage.transactionSync(() => {
-        this.ctx.storage.kv.put(chatRowKey(seed.version), seed);
-        this.ctx.storage.kv.put(CHAT_INDEX_KEY, [seed.version]);
-      });
-      index = [seed.version];
-    }
-    const version = index[index.length - 1];
-    const row = this.ctx.storage.kv.get<OntologyVersionRow>(chatRowKey(version));
-    if (!row) {
-      throw new Error(`Chat ontology row missing for version '${version}' — index/row drift`);
-    }
-    this.#chatRow = row;
-    // Disjoint from every other Worker-Loader namespace: the app-ontology form is
-    // `{u}.{g}/{label}` (one slash, label can't contain '/'), so `{u}.{g}/chat/{label}`
-    // (two slashes) can never collide with it, nor with the slash-less tool-args id.
-    const host = this.lmz.instanceName ?? this.ctx.id.name;
-    const bundleId = `${host}/chat/${row.version}`;
-    this.#chatFacet = getParserValidatorFacet(
-      this.ctx,
-      this.env.LOADER,
-      bundleId,
-      () => {
-        debug('nebula.Galaxy.ensureChatFacet').info('facet cold load', { bundleId });
-        return row.validatorBundle;
-      },
-    );
-    return { row, facet: this.#chatFacet };
+  #chatOntologySource(): OntologySource {
+    return {
+      current: () => this.ontologySource(),
+      bundleId: (version) => `${this.lmz.instanceName ?? this.ctx.id.name}/chat/${version}`,
+    };
   }
 
-  /** True iff `version` is the INSTALLED chat-ontology version (self-seeding on first
-   *  touch, so a fresh Galaxy compares against the platform seed rather than nothing). */
-  #isCurrentChatVersion(version: string): boolean {
-    return this.#ensureChatFacet().row.version === version;
+  /**
+   * The chat ontology's current row — the platform seed. `protected` so a test subclass can answer
+   * a newer or a `wipeOnInstall` row, the way a Star's Galaxy would.
+   */
+  protected ontologySource(): OntologyVersionRow {
+    return chatOntologySeedRow();
   }
 
-  /** The installed chat-ontology surface — the data-plane's provider thunk reads through
-   *  this, and `protected` lets a test subclass assert the installed facet directly. */
+  /** The installed chat ontology, read from the plane; `protected` lets a test subclass assert
+   *  the installed facet directly. */
   protected chatOntology(): { version: string; facet: ParserValidator; relationships: OntologyVersionRow['relationships'] } {
-    const { row, facet } = this.#ensureChatFacet();
-    return { version: row.version, facet, relationships: row.relationships };
+    return this.#resources.installedOntology();
   }
 
   // ─── Config ─────────────────────────────────────────────────────────
 
-  @mesh(requireDominionHere)
+  @mesh(requireDominionHere) // a descendant Star's member is refused: dominion never flows up
   setGalaxyConfig(key: string, value: unknown) {
     const config = this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     config[key] = value;
     this.ctx.storage.kv.put('config', config);
   }
 
-  @mesh()
+  @mesh() // open to a descendant Star's member: shared galaxy config, read-only
   getGalaxyConfig(): Record<string, unknown> {
     return this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
   }
@@ -552,7 +472,7 @@ export class Galaxy extends NebulaDO {
 
   /**
    * The row every Star under this Galaxy should run — what a Star's lazy-pull asks for,
-   * whether a client op pinned a version or a server-originated write like `Star.invite`
+   * whether a client op pinned a version or a server-originated write like `Star.resources.invite`
    * found nothing installed. A Star converges on this row and never on the version a
    * client pinned, so one tab on an older bundle cannot move it. **The ontology IS the workspace file**: the version is derived
    * here by READING `src/ontology.d.ts` and hashing it, never by trusting a stored
@@ -562,7 +482,7 @@ export class Galaxy extends NebulaDO {
    * tenants run applied versions; the draft is Studio's alone. Bare `@mesh()` like
    * {@link getOntologyVersion}: an upward call every descendant member has passage for.
    */
-  @mesh()
+  @mesh() // open to a descendant Star's member: the Star's own ontology pull reads it
   async getCurrentOntology(): Promise<OntologyVersionRow | null> {
     return this.#appliedHead();
   }
@@ -611,7 +531,7 @@ export class Galaxy extends NebulaDO {
   /** Specific row by label, or `null` if absent. Bare `@mesh()`: an upward read every member of
    *  a descendant scope has passage for. No Star calls it since the lazy-pull asks for the
    *  CURRENT row ({@link getCurrentOntology}) instead of the version a client pinned. */
-  @mesh()
+  @mesh() // open to a descendant Star's member: one applied registry row, as `getCurrentOntology` serves them
   async getOntologyVersion(version: string): Promise<OntologyVersionRow | null> {
     return this.#registryRow(version);
   }
@@ -638,7 +558,7 @@ export class Galaxy extends NebulaDO {
    * client origin logs the acting principal's projection — the ADR-016 record for a
    * direct edit; a turn's writes carry it too, and the agent Message records the turn as a whole.
    */
-  @mesh(requireChatWrite)
+  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   async writeSource(path: string, content: string): Promise<{ oid: string; path: string }> {
     const rel = assertModelPath(path, { write: true });
     if (rel.includes('/')) {
@@ -660,7 +580,7 @@ export class Galaxy extends NebulaDO {
   /** Local read — the LLM hot path (read relevant files into context). Chat floor;
    *  the path rule runs first (a read of a dot path is allowed — see
    *  {@link assertModelPath}). */
-  @mesh(requireChatWrite)
+  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   async readSource(path: string): Promise<string> {
     const rel = assertModelPath(path, { write: false });
     return this.#ws.fs.readFile(wsPath(rel), 'utf8');
@@ -709,8 +629,8 @@ export class Galaxy extends NebulaDO {
    * The entry sits at the chat floor ({@link requireChatWrite}) like every source
    * operation; the WIPE is the one destructive effect on that surface and is priced
    * where it lands: the body requires dominion over the `.dev` Star this row will wipe
-   * before it writes `wipeOnInstall`, because the Star's install path wipes on the
-   * row's say-so with no check of its own, and a caller with the chat floor and no bit
+   * before it writes `wipeOnInstall`, because the plane's install wipes a `.dev` Star on the
+   * row's say-so with no permission check of its own, and a caller with the chat floor and no bit
    * exists (a node inviter may hold none). The decision rides the row as
    * `wipeOnInstall` — written once, immutable, never consumed-and-cleared — and the
    * acting principal is logged with it (the ADR-016 record a wipe owes). A Star pulling
@@ -721,7 +641,7 @@ export class Galaxy extends NebulaDO {
    * re-apply of unchanged source is a no-op and the Star-side Worker Loader cache
    * (`bundleId = galaxyId/version`) never serves a stale validator.
    */
-  @mesh(requireChatWrite)
+  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   async applyOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
     const { version } = await this.#readOntology();
     if (await this.#registryRow(version)) return { version }; // unchanged source → already applied
@@ -1154,7 +1074,7 @@ export class Galaxy extends NebulaDO {
    * ({@link decidePreview}); the pending-ontology job rides by default (compiled for
    * feedback, never appended — the Apply appends).
    */
-  @mesh(requireChatWrite)
+  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {
     return this.#buildAndAnnounce({ preview: opts.preview });
   }
@@ -1294,7 +1214,7 @@ export class Galaxy extends NebulaDO {
     const deadlineAt = Date.now() + this.generationDeadlineMs;
     await withHeartbeat(
       () => this.#chatTurnBody(userMessageId, message, agentMessageId),
-      () => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, '', CHAT_NODE_ID, userMessageId),
+      () => this.#chatProgress(agentMessageId, '', userMessageId),
       { intervalMs: TURN_HEARTBEAT_MS, deadlineAt },
     );
   }
@@ -1356,7 +1276,7 @@ export class Galaxy extends NebulaDO {
     try { sourceCommit = (await this.#ws.git.log({ dir: WS_ROOT, depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
-      (step) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, step, CHAT_NODE_ID, userMessageId),
+      (step) => this.#chatProgress(agentMessageId, step, userMessageId),
       {
         // The triggering Message is excluded from the history bundle — the request bundle
         // carries it, once.
@@ -1489,49 +1409,23 @@ export class Galaxy extends NebulaDO {
     }
   }
 
-  // ─── Resource data-plane surface (the chat Chat/Message Resources) ─────────
+  // ─── Resource plane (the chat Chat/Message Resources) ─────────
   //
-  // `@mesh()` — no guard on the decorator: chat participants are non-admin but
-  // DAG-granted. `onBeforeCall` (NebulaDO base) enforces passage into `{u}.{g}`; the
-  // per-op DAG read/write check lives inside the data-plane (Resources/DagTree), exactly
-  // as on Star. (The source entries above put that same chat-node `write` check ON the
-  // decorator — `requireChatWrite` — because they do no per-op check of their own.)
-  // Every op is version-gated against the INSTALLED chat ontology — `OntologyStaleError`
-  // on a mismatch, exactly Star's shapes (transaction returns it as a VALUE; read
-  // throws; subscribe pushes).
+  // `onBeforeCall` (NebulaDO base) enforces passage into `{u}.{g}`; the per-op DAG read/write
+  // check lives inside the plane, exactly as on Star. (The source entries above put that same
+  // chat-node `write` check ON the decorator — `requireChatWrite` — because they do no per-op
+  // check of their own.)
 
   /**
-   * Permission-filtered fanout targets for a query at `nodeId` — the transient-stream
-   * audience. `protected`: the progress push uses it internally; a test subclass
-   * exposes it for the per-operand accessor test.
+   * Stream one transient progress chunk of the agent's reply to the chat's subscribers. The chat
+   * query is built here, since the plane never names `Message` or the chat; the plane sends the
+   * chunk ({@link Resources.streamProgress}) to the subscribers who may read
+   * `CHAT_NODE_ID`, the node the reply will be committed under, attributed to the human message
+   * whose turn it is.
    */
-  protected queryTargets(query: QueryDescriptor, nodeId: string): BroadcastTarget[] {
-    return this.#dataPlane.targetsForQuery(query, nodeId);
-  }
-
-  /**
-   * Push ONE transient assistant-progress chunk to the session query's subscribers
-   * that may read `nodeId`. Fire-and-forget `lmz.broadcast` of `handleStreamChunk` —
-   * no Resource write, no fanout/rerun. Permission-filtered via {@link queryTargets}
-   * (the transient path's point-of-action recheck, symmetric with the durable path —
-   * a subscriber denied on `nodeId` gets NO chunk). No `onResult`: a missed chunk just
-   * drops the animation (the durable Message still lands via the query sub).
-   */
-  protected streamProgress(
-    chatId: string, messageId: string, progress: string, nodeId: string, replyTo: string,
-  ): void {
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: chatId };
-    const targets = this.queryTargets(query, nodeId);
-    // Log identifiers/counts only — never the progress body.
-    debug('nebula.Galaxy.stream').debug('chunk', { messageId, targets: targets.length, len: progress.length });
-    if (targets.length === 0) return;
-    // `replyTo` ATTRIBUTES the chunk: it broadcasts to every chat subscriber (a shared
-    // thread — seeing someone else's reply appear is the product working), so without it
-    // a recipient cannot tell whose turn is alive, and every client treats every chunk as
-    // liveness for its OWN turn. That is a hang: under single-flight a message posted
-    // during a generation is skipped and never answered, yet its poster's idle window is
-    // re-armed by the running turn's chunks and never fails.
-    this.lmz.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress, replyTo));
+  #chatProgress(agentMessageId: string, progress: string, userMessageId: string): void {
+    const chatQuery: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+    this.#resources.streamProgress(chatQuery, agentMessageId, progress, CHAT_NODE_ID, userMessageId);
   }
 
   /**
@@ -1562,219 +1456,31 @@ export class Galaxy extends NebulaDO {
     debug('nebula.Galaxy.stream').debug('commit', { messageId, len: content.length });
     // The turn finishes under the authority it STARTED with: the door admitted the post,
     // and that verdict covers the reply — a grant revoked mid-turn does not refuse it.
-    await this.#dataPlane.ensureResource(messageId, 'Message', nodeId, value, {
+    await this.#resources.ensureResource(messageId, 'Message', nodeId, value, {
       actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtPost: true,
     });
   }
 
-  /** Handler 1: validate the requested ontology version against the INSTALLED chat
-   *  ontology, then RETURN the transaction result — the framework fires it back to the
-   *  caller's `callAsync`. On a stale version RETURN the `OntologyStaleError` as a VALUE
-   *  (resolve, not reject — Star's asymmetry): the client's submit wrapper maps it to the
-   *  engine's `{ontologyStale}` signal. ⚠️ No `actor` parameter exists here, deliberately
-   *  — the trust fence: only server-internal `commitAgentMessage` supplies one, so a
-   *  client cannot forge `act: { sub: NEBULA_SUB }`. */
-  @mesh()
-  transaction(ontologyVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult> | OntologyStaleError {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('transaction requires a client origin with instanceName in callChain[0]');
-    }
-    if (!this.#isCurrentChatVersion(ontologyVersion)) {
-      return new OntologyStaleError(ontologyVersion, this.#ensureChatFacet().row.version);
-    }
-    return this.#dataPlane.doTransaction(newETag, ops, clientId);
-  }
-
-  /** Handler 1: validate the requested ontology version, then RETURN the read value. On a
-   *  stale version THROW `OntologyStaleError` (→ error RESULT → the client's `callAsync`
-   *  rejects → its `.catch` fires `onShouldRefreshUI`). */
-  @mesh()
-  read(ontologyVersion: string, resourceId: string): Snapshot | null {
-    if (!this.#isCurrentChatVersion(ontologyVersion)) {
-      throw new OntologyStaleError(ontologyVersion, this.#ensureChatFacet().row.version);
-    }
-    return this.#dataPlane.doRead(resourceId);
-  }
-
-  /** Handler 1: dispatch a single-resource subscribe into the capability (stale → the
-   *  error is PUSHED on the resource channel, Star's shape). */
-  @mesh()
-  subscribe(ontologyVersion: string, resourceType: string, resourceId: string): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribe requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribe requires a gateway in callChain.at(-1)');
-    }
-    if (!this.#isCurrentChatVersion(ontologyVersion)) {
-      this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-        this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-          new OntologyStaleError(ontologyVersion, this.#ensureChatFacet().row.version)));
-      return;
-    }
-    this.#dataPlane.doSubscribe(resourceType, resourceId, clientId, subscriberBinding);
-  }
-
-  /** Drop the caller's subscriber row for `(resourceType, resourceId)`. */
-  @mesh()
-  unsubscribe(resourceType: string, resourceId: string): void {
-    void resourceType;
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('unsubscribe requires a client origin with instanceName in callChain[0]');
-    }
-    this.#dataPlane.removeSubscriber(resourceId, clientId);
-  }
-
-  /** Handler 1: register a query subscription + push the initial membership (void).
-   *  Non-admin + DAG-gated (authorization is per-push at delivery). `clientId`/
-   *  `subscriberBinding` from `callChain`. See `Star.subscribeQuery`. */
-  @mesh()
-  subscribeQuery(query: QueryDescriptor): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribeQuery requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribeQuery requires a gateway in callChain.at(-1)');
-    }
-    this.#dataPlane.doSubscribeQuery(query, clientId, subscriberBinding);
-  }
-
-  /** Drop the caller's query-sub row for `queryHash` (clientId from callChain). */
-  @mesh()
-  unsubscribeQuery(queryHash: string): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('unsubscribeQuery requires a client origin with instanceName in callChain[0]');
-    }
-    this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
-  }
-
-  /** Watch `query`'s live subscriber-LIST roster (the STANDALONE watcher sub — NOT a data-subscriber).
-   *  Void; initial roster arrives via `handleQuerySubscribersUpdate`. See `Star.subscribeQuerySubscribers`. */
-  @mesh()
-  subscribeQuerySubscribers(query: QueryDescriptor): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('subscribeQuerySubscribers requires a client origin with instanceName in callChain[0]');
-    }
-    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
-    if (!subscriberBinding) {
-      throw new Error('subscribeQuerySubscribers requires a gateway in callChain.at(-1)');
-    }
-    this.#dataPlane.doSubscribeQuerySubscribers(query, clientId, subscriberBinding);
-  }
-
-  /** Drop the caller's subscriber-list WATCHER row for `queryHash` (clientId from callChain). */
-  @mesh()
-  unsubscribeQuerySubscribers(queryHash: string): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('unsubscribeQuerySubscribers requires a client origin with instanceName in callChain[0]');
-    }
-    this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
-  }
-
-  /** Single `@mesh()` entry for the DagTree API (per-op auth inside DagTree). */
-  @mesh()
-  dagTree(): DagTree {
-    return this.#dataPlane.dagTree;
-  }
-
-  // ─── Node invites (the security logic lives in the plane — written once) ────
-
   /**
-   * Invite people onto a NODE of this Galaxy's orgTree — how a non-`scopeAdmin`
-   * collaborator gets a DAG grant here. The whole two-plane operation (the DAG gate,
-   * the `pending` `_InviteStatus` rows, the grants + flips on the result) lives in
-   * {@link ResourceDataPlane.invite}; this host supplies only the facade fire (the one
-   * mesh-typed line). TEMP → target=resources() gate
-   * (tasks/nebula-data-plane-owns-its-guards.md deletes all four host forwards).
+   * The one `@mesh()` door onto the resource plane — its request surface, whose members derive
+   * the caller's own address and check each op themselves. Chat participants are non-admin, so
+   * there is no guard on the door: each op's DAG check at the chat node is the gate, and a
+   * transaction's has no `actor` argument, so a client cannot forge `act: { sub: NEBULA_SUB }` —
+   * only the server-internal `commitAgentMessage` supplies one.
    */
-  @mesh()
-  async invite(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {
-    return this.#dataPlane.invite(nodeId, invitees, (valid) =>
-      this.lmz.call(
-        'NEBULA_AUTH_FACADE', undefined,
-        this.ctn<NebulaAuthFacade>().invite(this.lmz.instanceName!, valid.map(({ email }) => ({ email }))),
-        this.ctn<Galaxy>().onInviteResult(nodeId, Object.fromEntries(valid.map(v => [v.email, v.tier]))),
-      ));
+  @mesh() // open to a descendant Star's member: each member behind the door checks itself
+  get resources(): ResourcesRequests {
+    return this.#resources.requests;
   }
-
   /**
-   * The node invite's result handler — travels with the facade call (never awaited).
-   * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
-   * (the member-level check off, the scope check on — and the walk rules still refuse the six
-   * doors JavaScript opens on every object, so "off" has never meant "nothing is checked"), and an `@mesh` here would let any in-scope caller
-   * forge an invite outcome and write themselves grants. Body in the plane.
-   * TEMP → target=resources() gate.
+   * The plane's response-leg surface — where a failed update's reaper and the node invite's
+   * facade answer land. Deliberately NOT `@mesh()`: those answers arrive locally or at the
+   * fire-back door, and neither consults the mark. Every host's surface also carries
+   * `onOntologyPulled`, which checks no permission and installs whatever row it is handed, so a
+   * mark would let any caller with passage load a validator of their own onto this Galaxy.
    */
-  public onInviteResult(
-    nodeId: string, tiers: Record<string, PermissionTier>, result?: unknown,
-  ): Promise<void> {
-    return this.#dataPlane.onInviteResult(nodeId, tiers, result);
-  }
-
-  // ─── Host-side fanout (the ResourceHostBridge impls) ────────────────
-
-  /** Host-side fanout for one mutated resource — plain `lmz.broadcast` with
-   *  drop-on-failed-fanout cleanup via {@link onBroadcastResult}. */
-  #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]): void {
-    const remote = this.ctn<NebulaClient>().handleResourceUpdate(
-      snapshot.meta.typeName, resourceId, snapshot);
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onBroadcastResult(resourceId) });
-  }
-
-  /** Per-target broadcast result handler — drop a subscriber whose Gateway reported
-   *  it disconnected (`ClientDisconnectedError`). WHICH subscriber comes from
-   *  `callContext.callee`, the address this push was sent to. ⚠️ The `@mesh()` is VESTIGIAL: no framework path dispatches to this handler as a request — its results reach it locally or at the fire-back door, and neither consults the mark. Shedding it is the resources-plane task's work, not this file's. */
-  @mesh()
-  onBroadcastResult(resourceId: string, result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
-    }
-  }
-
-  /** Host-side fanout for a query membership push to the no-denial group. One
-   *  shared payload via `lmz.broadcast`; dead-client cleanup rides
-   *  {@link onQueryBroadcastResult} keyed by `queryHash`. */
-  #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]): void {
-    const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQueryBroadcastResult(queryHash) });
-  }
-
-  /** Host-side fanout for a subscriber-list roster push — the distinct-by-`sub` roster to a
-   *  query's WATCHERS. Dead-WATCHER cleanup uses the DEDICATED
-   *  {@link onQuerySubscriberListBroadcastResult} (watcher table, NOT `QuerySubscribers`). */
-  #broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]): void {
-    const remote = this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, roster);
-    this.lmz.broadcast(targets, remote, { onResult: this.ctn<Galaxy>().onQuerySubscriberListBroadcastResult(queryHash) });
-  }
-
-  /** Per-target query-push result handler (no-denial broadcast + has-denial
-   *  deliveries); drops the dead client's query-sub row on disconnect. */
-  @mesh()
-  onQueryBroadcastResult(queryHash: string, result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
-    }
-  }
-
-  /** Per-target roster-push result handler — drops the dead WATCHER's row from the WATCHER table
-   *  ONLY (NOT `QuerySubscribers`), so a dual-role client keeps its data sub. */
-  @mesh()
-  onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
-    }
+  get resourcesResults(): ResourcesResults {
+    return this.#resources.results;
   }
 
   // ─── The codegen loop (model call + tool validation) ─────────────────
@@ -2097,7 +1803,7 @@ export class Galaxy extends NebulaDO {
     if (!claims) return {};
     let ids: string[];
     try {
-      ids = this.#dataPlane.findCurrentByField('Message', 'chat', DEFAULT_CHAT_ID).map((r) => r.resourceId);
+      ids = this.#resources.findCurrentByField('Message', 'chat', DEFAULT_CHAT_ID).map((r) => r.resourceId);
     } catch {
       return {};
     }
@@ -2118,7 +1824,7 @@ export class Galaxy extends NebulaDO {
     for (const id of ids) {
       if (id === triggeringMessageId) continue;
       let snap: Snapshot | null;
-      try { snap = this.#dataPlane.doRead(id); } catch { continue; }
+      try { snap = this.#resources.doRead(id); } catch { continue; }
       if (!snap) continue;
       const v = snap.value as {
         content?: string;

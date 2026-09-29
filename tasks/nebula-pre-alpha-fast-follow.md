@@ -52,15 +52,19 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 ## Item 4: The prod ontology install path
 
-**Placed here 2026-08-21**, out of [`nebula-galaxy-collapse-and-chat.md`](archive/nebula-galaxy-collapse-and-chat.md), which had deferred it *to itself* and then scheduled no phase for it. Not pre-alpha: the only Stars in the pre-alpha loop are `.dev` Stars, which the **dev push** (`Star.setOntology`) already installs to, and a Star the Galaxy never pushed to exists only once an app is published or a tenant signs up — the publish path, which the staging ladder puts in **alpha**.
+**Placed here 2026-08-21**, out of [`nebula-galaxy-collapse-and-chat.md`](archive/nebula-galaxy-collapse-and-chat.md), which had deferred it *to itself* and then scheduled no phase for it. Not pre-alpha: the only Stars in the pre-alpha loop are `.dev` Stars, which already install through the lazy pull below, and a Star with real users exists only once an app is published — the publish path, which the staging ladder puts in **alpha**.
 
 **Demand trigger:** the first pre-alpha user who wants to show their app to someone.
 
 **Goal**: an ontology reaches a Star the Galaxy did not push to, without a bespoke per-Star install step.
 
-**Current state**: `getLatestOntologyVersion` exists on `Galaxy` but has **no `src/` consumer**, and `Star` makes no `lmz.call('GALAXY', …)` at all. `Star.setOntology` is `@mesh(requireDominionHere)` and is the one built install path.
+**Current state**: every Star pulls lazily. An op pinned to a version the Star has not installed asks its Galaxy for the current row with `getCurrentOntology()` and installs it, and [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) moved that install into the Resources plane, where the Galaxy's answer lands at `resourcesResults.onOntologyPulled` behind a getter that carries no `@mesh()`. What the Galaxy calls current is the applied row whose hash matches the Workspace's ontology file, else the most recently applied one — published or not, and reachable without an Apply, since reverting the file makes an earlier applied row current.
 
-⚠️ **Do not build a pull first — the shape is genuinely open, and that is the reason this is not scheduled rather than an excuse for leaving it vague.** Once one `Galaxy` owns both the ontology store and the install path, **push-on-append from the node that already holds the row may beat a pull** (Larry, 2026-07-25). Decide that before writing either.
+⚠️ **The pull is built, so the open question has moved to what a tenant Star's source answers.** A push-on-append (Larry, 2026-07-25) lost to the pull for a reason that still holds: a Star converges only when a tab asks for a version it lacks, so a Star nobody is using costs nothing.
+
+**Two requirements, carried in from [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) (2026-09-28):**
+- **A tenant Star's source answers the PUBLISHED version**, never the Galaxy's current row as defined above, so an unpublished breaking row never reaches a tenant.
+- **A breaking version that reaches a non-`.dev` Star migrates; it is never wiped.** Until migrations exist, that file's D23 fences it: the install records nothing. This item replaces the fence.
 
 **A candidate shape, carried over intact** — it was reasoned out at length and should not be re-derived from scratch:
 
@@ -69,7 +73,7 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
   - ⏳ **What Artifacts would still buy (none on this task's critical path; still closed beta 2026-08-03):** (1) history **off the DO** — the repo currently sits in Galaxy's SQLite, under ADR-018's 10 GB ceiling and the cold-start-scales-with-size worry below; (2) a **real remote for BYO-agent** (`archive/nebula-studio.md` § *Enterprise BYO-agent*) — the one case that genuinely needs a git server; (3) **`fork`** on a repo handle, which makes scaffold provisioning a server-side op that carries the scaffold's *history*, so a later scaffold upgrade is a **merge** rather than a bespoke diff-and-patch (⚠️ **undocumented whether `fork` is copy-on-write or a byte copy** — decides whether N tenants each bill against 10 GB/repo, 1 TB/account; ask on the beta form); (4) **export** as a clone URL. Consistent with `reference/nebula-dev-flows.md` **Decision 6** (Artifacts as an optional future optimization behind the same free seam).
   - ❓ **Still open:** the Star consumes a *compiled validator bundle*, not source — so decide whether git carries the source (Star or container rebuilds) or the built artifact.
 
-**Six tests are skipped on this, and they should NOT wait for it.** Five browser benchmarks plus `chromium/conflict-modal` fail only because a fresh `uniqueStar()` has no ontology installed — not because they need a *pull* specifically. Their skip comments say "Un-skip when the prod lazy-pull lands", which fused two different problems. `apps/nebula/src/index.ts` already advertises helpers that apply an ontology via `Star.setOntology` **without a Galaxy round-trip**, and `setOntology` is reachable by an admin-scoped caller — so their setup can install one directly. ⚠️ Confirm first that `conflict-modal` merely *needs* an ontology present rather than testing `ontology-stale` behaviour itself; its own comment says the verdict contract "is unaffected", which reads as the former. Tracked separately in [`backlog.md`](backlog.md) § *Testing & Quality*.
+**Six tests are skipped on this, and they should NOT wait for it.** Five browser benchmarks plus `chromium/conflict-modal` fail only because a fresh `uniqueStar()` has no ontology installed — not because they need a *pull* specifically. Their skip comments say "Un-skip when the prod lazy-pull lands", which fused two different problems. The test app's `StarTest.applyOntologyForTest` already installs one **without a Galaxy round-trip**, handing a compiled row to `resourcesResults.onOntologyPulled` the way a pulled row arrives, and an admin-scoped caller reaches it — so their setup can install one directly. ⚠️ Confirm first that `conflict-modal` merely *needs* an ontology present rather than testing `ontology-stale` behaviour itself; its own comment says the verdict contract "is unaffected", which reads as the former. Tracked separately in [`backlog.md`](backlog.md) § *Testing & Quality*.
 
 
 ## Item 5: The published-tier serve — shipped-tag `dist` for `/app/{u}.{g}.{s}/*`
@@ -84,7 +88,7 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 ⚠️ **If user-dev source-privacy demand appears, the gate design restarts HERE, under two recorded constraints** (Larry, 2026-08-24): **no cookies**, and browsers send no `Authorization` on document or sub-asset loads — which together likely mean the serve itself is never gated (a published app's END USERS need `index.html` before they can log in), and privacy comes from something else if it comes at all.
 
-⚠️ **The reload push was built where a herd cannot happen; at publish scale it becomes one** (Larry, 2026-08-26). Pre-alpha it reloads a handful of open `.dev` previews at prompt pace, so herd risk never needed a thought. A publish-triggered `broadcastReload` is different: every live client of that galaxy's stars reloads AT ONCE, each fetching `index.html` + assets from the one Galaxy DO — and the broadcast itself is O(N) sends from that same DO. When publish wires the signal, do not ship it blind — measure, or address it up front. Two ready fixes: client-side jitter (the handler spreads reloads over seconds), or keep prod LAZY with no push at all — the ontology version gate already guarantees correctness, and a code-only publish picked up on the next natural reload is ordinary web behavior. The push exists for the dev loop — a user-developer just asked for a change and must see it appear without touching reload. Correctness never depended on it (the version gate owns that), which is what makes lazy a real option for prod.
+⚠️ **Publish sends no reload push, and one added later would need herd control** (Larry, 2026-08-26; the reload channel it would have ridden was deleted 2026-09-28, [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) D17). Prod stays lazy: the ontology version gate already guarantees correctness, and a code-only publish picked up on the next natural reload is ordinary web behavior. A push that reloaded every live client of a galaxy's stars at once would have each fetch `index.html` + assets from the one Galaxy DO, sent as O(N) calls from that same DO, so a later one ships with client-side jitter or a measurement, never blind. The dev loop has its own answer, which is not a fan-out: a build replies to the user-developer who asked for it.
 
 ⚠️ The **scale** mechanisms — edge cache, the release herd, R2 as an escalation — are NOT this item's: they are decided by measured experience, and live in [backlog.md](backlog.md) § *Future bigger things*.
 
@@ -170,7 +174,7 @@ code data-correct.
 **The change:** fan the same signal to every live Studio on the workspace instead of to one.
 
 **The roster already exists and nothing better is available** (settled with Larry 2026-08-28):
-`queryTargets` over the chat query IS "everyone with this workspace open", and any registry we
+the chat query's permitted subscribers — the targets the plane's `streamProgress` sends to — ARE "everyone with this workspace open", and any registry we
 invented would be no better maintained. Its accuracy rests on the mesh dropping a subscriber the
 first time delivery fails — which it does, via the `ClientDisconnectedError` fire-back — so a
 closed tab self-heals rather than accumulating.

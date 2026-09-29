@@ -53,7 +53,7 @@ async function setupStaleScenario() {
     { onShouldRefreshUI: refreshHookSpy },
   );
 
-  // Apply v1 to the Star (the setOntology dev apply path).
+  // Install v1 on the Star (the test-app door onto the pulled-row path).
   a.client.callStarInstallOntology(star, { version: 'v1', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 

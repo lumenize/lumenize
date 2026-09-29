@@ -1,8 +1,13 @@
 /**
- * Node invites — `Star.invite(nodeId, invitees)` writes BOTH planes at invite time: the DAG grant
- * here (via the traveling result handler) and the membership through the facade → Registry. The
- * invitee's first login finds everything in place; the live submission state rides `_InviteStatus`
- * rows (a platform-fixed Resources type, org-visible at the node per ADR-008).
+ * Node invites — `Star.resources.invite(nodeId, invitees)` writes BOTH planes at invite time: the DAG
+ * grant here (via the traveling result handler) and the membership through the facade → Registry.
+ * The invitee's first login finds everything in place; the live submission state rides
+ * `_InviteStatus` rows (a platform-fixed Resources type, org-visible at the node per ADR-008).
+ *
+ * The grant is written by `resourcesResults.onInviteResult`, which the facade's answer reaches at
+ * the Star's fire-back door, `__handleResponse` — the path where `onBeforeCall` runs and the mark is
+ * not consulted. *Writes the grant at invite time* is that path's witness; a reaper's local path is
+ * `reaper-wiring.test.ts`'s.
  *
  * ADR-009 rung 2 (the whole baseline lane): real founding, real invites, real server-issued
  * logins. Every persisted effect is asserted through a real login or the running data plane —
@@ -32,7 +37,7 @@ function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0,
 function nodeInvite(client: NebulaClient, nodeId: string, invitees: unknown): Promise<NodeInviteAck> {
   return client.lmz.callAsync(
     'STAR', client.claims.aud,
-    client.ctn<Star>().invite(nodeId, invitees as any),
+    client.ctn<Star>().resources.invite(nodeId, invitees as any),
   );
 }
 
@@ -86,7 +91,7 @@ describe('PLATFORM_RESOURCE_TYPES — the reserved "_" namespace refuses loudly'
   });
 });
 
-describe('Star.invite — scenario 5 end to end', () => {
+describe('Star.resources.invite — scenario 5 end to end', () => {
   it('writes the grant at invite time; the invitee\'s first login resolves the permission with nothing left to apply', async () => {
     const star = uniqueStar();
     const { client: admin } = await starWithOntology(star);
@@ -162,14 +167,14 @@ describe('Star.invite — scenario 5 end to end', () => {
   });
 });
 
-describe('Star.invite — the first-touch gate (no ontology installed)', () => {
+describe('Star.resources.invite — the first-touch gate (no ontology installed)', () => {
   // The pure half of the server-originated first-touch arm: a Star that has NEVER installed
   // an ontology answers an invite with the same `installing` retry contract every data op
   // carries, instead of the raw "No ontology cached" throw from deeper in the plane. The
   // CONVERGENCE half (the pull-current actually installing the Galaxy's applied row and the
   // retry succeeding) is the live tier's: `harness/scenarios/node-invite-roundtrip.ts` limb 1
   // — in this lane the baseline Galaxy has no applied row, so converging is not constructible.
-  // Mutation: comment the gate out of `Star.invite` → the raw plane error (name `Error`)
+  // Mutation: comment the gate out of `Star.resources.invite` → the raw plane error (name `Error`)
   // replaces the typed signal → both assertions red.
   it('an invite on a fresh Star answers the installing stale signal, never the raw plane throw', async () => {
     const star = uniqueStar();
@@ -187,7 +192,7 @@ describe('Star.invite — the first-touch gate (no ontology installed)', () => {
   });
 });
 
-describe('Star.invite — the validation boundary', () => {
+describe('Star.resources.invite — the validation boundary', () => {
   it('a malformed email joins the per-invitee errors without failing the batch', async () => {
     const star = uniqueStar();
     const { client: admin } = await starWithOntology(star);

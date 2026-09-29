@@ -8,12 +8,10 @@
  * D7/B1). Every `handleQueryUpdate(queryHash, …)` push then correlates by it.
  *
  * The hash is **canonical**: logically-equal queries (reordered keys, present-vs-
- * omitted `onPartial`/`orderBy`) MUST collapse to ONE `queryHash` (coalesces the
- * broadcast partition + makes re-subscribe idempotent — M3). We achieve this by
- * hashing a **normalized tuple in fixed field order** (NOT a raw `stringify` of the
- * object, which preserves key insertion order). `onPartial` is **excluded** — it's
- * a per-subscriber push-shape option read at delivery time, so two clients
- * differing only in `onPartial` share one query (one live row, one broadcast group).
+ * omitted `orderBy`) MUST collapse to ONE `queryHash` (coalesces the broadcast
+ * partition + makes re-subscribe idempotent — M3). We achieve this by hashing a
+ * **normalized tuple in fixed field order** (NOT a raw `stringify` of the object,
+ * which preserves key insertion order).
  */
 
 import { stringify } from '@lumenize/structured-clone';
@@ -23,9 +21,6 @@ import { stringify } from '@lumenize/structured-clone';
  *  an unknown one must fail closed server-side, not be a compile error for callers
  *  on a newer client. */
 export type QueryType = string;
-
-/** Per-push response shape for a subscriber WITH denials. Default `'allow'`. */
-export type OnPartial = 'error' | 'allow';
 
 /** v1 accepts only `'validFrom'` (the default); other keys are additive. */
 export type OrderBy = 'validFrom';
@@ -41,25 +36,24 @@ export interface QueryDescriptor {
   field: string;
   /** The parent id the to-one `field` must equal. */
   value: string;
-  /** Per-push shape for a has-denial subscriber; default `'allow'`. NOT hashed. */
-  onPartial?: OnPartial;
   /** Result ordering; v1 only `'validFrom'` (default). */
   orderBy?: OrderBy;
 }
 
-/** A membership push payload. `resourceIds` = readable ids (ordered); absent on
- *  `onPartial:'error'` with denials. `deniedNodes` = denied node ids (request-access). */
+/** A membership push payload. `resourceIds` = the ids the subscriber can read, ordered;
+ *  `deniedNodes` = the nodes holding results it cannot read (ADR-008 — told, never silently
+ *  dropped), and the request-access UI's input. */
 export interface QueryUpdatePayload {
   resourceIds?: string[];
   deniedNodes?: string[];
 }
 
 /** One entry in a query's subscriber-list roster — a distinct PERSON (deduped by `sub`) subscribed to a
- *  query's data, with their public `profileId` display handle. `profileId` is absent on a pre-rollout
- *  token. "Presence" (who's online) is the first use case. tasks/nebula-subscriber-lists.md. */
+ *  query's data, with their public `profileId` display handle, which every token carries. "Presence"
+ *  (who's online) is the first use case. */
 export interface SubscriberEntry {
   sub: string;
-  profileId?: string;
+  profileId: string;
 }
 
 /** A subscriber-list roster push payload — the DISTINCT-by-`sub` roster of a query's data-subscribers,
@@ -97,8 +91,7 @@ function fnv1a64(s: string): string {
  * `resourceId` for single-resource subs). Hashes a fixed-order tuple of the
  * IDENTITY fields (`queryType`, `typeName`, `field`, `value`, `orderBy` with its
  * default normalized) via the shared isomorphic `stringify` (ADR-002 fidelity) +
- * the sync `fnv1a64`. `onPartial` is deliberately absent (M3). Stable across clients
- * and across re-subscribes.
+ * the sync `fnv1a64`. Stable across clients and across re-subscribes.
  */
 export function canonicalQueryHash(query: QueryDescriptor): string {
   const tuple = [

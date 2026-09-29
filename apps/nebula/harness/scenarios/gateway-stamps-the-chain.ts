@@ -29,13 +29,13 @@
  *
  * ⚠️ **The data-plane limb runs on the Galaxy's chat plane, not a Star's.** A Star serves resources
  * only for an installed ontology, and installing one takes a container build; the Galaxy's chat
- * ontology self-seeds, and its `ResourceDataPlane` subscribe and post-commit fan-out are the code a
+ * ontology self-seeds, and its `Resources` subscribe and post-commit fan-out are the code a
  * Star runs. This keeps the scenario container-free.
  *
  * ⚠️ **Row order is what made the old hole cost a bystander, so it is chosen, not left to chance.**
- * The Profile's and the Galaxy's `Subscribers` tables are `WITHOUT ROWID`, keyed by `clientId`
- * (the Galaxy's by `(resourceId, clientId)`), and each fan-out reads them with no `ORDER BY`, which
- * scans key order. The forging tab's name sorts first (`.a-forger`) and the honest tab's last
+ * The Profile's `Subscribers` table and the Galaxy's `Subscriptions` table are `WITHOUT ROWID`, the
+ * Profile's keyed by `clientId` and the Galaxy's by `(kind, topic, clientId)`, and each fan-out reads
+ * one topic's rows with no `ORDER BY`, which scans key order. The forging tab's name sorts first (`.a-forger`) and the honest tab's last
  * (`.z-honest`), so a throw at the forged row reaches the honest tab. If that order ever changed, the
  * limbs would still hold on a correct tree; only their mutation check would weaken.
  *
@@ -305,7 +305,7 @@ export async function run(stack: DevStack): Promise<void> {
     const subscribeProfile = () => forger.client.lmz.callAsync('PROFILE', profileId,
       forger.client.ctn<{ subscribe(): void }>().subscribe(), { timeoutMs: 15_000 });
     const subscribeChat = () => forger.client.lmz.callAsync('GALAXY', SCOPE,
-      forger.client.ctn<Galaxy>().subscribe(CHAT_MESSAGE_ONTOLOGY_VERSION, 'Chat', chatId), { timeoutMs: 15_000 });
+      forger.client.ctn<Galaxy>().resources.subscribe(CHAT_MESSAGE_ONTOLOGY_VERSION, 'Chat', chatId), { timeoutMs: 15_000 });
     let edits = 0;
     const writeProfile = () => writer.client.updateMyProfile({ nickname: `chain-${++edits}` });
     const renameChat = () => writer.client.resources.transaction({

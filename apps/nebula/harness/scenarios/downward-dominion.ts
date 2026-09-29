@@ -3,7 +3,7 @@
  *
  * A **universe** admin, obtained by a REAL email login (`provisionAndLogin`, ADR-009 rung 1), acts
  * on a Galaxy beneath itself where it holds **no DAG grant at all**, and the write COMMITS — via
- * the scope-admin bypass in `DagTree.requirePermission`. A non-admin at that same Galaxy is DENIED
+ * the scope-admin bypass in `OrgTree.requirePermission`. A non-admin at that same Galaxy is DENIED
  * the identical op, which is what proves the first result is the bypass rather than an ungated
  * scope. (Pre-collapse this drove a `.dev` Star; the collapse re-homed the harness's resource
  * plane onto the Galaxy chat host, and the subject — the bypass — is host-agnostic.)

@@ -7,7 +7,8 @@
  * `Message where session == S`; client B creates / reparents / deletes Messages; A's
  * `resourceIds` tracks the full ordered membership, content arrives via lazy
  * per-resource subs for the rendered window ONLY, a resource A loses read on falls
- * out, and a windowed id that leaves+returns within grace keeps its content sub.
+ * out at the next write, and a windowed id that leaves+returns within grace keeps
+ * its content sub.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -123,7 +124,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     a[Symbol.dispose](); b[Symbol.dispose]();
   });
 
-  it('a resource A loses read on falls out of A\'s membership set', async () => {
+  it('a resource A loses read on falls out of A\'s membership set at the next write', async () => {
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const S = crypto.randomUUID();
@@ -151,10 +152,15 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([tA, tB].sort()));
     expect(sub.deniedNodes).toEqual([]);
 
-    // Revoke read on nodeB → the permission rerun drops tB from the user's set and
-    // surfaces the denied node (no inheritance from the sibling nodeA grant).
+    // Revoke read on nodeB, then write. The server re-runs nothing on a permission change, so
+    // the loss shows at the next update to what the user watches: here, a new Message of S. It
+    // drops tB and names nodeB (no inheritance from the sibling nodeA grant).
     await admin.orgTree.revokePermission(nodeB, payload.sub);
-    await vi.waitFor(() => expect(sub.resourceIds).toEqual([tA]));
+    const tC = crypto.randomUUID();
+    await admin.resources.transaction({
+      [tC]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { chat: S, content: 'c' } },
+    });
+    await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([tA, tC].sort()));
     expect(sub.deniedNodes).toEqual([nodeB]);
 
     admin[Symbol.dispose](); user[Symbol.dispose]();

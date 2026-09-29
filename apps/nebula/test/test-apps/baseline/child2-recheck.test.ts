@@ -6,8 +6,9 @@
  * devstudio-resources-e2e).
  *
  * Two pinned behaviors:
- *   1. A subscriber whose read grant is REVOKED stops receiving content pushes but
- *      its sub row REMAINS (no drop — ADR-008 / D5).
+ *   1. A subscriber whose read grant is REVOKED is told so — the next update carries
+ *      `{ deniedNodes: [nodeId] }`, never the content — and its row REMAINS (no drop,
+ *      ADR-008). Asserted on the RAW frame, since the client drops keys it does not read.
  *   2. A `claims.access.scopeAdmin` subscriber with NO DAG grant still receives pushes
  *      (the stored-dominionOverHostAtSubscribe bypass — D16).
  */
@@ -44,7 +45,7 @@ async function starAdmin(star: string) {
 }
 
 describe('child2 per-push read recheck (Phase 2 / D3)', () => {
-  it('revoked subscriber stops receiving content pushes; its sub row remains (D5 never-drop)', async () => {
+  it('revoked subscriber is told the node it lost, never the content; its row remains (never-drop)', async () => {
     const star = `${uniqueUniverse()}.app.tenant-a`;
     const { client: admin, payload: adminPayload } = await starAdmin(star);
 
@@ -100,9 +101,12 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     await waitForUpdateCount(anchor, 3);
     expect((anchor.lastResourceUpdate?.snapshot?.value as { title?: string })?.title).toBe('v2-after-revoke');
 
-    // The revoked user did NOT receive the post-revoke push (recheck skipped it).
-    // Mutation: remove the recheck → user gets the push, count climbs → red.
-    expect(user.resourceUpdateCount).toBe(userCountAfterGrant);
+    // The revoked user is told it lost read, and gets nothing from the snapshot. Asserted on
+    // CONTENT, not a count: a leak and a denial are both one push. Mutations: remove the recheck
+    // (it gets `v2-after-revoke`), restore the skip (nothing arrives), send the denial as an
+    // Error, or attach the snapshot to it → each reds here.
+    await vi.waitFor(() => expect(user.resourceUpdateCount).toBeGreaterThan(userCountAfterGrant));
+    expect(user.lastResourceResult).toEqual({ deniedNodes: [nodeId] });
 
     // But the user's sub row REMAINS (never dropped — D5).
     admin.callStarInspectSubscribers(star);
@@ -127,7 +131,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     const eTag = created.eTags[rid];
 
     // A second admin connects after the root-admin latch is set → access.scopeAdmin: true but NO DAG
-    // grant of its own. Its Subscribers row stores dominionOverHostAtSubscribe = 1.
+    // grant of its own. Its resource row stores dominionOverHostAtSubscribe = 1.
     // ⚠️ It must be the PLATFORM bootstrap admin (`*`), not a second universe admin: only one
     // admin can exist per universe (`claim-universe` is the sole admin-minting path and the
     // slug is unique), so the old `universe-admin@example.com` identity is unmintable. The

@@ -7,7 +7,7 @@ export { NebulaDO, requireDominionHere, requirePassage } from './nebula-do';
 export { Universe } from './universe';
 export { Galaxy, requireChatWrite, assertModelPath, LOOP_TOOL_ENTRIES } from './galaxy';
 export { Star } from './star';
-export type { NodeInvitee, NodeInviteAck } from './resource-data-plane';
+export type { NodeInvitee, NodeInviteAck } from './resources';
 
 // Ontology — TYPES only. The compile fn is deliberately NOT re-exported: this barrel
 // reaches `src/worker.ts`, and the compiler must stay out of the deployed Worker's
@@ -16,29 +16,26 @@ export type { NodeInvitee, NodeInviteAck } from './resource-data-plane';
 // compiles imports `./ontology-compile` directly.
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
 
-// Resources
-export { Resources, END_OF_TIME } from './resources';
-export type { SnapshotMeta, Snapshot, WireActingToken, TransactionResult, TransactionError } from './resources';
+// Snapshots — the temporal storage engine
+export { Snapshots, END_OF_TIME } from './snapshots';
+export type { SnapshotMeta, Snapshot, WireActingToken, TransactionResult, TransactionError } from './snapshots';
 // The server-internal wire op shape (eTag-required put/move/delete, no typeName
 // on those — the server reads it from the current snapshot). Distinct from the
 // public client `OperationDescriptor` (typeName on every op, eTag auto-derived).
-// Exposed for harnesses/tests that drive `Star.transaction` directly.
-export type { OperationDescriptor as WireOperationDescriptor } from './resources';
+// Exposed for harnesses/tests that drive `Star.resources.transaction` directly.
+export type { OperationDescriptor as WireOperationDescriptor } from './snapshots';
 
-// Subscriptions
+// Subscriptions — every kind a host holds, in one registry
 export { Subscriptions } from './subscriptions';
-export type { SubscriberRow } from './subscriptions';
-
-// Query subscriptions (Child 2)
-export { QuerySubs } from './query-subscriptions';
-export type { QuerySubscriberRow } from './query-subscriptions';
+export type {
+  SubscriptionKind, SubscriberRow, QuerySubscriberRow, AddressRow, DroppedAddress, ResourceSubscribeOutcome,
+} from './subscriptions';
 export { canonicalQueryHash } from './query-hash';
-export type { QueryDescriptor, QueryUpdatePayload, QueryType, OnPartial, OrderBy, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
+export type { QueryDescriptor, QueryUpdatePayload, QueryType, OrderBy, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 
-// Resource data-plane capability (Child 1) — the composable host for Resources,
-// shared by Star + Galaxy (ADR-007).
-export { ResourceDataPlane } from './resource-data-plane';
-export type { OntologyProvider, ResourceHostBridge, BroadcastTarget } from './resource-data-plane';
+// The resources plane — composed by the Star and the Galaxy alike (ADR-007).
+export { Resources } from './resources';
+export type { OntologySource, InstalledOntology, ResourcesHost, ResourcesRequests, ResourcesResults } from './resources';
 
 // The platform chat ontology: pure strings from the client-safe leaf; the compiled
 // seed row from the server-only module.
@@ -65,9 +62,9 @@ export {
   NoOntologyInstalledError, isNoOntologyInstalledError,
 } from './errors';
 
-// DAG tree
-export { DagTree } from './dag-tree';
-export type { PermissionTier, DagTreeState, DagTreeView, DagTreeNodeData, EdgeKey } from './dag-ops';
+// The org tree
+export { OrgTree } from './org-tree';
+export type { PermissionTier, OrgTreeState, OrgTreeView, OrgTreeNodeData, EdgeKey } from './org-ops';
 export {
   ROOT_NODE_ID,
   validateSlug,
@@ -77,9 +74,9 @@ export {
   getEffectivePermission,
   getNodeAncestors,
   getNodeDescendants,
-  buildDagTreeView,
+  buildOrgTreeView,
   makeEdgeKey,
-} from './dag-ops';
+} from './org-ops';
 
 // Gateway
 export { NebulaClientGateway } from './nebula-client-gateway';
@@ -98,6 +95,8 @@ export type {
   ResourceHandler,
   ConflictResolverVerdict,
   ResourceSubscription,
+  ResourceDenied,
+  ResourceStoreEntry,
   QuerySubscription,
   SubscribeQueryOptions,
 } from './nebula-client';

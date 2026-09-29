@@ -3,12 +3,14 @@
  * the collapse of DevStudio into Galaxy).
  *
  * Two things, neither needing a Gateway/client:
- *  1. **Frozen @mesh surface (m5), in THREE tiers:** the resource methods are bare
- *     `@mesh()` (DAG-gated per op inside the plane); the source entries — every entry
- *     `LOOP_TOOL_ENTRIES` names plus the Apply — sit at the CHAT FLOOR
- *     (`requireChatWrite`, the door a Message create passes); Galaxy configuration keeps
- *     `requireDominionHere`. The invite RESULT handler is not mesh-callable at all (the
- *     forge-grant fence), and the deleted initial-load cue (`warmPreview`) stays deleted
+ *  1. **Frozen surface, in THREE tiers plus what the door hands back.** Every entry reachable
+ *     on the Galaxy's whole prototype chain: the bare `@mesh()` door `resources` and the
+ *     registry and config reads; the source entries — every entry `LOOP_TOOL_ENTRIES` names plus
+ *     the Apply — at the CHAT FLOOR (`requireChatWrite`, the door a Message create passes); and
+ *     configuration and the inherited `teardown` at dominion. Past the door the plane's
+ *     `requests` and `results` member lists are frozen, and so is `OrgTree`'s, which `requests`
+ *     hands out as `orgTree` — past a gate nothing is checked, so a member added there is on the
+ *     wire the moment it is written. The deleted initial-load cue (`warmPreview`) stays deleted
  *     on both ends.
  *  2. **Facet behavior on Galaxy:** the composed Session/Message provider mounts +
  *     enforces the ADR-006 embed-guard (SC3), coexists with the tool-args facet in
@@ -17,7 +19,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
+import { isMeshCallable } from '@lumenize/mesh';
+import { meshEntries } from '../mesh-surface';
 import { Galaxy, requireChatWrite, LOOP_TOOL_ENTRIES } from '../../../src/galaxy';
 import { NebulaClient } from '../../../src/nebula-client';
 import { requireDominionHere } from '../../../src/nebula-do';
@@ -35,43 +38,42 @@ async function callGalaxy(instance: string, method: string, args: unknown[] = []
   const stub = (env as any).GALAXY.getByName(instance);
   return (runInDurableObject as any)(stub, (inst: any) => inst[method](...args));
 }
+/** Run `fn` inside a Galaxy and return what it returns. */
+async function callGalaxyInDO<T>(instance: string, fn: (inst: unknown) => T): Promise<T> {
+  return (runInDurableObject as any)((env as any).GALAXY.getByName(instance), fn);
+}
 
 type Tier = 'bare' | 'chat' | 'dominion';
 
-/** Walk Galaxy's OWN prototype for mesh-callable methods, partitioned by guard tier. */
+/** The Galaxy's mesh entries of one guard tier, over its whole prototype chain. */
 function meshMethods(tier: Tier): string[] {
-  const proto = Galaxy.prototype;
-  const out: string[] = [];
-  for (const name of Object.getOwnPropertyNames(proto)) {
-    if (name === 'constructor') continue;
-    const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
-    if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    const guard = getMeshGuard(fn);
-    const actual: Tier = guard === requireDominionHere ? 'dominion' : guard === requireChatWrite ? 'chat' : 'bare';
-    if (actual === tier) out.push(name);
-  }
-  return out.sort();
+  return meshEntries(Galaxy)
+    .filter(({ guard }) => (guard === requireDominionHere ? 'dominion' : guard === requireChatWrite ? 'chat' : 'bare') === tier)
+    .map(({ name }) => name);
 }
 
-describe('Galaxy @mesh surface freeze (m5) — three guard tiers', () => {
+/** Every name a surface object exposes, own and inherited, stopping before Object.prototype. */
+function surfaceNames(surface: object): string[] {
+  const seen = new Set<string>();
+  for (let o: object | null = surface; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+    for (const n of Object.getOwnPropertyNames(o)) if (n !== 'constructor') seen.add(n);
+  }
+  return [...seen].sort();
+}
+
+describe('Galaxy @mesh surface freeze — three guard tiers, and what the door hands back', () => {
   // Freeze the bare surface: a resource method accidentally shipped with a guard LEAVES
   // this set (→ red); a source or config method accidentally shipped bare ENTERS it (→ red).
   it('bare @mesh surface == the resource + registry-read surface, exactly', () => {
     expect(meshMethods('bare')).toEqual(
       [
-        // Ontology-registry reads — passage-gated only; getOntologyVersion is the
-        // Star's UPWARD lazy-pull target and getCurrentOntology its first-touch arm
-        // (every member of a descendant scope reaches both).
+        // Ontology-registry reads — passage-gated only: getCurrentOntology is what a Star's pull
+        // reads, and getOntologyVersion one applied row by label (every member of a descendant
+        // scope reaches both).
         'getCurrentOntology', 'getGalaxyConfig', 'getOntologyVersion',
-        // The DagTree gate + the invite ENTRY (DAG-gated per-op inside the plane).
-        'dagTree', 'invite',
-        // The resource data-plane surface — chat participants are non-admin but DAG-granted.
-        'read', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers',
-        'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
-        // Broadcast fire-back handlers — still marked, though no framework path dispatches to them as a request.
-        'onBroadcastResult', 'onQueryBroadcastResult', 'onQuerySubscriberListBroadcastResult',
-        // (No reload channel here: cb1e878 deleted the Galaxy reload fan-out — a build
-        // replies to whoever asked via announceBuildToRequester; Star's channel stays.)
+        // The one door onto the resource plane — every op, the org tree and the node invite
+        // behind it check themselves (chat participants are non-admin but DAG-granted).
+        'resources',
       ].sort(),
     );
   });
@@ -87,10 +89,41 @@ describe('Galaxy @mesh surface freeze (m5) — three guard tiers', () => {
     expect(chat).toEqual(['applyOntology', 'buildNow', 'readSource', 'writeSource']);
   });
 
-  it('the DOMINION list is exactly Galaxy configuration: setGalaxyConfig', () => {
+  it('the DOMINION list is exactly Galaxy configuration and the inherited teardown', () => {
     // A source entry accidentally shipped with requireDominionHere ENTERS this set → red;
-    // a config method dropped to the chat floor LEAVES it → red.
-    expect(meshMethods('dominion')).toEqual(['setGalaxyConfig']);
+    // a config method dropped to the chat floor LEAVES it → red. `teardown` is `NebulaDO`'s,
+    // wire-reachable on every host, which is why the walk climbs the whole chain.
+    expect(meshMethods('dominion')).toEqual(['setGalaxyConfig', 'teardown']);
+  });
+
+  it('what the door hands back is frozen: `requests`, `results`, and the `OrgTree` behind `requests.orgTree`', async () => {
+    // Past the gate nothing is checked, so every member here is wire-reachable (`requests`) or
+    // reached by the node's own answers (`results`, behind an unmarked getter). Read off a live
+    // Galaxy, since both are closures built per plane.
+    const surfaces = await callGalaxyInDO(uniqueGalaxyScope(), (inst: any) => ({
+      requests: surfaceNames(inst.resources),
+      results: surfaceNames(inst.resourcesResults),
+      orgTreeOwn: Object.getOwnPropertyNames(inst.resources.orgTree),
+      orgTreeMethods: Object.getOwnPropertyNames(Object.getPrototypeOf(inst.resources.orgTree))
+        .filter((n) => n !== 'constructor').sort(),
+    }));
+    expect(surfaces.requests).toEqual([
+      'invite', 'orgTree', 'read', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers', 'subscribeTree',
+      'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
+    ]);
+    expect(surfaces.results).toEqual([
+      'onBroadcastResult', 'onInviteResult', 'onOntologyPulled', 'onQueryBroadcastResult',
+      'onQuerySubscriberListBroadcastResult', 'onTreeBroadcastResult',
+    ]);
+    // The OrgTree's own state is `#` fields only: a TypeScript-`private` field is an own property,
+    // walked like any other, and would put the tree's cache on the wire.
+    expect(surfaces.orgTreeOwn).toEqual([]);
+    // Every public method is wire-reachable as `resources.orgTree.<name>`; each checks itself.
+    expect(surfaces.orgTreeMethods).toEqual([
+      'addEdge', 'checkPermission', 'createNode', 'deleteNode', 'evaluatePermissions', 'getEffectivePermission',
+      'getNodeAncestors', 'getNodeDescendants', 'getState', 'relabelNode', 'removeEdge', 'renameNode',
+      'reparentNode', 'requirePermission', 'revokePermission', 'setPermission', 'undeleteNode',
+    ]);
   });
 
   it('warmPreview is gone on BOTH ends — the Galaxy and the NebulaClient prototypes', () => {
@@ -111,12 +144,14 @@ describe('Galaxy @mesh surface freeze (m5) — three guard tiers', () => {
     expect(keys).toEqual(['build', 'edit_file', 'read_file', 'write_file']);
   });
 
-  it('onInviteResult is NOT mesh-callable — the forge-grant fence', () => {
-    // The fire-back lands via __handleResponse (allowlist off); an @mesh here would let
-    // any in-scope caller forge an invite outcome and write themselves grants.
-    const fn = (Galaxy.prototype as unknown as Record<string, unknown>).onInviteResult;
-    expect(typeof fn).toBe('function');
-    expect(isMeshCallable(fn as (...a: unknown[]) => unknown)).toBe(false);
+  it('onInviteResult is gone from the Galaxy, and `resourcesResults`, where it now lives, carries no mark', () => {
+    // The invite's fire-back lands through `resourcesResults.onInviteResult`. A host forward,
+    // marked or not, would be a second route to that body; a mark on the getter would also open
+    // `onOntologyPulled`, which installs whatever row it is handed.
+    expect('onInviteResult' in Galaxy.prototype).toBe(false);
+    const d = Object.getOwnPropertyDescriptor(Galaxy.prototype, 'resourcesResults')!;
+    expect(typeof d.get).toBe('function'); // positive control: the fence exists, as a getter
+    expect(isMeshCallable(d.get as (...a: unknown[]) => unknown)).toBe(false);
   });
 
   it('the mesh surface offers NO `chat` method at all — the commit IS the trigger', () => {

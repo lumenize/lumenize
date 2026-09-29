@@ -4,7 +4,7 @@
  * and returns WITHIN the grace window keeps its live content sub (no churn). Driven
  * through the PUBLIC `client.resources.subscribeQuery` against Star (so
  * `inspectSubscribers` can witness the per-resource content subs directly — the
- * server's Subscribers table is the only place the transient un/re-subscribe shows).
+ * server's resource rows are the only place the transient un/re-subscribe shows).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';

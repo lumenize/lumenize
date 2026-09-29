@@ -3,8 +3,8 @@
  *
  * Tests that mutations on a Star fan out to non-originator subscribers via
  * `handleResourceUpdate`, that originators are excluded (BroadcastChannel
- * semantics), and that ontology-version installs clear the Subscribers
- * registry.
+ * semantics), and that ontology-version installs clear the resource rows in the Subscriptions
+ * table.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -213,7 +213,7 @@ describe('star-fanout', () => {
     const snap = b.client.lastResourceUpdate!.snapshot as Snapshot;
     expect(snap).not.toBeNull();
     expect(snap.meta.deleted).toBe(true);
-    // Value carries through from the pre-delete snapshot per resources.ts
+    // Value carries through from the pre-delete snapshot per snapshots.ts
     // semantics (soft delete preserves the last value).
     expect(snap.value.title).toBe('About to be deleted');
 
@@ -221,7 +221,7 @@ describe('star-fanout', () => {
     b.client[Symbol.dispose]();
   });
 
-  it('ontology version install clears all Subscribers rows', async () => {
+  it('ontology version install clears every resource row', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
     const resourceId = crypto.randomUUID();
@@ -244,9 +244,8 @@ describe('star-fanout', () => {
     });
     await waitForResult(a.client);
 
-    // Trigger Star to install v2 by issuing a v2 read — this exercises the
-    // cache-miss → Galaxy fetch → #installState path, which calls
-    // Subscriptions.clear() when prevLatest !== row.version.
+    // A v2 read after the v2 install: the install replaced v1, so the plane's drain
+    // (`Subscriptions.clear`) has already run.
     a.client.callStarRead(star, 'v2', resourceId);
     await waitForResult(a.client);
 

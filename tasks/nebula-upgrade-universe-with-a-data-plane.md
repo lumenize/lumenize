@@ -20,16 +20,16 @@ start collecting one.
 - **Follows [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md).** That task
   settles the gate shape and moves every guard into the plane; this one composes the same plane onto
   a third host and should inherit the finished contract rather than a moving one. ⚠️ **What it
-  settles is now TWO accessors, not one** (2026-09-21): a `@mesh() resources()` door and a
-  decorator-less `resourcesResults()` reached only on the response leg, each returning a narrow
-  facade rather than the plane. Read § *The surface, allocated* for the member lists; the Universe
+  settles is now TWO accessors, not one** (2026-09-21): a `@mesh() get resources` door and a
+  decorator-less `get resourcesResults` reached only on the response leg — both GETTERS — each
+  returning a narrow facade rather than the plane. Read § *The surface, allocated* for the member lists; the Universe
   supplies both, and the door is still the only `@mesh()` entry.
 - **It also inherits RETIRING THE THREE CONFIG PAIRS** (handed over 2026-09-22; that task proposed
   the deletion and the scope was cut to here, because this is the file that authors their
   replacement). `setUniverseConfig`/`getUniverseConfig` and the Galaxy and Star pairs all go when the
   scope-metadata Resource lands — one blast radius rather than two. **Two preconditions, both
   measured rather than assumed:**
-  - **`coalesceWindowMs` needs a home FIRST.** `Resources` bootstraps it into the same `'config'` KV
+  - **`coalesceWindowMs` needs a home FIRST.** `Snapshots`, the storage engine, bootstraps it into the same `'config'` KV
     bag and reads it on every write to decide snapshot coalescing, and `setStarConfig` is its only
     setter — so the Star pair is not a probe surface and cannot simply be deleted. A constant, a
     plane accessor, or a field on the new type.
@@ -58,12 +58,12 @@ export class Universe extends NebulaDO {
 }
 ```
 
-- **`Galaxy` and `Star` each compose `ResourceDataPlane`** with six arguments today — `ctx`, a
-  call-context thunk, an ontology provider, the `ResourceHostBridge` of host-side mesh I/O, an
-  `onDagChanged` hook and a host-name thunk. *Adapted:*
-  [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) lands first and deletes
-  `onDagChanged` (its D15), because the plane fans out its own orgTree changes — every plane has an
-  orgTree. So the Universe supplies five, and has no hook to choose.
+- **`Galaxy` and `Star` each compose `Resources`** with four arguments — `ctx`, a thunk
+  returning the host's `lmz`, an ontology provider, and an optional post-commit hook. *Adapted:*
+  [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) collapsed the six
+  it had into these (its D22): the plane sends every update and fans out its own orgTree changes
+  through the handle — every plane has an orgTree. So the Universe supplies at most four, and has
+  no fan-out to write.
 - **A platform ontology is authored in code and precompiled before deploy.** `chat-constants.ts` is
   the input, `scripts/gen-validator-seeds.ts` emits a committed row into `validator-seeds.ts`, the
   package `test` script runs that generator with `--check` ahead of vitest so a drifted literal reds
@@ -99,7 +99,7 @@ question with one answer shape.
 
 ## Open questions
 
-- **Does the Universe need a `DagTree` at all?** The plane brings one, and on a Star it carries the
+- **Does the Universe need an `OrgTree` at all?** The plane brings one, and on a Star it carries the
   org tree the whole permission model reads. A Universe's resources may be adequately governed by
   passage and dominion alone, in which case the DAG is composed but unused — carried for uniformity,
   or a reason to split the plane so a host can take resources without a tree.
@@ -134,11 +134,16 @@ criterion a fixture, a mutation and a positive control.
 - **A name is written by dominion and read by passage.** A member of a galaxy beneath the universe
   reads the account name; a member of another universe is refused, matched by message. Mutation:
   widen the read to any authenticated caller and the second read succeeds.
-- **The Universe exposes one door.** `grep -cE '^\s*@mesh\(' apps/nebula/src/universe.ts` returns 2
-  today; the phase records what it returns after, and the expected set is named by symbol. Mutation:
-  re-expose a resource operation on the host and the count rises against a named set. ⚠️ The count is
-  `@mesh(` lines only — `resourcesResults()` carries no decorator by design, so it never appears in
-  it, and a separate assertion owes that absence: `expect(isMeshCallable(Universe.prototype.resourcesResults)).toBe(false)`.
+- **The Universe exposes one door.** Derive the Universe's mesh entries with `meshEntries(Universe)`
+  (`apps/nebula/test/test-apps/mesh-surface.ts`), which walks the whole prototype chain and so sees
+  the inherited `NebulaDO.teardown` a `grep` of `universe.ts` misses; `scope-isolation.test.ts`'s
+  Universe row freezes it today. The phase names the expected set by symbol. Mutation: re-expose a
+  resource operation on the host and the set grows. ⚠️ `resourcesResults` carries no decorator by
+  design, so it never appears there, and a separate assertion owes that absence — read off the
+  DESCRIPTOR, since reading `Universe.prototype.resourcesResults` invokes the getter where the
+  `#resources` brand check throws: `isMeshCallable(d.get ?? d.value)` is false for
+  `d = Object.getOwnPropertyDescriptor(Universe.prototype, 'resourcesResults')`, with the positive
+  control that `d.get` is a function, as `resources-door.test.ts` does for the Star and the Galaxy.
 - **The config pairs are gone and nothing lost a guard.** Every `/live` limb that read a config
   method reads its replacement instead and still discriminates by message, and `coalesceWindowMs`
   survives the deletion with a named home. Mutation: delete the pair without re-pointing a limb and

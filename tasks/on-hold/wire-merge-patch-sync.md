@@ -59,7 +59,7 @@ If 10 mutations happen in 50 ms, do we send 10 patches or 1 coalesced patch? Lik
 
 To compute `diff(prev, new)` for fanout, the server needs the *immediately previous* W4 snapshot. The DAG normalization that landed pre-demo solved the *in-memory* shape but didn't decide *where* the previous state lives. Three options, in order of recommendation:
 
-**C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: W4 | null` reference on the DagTree class (or in Star). Flow:
+**C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: W4 | null` reference on the OrgTree class (or in Star). Flow:
 1. Mutation happens → invalidate state cache (current behavior).
 2. Next access rebuilds state from rows (current behavior).
 3. On fanout: compute `newSnapshot = preprocess(state)` (needed anyway to send), `patch = diff(lastFanoutSnapshot, newSnapshot)`, fan out.
@@ -67,7 +67,7 @@ To compute `diff(prev, new)` for fanout, the server needs the *immediately previ
 
 No storage changes, no new abstractions. Drift-proof. The "previous snapshot" is a single in-memory reference, refreshed on every fanout. Eviction → `lastFanoutSnapshot` is null → first fanout after wake sends full snapshot (acceptable; rare event).
 
-**A — Whole DAG as a single Resource row (also strong).** Serialize the entire `DagTreeState` to one row; let Resources' built-in `validFrom`/`validTo` give us versioning for free. On fanout, the "previous version" is a storage read.
+**A — Whole DAG as a single Resource row (also strong).** Serialize the entire `OrgTreeState` to one row; let Resources' built-in `validFrom`/`validTo` give us versioning for free. On fanout, the "previous version" is a storage read.
 
 Pros vs C:
 - Cold-load reads collapse from `O(N + E + P)` row-reads (full table scans) to **1 row-read**. For 1k-node trees that's ~2.5k rows → 1.
@@ -89,7 +89,7 @@ Cons / unknowns:
 
 ### Server-side (Star)
 
-1. Star tracks the W4-encoded snapshot of `DagTreeState` per ontology version (or computes lazily from the current normalized state). Snapshot ETag = content hash.
+1. Star tracks the W4-encoded snapshot of `OrgTreeState` per ontology version (or computes lazily from the current normalized state). Snapshot ETag = content hash.
 2. On every mutation: recompute the W4 snapshot, compute `patch = diff(prev, new)` once.
 3. Fanout: send `{ patch, fromETag, toETag }` to every subscribed client.
 4. If a subscriber's known ETag doesn't match `prev`'s ETag → send a full snapshot instead.
@@ -110,7 +110,7 @@ Cons / unknowns:
 
 ### DAG test coverage
 
-Extend `dag-tree.test.ts` (or add `dag-tree-sync.test.ts`):
+Extend `org-tree.test.ts` (or add `org-tree-sync.test.ts`):
 - subscribe-and-get-snapshot
 - mutate-and-get-patch
 - missed-patch-recovers-via-snapshot
@@ -152,11 +152,11 @@ Extend `dag-tree.test.ts` (or add `dag-tree-sync.test.ts`):
 
 ## Adjacent DAG optimization: lazy access-control reads
 
-Independent of the patch-sync work but landing in the same cost-efficiency theme. Worth capturing here because the implementation reshapes the DagTree class's read paths and conflicts conceptually with the diff-source-of-truth design — they should be decided together.
+Independent of the patch-sync work but landing in the same cost-efficiency theme. Worth capturing here because the implementation reshapes the OrgTree class's read paths and conflicts conceptually with the diff-source-of-truth design — they should be decided together.
 
 ### Motivation
 
-After Phase 3 (DAG normalization), every cold-path access to `DagTree.requirePermission(...)` triggers `#buildState()`, which is a full-table scan of `Nodes`, `Edges`, and `Permissions` (~`N + E + P` row reads — ~2.5k rows for a 1k-node DAG). Under DO hibernation (10s idle → eviction), every wake-up pays this cost on the very first request.
+After Phase 3 (DAG normalization), every cold-path access to `OrgTree.requirePermission(...)` triggers `#buildState()`, which is a full-table scan of `Nodes`, `Edges`, and `Permissions` (~`N + E + P` row reads — ~2.5k rows for a 1k-node DAG). Under DO hibernation (10s idle → eviction), every wake-up pays this cost on the very first request.
 
 But 99% of requests aren't DAG mutations — they're permission checks for normal resource operations. A permission check only needs to know "does `sub` have at least `tier` on `nodeId`?" — which is bounded by tree depth × upward fanout. For typical org trees (depth 3–6, fanout 1–2), that's 3–12 row reads — and usually fewer because the check short-circuits on a direct grant near the leaf.
 
@@ -166,7 +166,7 @@ But 99% of requests aren't DAG mutations — they're permission checks for norma
 
 Add a "cold mode" path that reads adjacency and grants from SQL on demand, used when `#_view` is null:
 
-1. `DagTree.requirePermission(nodeId, tier)`: if `#_view` exists, use the in-memory walk (current behavior). Otherwise, walk via per-node SQL.
+1. `OrgTree.requirePermission(nodeId, tier)`: if `#_view` exists, use the in-memory walk (current behavior). Otherwise, walk via per-node SQL.
 2. SQL walk for permission check on `(sub, nodeId, tier)`:
    - `SELECT permission FROM Permissions WHERE nodeId = ? AND sub = ?` (uses PK index)
    - If grant >= tier → return true
@@ -185,18 +185,18 @@ Add a "cold mode" path that reads adjacency and grants from SQL on demand, used 
 Cleanest design: a thin adapter interface so the walks themselves live once.
 
 ```ts
-interface DagTreeReader {
+interface OrgTreeReader {
   getDirectGrants(nodeId: number, sub: string): PermissionTier | null;
   getParents(nodeId: number): Iterable<number>;
 }
 ```
 
-- `InMemoryReader` wraps a `DagTreeView`
+- `InMemoryReader` wraps an `OrgTreeView`
 - `SqlReader` wraps `DurableObjectState['storage']`
 
-`resolvePermission(reader, sub, nodeId, tier)` and `getEffectivePermission(reader, sub, nodeId)` accept a `DagTreeReader` instead of (or in addition to) `DagTreeView`. The walking logic stays in one place.
+`resolvePermission(reader, sub, nodeId, tier)` and `getEffectivePermission(reader, sub, nodeId)` accept an `OrgTreeReader` instead of (or in addition to) `OrgTreeView`. The walking logic stays in one place.
 
-`DagTree.requirePermission()` picks: `reader = this.#_view ? new InMemoryReader(this.#_view) : new SqlReader(this.#ctx.storage)`.
+`OrgTree.requirePermission()` picks: `reader = this.#_view ? new InMemoryReader(this.#_view) : new SqlReader(this.#ctx.storage)`.
 
 Cycle detection, slug uniqueness, `getNodeAncestors`, `getNodeDescendants`: leave on the view path; mutations rebuild it anyway.
 
@@ -229,7 +229,7 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 | Phase | Scope | Where |
 |---|---|---|
 | A | DAG-tree sync — server fanout + client apply + tests | `apps/nebula/src/{star,nebula-client}.ts`, baseline tests |
-| B | Per-resource read sync — same primitives, different drivers | `apps/nebula/src/resources.ts`, NebulaClient resources API |
+| B | Per-resource read sync — same primitives, different drivers | `apps/nebula/src/snapshots.ts`, NebulaClient resources API |
 | C | Perf verification — synthetic benchmarks for both paths | `apps/nebula/test/browser/` or a new bench dir |
 
 Phase A depends on `tasks/archive/nebula-dag-normalize.md` shipping first. Phase B is independent of A and can ship in either order; co-shipping makes the most sense since the plumbing overlaps.

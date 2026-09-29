@@ -49,7 +49,7 @@ export interface SQLSchemaMigrationsConfig {
    *
    * **Override it when one DO composes multiple independently-migrated components**
    * — the composition pattern where each class owns its own tables (e.g. a Star DO
-   * hosting separate `Subscriptions` / `Resources` / `DagTree` units). Each unit
+   * hosting separate `Subscriptions` / `Snapshots` / `OrgTree` units). Each unit
    * runs its OWN `SQLSchemaMigrations` over its OWN migration list and MUST pass a
    * distinct `markerKey` (e.g. `'__sql_migrations_Subscribers'`); otherwise they
    * share one counter and clobber each other's progress. Must be non-empty.

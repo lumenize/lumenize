@@ -149,7 +149,7 @@ export class HarnessNebulaClient extends NebulaClient {
       this.lmz.callAsync(
         'STAR',
         starName,
-        (this.ctn() as any).transaction(ontologyVersion, newETag, ops),
+        (this.ctn() as any).resources.transaction(ontologyVersion, newETag, ops),
         { onSent },
       ).then((r: any) => this.#settle(r), (e: any) => this.#settle(e));
     });

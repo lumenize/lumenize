@@ -47,11 +47,11 @@ async function waitDone(c: NebulaClientTest): Promise<void> {
   await vi.waitFor(() => expect(c.callCompleted).toBe(true));
 }
 
-/** Count STAR `Subscribers` rows for `resourceId` (PK `(resourceId, clientId)`). */
+/** Count the STAR's resource rows for `resourceId` (PK `(kind, topic, clientId)`). */
 async function starSubRows(star: string, resourceId: string): Promise<number> {
   const stub: any = (env as any).STAR.getByName(star);
   return (runInDurableObject as any)(stub, (_i: any, c: any) =>
-    (c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers WHERE resourceId = ?', resourceId)
+    (c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'resource' AND topic = ?`, resourceId)
       .toArray()[0].n as number));
 }
 
@@ -76,10 +76,10 @@ describe('Profile channel — a dev-user `Profile` type does NOT collide with th
     // Drop the STAR row so ONLY a correct reconnect re-subscribe can restore it.
     const stub: any = (env as any).STAR.getByName(star);
     await (runInDurableObject as any)(stub, (_i: any, c: any) =>
-      c.storage.sql.exec('DELETE FROM Subscribers WHERE resourceId = ?', rid));
+      c.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'resource' AND topic = ?`, rid));
     expect(await starSubRows(star, rid)).toBe(0);
 
-    // The reconnect walk MUST re-fire `Star.subscribe(v, 'Profile', rid)` to the STAR. The shipped bug
+    // The reconnect walk MUST re-fire `Star.resources.subscribe(v, 'Profile', rid)` to the STAR. The shipped bug
     // routed any `resourceType === 'Profile'` entry to the global PROFILE DO instead — which would leave
     // the STAR row absent (silently losing this resource's updates).
     (client as any)._resubscribeAllForTest();

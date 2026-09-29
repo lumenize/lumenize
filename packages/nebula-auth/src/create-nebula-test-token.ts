@@ -28,6 +28,7 @@
  * const refresh = createNebulaTestToken({
  *   privateKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),   // the .dev.vars signing key
  *   activeScope: 'claude.sandbox.dev',                 // own sandbox star scope
+ *   profileId: crypto.randomUUID(),                    // every token carries one
  * });
  * const client = new NebulaClient({ baseUrl, authScope, activeScope, refresh, ... });
  * ```
@@ -70,16 +71,17 @@ export interface CreateNebulaTestTokenOptions {
    */
   scopeAdmin?: boolean;
   /**
-   * The bearer's PUBLIC profile address → the bare `profileId` claim. Omitted when absent (a token
-   * with no `profileId` claim). Seed it explicitly to exercise the Profile owner short-circuit
-   * (`claims.profileId === instanceName`) from a rung-3 mint. ADR-012.
+   * The bearer's PUBLIC profile address → the bare `profileId` claim. Required with no default, like
+   * every mint's, and it should differ from `sub`: a roster that carried the `sub` where the
+   * `profileId` belongs would otherwise still pass. Seed a known one to exercise the Profile owner
+   * short-circuit (`claims.profileId === instanceName`) from a rung-3 mint. ADR-012.
    */
-  profileId?: string;
+  profileId: string;
   /**
    * RFC 8693 delegation **actor pair** → the `act` claim. Mirrors the claim shape the production
-   * `/mint-narrower-token` emits: `{ sub, profileId? }`, where `profileId` is the ACTOR's.
+   * `/mint-narrower-token` emits: `{ sub, profileId }`, where `profileId` is the ACTOR's.
    */
-  actor?: { sub: string; profileId?: string };
+  actor?: { sub: string; profileId: string };
   /** Token TTL in seconds. Default: nebula-auth's `ACCESS_TOKEN_TTL`. */
   ttlSeconds?: number;
 }

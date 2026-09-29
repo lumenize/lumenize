@@ -17,6 +17,10 @@
  *  1. **Upward passage confers no dominion.** A star-scoped member reaches its parent Galaxy:
  *     `Galaxy.getCurrentOntology` (bare `@mesh()`) RETURNS, while `Galaxy.setGalaxyConfig`
  *     (`@mesh(requireDominionHere)`) REFUSES. Collapse either direction and exactly one flips.
+ *     Through the Galaxy's one `resources` door, the same member's transaction is ADMITTED and told
+ *     `permission` as a resolved result, while the per-op entry it replaced is refused as ABSENT; and
+ *     its subscribe to the Galaxy's tree and roster both land, since what a tree or roster shows is
+ *     visible to anyone with passage (checks happen where an action is taken, never at the view).
  *  2. **Downward is total for an admin.** The Galaxy admin's own `setGalaxyConfig` succeeds, so
  *     limb 1's refusal is about the CALLER's dominion rather than a method nobody can call.
  *  3. **A non-admin reaches its own scope and nothing beneath it.** The star-scoped member is
@@ -37,6 +41,7 @@ import { connectDriver, readDevVar } from '../lib/harness';
 import {
   provisionStarAdmin, provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
+import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, ROOT_NODE_ID } from '@lumenize/nebula/client';
 
 export const needsContainer = false;
 
@@ -52,6 +57,13 @@ interface GalaxyMethods {
   getCurrentOntology(): unknown;
   /** `@mesh(requireDominionHere)` — needs DOMINION, which upward passage does not confer. */
   setGalaxyConfig(key: string, value: unknown): void;
+  /** The one bare `@mesh()` door onto the resource plane; each op behind it checks itself. */
+  resources: {
+    transaction(ontologyVersion: string, newETag: string, ops: Record<string, unknown>): unknown;
+    subscribeTree(): void;
+    subscribeQuerySubscribers(query: unknown): void;
+    orgTree: { createNode(nodeId: string, parentNodeId: string, slug: string, label: string): string };
+  };
 }
 interface StarMethods {
   /** Bare `@mesh()` — reachable by any caller with passage into the Star. */
@@ -148,6 +160,57 @@ export async function run(stack: DevStack): Promise<void> {
       `passage boundary — upward dominion is nil (ADR-015 clause 2). Got: ${writeRefusal}`,
     );
 
+    // ── LIMB 1c: the resources door ADMITS, and the entry it replaced is ABSENT ─────────────────
+    // The same member, the same node. Through the door, a transaction reaches the plane and is told
+    // `permission` as a RESOLVED result — a passage refusal would reject — while the per-op entry
+    // the door replaced is refused as absent. Each half matches its own message or shape.
+    const rid = crypto.randomUUID();
+    const post = { [rid]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } };
+    const admitted = await member.client.lmz.callAsync('GALAXY', galaxy,
+      member.client.ctn<GalaxyMethods>().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), post));
+    assert.deepEqual(admitted, { ok: false, errors: { [rid]: { type: 'permission', requiredTier: 'write', nodeId: CHAT_NODE_ID } } },
+      'the door must ADMIT a Star member and let the plane tell it `permission` as a resolved result');
+    const absent = await refusal(member.client.lmz.callAsync('GALAXY', galaxy,
+      (member.client.ctn() as any).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), post)));
+    assert.match(absent ?? '(succeeded)', /No member named 'transaction' exists on this node/,
+      `the per-op entry must be ABSENT, not refused for passage. Got: ${absent}`);
+
+    // ── LIMB 1d: the Galaxy's tree and roster are visible with passage alone ───────────────────
+    // The owner creates a node first, and the tree half asserts the snapshot CONTAINS it: the client
+    // has one org-tree slot and an update names no host, so the member's own Star tree would
+    // otherwise satisfy it. Each half has its own mutation — guard that kind's subscribe with
+    // dominion, and exactly that half reds.
+    const galaxyNode = crypto.randomUUID();
+    await owner.client.lmz.callAsync('GALAXY', galaxy,
+      owner.client.ctn<GalaxyMethods>().resources.orgTree.createNode(galaxyNode, ROOT_NODE_ID, 'visible', 'Visible'));
+    let galaxyTree: { nodes?: Map<string, unknown> } | undefined;
+    member.client.onOrgTreeUpdate((state) => {
+      if ((state as { nodes?: Map<string, unknown> }).nodes?.has(galaxyNode)) galaxyTree = state as never;
+    });
+    const treeRefusal = await refusal(member.client.lmz.callAsync('GALAXY', galaxy,
+      member.client.ctn<GalaxyMethods>().resources.subscribeTree()));
+    assert.equal(treeRefusal, null, `a Star member was refused the Galaxy's tree: ${treeRefusal}`);
+    const treeDeadline = Date.now() + 15_000;
+    while (!galaxyTree && Date.now() < treeDeadline) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(galaxyTree, 'the Galaxy\'s tree snapshot, with the owner\'s node in it, never arrived');
+    // The roster half waits for the initial roster itself, not only an un-refused call: a narrowing
+    // in the plane's own idiom would push an Error roster and still return. The member watches no
+    // other query, so the one roster push it receives is this watch's. The capture is an own
+    // override, marked the way the decorator marks, since an unmarked one is refused as an override.
+    let roster: unknown;
+    const handleRoster = member.client.handleQuerySubscribersUpdate.bind(member.client);
+    const capture = (hash: string, result: unknown) => { roster = result; return handleRoster(hash, result as never); };
+    (capture as any)[Symbol.for('lumenize.mesh.callable')] = true;
+    (member.client as any).handleQuerySubscribersUpdate = capture;
+    const rosterRefusal = await refusal(member.client.lmz.callAsync('GALAXY', galaxy,
+      member.client.ctn<GalaxyMethods>().resources.subscribeQuerySubscribers(
+        { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID })));
+    assert.equal(rosterRefusal, null, `a Star member was refused the Galaxy's roster watch: ${rosterRefusal}`);
+    const rosterDeadline = Date.now() + 15_000;
+    while (roster === undefined && Date.now() < rosterDeadline) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(Array.isArray(roster),
+      `the Galaxy's roster watch did not settle with a roster: ${roster instanceof Error ? roster.message : String(roster)}`);
+
     // ── LIMB 2: the control — the Galaxy's OWN admin may write it ───────────────────────────────
     // Without this, limb 1b stays green against a `setGalaxyConfig` nobody can call at all.
     const ownerWrite = owner.client.lmz.callAsync(
@@ -235,7 +298,8 @@ export async function run(stack: DevStack): Promise<void> {
   }
 
   console.error(
-    '[passage-not-dominion] upward read returned, upward write refused, owner write succeeded, ' +
-    'galaxy non-admin refused at the Star beneath it',
+    '[passage-not-dominion] upward read returned, upward write refused, the door admitted and the ' +
+    'entry was absent, the tree and roster landed, owner write succeeded, galaxy non-admin refused ' +
+    'at the Star beneath it',
   );
 }

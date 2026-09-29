@@ -1,18 +1,22 @@
 /**
- * Child 2 Phase 5 — query rerun on permission change (Flow 3 trigger B / D6).
+ * What a permission change does to a subscriber, now that the server re-runs nothing on one.
  *
- * The capability hangs an ALL-live-queries rerun off DagTree's `onChanged` (in
- * addition to the host hook). Covered: the grant hole (granting read with NO
- * resource write makes the newly-readable resources appear); revoking shrinks the
- * set + adds the node to `deniedNodes`; and the demote-self-heal foundation (D16) —
- * `dominionOverHostAtSubscribe` is derived per subscribe-time token, so a non-admin token stores
- * `dominionOverHostAtSubscribe = 0` and is denied (a demoted admin's re-subscribe clears the bypass).
+ * A grant or a revoke writes no resource, so nothing is sent at the time it lands. A client
+ * watching the org tree — every client `createNebulaClient` builds — hears the tree change and
+ * asks again for exactly what its last update denied, so a grant reaches it with no write. A client
+ * not watching the tree learns of either at the next update to what it watches, from the write
+ * that caused it. The demote-self-heal case at the end stays on the query row's stored dominion
+ * verdict: it is derived per subscribe-time token, so a non-admin token stores 0 and is denied.
+ *
+ * The grant and revoke limbs drive the public API (`client.resources.*`), never a `callStar*`
+ * initiator, because the client's own ask-again is part of what they test.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
-import { adminClientAt, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import type { TransactionResult, QuerySubscriberRow, QueryDescriptor, Snapshot } from '@lumenize/nebula';
+import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { adminClientAt, universeAdminClient, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject, ORIGIN } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -20,6 +24,7 @@ const TYPES = [
   'interface Parent { name: string }',
   'interface Child { parent: Parent; label: string }',
 ].join('\n');
+const CHAT_QUERY: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
 const uniqueUniverse = () => `c2p-${crypto.randomUUID().slice(0, 8)}`;
 
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
@@ -40,44 +45,133 @@ async function nextPush(c: NebulaClientTest, prev: number) {
   await vi.waitFor(() => expect(c.queryUpdateCount).toBeGreaterThan(prev));
 }
 
-describe('child2 query rerun on permission change (Phase 5)', () => {
-  it('grant hole: granting read (no resource write) reveals members; revoke shrinks + denies', async () => {
-    const star = `${uniqueUniverse()}.app.tenant-a`;
-    const { client: a, accessToken } = await admin(star);
-    const P = crypto.randomUUID();
-    a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
-    await vi.waitFor(() => expect(a.lastResult).toBeDefined());
-    const priv = a.lastResult as string;
-    const c1 = crypto.randomUUID();
-    await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
+/** A Star whose `priv` node holds one Child of `P` the member cannot read, and the member invited. */
+async function privateChild() {
+  const star = `${uniqueUniverse()}.app.tenant-a`;
+  const { client: a, accessToken } = await admin(star);
+  const P = crypto.randomUUID();
+  const priv = await a.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'priv', 'Priv');
+  const c1 = crypto.randomUUID();
+  await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
+  const adminBrowser = new Browser();
+  await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
+  await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
+  const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P };
+  return { star, a, P, priv, c1, query };
+}
 
-    // A non-admin user with NO grant subscribes → denied push.
+describe('a permission change and a query subscriber', () => {
+  it('watching the tree: a grant with no write reveals what was denied — the query\'s ids and the resource', async () => {
+    const { star, a, priv, c1, query } = await privateChild();
+    const browser = new Browser();
+    const { payload } = await browserLogin(browser, star, 'coach@example.com', star);
+    const ctx = browser.context(ORIGIN);
+    const member = createNebulaClient({
+      baseUrl: ORIGIN, authScope: star, activeScope: star, ontologyVersion: VERSION,
+      fetch: browser.fetch, WebSocket: browser.WebSocket,
+      sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
+      onShouldRefreshUI: () => {},
+    });
+    await member.ready;
+    await vi.waitFor(() => expect((member.store.lmz.orgTree.value as { nodes?: unknown })?.nodes).toBeInstanceOf(Map));
+
+    using q = member.client.resources.subscribeQuery(query);
+    await q.ready;
+    expect(q.resourceIds).toEqual([]);
+    expect(q.deniedNodes).toEqual([priv]);
+    using r = member.client.resources.subscribe('Child', c1);
+    expect(await r.snapshot).toBeNull();
+    expect(r.deniedNodes).toEqual([priv]);
+    let changes = 0;
+    r.onChange(() => { changes++; });
+
+    // GRANT read on priv — no resource write, so the tree change is the only thing that happens.
+    // Mutation: drop the client's ask-again → neither the query nor the resource changes → red.
+    await a.orgTree.setPermission(priv, payload.sub, 'read');
+    await vi.waitFor(() => expect(q.resourceIds).toEqual([c1]));
+    expect(q.deniedNodes).toEqual([]);
+    await vi.waitFor(() => expect(r.deniedNodes).toEqual([]));
+    expect(changes).toBe(1);
+    const entry = member.store.resources.Child[c1];
+    expect(entry.deniedNodes).toEqual([]);
+    expect(entry.value).toEqual({ parent: query.value, label: 'c1' });
+
+    a[Symbol.dispose]();
+  });
+
+  it('on the Galaxy too: a collaborator denied the chat is granted with no post, and sees the messages at the next tree change', async () => {
+    // Where Studio grants a collaborator: the Galaxy hosts a tree like any plane, and the client
+    // asks again there exactly as it does on a Star.
+    const scope = `${uniqueUniverse()}.app`;
+    const pair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope };
+    const { client: owner, accessToken } = await universeAdminClient(
+      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, pair,
+    );
+    const posted = await owner.postUserMessage('before the grant');
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
-    await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
+    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
+    await createSubject(adminBrowser, scope, accessToken, 'collaborator@example.com');
+    const browser = new Browser();
+    const { payload } = await browserLogin(browser, scope, 'collaborator@example.com', scope);
+    const ctx = browser.context(ORIGIN);
+    const member = createNebulaClient({
+      baseUrl: ORIGIN, authScope: scope, activeScope: scope, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION, ...pair,
+      fetch: browser.fetch, WebSocket: browser.WebSocket,
+      sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
+      onShouldRefreshUI: () => {},
+    });
+    await member.ready;
+    await vi.waitFor(() => expect((member.store.lmz.orgTree.value as { nodes?: unknown })?.nodes).toBeInstanceOf(Map));
+
+    using chat = member.client.resources.subscribeQuery(CHAT_QUERY);
+    await chat.ready;
+    expect(chat.resourceIds).toEqual([]);
+    expect(chat.deniedNodes).toEqual([CHAT_NODE_ID]);
+
+    // Mutation: drop the client's ask-again → the query never changes → red.
+    await owner.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'read');
+    await vi.waitFor(() => expect(chat.resourceIds).toContain(posted));
+    expect(chat.deniedNodes).toEqual([]);
+    owner[Symbol.dispose]();
+  });
+
+  it('not watching the tree: a grant with no write changes nothing, and the next write\'s push is the first to carry the new ids', async () => {
+    const { star, a, P, priv, c1, query } = await privateChild();
     const { client: user, payload } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
-    user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
-    await nextPush(user, 0);
-    expect(user.lastQueryUpdate?.result.resourceIds ?? []).toEqual([]);
-    expect(user.lastQueryUpdate?.result.deniedNodes).toEqual([priv]);
 
-    // GRANT read on priv — NO resource write. The permission-change rerun (trigger B)
-    // is the ONLY thing that can update the screen. Mutation: skip the permission
-    // trigger → user never sees c1 → red.
-    let n = user.queryUpdateCount;
-    a.callStarSetPermission(star, priv, payload.sub, 'read');
-    await waitForSuccess(a);
-    await nextPush(user, n);
-    expect(user.lastQueryUpdate?.result.resourceIds).toEqual([c1]);
-    expect(user.lastQueryUpdate?.result.deniedNodes).toBeUndefined();
+    using q = user.resources.subscribeQuery(query);
+    await q.ready;
+    expect(q.deniedNodes).toEqual([priv]);
+    const seen: string[][] = [];
+    q.onChange(() => { seen.push([...q.resourceIds]); });
 
-    // REVOKE → rerun → set shrinks back to empty + the node returns to deniedNodes.
-    n = user.queryUpdateCount;
-    a.callStarRevokePermission(star, priv, payload.sub);
-    await waitForSuccess(a);
-    await nextPush(user, n);
-    expect(user.lastQueryUpdate?.result.resourceIds ?? []).toEqual([]);
-    expect(user.lastQueryUpdate?.result.deniedNodes).toEqual([priv]);
+    await a.orgTree.setPermission(priv, payload.sub, 'read');
+    const c2 = crypto.randomUUID();
+    await commit(a, star, { [c2]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c2' } } });
+
+    // Exactly one push since the grant, and it is the write's — it carries c2. Mutation: keep the
+    // permission-change re-run wired under another name → a push carrying only [c1] comes first → red.
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
+    expect(seen).toEqual([[c1, c2]]);
+    expect(q.deniedNodes).toEqual([]);
+
+    a[Symbol.dispose](); user[Symbol.dispose]();
+  });
+
+  it('a revoke shows at the next write: the id is gone and its node denied', async () => {
+    const { star, a, P, priv, c1, query } = await privateChild();
+    const { client: user, payload } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
+    await a.orgTree.setPermission(priv, payload.sub, 'read');
+
+    using q = user.resources.subscribeQuery(query);
+    await q.ready;
+    expect(q.resourceIds).toEqual([c1]);
+
+    await a.orgTree.revokePermission(priv, payload.sub);
+    const c2 = crypto.randomUUID();
+    await commit(a, star, { [c2]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c2' } } });
+    await vi.waitFor(() => expect(q.deniedNodes).toEqual([priv]));
+    expect(q.resourceIds).toEqual([]);
 
     a[Symbol.dispose](); user[Symbol.dispose]();
   });

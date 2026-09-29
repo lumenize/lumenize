@@ -415,7 +415,7 @@ interface NebulaJwtPayload {
   iat: number        // Unix seconds
   jti: string        // UUID
   access: AccessEntry
-  profileId?: string // the bearer's PUBLIC profile address (a bare custom claim)
+  profileId: string  // the bearer's PUBLIC profile address (a bare custom claim)
   act?: ActClaim     // delegation chain per RFC 8693
 }
 ```

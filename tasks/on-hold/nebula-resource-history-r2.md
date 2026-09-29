@@ -4,14 +4,14 @@
 **App**: `apps/nebula/`
 **Supersedes**: `tasks/icebox/nebula-5.4-capability-tickets.md` (per-resource `ResourceHistory` DO + capability tickets — iceboxed)
 **Master task file**: `tasks/archive/nebula.md` (archived)
-**Relevant engine**: `apps/nebula/src/resources.ts` (`Snapshots` table, Snodgrass-style temporal storage in Star)
+**Relevant engine**: `apps/nebula/src/snapshots.ts` (`Snapshots` table, Snodgrass-style temporal storage in Star)
 
 ## Goal
 
 Move resource **history** (old snapshot blobs) off Durable Object storage and onto
 **R2**, so a Star's footprint stays bounded and history scales without limit — while
 preserving the strongly-consistent, eTag-based transaction model already in
-`Resources`. **No per-resource DO is introduced.** Star (the existing
+`Snapshots`. **No per-resource DO is introduced.** Star (the existing
 per-tenant-app singleton) stays the metadata source of truth; R2 is an async
 **outbox** for blobs.
 
@@ -51,7 +51,7 @@ the per-resource-DO design made *worse* and R2 makes *better*:
 - **R2** = durable store for snapshot **blobs** (the `value` column today). Eventually
   consistent; treated as an async outbox the DO writes through.
 
-## How it maps onto today's engine (`Resources` in `resources.ts`)
+## How it maps onto today's engine (`Snapshots` in `snapshots.ts`)
 
 The `Snapshots` table is already Snodgrass-temporal: `PRIMARY KEY (resourceId, validFrom)`,
 `validTo` defaults to `END_OF_TIME` for the current version, debounce window

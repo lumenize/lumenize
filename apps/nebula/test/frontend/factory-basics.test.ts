@@ -421,3 +421,17 @@ describe('server fanout', () => {
     expect(fires).toBe(2);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// `ResourceStoreEntry.deniedNodes` is required, and an entry no subscription has answered for yet
+// still carries it — `[]`, since whoever painted the value holds it.
+// ──────────────────────────────────────────────────────────────────────────
+describe('store entry access', () => {
+  it('a transaction-painted create carries `deniedNodes: []` before any subscription answers', async () => {
+    const { store, client } = setup({});
+    const done = client.transactionOps({ 'task-9': { rt: 'todo', op: 'create', value: { title: 'new' } } as any });
+    expect(store.resources.todo['task-9'].value).toEqual({ title: 'new' });
+    expect(store.resources.todo['task-9'].deniedNodes).toEqual([]);
+    await done;
+  });
+});

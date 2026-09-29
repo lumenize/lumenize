@@ -100,7 +100,6 @@ export const { client, store, ready } = createNebulaClient({
   ontologyVersion,
   authScope,
   activeScope,
-  ...(isDevPreview ? { onReload: () => window.location.reload() } : {}),
 });
 
 // Top-level await: main.ts (and every component) imports this module, so the
@@ -139,16 +138,26 @@ See [Coding your UI § Building your UI on top of Resources](./coding-your-ui.md
 subscribe(resourceType: string, resourceId: string): ResourceSubscription;
 
 interface ResourceSubscription extends Disposable {
-  /** Resolves with the initial snapshot on the first server-side `handleResourceUpdate`
-   *  for `(rt, rid)`. Subsequent fanout updates write through to bound state but
-   *  do not re-resolve this promise. */
+  /** Resolves on the first server answer for `(rt, rid)`: the snapshot, or `null` when you
+   *  cannot read the resource (see `deniedNodes`). Later updates write through to bound
+   *  state but do not re-resolve it. Rejects for a missing resource or a wrong type. */
   readonly snapshot: Promise<Snapshot | null>;
+  /** The node you cannot read the resource under — `[]` when you can. */
+  readonly deniedNodes: string[];
+  /** Fired when access is lost or gained. */
+  onChange(cb: () => void): void;
   /** Manual unsubscribe; equivalent to leaving a `using` scope. */
   [Symbol.dispose](): void;
 }
 ```
 
 Subscribes synchronously (registers the subscriber row immediately); the **initial snapshot** arrives asynchronously via `handleResourceUpdate` and is exposed on `.snapshot`.
+
+### When you cannot read it
+
+A subscriber without `read` on the resource's node is **told, not refused**. Its `.snapshot` resolves `null` and never rejects for permission, and `deniedNodes` names the node. The store entry says the same: `store.resources.<rt>[rid].deniedNodes` is that node, and the entry has no `value` or `meta`, so a `v-model` bound to it submits nothing — there is no `meta.eTag` to submit against. When you can read it, `deniedNodes` is `[]`.
+
+The subscription stays live either way. A revoked grant shows at the resource's next update: `deniedNodes` fills in, `value` and `meta` go, and `onChange` fires. A new grant shows without any write, because the client re-subscribes whatever was denied each time the org tree changes: the snapshot arrives, `deniedNodes` empties, and `onChange` fires. Show a request-access affordance while `deniedNodes` is non-empty, the same way as for a [query](#resourcessubscribequery).
 
 :::note[The resource must already exist]
 
@@ -195,7 +204,7 @@ createAndSubscribe(
 ): ResourceSubscription;
 ```
 
-The ergonomic form of the **create-then-subscribe** pattern: since [`subscribe`](#resourcessubscribe) requires the resource to already exist, this method sequences a `create` [transaction](#resourcestransaction) followed by a `subscribe`, client-side, so you get one call and a `using`-compatible handle. Returns the [`ResourceSubscription`](#resourcessubscribe) **synchronously** (refcount + `[Symbol.dispose]()` behave exactly as `subscribe`); the underlying server subscribe is deferred until the create commits, so `.snapshot` resolves with the **freshly-created snapshot**.
+The ergonomic form of the **create-then-subscribe** pattern: since [`subscribe`](#resourcessubscribe) requires the resource to already exist, this method sequences a `create` [transaction](#resourcestransaction) followed by a `subscribe`, client-side, so you get one call and a `using`-compatible handle. Returns the [`ResourceSubscription`](#resourcessubscribe) **synchronously** (refcount + `[Symbol.dispose]()` behave exactly as `subscribe`); the underlying server subscribe is deferred until the create commits, so `.snapshot` resolves with the **freshly-created snapshot**, and `deniedNodes` is `[]`.
 
 If the create does **not** commit (the resource already exists, or a permission / validation failure), `.snapshot` **rejects** — use plain `subscribe` for a resource that already exists. Disposing the handle before the create lands cancels the pending subscription (the already-submitted create is not unwound). It routes to the active scope's Star binding like every other resource call (so it works against a dev Star too).
 
@@ -236,8 +245,7 @@ interface QueryDescriptor {
   typeName: string;           // the CHILD type being matched, e.g. 'Message'
   field: string;              // its to-one relationship field, e.g. 'session'
   value: string;              // the parent id that `field` must equal
-  onPartial?: 'error' | 'allow';  // per-push shape for a subscriber with denied nodes (default 'allow')
-  orderBy?: 'validFrom';          // v1 only (default)
+  orderBy?: 'validFrom';      // v1 only (default)
 }
 ```
 
@@ -255,7 +263,7 @@ interface QuerySubscription extends Disposable {
 
 **The query delivers ids, not content.** `resourceIds` is the ordered membership; read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
 
-`deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
+`deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). A grant or a revoke writes no resource, so the membership changes at the next update to the query; a client watching the org tree, as every `createNebulaClient` client does, re-subscribes a query with denied nodes at each tree change, so a grant reaches it with no write. `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
 
 To watch **who is subscribed** to a query (its live roster) rather than its data, see [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
 
@@ -487,7 +495,7 @@ Distinct from [`client.dispose()`](#clientdispose), which tears down the client/
 
 ## `client.orgTree` {#clientorgtree}
 
-**Tag**: `new-in-v3`. The client-facing namespace is built in v3; the server-side methods it proxies already exist at [`apps/nebula/src/dag-tree.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/dag-tree.ts).
+**Tag**: `new-in-v3`. The client-facing namespace is built in v3; the server-side methods it proxies already exist at [`apps/nebula/src/org-tree.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/org-tree.ts).
 
 Mutations to the app's **org/permission tree** (the DAG that resources attach to for tenancy and access control). The conceptual model — cascading permissions, the two sharing approaches — is in [Resources § Access control](./access-control.md); the usage patterns and worked examples are in [Coding your UI § Mutating the org/permission tree](./coding-your-ui.md#mutating-the-orgpermission-tree).
 
@@ -558,7 +566,7 @@ revokePermission(nodeId: string, sub: string): Promise<void>;
 
 ### `OrgTreeState` {#orgtreestate}
 
-**Tag**: `new-in-v3` — both the type export and the tree delivery. The tree is **not a resource**: it's delivered on a dedicated channel (server `DagTree.#onChanged` → broadcast to a `clientId`-keyed registry, synthesized from `dagTree.getState()`) to `store.lmz.orgTree`, and mutated via [`client.orgTree.*`](#clientorgtree) — never `transaction()`. It's universally visible by design (every connected client gets the full tree; see M7). Authoritative spec: the "Org/permission tree delivery (design B)" item in [tasks/archive/nebula-frontend.md § Phase 5.3.7-v3](https://github.com/lumenize/lumenize/blob/main/tasks/archive/nebula-frontend.md); the superseded design-space record is § DAG-tree-as-special-resource.
+**Tag**: `new-in-v3` — both the type export and the tree delivery. The tree is **not a resource**: it's delivered on a dedicated channel — a tree change makes the host's resource plane send `orgTree.getState()` to every tree subscriber it holds — to `store.lmz.orgTree`, and mutated via [`client.orgTree.*`](#clientorgtree) — never `transaction()`. It's visible by design to anyone with passage into the host (every client `createNebulaClient` builds subscribes on connect; see M7). Authoritative spec: the "Org/permission tree delivery (design B)" item in [tasks/archive/nebula-frontend.md § Phase 5.3.7-v3](https://github.com/lumenize/lumenize/blob/main/tasks/archive/nebula-frontend.md); the superseded design-space record is § DAG-tree-as-special-resource.
 
 The shape of the tree at `store.lmz.orgTree.value`. Exported from `@lumenize/nebula/frontend`.
 
@@ -662,7 +670,7 @@ The live subscriber-list roster of a query, delivered on a dedicated channel. **
 
 | Path | Type | Notes |
 | --- | --- | --- |
-| `store.lmz.querySubscribers.<typeName>.<field>[value]` | `{ sub: string; profileId?: string }[]` | Distinct-by-person roster of everyone subscribed to that query's data, kept live. `v-for`-ready. |
+| `store.lmz.querySubscribers.<typeName>.<field>[value]` | `{ sub: string; profileId: string }[]` | Distinct-by-person roster of everyone subscribed to that query's data, kept live. `v-for`-ready. |
 
 Advisory / display-only (carries no permission data). Resolve each entry's `profileId` via [`store.lmz.profiles`](#lmzprofiles), windowed to rendered rows. See [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
 
@@ -696,7 +704,7 @@ export interface NebulaJwtPayload {
   iat: number;
   jti: string;
   access: AccessEntry;
-  profileId?: string;
+  profileId: string;
   act?: ActClaim;
 }
 ```
@@ -709,7 +717,7 @@ export interface NebulaJwtPayload {
 
 ## `Snapshot` and `SnapshotMeta` {#snapshot}
 
-**Tag**: `implemented-in-spike` (shape shipped server-side in [`apps/nebula/src/resources.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/resources.ts); `mimeType` lands new-in-v3 alongside files-as-resources)
+**Tag**: `implemented-in-spike` (shape shipped server-side in [`apps/nebula/src/snapshots.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/snapshots.ts); `mimeType` lands new-in-v3 alongside files-as-resources)
 
 What `resources.read` and `resources.subscribe` resolve with, and what every store entry holds: `store.resources.<rt>[<rid>].value` is `Snapshot.value`; `store.resources.<rt>[<rid>].meta` is `Snapshot.meta`.
 

@@ -2,12 +2,13 @@
  * Who a reaper believes, when a reply says somebody else died.
  *
  * A Galaxy fans a resource update to its subscribers with one 4-arg `lmz.call` per target, and every
- * target shares ONE handler chain — `onBroadcastResult(resourceId)` for a resource subscription,
- * `onQueryBroadcastResult(queryHash)` for a query — which carries what changed and nothing
- * identifying which target answered. So the reaper's only source of *who died* today is the payload:
- * a `ClientDisconnectedError` whose `clientInstanceName` names anyone the replying client likes.
- * `tasks/archive/mesh-entry-and-walk-gaps.md` § *R2* deletes that field and takes the victim from the
- * address the caller used.
+ * target shares ONE handler chain — `resourcesResults.onBroadcastResult(resourceId)` for a resource
+ * subscription, `resourcesResults.onQueryBroadcastResult(queryHash)` for a query — which carries
+ * what changed and nothing identifying which target answered. The reaper takes *who died* from the
+ * address the push was sent to (`callContext.callee`), never from the reply — the fix
+ * `tasks/archive/mesh-entry-and-walk-gaps.md` § *R2* made, after a `ClientDisconnectedError` whose
+ * `clientInstanceName` named anyone the replying client liked was the only source. The limbs below
+ * show a forged reply cannot pick a victim.
  *
  * ⚠️ **The harm is what this asserts, not a proxy for it.** A reaped subscriber stops receiving
  * pushes and its UI silently goes stale, so each limb changes the resource again and asks who still
@@ -236,10 +237,10 @@ export async function run(stack: DevStack): Promise<void> {
         ? 'the forger kept its own subscription — it reaped someone else instead'
         : 'the forger reaped itself, which it could have done by unsubscribing');
 
-    // ── LIMB 2: the same forged error handed DIRECTLY to a reaper, no reply involved ───────
-    //    Every reaper carries a bare `@mesh()`, so the entry rule permits the call. BOTH halves
-    //    matter: a refusal would satisfy "no row changed" just as readily as the real fix does,
-    //    and asserting only the second would green-light shedding the decorator as the fix.
+    // ── LIMB 2: the same forged error handed DIRECTLY to the old reaper address ───────────
+    //    No reaper is left on the host — they answer through the unmarked `resourcesResults` — so the
+    //    call names no member and is refused as ABSENT, and no row changes. Both halves: a refusal
+    //    alone would satisfy "no row changed" just as readily, so the MESSAGE is what shows the move.
     //    ⚠️ Its target is a FRESH tab. Reusing limb 1's victim would assert over a row limb 1
     //    already took, so the limb would read as a failure whatever this call did.
     const caller = await step('caller connects', 45_000, () => connect());
@@ -262,15 +263,41 @@ export async function run(stack: DevStack): Promise<void> {
       permitted = 'permitted';
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      permitted = /is not mesh-callable/.test(message)
-        ? 'REFUSED as not mesh-callable' : `threw: ${message.slice(0, 70)}`;
+      permitted = /No member named 'onBroadcastResult' exists on this node/.test(message)
+        ? 'REFUSED as absent' : `threw: ${message.slice(0, 70)}`;
     }
     const direct = await bumpAndSee([
       { label: 'target', tab: target }, { label: 'caller', tab: caller },
     ]);
-    record('a direct call to a reaper is PERMITTED and changes no row',
-      permitted === 'permitted' && direct.get('target') === true && direct.get('caller') === true,
+    record('a direct call to the old reaper address is refused as ABSENT and changes no row',
+      permitted === 'REFUSED as absent' && direct.get('target') === true && direct.get('caller') === true,
       `the call was ${permitted}; the named target ${direct.get('target') ? 'still receives pushes' : 'was REAPED'}, the caller ${direct.get('caller') ? 'still receives pushes' : 'was REAPED'}`);
+
+    // ── LIMB 2b: `resourcesResults` from the wire, on each host, is refused ─────────────────
+    //    The response-leg gate carries no mark, so the entry rule refuses a request that names it —
+    //    the Galaxy's reaper, and a `.dev` Star's ontology pull, which a mark would open to any
+    //    caller with passage. One member per host is enough: the refusal is at op 0,
+    //    `resourcesResults`, before any member is named, and the in-lane `resources-door.test.ts`
+    //    covers both hosts. The Star half can fail only on its message, since `onOntologyPulled(null)`
+    //    changes nothing even when permitted; the target still hearing is the Galaxy's "nothing
+    //    changed" half.
+    const refusedOn = async (binding: string, instance: string, chain: unknown): Promise<string> => {
+      try {
+        await caller.client.lmz.callAsync(binding, instance, chain as never, { timeoutMs: 15_000 });
+        return 'permitted';
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return /Member 'resourcesResults' is not mesh-callable/.test(message) ? 'refused' : `threw: ${message.slice(0, 70)}`;
+      }
+    };
+    const galaxyReaper = await refusedOn('GALAXY', SCOPE,
+      (caller.client.ctn() as any).resourcesResults.onBroadcastResult(chatId, forged));
+    const starPull = await refusedOn('STAR', `${SCOPE}.dev`,
+      (caller.client.ctn() as any).resourcesResults.onOntologyPulled(null));
+    const afterResults = await bumpAndSee([{ label: 'target', tab: target }]);
+    record('`resourcesResults` is refused from the wire on each host, and changes no row',
+      galaxyReaper === 'refused' && starPull === 'refused' && afterResults.get('target') === true,
+      `the Galaxy's reaper was ${galaxyReaper}; the .dev Star's pull was ${starPull}; the target ${afterResults.get('target') ? 'still receives pushes' : 'was REAPED'}`);
 
     // ── LIMB 3 (green before and after): a GENUINE disconnect IS reaped, and only it ───────
     //    ⚠️ A FRESH bystander for the same reason as limb 2: the cleanup must be shown to take the

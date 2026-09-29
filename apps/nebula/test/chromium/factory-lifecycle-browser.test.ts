@@ -15,7 +15,7 @@
  *   3. orgTree survives the reconnect: after reconnecting, a `client.orgTree`
  *      mutation still echoes to `store.lmz.orgTree` (NebulaClient re-fires
  *      `subscribeTree` on every `'connected'`). End-to-end resilience, not a
- *      re-subscribe-line isolation (a TreeSubscribers row persists across a bare
+ *      re-subscribe-line isolation (a tree row persists across a bare
  *      disconnect, and isolating the line needs a second independent actor
  *      mutating while this client is down — impossible single-page; that line is
  *      covered by the baseline `orgtree-factory-autosubscribe` + step 2's reconnect).

@@ -37,19 +37,10 @@ function readInjectedScope(): NebulaScope {
 
 const { activeScope, authScope, ontologyVersion } = readInjectedScope();
 
-// Dev preview only: enable the live reload channel so an ontology change re-syncs this
-// preview onto the new version. Segment-precise `.dev` check
-// (env detection — NOT a hot-path branch); prod previews leave `onReload` unset and
-// rely on the once-per-session `onShouldRefreshUI` backstop. Setting `onReload` is what
-// makes NebulaClient subscribe to the Star's reload channel on connect.
-const segs = activeScope.split('.');
-const isDevPreview = segs.length === 3 && segs[2] === 'dev';
-
 export const { client, store, ready } = createNebulaClient({
   ontologyVersion,
   authScope,
   activeScope,
-  ...(isDevPreview ? { onReload: () => window.location.reload() } : {}),
 });
 
 try {

@@ -99,7 +99,7 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 4: first arrival fires the founder stamp ─────────────────────────────────────────────
     // Constructed by hand (not connectDriver) so the orgTree listener registers BEFORE the client
     // reaches 'connected' — the tree subscription only fires at connect when a listener exists.
-    // `resourceHostBinding` is left to its default ('STAR'): the dagTree lives on the Star, and the
+    // `resourceHostBinding` is left to its default ('STAR'): the orgTree lives on the Star, and the
     // subscribe is itself the invitee's first Star touch — the exact moment the seed runs.
     const ctx = inviteeBrowser.context(stack.baseUrl);
     let tree: OrgTreeState | undefined;

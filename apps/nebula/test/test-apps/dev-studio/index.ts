@@ -3,12 +3,12 @@
  * collapse of DevStudio into Galaxy). Galaxy `extends NebulaDO` (a constructable SQLite
  * DO), so it runs under vitest-pool-workers — this project exercises the real node: the
  * `@cloudflare/computer` Workspace + host-side git (writeSource / commit / readSource)
- * and the cross-DO compile-and-apply (`compileAndInstallOntology` → `STAR.setOntology`
- * on the derived `{u}.{g}.dev` star). Driven via `__executeOperation` envelopes (the
+ * and the compile-and-apply into the registry, which the derived `{u}.{g}.dev` star pulls on its
+ * next op. Driven via `__executeOperation` envelopes (the
  * interim-dev-loop pattern) — no Gateway/JWT infra.
  *
  * `DevStarOntologyProbe` is the `.dev` data-Star target with a single read hook so a
- * test can confirm `setOntology` installed the compiled version.
+ * test can confirm the pull installed the compiled version.
  */
 import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
@@ -308,7 +308,7 @@ export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
 
 // The `.dev` data-Star target — a plain `Star` at a `{u}.{g}.dev` instance.
 export class DevStarOntologyProbe extends Star {
-  /** Test-only: the ontology version index (proves `setOntology` installed). */
+  /** Test-only: the ontology version index (proves the pull installed). */
   @mesh(requireDominionHere)
   inspectOntologyIndex(): string[] {
     return this.ctx.storage.kv.get<string[]>('ontology:_index') ?? [];

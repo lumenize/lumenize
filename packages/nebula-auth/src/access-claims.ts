@@ -21,7 +21,7 @@
  * 2026-07-31 no crypto import either (the `jti` is a direct `crypto.randomUUID()` call) — so it is
  * safe to pull into the Node-safe `@lumenize/nebula-auth/testing` subpath, and it IS the
  * `@lumenize/nebula-auth/claims` subpath — the route by which a module in a Node-safe value graph
- * (e.g. apps/nebula's `resources.ts`, reachable from its client subpath) takes `projectActingToken`
+ * (e.g. apps/nebula's `snapshots.ts`, reachable from its client subpath) takes `projectActingToken`
  * without dragging the root barrel's Registry DO (`cloudflare:workers`) along. Signing stays with the
  * caller (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
  */
@@ -44,17 +44,16 @@ export interface NebulaAccessClaimInput {
   activeScope: string;
   /** `access.scopeAdmin` is set only when true (kept omitted otherwise to keep the JWT compact). */
   scopeAdmin: boolean;
-  /** The bearer's PUBLIC profile address (UUID) → the bare custom `profileId` claim. Omitted when
-   *  absent (a pre-rollout KV record mints gracefully without it). ADR-013's licensed JWT copy. */
-  profileId?: string;
+  /** The bearer's PUBLIC profile address (UUID) → the bare custom `profileId` claim. ADR-013's
+   *  licensed JWT copy. */
+  profileId: string;
   /**
    * RFC 8693 delegation **actor pair** → the `act` claim. Omitted entirely when absent.
    *
    * The claims of a narrower token describe two people: the top-level `sub`/`profileId` pair is the
-   * SUBJECT (whose access this is) and `act` is the ACTOR (who is driving). `actor.profileId` is
-   * omitted from the emitted claim when the actor's own token carries none.
+   * SUBJECT (whose access this is) and `act` is the ACTOR (who is driving).
    */
-  actor?: { sub: string; profileId?: string };
+  actor?: { sub: string; profileId: string };
   /** Token TTL in seconds. Default {@link ACCESS_TOKEN_TTL}. */
   ttlSeconds?: number;
   /** "now" in Unix seconds. Default `Math.floor(Date.now() / 1000)`; injectable for tests. */
@@ -76,7 +75,7 @@ export interface NebulaAccessClaimInput {
  * lets `hasDominionOver` treat a missing scope as fail-closed rather than as a normal case.
  * `buildNebulaJwtPayload` below adds the other mint-side guarantee: `aud` is at or below `authScope`.
  *
- * ⚠️ **That containment is NOT the property the guards need.** The old `dag-tree.ts` comment
+ * ⚠️ **That containment is NOT the property the guards need.** The old `org-tree.ts` comment
  * justified a bare-bit bypass by appealing to exactly this invariant — correct, but it establishes
  * only that the caller's ACTIVE SCOPE sits inside their dominion. The guards ask a different
  * question: is **the callee node** at or below `authScope`? `requirePassage`'s tenant branch
@@ -96,7 +95,7 @@ export function buildNebulaAccessEntry(
  * RFC 8693 §4.1 chain nesting, written ONCE: prepend `actor` as the NEW OUTERMOST `act` entry,
  * preserving any pre-existing verified chain beneath it. Flattening/overwriting DROPS the
  * delegation chain — the wrong shape this helper exists to make unwritable. Callers: the
- * server-composed actor on an `actingToken` RECORD (`apps/nebula` resources.ts
+ * server-composed actor on an `actingToken` RECORD (`apps/nebula` snapshots.ts
  * `#buildActingToken`) and any later cross-node mint path, so the two cannot drift on the
  * RFC semantics.
  *
@@ -110,19 +109,16 @@ export function buildNebulaAccessEntry(
  * forbids outright.
  *
  * The actor arrives as the PAIR — a bare `actorSub` would drop the `profileId` the chain is
- * supposed to carry for display. `profileId` is spread CONDITIONALLY (never an
- * explicit-`undefined` key): the emitted entry matches `buildNebulaJwtPayload`'s `act` shape
- * byte-for-byte once JSON-encoded. ⚠️ `act` ITSELF is never spread conditionally on the actor
- * having a `profileId` — the two refusals above read only whether the chain is there, so a chain
- * that vanished when the actor had none would silently defeat both.
+ * supposed to carry for display — and the emitted entry matches `buildNebulaJwtPayload`'s `act`
+ * shape.
  */
 export function prependActor(
   base: ActClaim | undefined,
-  actor: { sub: string; profileId?: string },
+  actor: { sub: string; profileId: string },
 ): ActClaim {
   return {
     sub: actor.sub,
-    ...(actor.profileId ? { profileId: actor.profileId } : {}),
+    profileId: actor.profileId,
     ...(base ? { act: base } : {}),
   };
 }
@@ -134,7 +130,7 @@ export interface ActingTokenRecord {
   sub: string;
   /** The complete delegation chain, or absent when the subject acted for themselves. */
   act?: NebulaJwtPayload['act'];
-  profileId?: string;
+  profileId: string;
   /** Authority as ASSERTED at write time. Immutable history — never read back as an authz input. */
   access?: NebulaJwtPayload['access'];
 }
@@ -183,13 +179,7 @@ export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtP
     iat: now,
     jti: crypto.randomUUID(),
     access,
-    ...(input.profileId ? { profileId: input.profileId } : {}),
-    // ⚠️ The `profileId` key is spread CONDITIONALLY inside `act`, never `act` itself conditionally:
-    // the tenancy-summary refusal (`router.ts`'s `forwardWithSubject`) and the mint's root-identity
-    // gate both key on the chain's PRESENCE, so an `act` that disappeared when the actor had no
-    // `profileId` would silently defeat both.
-    ...(input.actor
-      ? { act: { sub: input.actor.sub, ...(input.actor.profileId ? { profileId: input.actor.profileId } : {}) } }
-      : {}),
+    profileId: input.profileId,
+    ...(input.actor ? { act: { sub: input.actor.sub, profileId: input.actor.profileId } } : {}),
   };
 }

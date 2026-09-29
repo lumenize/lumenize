@@ -2,7 +2,7 @@
  * OrgTree dedicated channel (Phase 5.3.7-v3 / P8 server side).
  *
  * The org/permission tree is NOT a resource — it's a per-Star singleton on its
- * own channel: `subscribeTree` registers in `TreeSubscribers` (keyed by clientId
+ * own channel: `subscribeTree` registers a `tree` row (keyed by clientId
  * alone), and every tree mutation broadcasts the synthesized `getState()` to ALL
  * subscribers INCLUDING the originator (no optimistic local write, so the echo is
  * the only update path). Delivery is `handleOrgTreeUpdate` — wholly separate from
@@ -52,7 +52,7 @@ async function createResource(client: NebulaClientTest, star: string, resourceId
 type TreeState = { nodes: Map<string, { slug: string; label: string }>; edges: Set<string>; permissions: Map<string, unknown> };
 
 describe('orgTree dedicated channel (P8 server)', () => {
-  it('subscribeTree registers a TreeSubscribers row and pushes the initial snapshot', async () => {
+  it('subscribeTree registers a tree row and pushes the initial snapshot', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
 
@@ -100,7 +100,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
     b.client[Symbol.dispose]();
   });
 
-  it('the tree subscription survives an ontology install (resource Subscribers cleared, TreeSubscribers not)', async () => {
+  it('the tree subscription survives an ontology install (resource rows cleared, tree rows not)', async () => {
     const star = uniqueStar();
     const { a, galaxyName } = await twoAdminClients(star);
 
@@ -109,8 +109,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
     a.client.callStarSubscribeTree(star);
     await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
 
-    // Append v2 + trigger its install (a v2 op cache-misses → Star fetches + installs
-    // → #installState clears resource Subscribers; it must NOT touch TreeSubscribers).
+    // Install v2: the plane's install drains the resource rows; it must NOT touch the tree rows.
     a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
     await waitForSuccess(a.client);
     a.client.callStarTransaction(star, 'v2', {
