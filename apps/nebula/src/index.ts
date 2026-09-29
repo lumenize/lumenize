@@ -14,7 +14,7 @@ export type { NodeInvitee, NodeInviteAck } from './resources';
 // import graph (tasks/archive/nebula-move-compilers-out-of-the-worker.md;
 // scripts/check-worker-graph.mjs is the tripwire). A test lane that genuinely
 // compiles imports `./ontology-compile` directly.
-export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
+export type { OntologyVersionConfig, OntologyVersionRow } from './galaxy';
 
 // Snapshots — the temporal storage engine
 export { Snapshots, END_OF_TIME } from './snapshots';

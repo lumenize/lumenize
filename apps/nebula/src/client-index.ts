@@ -75,7 +75,7 @@ export type {
 
 // Ontology config types — shape contract for the test lanes' Star apply initiators
 // (callStarInstallOntology / StarTest.applyOntologyForTest).
-export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
+export type { OntologyVersionConfig, OntologyVersionRow } from './galaxy';
 
 // Chat identity + the platform chat-ontology version label (pure strings — the value a
 // chat client sends as its `ontologyVersion`).

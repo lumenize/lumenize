@@ -640,7 +640,7 @@ Where the build met something the text above did not say, recorded as it happene
 - **The embed check at the closing run.** The Phase 4 fix edited `api-reference.md`, which the Worker embeds, and `gen-platform --check` refused the stale embed. The rule that the closing run follows the last edit is what caught it.
 
 **Impact on follow-on work.**
-- **`OntologyState` in `galaxy.ts` is exported and read by nothing.** It predates this task; proposed for removal.
+- **`OntologyState` in `galaxy.ts` was exported and read by nothing.** It was the return type of `getLatestOntologyVersion`, which `6173bb9` retired; removed with its two re-exports on 2026-09-29.
 - **`Galaxy.getOntologyVersion` has no caller outside tests.** Its decorator states what it serves; whether anything needs it is open.
 - **The Star's root-admin seed latch survives a wipe while its grant does not.** No principal can reach that today, and the subdomain build deletes the seed.
 - **`client.resources.invite` and `client.invite` are both absent from `api-reference.md`.** That page has never documented the facade invite either.

@@ -88,18 +88,6 @@ import {
 // `./ontology-compile` directly where a test lane genuinely compiles.
 export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-compile';
 
-// ─── Types ───────────────────────────────────────────────────────────
-
-/**
- * A registry row with its ordered version history (oldest → newest, the row's own version last).
- * Nothing in Nebula returns or reads it today: the Star's pull asks `getCurrentOntology`, which
- * answers the row alone.
- */
-export interface OntologyState {
-  row: OntologyVersionRow;
-  history: string[];
-}
-
 // ─── Constants ───────────────────────────────────────────────────────
 
 /**
