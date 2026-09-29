@@ -2,6 +2,30 @@
 
 **Status:** Pass 1 — design intent, constraints and decisions; phases are Pass 2. [ADR-021](../docs/adr/021-every-scope-has-its-own-host.md) and [ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md) carry the decisions and this build amends both; this file carries what building them in this repo needs. Gates ② Testing with personas.
 
+**Stage 2 debt, recorded 2026-09-29 so it does not leave by omission.** An early conformance
+panel ran 2026-09-21 against Pass 1, ahead of the order the Decisions table pins (target docs
+at Pass 2, *then* Stage 2). Fourteen of its findings were resolved into § *Decisions* and
+§ *Criteria*; these were still open when that session ended, and each is a claim to re-derive
+rather than a verdict to act on. Delete the block once the real Stage 2 has run.
+
+| | Still open at the early panel |
+|---|---|
+| **B1** | `deploy-test.sh` puts the test target's session lifecycle inside production's isolate. |
+| **B2** | An ADR-016 record cannot tell a universe admin on the universe page from the same admin on a tenant's page. Wants `aud` on `ActingTokenRecord` and `projectActingToken`, and ADR-016 in the two-wave guidance inventory. |
+| **M1** | § *Venues* understates the harness rework by about five times. |
+| **M2** | Four `@lumenize/testing` cookie-jar semantics change with no criterion naming them. |
+| **M5** | Where the claims-only dominion refusal lives is unassigned. |
+| **M7** | Two clauses in `security.md` are falsified by this build. |
+| **M8** | No criterion covers the `return_to` open-redirect refusal; touches ADR-022. |
+| **M9** | The refusal for an unparseable host is unspecified. |
+| **M10** | A `bindingName` premise in the file is false — `onBeforeConnect` already reads it off `request.url`. Strike it. |
+| **M11** | A pointer to the `sub`-limiter's replacement dangles; touches `auth.md`. |
+| **M12/M13** | Certificate-ordering has no coverage. |
+| **m1** | `coding-style.md` is in the guidance inventory and unaddressed. |
+| **m2** | `superuser-end-to-end` limbs 3 and 5. |
+| **m3** | "pack" is used before its first-use example. |
+| **m4, n1** | Two minor findings whose text went with the session; re-derive them. |
+
 **Objective — every universe, galaxy, Star and persona is served from a host of its own, and every session lives on the platform host, in production, in the local stack and in the `/live` harness alike.**
 
 Today one host serves everything, with the scope in the path. Take a user-developer who claimed the universe `acme` and then created the galaxy `crm`. Creating a galaxy adds no membership, so theirs is at `acme`. Their Studio for the galaxy is `https://nebula.lumenize.com/acme.crm`, and its preview is `/app/acme.crm.dev/` on that same host. Studio gets its token with `POST /auth/acme/refresh-token` and the body `{"activeScope":"acme.crm"}`, so the path names the membership and the body names the page. Their Home is `/auth/acme/home`. After this build Studio is `https://crm.acme.lumenize.dev/` and the preview is `https://dev.crm.acme.lumenize.dev/`. A page on either gets its access token from `POST https://platform.lumenize.dev/auth/refresh-token` with no body, and login and Home live on that host too.
