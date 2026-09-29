@@ -26,9 +26,11 @@ working_agreement: |
 
 Nebula is made up of a highly distributed mesh of nodes. Communication between them goes through `lmz.call()`, an RPC system that sits on top of two transports: (1) Cloudflare's Workers RPC within Cloudflare, and (2) WebSockets to and from clients, usually in browsers but possible anywhere that has JavaScript and WebSockets.
 
-Two things named throughout this document are not mesh nodes at all, so neither is an exception to that. The auth Registry sits outside the mesh and is reached over HTTP. See § *The Registry*. The Gateway is mesh mechanics, not a mesh node. The Profile is a third case — it *is* a node, but it is best not thought of as a full one. See § *Profiles* for how it behaves differently and why.
+Two things named throughout this document are not mesh nodes at all, so neither is an exception to that. The auth Registry sits outside the mesh, reached over HTTP and through one mesh-speaking facade. See § *The Registry*. The Gateway is mesh mechanics, not a mesh node. The Profile is a third case — it *is* a node, but it is best not thought of as a full one. See § *Profiles* for how it behaves differently and why.
 
-**A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary `lmz.call()`, not a separate delivery mechanism. Two things do differ: the **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, and it is where a client's claims are established on the way in and checked on the way out, which is why it appears throughout this document without ever being a node itself.
+**A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary mesh call, not a separate delivery mechanism. Two things do differ: the last-mile **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, and it is where a client's claims are established on the way in, which is why it appears throughout this document without ever being a node itself.
+
+**A subscription update is the node speaking for itself.** It starts a fresh call chain, so none of the writer's claims ride out to a subscriber's page, while a call from one node to another inherits the caller's (§ *How the claims travel*).
 
 ## The layers a call passes
 
@@ -38,15 +40,15 @@ You enter by authenticating, which sets a long-lived refresh cookie. That cookie
 
 One design decision runs underneath several of the layers below: **Nebula addresses Durable Objects (DOs) by name** (never using the 64-character hex id), and for a scoped node, **the name *is* its scope**. That is what turns an address from a routing fact into something authorization can base decisions upon.
 
-After authentication, a call passes a fixed sequence of layers — but **there are two sequences**, because a call to a mesh node and a call to a Registry endpoint arrive by different routes. Both compute the same two verdicts from the same claims: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?), from `authScope` and `scopeAdmin` against the scope being addressed. § *Coarse-grained access control* defines both. Some Registry endpoints present no access token — those that get you one, and those that present a refresh cookie instead — and § *The Registry* covers what stands in for the steps they skip.
+After authentication, a call passes a fixed sequence of layers. Two verdicts decide most of it: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?), computed from the page the call came from and the `scopeAdmin` bit against the scope being addressed. § *Coarse-grained access control* defines both.
 
-⚠️ **The two sequences differ in where the addressed scope comes from.** On the mesh path the node's name *is* its scope, pinned at creation, so M3 compares against something the caller cannot influence. On the Registry path one DO serves every scope and the scope arrives as a URL segment. R2 is the step that checks it, and the mesh path has no equivalent because M1 and M2 already did that work.
+**There are two sequences, because a call to a mesh node and a request to a Registry route arrive by different routes.** Only the mesh sequence computes the two verdicts. The Registry's routes carry the session lifecycle — logging in, the refresh, acceptance, logging out — and none of them reads an access token, so there is nothing for passage or dominion to decide. What a session does once it holds a token is a mesh call.
 
 **Mesh nodes.** Every layer runs in order, even where a given call makes one a no-op:
 
 - **M1 — Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
 - **M2 — The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
-- **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassageInto(access, targetScope)`. `targetScope` is this node's own name, pinned by M2. Our coarse-grained access control.
+- **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassageInto(claims, targetScope)`. `targetScope` is this node's own name, pinned by M2. Our coarse-grained access control.
 - **M4 — `@mesh()` decorators.** Only members decorated with `@mesh` (TC39 stage 3 decorators) are reachable over `lmz.call()`; nothing else on the node can be called or read by a caller.
   - **The one leg where that does not apply is a result coming back.** That chain is one this node authored and sent out, so it runs against this node's own members whether or not they are marked. M3 still grants or refuses passage on both legs, and the fence below holds on both.
   - **You may read properties and call methods on whatever a marked member handed back** — that is how a gate hands back a capability. What it hands back is the author's choice, so we recommend only handing back methods (including getters) and advise the author to be careful not to accidentally hand back access to `this`, `this.ctx`, `this.svc` etc.
@@ -57,28 +59,28 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 
 **Why relationships rather than roles?** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `scopeAdmin` bit that dominion reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
-**Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
+**Registry routes.** HTTP routes on the platform host, answered by the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
 
 ```
-/auth/:scope/create-star  [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleCreateStar]
-/auth/claim-universe      [connectionRateLimitGuard, turnstileGuard, forwardRaw]
+/auth/refresh-token   [connectionRateLimitGuard, handleRefreshToken]
+/auth/claim-universe  [connectionRateLimitGuard, turnstileGuard, forwardRaw]
 ```
 
-The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
+The first caller presents refresh cookies and the second presents nothing, because claiming is how a person comes to hold a session at all. Every layer runs in order, though not every route uses all of them:
 
 - **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`.
-- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/create-star` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. On a route that reaches R5 and R6, that segment is the `targetScope` they compare against.
-- **R3 — Rate limiting.** ONE limiter per route; **its key and place follow from whether verified identity exists at that point.** A token-bearing route takes a single `sub`-keyed limiter *after* R4 (`subRateLimitGuard`): everything costly on such a route — a Registry read, a DO write — sits after the verify, and a signature check is sub-millisecond local CPU, so a limiter ahead of it would pay roughly what it saves. A route with no `sub` yet — the cookie routes, the open routes — takes a single connection-keyed limiter (`connectionRateLimitGuard`) ahead of the first expensive thing: the cookie resolution's singleton read, or `turnstileGuard`'s `siteverify` round trip. Never both on one route.
-- **R4 — `verifyJwtGuard`.** Signature and expiry, from the `Authorization: Bearer` header. Produces the verified claims every later step reads.
-- **R5 — `passageGuard`.** Calls `hasPassageInto` — the same verdict M3 computes, with R2's scope as the `targetScope`.
-- **R6 — The endpoint's own guard functions.** Each asks one complete question. For example: `dominionOverScopeGuard` for the `/create-star` endpoint in the Registry endpoints partial shown above.
-- **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no. For example: a claim on a taken slug resolves three ways in the handler — a fresh slug proceeds, the same unverified claimer gets their link re-sent, and anyone else gets a conflict (§ *Founding a Star*).
+- **R2 — The same-site check.** Every `POST` to `/auth/` requires `Sec-Fetch-Site: same-origin`, so a page on another host cannot post a login or a logout ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *The cookie rules*). The refresh is the exception. It serves every page on the site, so it also accepts `same-site`, and requires an `Origin` that names a scope.
+- **R3 — Rate limiting.** ONE connection-keyed limiter per route (`connectionRateLimitGuard`), ahead of the first expensive thing: the cookie resolution's Workers KV read, or `turnstileGuard`'s `siteverify` round trip. No route here holds a verified `sub` to key on.
+- **R4 — The route's own credential.** Turnstile for a claim or a magic-link request, the emailed link for its consume, refresh cookies for the refresh, acceptance, Home's summary and logging out, and the signup ticket for a signup. § *The Registry* says why each route takes the one it does.
+- **R5 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no. For example: a claim on a taken slug resolves three ways in the handler — a fresh slug proceeds, the same unverified claimer gets their link re-sent, and anyone else gets a conflict (§ *Founding a Star*).
 
 Every step refuses the same way: return a `Response` with an appropriate HTTP code. Explicit throwing is discouraged because that surfaces to the caller as an ambiguous 500. The mesh does the opposite: a refusal there travels back over `lmz.call()`, which preserves a thrown Error whole — custom properties included — so throwing carries what a status code cannot.
 
-A route whose answer *is* a set of scopes carries none in its path. `scope-summary` returns the scopes the caller's own memberships cover, across every address they hold, so there is no target to decide about — the answer is computed from the verified claims R4 produced.
+Home's summary is a set of scopes, so it names none: it answers for every accepted refresh cookie the request carries, keyed on each cookie's `profileId`, and there is no target to decide about.
 
-> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` — the first example row above included — still take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/:scope/…` would have put it back in front of the handler; instead [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) § *Which host answers what* makes them `NebulaAuthFacade` methods, so the whole R-path stops applying to them and this note closes with that build.
+**One route outside the Registry reads an access token: `PUT /pictures`.** It answers on every host, and takes whose picture it is from the verified token rather than from anything the caller says.
+
+> **Today's code differs.** Every scope shares one host, `nebula.lumenize.com`, with the scope in the path of every cookie route. `create-galaxy`, `create-star`, `delete-scope(-plan)`, `expand-scope`, `scope-summary` and `mint-narrower-token` are still HTTP routes that read an access token, behind a `sub`-keyed limiter; [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) deletes `create-star` and `scope-summary`, and makes the rest `NebulaAuthFacade` methods.
 
 The sections that follow expand on the model above.
 
@@ -86,9 +88,9 @@ The sections that follow expand on the model above.
 
 Scope is the driver for coarse-grained access control.
 
-It often appears in a segment of a URL, but it can also be a parameter of a mesh call or in the body of a Request.
+A page's host spells one. `https://tenant1.crm.acme.lumenize.dev/` is the scope `acme.crm.tenant1`: the host lists the slugs innermost first and the scope outermost first, so the same three slugs appear in opposite orders, and a reader comparing the two should expect it ([ADR-021](../adr/021-every-scope-has-its-own-host.md)). A scope can also be a parameter of a mesh call.
 
-In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope. Braces stand in for a value here and throughout; `:scope` in the route table above is literal `URLPattern` syntax, which is why the two differ.
+Braces stand in for a value here and throughout: `{u}.{g}.{s}` names a Star.
 
 In the mesh domain, scope serves an additional purpose. It is the instanceName half of a node address.
 
@@ -109,12 +111,12 @@ The same kind of value appears in three distinct roles.
 | | Answers | Where it lives |
 |---|---|---|
 | **`authScope`** | *who you are* — the membership this session was established under | `access.authScope` in the token, and the refresh cookie's name |
-| **`activeScope`** | *where you are acting right now* — the scope of the page where you are working, within `authScope` | the token's `aud` |
-| **`targetScope`** | *what you are acting on* | a URL segment, a mesh node's name, or a call parameter |
+| **`activeScope`** | *where you are acting right now* — the scope of the page where you are working, within `authScope` | the token's `aud`, taken from the page's host |
+| **`targetScope`** | *what you are acting on* | a mesh node's name, or a call parameter |
 
 **The first two are properties of the caller; the third is a property of the call.** `authScope` and `activeScope` ride the token and change only at login or refresh; `targetScope` differs for every call the same token makes. The two sections below cover the first two — `targetScope` needs no section of its own, because it is simply whatever is being addressed.
 
-⚠️ **The coarse-grained verdicts read exactly two of the three: `authScope` and `targetScope`.** `activeScope` is not an input to passage or dominion (§ *Coarse-grained access control*), and leaving it out subtracts nothing — every refresh already confines it inside `authScope`, so deciding on it would be deciding on a value `authScope` has already bounded.
+**The coarse-grained verdicts read `activeScope` and `targetScope`, with `scopeAdmin` from the membership** (§ *Coarse-grained access control*). The page's code is what makes a call, and on a Star's host that code is the user-developer's, so the page a call came from bounds what it may do. `authScope` says which membership the token rests on, and so whose `scopeAdmin` bit it carries.
 
 ## `authScope` (sessions)
 
@@ -122,7 +124,7 @@ A session has one `authScope`, represented by a refresh cookie. A login sets one
 
 The refresh cookie is `HttpOnly` so no script can read it, `Secure` so it only travels over HTTPS, and `SameSite=Lax` so someone who follows a link in their email to Home (§ *Home*) is recognised: that navigation comes from another site, the mail client's, and a `Strict` cookie would stay behind. Its `__Host-` prefix makes a browser keep it only with `Path=/` and no `Domain`, so no other host can plant or overwrite it.
 
-A page on any `lumenize.dev` host but `platform` gets its access token from the platform host's refresh. It calls `fetch` with `credentials: 'include'`, so the browser sends the platform host's cookies along. The page can read the answer only because the refresh names that page's origin in its CORS headers, and every other `POST` to `/auth/` refuses a request from another origin ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *The cookie rules*). Among the memberships whose cookies arrive, the refresh picks the one with the broadest dominion at or above the page's scope, and that membership's scope is the token's `authScope`. So a universe admin on a tenant's page carries `authScope: acme`, and from there holds dominion over the Galaxy, `acme.crm`.
+A page on any `lumenize.dev` host but `platform` gets its access token from the platform host's refresh. It calls `fetch` with `credentials: 'include'`, so the browser sends the platform host's cookies along. The page can read the answer only because the refresh names that page's origin in its CORS headers, and every other `POST` to `/auth/` refuses a request from another origin ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *The cookie rules*). Among the memberships whose cookies arrive, the refresh picks the one with the broadest dominion at or above the page's scope, and that membership's scope is the token's `authScope`. So a universe admin on a tenant's page carries `authScope: acme`. From that page they hold dominion over the tenant, and to act on the Galaxy, `acme.crm`, they go to its host (§ *Coarse-grained access control*).
 
 > **Today's code differs.** One host, `nebula.lumenize.com`, holds every session, each cookie at `Path=/auth/{authScope}` with `SameSite=Strict`, and the client names the scope it refreshes at.
 
@@ -130,11 +132,11 @@ A page on any `lumenize.dev` host but `platform` gets its access token from the 
 
 An access token is a signed JWT. It has one `activeScope` — the scope of the page where the person is working, carried as the `aud` claim. On a page at `https://tenant1.crm.acme.lumenize.dev` it is `acme.crm.tenant1`. One session can back many tokens at once, one per tab, on the same host or on different hosts, each carrying its own page's `activeScope`.
 
-The refresh takes it from the page's `Origin`, which page script cannot set, and mints only where it sits at `authScope` for a plain membership, or at or below it for a `scopeAdmin` one, so it can only ever name somewhere `authScope` allows. It is restrained by `authScope`, but is not an independent factor in an access-control decision.
+The refresh takes it from the page's `Origin`, which page script cannot set, and mints only where it sits at `authScope` for a plain membership, or at or below it for a `scopeAdmin` one, so it can only ever name somewhere `authScope` allows.
 
-It decides nothing a call may do ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*).
+It is what the coarse-grained checks read, so a call acts within its page's scope and below ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*). Reading it only ever narrows what `authScope` alone would allow, because it already sits at or below `authScope`.
 
-> **Today's code differs.** The Gateway still fences its outbound leg on `aud`: a call heading out to a client is refused if its `aud` differs from the one that connection presented, with the Profile exempt. Once `aud` is the page's host, that fence would drop every update made from another host, so what replaces it is an open question in [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md).
+> **Today's code differs.** Passage and dominion still read `authScope`. And the Gateway still fences its outbound leg on `aud`: a call heading out to a client is refused if its `aud` differs from the one that connection presented, with the Profile exempt. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) moves the checks onto `aud` and deletes the fence, since an update then carries no writer's claims (§ *Lumenize Nebula mesh*).
 
 Moving between active scopes is moving between hosts, which a person does from Home (§ *Home*). The page they land on gets a token of its own, and a connection carries for its life the one `aud` it presented.
 
@@ -145,7 +147,8 @@ The contrast, at a glance:
 | Belongs to | the session | each access token |
 | What it is | where you authenticated | the scope of the page where the person is working |
 | Where it lives | the refresh cookie's name, and the JWT's `access` claim | the JWT `aud` |
-| Who sets it | fixed at login; the refresh picks the session | the refresh, from the page's `Origin`, confined to what the session reaches |
+| Who sets it | fixed at login; the refresh picks the session | the refresh, from the page's `Origin`, confined at or below `authScope` |
+| What it decides | whose `scopeAdmin` bit the token carries | what a call from this page may do, through passage and dominion |
 
 ## The access token
 
@@ -154,9 +157,9 @@ A whole token, annotated — a Galaxy admin on a page at one of their tenants' h
 ```jsonc
 {
   "sub": "8f3c…",              // the membership — see § Identity and membership
-  "aud": "acme.crm.bigco",     // activeScope — my page's host, grants nothing
+  "aud": "acme.crm.bigco",     // activeScope — my page's host; passage and dominion read it
   "access": {
-    "authScope": "acme.crm",   // where I am a member — passage and dominion both read it
+    "authScope": "acme.crm",   // where I am a member — the membership this token rests on
     "scopeAdmin": true         // see § Coarse-grained access control
   },
   "profileId": "1a9d…",        // my public profile — see § Profiles
@@ -168,11 +171,13 @@ A whole token, annotated — a Galaxy admin on a page at one of their tenants' h
 
 ## How the claims travel
 
-The verified claims do not stop at the boundary they were checked on. The Gateway builds them once, when it accepts the connection and verifies the JWT, and every `lmz.call()` from there inherits them **unchanged** — so a node five hops deep reads the same `sub`, the same `access`, and the same `act` chain the first node saw, without a lookup and without any caller threading them by hand. That is what makes the decision in § *Coarse-grained access control* local, and what lets a Resource write record its author from context alone.
+The verified claims do not stop at the boundary they were checked on. The Gateway builds them once, when it accepts the connection and verifies the JWT, and every `lmz.call()` from there inherits them **unchanged** — so a node five hops deep reads the same `sub`, the same `aud`, the same `access`, and the same `act` chain the first node saw, without a lookup and without any caller threading them by hand. That is what makes the decision in § *Coarse-grained access control* local, and what lets a Resource write record its author from context alone.
+
+A subscription update starts afresh instead. It is the node speaking for itself rather than for whoever wrote, so its chain names only the node, and no writer's claims reach a subscriber's page. `lmz.broadcast` does this by default.
 
 ## Coarse-grained access control
 
-> **Today's code differs, in ONE way.** The JWT now carries the member's scope itself and a non-admin no longer has passage into scopes beneath their own — but **a call to a node named `nebula-platform` is refused outright**, so the universal passage described here does not yet hold at the root. That is a **name reservation** — nothing is deployed at that name, and refusing it stops an arbitrary class occupying the one name every caller has passage into — so it closes when the name goes from **rejected to bound**, never by being opened.
+> **Today's code differs, in TWO ways.** The checks read the member's scope, `authScope`, rather than the page's. And although a non-admin no longer has passage into scopes beneath their own, **a call to a node named `nebula-platform` is refused outright**, so the universal passage described here does not yet hold at the root. That is a **name reservation** — nothing is deployed at that name, and refusing it stops an arbitrary class occupying the one name every caller has passage into — so it closes when the name goes from **rejected to bound**, never by being opened.
 
 **This layer exists to make lateral movement impossible while allowing certain kinds of vertical movement.**
 
@@ -182,16 +187,16 @@ The `onBeforeCall()` guard sits at the node's outer boundary, and the one questi
 
 **Vertical passage is allowed in only two specific forms** described below.
 
-It compares where you are a member (`authScope`) against the scope being acted on (`targetScope`), and there are two ways passage is granted:
+It compares the scope of the page the call came from (`activeScope`, the token's `aud`) against the scope being acted on (`targetScope`), and there are two ways passage is granted:
 
-- **Passage upward is free.** `targetScope` can be your own `authScope`, or an ancestor of it. No `scopeAdmin` needed.
-- **Passage downward takes dominion.** `targetScope` is a descendant of `authScope` *and* `scopeAdmin` is set — the pair, never the bit on its own.
+- **Passage upward is free.** `targetScope` can be your page's scope, or an ancestor of it. No `scopeAdmin` needed.
+- **Passage downward takes dominion.** `targetScope` is a descendant of your page's scope *and* `scopeAdmin` is set — the pair, never the bit on its own.
 
-In one line: **`authScope` and `targetScope` must be on the same vertical line, upward is free, and downward needs dominion** (`scopeAdmin`).
+In one line: **the page and `targetScope` must be on the same vertical line, upward is free, and downward needs dominion** (`scopeAdmin`).
 
 *Passage* and *dominion* mean one thing each, everywhere in this repo, and are never borrowed for anything else — which is why two uncommon words were picked ([ADR-015](../adr/015-passage-and-dominion.md) defines them). However, the analogy below should help you remember them.
 
-Think of `scopeAdmin` as a feudal lord's title over some land (scope) — King of a Universe, Duke of a Galaxy, Count of a Star. A Duke does whatever they want in every County of their Duchy. In the Kingdom above, they may use what the Kingdom's rules leave open — the wood, the road — but decide nothing there and change nothing. Dominion is the combination of the title (`scopeAdmin`) *and* the land (scope), never the bare `scopeAdmin` bit, and it runs only downward. Passage is the right of way, and it runs both ways: the Duke rides down into their own Counties because they hold them, and up to the King's wood because the Kingdom's rules say that it stands open to everyone in the Kingdom — while the neighbouring Duchy's border is closed to them. God sits above the Kings — the root of the realm rather than an exception to it — and has dominion over everything, by the same downward rule every lord holds. § *Superuser seed*.
+Think of `scopeAdmin` as a feudal lord's title over some land (scope) — King of a Universe, Duke of a Galaxy, Count of a Star. A Duke does whatever they want in every County of their Duchy. In the Kingdom above, they may use what the Kingdom's rules leave open — the wood, the road — but decide nothing there and change nothing. Dominion is the combination of the title (`scopeAdmin`) *and* the land (scope), never the bare `scopeAdmin` bit, and it runs only downward. Passage is the right of way, and it runs both ways: the Duke rides down into their own Counties because they hold them, and up to the King's wood because the Kingdom's rules say that it stands open to everyone in the Kingdom — while the neighbouring Duchy's border is closed to them. And a lord rules from the hall they stand in: in one of their Counties the Duke rules that County, and to decide something for the whole Duchy they ride back to its seat. God sits above the Kings — the root of the realm rather than an exception to it — and may stand in any hall, ruling each by the same downward rule every lord holds. § *Superuser seed*.
 
 Two predicates express all of it, and no guard re-derives either ([ADR-007](../adr/007-shared-node-security-core.md)). [ADR-015](../adr/015-passage-and-dominion.md) is the definition home; where it and this section disagree, it wins:
 
@@ -225,10 +230,10 @@ So the last column below is what a caller of that shape *usually* ends up able t
 
 Seven example calls, all in the same Universe:
 
-| Case | `authScope` | `scopeAdmin` | `targetScope` | Usually can |
+| Case | The page's scope | `scopeAdmin` | `targetScope` | Usually can |
 |---|---|---|---|---|
 | **Lateral** | `u.g.s1` | no | `u.g.s2` | **nothing** — lateral movement, refused; the case this layer exists for |
-| Ordinary | `u.g.s` | no | `u.g.s` | most of the app's methods, and the Resources their orgTree grants reach |
+| Ordinary | `u.g.s` | no | `u.g.s` | most of the app's methods, and the Resources their orgTree grants cover |
 | Upward | `u.g` | no | `u` | read the organizational-level agentic coding standing guidance |
 | Upward, `scopeAdmin` below the target | `u.g` | **yes** | `u` | the same as the row above — the bit sits beneath `u`, so it buys nothing |
 | Upward, `scopeAdmin` at the target | `u` | **yes** | `u` | everything at the Universe, including editing the standing guidance |
@@ -241,7 +246,7 @@ The four rows between it and **Downward** are one rule against different target 
 
 The last row is the invited collaborator on one app: they have passage into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-`_platform` is **not** an exception. It is the **root of the scope tree** — at or above every scope, and every scope at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means the two verdicts land differently there, and the asymmetry is the whole point: **passage to the platform scope is universal** — the upward arm asks `isAtOrAbove('nebula-platform', anything)`, which the root satisfies for everyone — while **dominion over it is superuser-only**, because that asks the reverse, `isAtOrAbove(myScope, 'nebula-platform')`, which holds only when your own scope *is* the platform scope.
+`_platform` is **not** an exception. It is the **root of the scope tree** — at or above every scope, and every scope at or below it — so a superuser's membership there gets them a token on every host by the ordinary rule, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. The two verdicts land differently there, and the asymmetry is the whole point: **passage to the platform scope is universal**, because the upward arm asks `isAtOrAbove('_platform', anything)`, which the root satisfies for everyone. **Dominion over it is nobody's**, because that asks the reverse, `isAtOrAbove(page, '_platform')`, which holds only for a page at the root, and no page sits there.
 
 One thing sits outside all of this: the Profile, deliberately — § *Profiles*. 
 
@@ -293,9 +298,9 @@ Permissions trickle down the orgTree. To alter a Resource's value, or create one
 
 The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` overrides the data plane's grants, never the reverse. Someone whose dominion covers the node hosting a data plane gets a bypass over that entity's whole orgTree — full read, write and admin, with no data-plane-level grant ever written. Dominion over *that host* is the whole test, never the bare bit, so an admin of a child scope whom passage legitimately lets into the parent holds no bypass once there. That is § *Why downward is generous for admins* arriving where user data lives.
 
-A Star's own admin does not depend on that bypass: founding one writes a real `admin` grant on its root node (§ *Founding a Star*), so a founder holds both. A Resources-level admin added later, likely does not hold a Registry-level authAdmin. The overlap for the founder is **visibility, not access** — the bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and would climb to the root and find nobody to ask. The real grant gives that climb a terminus inside the Star. Independence runs the other way too, though not to zero: a data-plane `admin` on **any** node of the orgTree, holding `scopeAdmin` nowhere, grants and revokes freely inside that orgTree — and has a little authority in the Registry as well. They may invite a peer into their own scope (§ *Grants*), including one who will hold data-plane `admin` themselves. What they cannot do is make anyone a `scopeAdmin`, create a sibling scope, or delete this one.
+A Star's own admin acts through that bypass too, and holds no grant in its orgTree. The bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and where such a climb ends is the request-access design's question ([`tasks/on-hold/nebula-request-access.md`](../../tasks/on-hold/nebula-request-access.md)). A Resources-level admin added later likely holds no `scopeAdmin` at all. Independence runs that way too, though not to zero: a data-plane `admin` on **any** node of the orgTree, holding `scopeAdmin` nowhere, grants and revokes freely inside that orgTree — and has a little authority in the Registry as well. They may invite a peer into their own scope (§ *Grants*), including one who will hold data-plane `admin` themselves. What they cannot do is make anyone a `scopeAdmin`, create a sibling scope, or delete this one.
 
-> **Today's code differs.** The climb is not built — [`tasks/on-hold/nebula-request-access.md`](../../tasks/on-hold/nebula-request-access.md) is still a stub, so nothing today walks the orgTree looking for someone to ask. The root-admin grant that gives it a terminus *is* built and seeded (`apps/nebula/src/star.ts`), which is why the Star writes a grant whose only consumer does not exist yet.
+> **Today's code differs.** The climb is not built, so nothing walks the orgTree looking for someone to ask. And a Star still writes its founder an `admin` grant on its root node (`apps/nebula/src/star.ts`), which [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) deletes: it buys no capability the bypass does not already give.
 
 ## Identity and membership
 
@@ -331,9 +336,11 @@ The last row is the point, not a gap.
 
 Not every type of scope is a place to work and thus not a reasonable active scope, but for those that are, choosing a scope in discovery takes you to the page for that type of active scope. Galaxy active scopes take you to Nebula Studio. Star active scopes serve up that app. Someone working in `u.g1` who wants to do some work in `u.g2` picks it from the list, and the tab goes to that scope's host, because the scope you are working in is view state ([ADR-017](../adr/017-the-url-is-the-view-state.md)).
 
-The list is over memberships rather than over what the current token covers, so it can span sessions. Because one person can hold memberships at several addresses, it is keyed on the **person** — their `profileId` — rather than on any one address (§ *Identity and membership*). Home reads it by the refresh cookies the browser holds, since a page on the platform host gets no token. Every session's cookie lives there too, so whichever membership the destination needs, the new page's refresh finds it. Those cookies are long-lived and coexist, so an already-open session just works, and only an expired or absent one puts a login in front of the user's desire to work somewhere else.
+The list is over memberships rather than over what the current token covers, so it can span sessions. Because one person can hold memberships at several addresses, it is keyed on the **person** — their `profileId` — rather than on any one address (§ *Identity and membership*). Home reads it by the refresh cookies the browser holds, since a page on the platform host gets no token, and when those cookies belong to more than one Profile it shows each as a group of its own.
 
-The login itself names no scope, only an email address. Once someone is authenticated, discovery computes what they reach and they pick.
+**Home is a picker.** Every action it offers is a link to the host whose token can perform it: an account's "+ App" opens the universe's page, and an app's Delete opens that app's Studio. Someone who can work in only one place skips the list and lands there. Every session's cookie lives there too, so whichever membership the destination needs, the new page's refresh finds it. Those cookies are long-lived and coexist, so an already-open session just works, and only an expired or absent one puts a login in front of the user's desire to work somewhere else.
+
+The login itself names no scope, only an email address. Once someone is authenticated, discovery lists where they can work and they pick.
 
 **Skipping the picker when a page sent you.** A page whose refresh finds no session sends the tab to log in with `return_to`, and the login returns there, in whichever browser opened the link ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *Logging in*). ⚠️ **The destination is remembered by the login, never carried in the emailed link.**
 
@@ -343,21 +350,21 @@ The login itself names no scope, only an email address. Once someone is authenti
 
 The Registry is the one thing in this document that sits entirely outside the mesh, and it is the single source of truth for who exists, what scopes exist, and who is a member where: the records the rest of this document reads have to be written somewhere no token is yet required. How it is reached splits along one line — **HTTP carries the session lifecycle; the mesh carries what a session does** (the mechanism: § *Grants in both planes*).
 
-Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — passage into your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
+None of its HTTP routes reads an access token, so none computes passage or dominion. What a session does reaches the Registry through the facade, where the verdicts are the ones a mesh node computes (§ *Grants in both planes*), so there is one model, not one per surface.
 
-#### Endpoints that present no access token
+#### What authenticates each route
 
-This case has two families, and neither reaches R4 or R5 — with no verified claims there is nothing for `passageGuard` to decide about. Both take R1, R2 and R3, then whatever steps that endpoint needs.
+**Cookie or token, never both.** Each route authenticates one way: a credential under `/auth/` is an emailed link, a refresh cookie or a signup ticket, and an access token authenticates a mesh call. The trade is stated so it need not be rediscovered: a cookie costs a Workers KV read per request where a token verifies statelessly, and buys revocation that does not wait out an access token. Every route takes R1 to R3, then whatever steps it needs.
 
-**Getting a token.** Claiming a scope, requesting a magic link, consuming one. These cannot verify a token because they are how a person obtains one. Two things stand in: `turnstileGuard` proves a human is present, running after rate limiting because it costs a `siteverify` round trip; and the credential itself arrives out of band, because access is anchored to the mailbox (§ *Identity and membership*).
+**Getting a session.** Claiming a scope, requesting a magic link, consuming one. These cannot verify a token because they are how a person comes to hold one. Two things stand in: `turnstileGuard` proves a human is present, running after rate limiting because it costs a `siteverify` round trip; and the credential itself arrives out of band, because access is anchored to the mailbox (§ *Identity and membership*).
 
-**Presenting the refresh cookie.** `refresh-token` exchanges refresh cookies for an access token, and `logout` ends them (§ *`authScope` (sessions)*). The caller is authenticated here by cookie rather than by JWT. A cookie's name only says which membership it holds: what the cookie is worth, and the scope that decides anything, are read from the stored refresh record.
+**Presenting the refresh cookie.** `refresh-token` exchanges refresh cookies for an access token, Home's summary and acceptance read them, and `logout` ends them (§ *`authScope` (sessions)*). A signup that proved its address before choosing a slug presents a signup ticket instead, a `__Host-` cookie of its own. The caller is authenticated here by cookie rather than by JWT. A cookie's name only says which membership it holds: what the cookie is worth, and the scope that decides anything, are read from the stored refresh record.
 
-The seam stays clean, and it is worth being precise about what kind of clean. **No authorization decision ever consults the Registry mid-session** — once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally, off the claims. What does reach the Registry mid-session is **writes**, through the facade (§ *Grants in both planes*). The deciding path is finished by the time the connection is open; the mutating path goes through one door.
+The seam stays clean, and it is worth being precise about what kind of clean. **No authorization decision ever consults the Registry mid-session** — once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally, off the claims. What does come to the Registry mid-session goes through the facade (§ *Grants in both planes*): writes, and the universe page's read of its own apps. The deciding path is finished by the time the connection is open; everything else goes through one door.
 
 The one exception is a Profile write, where the scoped-admin branch reads the Registry to confirm an accepted membership; the owner branch reads nothing (§ *Profiles*). That borderline exception is one reason why we say that it is best not to think of Profile as a full mesh node.
 
-Scope existence is independent of membership. Creating a Galaxy or a Star writes a scope row and nothing else, so a real, working scope can have zero members — the creator's own dominion already covers it. Of the operations that *create a scope*, only the claim paths also mint an identity — because until one exists nobody holds a token for the new scope. Invites mint identities too, but into a scope that already exists (§ *Grants*).
+Scope existence is independent of membership. Creating a Galaxy writes its scope row and its `.dev` Star's, and nothing else, so a real, working scope can have zero members — the creator's own dominion already covers it. Of the operations that *create a scope*, only the claim paths also mint an identity — because until one exists nobody holds a token for the new scope. A universe's claim also writes its first galaxy and that galaxy's `.dev` Star, so a new account lands in Studio. Invites mint identities too, but into a scope that already exists (§ *Grants*).
 
 Everything else the Registry owns has its own section: sessions and their cookies, memberships and the addresses they hang off, and the scope and admin bit that the coarse-grained gate reads out of every token.
 
@@ -373,11 +380,11 @@ A Profile is not a web resource. There is no HTTPS endpoint for one — no route
 
 The `profileId` being random and unguessable stops enumeration, not access. Any authenticated client who obtains an id, by whatever means, can read that profile's public fields. There will never be more gating than that. If a user doesn't want their real name or picture readable that way, they are free to obfuscate themselves.
 
-Private data can be read and written only by the owner of the profile, a superuser, or a Registry admin over a scope where that person holds an **accepted** membership.
+Private data can be read and written only by the owner of the profile, or by an admin whose page holds dominion over a scope where that person holds an **accepted** membership. A superuser qualifies the same way, from the page they are on. The system's own Profile belongs to no scope, so it is the one a superuser's membership alone opens.
 
 Accepted is load-bearing, not bookkeeping. An invitation creates a membership before the invitee has done anything, so counting unaccepted ones would let anyone claim a Universe, invite an address they guessed, and become an admin over a scope that stranger's profile touches. A membership is taken up at exactly one endpoint, reached from behind a consent modal and authenticated by the refresh cookie a click on mail to that address put in the browser. Consuming the link is not enough on its own — it proves the mailbox, which is a different act from agreeing to hold the membership.
 
-The owner is whoever's `profileId` is on the token. An admin impersonating someone is that person here, exactly as they are everywhere else — the token names the subject, and nothing about the actor changes what it may do. What keeps that safe is that the token cannot exist over a membership nobody accepted: the mint refuses to issue one, so an admin arrives only at the profiles their own dominion already reaches.
+The owner is whoever's `profileId` is on the token. An admin impersonating someone is that person here, exactly as they are everywhere else — the token names the subject, and nothing about the actor changes what it may do. What keeps that safe is that the token cannot exist over a membership nobody accepted: the mint refuses to issue one, so an admin arrives only at the profiles their own dominion already covers.
 
 Access to a Profile is therefore decided by the token, plus Registry data for the admin case. The owner case reads nothing from the Registry, because the token already carries the `profileId`.
 
@@ -389,7 +396,7 @@ An environment variable holds an array of superuser email addresses. Logging in 
 
 An admin can act as someone they administer. The token names both people: the top-level `sub` is the person being acted as, and `act.sub` is the admin doing it. The token format allows nesting, but impersonation does not chain — to act as someone else you go back to your original session.
 
-`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence. One refusal keys on the chain merely being there: the mint, which will not narrow a token that already carries one. Prepend an actor into somebody's own session token and they lose their ability to act as anyone, for a reason nobody intended. Chains grow on the **record** instead — § *Attribution* — where an actor is legitimately not an impersonator at all, since Nebula adds itself to every turn it writes.
+`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence. One refusal keys on the chain merely being there: the mint, which will not impersonate from a token that already carries one. Prepend an actor into somebody's own session token and they lose their ability to act as anyone, for a reason nobody intended. Chains grow on the **record** instead — § *Attribution* — where an actor is legitimately not an impersonator at all, since Nebula adds itself to every turn it writes.
 
 > **Today's code differs.** `scope-summary` and `expand-scope` refuse a token carrying `act` as well, because `scope-summary` answers every tenancy the subject holds, some of it beyond the impersonating admin's dominion. The subdomain build removes `scope-summary` and confines `expand-scope` beneath its own host, where the admin already holds dominion, so the refusal withholds nothing.
 
@@ -397,14 +404,14 @@ It produces a token but not a session. There is no refresh cookie behind it, whi
 
 Authorization is decided by the subject and never the actor. Otherwise the admin carries their own power into the user's seat and never experiences the system the way a user does, which defeats the motivating use case for impersonation — debugging.
 
-It is never an escalation. You can only act as someone whose scope your dominion already covers, and the token mirrors that person's access rather than your own.
+It is never an escalation. You can only act as someone whose scope your dominion already covers, and only from that person's own page: the mint takes the new token's `aud` from the page that asked, so the token mirrors that person's own access with `act` added, rather than your own.
 
 Here is that mirroring, in the same shape as the token in § *The access token* above. The admin from that example — `8f3c…`, with profile `1a9d…` — is now acting as a member of one of their Stars:
 
 ```jsonc
 {
   "sub": "7b2e…",              // the SUBJECT — authz reads this, always
-  "aud": "acme.crm.bigco",     // where the admin chose to act
+  "aud": "acme.crm.bigco",     // the subject's own scope, which is the page the admin asked from
   "access": {
     "authScope": "acme.crm.bigco"  // the subject's scope, not the admin's
   },
@@ -419,7 +426,7 @@ Here is that mirroring, in the same shape as the token in § *The access token* 
 
 Every identity claim names the subject, `scopeAdmin` included — the subject does not hold it, so the token does not. The admin's own bit is not blended in. It is what permitted the impersonation at all, which is a separate rule checked somewhere else. The only trace of who is really driving is `act`, and nothing that decides access is allowed to look at it.
 
-One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. The case that passes it today is the scope summary, which answers with every tenancy the subject holds — a list spanning scopes the admin driving the token has no dominion over. Such a check may look at whether `act` is present, never at who the actor is.
+One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. No read a token can make answers beyond its own page's scope, where the admin already holds dominion, so nothing passes that test now. A check that ever does may look at whether `act` is present, never at who the actor is.
 
 There is no consent step, deliberately. An admin can already read and write anything in their scope under their own name, so impersonation grants them nothing new. It only changes attribution, and it improves it by naming both parties — gating it would push an admin toward the less traceable path. This changes if a customer requires consent during a security review and the deal is worth it.
 
@@ -453,7 +460,7 @@ APIs and UIs allow the querying and inspection of both. These records are access
 
 So, anyone may invite a non-admin at their own scope. Dominion additionally permits inviting downward, and is the only thing that permits conferring `scopeAdmin`.
 
-**Registry-initiated grants**. Only `scopeAdmin` grants are made directly using Registry endpoints.
+**Registry-only grants**. Only `scopeAdmin` grants are made in the Registry alone, by a claim or through the facade.
 
 Ordering is important. A data-plane grant names a `sub`, and a `sub` only exists once a membership does. So the Registry step always comes first.
 
@@ -465,9 +472,9 @@ An operation whose outcome spans both planes — an invite that mints a membersh
 2. **It reaches the Registry through the facade** — a mesh-speaking entrypoint the Registry's package owns, where the Registry-side guards live: claims-level verdicts only, the acting principal recorded from the same verified claims (ADR-016), the one raw Workers RPC call from a node that accepts `lmz.call()`s. The Registry never learns what a Star is.
 3. **Both planes are written in one operation — which no transaction spans.** There is no cross-plane transactional support, so inconsistency is the implementor's to consider. The Registry writes first and both halves are idempotent, so the one reachable inconsistency — a membership without its grant — heals on a re-attempted invite.
 
-The facade is not reserved for two-plane operations: it is how *any* authenticated session mutation reaches the Registry (§ *The Registry*), pure-Registry invites included. It also rate-limits nothing, deliberately: mesh calls carry no rate limits anywhere — a mesh caller could overwhelm their own Star or Galaxy by cheaper means, so a limiter here would buy nothing, and we treat that as true until evidence says otherwise. The HTTP surface keeps its limiters (R3 in § *The layers a call passes*).
+The facade is not reserved for two-plane operations: it is how *anything* an authenticated session does reaches the Registry (§ *The Registry*), pure-Registry invites included. It also rate-limits nothing, deliberately, and neither does any other mesh call. Every mesh caller holds a token naming them, so one calling in a loop can be found and cut off, and what the loop costs the Registry is load, which is recoverable. The one facade method that spends something shared and scarce, creating a galaxy, orders a certificate from the zone's pool, so it is capped per owner instead. We add a limit when there is a problem, and a per-`sub` limit at the Gateway would cover every mesh call at once. The HTTP surface keeps its limiter (R3 in § *The layers a call passes*).
 
-> **Today's code differs.** `/mint-narrower-token` is still an authenticated HTTP route rather than a facade method — the natural second instance of the move invites already made ([backlog.md](../../tasks/backlog.md) § *Nebula Auth*).
+> **Today's code differs.** Impersonation (`/mint-narrower-token`), creating a galaxy, deleting a scope and the universe page's read of its apps are still HTTP routes that read an access token, rather than facade methods — the move invites already made. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) makes each a facade method.
 
 
 ### Founding a Star
@@ -480,8 +487,6 @@ So the flow keeps everyone else off the Star until the founder arrives. Having t
 
 1. **The claim writes to the Registry, never to the Star.** A single unauthenticated call, fronted by Turnstile — anyone may claim an unclaimed Star, with no invitation and no approval step, and that openness is the product rather than an oversight. It validates and then writes atomically: the scope row, an *unaccepted* admin membership at the full three-segment id, and a magic link. The parent Galaxy must already exist, but that is an integrity check rather than an admin gate; nobody is authenticated at this point in the flow.
 2. **The mailbox proves the person.** Clicking the emailed link proves the address and places a session cookie. The user must still accept by clicking on the Home screen. Re-claiming from the same address re-sends the link; a different address gets a conflict, so a pending claim cannot be taken over.
-3. **The founder's first touch creates and places it.** Now authenticated at exactly that Star, they address it — and that call is what brings the Durable Object into existence, near them. The Star writes them an `admin` grant on its root node.
+3. **The founder's first touch creates and places it.** Now holding a session at exactly that Star, they open its host, and the page's first call is what brings the Durable Object into existence, near them.
 
-The Star writes that grant only for an admin whose scope is exactly that Star. One from further up gains nothing by it — their dominion already covers everything there (§ *The data plane*) — and would cost the Star a great deal, because the seed runs once and never again: whoever wanders in first becomes that Star's permanent terminus for access requests, routing its members' asks away from their own admin.
-
-That much is enforced. Placement is not — nothing refuses a call from anyone whose dominion covers the Star, so whoever touches it first places it. It is **a bet rather than a check**, and what holds the bet is the sequencing above: until the founder clicks their link, nobody has reason to address the Star at all. The one realistic way to lose it is a support visit landing in the window before they do.
+Placement is not enforced — nothing refuses a call from anyone whose dominion covers the Star, so whoever touches it first places it. It is **a bet rather than a check**, and what holds the bet is the sequencing above: until the founder clicks their link, nobody has reason to address the Star at all. The one realistic way to lose it is a support visit landing in the window before they do.
