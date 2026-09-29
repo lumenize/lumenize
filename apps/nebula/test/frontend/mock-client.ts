@@ -168,7 +168,12 @@ export class MockClient implements StoreClient {
     },
   };
 
-  /** Test helper: simulate a server-side fanout push (drives hold-pending-fanouts). */
+  /**
+   * Test helper: simulate a server-side fanout push (drives hold-pending-fanouts). Unlike the real
+   * client's `handleResourceUpdate`, it records no read access first (`applyDenied`), so an entry it
+   * creates has no `deniedNodes`. A store default added only to make that entry whole serves the
+   * mock, not the product.
+   */
   simulateFanout(rt: string, rid: string, snapshot: Snapshot): void {
     this.#engine.notifyFanout(rt, rid, snapshot);
   }

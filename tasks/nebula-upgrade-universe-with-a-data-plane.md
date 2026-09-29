@@ -9,18 +9,18 @@ build is what stops an account's display name being parked somewhere it has to b
 it holds is the account's own name.**
 
 `universe.ts` is twenty lines: a `setUniverseConfig`/`getUniverseConfig` pair over an untyped
-`Record<string, unknown>` in KV, and nothing else. [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md)
-deletes that pattern from the Galaxy and the Star, which leaves this class empty. Meanwhile
+`Record<string, unknown>` in KV, and nothing else. The Galaxy and the Star carry the same pattern, and
+[nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) handed all three pairs to this file (its D11), so retiring them leaves this class empty. Meanwhile
 [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Scope full names* records that a Universe "has no human
 name anywhere, and its slug is doing two jobs at once", and the subdomain build's signup is about to
 start collecting one.
 
 ## Relationships
 
-- **Follows [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md).** That task
-  settles the gate shape and moves every guard into the plane; this one composes the same plane onto
-  a third host and should inherit the finished contract rather than a moving one. ⚠️ **What it
-  settles is now TWO accessors, not one** (2026-09-21): a `@mesh() get resources` door and a
+- **Follows [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md), built 2026-09-28.** That task
+  settled the gate shape and moved every guard into the plane; this one composes the same plane onto
+  a third host and inherits the finished contract. ⚠️ **What it
+  settled is TWO accessors, not one** (2026-09-21): a `@mesh() get resources` door and a
   decorator-less `get resourcesResults` reached only on the response leg — both GETTERS — each
   returning a narrow facade rather than the plane. Read § *The surface, allocated* for the member lists; the Universe
   supplies both, and the door is still the only `@mesh()` entry.
@@ -60,7 +60,7 @@ export class Universe extends NebulaDO {
 
 - **`Galaxy` and `Star` each compose `Resources`** with four arguments — `ctx`, a thunk
   returning the host's `lmz`, an ontology provider, and an optional post-commit hook. *Adapted:*
-  [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md) collapsed the six
+  [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) collapsed the six
   it had into these (its D22): the plane sends every update and fans out its own orgTree changes
   through the handle — every plane has an orgTree. So the Universe supplies at most four, and has
   no fan-out to write.
@@ -80,7 +80,7 @@ export class Universe extends NebulaDO {
 ## Design intent
 
 **The Universe composes the plane and exposes one door, exactly as the other two hosts do** — no
-`@mesh()` method per operation, per [nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md).
+`@mesh()` method per operation, per [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md).
 The config pair goes; nothing replaces it, because an untyped key-value blob is what a typed resource
 is for.
 
@@ -91,9 +91,8 @@ rename reaches every open page rather than waiting for a reload
 [ADR-004](../docs/adr/004-snodgrass-temporal-resources.md) so a rename has history.
 
 **One ontology serves all three tiers, because the question is the same at each.** A Star and a
-Galaxy want a display name too, and the Galaxy half of that is
-[nebula-data-plane-owns-its-guards.md](nebula-data-plane-owns-its-guards.md)'s successor to
-`setGalaxyConfig`. Authoring one scope-metadata type and installing it on every host that composes a
+Galaxy want a display name too, and the Galaxy half of that is the successor to `setGalaxyConfig`,
+which [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md)'s D11 handed to this file. Authoring one scope-metadata type and installing it on every host that composes a
 plane is cheaper than three near-identical ones, and it makes "what is this scope called?" one
 question with one answer shape.
 

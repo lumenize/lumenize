@@ -1,7 +1,7 @@
 # The Profile composes the Resources plane, with an authorizer that is not a grant
 
 **Status:** Pass 1 — design intent only, phases NOT written. **Split out of
-[nebula-data-plane-owns-its-guards.md](../nebula-data-plane-owns-its-guards.md) on 2026-09-22**
+[nebula-data-plane-owns-its-guards.md](../archive/nebula-data-plane-owns-its-guards.md) on 2026-09-22**
 (Larry), which had absorbed it on 2026-09-08. That file establishes the guard model; this one is a
 CONSEQUENCE of it — the first host whose guard is not a DAG grant — and consequences belong after
 the thing they follow from. Same relationship [nebula-upgrade-universe-with-a-data-plane.md](../nebula-upgrade-universe-with-a-data-plane.md)
