@@ -86,7 +86,7 @@ export class Star extends NebulaDO implements ResourcesHost {
    * host a containment form would let a descendant's admin seed an ancestor.
    */
   onBeforeCall() {
-    super.onBeforeCall() // locks the active scope (aud) on first call
+    super.onBeforeCall() // passage into this Star; a refused caller throws before the seed below
     if (this.ctx.storage.kv.get('__nebula_rootAdminSeeded')) return
     const auth = this.lmz.callContext.originAuth
     const claims = auth?.claims as NebulaJwtPayload | undefined

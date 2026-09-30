@@ -359,11 +359,16 @@ export interface LmzApiClient {
   ): void;
 
   /**
-   * Resilient, `Promise`-returning cross-node call — **client-only**. Settled by the same
-   * in-heap re-resolvable-delivery mechanism as a 4-arg `call` (survives tab freeze + WS reconnect),
-   * so it does NOT strand on a dead socket the way the removed `callRaw` did. Rejects on an error
-   * RESULT, on `signal` abort, on the built-in default `timeoutMs` (`0`/`Infinity` disables), or with
-   * a `QuotaExceededError` when the client already holds 1000 unsent calls.
+   * Resilient, `Promise`-returning cross-node call — **client-only**.
+   *
+   * **One message on the wire, two spellings in code.** A `callAsync` sends exactly what a 4-arg
+   * `call` sends; only the Promise and its timeout differ, and both stay in the tab, whose memory
+   * survives a freeze and a WS reconnect (ADR-003). That is why it is kept rather than folded into
+   * the 4-arg form, and why it does NOT strand on a dead socket the way the removed `callRaw` did.
+   *
+   * Rejects on an error RESULT, on `signal` abort, on the built-in default `timeoutMs`
+   * (`0`/`Infinity` disables), or with a `QuotaExceededError` when the client already holds 1000
+   * unsent calls.
    *
    * ⚠️ Prefer a higher-level SDK method (`client.resources.*`) when one exists, and a `subscribe` for
    * live UI data. `callAsync` is the SDK-layer awaitable escape hatch — the ONLY awaitable on
