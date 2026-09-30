@@ -32,7 +32,7 @@ export type {
 // The parameter types of `lmz.broadcast`, which the client's `lmz` carries too
 export type { BroadcastTarget, BroadcastOptions } from './broadcast';
 
-// @mesh decorator infrastructure (marking methods as mesh-callable)
+// @mesh() decorator infrastructure (makes a method or getter mesh-callable)
 export {
   mesh,
   isMeshCallable,

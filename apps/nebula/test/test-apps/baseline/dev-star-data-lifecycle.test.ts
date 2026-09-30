@@ -402,10 +402,10 @@ describe('resetDevData capability surface (Star.prototype)', () => {
 
   it('the Star\'s whole @mesh surface, by guard tier, equals the frozen allow-list', () => {
     // Every entry reachable on the Star's prototype chain — the inherited `NebulaDO.teardown`
-    // included — read as the entry rule reads a mark. A new entry, a dropped guard, or a mark on
-    // the unmarked `resourcesResults` changes a list here. Installs arrive only by lazy-pull from
-    // the Galaxy registry, landing at `resourcesResults.onOntologyPulled` behind that unmarked gate;
-    // the eager push's remote `installOntology` / `setOntology` are gone.
+    // included — read as the entry rule looks for `@mesh()`. A new entry, a dropped guard, or
+    // `@mesh()` on the undecorated `resourcesResults` changes a list here. Installs arrive only by
+    // lazy-pull from the Galaxy registry, landing at `resourcesResults.onOntologyPulled` behind that
+    // undecorated gate; the eager push's remote `installOntology` / `setOntology` are gone.
     const tier = (guard: unknown) => (guard === requireDominionHere ? 'dominion' : guard === undefined ? 'bare' : 'other');
     const byTier: Record<string, string[]> = {};
     for (const { name, guard } of meshEntries(Star)) (byTier[tier(guard)] ??= []).push(name);

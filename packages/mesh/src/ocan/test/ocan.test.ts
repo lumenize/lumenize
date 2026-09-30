@@ -3,15 +3,16 @@ import { newContinuation, executeOperationChain, getOperationChain, validateOper
 import { mesh, MESH_CALLABLE } from '../../mesh-decorator.js';
 
 /**
- * Mark a standalone function as mesh-callable, LOCALLY.
+ * Flag a standalone function as mesh-callable, LOCALLY, by setting the `MESH_CALLABLE` symbol that
+ * `@mesh()` sets on a method — a standalone function cannot be decorated.
  *
- * `meshFn` was exported for this and is gone: a marked function reached through a path of `get`s is
- * exactly what the entry rule refuses, so a published helper whose whole purpose was to create one
- * is a foot-gun. The MECHANISM is unchanged and still public (`MESH_CALLABLE`), and these tests
- * need it to build the two shapes worth telling apart — a marked function reached AS op 0, which is
- * a legitimate entry, and one reached through gets, which is not.
+ * `meshFn` was exported for this and is gone: a mesh-callable function reached through a path of
+ * `get`s is exactly what the entry rule refuses, so a published helper whose whole purpose was to
+ * create one is a foot-gun. The MECHANISM is unchanged and still public (`MESH_CALLABLE`), and these
+ * tests need it to build the two shapes worth telling apart — a mesh-callable function reached AS
+ * op 0, which is a legitimate entry, and one reached through gets, which is not.
  */
-function markFn<F extends (...args: any[]) => any>(fn: F): F {
+function decorateFn<F extends (...args: any[]) => any>(fn: F): F {
   (fn as any)[MESH_CALLABLE] = true;
   return fn;
 }
@@ -55,7 +56,7 @@ class TestObject {
   // Nested objects with mesh-decorated method
   nested = {
     deep: {
-      method: markFn((x: number) => x * 3)
+      method: decorateFn((x: number) => x * 3)
     }
   };
 }
@@ -194,11 +195,11 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       expect(result).toBe(100);
     });
     
-    it('should REFUSE a chain that walks to a marked function through unmarked gets', async () => {
-      // Used to return 15. A marked function can sit in a plain object, and the old check
+    it('should REFUSE a chain that walks through plain fields to a mesh-callable function', async () => {
+      // Used to return 15. A mesh-callable function can sit in a plain object, and the old check
       // fired at the first APPLY — so `c.nested.deep.method(5)` passed because `method` carried the
-      // mark, whatever it was reached through. Op 0 here is `get 'nested'`, an unmarked field, and
-      // the entry rule reads THAT.
+      // `MESH_CALLABLE` flag, whatever it was reached through. Op 0 here is `get 'nested'`, a field,
+      // which can never carry `@mesh()`, and the entry rule reads THAT.
       const target = new TestObject();
       const operations: OperationChain = [
         { type: 'get', key: 'nested' },
@@ -211,10 +212,10 @@ describe('OCAN - Operation Chaining And Nesting', () => {
         .rejects.toThrow(/Member 'nested' is not mesh-callable/);
     });
 
-    it('still reaches a marked function held as an own property of the target', async () => {
+    it('still reaches a mesh-callable function held as an own property of the target', async () => {
       // The other side of the same rule, and the reason the lookup reads DESCRIPTORS rather than
-      // prototypes only: op 0 may name an own data property whose value carries the mark.
-      const target = { entry: markFn((x: number) => x * 3) };
+      // prototypes only: op 0 may name an own data property whose value is mesh-callable.
+      const target = { entry: decorateFn((x: number) => x * 3) };
       const result = await executeOperationChain(
         [{ type: 'get', key: 'entry' }, { type: 'apply', args: [5] }], target,
       );
@@ -362,8 +363,8 @@ describe('OCAN - Operation Chaining And Nesting', () => {
         { type: 'apply', args: [] }
       ];
 
-      // On the REQUEST leg the entry rule now answers first: a data property carries no mark, so
-      // the chain never reaches the arity check.
+      // On the REQUEST leg the entry rule now answers first: a data property is not mesh-callable,
+      // so the chain never reaches the arity check.
       await expect(executeOperationChain(operations, target))
         .rejects.toThrow(/Member 'value' is not mesh-callable/);
 
@@ -422,7 +423,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
 
     it('should preserve identity when no nested markers exist', async () => {
       const target = {
-        checkIdentity: markFn((obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr }))
+        checkIdentity: decorateFn((obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr }))
       };
 
       const testObj = { prop: 'value' };

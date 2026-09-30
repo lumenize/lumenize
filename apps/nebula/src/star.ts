@@ -131,9 +131,9 @@ export class Star extends NebulaDO implements ResourcesHost {
   /**
    * The plane's response-leg surface — where a failed update's reaper, the node invite's facade
    * answer and this Star's ontology pull land. Deliberately NOT `@mesh()`: those answers arrive
-   * locally or at the fire-back door, and neither consults the mark. A mark would let any caller
-   * with passage call `onOntologyPulled`, which checks no permission and installs whatever row it
-   * is handed — a validator of their own, and on the `.dev` Star, the install's wipe.
+   * locally or at the fire-back door, and neither checks for `@mesh()`. `@mesh()` would let any
+   * caller with passage call `onOntologyPulled`, which checks no permission and installs whatever
+   * row it is handed — a validator of their own, and on the `.dev` Star, the install's wipe.
    */
   get resourcesResults(): ResourcesResults {
     return this.#resources.results

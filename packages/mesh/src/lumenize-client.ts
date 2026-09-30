@@ -1352,9 +1352,9 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       // travels AWAY from the node that is usually stuck: a push refused here is typically the very
       // thing this client is awaiting, so the error leaves for the caller while the local waiter
       // hangs. The response leg already logs its handler throws (`#handleCallResponse` above); the
-      // request leg did not, and an unmarked override that shadowed a `@mesh()` method was therefore
-      // invisible on every node — the refusal went onto the wire, the caller had no result handler
-      // for a fire-and-forget push, and the symptom was a hang with no message anywhere.
+      // request leg did not, and an override without `@mesh()` that shadowed a `@mesh()` method was
+      // therefore invisible on every node — the refusal went onto the wire, the caller had no result
+      // handler for a fire-and-forget push, and the symptom was a hang with no message anywhere.
       //
       // The MEMBER NAME and the message, never the args: an inbound chain's arguments are payload.
       const entry = chain?.[0];

@@ -88,10 +88,10 @@ The same payload is exposed on the client side as [`client.claims`](./lumenize-c
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | **Class-wide** | `onBeforeCall()` hook | WHO can call (authentication) |
-| **Entry Point** | `@mesh()` decorator | WHAT is exposed (the marked members — a chain's first op must name one) |
+| **Entry Point** | `@mesh()` decorator | WHAT is exposed (the `@mesh()`-decorated methods and getters — a chain's first op must name one) |
 | **Capability Trust** | Automatic | Returned objects trusted if returned from an already-checked call |
 
-A chain arriving off the wire must open on a marked member, and a refusal says WHICH of three things went wrong, because each has a different fix: the member does not exist (*"No member named 'x' exists on this node"*), it exists but carries no `@mesh()` (*"is not mesh-callable"*), or it is an unmarked override shadowing a marked one — the foot-gun, since the mark lives on the function value and an override is a new function. ⓘ This tells a caller whether a member exists, which is deliberate: mesh is published MIT, so the names are readable anyway, and collapsing the three once meant a nonexistent member was told to add a decorator. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Handling](./calls#error-handling) for details.
+A chain arriving off the wire must open on a `@mesh()`-decorated method or getter, and a refusal says WHICH of three things went wrong, because each has a different fix: the member does not exist (*"No member named 'x' exists on this node"*), it exists but carries no `@mesh()` (*"is not mesh-callable"*), or it is an override without `@mesh()` shadowing a decorated one — the foot-gun, since the decorator records itself on the function value and an override is a new function. ⓘ This tells a caller whether a member exists, which is deliberate: mesh is published MIT, so the names are readable anyway, and collapsing the three once meant a nonexistent member was told to add a decorator. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Handling](./calls#error-handling) for details.
 
 ### Class-Level: `onBeforeCall()`
 

@@ -4,13 +4,14 @@
  *
  * `handleResourceUpdate` is itself what settles a pending subscribe, so anything that stops that
  * handler RUNNING leaves nothing in the client able to settle the promise — no host error arrives,
- * because no host erred. The failure that produced this file was an unmarked override: the mark
- * lives on the function VALUE, so a subclass method shadowing a marked one carries none of it, the
- * entry rule refuses the push, and the refusal goes onto the wire and nowhere else. `await
- * subscribe(...)` then waits forever. Both halves are asserted here — the bound that turns the hang
- * into a rejection, and the log that names the cause rather than the symptom.
+ * because no host erred. The failure that produced this file was an override without `@mesh()`:
+ * the decorator records itself on the function VALUE, so a subclass method shadowing a decorated
+ * one carries none of it, the entry rule refuses the push, and the refusal goes onto the wire and
+ * nowhere else. `await subscribe(...)` then waits forever. Both halves are asserted here — the
+ * bound that turns the hang into a rejection, and the log that names the cause rather than the
+ * symptom.
  *
- * ⚠️ The unmarked class below is the defect, written deliberately. `NebulaClientTest`'s own
+ * ⚠️ The undecorated override below is the defect, written deliberately. `NebulaClientTest`'s own
  * `@mesh() override handleResourceUpdate` is the positive control and is what every other subscribe
  * test rides, so the two differ by the decorator and nothing else.
  */
@@ -29,10 +30,10 @@ const TEST_TYPES = `interface TestResource { title: string; }`;
 const SHORT_TIMEOUT_MS = 1500;
 
 /**
- * The defect, on purpose: an override with NO `@mesh()`. Its parent's override IS marked, so the
- * entry rule finds a marked member one level up and refuses this one by name.
+ * The defect, on purpose: an override with NO `@mesh()`. Its parent's override IS decorated, so
+ * the entry rule finds a `@mesh()` method one level up and refuses this one by name.
  */
-class UnmarkedOverrideClient extends NebulaClientTest {
+class UndecoratedOverrideClient extends NebulaClientTest {
   override handleResourceUpdate(
     resourceType: string,
     resourceId: string,
@@ -89,7 +90,7 @@ describe('a subscribe is bounded, and a refused push says so', () => {
     clearDebugSink();
   });
 
-  it('POSITIVE CONTROL: a MARKED override settles the subscribe', async () => {
+  it('POSITIVE CONTROL: a `@mesh()` override settles the subscribe', async () => {
     // Same drive as the test below, differing only by the decorator on the override. Without this,
     // the rejection below would pass just as well if the setup itself were broken.
     const { client, resourceId } = await starWithOneResource(NebulaClientTest);
@@ -101,9 +102,9 @@ describe('a subscribe is bounded, and a refused push says so', () => {
     client[Symbol.dispose]();
   });
 
-  it('an UNMARKED override: the subscribe abandons, and the client logs why', async () => {
+  it('an override WITHOUT `@mesh()`: the subscribe abandons, and the client logs why', async () => {
     const { client, resourceId } = await starWithOneResource(
-      UnmarkedOverrideClient, { subscribeTimeoutMs: SHORT_TIMEOUT_MS },
+      UndecoratedOverrideClient, { subscribeTimeoutMs: SHORT_TIMEOUT_MS },
     );
 
     // (a) THE BOUND. The push is refused at this client's own door, so nothing can settle this
@@ -113,13 +114,13 @@ describe('a subscribe is bounded, and a refused push says so', () => {
     ).rejects.toThrow(/never acknowledged/);
 
     // (b) THE LOG — the only place the CAUSE appears on this node. The rejection above names the
-    // symptom (nothing arrived); this names the defect (an override that dropped its mark).
+    // symptom (nothing arrived); this names the defect (an override that dropped its `@mesh()`).
     const refusals = entries.filter(
       (e) => e.namespace === 'lmz.mesh.LumenizeClient.#handleIncomingCall',
     );
     expect(refusals).toHaveLength(1);
     expect(refusals[0].data?.member).toBe('handleResourceUpdate');
-    expect(refusals[0].data?.error).toMatch(/overrides a mesh-callable member but is not itself marked/);
+    expect(refusals[0].data?.error).toMatch(/overrides a mesh-callable member but is not itself decorated with @mesh\(\)/);
 
     client[Symbol.dispose]();
   }, 20_000);

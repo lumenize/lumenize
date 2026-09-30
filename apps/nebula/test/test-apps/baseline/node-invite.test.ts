@@ -5,8 +5,8 @@
  * `_InviteStatus` rows (a platform-fixed Resources type, org-visible at the node per ADR-008).
  *
  * The grant is written by `resourcesResults.onInviteResult`, which the facade's answer reaches at
- * the Star's fire-back door, `__handleResponse` — the path where `onBeforeCall` runs and the mark is
- * not consulted. *Writes the grant at invite time* is that path's witness; a reaper's local path is
+ * the Star's fire-back door, `__handleResponse` — the path where `onBeforeCall` runs and `@mesh()`
+ * is not checked. *Writes the grant at invite time* is that path's witness; a reaper's local path is
  * `reaper-wiring.test.ts`'s.
  *
  * ADR-009 rung 2 (the whole baseline lane): real founding, real invites, real server-issued

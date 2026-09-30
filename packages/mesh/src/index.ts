@@ -49,7 +49,7 @@ export type {
 // Actor-model communication infrastructure
 export * from './ocan/index';
 
-// @mesh decorator for marking methods as mesh-callable
+// @mesh() decorator, which makes a method or getter mesh-callable
 export { mesh, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from './mesh-decorator';
 export type { MeshGuard } from './mesh-decorator';
 

@@ -66,9 +66,9 @@ describe('svc stops being a wire entry', () => {
     expect(outcome).toMatch(/REFUSED: .*is not mesh-callable/);
   });
 
-  // ── positive control, GREEN before and after: a marked member is still reachable over the
+  // ── positive control, GREEN before and after: a `@mesh()`-decorated method is still reachable over the
   //    same hop. Without it, a rule that refused everything would satisfy both limbs above.
-  it('still PERMITS a marked member over the same wire path', async () => {
+  it('still PERMITS a `@mesh()`-decorated method over the same wire path', async () => {
     const name = uniq('svc-control');
     const outcome = await wireOutcome(name, [
       { type: 'get', key: 'handleFetchComplete' },

@@ -115,7 +115,7 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   }, 10000);
 
   // The result lands at the origin's FIRE-BACK door, not its request door — so an `onResult`
-  // handler needs no `@mesh()`. Capable of failing: have the fire-back door require the mark and
+  // handler needs no `@mesh()`. Capable of failing: have the fire-back door require `@mesh()` and
   // this reds while the decorated sibling above stays green, which is what separates the two doors.
   test('broadcast: a target Error reaches an UNDECORATED onResult handler', async () => {
     const origin = env.TEST_DO.getByName('broadcast-origin-undecorated');

@@ -63,11 +63,11 @@ function resolvesOnFunctionPrototype(owner: any, key: string | number | symbol):
 /**
  * Find the member `key` names on `target`, by DESCRIPTOR rather than by reading it.
  *
- * ⚠️ **Reading the member is what this exists to avoid.** `parent[key]` on an unmarked getter RUNS
- * the getter — the very code the entry rule is deciding whether to admit — so the lookup walks the
- * prototypes with `Object.getOwnPropertyDescriptor` instead. A method and a getter both live there,
- * and both carry the mark on their function value; an own data property (a DO's `ctx` and `env` are
- * constructor-assigned ones) is found too, and is never marked.
+ * ⚠️ **Reading the member is what this exists to avoid.** `parent[key]` on a getter without
+ * `@mesh()` RUNS the getter — the very code the entry rule is deciding whether to admit — so the
+ * lookup walks the prototypes with `Object.getOwnPropertyDescriptor` instead. A method and a getter
+ * both live there, and `@mesh()` sets its flag on either one's function value; an own data property
+ * (a DO's `ctx` and `env` are constructor-assigned ones) is found too, and never carries the flag.
  *
  * @returns the first owner that has the key, or `undefined` if nothing does.
  * @internal
@@ -85,8 +85,8 @@ function findMember(
   return undefined;
 }
 
-/** The function a descriptor carries the mark on: a getter's getter, or a method's value. */
-function markedFunctionOf(descriptor: PropertyDescriptor): any {
+/** The function a descriptor carries the `@mesh()` flag on: a getter's getter, or a method's value. */
+function decoratedFunctionOf(descriptor: PropertyDescriptor): any {
   return descriptor.get ?? descriptor.value;
 }
 
@@ -224,16 +224,16 @@ async function walkChain(
   // chain that applies a getter's value directly. Kept because the property-call form is what
   // works for a Workers RPC stub method, where extracting the function first does not.
   let parent: any = target;
-  // THE ENTRY RULE. Op 0 of a wire-borne chain must name a member the host class marked, and that
-  // op is where the guard runs. `requireMeshDecorator: false` is the carve-out for a chain the NODE
-  // authored itself — a `$result` handler, a stored alarm continuation — which may root anywhere,
-  // including `ctx` and `svc`.
+  // THE ENTRY RULE. Op 0 of a wire-borne chain must name a method or getter the host class
+  // decorated with `@mesh()`, and that op is where the guard runs. `requireMeshDecorator: false`
+  // is the carve-out for a chain the NODE authored itself — a `$result` handler, a stored alarm
+  // continuation — which may root anywhere, including `ctx` and `svc`.
   if (finalConfig.requireMeshDecorator) {
     const entry = operations[0];
     // validateOperationChain has already refused an apply-first chain, so op 0 is a get.
     const key = (entry as { key: string | number | symbol }).key;
     const found = findMember(target, key);
-    const fn = found ? markedFunctionOf(found.descriptor) : undefined;
+    const fn = found ? decoratedFunctionOf(found.descriptor) : undefined;
 
     if (!isMeshCallable(fn)) {
       // THREE causes, three messages, because each has a DIFFERENT fix and only the author can
@@ -250,14 +250,14 @@ async function walkChain(
           `Check the spelling, and the type argument to ctn<T>().`
         );
       }
-      // An OVERRIDE is the case worth naming apart. The mark lives on the function value, so a
-      // subclass method that shadows a marked one is a new function carrying nothing — and the
-      // failure is otherwise silent all the way down: the refusal is caught, shipped over the wire,
+      // An OVERRIDE is the case worth naming apart. `@mesh()` sets its flag on the function value,
+      // so a subclass method that shadows a decorated one is a new function carrying nothing — and
+      // the failure is otherwise silent all the way down: the refusal is caught, shipped over the wire,
       // and dropped by a name-guard that does not match, while whatever awaited the handler hangs.
       const shadowed = findMember(Object.getPrototypeOf(found.owner), key);
-      if (shadowed && isMeshCallable(markedFunctionOf(shadowed.descriptor))) {
+      if (shadowed && isMeshCallable(decoratedFunctionOf(shadowed.descriptor))) {
         throw new Error(
-          `Member '${String(key)}' overrides a mesh-callable member but is not itself marked. ` +
+          `Member '${String(key)}' overrides a mesh-callable member but is not itself decorated with @mesh(). ` +
           `Add the @mesh decorator to the override.`
         );
       }

@@ -164,8 +164,8 @@ export interface OcanConfig {
   /**
    * Require the chain's ENTRY OP to name a mesh-callable member.
    *
-   * When true, `operations[0]` must name a member — a method or a getter — the host class marked
-   * with `@mesh()`, looked up by descriptor so an unmarked getter is refused without running.
+   * When true, `operations[0]` must name a method or getter the host class decorated with
+   * `@mesh()`, looked up by descriptor so an undecorated getter is refused without running.
    * That op is also where the member's guard runs.
    *
    * Set false only for a chain the NODE authored itself (a `$result` handler, a stored alarm

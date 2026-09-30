@@ -43,7 +43,7 @@ class StandInNode {
   /** Records every undecorated call that should never have happened. */
   ran: string[] = [];
 
-  /** A GATE: marked, and hands back a facade. The shape this task's design promotes. */
+  /** A GATE: `@mesh()`-decorated, and hands back a facade. The shape this task's design promotes. */
   @mesh()
   gate() {
     return {
@@ -68,7 +68,10 @@ class StandInNode {
     return x * 2;
   }
 
-  /** Marked, and takes whatever its caller nests — the sink every nested-argument limb reads. */
+  /**
+   * `@mesh()`-decorated, and takes whatever its caller nests — the sink every nested-argument limb
+   * reads.
+   */
   @mesh()
   sink(value: unknown) {
     return value;
@@ -124,7 +127,7 @@ describe('the entry op must name a mesh-callable member (request leg)', () => {
     )).rejects.toThrow(NOT_MESH_CALLABLE);
   });
 
-  it('REFUSES a get-only nested marker reading env, passed as an argument to a MARKED member', async () => {
+  it('REFUSES a get-only nested marker reading env, passed as an argument to a `@mesh()` METHOD', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'sink' }, { type: 'apply', args: [
@@ -133,7 +136,7 @@ describe('the entry op must name a mesh-callable member (request leg)', () => {
     )).rejects.toThrow(NOT_MESH_CALLABLE);
   });
 
-  it('REFUSES a nested svc chain passed as an argument to a MARKED member', async () => {
+  it('REFUSES a nested svc chain passed as an argument to a `@mesh()` METHOD', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'sink' }, { type: 'apply', args: [
@@ -150,11 +153,11 @@ describe('the entry op must name a mesh-callable member (request leg)', () => {
     const node = new StandInNode();
     const chain: OperationChain = [{ type: 'get', key: 'noSuchMemberAnywhere' }, { type: 'apply', args: [] }];
     await expect(executeOperationChain(chain, node)).rejects.toThrow(/No member named 'noSuchMemberAnywhere' exists/);
-    // The discriminator: the absent case must NOT carry the unmarked case's advice.
+    // The discriminator: the absent case must NOT carry the undecorated case's advice.
     await expect(executeOperationChain(chain, node)).rejects.not.toThrow(NOT_MESH_CALLABLE);
   });
 
-  it('names an UNMARKED member that exists as unmarked, with the fix it can actually apply', async () => {
+  it('names an UNDECORATED method that exists as not mesh-callable, with the fix it can actually apply', async () => {
     const node = new StandInNode();
     await expect(executeOperationChain(
       [{ type: 'get', key: 'plain' }, { type: 'apply', args: [] }], node,
@@ -163,7 +166,7 @@ describe('the entry op must name a mesh-callable member (request leg)', () => {
 
   // ── positive controls: green BEFORE and after. A rule that refuses everything satisfies
   //    every refusal limb above, and these are what catch it.
-  it('PERMITS a marked method (positive control)', async () => {
+  it('PERMITS a `@mesh()` method (positive control)', async () => {
     const node = new StandInNode();
     expect(await executeOperationChain(
       [{ type: 'get', key: 'marked' }, { type: 'apply', args: [21] }], node,
@@ -252,7 +255,7 @@ describe('the walk rules fence the doors JavaScript opens on every object', () =
   it('REFUSES __defineGetter__ — the only property WRITE a chain can name — and writes nothing', async () => {
     const node = new StandInNode();
     try {
-      // The argument is a FUNCTION obtained as a get-only nested marker on a marked member: whether
+      // The argument is a FUNCTION obtained as a get-only nested marker on a `@mesh()` method: whether
       // a chain can produce one at all is what this limb measures (§ Criteria calls it unknown).
       const fn = nest([
         { type: 'get', key: 'gate' }, { type: 'apply', args: [] }, { type: 'get', key: 'helper' },

@@ -472,7 +472,7 @@ export class OrgTree {
    *     passes the stored row's verdict, which IS confined at write time. That is the path that
    *     matters, and the one tasks/archive/nebula-confine-admin-bypass.md closed.
    *   - **Wire path** — every host's `resources` door is a bare `@mesh()` handing back
-   *     `resources.orgTree`, and mesh's "gate once, then chain" checks the mark only on a chain's
+   *     `resources.orgTree`, and mesh's "gate once, then chain" checks for `@mesh()` only on a chain's
    *     ENTRY op, so a caller can
    *     reach this method directly with an attacker-chosen `hasDominionOverHost`. **That is harmless for a
    *     separate reason**: this method is read-only, non-throwing, and echoes back only the

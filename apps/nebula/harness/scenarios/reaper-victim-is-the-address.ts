@@ -78,7 +78,7 @@ class ProbeClient extends NebulaClient {
  * ⚠️ **An override is a NEW function, and the mark lives on the function value — so it does not
  * inherit.** Without this line the Gateway's push reaches the client executor, fails its
  * member-level check, and the subscription's initial snapshot never arrives: the scenario hangs
- * with no subscriber at all. Production spells the mark `@mesh()`; this file runs under `tsx`,
+ * with no subscriber at all. Production spells the decorator `@mesh()`; this file runs under `tsx`,
  * which does not transform TC39 decorators, so it sets the same flag the decorator sets.
  * `MESH_CALLABLE` is a `Symbol.for`, so this is the identical symbol the executor reads.
  */
@@ -238,7 +238,7 @@ export async function run(stack: DevStack): Promise<void> {
         : 'the forger reaped itself, which it could have done by unsubscribing');
 
     // ── LIMB 2: the same forged error handed DIRECTLY to the old reaper address ───────────
-    //    No reaper is left on the host — they answer through the unmarked `resourcesResults` — so the
+    //    No reaper is left on the host — they answer through `resourcesResults`, which has no `@mesh()` — so the
     //    call names no member and is refused as ABSENT, and no row changes. Both halves: a refusal
     //    alone would satisfy "no row changed" just as readily, so the MESSAGE is what shows the move.
     //    ⚠️ Its target is a FRESH tab. Reusing limb 1's victim would assert over a row limb 1
@@ -274,7 +274,7 @@ export async function run(stack: DevStack): Promise<void> {
       `the call was ${permitted}; the named target ${direct.get('target') ? 'still receives pushes' : 'was REAPED'}, the caller ${direct.get('caller') ? 'still receives pushes' : 'was REAPED'}`);
 
     // ── LIMB 2b: `resourcesResults` from the wire, on each host, is refused ─────────────────
-    //    The response-leg gate carries no mark, so the entry rule refuses a request that names it —
+    //    The response-leg gate has no `@mesh()`, so the entry rule refuses a request that names it —
     //    the Galaxy's reaper, and a `.dev` Star's ontology pull, which a mark would open to any
     //    caller with passage. One member per host is enough: the refusal is at op 0,
     //    `resourcesResults`, before any member is named, and the in-lane `resources-door.test.ts`

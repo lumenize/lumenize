@@ -98,7 +98,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
 
   it('what the door hands back is frozen: `requests`, `results`, and the `OrgTree` behind `requests.orgTree`', async () => {
     // Past the gate nothing is checked, so every member here is wire-reachable (`requests`) or
-    // reached by the node's own answers (`results`, behind an unmarked getter). Read off a live
+    // reached by the node's own answers (`results`, behind an undecorated getter). Read off a live
     // Galaxy, since both are closures built per plane.
     const surfaces = await callGalaxyInDO(uniqueGalaxyScope(), (inst: any) => ({
       requests: surfaceNames(inst.resources),
@@ -144,10 +144,10 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     expect(keys).toEqual(['build', 'edit_file', 'read_file', 'write_file']);
   });
 
-  it('onInviteResult is gone from the Galaxy, and `resourcesResults`, where it now lives, carries no mark', () => {
+  it('onInviteResult is gone from the Galaxy, and `resourcesResults`, where it now lives, has no `@mesh()`', () => {
     // The invite's fire-back lands through `resourcesResults.onInviteResult`. A host forward,
-    // marked or not, would be a second route to that body; a mark on the getter would also open
-    // `onOntologyPulled`, which installs whatever row it is handed.
+    // decorated or not, would be a second route to that body; `@mesh()` on the getter would also
+    // open `onOntologyPulled`, which installs whatever row it is handed.
     expect('onInviteResult' in Galaxy.prototype).toBe(false);
     const d = Object.getOwnPropertyDescriptor(Galaxy.prototype, 'resourcesResults')!;
     expect(typeof d.get).toBe('function'); // positive control: the fence exists, as a getter

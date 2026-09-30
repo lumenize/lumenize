@@ -140,7 +140,7 @@ export class StarTest extends Star {
    * is skipped and a `wipeOnInstall` row wipes, exactly as a pulled row does. It takes SOURCE and
    * compiles here, in the test Worker, because the only alternative is a remote entry taking a
    * compiled row — a caller handing a Star a validator bundle from outside the registry, which
-   * the unmarked `resourcesResults` gate refuses. It is NOT an import limit: `ontology-compile.ts`
+   * the undecorated `resourcesResults` gate refuses. It is NOT an import limit: `ontology-compile.ts`
    * loads in plain Node, so the Node-side callers could compile. It does keep the compiler, which
    * is not browser-safe, out of the chromium lane's bundle (`test/chromium/ontology-admin.ts`).
    */

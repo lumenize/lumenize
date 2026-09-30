@@ -72,7 +72,7 @@ Those three are a plugin's whole reach into its host, so a plugin author reasona
 
 Two things do, and neither is the `protected` modifier, which TypeScript enforces and the runtime does not:
 
-- **`svc` is not an entry.** A chain arriving off the wire must open on a member the host class marked `@mesh()`, and `svc` carries no mark, so `svc.<anything>` is refused at the first operation. Nothing exempts it.
+- **`svc` is not an entry.** A chain arriving off the wire must open on a method or getter the host class decorated with `@mesh()`, and `svc` is neither, so `svc.<anything>` is refused at the first operation. Nothing exempts it.
 - **The walk rules apply from there on.** Past an entry, `constructor`, `__proto__`, the four Annex-B accessors and anything resolving on `Function.prototype` are refused whatever leg the chain is on.
 
 So the fields keep their visibility for the reason they always had — they are the plugin API, and `#`-private would hide them from subclasses — and nothing about the wire boundary rests on it. A chain the NODE authored may still open on `svc`, which is how `this.ctn().svc.…` keeps working from inside your own DO.

@@ -196,7 +196,7 @@ export async function run(stack: DevStack): Promise<void> {
     // The roster half waits for the initial roster itself, not only an un-refused call: a narrowing
     // in the plane's own idiom would push an Error roster and still return. The member watches no
     // other query, so the one roster push it receives is this watch's. The capture is an own
-    // override, marked the way the decorator marks, since an unmarked one is refused as an override.
+    // override, flagged the way `@mesh()` flags a function, since an undecorated one is refused as an override.
     let roster: unknown;
     const handleRoster = member.client.handleQuerySubscribersUpdate.bind(member.client);
     const capture = (hash: string, result: unknown) => { roster = result; return handleRoster(hash, result as never); };

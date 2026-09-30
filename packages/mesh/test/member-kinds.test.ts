@@ -1,13 +1,15 @@
 /**
- * Which member kinds `@mesh()` marks, and what the entry rule does with each.
+ * Which member kinds `@mesh()` decorates, and what the entry rule does with each.
  *
  * **Why this tier and not `/live`** (`.claude/rules/live.md` puts that reason on the test file,
- * which outlives the task file): these are properties of the decorator and the executor, and driving
- * them in `/live` would mean shipping a marked getter, a call recorder and a deliberately-unmarked
- * getter into `apps/nebula`'s production Star or Galaxy — where there is not one marked getter
- * today, and where the real gate pair belongs to a task that has not built it. Counting a getter
- * body's invocations is DO-internal control flow besides. This is the real mesh path, never
- * `createTestingClient`, and every recorder is read back THROUGH the mesh rather than from stdio.
+ * which outlives the task file): these are properties of the decorator and the executor — which
+ * member kinds compile, and what the entry rule does with each — and driving them in `/live` would
+ * mean shipping a call recorder into `apps/nebula`'s production Star or Galaxy. The real gate pair
+ * Nebula ships, `get resources()` beside the undecorated `get resourcesResults()` on each Star and
+ * Galaxy, is already driven in `/live` by `reaper-victim-is-the-address`. Counting a getter body's
+ * invocations is DO-internal control flow besides. This is
+ * the real mesh path, never `createTestingClient`, and every recorder is read back THROUGH the mesh
+ * rather than from stdio.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
@@ -29,16 +31,16 @@ async function wire(name: string, chain: unknown[]): Promise<string> {
 const GET = (key: string) => ({ type: 'get' as const, key });
 const APPLY = (...args: unknown[]) => ({ type: 'apply' as const, args });
 
-describe('@mesh() marks a method and a getter, and nothing else', () => {
-  it('a marked METHOD reaches its target', async () => {
-    expect(await wire('mk-method', [GET('markedMethod'), APPLY('x')]))
+describe('@mesh() decorates a method and a getter, and nothing else', () => {
+  it('a `@mesh()` METHOD reaches its target', async () => {
+    expect(await wire('mk-method', [GET('decoratedMethod'), APPLY('x')]))
       .toBe('PERMITTED: method reached: x');
   });
 
-  it('a marked GETTER reaches its target — the GETTER path, not a call', async () => {
+  it('a `@mesh()` GETTER reaches its target — the GETTER path, not a call', async () => {
     // Asserting on a call would be satisfied by a method-only implementation and leave the getter
     // entry unmeasured: op 0 here is a `get`, and nothing applies it.
-    expect(await wire('mk-getter', [GET('markedGate'), GET('reached'), APPLY()]))
+    expect(await wire('mk-getter', [GET('decoratedGate'), GET('reached'), APPLY()]))
       .toBe('PERMITTED: facade reached');
   });
 
@@ -52,16 +54,16 @@ describe('@mesh() marks a method and a getter, and nothing else', () => {
   it("a getter gate's body runs ONCE per chain", async () => {
     const node = env.MEMBER_KIND_DO.getByName('mk-once');
     await node.clearTrace();
-    await wire('mk-once', [GET('markedGate'), GET('reached'), APPLY()]);
+    await wire('mk-once', [GET('decoratedGate'), GET('reached'), APPLY()]);
     expect(await node.getTrace()).toEqual(['getter body']);
   });
 
-  it('an UNMARKED getter is refused WITHOUT running', async () => {
+  it('an UNDECORATED getter is refused WITHOUT running', async () => {
     // The property that justifies reading descriptors rather than `parent[key]`: deciding by
     // reading the member would run the very code the rule is deciding whether to admit.
-    const node = env.MEMBER_KIND_DO.getByName('mk-unmarked');
+    const node = env.MEMBER_KIND_DO.getByName('mk-undecorated');
     await node.clearTrace();
-    expect(await wire('mk-unmarked', [GET('unmarkedGate'), GET('reached'), APPLY()]))
+    expect(await wire('mk-undecorated', [GET('undecoratedGate'), GET('reached'), APPLY()]))
       .toMatch(/is not mesh-callable/);
     expect(await node.getTrace()).toEqual([]);
   });
@@ -85,23 +87,23 @@ describe('@mesh() marks a method and a getter, and nothing else', () => {
   });
 });
 
-describe('an override does not inherit the mark, and the refusal says so', () => {
-  // The mark lives on the function value, so a subclass override is a new function carrying
-  // nothing. Left silent, this costs a hang with no error on either side.
+describe('an override does not inherit `@mesh()`, and the refusal says so', () => {
+  // `@mesh()` sets its flag on the function value, so a subclass override is a new function
+  // carrying nothing. Left silent, this costs a hang with no error on either side.
   class Base { @mesh() handle(): string { return 'base'; } }
   class Bare extends Base { override handle(): string { return 'override'; } }
-  class Remarked extends Base { @mesh() override handle(): string { return 'override'; } }
+  class Redecorated extends Base { @mesh() override handle(): string { return 'override'; } }
 
   it('names the OVERRIDE rather than emitting the generic refusal', async () => {
     const { executeOperationChain } = await import('../src/ocan/index');
     await expect(executeOperationChain([GET('handle'), APPLY()], new Bare()))
-      .rejects.toThrow(/overrides a mesh-callable member but is not itself marked/);
+      .rejects.toThrow(/overrides a mesh-callable member but is not itself decorated with @mesh\(\)/);
   });
 
-  it('a re-marked override works, which is the whole remedy', async () => {
+  it('an override with its own `@mesh()` works, which is the whole remedy', async () => {
     const { executeOperationChain } = await import('../src/ocan/index');
-    expect(await executeOperationChain([GET('handle'), APPLY()], new Remarked())).toBe('override');
-    expect(isMeshCallable(Remarked.prototype.handle)).toBe(true);
+    expect(await executeOperationChain([GET('handle'), APPLY()], new Redecorated())).toBe('override');
+    expect(isMeshCallable(Redecorated.prototype.handle)).toBe(true);
     expect(isMeshCallable(Bare.prototype.handle)).toBe(false);
   });
 

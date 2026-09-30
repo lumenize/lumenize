@@ -1,17 +1,17 @@
 /**
- * @mesh decorator for marking members as mesh-callable
+ * The `@mesh()` decorator, which makes a method or getter mesh-callable
  *
- * Members decorated with `@mesh()` can be reached from remote mesh nodes.
+ * Methods and getters decorated with `@mesh()` can be reached from remote mesh nodes.
  * Without this decorator, methods cannot be invoked via `this.lmz.call()`.
  *
- * This provides an explicit security boundary - only methods you explicitly
- * mark as mesh-callable can be invoked remotely.
+ * This provides an explicit security boundary - only the methods and getters you
+ * explicitly decorate with `@mesh()` can be invoked remotely.
  *
  * Uses TC39 Stage 3 decorator format (TypeScript 5.0+, ES2022).
  */
 
 /**
- * Symbol used to mark methods as mesh-callable
+ * Symbol `@mesh()` sets on a method's or getter's function to flag it mesh-callable
  * @internal
  */
 export const MESH_CALLABLE = Symbol.for('lumenize.mesh.callable');
@@ -71,7 +71,7 @@ export interface MeshDecorator<T> {
 }
 
 /**
- * `@mesh()` decorator for marking a member as mesh-callable
+ * `@mesh()` decorator — makes a method or getter mesh-callable
  *
  * Use this decorator on methods that should be callable from remote mesh nodes.
  * Methods without this decorator cannot be invoked via `this.lmz.call()`.
@@ -79,7 +79,7 @@ export interface MeshDecorator<T> {
  * Uses TC39 Stage 3 decorator format (TypeScript 5.0+, ES2022).
  *
  * @example
- * Basic usage - mark a method as mesh-callable:
+ * Basic usage - make a method mesh-callable:
  * ```typescript
  * class DocumentDO extends LumenizeDO<Env> {
  *   @mesh()
@@ -118,16 +118,16 @@ export interface MeshDecorator<T> {
  *
  * @param guard - Optional guard function called at the chain's ENTRY op, before the member runs.
  *                Throw an error to reject the call, or return void to allow it.
- * @returns A decorator that marks the member as mesh-callable
+ * @returns A decorator that flags the method or getter as mesh-callable
  */
 export function mesh<T = any>(guard?: MeshGuard<T>): MeshDecorator<T> {
   return function (target: any, _context: any): any {
-    // Mark the member as mesh-callable. A method and a getter both carry the mark on their
-    // FUNCTION value, which is what lets one decorator serve both.
+    // Flag the method or getter as mesh-callable. Both carry the flag on their FUNCTION value,
+    // which is what lets one decorator serve both.
     //
     // ⚠️ The guard is deliberate: an `accessor` hands the decorator `{ get, set }` and a field hands
-    // it `undefined`, and neither kind ships. Marking the wrapper would make `isMeshCallable` answer
-    // false anyway, but silently — so nothing is marked, and the entry rule refuses the chain at
+    // it `undefined`, and neither kind ships. Flagging the wrapper would make `isMeshCallable` answer
+    // false anyway, but silently — so nothing is flagged, and the entry rule refuses the chain at
     // runtime. The signature above is what refuses them at COMPILE time, which is the primary net;
     // this is what stops a compile-only check from being the only one.
     if (typeof target !== 'function') return target;

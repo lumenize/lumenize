@@ -13,7 +13,7 @@
  *   - a transaction cannot carry an `actor`, so a client cannot forge Nebula's authorship;
  *   - on the Galaxy, a Star-tier caller with no grant is told `permission` as a resolved result,
  *     and a grant opens the same method;
- *   - the response leg: each host's `resourcesResults` is an unmarked getter, no reaper or forward
+ *   - the response leg: each host's `resourcesResults` is an undecorated getter, no reaper or forward
  *     is left on the host, `results` exposes exactly its members, and from the wire the old reaper
  *     address is refused as absent and `resourcesResults` as not mesh-callable. That the reapers and
  *     the invite answer still RUN through it is shown where each lands: a reap on the local path
@@ -118,7 +118,7 @@ async function commit(client: NebulaClientTest, host: Host, ops: Record<string, 
     (client.ctn() as any).resources.transaction(host.version, uuid(), ops)) as TransactionResult;
 }
 
-/** The mesh-callable members a host class declares itself, read as the entry rule reads a mark. */
+/** The mesh-callable members a host class declares itself, found the way the entry rule finds them. */
 function meshSurface(ctor: { prototype: object }): string[] {
   const out: string[] = [];
   for (const name of Object.getOwnPropertyNames(ctor.prototype)) {
@@ -146,7 +146,7 @@ describe('each host has one door, and the per-op entries are gone', () => {
   });
 
   it('each host\'s own @mesh surface is exactly its inventory — the door, and what is not a resource op', () => {
-    // A getter's mark is its `get` function, which a `descriptor.value` walk misses — so
+    // A getter carries `@mesh()` on its `get` function, which a `descriptor.value` walk misses — so
     // `resources` appearing here is the proof the walk reads getters. The two lists differ, so
     // neither is written as one: the Galaxy's source entries and registry reads are its own. No
     // reaper is left on either host; they answer through `resourcesResults`.
@@ -191,18 +191,18 @@ async function surfaceOf(host: Host, getter: 'resources' | 'resourcesResults'): 
 describe('the response leg reaches `results`, and the wire does not', () => {
   const REAPERS = ['onBroadcastResult', 'onQueryBroadcastResult', 'onQuerySubscriberListBroadcastResult', 'onTreeBroadcastResult'];
 
-  it.each([{ name: 'Star', ctor: Star }, { name: 'Galaxy', ctor: Galaxy }])('$name: `resourcesResults` is an UNMARKED getter, read as the entry rule reads a mark', ({ ctor }) => {
+  it.each([{ name: 'Star', ctor: Star }, { name: 'Galaxy', ctor: Galaxy }])('$name: `resourcesResults` is an UNDECORATED getter, read as the entry rule looks for `@mesh()`', ({ ctor }) => {
     const d = Object.getOwnPropertyDescriptor(ctor.prototype, 'resourcesResults');
     // Positive control: it exists, and as a getter — or the absence below would prove nothing.
     expect(d).toBeDefined();
     expect(typeof d!.get).toBe('function');
     expect(d!.value).toBeUndefined();
-    // `getMeshGuard` cannot say this: it reads falsy for a bare `@mesh()` and no mark alike.
+    // `getMeshGuard` cannot say this: it reads falsy for a bare `@mesh()` and no `@mesh()` alike.
     expect(isMeshCallable((d!.get ?? d!.value) as (...a: unknown[]) => unknown)).toBe(false);
   });
 
   it.each([{ name: 'Star', ctor: Star }, { name: 'Galaxy', ctor: Galaxy }])('$name: no reaper and no forward is left on the host', ({ ctor }) => {
-    // Unmarked members fall out of every mark inventory, so each is asserted absent by name —
+    // Undecorated members fall out of every `@mesh()` inventory, so each is asserted absent by name —
     // anywhere on the chain, which is where dispatch would find it.
     for (const name of [...REAPERS, 'onInviteResult', 'onOntologyPulled']) {
       expect(name in ctor.prototype, name).toBe(false);
@@ -223,9 +223,9 @@ describe('the response leg reaches `results`, and the wire does not', () => {
     const absent = await refusal(client.lmz.callAsync(host.binding, host.scope,
       (client.ctn() as any).onQueryBroadcastResult('some-hash', err)));
     expect(absent).toMatch(/No member named 'onQueryBroadcastResult' exists on this node/);
-    const unmarked = await refusal(client.lmz.callAsync(host.binding, host.scope,
+    const undecorated = await refusal(client.lmz.callAsync(host.binding, host.scope,
       (client.ctn() as any).resourcesResults.onOntologyPulled(null)));
-    expect(unmarked).toMatch(/Member 'resourcesResults' is not mesh-callable/);
+    expect(undecorated).toMatch(/Member 'resourcesResults' is not mesh-callable/);
     // The positive control: the same caller reaches the door.
     expect((await commit(client, host, { [uuid()]: host.createOp() })).ok).toBe(true);
     client[Symbol.dispose]();

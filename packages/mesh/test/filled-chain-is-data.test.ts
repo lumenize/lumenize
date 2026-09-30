@@ -117,9 +117,9 @@ describe('a filled chain is data — the executor never resolves it', () => {
       { type: 'get', key: 'schedule' },
       { type: 'apply', args: [
         Date.now() + 60_000,
-        // ⚠️ A MARKED member, deliberately. An undecorated one is refused by the member-level
-        // check before the argument list is ever built, so the limb would go green without
-        // reaching the alarm mechanism at all — vacuous, and green on any tree.
+        // ⚠️ A `@mesh()`-DECORATED method, deliberately. An undecorated one is refused by the
+        // member-level check before the argument list is ever built, so the limb would go green
+        // without reaching the alarm mechanism at all — vacuous, and green on any tree.
         { __isNestedOperation: true, __operationChain: [
           { type: 'get', key: 'double' }, { type: 'apply', args: [21] },
         ] },

@@ -29,7 +29,7 @@
  *   ```
  *
  * passed as `onResult: this.ctn<this>().onBroadcastResult(resourceId)`. It needs no `@mesh()`:
- * the Error reaches it locally, or at this node's fire-back door, and neither consults the mark.
+ * the Error reaches it locally, or at this node's fire-back door, and neither checks for `@mesh()`.
  *
  * ⚠️ **`callContext.callee` names the failing target only where the handler runs on THIS node's
  * dispatch** — a Gateway target (the Gateway answers a push inside its ack, so a disconnected

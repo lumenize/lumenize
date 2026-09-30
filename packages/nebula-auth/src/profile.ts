@@ -280,7 +280,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * `ClientDisconnectedError` naming another subscriber — described a real hole and no longer does:
    * the error carries no identity to forge, so the worst a direct call achieves is reaping whoever
    * made it. `public` and un-decorated stays right (a Gateway answers inside its ack, so the Error
-   * runs this handler on the Profile's own dispatch, where the mark is not consulted), but it is now
+   * runs this handler on the Profile's own dispatch, where `@mesh()` is not checked), but it is now
    * the second line rather than the first. Detect by `name` (custom Error classes don't keep
    * `instanceof` — mesh.md).
    */

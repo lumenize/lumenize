@@ -104,7 +104,7 @@ Every node is responsible for its own fine-grained access control. Lumenize prov
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | **[Class-wide](./security#class-level-onbeforecall)** | `onBeforeCall()` hook | WHO can call (authentication) |
-| **[Entry Point](./security#access-control)** | `@mesh()` decorator | WHAT is exposed (the marked members — a chain's first op must name one) |
+| **[Entry Point](./security#access-control)** | `@mesh()` decorator | WHAT is exposed (the `@mesh()`-decorated methods and getters — a chain's first op must name one) |
 | **[Method-level](./security#method-level-meshguard)** | `@mesh(guard)` | Fine-grained per-method permissions |
 
 See [Security](./security) for complete documentation with examples.

@@ -521,7 +521,7 @@ export class TestDO extends LumenizeDO<Env> {
   /**
    * The same onResult handler, UNDECORATED — the limb that shows a broadcast result needs no
    * `@mesh()`. Each target fires its filled handler back to this node's fire-back door, the only
-   * door that knows it is holding a filled chain, and that door does not consult the mark.
+   * door that knows it is holding a filled chain, and that door does not check for `@mesh()`.
    */
   captureUndecoratedBroadcastResult(result?: unknown): void {
     if (result instanceof Error) {
@@ -554,7 +554,7 @@ export class TestDO extends LumenizeDO<Env> {
   // onResult handler — each target's fire-back lands here with its Error appended. ⚠️ The `@mesh()`
   // does not earn its keep: the fire-back lands at `__handleResponse`, where the member-level check
   // is off. Kept because shedding reaper decorators is a separate piece of work;
-  // `captureUndecoratedBroadcastResult` above is what proves the mark is not required.
+  // `captureUndecoratedBroadcastResult` above is what proves `@mesh()` is not required.
   @mesh()
   captureBroadcastResult(result?: unknown): void {
     if (result instanceof Error) {
@@ -990,7 +990,7 @@ export class TestDO extends LumenizeDO<Env> {
 
   /**
    * What an injected chain names. UNDECORATED deliberately: a filled handler chain runs at
-   * `requireMeshDecorator: false`, so the absence of a mark is not what would stop it — only
+   * `requireMeshDecorator: false`, so the absence of `@mesh()` is not what would stop it — only
    * refusing to resolve the value at all is.
    */
   recordInjected(tag: string): string {
@@ -1032,7 +1032,7 @@ export class TestDO extends LumenizeDO<Env> {
    * `replaceNestedOperationMarkers`'s own JSDoc, and until now it appeared only there — nothing
    * exercised it. It is the case the entry rule would miss if the carve-out were keyed on anything
    * but the flag: `ctx` is a constructor-assigned OWN property, so the descriptor walk finds it
-   * and finds it unmarked, exactly as it does for `env`.
+   * and finds it not mesh-callable, exactly as it does for `env`.
    */
   testCtxRootedHandler(binding: string, instance: string | undefined): void {
     const remote = this.ctn<TestDO>().remoteEcho('rooted-at-ctx');
@@ -1119,7 +1119,7 @@ export class TestDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('handler_received');
   }
 
-  /** Two marked members the positive control below nests, so both ops are legitimate entries. */
+  /** Two `@mesh()` methods the positive control below nests, so both ops are legitimate entries. */
   @mesh()
   double(n: number): number {
     return n * 2;
@@ -1178,9 +1178,9 @@ export class TestDO extends LumenizeDO<Env> {
 /**
  * The member kinds `@mesh()` ships, on a class built for them.
  *
- * Kept off `TestDO` deliberately: a marked getter, an unmarked getter and a call recorder are the
- * fixture, and putting them on the DO every other suite shares would make each of those suites
- * carry a surface it never asked for.
+ * Kept off `TestDO` deliberately: a `@mesh()`-decorated getter, an undecorated getter and a call
+ * recorder are the fixture, and putting them on the DO every other suite shares would make each of
+ * those suites carry a surface it never asked for.
  */
 export class MemberKindDO extends LumenizeDO<Env> {
   /** Everything a getter body or a guard did, in order, read back THROUGH the mesh. */
@@ -1196,13 +1196,13 @@ export class MemberKindDO extends LumenizeDO<Env> {
 
   /** A METHOD entry — the shape every entry took before getters shipped. */
   @mesh()
-  markedMethod(value: string): string {
+  decoratedMethod(value: string): string {
     return `method reached: ${value}`;
   }
 
   /** A GETTER entry, ungated. The form for a gate: it returns a surface and does nothing else. */
   @mesh()
-  get markedGate(): { reached: () => string } {
+  get decoratedGate(): { reached: () => string } {
     this.#trace('getter body');
     return this.#facade;
   }
@@ -1220,15 +1220,15 @@ export class MemberKindDO extends LumenizeDO<Env> {
   }
 
   /**
-   * An UNMARKED getter. The property the descriptor lookup exists for: a chain naming it is
+   * An UNDECORATED getter. The property the descriptor lookup exists for: a chain naming it is
    * refused WITHOUT the body running, which reading `parent[key]` to make the decision could not do.
    */
-  get unmarkedGate(): { reached: () => string } {
-    this.#trace('unmarked getter body RAN');
+  get undecoratedGate(): { reached: () => string } {
+    this.#trace('undecorated getter body RAN');
     return this.#facade;
   }
 
-  /** An `async` marked getter — whether it works or is refused is a measurement, not a guess. */
+  /** An `async` `@mesh()` getter — whether it works or is refused is a measurement, not a guess. */
   @mesh()
   get asyncGate(): Promise<{ reached: () => string }> {
     this.#trace('async getter body');

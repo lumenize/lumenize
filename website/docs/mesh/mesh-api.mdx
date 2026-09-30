@@ -133,28 +133,28 @@ For context propagation and persistence patterns, see [Managing Context](./manag
 
 ## Decorator: `@mesh()`
 
-Marks a **member** as a mesh entry point — a method, or a getter. A chain arriving off the wire must open on one: its first operation names a marked member, and that is where the guard runs. Everything after that runs on whatever the member handed back — unchecked by the entry rule, though the walk rules still apply (see `requireMeshDecorator` in [Managing Context](./managing-context)). A member without `@mesh()` cannot be reached from outside the node, and that absence is the security boundary — not visibility, which the runtime does not see.
+Makes a **method or getter** a mesh entry point. A chain arriving off the wire must open on one: its first operation names a `@mesh()`-decorated method or getter, and that is where the guard runs. Everything after that runs on whatever the entry handed back — unchecked by the entry rule, though the walk rules still apply (see `requireMeshDecorator` in [Managing Context](./managing-context)). A member without `@mesh()` cannot be reached from outside the node, and that absence is the security boundary — not visibility, which the runtime does not see.
 
 ```typescript @skip-check-approved('conceptual')
 @mesh()                       // Basic entry point
 @mesh(guardFunction)          // With access control guard
 ```
 
-**Use a getter for a GATE** — an entry that returns a capability surface and does nothing else — and a method for everything else, whatever its arity. A gate reads as the thing it hands back (`ctn<T>().settings.read()`), which is how the caller thinks of it. The pair below is the asymmetry readers get wrong: the marked one is reachable from the wire, the unmarked one is not, and the absence of the decorator is what does the second.
+**Use a getter for a GATE** — an entry that returns a capability surface and does nothing else — and a method for everything else, whatever its arity. A gate reads as the thing it hands back (`ctn<T>().settings.read()`), which is how the caller thinks of it. The pair below is the asymmetry readers get wrong: the `@mesh()`-decorated getter is reachable from the wire, the undecorated one is not, and the absence of the decorator is what does the second.
 
 ```typescript @check-example('packages/mesh/test/for-docs/security/gate-pair-do.ts')
   // A GETTER gate. The guard runs at the ENTRY op — read off the descriptor, before the getter
   // body is invoked — and the body then picks what to hand back.
   @mesh(requireAdmin) get settings(): Settings { return new Settings(this); }
 
-  // The same capability, UNMARKED, so it is unreachable from the wire. An unmarked getter is
+  // The same capability, UNDECORATED, so it is unreachable from the wire. An undecorated getter is
   // refused WITHOUT running: the check reads the property's descriptor, never the property.
   get settingsForResults(): Settings { return this.#openResults(); }
 ```
 
 ⚠️ A getter entry runs code behind a property read, and nothing at the call site says so. Keep one side-effect-free, synchronous, cheap and idempotent — a gate returns a surface and does nothing else.
 
-`accessor` and fields are deliberately **not** entry kinds, and both fail to compile under `@mesh()`. A chain can only `get` and `apply`, so a marked `accessor` would be a marked getter with a setter no caller can reach; a field would hand its object over as-is, with no code in between to narrow it.
+`accessor` and fields are deliberately **not** entry kinds, and both fail to compile under `@mesh()`. A chain can only `get` and `apply`, so a decorated `accessor` would be a decorated getter with a setter no caller can reach; a field would hand its object over as-is, with no code in between to narrow it.
 
 **Guard signature:**
 ```typescript @skip-check-approved('conceptual')

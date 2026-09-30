@@ -8,7 +8,7 @@
  * mesh path and asserts BOTH halves, refused and permitted.
  *
  * ⚠️ Real mesh path, never `createTestingClient` — `testing.md` forbids that for a fixture
- * demonstrating a guard, and the recorder proving the unmarked getter never ran is read back
+ * demonstrating a guard, and the recorder proving the undecorated getter never ran is read back
  * THROUGH the mesh rather than from stdio.
  */
 import { it, expect, vi } from 'vitest';
@@ -36,7 +36,7 @@ async function connect(isAdmin: boolean) {
   return client;
 }
 
-it('a MARKED getter gate is reachable and an UNMARKED one is refused without running', async () => {
+it('a `@mesh()` getter gate is reachable and an UNDECORATED one is refused without running', async () => {
   const instance = `gate-pair-${crypto.randomUUID()}`;
   const admin = await connect(true);
   try {
@@ -50,7 +50,7 @@ it('a MARKED getter gate is reachable and an UNMARKED one is refused without run
       'GATE_PAIR_DO', instance, admin.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },
     )).toBe('on');
 
-    // REFUSED — the same capability, reached through the member that carries no mark.
+    // REFUSED — the same capability, reached through the getter that has no `@mesh()`.
     await expect(admin.lmz.callAsync(
       'GATE_PAIR_DO', instance, admin.ctn<GatePairDO>().settingsForResults.read(), { timeoutMs: 10_000 },
     )).rejects.toThrow(/is not mesh-callable/);
@@ -58,9 +58,9 @@ it('a MARKED getter gate is reachable and an UNMARKED one is refused without run
     // …and refused WITHOUT running, which is the property a reader cannot infer from the
     // refusal alone: the check reads the descriptor, never the property.
     const node = (env as any).GATE_PAIR_DO.getByName(instance) as DurableObjectStub<GatePairDO>;
-    expect(await node.unmarkedGateRan).toBe(false);
+    expect(await node.undecoratedGateRan).toBe(false);
 
-    // The GUARD still decides who gets through the marked one — without this, a rule that let
+    // The GUARD still decides who gets through the `@mesh()` getter — without this, a rule that let
     // anything through the gate would satisfy the two halves above.
     const outsider = await connect(false);
     try {

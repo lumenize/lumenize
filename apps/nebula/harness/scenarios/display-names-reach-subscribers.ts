@@ -52,7 +52,7 @@ class ProfileWatcher extends NebulaClient {
 
 /**
  * ⚠️ **An override is a NEW function, and the mark lives on the function value — so it does not
- * inherit.** Production spells the mark `@mesh()`; this file runs under `tsx`, which does not
+ * inherit.** Production spells the decorator `@mesh()`; this file runs under `tsx`, which does not
  * transform TC39 decorators, so it sets the same flag the decorator sets.
  */
 (ProfileWatcher.prototype.handleProfileUpdate as any)[Symbol.for('lumenize.mesh.callable')] = true;

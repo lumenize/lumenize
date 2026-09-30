@@ -1,18 +1,18 @@
 /**
- * Every member a request's chain can open on, for a host class — read the way the entry rule reads
- * a mark (`descriptor.get ?? descriptor.value`, `markedFunctionOf` in `ocan/execute.ts`), over the
- * WHOLE prototype chain, nearest definition first.
+ * Every member a request's chain can open on, for a host class — read the way the entry rule looks
+ * for `@mesh()` (`descriptor.get ?? descriptor.value`, `decoratedFunctionOf` in `ocan/execute.ts`),
+ * over the WHOLE prototype chain, nearest definition first.
  *
  * Both halves matter. A walk of one prototype misses what a host inherits — `NebulaDO.teardown` is
  * wire-reachable on every host — and a `descriptor.value` walk misses a getter gate like
- * `resources`. An unmarked override shadows a marked base member, and the entry rule refuses it,
- * so the nearest definition is the one that counts.
+ * `resources`. An override without `@mesh()` shadows a decorated base method or getter, and the
+ * entry rule refuses it, so the nearest definition is the one that counts.
  */
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 
 export interface MeshEntry {
   name: string;
-  /** The guard the mark carries; `undefined` for a bare `@mesh()`. Compare by identity. */
+  /** The guard passed to `@mesh()`; `undefined` for a bare `@mesh()`. Compare by identity. */
   guard: unknown;
 }
 

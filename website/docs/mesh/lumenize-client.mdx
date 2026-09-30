@@ -36,7 +36,7 @@ export class EditorClient extends LumenizeClient {
 }
 ```
 
-Extend `LumenizeClient` and define `@mesh()` members for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`. Members _without_ `@mesh()` (like `requestSpellCheck`) are local-only — callable from your UI code but invisible to the mesh. ⚠️ **An OVERRIDE needs its own `@mesh()`**: the mark lives on the function, so a subclass method that shadows a marked one carries nothing. The refusal says so by name rather than leaving you to find it.
+Extend `LumenizeClient` and define `@mesh()` members for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`. Members _without_ `@mesh()` (like `requestSpellCheck`) are local-only — callable from your UI code but invisible to the mesh. ⚠️ **An OVERRIDE needs its own `@mesh()`**: the decorator records itself on the function, so a subclass method that shadows a `@mesh()`-decorated one carries nothing. The refusal says so by name rather than leaving you to find it.
 
 ```typescript @skip-check-approved('conceptual')
 using client = new EditorClient({

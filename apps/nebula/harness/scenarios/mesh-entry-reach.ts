@@ -63,7 +63,7 @@ export async function run(stack: DevStack): Promise<void> {
         run: () => call((c) => c.ctx.id.name),
       },
       {
-        name: 'the same env read, nested as an argument to a marked member',
+        name: 'the same env read, nested as an argument to a `@mesh()`-decorated method',
         pattern: NOT_MESH_CALLABLE,
         run: () => call((c) => c.getOntologyVersion(c.env.PRIMARY_JWT_KEY)),
       },
@@ -73,7 +73,7 @@ export async function run(stack: DevStack): Promise<void> {
         run: () => call((c) => c.svc.sql(['SELECT 1'])),
       },
       {
-        name: 'a nested svc chain as an argument to a marked member',
+        name: 'a nested svc chain as an argument to a `@mesh()`-decorated method',
         pattern: NOT_MESH_CALLABLE,
         run: () => call((c) => c.getOntologyVersion(c.svc.sql(['SELECT 1']))),
       },
@@ -125,10 +125,10 @@ export async function run(stack: DevStack): Promise<void> {
     //    is inherited by the DO instance itself, which is what makes the read-back possible at all.
     let wrote = 'not attempted';
     try {
-      // `getGalaxyConfig()` is a marked member handing back a PLAIN object, so its `constructor`
+      // `getGalaxyConfig()` is a `@mesh()`-decorated method handing back a PLAIN object, so its `constructor`
       // is `Object` and its `prototype` really is `Object.prototype` — a facade's own class
       // prototype (`resources.orgTree`) pollutes only that facade's instances. The function argument
-      // arrives as a get-only nested marker on a marked member, which is the one way a chain can
+      // arrives as a get-only nested marker on a `@mesh()`-decorated method, which is the one way a chain can
       // produce a function at all (a chain names `get` and `apply` and nothing else).
       await call((c) => c.getGalaxyConfig().constructor.prototype
         .__defineGetter__(PROBE_KEY, c.getGalaxyConfig));

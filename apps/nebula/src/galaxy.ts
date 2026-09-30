@@ -1463,9 +1463,9 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   /**
    * The plane's response-leg surface — where a failed update's reaper and the node invite's
    * facade answer land. Deliberately NOT `@mesh()`: those answers arrive locally or at the
-   * fire-back door, and neither consults the mark. Every host's surface also carries
-   * `onOntologyPulled`, which checks no permission and installs whatever row it is handed, so a
-   * mark would let any caller with passage load a validator of their own onto this Galaxy.
+   * fire-back door, and neither checks for `@mesh()`. Every host's surface also carries
+   * `onOntologyPulled`, which checks no permission and installs whatever row it is handed, so
+   * `@mesh()` would let any caller with passage load a validator of their own onto this Galaxy.
    */
   get resourcesResults(): ResourcesResults {
     return this.#resources.results;

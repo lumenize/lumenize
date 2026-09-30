@@ -391,11 +391,11 @@ const ORG_TREE_REASONS: Record<string, string> = {
   getEffectivePermission: 'a verdict over the tree passage already shows', getState: 'the tree passage already shows, as a copy',
   getNodeAncestors: 'a traversal of the tree passage already shows', getNodeDescendants: 'a traversal of the tree passage already shows',
 };
-/** Every `results` member is refused on the request leg, because `resourcesResults` carries no mark. */
-const UNMARKED = 'unreachable from a request: `resourcesResults` is unmarked';
+/** Every `results` member is refused on the request leg, because `resourcesResults` has no `@mesh()`. */
+const UNDECORATED = 'unreachable from a request: `resourcesResults` has no `@mesh()`';
 const RESULTS_REASONS: Record<string, string> = {
-  onBroadcastResult: UNMARKED, onInviteResult: UNMARKED, onOntologyPulled: UNMARKED,
-  onQueryBroadcastResult: UNMARKED, onQuerySubscriberListBroadcastResult: UNMARKED, onTreeBroadcastResult: UNMARKED,
+  onBroadcastResult: UNDECORATED, onInviteResult: UNDECORATED, onOntologyPulled: UNDECORATED,
+  onQueryBroadcastResult: UNDECORATED, onQuerySubscriberListBroadcastResult: UNDECORATED, onTreeBroadcastResult: UNDECORATED,
 };
 
 describe('Galaxy/Universe widening invariant (B5)', () => {

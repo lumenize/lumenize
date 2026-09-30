@@ -101,6 +101,12 @@ replaceable*, or *the tell* asks the reader to hold a definition you never gave 
 the thing instead. Where an abstraction genuinely earns its place, the concrete case MUST
 follow in the same paragraph; where there is no concrete case to give, delete it.
 
+**Name the decorator.** A `@mesh()` method or getter MUST be written as
+"`@mesh()`-decorated", or as having no `@mesh()`, and MUST NOT be called "marked" or
+"unmarked". A class can carry other decorators, so "marked" does not say which, and the
+TC39 decorators proposal itself says "decorated". `npm run audit:mesh-vocab` finds the
+shorthand, and a hook reports any line an edit adds.
+
 **A warning usually means the positive instruction above it is missing.** When you reach
 for ⚠️, check what the surrounding sentences actually told the reader to do. A warning
 saying *"don't confuse X with Y"* is generally load-bearing only because the paragraph

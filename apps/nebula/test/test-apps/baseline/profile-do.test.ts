@@ -37,7 +37,7 @@ class MeshProbe extends LumenizeClient {
    * constructor, so the reaper's name guard matches and reads whatever the payload carries.
    *
    * ⚠️ Armed on the SAME class rather than by a subclass override, deliberately: an override is a
-   * new function and does not inherit the `@mesh()` mark, which the entry rule refuses.
+   * new function and does not inherit `@mesh()`, which the entry rule refuses.
    */
   forgedVictim?: string;
   @mesh()

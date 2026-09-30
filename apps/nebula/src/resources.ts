@@ -140,7 +140,7 @@ const PLANE_KEYS = ['__sql_migrations_Subscriptions'] as const;
  * the plane asked for: the reapers a failed update names, the node invite's facade answer, and a
  * Star's ontology pull. A reaper's result arrives locally, when a Gateway answers inside its ack;
  * the other two arrive at the host's fire-back door, where the member-level check is off. Neither
- * path consults the mark, so the gate carries none. A mark would open every member to any caller
+ * path checks for `@mesh()`, so the gate has none. `@mesh()` would open every member to any caller
  * with passage, and `onOntologyPulled` is the one that matters: it checks no permission and installs
  * whatever row it is handed, so a caller could load a validator of their own — and on a `.dev`
  * Star, run the install's wipe. (`onInviteResult` is not the reason: a forged call runs under the
@@ -189,7 +189,7 @@ export class Resources {
    *  returns it; the host never returns the plane. */
   readonly requests: ResourcesRequests;
 
-  /** The response-leg surface — see {@link ResourcesResults}. A host's unmarked
+  /** The response-leg surface — see {@link ResourcesResults}. A host's undecorated
    *  `get resourcesResults` returns it. */
   readonly results: ResourcesResults;
 

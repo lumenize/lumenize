@@ -28,6 +28,10 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/generated-artifact-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/mesh-vocab-hook.sh"
           }
         ]
       }

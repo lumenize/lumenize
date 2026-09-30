@@ -72,16 +72,17 @@ describe('@lumenize/mesh entry + walk rules on the client executor (real chromiu
       //    measurement of which doors are open.
       const limbs: Array<{ name: string; want: RegExp | typeof PERMITTED; chain: OperationChain }> = [
         // CALIBRATION A — a refusal really does reach the caller. Also the entry rule's own limb:
-        // an unmarked member is the one hole today already closes, so it is GREEN before and after.
-        { name: 'an unmarked member is refused (and a refusal comes back)', want: /is not mesh-callable/,
+        // a method without `@mesh()` is the one hole today already closes, so it is GREEN before and
+        // after.
+        { name: 'a method without @mesh() is refused (and a refusal comes back)', want: /is not mesh-callable/,
           chain: [{ type: 'get', key: 'openDocument' }, { type: 'apply', args: ['doc-x'] }] },
         // CALIBRATION B — a chain that RUNS is silent. GREEN before and after, and it is what stops
         // a rule that refuses everything from satisfying every limb below.
-        { name: 'a marked member stays reachable over this same door', want: PERMITTED,
+        { name: 'a @mesh() method stays reachable over this same door', want: PERMITTED,
           chain: [{ type: 'get', key: 'handleContentUpdate' }, { type: 'apply', args: ['doc-x', 'hello'] }] },
         { name: 'constructor at op 0, a position no entry rule covers on every leg', want: /'constructor'/,
           chain: [{ type: 'get', key: 'constructor' }, { type: 'get', key: 'name' }] },
-        { name: 'a Function.prototype member reached from a marked method', want: /Function\.prototype/,
+        { name: 'a Function.prototype member reached from a @mesh() method', want: /Function\.prototype/,
           chain: [{ type: 'get', key: 'handleContentUpdate' },
                   { type: 'get', key: 'bind' }, { type: 'get', key: 'name' }] },
         // The row only this venue can drive: workerd throws EvalError on `Function`, so a
