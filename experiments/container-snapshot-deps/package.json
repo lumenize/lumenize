@@ -1,0 +1,15 @@
+{
+  "name": "experiment-container-snapshot-deps",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "//": "Throwaway spike: can Cloudflare's container snapshots (the `durable_object` scheduling policy, shipped 2026-09-30) replace baking deps into the build-box image? Standalone on purpose — NOT a root workspace — because it needs wrangler >= 4.135 while the repo is pinned to 4.124.0 by vitest-pool-workers; a workspace entry would split the toolchain triple (workflow.md § Toolchain bumps). Deployed Worker is `experiment-container-snapshot-deps`; it waits for Larry's experiment-* sweep.",
+  "scripts": {
+    "dev": "wrangler dev --port 8799",
+    "deploy": "wrangler deploy",
+    "drive": "node scripts/drive.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.145.0"
+  }
+}

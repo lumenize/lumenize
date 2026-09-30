@@ -278,3 +278,21 @@ The concrete ask is **one engine (`ivya` or equivalent), optionally `user-event`
 - *Why is the screen blank?* — **`nebula-pre-alpha.md` § *③ Capture live*** already scopes it: `@lumenize/debug` gains a second, filtered, console-additive callback, the scaffold installs it, and *"a loop tool reads the tail — one entry in `LOOP_TOOL_ENTRIES`."* A runtime error log probably answers "blank" better than a click driver.
 
 If both land and the model still cannot close a loop it should be able to close, that is when this earns its keep — and by then real turns will say which addressing it actually needs.
+
+## Item 11: Snapshots replace the deps baked into the build-box image
+
+**Moved here 2026-09-30** from `tasks/backlog.md`, where it sat as a "don't adopt" verdict. Cloudflare shipped container snapshots that day on raw `ctx.container`, which is how the Galaxy already drives its build box, and the verdict's premises went with the announcement. **Until a child task file exists, the experiment is the authority:** [experiments/container-snapshot-deps/](../experiments/container-snapshot-deps/). Its `RESULTS.md` carries the measurements and an outline for the session that drafts the task file.
+
+**Goal:** the image stops carrying dependencies. One shared snapshot holds the scaffold's installed tree, a per-Galaxy snapshot holds a user-developer's extras, and the image changes only when the toolchain does.
+
+**What it buys:**
+- **No curated, baked dep set.** `apps/nebula/container/Dockerfile` stops installing the scaffold's libraries, and nobody maintains the list.
+- **Extras install once per lockfile change, not once per build.** On vite 8 the install is the largest term in a build with extras (`experiments/computer-vfs-build/RESULTS.md` § *ROUND 5*).
+- **The `@lumenize` frontend packages arrive through npm instead of a `COPY` into the image.** That needs no npmjs.org release: npm installs a tarball URL, and our own Worker can serve one.
+
+**What blocks it today:**
+- **`@cloudflare/computer` makes our `start()` call and passes neither `image` nor a snapshot** — true of 0.3.1, the newest release on 2026-09-30.
+- **The `durable_object` scheduling policy needs wrangler 4.135 or later.** We pin 4.124.0 until the `@cloudflare/vitest-plugin` move in `tasks/backlog.md` § *Immediate work backlog*.
+- **A container application cannot change its scheduling policy in place**; switching creates a new one.
+
+**Demand trigger:** `@cloudflare/computer` passing `image` and a snapshot through `start()`. Nothing here is buildable before that. Once it is, the wipe gate is the cheap moment, because the new container application and the vitest-plugin move both land there anyway.

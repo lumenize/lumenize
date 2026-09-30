@@ -131,7 +131,8 @@ Load-bearing claims, stated so review can falsify them:
   the gate's shim path so that swap does not require re-deciding the gate's structure.
 - ⚠️ **Design consideration — CF Container disk snapshots may reopen this, and settling it needs an experiment,
   not a reading of the announcement.** Snapshots (announced in CF Discord #containers-beta 2026-06-18, unshipped
-  as of 2026-07-20 — see the row in `tasks/backlog.md`) persist a container's disk across sleep/wake, which would
+  as of 2026-07-20, shipped 2026-09-30 — see `tasks/nebula-pre-alpha-fast-follow.md` § *Item 11*) persist a
+  container's disk across sleep/wake, which would
   make a user's `node_modules` survive and reduce `npm install` to once per dependency change rather than once
   per cold start. That kills the *conditional* half of the rejection above. **It does not touch the durable
   half:** dependencies must be installed *somewhere* before there is anything to snapshot, so container egress is
