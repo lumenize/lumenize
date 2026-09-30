@@ -2,8 +2,9 @@
 
 **Status:** Pass 1 — design intent only, phases NOT written. Drafted 2026-09-21 while auditing the
 Galaxy's `@mesh` surface, where deleting the config pair left the Universe with nothing at all.
-⚠️ Drafted ahead of its turn deliberately (Larry, 2026-09-21): sequencing it before the subdomain
-build is what stops an account's display name being parked somewhere it has to be migrated from.
+It follows [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) and lands before
+the wipe (Larry, 2026-09-29). That build's claim takes slugs only, so this one adds the names to the
+claim in the same change that stores them, and no name is ever parked on `Scopes`.
 
 **Objective — a Universe holds resources the way a Galaxy and a Star already do, and the first thing
 it holds is the account's own name.**
@@ -12,8 +13,8 @@ it holds is the account's own name.**
 `Record<string, unknown>` in KV, and nothing else. The Galaxy and the Star carry the same pattern, and
 [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) handed all three pairs to this file (its D11), so retiring them leaves this class empty. Meanwhile
 [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Scope full names* records that a Universe "has no human
-name anywhere, and its slug is doing two jobs at once", and the subdomain build's signup is about to
-start collecting one.
+name anywhere, and its slug is doing two jobs at once", and this build is where the signup starts
+collecting one.
 
 ## Relationships
 
@@ -37,11 +38,12 @@ start collecting one.
     `passage-not-dominion` loses one in all three limbs, including the `getStarConfig` positive
     control whose own comment records that it is not optional. Name the replacement each limb
     re-points at, and make `drive.ts all` a phase criterion rather than a follow-up.
-- **Precedes [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) if the ordering
-  holds, and that is the point.** That build's claim collects an account name and an app name. With
-  this task landed, the account name is written as a resource on its Universe. Without it, the name
-  parks Registry-side on `Scopes` and a later task migrates it — an interim whose only defence is
-  that § *Scope full names* is capture-only, so nothing renders it while it is wrong.
+- **Follows [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md), and adds names
+  to the claim that build rewrites** (Larry, 2026-09-29). That build's claim writes a universe, its
+  first galaxy and that galaxy's `.dev` Star, and takes two slugs. This build adds the account's and
+  the first app's names to both claim paths, and writes each as a scope-metadata resource on its host,
+  so no name is ever parked on `Scopes`. [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Scope full
+  names* still plans a `name` column there, and the subdomain build's Phase 8 corrects it.
 - **No wipe dependency of its own**, though a name written before the wipe goes with everything else.
 
 ## Context and current state
@@ -108,6 +110,12 @@ question with one answer shape.
 - **Is the scope-metadata ontology one type or three?** One `Scope { name, logo, description }`
   installed everywhere is simplest; per-tier types would let a Galaxy carry fields a Star has no use
   for. The second is only worth it if such fields exist — name one before splitting.
+
+- **How does a name get from the claim to its host?** The claim runs in the Registry, which speaks no
+  mesh, and holds no token, since claiming is how a person comes to hold one. The account's name
+  belongs on its Universe and the first app's on its Galaxy, and the claim touches neither. The
+  consume, which wakes the Galaxy to order its certificate pack, is one moment both hosts could be
+  written; carrying the names on the claim's record until the first page loads is another.
 
 ## Constraints
 

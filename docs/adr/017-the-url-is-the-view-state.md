@@ -17,9 +17,7 @@ Nebula multiplies it. Studio does not just *have* a UI — it **generates** them
 
 **A URL one person shares must take the recipient to the same page *and the same view state*.** View state that changes *what you are looking at* belongs in the URL — the active scope, the selected record, the open tab or panel, filters, sort, pagination. State that merely reflects *what you are doing* does not: scroll offset, hover, focus, and unsaved input drafts stay out.
 
-⚠️ **A scope in an SPA URL is the ACTIVE scope, never the auth scope.** The two diverge exactly when it matters — a person reaches a Star by dominion from a scope above it. This ADR's own Evidence is that divergence going unrecorded: `/app/{scope}` supplied `authScope`, `activeScope` started equal and then drifted when someone opened a Star, and the drift never reached the URL. The sender's view was unreproducible, for precisely the support case the principle exists to serve.
-
-⚠️ **Registry endpoints hold the OPPOSITE convention, and keep it.** A path-scoped credential answers for exactly one scope, so `/auth/{scope}/…` names the AUTH scope. Both are written down because a reader who learns one will generalise it to the other.
+**The host is the scope you are looking at, never the membership you hold.** `https://tenant1.crm.acme.lumenize.dev/` shows the Star `acme.crm.tenant1` ([ADR-021](021-every-scope-has-its-own-host.md)). A universe admin on that page holds their membership at `acme`. Nothing in the URL says so, because it changes nothing about what the page shows. This ADR's own Evidence is the other arrangement going wrong. `/app/{scope}` named the membership, the scope on screen drifted from it when someone opened a Star, and the drift never reached the URL. The sender's view was unreproducible, for precisely the support case the principle exists to serve.
 
 The test, when it is unclear: **would the sender be surprised that the recipient did not see it?** If yes, it is view state.
 
@@ -45,9 +43,9 @@ An overlay — a modal, a drawer, a side panel — is decided by the same test, 
 ## Consequences
 
 ### Positive
-- Support and debugging work **by construction** — "send me your URL" is sufficient, and it is the direct prerequisite for the admin-debug flow that `/mint-narrower-token` exists to serve.
+- Support and debugging work **by construction** — "send me your URL" is sufficient, and it is the direct prerequisite for the admin-debug flow impersonation exists to serve.
 - Deep links, browser back/forward, refresh, and bookmarks all behave without per-view effort.
-- **A login brings you back.** Where a person was when a session lapsed, or the link a signed-out recipient opened, is restored after login from a client-side memory the routing module owns — never from the URL, which would make it an action, and never from the letter.
+- **A login brings you back.** A page whose session has lapsed sends the tab to log in, with its own URL as `return_to`. The login keeps that on the magic-link record. So the person lands on the same view, fragment included, in whichever browser opens the link. The link itself names no destination ([ADR-022](022-every-session-lives-on-the-platform-host.md) § *Logging in*).
 - **Testable.** A test can navigate to a URL and assert the resulting view, instead of driving a click-path to reach it — cheaper and less brittle.
 - Every generated app inherits it, so user-developers get shareable URLs without knowing this decision exists.
 

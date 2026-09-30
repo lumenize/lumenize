@@ -30,8 +30,6 @@ Two things named throughout this document are not mesh nodes at all, so neither 
 
 **A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary mesh call, not a separate delivery mechanism. Two things do differ: the last-mile **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, and it is where a client's claims are established on the way in, which is why it appears throughout this document without ever being a node itself.
 
-**A subscription update is the node speaking for itself.** It starts a fresh call chain, so none of the writer's claims ride out to a subscriber's page, while a call from one node to another inherits the caller's (§ *How the claims travel*).
-
 ## The layers a call passes
 
 We use **defense in depth** and **zero trust** throughout.
@@ -40,26 +38,33 @@ You enter by authenticating, which sets a long-lived refresh cookie. That cookie
 
 One design decision runs underneath several of the layers below: **Nebula addresses Durable Objects (DOs) by name** (never using the 64-character hex id), and for a scoped node, **the name *is* its scope**. That is what turns an address from a routing fact into something authorization can base decisions upon.
 
-After authentication, a call passes a fixed sequence of layers. Two verdicts decide most of it: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?), computed from the page the call came from and the `scopeAdmin` bit against the scope being addressed. § *Coarse-grained access control* defines both.
+After authentication, a call passes a fixed sequence of layers. Two verdicts decide the coarse-grained access control: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?). Both are computed from the call's `activeScope`, the `scopeAdmin` bit, and the `targetScope` it addresses. `activeScope` is the scope of the page whose call started the chain, read from that page's host — its subdomain, not its path: a call from `https://tenant1.crm.acme.lumenize.dev/orders?page=2` carries the `activeScope` `acme.crm.tenant1`. § *Coarse-grained access control* defines both verdicts, and § *`activeScope`* says how the value is set.
 
-**There are two sequences, because a call to a mesh node and a request to a Registry route arrive by different routes.** Only the mesh sequence computes the two verdicts. The Registry's routes carry the session lifecycle — logging in, the refresh, acceptance, logging out — and none of them reads an access token, so there is nothing for passage or dominion to decide. What a session does once it holds a token is a mesh call.
+**There are two sequences, because a call to a mesh node and a request to a Registry route arrive by different routes.** Only the mesh sequence computes the two verdicts. The Registry's HTTP routes are used for calls that don't have an access token — logging in, the refresh, acceptance, logging out. What a session does once it holds a token is a mesh call.
 
 **Mesh nodes.** Every layer runs in order, even where a given call makes one a no-op:
 
 - **M1 — Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
 - **M2 — The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
 - **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassageInto(claims, targetScope)`. `targetScope` is this node's own name, pinned by M2. Our coarse-grained access control.
-- **M4 — `@mesh()` decorators.** Only members decorated with `@mesh` (TC39 stage 3 decorators) are reachable over `lmz.call()`; nothing else on the node can be called or read by a caller.
-  - **The one leg where that does not apply is a result coming back.** That chain is one this node authored and sent out, so it runs against this node's own members whether or not they are marked. M3 still grants or refuses passage on both legs, and the fence below holds on both.
-  - **You may read properties and call methods on whatever a marked member handed back** — that is how a gate hands back a capability. What it hands back is the author's choice, so we recommend only handing back methods (including getters) and advise the author to be careful not to accidentally hand back access to `this`, `this.ctx`, `this.svc` etc.
-  - **The doors JavaScript opens on every object are closed for you.** Past the entry, a chain naming `constructor`, `__proto__`, `__lookupGetter__`, `__lookupSetter__`, `__defineGetter__` or `__defineSetter__` is refused, as is one reaching a `Function.prototype` member.
-- **M5 — The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
-- **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response.
+- **M4 — `@mesh()` decorators.** Only methods and getters decorated with `@mesh()` (TC39 stage 3 decorators) are reachable over `lmz.call()`; nothing else on the node can be called or read by a caller, and a field or `accessor` fails to compile under it. A `@mesh()`-decorated method or getter may hand back an object whose members the caller can then use, which is how a node hands out a capability (below).
+  - **A result coming back is the one leg where `@mesh()` is not required.** That chain is one this node authored and sent out, so it runs against members this node chose, which are deliberately left without `@mesh()`: decorating one would also make a result handler callable as an ordinary request, with arguments of the caller's choosing. M3 still grants or refuses passage on the result leg, as on the request. And no client can name code for a node to run on this leg. Only a server-side node sends a result back as a chain, and when a node calls a client, whatever comes back reaches the node as a value for its own handler, which never left the node.
+- **M5 — The guard function.** `@mesh()` can have a guard function that runs before the method. Read-only operations often have none, because passage (§ *Coarse-grained access control*) is enough. Almost anything that changes state has one.
+- **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response. That explanation is often a thrown error, which travels back over the mesh whole — its type and custom properties included — and is thrown again at the caller.
 - **M7 — The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
 
 **Why relationships rather than roles?** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `scopeAdmin` bit that dominion reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
-**Registry routes.** HTTP routes on the platform host, answered by the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
+**A `@mesh()`-decorated getter can hand back a capability.** A Galaxy's `@mesh() get resources()` returns the request surface of its Resources plane, and a caller then calls `ctn<Galaxy>().resources.transaction(…)`: whatever the gate returns is exactly what the caller may use. That is the idea of the [object-capability model](https://en.wikipedia.org/wiki/Object-capability_model), with two differences:
+
+- **The caller never holds a reference.** The link above assumes a programming language context where a holder keeps an unforgeable reference to an object. In  our case, the caller sends a continuation instead, a description of work to do, as data ([ADR-003](../adr/003-continuation-messaging.md)). It names a path from the gate — read `resources`, then call `transaction` with these arguments — and the callee replays that path on every call, so the gate's own checks run every time.
+- **The replay closes JavaScript's loopholes.** The model is secure only where an object exposes nothing beyond what its author chose, and the page lists the [loopholes](https://en.wikipedia.org/wiki/Object-capability_model#Loopholes_in_object-oriented_programming_languages) that break that in languages like JavaScript: assigning to an object's fields, inspecting it by reflection, and reaching for authority no one handed you. A continuation can only read a property or call a function, so it assigns nothing. It walks only from the gate, so it reaches nothing else. And a path naming one of the doors every JavaScript object opens — `constructor`, `__proto__`, `__lookupGetter__`, `__lookupSetter__`, `__defineGetter__` or `__defineSetter__` — or reaching a `Function.prototype` member is refused, which closes reflection.
+
+What a gate hands back is its author's choice, and nothing past the gate checks it, so hand back an object whose only members are methods and getters. A data property hands its value over as it is, with no code in between to narrow it, which is how `this`, `this.ctx` or `this.svc` leaks by accident.
+
+**The facade is a mesh node that serves every scope.** It is a stateless Worker entrypoint with no name, so M2 pins nothing and M3 has no scope of its own to compare. Its `targetScope` arrives as a parameter instead — `createGalaxy('acme.crm')` — and each method decides passage or dominion against that parameter at the top of the method (M6), before its one Workers RPC to the Registry, which checks again. The verdicts and the claims are the same as on any node; only where the target comes from differs (§ *Grants in both planes*).
+
+**Registry routes.** HTTP routes answered by the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler. Here is an example for two routes:
 
 ```
 /auth/refresh-token   [connectionRateLimitGuard, handleRefreshToken]
@@ -68,17 +73,17 @@ After authentication, a call passes a fixed sequence of layers. Two verdicts dec
 
 The first caller presents refresh cookies and the second presents nothing, because claiming is how a person comes to hold a session at all. Every layer runs in order, though not every route uses all of them:
 
-- **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`.
-- **R2 — The same-site check.** Every `POST` to `/auth/` requires `Sec-Fetch-Site: same-origin`, so a page on another host cannot post a login or a logout ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *The cookie rules*). The refresh is the exception. It serves every page on the site, so it also accepts `same-site`, and requires an `Origin` that names a scope.
+- **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405**, listing the verbs it does accept.
+- **R2 — The same-site check.** Every `POST` to `/auth/` requires `Sec-Fetch-Site: same-origin`, so a page on another host cannot post a login or a logout ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *The cookie rules*). The access token refresh from a cookie is the exception. It serves every page on the site, so it also accepts `same-site`, and requires an `Origin` that names a scope.
 - **R3 — Rate limiting.** ONE connection-keyed limiter per route (`connectionRateLimitGuard`), ahead of the first expensive thing: the cookie resolution's Workers KV read, or `turnstileGuard`'s `siteverify` round trip. No route here holds a verified `sub` to key on.
 - **R4 — The route's own credential.** Turnstile for a claim or a magic-link request, the emailed link for its consume, refresh cookies for the refresh, acceptance, Home's summary and logging out, and the signup ticket for a signup. § *The Registry* says why each route takes the one it does.
 - **R5 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no. For example: a claim on a taken slug resolves three ways in the handler — a fresh slug proceeds, the same unverified claimer gets their link re-sent, and anyone else gets a conflict (§ *Founding a Star*).
 
 Every step refuses the same way: return a `Response` with an appropriate HTTP code. Explicit throwing is discouraged because that surfaces to the caller as an ambiguous 500. The mesh does the opposite: a refusal there travels back over `lmz.call()`, which preserves a thrown Error whole — custom properties included — so throwing carries what a status code cannot.
 
-Home's summary is a set of scopes, so it names none: it answers for every accepted refresh cookie the request carries, keyed on each cookie's `profileId`, and there is no target to decide about.
+Home's summary is the one route that answers for a person rather than a scope. Home sits on the platform host, and no page there holds an access token, since the platform host is no scope (§ *Home*). So it reads its list with the refresh cookies themselves: every accepted one the request carries, grouped by each cookie's `profileId`. It names no target, so there is nothing for passage or dominion to decide.
 
-**One route outside the Registry reads an access token: `PUT /pictures`.** It answers on every host, and takes whose picture it is from the verified token rather than from anything the caller says.
+A few routes answer outside both sequences, and one of them reads an access token; § *Routes outside both sequences* covers them.
 
 > **Today's code differs.** Every scope shares one host, `nebula.lumenize.com`, with the scope in the path of every cookie route. `create-galaxy`, `create-star`, `delete-scope(-plan)`, `expand-scope`, `scope-summary` and `mint-narrower-token` are still HTTP routes that read an access token, behind a `sub`-keyed limiter; [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) deletes `create-star` and `scope-summary`, and makes the rest `NebulaAuthFacade` methods.
 
@@ -134,7 +139,7 @@ An access token is a signed JWT. It has one `activeScope` — the scope of the p
 
 The refresh takes it from the page's `Origin`, which page script cannot set, and mints only where it sits at `authScope` for a plain membership, or at or below it for a `scopeAdmin` one, so it can only ever name somewhere `authScope` allows.
 
-It is what the coarse-grained checks read, so a call acts within its page's scope and below ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*). Reading it only ever narrows what `authScope` alone would allow, because it already sits at or below `authScope`.
+It is what the coarse-grained checks read, so a call acts within its `activeScope` and below ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*). Reading it only ever narrows what `authScope` alone would allow, because it already sits at or below `authScope`.
 
 > **Today's code differs.** Passage and dominion still read `authScope`. And the Gateway still fences its outbound leg on `aud`: a call heading out to a client is refused if its `aud` differs from the one that connection presented, with the Profile exempt. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) moves the checks onto `aud` and deletes the fence, since an update then carries no writer's claims (§ *Lumenize Nebula mesh*).
 
@@ -173,7 +178,9 @@ A whole token, annotated — a Galaxy admin on a page at one of their tenants' h
 
 The verified claims do not stop at the boundary they were checked on. The Gateway builds them once, when it accepts the connection and verifies the JWT, and every `lmz.call()` from there inherits them **unchanged** — so a node five hops deep reads the same `sub`, the same `aud`, the same `access`, and the same `act` chain the first node saw, without a lookup and without any caller threading them by hand. That is what makes the decision in § *Coarse-grained access control* local, and what lets a Resource write record its author from context alone.
 
-A subscription update starts afresh instead. It is the node speaking for itself rather than for whoever wrote, so its chain names only the node, and no writer's claims reach a subscriber's page. `lmz.broadcast` does this by default.
+**A call can also start a fresh chain, carrying no claims at all.** `lmz.call()` does this when asked, with `newChain: true`, and whenever there is no incoming call to inherit from, as in an alarm handler. The fresh chain names only the calling node, so it is that node speaking for itself rather than for whoever caused it. A subscription update works this way, since `lmz.broadcast` starts a fresh chain by default: the identity of whoever made the change reaches no subscriber.
+
+So every node's M3 has to decide safely when the claims are absent, and each type asks its own question there. A scoped node asks for passage, which needs claims, so a call with none is refused at its boundary; every scoped node gets that check from `NebulaDO`, the base class a new scoped node type extends. A node with no scope of its own, such as the facade or the Profile, checks the claims at the top of each method that needs them instead. What never meets that boundary — an alarm handler, a result handler run locally — is the node's own code, not a call from outside. A client asks who made the last hop instead: it refuses a call from another client and admits one from a Durable Object or Worker, so a subscription update arrives with no claims and passes. And no client can start a fresh chain or forge a result: the Gateway builds every call a client makes from the connection's verified token, and sends it only to a node's request door, where `@mesh()` is required.
 
 ## Coarse-grained access control
 
@@ -187,12 +194,12 @@ The `onBeforeCall()` guard sits at the node's outer boundary, and the one questi
 
 **Vertical passage is allowed in only two specific forms** described below.
 
-It compares the scope of the page the call came from (`activeScope`, the token's `aud`) against the scope being acted on (`targetScope`), and there are two ways passage is granted:
+It compares the call's `activeScope` (the token's `aud`) against the scope being acted on (`targetScope`), and there are two ways passage is granted:
 
-- **Passage upward is free.** `targetScope` can be your page's scope, or an ancestor of it. No `scopeAdmin` needed.
-- **Passage downward takes dominion.** `targetScope` is a descendant of your page's scope *and* `scopeAdmin` is set — the pair, never the bit on its own.
+- **Passage upward is free.** `targetScope` can be your `activeScope`, or an ancestor of it. No `scopeAdmin` needed.
+- **Passage downward takes dominion.** `targetScope` is a descendant of your `activeScope` *and* `scopeAdmin` is set — the pair, never the bit on its own.
 
-In one line: **the page and `targetScope` must be on the same vertical line, upward is free, and downward needs dominion** (`scopeAdmin`).
+In one line: **`activeScope` and `targetScope` must be on the same vertical line, upward is free, and downward needs dominion** (`scopeAdmin`).
 
 *Passage* and *dominion* mean one thing each, everywhere in this repo, and are never borrowed for anything else — which is why two uncommon words were picked ([ADR-015](../adr/015-passage-and-dominion.md) defines them). However, the analogy below should help you remember them.
 
@@ -230,7 +237,7 @@ So the last column below is what a caller of that shape *usually* ends up able t
 
 Seven example calls, all in the same Universe:
 
-| Case | The page's scope | `scopeAdmin` | `targetScope` | Usually can |
+| Case | `activeScope` | `scopeAdmin` | `targetScope` | Usually can |
 |---|---|---|---|---|
 | **Lateral** | `u.g.s1` | no | `u.g.s2` | **nothing** — lateral movement, refused; the case this layer exists for |
 | Ordinary | `u.g.s` | no | `u.g.s` | most of the app's methods, and the Resources their orgTree grants cover |
@@ -390,7 +397,7 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-An environment variable holds an array of superuser email addresses. Logging in with one of these gives that login a membership at `_platform`, the root of the scope tree — the equivalent of Registry scopeAdmin over every Universe. That needs no special arm: `isAtOrAbove` already places the root at or above every scope, so a superuser gets a token on every host and passage everywhere. Dominion, though, reads the page's scope, and no page sits at the root ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md)) — so in any one call they hold that page's scope and below. They administer every scope there is, one page at a time.
+An environment variable holds an array of superuser email addresses. Logging in with one of these gives that login a membership at `_platform`, the root of the scope tree — the equivalent of Registry scopeAdmin over every Universe. That needs no special arm: `isAtOrAbove` already places the root at or above every scope, so a superuser gets a token on every host and passage everywhere. Dominion, though, reads `activeScope`, and no page sits at the root ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md)) — so in any one call they hold that page's scope and below. They administer every scope there is, one page at a time.
 
 ## Impersonation
 
@@ -426,7 +433,7 @@ Here is that mirroring, in the same shape as the token in § *The access token* 
 
 Every identity claim names the subject, `scopeAdmin` included — the subject does not hold it, so the token does not. The admin's own bit is not blended in. It is what permitted the impersonation at all, which is a separate rule checked somewhere else. The only trace of who is really driving is `act`, and nothing that decides access is allowed to look at it.
 
-One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. No read a token can make answers beyond its own page's scope, where the admin already holds dominion, so nothing passes that test now. A check that ever does may look at whether `act` is present, never at who the actor is.
+One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. No read a token can make answers beyond its own `activeScope`, where the admin already holds dominion, so nothing passes that test now. A check that ever does may look at whether `act` is present, never at who the actor is.
 
 There is no consent step, deliberately. An admin can already read and write anything in their scope under their own name, so impersonation grants them nothing new. It only changes attribution, and it improves it by naming both parties — gating it would push an admin toward the less traceable path. This changes if a customer requires consent during a security review and the deal is worth it.
 
@@ -490,3 +497,11 @@ So the flow keeps everyone else off the Star until the founder arrives. Having t
 3. **The founder's first touch creates and places it.** Now holding a session at exactly that Star, they open its host, and the page's first call is what brings the Durable Object into existence, near them.
 
 Placement is not enforced — nothing refuses a call from anyone whose dominion covers the Star, so whoever touches it first places it. It is **a bet rather than a check**, and what holds the bet is the sequencing above: until the founder clicks their link, nobody has reason to address the Star at all. The one realistic way to lose it is a support visit landing in the window before they do.
+
+## Routes outside both sequences
+
+Two paths answer on every `lumenize.dev` host, outside the mesh and outside the Registry: `/pictures` and `/_version`. The Worker matches them by path before it looks at the host at all.
+
+- **`PUT /pictures` is the one HTTP route that reads an access token.** A page uploads a profile picture's bytes with its access token as `Authorization: Bearer`. The Worker verifies the token, stores the bytes in the platform's blob bucket in R2 under a random key tagged with the token's `profileId`, and answers the path `/pictures/{key}`. Whose picture it is comes from the verified token, never from the request, and any valid access token will do, since all it buys is one stored image. The page then writes the path into its own Profile over the mesh, as its owner (§ *Profiles*). It is an HTTP route so the bytes go straight from the Worker to the bucket rather than through the Gateway and a Durable Object; the browser uploading to R2 through a short-lived signed URL would retire it.
+- **`GET /pictures/{key}` needs nothing.** An `<img>` carries no access token, and holding the key is the capability, as holding a `profileId` is for a Profile's public fields.
+- **`/_version` answers which build is deployed**, for the deploy scripts to check.

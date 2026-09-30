@@ -21,7 +21,7 @@ Three browser facts shape the answer:
 
 The rest of this ADR covers where sessions live, how a page gets and uses an access token, the cookie rules, and persona and customer hosts.
 
-> **Today's code differs.** One host, `nebula.lumenize.com`, serves every scope, with one `refresh-token` cookie per membership at `Path=/auth/{scope}`, and the client names both scopes on every refresh, learning `authScope` from a localStorage hint. The Gateway still delivers a push to a page only when the change came from a page with the same `aud`. `.claude/rules/security.md` still describes today's cookie.
+> **Today's code differs.** One host, `nebula.lumenize.com`, serves every scope, with one `refresh-token` cookie per membership at `Path=/auth/{scope}`, and the client names both scopes on every refresh, learning `authScope` from a localStorage hint. The Gateway still delivers a push to a page only when the change came from a page with the same `aud`, and passage and dominion still read `authScope`. `.claude/rules/security.md` still describes today's cookie.
 
 ## Decision
 
@@ -34,18 +34,18 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 
 ### Getting an access token: a fetch to the platform host
 
-1. **`NebulaClient` asks the platform host.** On `tenant1.crm.acme.lumenize.dev` it sends `POST https://platform.lumenize.dev/auth/refresh-token` with `credentials: 'include'` and no body, which keeps it a simple request with no preflight.
+1. **`NebulaClient` asks the platform host.** On `tenant1.crm.acme.lumenize.dev` it sends `POST https://platform.lumenize.dev/auth/refresh-token` with `credentials: 'include'` and no body, so it needs no preflight.
 2. **The platform host turns `Origin` into the page's scope.** `https://tenant1.crm.acme.lumenize.dev` becomes `acme.crm.tenant1`, through the lookup that also checks `return_to`. `platform.lumenize.dev` itself is no scope, so a page there gets no access token.
-3. **It picks the refresh cookie whose membership has the broadest dominion.** Among accepted memberships, the highest scopeAdmin one at or above the page's scope wins, and without one, the membership at the page's scope itself. A scopeAdmin at `acme.crm` who is only a member of `acme` gets the `acme.crm` membership on every host in that app. A cookie's name says its scope, so the refresh reads Workers KV only for cookies at or above the page's scope.
+3. **It picks the refresh cookie whose membership has the broadest dominion.** Among accepted memberships, the highest scopeAdmin one at or above the page's scope wins, and without one, the membership at the page's scope itself. A cookie's name says its scope, so the refresh reads Workers KV only for cookies at or above the page's scope.
 4. **It answers with the access token and CORS headers naming exactly that origin**, with `Access-Control-Allow-Credentials: true`. The browser hands a cross-origin response to a page's code only when those headers name that page.
 
-**A frame gets its access token the same way**, because Studio, its frames and the platform host are one site; Safari would withhold cookies from a frame on another.
+**A frame gets its access token the same way**, because Studio, its frames and the platform host are one site; Safari would withhold cookies from a frame on another. A framed page never navigates the tab on a 401. It tells its parent, which owns the tab; from the frame, `return_to` would name the frame.
 
 ### Logging in
 
-**With no qualifying refresh cookie, the refresh answers 401**, and the client navigates the browser tab to `/auth/login?return_to=${encodeURIComponent(location.href)}` on the platform host. The login keeps `return_to` with it, and the consume sets the refresh cookies and redirects there, in whichever browser opened the link.
+**With no qualifying refresh cookie, the refresh answers 401**, and the client navigates the browser tab to `/auth/login?return_to=${encodeURIComponent(location.href)}` on the platform host. The login keeps `return_to` on the magic-link record, so the emailed link names no destination. The consume sets the refresh cookies and redirects there, in whichever browser opened the link.
 
-**`return_to` is checked so a login link cannot send anyone to another site.** It must be HTTPS and name a host on the platform host's site that the lookup turns into a scope. Built from `location.href`, it keeps the fragment after `#` that a server redirect never sees.
+**`return_to` is checked so a login link cannot send anyone to another site.** It must carry the deployment's own scheme and name a host that the lookup turns into a scope; anything else is refused at the login and never reaches the record. Built from `location.href`, it keeps the fragment after `#` that a server redirect never sees.
 
 ### The cookie rules
 
@@ -57,10 +57,11 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 
 ### What an access token carries
 
-- **`authScope` is the chosen membership's scope, and `aud` is the page's.** A universe scopeAdmin on `tenant1.crm.acme.lumenize.dev` carries `authScope: acme` and `aud: acme.crm.tenant1`. The client names neither.
-- **Dominion and passage read `authScope`** ([ADR-015](015-passage-and-dominion.md)), so from the Star's page that admin reaches into the Galaxy with dominion, not just passage. No check reads `aud` to decide what a call may do.
-- **Lateral movement stays refused.** `aud` must sit at or below `authScope`, so no page carries a membership from another branch of the scope tree, and dominion runs only downward.
-- **Every call carries an access token, and passage upward comes from its `authScope`.** A member of `acme.crm.tenant1` can call its galaxy and its universe from the Star's page.
+- **`authScope` is the chosen membership's scope, and `aud` is the page's, its `activeScope`.** A universe scopeAdmin on `tenant1.crm.acme.lumenize.dev` carries `authScope: acme` and `aud: acme.crm.tenant1`. The client names neither.
+- **Dominion and passage read `aud`, with `scopeAdmin` from the membership** ([ADR-015](015-passage-and-dominion.md)). A page's code acts with its visitor's token, and on a Star's host that code is the user-developer's, so the page bounds what a call may do: from a Star's page, that universe admin holds dominion over the Star and passage upward.
+- **Lateral movement stays refused.** `aud` must sit at or below `authScope`, and for a plain membership equal to it, so no page carries a membership from another branch of the scope tree.
+- **No token carries dominion over the whole platform.** A superuser's membership sits at the root, but no page does.
+- **Every call carries an access token, and passage upward comes from its `aud`.** A member of `acme.crm.tenant1` can call its galaxy and its universe from the Star's page.
 - **Every access token rests on an accepted membership** ([ADR-012](012-global-profile-visibility.md)): the person's own, or for a persona, that of whoever opened its tab.
 
 ### A persona's host
@@ -70,26 +71,22 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 1. **The host names a persona in a Star with no real users**, today only `dev`: `manny--dev.crm.acme` names `manny` in `acme.crm.dev`.
 2. **The browser holds a refresh cookie whose membership has dominion over that Star.**
 
-**Manny's `sub` and `profileId` are spelled from his host**, so every refresh mints the same pair and nothing stores it. [ADR-010](010-random-opaque-keys.md) keys everything else randomly, but a persona is its slug in its Star, and one renamed is a different persona. A slug nobody provisioned is a persona too, with no grants and an empty profile. The Galaxy records every persona it provisions, so deleting the galaxy can reap their Profiles.
+**Manny's `sub` and `profileId` are one name-based UUID computed from his host**, so every refresh mints the same value and nothing stores it. A slug nobody provisioned is a persona too, with no grants and an empty profile. The Galaxy records every persona it provisions, so deleting the galaxy can reap their Profiles.
 
-**What keeps this to personas:**
-
-- **A persona has no email address, so no login can reach it.** This refresh is the only way to its token.
-- **A persona's `sub` and `profileId` take a form no person's does**, so this path can never mint a token for a real person.
-- **The token names the persona and Star its host spells.** Nothing the page sends is an input.
+**Three things keep this to personas.** A persona has no email address, so no login leads to it and this refresh is the only way to its token. Its ids carry version digit 5 where a person's random ones carry 4, so this path never mints a token for a real person. And the token names only the persona and Star its host spells; nothing the page sends is an input.
 
 ### A customer's own domain
 
-**An app on its own domain gets a platform host of its own, such as `platform.northwindcrm.com`.** Its Stars, such as `tenant1.northwindcrm.com`, are a different site from `platform.lumenize.dev`, so that host gives their members login, the consume, logout and the refresh, with cookies of its own. The lookup that turns a host into its scope also names its site's platform host.
+**An app on its own domain gets a platform host of its own, such as `platform.northwindcrm.com`.** Its Stars, such as `tenant1.northwindcrm.com`, are a different site from `platform.lumenize.dev`, so that host serves every step of their members' sessions, with cookies of its own. The lookup that turns a host into its scope also names its site's platform host.
 
 **Studio and every tab it frames stay on `lumenize.dev`**, because development happens on our hosts (Larry, 2026-09-18).
 
 ## Alternatives considered
 
-- **Each host holding its own session, set by a top-level redirect through the platform host.** It would survive a Public Suffix List entry, which we do not plan ([ADR-021](021-every-scope-has-its-own-host.md)), but costs every host a cookie, a callback, a signed code and a `state` cookie, and a frame its code passed in by `postMessage`.
-- **Narrowing `authScope` to the page's host, or picking the nearest scopeAdmin membership.** Either takes a universe admin's dominion away on a galaxy's page, so they could not act as the Universe's admin there. The coarse-grained layer is to stop lateral movement, while allowing certain kinds of vertical movement. Fine-grained access controls are necessary for this to be secure (Larry, 2026-09-18).
-- **A persona tab through impersonation, with `act` naming the user-developer.** Every check that reads `act` would treat the tab unlike a real Manny; on a Star with no real users, testing fidelity outweighs attribution (Larry, 2026-09-17).
-- **A persona as a member of its Star, at an address no human can receive mail at.** It needs a membership born accepted, and guards keeping every human's address out of that namespace. With no address there is nothing to guard (Larry, 2026-09-18).
+- **Each host holding its own session, set by a top-level redirect through the platform host.** It would survive a Public Suffix List entry, which we do not plan, but costs every host a cookie, a callback, a signed code and a `state` cookie, and a frame its code passed in by `postMessage`.
+- **Dominion and passage reading `authScope`, as this ADR first said.** A page's code would act with its visitor's broadest membership, a superuser's platform membership included, and could outlive the visit by inviting its author as an admin (Larry, 2026-09-19).
+- **Narrowing `authScope` to the page's host, or picking the nearest scopeAdmin membership.** The checks read the page either way, so only the membership the token rests on changes, and with it a person's `sub` as they walk down into a scope where they hold a nearer one.
+- **A persona through impersonation, or as a member of its Star at an address no human receives.** The first makes every check reading `act` treat the tab unlike a real Manny. The second needs a membership born accepted, and guards keeping humans out of that namespace (Larry, 2026-09-17 and 18).
 - **Cookies with a `Domain`, cascading down a scopeAdmin's subtree or set on all of `lumenize.dev`.** Either gives up `__Host-`, so a generated app could overwrite a person's refresh cookie with its own.
 - **One cookie per person rather than per membership.** Fewer cookies, but the refresh would have to find the person's memberships, in the singleton Registry or in a KV list every invite and removal keeps current.
 
@@ -98,14 +95,14 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 ### Positive
 
 - **Moving between hosts costs no redirect.** A page on a host the person has never visited gets its access token on its first refresh, where a session per host would first bounce through the platform host.
-- **Generated code can no longer reach into Studio's page.** Today's preview runs the app's code on Studio's own origin, where it can read and rewrite Studio's page and storage. On `dev.crm.acme.lumenize.dev` the browser walls Studio off, leaving the app only `postMessage`.
+- **Generated code cannot script Studio's page.** On `dev.crm.acme.lumenize.dev` the browser walls Studio off, leaving the app only `postMessage`.
 
 ### Negative / mitigations
 
-- **Code on a page acts with the visiting person's whole membership.** For a member, grants bound it. For an admin they do not, because dominion skips grants by design ([ADR-015](015-passage-and-dominion.md)): a universe admin previewing an app hands its code universe-wide dominion, as the preview on Studio's origin does today.
+- **Code on a page acts with its visitor's membership, within that page's scope.** For a member, grants bound it; for an admin, dominion skips grants by design ([ADR-015](015-passage-and-dominion.md)). So a universe admin previewing an app hands its code dominion over the dev Star, and goes to the universe's host to act on the universe.
 - **Keeping each page to its own host's token is our code's job, not the browser's.** A bug in the refresh's `Origin` lookup hands a page another host's token. It is the lookup `return_to` uses, so there is one thing to get right.
 - **Every universe shares one site**, since a Public Suffix List entry would make the refresh's cookies third-party ([ADR-021](021-every-scope-has-its-own-host.md)). Our rules keep universes apart instead: `__Host-` names for cookies, and the `Sec-Fetch-Site` check for posts.
-- **All of `lumenize.dev` shares one cookie jar.** A generated app can fill it until the browser evicts refresh cookies, signing people out. `HttpOnly` and `__Host-` stop a script replacing or planting ours, not that eviction, and a request never says which cookies are `HttpOnly`. The cost is a new login, never a takeover.
+- **All of `lumenize.dev` shares one cookie jar.** A generated app can fill it until the browser evicts refresh cookies, signing people out. `HttpOnly` and `__Host-` stop a script replacing or planting ours, not that eviction. The cost is a new login, never a takeover.
 - **Requests to the platform host carry every refresh cookie**, because `__Host-` fixes `Path=/`. They are `HttpOnly` and never logged.
 - **A persona's identity comes back with its name.** Whoever re-claims a deleted `acme.crm` gets the old Manny at `manny--dev`, Profile included, if deletion missed him, and a persona nobody provisioned is in no record to reap.
 

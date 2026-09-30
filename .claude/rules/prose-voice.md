@@ -72,14 +72,14 @@ third paragraph calls *"mesh mechanics, not a mesh node"*.
 precisely specifying those calculations…"* `auth.md`: *"The sections that follow expand
 on the model above."* Every Context section SHOULD end with a sentence like this.
 
-**Put a literal value beside every definition.** `auth.md` gives the scope as
-`https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, then explains that braces stand
-in for a value, then contrasts that with literal `:scope` `URLPattern` syntax — because a
-reader would otherwise trip. ADR-015 shows `u.g.s1` against `u.g.s10` and `acme` against
+**Put a literal value beside every definition.** `auth.md` defines a scope with a real host,
+`https://tenant1.crm.acme.lumenize.dev/`, gives the scope it spells, `acme.crm.tenant1`, and
+warns that the two list the same slugs in opposite orders — because a reader would otherwise
+trip. ADR-015 shows `u.g.s1` against `u.g.s10` and `acme` against
 `acme-2`, and says why: *"the second is the one a naive `startsWith` gets wrong."* Every
 section that defines something MUST carry one real example.
 
-**Walk the reader down a numbered path.** `auth.md` has M1–M7 and R1–R7. ADR-015 says
+**Walk the reader down a numbered path.** `auth.md` has M1–M7 and R1–R5. ADR-015 says
 *"These things follow:"* and lists the consequences. ADR-018 says *"Three consequences
 follow, in preference order."* `auth.md` even switches to second person for the walk:
 *"You enter by authenticating… You then open a connection by presenting one."*

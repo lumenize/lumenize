@@ -33,7 +33,7 @@ Three defensible approaches; a deck usually shows two that triangulate:
 
 ## 2. Traction slide
 
-Pre-revenue, the demo **is** the traction: the loop is live end-to-end on deployed prod (`nebula.lumenize.com` — magic-link login → claim a Universe → agentic chat → a working generated app renders). To do:
+Pre-revenue, the demo **is** the traction: the loop is live end-to-end on deployed prod (`lumenize.dev` — magic-link login → claim a Universe → agentic chat → a working generated app renders). To do:
 
 - A tight (≤90s) recorded demo of that loop; investors forward videos, not repos.
 - Roadmap position honestly stated: pre-alpha, friends-and-family invites next — and the first alpha user-developer already exists with a self-written spec (Jennifer; see item 4): [Luminize Almanac — product vision + functional requirements + data model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and its companion [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit) (also Jennifer's, written for the intended designer).

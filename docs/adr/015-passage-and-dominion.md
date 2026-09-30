@@ -11,17 +11,17 @@
 
 Scopes form a strict tree: platform → universe → galaxy → star. **That hierarchy is what identifies lateral movement** — holding a scope in one branch while calling into a scope that is neither linearly above nor linearly below your own. So, the prevention of lateral movement is achieved structurally by only permitting vertical movement.
 
-Every caller presents its `authScope`, a `scopeAdmin` bit, and the `targetScope` it is acting on, as part of every call. These are used to calculate if the call qualifies as `dominion` or `passage` — the two kinds of vertical movement that are allowed. The rest of this ADR is spent precisely specifying those calculations, explaining what a call is (and is not granted) for each kind, and elaborating on the implications of those grants.
+Every call presents its `activeScope` — the scope of the page that started it, read from that page's host — a `scopeAdmin` bit, and the `targetScope` it is acting on. These are used to calculate if the call qualifies as `dominion` or `passage` — the two kinds of vertical movement that are allowed. The rest of this ADR is spent precisely specifying those calculations, explaining what a call is (and is not granted) for each kind, and elaborating on the implications of those grants.
 
 Previously, this model was assumed everywhere and in a precise written form nowhere. An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
 
-> **Today's code differs.** § *Decision*'s predicates read the page's scope; today's code reads the member's own (`access.authScope`), which [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) closes. Coverage is already a comparison over that scope rather than the bare admin bit, and a non-admin already has no passage into scopes beneath their own — but **a call to a node named `nebula-platform` is still refused outright**, so the universal passage described here does not yet hold at the root. That is a **name reservation**, not a containment gap: nothing is deployed at that name, and refusing it stops an arbitrary class occupying the most reachable name in the system. It closes when the name goes from **rejected to bound**, never by being opened.
+> **Today's code differs.** § *Decision*'s predicates read the page's scope; today's code reads the member's own (`access.authScope`), which [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) closes. Coverage is already a comparison over that scope rather than the bare admin bit, and a non-admin already has no passage into scopes beneath their own — but **a call to a node named `nebula-platform` is still refused outright**, so the universal passage described here does not yet hold at the root. That is a **name reservation**, not a containment gap: nothing is deployed at that name, and refusing it stops an arbitrary class occupying the one name every caller has passage into. It closes when the name goes from **rejected to bound**, never by being opened.
 
 ## Decision
 
 ### Terminology
 
-- **Scope** is the driver for coarse-grained access control. It often appears in a segment of a URL, but it can also be a parameter of a mesh call or in the body of a Request. In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope.
+- **Scope** is the driver for coarse-grained access control. A page's host spells one, read right to left: `https://tenant1.crm.acme.lumenize.dev/` is the scope `acme.crm.tenant1` ([ADR-021](021-every-scope-has-its-own-host.md)). A scope is also a mesh node's name, and a parameter of a mesh call.
 - **Dominion** — an *unconditional* right to act within a scope. Where it applies, nothing decided inside that scope can stand against it. **Downward only.**
 - **Passage** — the right for a call to arrive at the target scope without being refused at the boundary. It confers nothing except that.
 
@@ -47,15 +47,15 @@ dominion(aud, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(aud, targetS
 passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
                                          ∨ dominion(aud, scopeAdmin, targetScope)
 
-   aud is the scope of the PAGE the call came from, derived server-side from its Origin
-   and never named by the client. scopeAdmin still comes from the membership the token
+   aud is the call's activeScope: the scope of the PAGE that started the chain, derived
+   server-side from that page's host and never named by the client. scopeAdmin still comes from the membership the token
    rests on. A page therefore acts within its own scope and below, not within everything
    its holder's broadest membership covers.
 ```
 
-**One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(access, targetScope)` and `hasPassageInto(access, targetScope)`.
+**One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(claims, targetScope)` and `hasPassageInto(claims, targetScope)`.
 
-**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: `authScope` and `scopeAdmin` are both fields of the caller's `access` claim, so they are passed as that one claim. `targetScope` is passed separately.
+**Those signatures take two arguments where the predicates take three**, because two of the three arrive together in the caller's verified claims: `aud` at the top level, and `scopeAdmin` inside `access`. `targetScope` is passed separately.
 
 **Scope comparisons are hierarchical by dot-separated segments**, so `u.g.s1` does not cover `u.g.s10`, and `acme` does not cover `acme-2` — the second is the one a naive `startsWith` gets wrong.
 
@@ -83,4 +83,4 @@ These things follow:
 
 - **Positive.** Two predicates to audit instead of a scattered conjunction. Open Star self-signup becomes implementable: a star-scoped admin's scope is inert above its own Star by construction, which is what makes an unauthorized signup safe. Remediation works: a covering admin can always clean up beneath them.
 - **Negative / accepted.** A careless admin can destroy a descendant scope that other people are actively using; the only protection is whatever warning the UI provides. That is deliberate, and the reason is not only that the alternative inverts the model. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in **who you hand it to**, never in what the platform will permit once they hold it. These admins have their own customers to serve, and cannot administer that relationship through a platform that second-guesses them. What it does raise is the stakes on delete-confirmation UX, which must carry enough context (attached users, last login, activity) for an informed decision. `docs/vision/auth.md` § *Why downward is generous for admins* is the fuller argument.
-- **Deliberately open.** Which methods restrict who may call them is a per-method guard decision (§ *Decision*), not covered here. An allocation inherited from before a tier existed is a latent trap: re-confirm each non-admin `@mesh()` on an ancestor against who can actually reach it today, and record the reason.
+- **Deliberately open.** Which methods restrict who may call them is a per-method guard decision (§ *Decision*), not covered here. An allocation inherited from before a tier existed is a latent trap: re-confirm each non-admin `@mesh()` on an ancestor against which callers have passage into it today, and record the reason.

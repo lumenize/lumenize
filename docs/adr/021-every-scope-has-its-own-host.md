@@ -25,7 +25,7 @@ The rest of this ADR says what each domain is for, how a host spells a scope, an
 
 ### What each domain is for
 
-- **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` holds every session and serves login, the magic-link consume, Home (where the user chooses what scope to work in), and superusers, who are members of the `platform` scope. Every universe, galaxy, Star and persona has a host beneath it.
+- **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` holds every session and serves login, the magic-link consume, and Home, where a person chooses which scope to work in. It is a host and not a scope. The root of the scope tree, where superusers hold their membership, is `_platform`, and no host label can start with its underscore. Every universe, galaxy, Star and persona has a host beneath it.
 - **`lumenize.com` is the brand, human mail, and the package docs.** Its apex mail belongs to Google Workspace, and its apex site is today's docs and blog, whose inbound links cannot be edited. At beta it is expected to become the product's marketing site, with the `@lumenize/*` package docs staying on it at `lumenize.com/docs` or `docs.lumenize.com` (Larry, 2026-09-14).
 - **`lumenize.io` is the platform's own mail.** Nebula sends as `noreply@lumenize.io`, and a Cloudflare Worker reads named inboxes such as `claude@lumenize.io`.
 - **"Nebula" is retired.** It was the product's code name during development, and it appears nowhere a user can see — so `nebula.lumenize.com` retires, since a host shows in the address bar. Code identifiers keep the name, because renaming them buys a user nothing.
@@ -55,18 +55,15 @@ These things follow:
 
 **The certificate set must never grow with tenants or personas.** A tenant per customer and a cast of eight are created in seconds and in bulk, and a certificate order for each would put a wait of minutes on every one. The grammar above holds it, because a wildcard covers any value in its one label, and `--` keeps a persona inside its Star's label. To a certificate, `manny--dev.crm.acme.lumenize.dev` is just another host under `*.crm.acme.lumenize.dev`, exactly like `tenant1.crm.acme.lumenize.dev`.
 
-**It does grow with universes and galaxies, and that is accepted.** Creating either orders one wildcard — `*.acme.lumenize.dev`, `*.crm.acme.lumenize.dev` — and the hosts beneath it answer only once that certificate is active. So creating a universe or a galaxy is asynchronous, and the pages that create them show the wait.
+**It does grow with galaxies, one certificate each, and that is accepted.** Creating a galaxy orders one certificate pack naming three hosts: the zone apex `lumenize.dev`, which Cloudflare requires in every pack, the galaxy's own `crm.acme.lumenize.dev`, and its wildcard `*.crm.acme.lumenize.dev`. That pack covers Studio, every Star and every persona of the galaxy, and none of them answers until it is active. A universe orders none. `acme.lumenize.dev` is one label under the zone, so the free Universal SSL certificate already covers it. Creating a galaxy is therefore asynchronous, and the page a person waits on shows it.
 
-Today's mechanism is Cloudflare's Advanced Certificate Manager (ACM), $10 a month for the zone however many wildcards it holds. A Free zone took 20 certificates with no refusal, room for 980 wildcards, and Cloudflare does not publish where it stops.
+Today's mechanism is Cloudflare's Advanced Certificate Manager (ACM), $10 a month for the zone however many packs it holds. A pack holds up to 50 hosts, but a galaxy's hosts are known only when it is created, so each galaxy's pack is a certificate of its own. A Free zone took 20 certificates with no refusal, and Cloudflare does not publish where it stops.
 
-**Past ACM's ceiling, the escape hatch is an Enterprise plan.** It adds two things, and either one keeps a galaxy at one certificate:
-
-- **A documented certificate limit** of 100 per zone — about 4,900 wildcards, or 2,450 universes with one galaxy each.
-- **Wildcard custom hostnames in Cloudflare for SaaS**, so `*.crm.acme.lumenize.dev` becomes one custom hostname. It serves the same host names, so no URL changes.
+**Past ACM's ceiling, the escape hatch is an Enterprise plan.** It documents a limit of 100 certificates per zone, which at one pack per galaxy is 100 galaxies. What scales past that is its second addition, **wildcard custom hostnames in Cloudflare for SaaS**, where `*.crm.acme.lumenize.dev` becomes one custom hostname. It serves the same host names, so no URL changes.
 
 **Cloudflare for SaaS without Enterprise is not an escape hatch.** Every plan has it, but below Enterprise it certifies each host on its own — the first 100 across the zone free, then $0.10 a month each — so every Star and persona would get a certificate, which the rule above forbids. It stays the route for a customer's own domain.
 
-**The ceiling arrives only with hundreds, likely thousands, of customers**, and Larry expects funding at that scale to make Enterprise's negotiated price a non-issue (2026-09-11).
+**Where the ceiling sits is unmeasured, and it is counted in galaxies.** A Free zone took 20 certificates without a refusal and Enterprise documents 100, so a zone's galaxy count is the number to watch. Larry expects funding by the scale that needs Enterprise to make its negotiated price a non-issue (2026-09-11).
 
 ### Every `lumenize.dev` host stays one site
 
@@ -78,6 +75,7 @@ Every `lumenize.dev` host is a sibling under one registrable domain, so a browse
 - **B — a label per galaxy,** `tenant1.acme--crm.lumenize.dev`. It buys the characters back and costs the same per-galaxy wait. Rejected because it spells a galaxy one way and a Star another (Larry, 2026-09-11).
 - **A persona as its own label,** `manny.dev.crm.acme.lumenize.dev`. It needs a wildcard per Star, so the certificate set grows with tenants.
 - **An environment as its own label,** such as `crm.acme.dev.lumenize.dev`. A Star slug already carries the environment for nothing, and a label would stop the host being a direct spelling of the scope.
+- **A universe wildcard as well as each galaxy's**, which this ADR first described. On 2026-09-16 a galaxy's own pack served its host, a Star under it and a persona, while the universe host answered on Universal SSL, so a universe certificate buys nothing ([the run](../../experiments/wildcard-host-routing/RESULTS.md) § *One pack per galaxy*).
 - **Cloudflare for SaaS for every host from the start.** Rejected for the reason § *What certificates may cost* gives: below Enterprise, the certificate set would grow with tenants and personas.
 - **Studio on a registrable domain of its own,** as `nebula.lumenize.com` is today — a trusted control plane kept apart from the apps. It pairs with any of the grammars above. Rejected because the galaxy's host is where the app lives, so it serves Studio to the people building the app (Larry, 2026-09-11), and because Studio shows the app in frames: with Studio on another site, every frame's request to `platform.lumenize.dev` is third-party and Safari withholds its cookies, so no tab could get a token. `__Host-` cookie names answer the cookie threat a separate domain answered. The frame problem also keeps Studio off a customer's own domain.
 
@@ -87,14 +85,14 @@ Every `lumenize.dev` host is a sibling under one registrable domain, so a browse
 
 - **A link names the scope it opens.** The host alone says universe, galaxy and Star, which is what [ADR-017](017-the-url-is-the-view-state.md) needs from a shared link.
 - **Every Star and persona is its own origin**, so the browser keeps their storage apart without our code doing it.
-- **Tenants, personas and environments cost no certificates.** Only universes and galaxies do.
+- **Tenants, personas and environments cost no certificates.** Only galaxies do.
 - **One 30-character rule covers every slug.**
 
 ### Negative / mitigations
 
-- **Creating a universe or a galaxy waits two and a half to four minutes, and nothing can pre-pay it.** A certificate names its hosts, so none can be ordered for a galaxy nobody has named yet. Orders placed together validate together, though, so a page creating a universe and its first galaxy orders both and waits once. A progress indicator on the create pages shows the wait.
+- **Creating a galaxy waits two and a half to four minutes, and nothing can pre-pay it.** A certificate names its hosts, so none can be ordered for a galaxy nobody has named yet. A new account's first galaxy orders its pack when the person clicks their emailed link, so that wait runs on the platform host. A later galaxy waits on the universe page that created it. Both pages count the seconds as they pass.
 - **Certificate lifecycle becomes ours.** A deleted galaxy leaves its wildcard behind, and deletes can stall or fail transiently, so reaping retries and reconciles.
-- **The per-zone wildcard ceiling is unpublished below Enterprise.** Reaching it means an Enterprise plan (§ *What certificates may cost*).
+- **The per-zone certificate ceiling is unpublished below Enterprise, and it is counted in galaxies.** Reaching it means an Enterprise plan (§ *What certificates may cost*).
 
 ### Deliberately open
 
