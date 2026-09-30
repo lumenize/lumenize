@@ -28,7 +28,7 @@ Nebula is made up of a highly distributed mesh of nodes. Communication between t
 
 Two things named throughout this document are not mesh nodes at all, so neither is an exception to that. The auth Registry sits outside the mesh, reached over HTTP and through one mesh-speaking facade. See § *The Registry*. The Gateway is mesh mechanics, not a mesh node. The Profile is a third case — it *is* a node, but it is best not thought of as a full one. See § *Profiles* for how it behaves differently and why.
 
-**A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary mesh call, not a separate delivery mechanism. Two things do differ: the last-mile **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, and it is where a client's claims are established on the way in, which is why it appears throughout this document without ever being a node itself.
+**A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary mesh call, not a separate delivery mechanism. Two things do differ: the last-mile **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, establishes a client's claims on the way in, and on the way out checks that the tab has passage into the scope of whatever node is sending to it (§ *How the claims travel*). That is why it appears throughout this document without ever being a node itself.
 
 ## The layers a call passes
 
@@ -141,7 +141,7 @@ The refresh takes it from the page's `Origin`, which page script cannot set, and
 
 It is what the coarse-grained checks read, so a call acts within its `activeScope` and below ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*). Reading it only ever narrows what `authScope` alone would allow, because it already sits at or below `authScope`.
 
-> **Today's code differs.** Passage and dominion still read `authScope`. And the Gateway still fences its outbound leg on `aud`: a call heading out to a client is refused if its `aud` differs from the one that connection presented, with the Profile exempt. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) moves the checks onto `aud` and deletes the fence, since an update then carries no writer's claims (§ *Lumenize Nebula mesh*).
+> **Today's code differs.** Passage and dominion still read `authScope`. And the Gateway still fences its outbound leg on `aud`: a call heading out to a client is refused if its `aud` differs from the one that connection presented, with the Profile exempt. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) moves the checks onto `aud`, and replaces the fence with a check of the tab's passage into the sender's scope (§ *How the claims travel*).
 
 Moving between active scopes is moving between hosts, which a person does from Home (§ *Home*). The page they land on gets a token of its own, and a connection carries for its life the one `aud` it presented.
 
@@ -180,7 +180,15 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 **A call can also start a fresh chain, carrying no claims at all.** `lmz.call()` does this when asked, with `newChain: true`, and whenever there is no incoming call to inherit from, as in an alarm handler. The fresh chain names only the calling node, so it is that node speaking for itself rather than for whoever caused it. A subscription update works this way, since `lmz.broadcast` starts a fresh chain by default: the identity of whoever made the change reaches no subscriber.
 
-So every node's M3 has to decide safely when the claims are absent, and each type asks its own question there. A scoped node asks for passage, which needs claims, so a call with none is refused at its boundary; every scoped node gets that check from `NebulaDO`, the base class a new scoped node type extends. A node with no scope of its own, such as the facade or the Profile, checks the claims at the top of each method that needs them instead. What never meets that boundary — an alarm handler, a result handler run locally — is the node's own code, not a call from outside. A client asks who made the last hop instead: it refuses a call from another client and admits one from a Durable Object or Worker, so a subscription update arrives with no claims and passes. And no client can start a fresh chain or forge a result: the Gateway builds every call a client makes from the connection's verified token, and sends it only to a node's request door, where `@mesh()` is required.
+So every node's M3 has to decide safely when the claims are absent, and each kind of node asks its own question there:
+
+- **A scoped node asks for passage, which needs claims**, so a call with none is refused at its boundary. Every scoped node gets that check from `NebulaDO`, the base class a new scoped node type extends.
+- **A node with no scope of its own**, such as the facade or the Profile, checks the claims at the top of each method that needs them instead.
+- **A client asks who made the last hop.** It refuses a call from another client and admits one from a Durable Object or Worker, so a subscription update arrives with no claims and passes.
+
+What never meets that boundary — an alarm handler, a result handler run locally — is the node's own code, not a call from outside. And no client can start a fresh chain or forge a result: the Gateway builds every call a client makes from the connection's verified token, and sends it only to a node's request door, where `@mesh()` is required.
+
+**Before a call reaches a client, its Gateway checks the tab's passage into the sender's scope.** The tab's `activeScope` is its page's, and the sender's scope is the name of the node that made the last hop, when that name is a scope. A Galaxy `acme.crm` sending to a tab on `acme.crm.bigco`'s page passes, since upward is free, and a sibling Star `acme.crm.other` sending to that tab is refused as lateral. A sender whose name is no scope, such as the Profile, passes, so a node not named by a scope must hold no tenant's data. The check reads the sender's address rather than claims, so a fresh chain passes it. It is there because a subscriber row outlives the page it was made on, and the Gateway is the last place a row pointing at the wrong tab can be caught.
 
 ## Coarse-grained access control
 
