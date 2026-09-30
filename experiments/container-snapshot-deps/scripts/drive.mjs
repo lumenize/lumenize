@@ -3,7 +3,7 @@
 //
 //   node scripts/drive.mjs <base-url> <plan> [reps]
 //     base-url  http://localhost:8799 (wrangler dev) or the deployed workers.dev URL
-//     plan      start | fresh | snap | restore | tie | all
+//     plan      start | fresh | snap | restore | tie | delta | all
 //     reps      repetitions of each measured op (default 1)
 //
 // `snap` writes results/handles-<venue>.json; `restore` and `tie` read it back, so a
@@ -93,7 +93,16 @@ async function tie() {
   if (h.container) await op("restore", { kind: "container", handle: h.container }, "tie-container-after-redeploy");
 }
 
-const plans = { start, fresh, snap, restore, tie, all: async () => (await start(), await fresh(), await snap(), await restore()) };
+async function delta() {
+  const h = handles();
+  const r = await op("resnap", { handle: h.container }, "resnap-plus-one-dep");
+  if (!r.containerSnapshot) return;
+  fs.writeFileSync(handlesFile, JSON.stringify({ ...h, delta: r.containerSnapshot }, null, 2));
+  const x = await op("restore", { kind: "container", handle: r.containerSnapshot }, "restore-delta");
+  console.log(`delta snapshot ${r.containerSnapshot.size} bytes vs base ${h.container.size}`);
+}
+
+const plans = { start, fresh, snap, restore, tie, delta, all: async () => (await start(), await fresh(), await snap(), await restore()) };
 if (!plans[plan]) throw new Error(`plan must be one of ${Object.keys(plans).join(", ")}`);
 console.log(`→ ${out}`);
 await plans[plan]();

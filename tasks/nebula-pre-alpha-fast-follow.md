@@ -295,4 +295,6 @@ If both land and the model still cannot close a loop it should be able to close,
 - **The `durable_object` scheduling policy needs wrangler 4.135 or later.** We pin 4.124.0 until the `@cloudflare/vitest-plugin` move in `tasks/backlog.md` § *Immediate work backlog*.
 - **A container application cannot change its scheduling policy in place**; switching creates a new one.
 
+The experiment turned up two more things any design has to handle: after a deploy a snapshot restores its own, older image, and `@swc/core` 1.16.12+ will not load under the new policy's filesystem. Both are in its `RESULTS.md` § *Findings*.
+
 **Demand trigger:** `@cloudflare/computer` passing `image` and a snapshot through `start()`. Nothing here is buildable before that. Once it is, the wipe gate is the cheap moment, because the new container application and the vitest-plugin move both land there anyway.

@@ -44,6 +44,12 @@ http.createServer((req, res) => {
 const PORT = 8080;
 const INSTANCE = "standard-2"; // what apps/nebula runs (its wrangler.jsonc says why)
 const READY_DEADLINE_MS = 120_000;
+// `@swc/core` >= 1.16.12 unpacks its native binding into ~/.cache and refuses to load it
+// when any ancestor is "writable by another user without trusted sticky protection".
+// Deployed, `/` is owned by uid 2346 (locally it is root), so every build fails with
+// ERR_SWC_NATIVE_CACHE — and SWC_NATIVE_BINDING_CACHE=/tmp/… does not help, since `/` is
+// still an ancestor. Handing `/` back to root does. Harmless locally.
+const BUILD = "chown 0:0 / 2>/dev/null; npx vite build";
 
 type ImageName = "plain" | "plain2" | "baked" | "trixie";
 type Handle = { id: string; size: number; name?: string; dir?: string };
@@ -58,6 +64,12 @@ interface Params {
   kind?: "container" | "dir";
   handle?: Handle;
   mountPoint?: string;
+  /** start() with only what the DEFAULT scheduling policy takes: no image, no instance. */
+  bare?: boolean;
+  /** `start` only: a diagnostic command to run once ready. */
+  cmd?: string;
+  /** Overrides `npx vite build` (e.g. to set SWC_NATIVE_BINDING_CACHE). */
+  buildCmd?: string;
 }
 
 // The generated types make `image` and `containerSnapshot` mutually exclusive (a
@@ -76,6 +88,7 @@ export class Probe extends DurableObject<Env> {
       else if (op === "fresh") await this.#opFresh(p, r);
       else if (op === "snap") await this.#opSnap(p, r);
       else if (op === "restore") await this.#opRestore(p, r);
+      else if (op === "resnap") await this.#opResnap(p, r);
       else throw new Error(`unknown op ${op}`);
     } catch (e) {
       r.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
@@ -98,7 +111,8 @@ export class Probe extends DurableObject<Env> {
       entrypoint: ["node", "-e", SERVER],
       ...extra,
     };
-    if (!p.omitImage && !opts.containerSnapshot) {
+    if (p.bare) delete opts.instance;
+    if (!p.omitImage && !p.bare && !opts.containerSnapshot) {
       opts.image = p.image === "trixie" ? "cloudflare/debian-trixie" : this.#c.images[p.image ?? "plain"];
     }
     r.imageRef = opts.image;
@@ -171,6 +185,10 @@ export class Probe extends DurableObject<Env> {
     await this.#start(p, r);
     const x = await this.#exec("node --version; nproc; free -m | sed -n 2p", "/");
     r.box = x.out.trim();
+    if (p.cmd) {
+      const d = await this.#exec(p.cmd, "/");
+      r.cmdOut = (d.out + d.err).trim();
+    }
   }
 
   /** No snapshot: baked image builds as-is, or plain image installs then builds. */
@@ -183,7 +201,7 @@ export class Probe extends DurableObject<Env> {
       );
       r.colo = colo.out.trim();
     }
-    if (p.build) this.#keep(r, "build", await this.#exec("npx vite build"));
+    if (p.build) this.#keep(r, "build", await this.#exec(p.buildCmd ?? BUILD));
     await this.#treeFacts(r);
   }
 
@@ -191,7 +209,7 @@ export class Probe extends DurableObject<Env> {
   async #opSnap(p: Params, r: Record<string, unknown>): Promise<void> {
     await this.#start({ ...p, install: true }, r);
     this.#keep(r, "install", await this.#exec("npm ci --include=dev --no-audit --no-fund"));
-    this.#keep(r, "build", await this.#exec("npx vite build && rm -rf dist"));
+    this.#keep(r, "build", await this.#exec(`${p.buildCmd ?? BUILD} && rm -rf dist`));
     await this.#treeFacts(r);
 
     let t0 = Date.now();
@@ -217,6 +235,19 @@ export class Probe extends DurableObject<Env> {
     }
   }
 
+  /**
+   * The per-Galaxy delta: restore the shared snapshot WITH internet, add one package,
+   * snapshot again. Is the second snapshot a small delta or a full copy?
+   */
+  async #opResnap(p: Params, r: Record<string, unknown>): Promise<void> {
+    if (!p.handle) throw new Error("resnap needs a handle");
+    await this.#start({ ...p, install: true }, r, { containerSnapshot: { id: p.handle.id } });
+    this.#keep(r, "install", await this.#exec("npm install --no-audit --no-fund dayjs"));
+    const t0 = Date.now();
+    r.containerSnapshot = await this.#c.snapshotContainer({ name: `probe-delta-${this.ctx.id}` });
+    r.containerSnapMs = Date.now() - t0;
+  }
+
   /** Start from a snapshot with NO internet, then prove the restored tree builds. */
   async #opRestore(p: Params, r: Record<string, unknown>): Promise<void> {
     if (!p.handle) throw new Error("restore needs a handle");
@@ -227,7 +258,7 @@ export class Probe extends DurableObject<Env> {
     await this.#start({ ...p, install: false }, r, extra);
     r.inspect = await this.#c.inspect().catch((e: unknown) => `inspect failed: ${e instanceof Error ? e.message : String(e)}`);
     await this.#treeFacts(r);
-    this.#keep(r, "build", await this.#exec("npx vite build"));
+    this.#keep(r, "build", await this.#exec(p.buildCmd ?? BUILD));
   }
 }
 

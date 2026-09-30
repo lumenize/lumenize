@@ -1,0 +1,13 @@
+{
+  "at": "2026-09-30T17:26:37.919Z",
+  "container": {
+    "id": "dab34a26-ca2f-4d4d-951d-0196c2163de2",
+    "size": 176293517,
+    "name": "probe-5168256a1233dc29508f8ecbf45455e5167e5256420e111246a4059b2725df47"
+  },
+  "delta": {
+    "id": "fc6a2a8d-2077-4c06-b42b-60a8605dae1c",
+    "size": 1050441,
+    "name": "probe-delta-e7a0f3ca00c73abe5ea1d6795e2f5af2a86039cf81f29c3c14d31629df139c2c"
+  }
+}
