@@ -90,7 +90,7 @@ Every `lumenize.dev` host is a sibling under one registrable domain, so a browse
 
 ### Negative / mitigations
 
-- **Creating a galaxy waits two and a half to four minutes, and nothing can pre-pay it.** A certificate names its hosts, so none can be ordered for a galaxy nobody has named yet. A new account's first galaxy orders its pack when the person clicks their emailed link, so that wait runs on the platform host. A later galaxy waits on the universe page that created it. Both pages count the seconds as they pass.
+- **Creating a galaxy waits two and a half to four minutes, and nothing can pre-pay it.** A certificate names its hosts, so none can be ordered for a galaxy nobody has named yet. A new account's first galaxy orders its pack when the person accepts it, a click after their emailed link, so that wait runs on the platform host. A later galaxy waits on the universe page that created it. Both pages count the seconds as they pass.
 - **Certificate lifecycle becomes ours.** A deleted galaxy leaves its wildcard behind, and deletes can stall or fail transiently, so reaping retries and reconciles.
 - **The per-zone certificate ceiling is unpublished below Enterprise, and it is counted in galaxies.** Reaching it means an Enterprise plan (§ *What certificates may cost*).
 
