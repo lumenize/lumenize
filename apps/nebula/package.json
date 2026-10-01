@@ -72,7 +72,7 @@
     "wrangler": "4.124.0"
   },
   "dependencies": {
-    "@cloudflare/computer": "^0.2.1",
+    "@cloudflare/computer": "0.3.2",
     "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",

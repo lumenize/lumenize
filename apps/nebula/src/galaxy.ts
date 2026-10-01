@@ -180,6 +180,10 @@ export function decidePreview(report: BuildReport, override?: boolean): BuildRep
 /** The env the in-container `vite build` runs under. Deps are baked at the image
  *  ROOT (never the FUSE mount — containers.md), so `vite` resolves from
  *  `/node_modules/.bin`; NODE_ENV pinned so rollup never takes a dev path. */
+/** The launch spec `CloudflareContainerBackend.connect()` passes with our options (no `containerPort`,
+ *  no `containerEnv`, no `egress`), so the warm and the backend's start agree and the container is reused. */
+const BUILD_BOX_LAUNCH_SPEC = { env: { PORT: '8080', MOUNT_POINT: '/workspace' }, enableInternet: false };
+
 const BUILD_ENV = {
   PATH: '/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
   NODE_ENV: 'production',
@@ -676,12 +680,13 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   /**
    * The Galaxy's HTTP surface, reached by the entrypoint's `/app/*` forward (GET/HEAD,
    * deliberately ungated — the bounding is the route's security property) and by the
-   * in-container `computerd` daemon dialing back over the workspace proxy (`/ws`).
+   * in-container `computerd` daemon dialing back over the workspace proxy (`/api`, the path
+   * `@cloudflare/computer` fixes, whose upgrade it refuses without the client secret it minted).
    * Everything else is 404 — the data plane rides the mesh, never HTTP.
    */
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/ws' || request.headers.get('upgrade') === 'websocket') {
+    if (url.pathname === '/api') {
       return this.#buildBackend.handleFetch(request);
     }
     if (url.pathname === '/app' || url.pathname.startsWith('/app/')) {
@@ -1364,9 +1369,11 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     debug('nebula.Galaxy.warm').info('container warm fired', { instanceName: this.lmz.instanceName });
     if (!this.ctx.container) return;
     try {
-      // enableInternet=false mirrors the backend's own start (its default egress is
-      // `{ mode: 'none' }` in 0.2.x — deps are fully baked, nothing needs the net).
-      void (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)).start({}, false).catch((e: unknown) => {
+      // The spec MUST equal the backend's own: `WorkspaceContainerAPI.start` reuses a running
+      // container only when it was launched with the same spec, and relaunches otherwise, so a
+      // mismatch would turn the warm into a wasted boot. The backend's defaults are port 8080 and
+      // egress `{ mode: 'none' }`, hence no internet — deps are fully baked.
+      void (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)).start(BUILD_BOX_LAUNCH_SPEC).catch((e: unknown) => {
         debug('nebula.Galaxy.warm').warn('warm start failed (non-fatal — exec will retry)', {
           error: e instanceof Error ? e.message : String(e),
         });

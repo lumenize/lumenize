@@ -30,7 +30,7 @@
 # layer-invalidation property the compiler stages exist for: a fork edit must rebundle
 # on the next image build with no manual step to forget).
 
-FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.2.1 AS computerd
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.3.2 AS computerd
 
 FROM debian:stable-slim
 
