@@ -2,11 +2,19 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "experiment-residency-hold",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-03-12",
+  // Round 2 (2026-10-01): the date that turns on `durable_object_io_tasks_prevent_eviction`.
+  // The pre-flag arm deploys the SAME code as `experiment-residency-hold-pre` with
+  // `--compatibility-date 2026-08-15` (Nebula's date today) — see package.json.
+  "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [{ "name": "PROBE", "class_name": "ResidencyProbe" }]
   },
   "exports": {
     "ResidencyProbe": { "type": "durable-object", "storage": "sqlite" }
-  }
+  },
+  // Both deployments wait on THIS worker's /sleep and /drip — the sleeper's own date is
+  // irrelevant; what is measured is whether the calling DO is held.
+  "services": [{ "binding": "SLEEPER", "service": "experiment-residency-hold" }],
+  "vars": { "SLEEPER_URL": "https://experiment-residency-hold.transformation.workers.dev" },
+  "ai": { "binding": "AI" }
 }

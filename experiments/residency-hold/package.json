@@ -2,10 +2,11 @@
   "name": "experiment-residency-hold",
   "private": true,
   "type": "module",
-  "//": "Deploy-only probe for the Galaxy collapse Phase 3 residency hold: does a DETACHED (post-early-ack, floating-promise) long await survive fast hibernation WITHOUT the setTimeout heartbeat — and does the heartbeat hold it? The mesh chain's detachment is a floating promise after the response (lmz-api executeEnvelope post-ack task; waitUntil is a DO no-op), so a raw DO reproduces the exact runtime shape with none of the mesh graph.",
+  "//": "Deploy-only probe for the Galaxy collapse Phase 3 residency hold: does a DETACHED (post-early-ack, floating-promise) long await survive fast hibernation WITHOUT the setTimeout heartbeat — and does the heartbeat hold it? The mesh chain's detachment is a floating promise after the response (lmz-api executeEnvelope post-ack task; waitUntil is a DO no-op), so a raw DO reproduces the exact runtime shape with none of the mesh graph. Round 2 (2026-10-01) adds the pending-I/O arms and deploys twice (flag date vs Nebula's date) — see RESULTS.md.",
   "scripts": {
-    "deploy": "wrangler deploy",
-    "drive": "node scripts/drive.mjs"
+    "deploy": "wrangler deploy && wrangler deploy --name experiment-residency-hold-pre --compatibility-date 2026-08-15",
+    "drive": "node scripts/drive.mjs",
+    "types": "wrangler types"
   },
   "devDependencies": {
     "wrangler": "4.124.0"
