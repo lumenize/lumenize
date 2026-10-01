@@ -7,8 +7,7 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./src/client-index.ts",
-    "./container": "./src/container-index.ts"
+    "./client": "./src/client-index.ts"
   },
   "imports": {
     "#lmz-api-context": {
@@ -43,7 +42,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@cloudflare/containers": "0.3.7",
     "@lumenize/crypto": "^0.26.0",
     "@lumenize/debug": "^0.26.0",
     "@lumenize/routing": "^0.26.0",

@@ -200,7 +200,7 @@ export abstract class LumenizeDO<Env = any> extends ComposedMeshDO(DurableObject
    * ```
    */
   __initFromHeaders(headers: Headers): Response | undefined {
-    // Composes the shared header-init helper (also used by LumenizeContainer.fetch())
+    // Composes the shared header-init helper
     // — ADR-007's identity-on-every-entry-path requirement; not reimplemented per type.
     return initIdentityFromHeaders(headers, this.lmz, 'LumenizeDO');
   }

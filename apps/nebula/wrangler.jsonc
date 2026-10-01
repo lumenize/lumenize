@@ -177,7 +177,7 @@
   },
   // Declarative DO class registry — `exports` (NOT SQL migration; replaced the old `migrations` array,
   // tasks/archive/do-exports-and-toolchain-upgrade.md). Every class is `storage: "sqlite"` — all use sync storage
-  // (LumenizeContainer persists identity in ctx.storage.kv; `storage: "legacy-kv"` would make sync
+  // (every mesh node persists identity in ctx.storage.kv; `storage: "legacy-kv"` would make sync
   // storage throw → hard deploy failure, so the audit-migrations.mjs preflight reds on any non-sqlite).
   // ⚠️ DEPLOY COUPLING — do NOT just `wrangler deploy`. Prod IS live (nebula.lumenize.com, 2026-07-04)
   // and was last deployed under the `migrations` model. Switching a live worker `migrations`→`exports`

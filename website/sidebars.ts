@@ -170,7 +170,6 @@ const sidebars: SidebarsConfig = {
             'mesh/lumenize-do',
             'mesh/lumenize-worker',
             'mesh/lumenize-client',
-            'mesh/lumenize-container',
           ],
         },
         {

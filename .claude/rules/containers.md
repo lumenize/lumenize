@@ -196,8 +196,8 @@ stuck verdict; the build drive logs any match and expects zero ([[cf-container-s
   **constructs + unit-tests fine** under pool-workers — `ctx.container` is simply `undefined` there, so
   container methods MUST be guarded with `if (this.ctx.container)`. The raw path **restores** the unit-testability
   `extends Container` forfeits; the thin-shell discipline becomes a nicety, not a workaround.
-  (`experiments/plain-do-container` Q1; `packages/mesh/test/container/precheck.test.ts` stays the canary
-  for the base itself.)
+  (`experiments/plain-do-container` Q1, which also measured `extends Container` failing to construct
+  there.)
 - **`wrangler delete <worker>` does NOT delete the container app or its running instances** — they linger
   and eat the account's running-instance quota, which then blocks *new* containers from starting. They MUST
   be cleaned up with `wrangler containers list` / `wrangler containers delete <app-id>`.

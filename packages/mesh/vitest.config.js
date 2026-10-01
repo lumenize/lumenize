@@ -198,7 +198,6 @@ export default defineConfig({
             'test/for-docs/alarms/index.test.ts',
             'test/for-docs/security/**/*.test.ts',
             'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
-            'test/container/**/*.test.ts', // Container node — run in the `container` project (needs its own containers-block wrangler)
           ],
         },
       },
@@ -273,20 +272,6 @@ export default defineConfig({
         test: {
           name: 'security',
           include: ['test/for-docs/security/**/*.test.ts'],
-        },
-      },
-      {
-        // LumenizeContainer (4th node type) — isolated so a `containers`-block
-        // config quirk can't perturb the main suite's record. See
-        // tasks/nebula-devcontainer-node-type.md Phase 2.
-        extends: true,
-        plugins: [swcPlugin, cloudflareTest({
-          wrangler: { configPath: './test/container/wrangler.jsonc' },
-          miniflare: { bindings: testModeBindings },
-        })],
-        test: {
-          name: 'container',
-          include: ['test/container/**/*.test.ts'],
         },
       },
     ],

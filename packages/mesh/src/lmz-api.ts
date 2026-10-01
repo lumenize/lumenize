@@ -36,8 +36,7 @@ export { getCurrentCallContext, runWithCallContext };
 
 /**
  * Resolve the ambient (AsyncLocalStorage-bound) CallContext for `this.lmz.callContext`,
- * throwing outside a mesh call. Shared by the DO and Worker factories — and therefore by
- * `LumenizeContainer`, which composes `createLmzApiForDO`. The browser `LumenizeClient`
+ * throwing outside a mesh call. Shared by the DO and Worker factories. The browser `LumenizeClient`
  * deliberately does NOT use this: there is no AsyncLocalStorage in the browser, so it reads
  * a synchronously-captured `#currentCallContext` field instead (its one documented divergence).
  *
@@ -268,7 +267,7 @@ async function dispatchEnvelope(
 }
 
 /**
- * Shared `lmz.call` body for the DO + Worker factories (and `LumenizeContainer`).
+ * Shared `lmz.call` body for the DO + Worker factories.
  *
  * Builds the envelope (validation sync-throws BEFORE the hop), attaches the
  * fire-back {@link EnvelopeResponse} descriptor, and dispatches the one
@@ -600,10 +599,9 @@ export interface LmzApi {
  * `this.lmz.bindingName`/`instanceName` are available on the **`fetch()` path** —
  * not only the mesh receive path (`executeEnvelope` ← envelope `metadata.callee`).
  *
- * Shared by `LumenizeDO.__initFromHeaders` (the DO HTTP path) and
- * `LumenizeContainer.fetch()` (the container's public surface), so the container
- * node **composes** this rather than reimplementing it — ADR-007's
- * "identity stamped on every first-contact entry path" requirement.
+ * Used by `LumenizeDO.__initFromHeaders` (the DO HTTP path), and composed by any other
+ * HTTP entry rather than reimplemented — ADR-007's "identity stamped on every
+ * first-contact entry path" requirement.
  *
  * @returns a 400 `Response` if the instance header is a 64-hex DO id (a name is
  *   required), a 500 `Response` if `__init` rejects a binding/name mismatch, or
@@ -819,7 +817,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 /**
  * Node interface for the shared `executeEnvelope` receive path.
  *
- * `LumenizeDO`/`LumenizeWorker`/`LumenizeContainer` all satisfy this structurally.
+ * `LumenizeDO` and `LumenizeWorker` both satisfy this structurally.
  * The node's `ctx.waitUntil` and `env` (fire-back stub) are NOT on this interface —
  * they're `protected` on the base classes, so each node threads them into `executeEnvelope`'s
  * options from inside its own method (where protected access is allowed). `__executeChain`
@@ -990,7 +988,7 @@ async function fireResponse(
 
 /**
  * Execute an incoming call envelope on a mesh node — the shared receive path for
- * `LumenizeDO`/`LumenizeWorker`/`LumenizeContainer`, for BOTH RPC entries:
+ * `LumenizeDO` and `LumenizeWorker`, for BOTH RPC entries:
  * `__executeOperation` (requests, `requireMeshDecorator: true`) and `__handleResponse`
  * (fire-backs, `requireMeshDecorator: false`). `onBeforeCall` runs on **both** — the
  * response leg is scope-gated by construction, and the walk rules are unconditional; only the
@@ -1131,8 +1129,8 @@ type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
 
 /**
  * Mixin that composes the narrow comms+guards core (ADR-007) onto any DO-flavored base
- * (`DurableObject`, or `@cloudflare/containers` `Container`). It supplies the receive glue that
- * `LumenizeDO` / `LumenizeContainer` / the Profile DO otherwise copy verbatim: the lazy `lmz`
+ * (`DurableObject`, or a third-party base built on it). It supplies the receive glue that
+ * `LumenizeDO` and the Profile DO would otherwise copy verbatim: the lazy `lmz`
  * getter, the default no-op `onBeforeCall`, and the two receive seams
  * (`__executeOperation` / `__handleResponse`) that delegate to {@link executeEnvelope}.
  * `nodeTypeName` is the per-type label threaded through (debug namespaces + validation logging).
@@ -1142,11 +1140,11 @@ type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
  * A **mixin**, not a free helper: the glue must read the base's **protected** `ctx`/`env` (to thread
  * `ctx.waitUntil` + the fire-back `env` into `executeEnvelope`), which only a subclass may. The
  * generic `TBase` can't surface those protected members to the mixin *body*, so they're read through
- * a narrow local cast; the *concrete* base type still flows through to subclasses (so
- * `LumenizeContainer` keeps `Container`'s `fetch`/`enableInternet`/`destroy` for `override`/`super`).
+ * a narrow local cast; the *concrete* base type still flows through to subclasses, so a
+ * subclass keeps its base's own members for `override`/`super`.
  *
  * Each node adds its à-la-carte capabilities on top — `svc`/`onStart`/hibernation-WS/`__localChainExecutor`
- * for `LumenizeDO`; egress + public-port pin for `LumenizeContainer`; reach helpers + storage for the
+ * for `LumenizeDO`; reach helpers + storage for the
  * Profile DO — none of which are part of the shared invariant. Its fan-out is not among them:
  * `lmz.broadcast` is part of the core this mixin supplies.
  */
