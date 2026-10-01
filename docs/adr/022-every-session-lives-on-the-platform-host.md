@@ -21,7 +21,7 @@ Three browser facts shape the answer:
 
 The rest of this ADR covers where sessions live, how a page gets and uses an access token, the cookie rules, and persona and customer hosts.
 
-> **Today's code differs.** One host, `nebula.lumenize.com`, serves every scope, with one `refresh-token` cookie per membership at `Path=/auth/{scope}`, and the client names both scopes on every refresh, learning `authScope` from a localStorage hint. The Gateway still delivers a push to a page only when the change came from a page with the same `aud`, and passage and dominion still read `authScope`. `.claude/rules/security.md` still describes today's cookie.
+> **Today's code differs.** One host, `nebula.lumenize.com`, serves every scope, with one `refresh-token` cookie per membership at `Path=/auth/{scope}`, and the client names both scopes on every refresh. The Gateway still delivers a push to a page only when the change came from a page with the same `aud`, and passage and dominion still read `authScope`. `.claude/rules/security.md` still describes today's cookie. An emailed link's `GET` still consumes it.
 
 ## Decision
 
@@ -43,13 +43,13 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 
 ### Logging in
 
-**With no qualifying refresh cookie, the refresh answers 401**, and the client navigates the browser tab to `/auth/login?return_to=${encodeURIComponent(location.href)}` on the platform host. The login keeps `return_to` on the magic-link record, so the emailed link names no destination. The consume sets the refresh cookies and redirects there, in whichever browser opened the link.
+**With no qualifying refresh cookie, the refresh answers 401**, and the client navigates the browser tab to `/auth/login?return_to=${encodeURIComponent(location.href)}` on the platform host. The login keeps `return_to` on the magic-link record, so the emailed link names no destination. The link opens a page whose same-origin `POST` sets the refresh cookies and redirects there, in whichever browser opened it.
 
 **`return_to` is checked so a login link cannot send anyone to another site.** It must carry the deployment's own scheme and name a host that the lookup turns into a scope; anything else is refused at the login and never reaches the record. Built from `location.href`, it keeps the fragment after `#` that a server redirect never sees.
 
 ### The cookie rules
 
-- **Every cookie we set is named `__Host-…`.** A browser keeps one only if it is `Secure`, has `Path=/` and no `Domain`, so no other host can plant or overwrite it. Generated code can plant a `refresh-token` cookie across all of `lumenize.dev`, never a `__Host-refresh-token.acme.crm`, and the server reads only prefixed names. Nor can it load someone's emailed link to have one set: the consume refuses a `Sec-Fetch-Dest` other than `document`, and `Sec-Fetch-Site: same-site`.
+- **Every cookie we set is named `__Host-…`.** A browser keeps one only if it is `Secure`, has `Path=/` and no `Domain`, so no other host can plant or overwrite it. Generated code can plant a `refresh-token` cookie across all of `lumenize.dev`, never a `__Host-refresh-token.acme.crm`, and the server reads only prefixed names. Nor can it load someone's emailed link to have one set: the link opens a page, and only that page's same-origin `POST` signs in.
 - **Refresh cookies are `SameSite=Lax`**, so a person arriving at Home from an email or another site is recognised.
 - **Every `POST` to `/auth/` requires `Sec-Fetch-Site: same-origin`, except the refresh.** The refresh serves every page on the site, so it also accepts `same-site`, and requires an `Origin` the lookup turns into a scope. A request without `Sec-Fetch-*` headers is allowed, unless it is a `POST` whose `Origin` the route would refuse.
 - **Each refresh cookie is backed by a Workers KV record.** On a KV hit a refresh reads nothing else, so refreshes run on the edge and put no load on the singleton Registry Durable Object ([ADR-018](018-singleton-is-the-scarce-resource.md)).
