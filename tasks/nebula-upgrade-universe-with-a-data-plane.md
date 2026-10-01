@@ -113,8 +113,8 @@ question with one answer shape.
 
 - **How does a name get from the claim to its host?** The claim runs in the Registry, which speaks no
   mesh, and holds no token, since claiming is how a person comes to hold one. The account's name
-  belongs on its Universe and the first app's on its Galaxy, and the claim touches neither. The
-  consume, which wakes the Galaxy to order its certificate pack, is one moment both hosts could be
+  belongs on its Universe and the first app's on its Galaxy, and the claim touches neither.
+  Consent, which wakes the Galaxy to order its certificate pack, is one moment both hosts could be
   written; carrying the names on the claim's record until the first page loads is another.
 
 ## Constraints
