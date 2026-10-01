@@ -292,7 +292,7 @@ If both land and the model still cannot close a loop it should be able to close,
 
 **What blocks it today:**
 - **`@cloudflare/computer` makes our `start()` call and passes neither `image` nor a snapshot** — true of 0.3.1, the newest release on 2026-09-30.
-- **The `durable_object` scheduling policy needs wrangler 4.135 or later.** We pin 4.124.0 until the `@cloudflare/vitest-plugin` move in `tasks/backlog.md` § *Immediate work backlog*.
+- **The `durable_object` scheduling policy needs wrangler 4.135 or later.** We pin 4.124.0 until the `@cloudflare/vitest-plugin` move in `tasks/nebula-pre-alpha.md` § *The test toolchain and the compatibility date*.
 - **A container application cannot change its scheduling policy in place**; switching creates a new one.
 
 The experiment turned up two more things any design has to handle: after a deploy a snapshot restores its own, older image, and `@swc/core` 1.16.12+ will not load under the new policy's filesystem. Both are in its `RESULTS.md` § *Findings*.

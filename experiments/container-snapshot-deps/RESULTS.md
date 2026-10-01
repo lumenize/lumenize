@@ -165,7 +165,7 @@ section above is its source.
 1. **`@cloudflare/computer` passes `image` and `containerSnapshot` through `start()`**, or we wrap
    `ctx.container.start` (finding 5). Ask upstream first.
 2. **wrangler 4.135 or later**, which arrives with the `@cloudflare/vitest-plugin` move
-   (`tasks/backlog.md` § *Immediate work backlog*).
+   (`tasks/nebula-pre-alpha.md` § *The test toolchain and the compatibility date*).
 3. **A new container application** — the policy cannot change in place. Ride the wipe gate.
 4. **`chown 0:0 /` before any build** under the new policy, until Cloudflare changes `/`'s owner or
    swc relaxes its check (finding 7). Worth reporting to both.
