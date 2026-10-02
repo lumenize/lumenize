@@ -57,9 +57,19 @@ Three rules hold for both:
 
 **How:** `@lumenize/mesh` supplies both halves. The callee decorates the method, `@rawRpc() orderCertificate()`, which names the path it may be called by, as `@mesh()` does; a method carries one or the other. A call through it takes three steps:
 
-1. The caller calls through a typed stub: `rawRpcStub<Galaxy>('GALAXY', 'acme.crm').orderCertificate()`. The stub reads the binding from `env`, imported from `cloudflare:workers`, so plain Worker code with no `lmz` can call it.
+1. The caller calls through a typed stub: `rawRpcStub('GALAXY', 'acme.crm').orderCertificate()`. TypeScript infers `Galaxy` from the generated `Env`, which types `GALAXY` as `DurableObjectNamespace<Galaxy>`, so a misspelled binding, method or argument fails to compile. The stub reads `env` from `cloudflare:workers`, so plain Worker code with no `lmz` can call it.
 2. One entry on the node receives the call and stamps the node's identity, taking the instance name from `ctx.id.name` and the binding from the caller.
 3. The entry refuses a method `@rawRpc()` did not decorate, and invokes the one it names, walking no chain past it.
+
+The stub defines no wire format. It turns `.orderCertificate()` into one ordinary Workers RPC call to the entry:
+
+```ts
+rawRpcStub('GALAXY', 'acme.crm').orderCertificate();
+// sends, from the caller's side:
+env.GALAXY.getByName('acme.crm').__rawRpc('GALAXY', 'orderCertificate', []);
+```
+
+The method name becomes a string only inside the stub, and the arguments and result cross in Workers RPC's structured clone, which `raw-comm.md` § *Errors over raw Workers RPC* measures. A continuation needs a format of its own because it is stored and forwarded hop to hop; this call is neither.
 
 Using the stub takes a binding, and only code running in our own Worker can import `env`. An app's own code runs in the browser, its build runs in a container handed only build variables, and a validator compiled from its types runs in a Worker Loader isolate given no bindings.
 
@@ -82,7 +92,7 @@ Using the stub takes a binding, and only code running in our own Worker can impo
 | Approach | Why rejected |
 |---|---|
 | **Raw RPC inline at each site** | What the facade replaced for invites. Each site re-derives eligibility and the record, and nothing at the site shows where checking stops. |
-| **Privileged routes on a node's `fetch`, carrying the identity headers** (2026-10-01, reversed the same day) | ADR-007 keeps that surface for page traffic, and the routes were safe only while no forward produced their paths. |
+| **Routes only our own code may call, on a node's `fetch`, carrying the identity headers** (2026-10-01, reversed the same day) | ADR-007 keeps a node's `fetch` for callers outside the mesh, and the routes were safe only while no forward produced their paths. |
 | **Admitting calls without claims from a trusted binding, in `onBeforeCall`** | A trust rule on every node to serve a few calls, and consent would still have no claims to start from. |
 | **A general channel for components we control** | Every hop between our components is already reachable only by code holding a binding. What was missing was a typed door the callee opens one method at a time, not a lane. |
 | **A decorator that takes the binding and instance names as a method's first two arguments** | A decorator cannot change the signature callers see, so each call site would need a cast, and an undecorated method called that way would run with two extra arguments. |
