@@ -23,7 +23,7 @@ The rest of this ADR names the two bridges, says when each is the right one, and
 
 ## Decision
 
-**Code crosses the mesh boundary in two directions, and each direction has exactly one bridge.** We call them **a facade**, of which **the Registry facade** is the canonical example, and **`@rawRpc`**, each named for what the callee exposes. Each bridge is written once, in the package that owns it, and every crossing in its direction uses it.
+**Code crosses the mesh boundary in two directions, and each direction has exactly one bridge.** We call them **a facade**, of which **the Registry facade** is the canonical example, and **`@rawRpc`**, each named for what the callee exposes. The two compose: a deletion crosses into the Registry through the Registry facade, and its teardown comes back into each node through `@rawRpc`. Each bridge is written once, in the package that owns it, and every crossing in its direction uses it.
 
 Three rules hold for both:
 
