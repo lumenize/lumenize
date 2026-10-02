@@ -816,6 +816,13 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
   - **Abuse.** No mesh call is rate limited today (`nebula-scope-moves-to-subdomain.md` § *Decisions*), on the premise that every caller holds a token naming them. An anonymous caller breaks that premise.
   - Related: the Registry-as-mesh-node row below, whose trigger this design is.
 
+- [ ] **A periodic sweep removes scope Durable Objects that no `Scopes` row names (Larry, 2026-10-02).** A creation tears down only the scopes it writes, so a deleted account's other apps can keep what a teammate's live token wrote after the deletion, or what a failed teardown left, and whoever re-claims the account's slug reaches them by dominion ([nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) § *Which host answers what*). The sweep:
+  - **Lists each scope namespace's objects** (`UNIVERSE`, `GALAXY`, `STAR`) through Cloudflare's API, which returns each one's `id` and `hasStoredData` but no name, with a Workers Scripts Read token.
+  - **Computes the id of every `Scopes` row** with `idFromName`, in one Registry read per sweep, which is periodic and bounded (ADR-018).
+  - **Wipes each id with stored data that matches no row**, through `rawRpcStub` by id, since mesh's instance field accepts an id, and logs it.
+  - **Doubles as the production check that `deleteAll()` took**, which is why the deletion itself does not confirm: any confirming call would stamp the node's identity and write storage again.
+  - **Trigger:** public signup, when strangers can re-claim a slug at scale, alongside the Turnstile row above.
+
 - [ ] **The Registry as a mesh node, deleting the facade and the hook seam (Larry's idea, weighed 2026-10-02 and deferred).** `NebulaAuthRegistry` would compose the mesh, as `Profile` already does. Platform code would call it with `lmz.call`, and its `@mesh()`-decorated methods would carry the checks the facade runs before its hop today. It would call Galaxies and Stars over the mesh, under a guard that checks the chain began at the Registry. `callChain[0]` is stamped by the framework, and by the Gateway for a client, so no system token is needed.
   - **What it deletes:** `NebulaAuthFacade`, `ScopeLifecycleHooks` and `apps/nebula`'s hooks module.
   - **What it keeps:** the HTTP session lifecycle's raw calls — the refresh's KV-miss fallback, the consume, Home's summary and the link page's lookup — because an HTTP response needs the Registry's answer and only a client may await a mesh call (ADR-003). So `@rawRpc` stays, unless ADR-003 is amended to let a Worker await within the request it is serving.
