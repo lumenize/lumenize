@@ -502,9 +502,16 @@ So the flow keeps everyone else off the Star until the founder arrives. Having t
 
 1. **The claim writes to the Registry, never to the Star.** A single unauthenticated call, fronted by Turnstile — anyone may claim an unclaimed Star, with no invitation and no approval step, and that openness is the product rather than an oversight. It validates and then writes atomically: the scope row, an *unaccepted* admin membership at the full three-segment id, and a magic link. The parent Galaxy must already exist, under a Universe whose claim someone has accepted, but that is an integrity check rather than an admin gate; nobody is authenticated at this point in the flow.
 2. **The mailbox proves the person.** The emailed link opens a consent screen that changes nothing until the person clicks Accept, which proves the address, places a session cookie and accepts the membership in one act. Re-claiming from the same address re-sends the link; a different address gets a conflict, so a pending claim cannot be taken over.
-3. **The founder's first touch creates and places it.** Now holding a session at exactly that Star, they open its host, and the page's first call is what brings the Durable Object into existence, near them.
+3. **The founder's Accept creates and places it.** The first call to reach the Star is the Accept's own teardown, which starts it empty, and it comes from the Worker serving the founder's request, at the edge nearest them, so the Durable Object comes into existence there.
 
-Placement is not enforced — nothing refuses a call from anyone whose dominion covers the Star, so whoever touches it first places it. It is **a bet rather than a check**, and what holds the bet is the sequencing above: until the founder clicks their link, nobody has reason to address the Star at all. The one realistic way to lose it is a support visit landing in the window before they do.
+Placement is not enforced — nothing refuses a call from anyone whose dominion covers the Star, so whoever touches it first places it. It is **a bet rather than a check**, and what holds the bet is the sequencing above: until the founder accepts, nobody has reason to address the Star at all. The one realistic way to lose it is a support visit landing in the window before they do.
+
+**The bet also depends on where the first call is made from.** A Durable Object is placed near the code that first addresses it, so that code must run where the person's request arrived: the Worker serving the founder's Accept, at the edge nearest them, or, for an app created in Studio, the facade the creator's own Gateway reaches by service binding, which runs on the Gateway's server. The same holds for every scope a creation writes, a claim's universe and galaxy included. Two things would quietly move the first touch beside the Registry instead, and nothing would fail:
+
+- **A first touch made from inside the Registry**, the worst case above. That is why the scope hooks run in the Worker and the facade, never in the Registry.
+- **Smart Placement on the Worker.** It runs a Worker near the backends it calls rather than near the person, and the Registry is one of them.
+
+> **Today's code differs.** A tenant can be claimed beneath a galaxy whose universe nobody has accepted, and nothing touches the Star at acceptance, so the founder's first page call is what creates it. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) closes both.
 
 ## Routes outside both sequences
 

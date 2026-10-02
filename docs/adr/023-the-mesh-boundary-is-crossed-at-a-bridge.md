@@ -1,7 +1,7 @@
 # ADR-023: The Mesh Boundary Is Crossed Only at a Bridge
 
 **Date**: 2026-10-01
-**Status**: Proposed — pending Larry's read
+**Status**: Proposed
 **Deciders**: Larry
 **Evidence**: `NebulaAuthFacade` (`packages/nebula-auth/src/nebula-auth-facade.ts`), the bridge into raw infrastructure, built for scope invites; the consent path's raw RPC into the `Profile` node (`worker-token.ts`'s `profile()`), which reaches a mesh node with no bridge at all; two routes specified on 2026-10-01, `POST /_teardown` and `POST /_order-certificate`, which put operations only our own code may invoke on a Durable Object's `fetch` and were reversed the same day; and the same day's question of whether components we control should talk free of claims in general.
 
