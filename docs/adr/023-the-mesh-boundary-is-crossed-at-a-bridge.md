@@ -27,8 +27,8 @@ The rest of this ADR names the two bridges, says when each is the right one, and
 
 Three rules hold for both:
 
-1. **The crossing runs between code we wrote.** The facade's raw call reaches the Registry from `nebula-auth`'s own facade, and a `@rawRpc` call reaches a node from our own Worker. No user-developer's code and no client makes either hop. A client counts as untrusted even where we wrote it: `NebulaClient` runs in someone's browser, where its user can change it.
-2. **A bridge deliberately goes around the guard of the side it enters, so whatever the crossing must satisfy is checked before it crosses.** The facade checks the caller's claims before its hop. A `@rawRpc` call carries out a decision already checked where it was made.
+1. **The crossing runs between code we wrote, running in our own Worker.** The facade's raw call reaches the Registry from `nebula-auth`'s own facade, and a `@rawRpc` call reaches a node from our Worker's own code. Both halves matter. `NebulaClient` is ours, but it runs in someone's browser, where its user can change it, so it is a client and makes neither hop. A user-developer's code never runs in our Worker at all.
+2. **Whatever authorizes the crossing is checked before it crosses.** The facade checks the caller's claims before its hop, so a refused call never reaches the Registry. A `@rawRpc` call goes around the node's mesh guard, its `onBeforeCall` and the `@mesh()` check, because it carries out a decision already checked where it was made.
 3. **The side entered keeps the checks it applies to calls from within itself.** The Registry still checks the claims each of its methods is handed, so a caller that reached it some other way is still refused. A mesh node's guard still covers every mesh call, and a `@rawRpc()`-decorated method is simply never one.
 
 ### Into raw infrastructure: a facade
@@ -39,9 +39,9 @@ Three rules hold for both:
 - creating a galaxy;
 - minting an impersonation token.
 
-**How:** the infrastructure package exports a `LumenizeWorker`, bound as a service binding, and mesh code calls it like any node: `lmz.call('NEBULA_AUTH_FACADE', undefined, ctn<NebulaAuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
+**How:** the infrastructure package exports a `LumenizeWorker`, which is a Cloudflare `WorkerEntrypoint`, bound as a service binding, and mesh code calls it like any node: `lmz.call('NEBULA_AUTH_FACADE', undefined, ctn<NebulaAuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
 
-1. The facade refuses on the verified claims, `callContext.originAuth`, so a refused call never wakes the infrastructure ([ADR-018](018-singleton-is-the-scarce-resource.md)). [Should we distinguish this somehow (not sure how) from "deliberately goes around the guard of the side it enters". I'm guessing it's distingushed by the fact that it's in the facade not in the infrastructure yet.]
+1. The facade refuses on the verified claims, `callContext.originAuth`, before its hop. That is rule 2's check, made in the facade, so a refused call never wakes the infrastructure ([ADR-018](018-singleton-is-the-scarce-resource.md)).
 2. It makes the one raw call, beside the invariants it enforces.
 3. It records the caller's full claims through ADR-016's one projection.
 
@@ -58,32 +58,30 @@ Three rules hold for both:
 **How:** `@lumenize/mesh` supplies both halves. The callee decorates the method, `@rawRpc() orderCertificate()`, which names the path it may be called by, as `@mesh()` does; a method carries one or the other. A call through it takes three steps:
 
 1. The caller calls through a typed stub: `rawRpcStub('GALAXY', 'acme.crm').orderCertificate()`. TypeScript infers `Galaxy` from the generated `Env`, which types `GALAXY` as `DurableObjectNamespace<Galaxy>`, so a misspelled binding, method or argument fails to compile. The stub reads `env` from `cloudflare:workers`, so plain Worker code with no `lmz` can call it.
-2. One entry on the node receives the call and stamps the node's identity, taking the instance name from `ctx.id.name` and the binding from the caller.
-3. The entry refuses a method `@rawRpc()` did not decorate, and invokes the one it names, walking no chain past it.
+2. One entry on the node receives the call and stamps the node's identity from the binding and instance name the caller passes, exactly as the mesh path does.
+3. The entry refuses any name `@rawRpc()` did not decorate, and invokes the one it names.
 
 The stub defines no wire format. It turns `.orderCertificate()` into one ordinary Workers RPC call to the entry:
 
 ```ts
 rawRpcStub('GALAXY', 'acme.crm').orderCertificate();
 // sends, from the caller's side:
-env.GALAXY.getByName('acme.crm').__rawRpc('GALAXY', 'orderCertificate', []);
+env.GALAXY.getByName('acme.crm').__rawRpc('GALAXY', 'acme.crm', 'orderCertificate', []);
 ```
 
 The method name becomes a string only inside the stub, and the arguments and result cross in Workers RPC's structured clone, which `raw-comm.md` § *Errors over raw Workers RPC* measures. A continuation needs a format of its own because it is stored and forwarded hop to hop; this call is neither.
 
-Using the stub takes a binding, and only code running in our own Worker can import `env`. An app's own code runs in the browser, its build runs in a container handed only build variables, and a validator compiled from its types runs in a Worker Loader isolate given no bindings.
+**This bridge enforces rule 1 through the binding the stub needs.** Bindings exist only in our Worker's `env`, and nothing a user-developer writes runs there: their app runs in the browser, its build in a container handed only build variables, and a validator compiled from its types in a Worker Loader isolate given no bindings. Whether `env` is imported or passed changes nothing here; where the bindings live is what does.
 
 ### What neither bridge may become
 
-- **An operation only our own code may invoke, on a Durable Object's `fetch`.** A node's HTTP surface is for callers outside the mesh, each request secured by the node's own design ([ADR-007](007-shared-node-security-core.md)). An operation that answers to no caller's credential is exposed there the day a forward changes which paths it produces.
+- **An operation only our own code may invoke, as a route on a node's `fetch`.** A node's `fetch` serves callers outside the mesh ([ADR-007](007-shared-node-security-core.md)), and which of their requests reach it depends on the forwards in front of it, which change. A route that checks no credential, such as `POST /_teardown`, is open to anyone the first time a forward sends a request to its path.
 - **A general channel free of claims.** Each bridge opens one capability at a time, chosen at the callee: a facade method refuses on claims, and `@rawRpc` opens one method. A lane any component could use to skip claims would make every node's guard optional.
 - **Raw RPC written inline** by code outside the infrastructure package it reaches.
 
 ### What this does not cover
 
-- **Inside the package that owns a raw object**, its own nodes reach it directly. The facade exists so the raw hop sits in that package, beside the rules it serves, and the `Profile`, a mesh node in `nebula-auth`, is already there: it reads the Registry by raw RPC, mid-call, to learn who administers a profile.
-- **Mesh's own internals**, such as the client Gateway, which builds envelopes by hand because it is part of what the mesh is built from.
-- **Requests into a node's `fetch`**, which are ADR-007's track.
+Mesh code reaching a raw object its own package owns needs no facade, since the facade exists to put the raw hop in that package, beside the rules it serves. The `Profile`, a mesh node in `nebula-auth`, already sits there and reads the Registry by raw RPC, mid-call, to learn who administers a profile. Nor does this cover mesh's own client Gateway, which builds envelopes by hand because it is part of what the mesh is built from.
 
 > **Today's code differs.** `rawRpcStub` and `@rawRpc()` do not exist yet. nebula-auth's consent path calls the `Profile` by raw RPC, with no stub or decorator, for the display-name pre-fill and write. A deletion's teardown reaches each node from the browser, over the mesh, and creating a galaxy, deleting a scope and impersonating are still HTTP routes rather than facade methods. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) builds `@rawRpc`, moves those three operations onto the facade, and moves teardown, certificate ordering and the Profile calls onto `@rawRpc`.
 
@@ -109,4 +107,4 @@ Using the stub takes a binding, and only code running in our own Worker can impo
 
 - **A `@rawRpc()` method trusts its caller completely**, because no claims arrive for it to check. Mitigation: keep each one small and idempotent, as `teardown()` and `orderCertificate()` are, and never give one a parameter naming whom to act for.
 - **A rule the facade checks lives in two places**, the facade and the Registry, so a change to it has to land in both. The cost buys rules 2 and 3 above, and a test of the Registry's own refusal keeps the second copy honest.
-- **The binding is passed, not derived.** If `env[binding].idFromName(ctx.id.name)` equals `ctx.id` only under the right binding, the entry can verify it; until that is measured, it trusts what our own code passes.
+- **The binding and instance name are passed, not derived.** If `env[binding].idFromName(instanceName)` equals `ctx.id` only for the right pair, the entry can verify both with one comparison; until that is measured, it trusts what our own code passes.
