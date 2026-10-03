@@ -5,8 +5,8 @@
  * the worker is the documented worker (`createAuthRoutes` +
  * `createRouteDORequestAuthHooks` + `routeDORequest`), the client is the
  * documented `EditorClient`, and auth goes through a real magic-link email
- * (Cloudflare Email Sending → Email Routing → deployed `email-test`
- * worker). The only deviations from production are:
+ * (Resend → Email Routing → deployed `email-test` worker). The only
+ * deviations from production are:
  *  - `AuthEmailSender.from` is `test@lumenize.io` (a verified sending
  *    domain on this account) instead of `auth@example.com`.
  *  - No Turnstile gating (Turnstile is documented as optional, Step 9).

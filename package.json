@@ -22,7 +22,8 @@
     "experiments/residency-hold",
     "experiments/fuse-bisect",
     "experiments/wildcard-host-routing",
-    "experiments/preview-self-binding"
+    "experiments/preview-self-binding",
+    "experiments/email-quota-probe"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

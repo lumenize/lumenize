@@ -3,7 +3,7 @@
  * email round-trip end-to-end:
  *
  *   1. globalSetup → wrangler-dev:  POST /auth/email-magic-link
- *   2. wrangler-dev → Cloudflare Email Sending → SMTP
+ *   2. wrangler-dev → Resend → SMTP
  *   3. Cloudflare Email Routing → deployed `email-test` Worker
  *   4. email-test Worker → WebSocket push back to globalSetup
  *   5. globalSetup → wrangler-dev: GET <magic-link URL> (cookie captured by the jar)

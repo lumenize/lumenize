@@ -23,15 +23,6 @@
       "entrypoint": "AuthEmailSender"
     }
   ],
-  // Cloudflare Email Sending binding (env.EMAIL.send), used by the Cloudflare email transport.
-  // `remote: true` proxies to the real Cloudflare Email Sending service during
-  // local dev / vitest so tests exercise the full end-to-end path.
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "remote": true
-    }
-  ],
   "exports": {
     "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" },
     "EchoDO": { "type": "durable-object", "storage": "legacy-kv" }
@@ -48,6 +39,9 @@
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "LUMENIZE_AUTH_REDIRECT": "/app"
+    "LUMENIZE_AUTH_REDIRECT": "/app",
+    // Test mail goes through Resend: a binding send to a per-run address counts against
+    // Cloudflare's daily sending quota (experiments/email-quota-probe/RESULTS.md).
+    "EMAIL_PROVIDER": "resend"
   }
 }

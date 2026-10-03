@@ -4,12 +4,12 @@ import { Browser } from '@lumenize/testing';
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 // Real email delivery e2e test — same flow as e2e-email but routed through Hono.
-// Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
-// Email Sending onboarded for lumenize.io, and Email Routing for lumenize-test.dev.
+// Requires: TEST_TOKEN and RESEND_API_KEY in .dev.vars, deployed email-test Worker,
+// lumenize.io verified as a Resend sender, and Email Routing for lumenize-test.dev.
 //
 // Uses Browser (cookie-aware fetch) → SELF.fetch → Hono app → createAuthRoutes →
 // routeDORequest → LumenizeAuth DO (in-process).
-describe('Hono integration (real email delivery via Cloudflare)', () => {
+describe('Hono integration (real email delivery)', () => {
   let cleanup: (() => void) | undefined;
 
   afterEach(() => {

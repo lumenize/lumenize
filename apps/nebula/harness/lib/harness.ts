@@ -122,9 +122,8 @@ export function scopeUrlOf(stack: Pick<DevStack, 'baseUrl' | 'origin'>, scope: s
 /**
  * Boot a fresh local `wrangler dev` on the apps/nebula config. Wipes `.wrangler/state` first so
  * every scope starts fresh (the ui-smoke "wipe, don't migrate" model — this IS the local wipe).
- * Uses `--local` when no `CLOUDFLARE_API_TOKEN` is present (drops the remote AI / send_email
- * bindings, which Phase-1 resource-plane driving doesn't need). Signs with BLUE by default;
- * pins `PRIMARY_JWT_KEY:BLUE` so the worker verifies BLUE-minted tokens.
+ * `HARNESS_LOCAL=1` adds `--local`, which drops the remote AI binding. Signs with BLUE by
+ * default; pins `PRIMARY_JWT_KEY:BLUE` so the worker verifies BLUE-minted tokens.
  */
 export async function bootDevStack(
   opts: {
@@ -167,7 +166,7 @@ export async function bootDevStack(
   mkdirSync(resolve(STUDIO_UI_DIR, 'dist'), { recursive: true });
 
   // Boot exactly like `npm run dev` — NO `--local` by default. `npm run dev` reaches "Ready on"
-  // using the wrangler OAuth session for the remote AI / `send_email remote:true` bindings; forcing
+  // using the wrangler OAuth session for the remote AI binding; forcing
   // `--local` (an earlier auto-detect) made apps/nebula HANG after the container build (workerd up
   // but never ready). `--local` is opt-in for a no-OAuth environment (CI/hosted w/ a token) via
   // HARNESS_LOCAL=1. Keep boot args minimal (match the proven `npm run dev`); the only override is
@@ -189,12 +188,6 @@ export async function bootDevStack(
       // (`1x0000…AA` = always-passes) via --var — no `.dev.vars` mutation, auto-reverts per boot.
       ...(process.env.HARNESS_TURNSTILE_SECRET
         ? ['--var', `TURNSTILE_SECRET_KEY:${process.env.HARNESS_TURNSTILE_SECRET}`]
-        : []),
-      // The local lane sends through the `EMAIL` binding (Cloudflare), whose account-wide daily
-      // sending quota a day of sweeps can exhaust. `HARNESS_EMAIL_PROVIDER=resend` boots on Resend
-      // instead — the provider production and the deployed test target already send through.
-      ...(process.env.HARNESS_EMAIL_PROVIDER
-        ? ['--var', `EMAIL_PROVIDER:${process.env.HARNESS_EMAIL_PROVIDER}`]
         : []),
       ...Object.entries(opts.vars ?? {}).flatMap(([k, v]) => ['--var', `${k}:${v}`]),
       '--log-level', 'info',

@@ -108,7 +108,7 @@ trap 'rm -f "$TEST_CONFIG"' EXIT
 echo "▸ R2: the test worker's blob bucket (create-if-missing)"
 wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs-test(\s|$)' || wrangler r2 bucket create nebula-blobs-test
 echo "▸ wrangler deploy --config .wrangler-deploy-test.jsonc --name ${WORKER_NAME} (worker bundle + build-box image; lumenize-test.dev routes)"
-wrangler deploy --config "$TEST_CONFIG" --name "$WORKER_NAME" --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}"
+wrangler deploy --config "$TEST_CONFIG" --name "$WORKER_NAME" "${WRANGLER_DEFINE_ARGS[@]}"
 
 # The self-check reads the platform host, the one host every deployment has.
 TEST_URL="https://platform.lumenize-test.dev"

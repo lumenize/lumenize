@@ -25,14 +25,15 @@ const JWT_TEST_KEYS = {
 };
 
 // --- Opt-out gating for the secret-less lane (tasks/lumenize-email.md Phase 1) ---
-// e2e-email + hono declare a `send_email` binding with `remote: true`, which
+// e2e-email declares a `send_email` binding with `remote: true`, which
 // vitest-pool-workers establishes at POOL LOAD — with no Cloudflare creds the
 // whole project fails to load (0 tests run), so path-level it.skipIf can't help.
 // Omit them at the PROJECT level when the lane has no CF creds. Signal = the
 // OPT-OUT flag LUMENIZE_NO_CF_REMOTE, set ONLY by the secret-less Claude-hosted
 // lane; local (`wrangler login` OAuth) and CI (CLOUDFLARE_API_TOKEN job env) leave
-// it unset, so the CF canary runs there. e2e-email-resend has no remote binding and
-// its secrets live in .dev.vars (not process.env), so it stays unconditional.
+// it unset, so the CF canary runs there. e2e-email-resend and hono send through Resend,
+// have no remote binding, and read their secrets from .dev.vars (not process.env), so
+// they stay unconditional.
 const includeCfRemote = !process.env.LUMENIZE_NO_CF_REMOTE;
 // Loud omission (iteration lane only): if the flag drops the CF-remote projects,
 // SAY SO — so a green run in the hosted / no-creds lane is never mistaken for full
@@ -40,7 +41,7 @@ const includeCfRemote = !process.env.LUMENIZE_NO_CF_REMOTE;
 // runs these and red-fails on a dead key — so this only fires in the constrained
 // iteration lane, never as a CI safety net.
 if (!includeCfRemote) {
-  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING e2e-email + hono (Cloudflare Email Sending path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
+  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING e2e-email (Cloudflare Email Sending path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
 }
 
 // Cold-start self-heal for the external-email-delivery projects (e2e-email,
@@ -161,9 +162,8 @@ export default defineConfig({
           include: ['test/e2e-email-resend/**/*.test.ts'],
         },
       },
-      ...(includeCfRemote ? [{
-        // Hono integration test (real Cloudflare Email Sending — no test mode)
-        // Omitted when LUMENIZE_NO_CF_REMOTE is set (no Cloudflare remote-proxy creds).
+      {
+        // Hono integration test (real email through Resend — no test mode)
         extends: true,
         plugins: [cloudflareTest({
           isolatedStorage: false,
@@ -182,7 +182,7 @@ export default defineConfig({
           retry: EMAIL_DELIVERY_RETRY, // cold-start self-heal (see EMAIL_DELIVERY_RETRY)
           include: ['test/hono/**/*.test.ts'],
         },
-      }] : []),
+      },
     ],
   },
 });

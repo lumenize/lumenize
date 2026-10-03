@@ -104,11 +104,8 @@ scenario's own asserts passed against the live system.
 - **Hung boot?** `pkill -9 -f workerd` then `rm -rf apps/nebula/.wrangler` (stale/locked state from a
   killed boot; the Docker image cache is separate), then retry. Confirm `npm --prefix apps/nebula run
   dev` reaches `Ready on` — that's the reference boot.
-- **Browser login flakes on the email leg** (real CF email loop, variable latency) — a `No email
+- **Browser login flakes on the email leg** (a real send through Resend to the routed catch-all, variable latency) — a `No email
   received` timeout is that flake, not a defect; re-run.
-- **Cloudflare's daily sending quota runs out on a day of sweeps**, and every claim then answers 500
-  with `account daily sending quota exceeded` in the stdio. `HARNESS_EMAIL_PROVIDER=resend` boots on
-  Resend instead, the provider production sends through.
 
 ## Add a scenario
 

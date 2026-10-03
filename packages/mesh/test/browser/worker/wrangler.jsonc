@@ -22,15 +22,6 @@
       "entrypoint": "AuthEmailSender"
     }
   ],
-  // `remote: true` proxies to the real Cloudflare Email Sending service so
-  // magic-link emails actually deliver through Email Routing to the deployed
-  // `email-test` Worker (same pattern as apps/nebula/test/browser).
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "remote": true
-    }
-  ],
   "exports": {
     "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
     "DocumentDO": { "type": "durable-object", "storage": "sqlite" },
@@ -49,6 +40,10 @@
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "LUMENIZE_AUTH_REDIRECT": "/app",
+    // Magic links go through Resend and land in the `lumenize-test.dev` catch-all the deployed
+    // `email-test` Worker reads. A `send_email` binding send to a per-run address would count
+    // against Cloudflare's daily quota (experiments/email-quota-probe/RESULTS.md).
+    "EMAIL_PROVIDER": "resend",
     // First subject registered with this exact email is automatically
     // admin-approved (isAdmin in JWT). Required for our test, which uses
     // a brand-new subject each run — without this, the JWT's

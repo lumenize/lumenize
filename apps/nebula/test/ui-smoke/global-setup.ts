@@ -101,17 +101,14 @@ export default async function setup(project: TestProject) {
   //    admin email (first login at a scope → admin). Container image build can be slow
   //    on a cold boot, so allow a generous ready timeout.
   // Hosted lane (no CF account creds): boot `wrangler dev --local`, which disables
-  // remote bindings. The prod apps/nebula config declares two — the `env.AI` Workers-AI
-  // binding and the `send_email remote:true` binding — and a remote binding establishes
-  // its proxy session at startup, which HARD-FAILS without a CLOUDFLARE_API_TOKEN
-  // ("You must be logged in to use wrangler dev in remote mode"). The hosted lane needs
-  // NEITHER binding: email rides Resend (EMAIL_PROVIDER, below) over HTTP, and AI rides
-  // the Workers-AI REST path (DevStudio.#callModelRest, selected by WORKERS_AI_TOKEN) —
-  // so dropping the remote bindings via --local loses nothing. The GHA lane DOES carry a
-  // token and uses the live `env.AI` binding (Phase-2 note in tasks/nebula-in-ci.md), so
-  // it must stay non-local; gate on the token wrangler itself reads for remote mode. This
-  // is the "hosted boot variant that drops the send_email remote:true binding" the task
-  // file calls for, achieved with one flag instead of a forked wrangler config.
+  // remote bindings. The apps/nebula config declares one, the `env.AI` Workers-AI binding,
+  // and a remote binding establishes its proxy session at startup, which HARD-FAILS without
+  // a CLOUDFLARE_API_TOKEN ("You must be logged in to use wrangler dev in remote mode"). The
+  // hosted lane does not need it: AI rides the Workers-AI REST path (DevStudio.#callModelRest,
+  // selected by WORKERS_AI_TOKEN), so dropping it via --local loses nothing, and email rides
+  // Resend over HTTP in every lane. The GHA lane DOES carry a token and uses the live `env.AI`
+  // binding (Phase-2 note in tasks/nebula-in-ci.md), so it must stay non-local; gate on the
+  // token wrangler itself reads for remote mode.
   const hostedLocalBoot = !process.env.CLOUDFLARE_API_TOKEN;
   // Stage the egress-proxy CA into the container build context so the DevContainer's
   // `npm install` trusts the sandbox's TLS interception (no-op when not in such a sandbox).
@@ -125,14 +122,9 @@ export default async function setup(project: TestProject) {
     extraArgs: [
       ...(hostedLocalBoot ? ['--local'] : []),
       '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
-      // Send the magic-link via Resend (EMAIL_PROVIDER) from a Resend-VERIFIED domain
-      // (lumenize.io) — so the run needs NO CF email creds and works in every
-      // lane, incl. the secret-less hosted one (a CF `send_email remote:true` send
-      // silently drops without creds / from an unverified domain). The deployed
-      // email-test Worker still catches the routed mail (recipient stays
-      // test@lumenize-test.dev). Mirrors packages/auth/test/e2e-email-resend.
-      // (tasks/nebula-in-ci.md "Email everywhere = Resend".)
-      '--var', 'EMAIL_PROVIDER:resend',
+      // The magic link goes out through Resend (the config's EMAIL_PROVIDER) from a sender
+      // Resend has verified; the deployed email-test Worker catches it at the recipient,
+      // test@lumenize-test.dev. Mirrors packages/auth/test/e2e-email-resend.
       '--var', 'AUTH_EMAIL_FROM:test@lumenize.io',
       '--log-level', 'info',
     ],

@@ -29,6 +29,7 @@ import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { Profile } from '@lumenize/nebula-auth/profile';
+import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
@@ -127,22 +128,46 @@ export async function run(stack: DevStack): Promise<void> {
   // The platform arm is coupled to the reserved scope by VALUE, so the compiler cannot see it. Break
   // it and a superuser silently enumerates exactly one scope — this is the limb that catches it.
   //
-  // ⚠️ Reads Home's summary by the root cookie: NESTED and `profileId`-keyed,
-  // so the ids are gathered by walking `children` rather than reading a flat list. It is also
-  // BUDGET-BOUNDED — a node past the frontier arrives as a `childCount` and is absent here — which is
-  // why the assertion below checks for specific expected scopes rather than a total.
+  // ⚠️ Reads Home's summary by the root cookie: NESTED and `profileId`-keyed, so the ids are gathered
+  // by walking `children`. It is also BUDGET-BOUNDED and filled level by level: every universe, then
+  // their apps in sorted order until the budget runs out, a node past it arriving as a `childCount`.
+  // So the universe is asserted here; on a target holding many accounts its app sits past the budget,
+  // which Home reaches as this limb does, with the facade's `expandScope` from the universe's page.
   const scopesRes = await homeSummary(origin, refreshCookie(PLATFORM_SCOPE, refreshToken));
   assert.equal(scopesRes.status, 200, `Home's summary ${scopesRes.status} for a superuser`);
   type Node = { scope: string; children?: Node[] };
   const { groups } = await scopesRes.json() as { groups: { summary: { emails?: { memberships?: Node[] }[] } }[] };
   const walk = (n: Node): string[] => [n.scope, ...(n.children ?? []).flatMap(walk)];
   const ids = groups.flatMap((g) => (g.summary.emails ?? []).flatMap((e) => (e.memberships ?? []).flatMap(walk)));
-  for (const expected of [someUniverse, `${someUniverse}.app`, `${someUniverse}.app.tenant`]) {
-    assert.ok(
-      ids.includes(expected),
-      `the superuser did not enumerate "${expected}" — a scope they hold no membership in. ` +
-      `Got ${ids.length} scope(s): ${ids.join(', ')}`,
-    );
+  assert.ok(
+    ids.includes(someUniverse),
+    `the superuser did not enumerate "${someUniverse}" — a scope they hold no membership in. ` +
+    `Got ${ids.length} scope(s): ${ids.join(', ')}`,
+  );
+  // The summary descended into the app only if the budget reached it; when it did, the tenant is there.
+  if (ids.includes(`${someUniverse}.app`)) {
+    assert.ok(ids.includes(`${someUniverse}.app.tenant`),
+      `the summary listed "${someUniverse}.app" without its tenant: ${ids.join(', ')}`);
+  }
+  // Run in both venues, so the frontier path is exercised on a small tree too.
+  // Mutation: let `expandScope` answer an empty level for the platform membership → reds.
+  const atUniverse = await connectDriver(stack, {
+    scope: someUniverse, session: { accessToken: platform.accessToken, sub: claims.sub },
+  });
+  try {
+    const listed: string[] = [];
+    let after: string | undefined;
+    do {
+      const page = await atUniverse.client.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+        (atUniverse.client.ctn<NebulaAuthFacade>() as any).expandScope(after ? { after } : undefined),
+      ) as { children: { scope: string }[]; nextCursor?: string };
+      listed.push(...page.children.map((c) => c.scope));
+      after = page.nextCursor;
+    } while (after);
+    assert.ok(listed.includes(`${someUniverse}.app`),
+      `the superuser's expandScope on "${someUniverse}" did not list its app: ${listed.join(', ')}`);
+  } finally {
+    atUniverse.dispose();
   }
 
   // ── LIMB 5: a host the parse refuses is refused explicitly, even here ────────────────────────

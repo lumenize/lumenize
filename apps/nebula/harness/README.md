@@ -20,7 +20,7 @@ HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts    # stream wrangler-dev st
 **Requires Docker Desktop** — the apps/nebula build-box image builds at `wrangler dev` boot (a cold
 build takes a few minutes). The harness probes `docker info` and exits non-zero if it's absent.
 It reads the signing key from the repo-root `.dev.vars` (symlinked into `apps/nebula`); no prod
-creds needed for local (`--local` drops the remote AI / send_email bindings).
+creds needed for local (`--local` drops the remote AI binding).
 
 ## Identity — a REAL email login by default
 
@@ -85,8 +85,8 @@ gateway refuses each. They are negative controls, never a login, and never reach
 ## Boot mode — NO `--local` (uses your wrangler OAuth session)
 
 `bootDevStack` boots exactly like `npm run dev` — plain `wrangler dev`, no `--local`. It relies on
-your `wrangler login` OAuth session for the remote `AI` / `send_email` bindings (Phase-1 driving
-uses neither; the AI binding being remote only incurs charges if a codegen scenario calls it).
+your `wrangler login` OAuth session for the remote `AI` binding, which incurs charges only if a
+codegen scenario calls it. Mail goes through Resend, by `EMAIL_PROVIDER` in `wrangler.jsonc`.
 
 ⚠️ **Do NOT pass `--local`.** An earlier auto-detect (`--local` when `CLOUDFLARE_API_TOKEN` was
 absent from `process.env`) was wrong locally — a `wrangler login` session isn't a token env var — and

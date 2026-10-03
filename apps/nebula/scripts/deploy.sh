@@ -78,12 +78,7 @@ echo "▸ AUTH_EMAIL_FROM resolves to: ${EMAIL_FROM:-<UNSET — falls back to th
 echo "▸ R2: the platform blob bucket must exist before the binding does (create-if-missing)"
 wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs(\s|$)' || wrangler r2 bucket create nebula-blobs
 echo "▸ wrangler deploy (worker bundle + DevContainer image)"
-# EMAIL_PROVIDER=resend is DEPLOY-SCOPED on purpose (decided 2026-08-09: prod sends via Resend over
-# CF Email Sending deliverability). It must NOT live in wrangler.jsonc `vars`: every local lane
-# (`npm run dev`, the /live harness, its derived no-container config) boots that file, and a blanket
-# var would flip them off the CF Routing catch-all that `waitForEmail` depends on. This script is
-# the single prod-deploy home, so a var passed here reaches exactly the deployed worker.
-wrangler deploy --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}"
+wrangler deploy "${WRANGLER_DEFINE_ARGS[@]}"
 
 # 5. Self-check the freshly-built worker is live AND serving the bytes we just built — the public
 #    compare endpoint `/_version`. It discloses nothing, needs no admin token; a reply at all =

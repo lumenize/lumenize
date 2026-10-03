@@ -129,11 +129,10 @@ const testModeBindings = {
 
 // --- Opt-out gating for the secret-less lane (mirrors packages/auth/vitest.config.js) ---
 // The `browser` project's globalSetup spawns `wrangler dev` against
-// test/browser/worker, whose email binding is `remote: true` — that proxy
-// authenticates to Cloudflare at spawn time, and the project also needs a
-// Playwright chromium the secret-less Claude-hosted lane doesn't provide. A
-// remote/browser project can't be kept partly alive (the proxy + globalSetup run
-// for the whole project), so omit it wholesale in that lane. Signal = the OPT-OUT
+// test/browser/worker, and the project needs a Playwright chromium the
+// secret-less Claude-hosted lane doesn't provide. A browser project can't be
+// kept partly alive (globalSetup runs for the whole project), so omit it
+// wholesale in that lane. Signal = the OPT-OUT
 // flag LUMENIZE_NO_CF_REMOTE, set ONLY by the secret-less lane; local
 // (`wrangler login` OAuth) and CI (CLOUDFLARE_API_TOKEN job env) leave it unset,
 // so the browser canary runs there.
@@ -142,7 +141,7 @@ const includeCfRemote = !process.env.LUMENIZE_NO_CF_REMOTE;
 // SO — so a green run in the hosted / no-creds lane is never mistaken for full
 // coverage (incl. by an agent reporting "tests pass"). CI never sets the flag.
 if (!includeCfRemote) {
-  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING the `browser` project (real-browser + wrangler-dev remote-email path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
+  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING the `browser` project (real-browser + wrangler-dev email path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
 }
 
 export default defineConfig({
