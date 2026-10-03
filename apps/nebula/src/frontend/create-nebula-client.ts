@@ -65,6 +65,13 @@ const log = debug('lumenize.nebula-frontend');
 // returns a component instance, use `instance.scope` as the lifecycle scope.
 // The component's scope is disposed automatically when the component unmounts,
 // so registered `onScopeDispose` callbacks fire at the right time.
+//
+// Vapor components (Vue 3.6 `<script setup vapor>`) are the opposite case:
+// `getCurrentInstance()` is null on their re-renders, but their render effects
+// DO run inside the component's scope (and each `v-for` item's), so the
+// `getCurrentScope()` branch in `trackRead` carries them and this fallback is
+// never reached. Measured, with a mutation witness, in
+// experiments/vue-vapor-autosubscribe/RESULTS.md.
 function getActiveVueScope(): EffectScope | null {
   const instance = getCurrentInstance() as { scope?: EffectScope } | null;
   return instance?.scope ?? null;

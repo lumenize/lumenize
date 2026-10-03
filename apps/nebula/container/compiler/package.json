@@ -6,7 +6,7 @@
   "dependencies": {
     "typescript": "^5.9.2",
     "esbuild": "^0.24.0",
-    "@vue/compiler-sfc": "^3.5.13",
+    "@vue/compiler-sfc": "3.6.0-rc.10",
     "@lumenize/ts-runtime-parser-validator": "file:./packages/ts-runtime-parser-validator",
     "@typia/core": "file:./packages/ts-runtime-parser-validator/forks/typia/core",
     "@typia/transform": "file:./packages/ts-runtime-parser-validator/forks/typia/transform",
