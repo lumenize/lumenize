@@ -1,62 +1,49 @@
-# Nebula Studio UI (dev — rough first cut)
+# Lumenize Studio UI
 
-The chat-first authoring SPA: talks to **DevStudio** over mesh and embeds the running
-**Preview app** in an iframe. This is a deliberately rough first cut to iterate on by
-playing — see *Limitations* below.
+The two Vue apps a person sees. The auth screens run on the platform host: login, the page an
+emailed link opens, the signup page, Home and logout. Studio runs on each app's own host, chat beside
+the app's dev tab, which it frames from the app's `.dev` Star host. Every scope's page is its own
+host (ADR-021), and every session lives on the platform host (ADR-022).
 
-## Login model — everyone self-provisions, one uniform way
+## Signing in
 
-There is **no dev-only login shortcut**. Real users, tests, and you all log in the same way:
+Everyone signs in the one way, by an emailed link followed as sent; there is no dev-only shortcut.
 
-1. **Enter your email → "Send magic link".** The Studio resolves your scope via **discovery**
-   at `/auth/login` (scope-less — nothing about the address is known before the click), then sends a
-   magic link. Click the link in your email → you land on Home and choose where to go →
-   you land authenticated.
-2. **First run (no scope yet)** → the form offers to **claim a Universe slug**; claiming sends the
-   magic link to the new scope. First access seeds you as its root admin.
-3. **Returning** → the Studio remembers your last scope (localStorage) and auto-connects when a
-   valid refresh cookie is present; otherwise it shows the email form again.
-
-An explicit `?scope=<id>` query param **overrides discovery** for a fixed scope — used by the
-Playwright `ui-smoke` lane (a dedicated `test-…` sandbox) and for manual debugging. The `test-`
-prefix is the reaper's auto-reap marker (single hyphen — `parse-id` rejects consecutive hyphens).
+1. **Enter your email** on the platform host's login page, and click the link that arrives. Its page
+   is a consent screen: Continue signs you in, and Accept takes up a pending membership as well.
+2. **Home** lists everything your browser's cookies open, one card per person, and goes straight into
+   an account's only app.
+3. **An address with nowhere to go** gets the signup page instead, which names an account and its
+   first app.
 
 ## Run (local dev — two processes)
 
 Prereqs: Docker Desktop running (`docker context use desktop-linux`).
 
-1. **One-time** — add to the **gitignored** root `/.dev.vars` (local-only; never committed or
-   deployed):
-   ```
-   NEBULA_AUTH_BOOTSTRAP_EMAIL=dev@example.com
-   ```
-   This seeds the first-login admin for the local `wrangler dev` lanes (it's an admin seed, not a
-   bypass flag). Then run `npm install` at the **repo root** to register this workspace.
+1. **One-time** — set `NEBULA_AUTH_BOOTSTRAP_EMAIL` in the **gitignored** root `/.dev.vars`
+   (local-only; never committed or deployed): the address that holds the platform root's admin
+   membership on the local stacks. Then run `npm install` at the **repo root**.
 
 2. **One command (recommended)** — from the repo root, `npm run dev:studio`. It opens both
    processes in titled Terminal tabs via [`ttab`](https://www.npmjs.com/package/ttab) (run via
    `npx`, no global install). **One-time:** grant your terminal **Accessibility** permission
    (System Settings ▸ Privacy & Security ▸ Accessibility → enable Terminal.app / iTerm.app), or
-   `ttab` can't open tabs. Then open <http://localhost:5174>.
+   `ttab` can't open tabs.
 
    *Or by hand (two terminals):*
-   - **Terminal A — the Worker** (API + DevContainer): `cd apps/nebula && npm run dev`
-     (`wrangler dev`, default `http://localhost:8787`).
-   - **Terminal B — the Studio UI**: `cd apps/nebula-studio-ui && npm run dev` — vite on
-     `:5174`, proxying `/auth` `/gateway` `/dev-container` → `:8787`. *(If wrangler chose a
-     non-8787 port, set `NEBULA_WORKER_URL` — `dev:studio` forwards it if you set it in your shell.)*
+   - **Terminal A — the Worker** (API + DevContainer): `cd apps/nebula && npm run dev`, which boots
+     `wrangler dev` on `:8787` from a derived config with production's `routes` stripped.
+   - **Terminal B — the Studio UI**: `cd apps/nebula-studio-ui && npm run dev` — vite on `:5174`,
+     serving every `*.lumenize.localhost` host and proxying the routes the Worker answers. *(If
+     wrangler chose a non-8787 port, set `NEBULA_WORKER_URL` — `dev:studio` forwards it if you set
+     it in your shell.)*
 
-3. **Log in with your email** (the magic link arrives by real email — local dev sends from the
-   account's verified Email Sending domain), then describe a change. The codegen loop writes the
-   generated app to the sandbox; the preview pane reloads to show it.
+3. **Open <http://platform.lumenize.localhost:5174/auth/login>** in Chrome or Firefox. Every auth
+   cookie is `Secure`; Chrome and Firefox treat a `*.localhost` host as secure and store it, and
+   Safari does not, so in Safari the click works and the next request carries no cookie.
 
-   > For a throwaway sandbox, append `?scope=test-yourname.test-app.dev` — first login at a fresh
-   > `.dev` scope makes you its root admin.
+## Limitations
 
-## Limitations (first cut — iterate from here)
-- **No HMR under the prefix yet** — the preview iframe is force-reloaded on each change
-  (HMR-through-proxy is a deferred follow-up).
-- **Discovery picker (>1 scope) is Wave 2** — the form handles exactly one resolved scope today;
-  more than one logs a pointer (use `?scope=` meanwhile).
-- **Prod serving** is via Workers Assets (the deployed Worker serves the built SPA); local dev
-  uses vite + proxy.
+- **No HMR under the dev tab** — the preview frame is reloaded on each build.
+- **Production serving** is via Workers Assets (the deployed Worker serves the built SPAs); local
+  dev uses vite and its proxy.

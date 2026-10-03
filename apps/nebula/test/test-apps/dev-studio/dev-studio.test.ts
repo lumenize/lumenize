@@ -27,7 +27,7 @@ const OID_RE = /^[0-9a-f]{40}$/;
 
 // The Galaxy is addressed by a parseId-valid {u}.{g} galaxy-tier id; its workspace
 // Star is the derived {u}.{g}.dev.
-const uniqueGalaxyScope = () => `${crypto.randomUUID()}.app`;
+const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
 
 // Direct in-DO call — returns the method's result. For LOCAL methods (no cross-DO): the mesh
 // early-ack path returns {$ack}, not the result, and these methods read only this.ctx/this.env
@@ -252,12 +252,21 @@ describe('Galaxy command surface is admin-gated (requireDominionHere)', () => {
     expect(guard({ aud: NODE })).toThrow('Admin access required');
   });
 
-  it('operand 2 — rejects an admin whose pattern does NOT cover this node, naming the scope', () => {
-    // A galaxy-scoped admin (exact pattern) reaching a SIBLING node: admin bit set, pattern misses.
+  it('operand 2 — rejects an admin whose host does NOT cover this node, naming the host and membership', () => {
+    // A galaxy-scoped admin reaching a SIBLING node: admin bit set, the host's scope misses.
     // This is the escalation the confinement closes; pre-fix it returned silently.
     const foreign = { aud: 'u.other', access: { scopeAdmin: true, authScope: 'u.other' } };
     expect(guard(foreign)).toThrow(`Admin access required for ${NODE}`);
-    expect(guard(foreign)).toThrow('your admin scope is u.other'); // distinct from operand 1
+    expect(guard(foreign)).toThrow("the calling host's scope is u.other"); // distinct from operand 1
+  });
+
+  it("operand 2, the host rule — a membership covering this node is not dominion from a host that misses it", () => {
+    // A universe admin whose token was minted on a sibling's host: the membership covers NODE, the
+    // host does not, and the message names both, so the refusal does not read as a missing role.
+    const fromSibling = { aud: 'u.other', access: { scopeAdmin: true, authScope: 'u' } };
+    expect(guard(fromSibling)).toThrow(
+      `Admin access required for ${NODE} — the calling host's scope is u.other, and the token rests on the membership at u`);
+    expect(guard({ aud: NODE, access: { scopeAdmin: true, authScope: 'u' } })).not.toThrow();
   });
 
   it('operand 3 — fails CLOSED when the callee instance name is absent', () => {
@@ -268,9 +277,10 @@ describe('Galaxy command surface is admin-gated (requireDominionHere)', () => {
   });
 
   it('admits an admin whose pattern covers this node (exact and wildcard)', () => {
-    expect(guard({ access: { scopeAdmin: true, authScope: 'u' } })).not.toThrow();
-    expect(guard({ access: { scopeAdmin: true, authScope: 'u.y' } })).not.toThrow();
-    expect(guard({ access: { scopeAdmin: true, authScope: 'nebula-platform' } })).not.toThrow();
+    expect(guard({ aud: 'u', access: { scopeAdmin: true, authScope: 'u' } })).not.toThrow();
+    expect(guard({ aud: 'u.y', access: { scopeAdmin: true, authScope: 'u.y' } })).not.toThrow();
+    // A superuser on the universe's host — the membership is the platform root, the host is `u`.
+    expect(guard({ aud: 'u', access: { scopeAdmin: true, authScope: '_platform' } })).not.toThrow();
   });
 
   it('a pattern-less admin claim is DENIED, not a TypeError (the predicate guard)', () => {
@@ -282,8 +292,8 @@ describe('Galaxy command surface is admin-gated (requireDominionHere)', () => {
 });
 
 // (The `Turns` recorder describe that lived here is DELETED with the apparatus — an agent
-// `Message` IS a codegen turn; the corpus folds into its `codegen` value object in Phase 2
-// of tasks/archive/nebula-galaxy-collapse-and-chat.md.)
+// `Message` IS a codegen turn; the corpus folds into its `codegen` value object, per
+// tasks/archive/nebula-galaxy-collapse-and-chat.md.)
 
 describe('Galaxy turn runner — single-flight latch + generation deadline', () => {
   // The criterion the deadline exists for: a NEVER-RESOLVING model call must not wedge the

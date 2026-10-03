@@ -3,10 +3,11 @@
  * extend (per-type conflict resolvers, first-run resource bootstrap). Components
  * import `{ client, store }` from here; NebulaClient never appears in component code.
  *
- * Scope is SERVER-DERIVED: the Galaxy's `/app/*` serve path injects `<meta name="nebula-scope">`
- * into the shell at serve time (activeScope/authScope/ontologyVersion from the routed
- * instance identity — never request-supplied; the wrong-Star footgun guard). The
- * prod static-serve injects the same meta. We read it here, never a URL/query value.
+ * The page names no scope: the client takes it from its first token, which the platform host's
+ * refresh mints for this page's host. The Galaxy's serve injects `<meta name="nebula-scope">` into
+ * the shell (the ontology version this app was built against, whether it is the dev Star, and the
+ * Studio origin a framed page reports to) and `<meta name="lumenize-origin">`; the factory reads
+ * the second itself.
  *
  * ⚠️ Assembled-image wiring: `@lumenize/nebula/frontend` is a private workspace package
  * (not on npm), so it is VENDORED into the container image at image build — the seed
@@ -20,8 +21,6 @@
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 
 interface NebulaScope {
-  activeScope: string; // {u}.{g}.dev in dev; the deployed star in prod
-  authScope: string;   // parent galaxy {u}.{g}
   // ABSENT until an ontology is applied. An app with no resources never needs one and boots
   // without it; the resource plane refuses per op with NoOntologyInstalledError.
   ontologyVersion?: string;
@@ -35,16 +34,10 @@ function readInjectedScope(): NebulaScope {
   return JSON.parse(content) as NebulaScope;
 }
 
-const { activeScope, authScope, ontologyVersion } = readInjectedScope();
+const { ontologyVersion } = readInjectedScope();
 
-export const { client, store, ready } = createNebulaClient({
-  ontologyVersion,
-  authScope,
-  activeScope,
-});
+// With no session, the factory sends a top-level page to log in and brings it back here, and a
+// page framed in Studio tells Studio instead; `ready` rejects either way.
+export const { client, store, ready } = createNebulaClient({ ontologyVersion });
 
-try {
-  await ready;
-} catch {
-  window.location.assign('/login');
-}
+await ready.catch(() => { /* the factory has already acted on it */ });

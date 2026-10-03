@@ -1,69 +1,92 @@
 /**
  * Live self-verification harness — PROD drive (3b + 3d + attach, consolidated).
  *
- * Drives the *deployed* Nebula at `nebula.lumenize.com` (no local boot). The Turnstile gate on the
- * unauthenticated endpoints is skipped via the authorized bypass token
- * (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`, presented as the `x-lumenize-turnstile-bypass` header) —
- * used ONLY for the one-time login, since `refresh-token` / `scope-summary` / resource reads are already
- * Turnstile-free. The login seeds a **stored refresh token** (Phase 3d) so subsequent runs refresh
- * headlessly. The refresh token is a `*`-admin credential — kept in a gitignored file, NEVER logged.
+ * Drives the *deployed* Lumenize at `lumenize.dev` (no local boot), on the platform host as a browser
+ * does. The Turnstile gate on the unauthenticated endpoints is skipped via the authorized bypass
+ * token (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`, presented as the `x-lumenize-turnstile-bypass`
+ * header) — used ONLY for the one-time login, since the refresh, Home's summary and resource reads
+ * are already Turnstile-free. The login seeds a **stored cookie jar** (Phase 3d): the platform host's
+ * refresh cookies, so later runs refresh headlessly. Those cookies are a superuser credential — kept
+ * in a gitignored file, NEVER logged.
+ *
+ * ⚠️ **This targets the POST-WIPE deployment**, like everything else on this branch: today's prod
+ * still runs the pre-wipe build, on another host. That is not a regression to fix here — it is what
+ * the wipe gate is for.
  *
  * @see tasks/archive/claude-live-verification.md — Phase 3b/3d
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Browser } from '@lumenize/testing';
+import { hostOrigin } from '@lumenize/nebula-auth/claims';
 import { readDevVar } from './harness';
 // The real-login flow itself is shared with the vitest lanes (rung 1, ADR-009) —
-// this module adds only what is prod-specific: the stored-session cache.
+// this module adds only what is prod-specific: the stored cookie jar.
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
-import { loginViaEmail, refreshAccessToken, type EmailSession } from '../../test/lib/email-login';
+import { loginViaEmail } from '../../test/lib/email-login';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
-/** Gitignored `*`-admin refresh-token store (M1: never committed, never logged). */
+/** Gitignored superuser cookie store (M1: never committed, never logged). */
 const SESSION_FILE = resolve(HARNESS_DIR, '.prod-session.json');
-/** The deployed origin. Override with NEBULA_PROD_URL. */
-export const PROD_URL = (process.env.NEBULA_PROD_URL ?? 'https://nebula.lumenize.com').replace(/\/$/, '');
+/** The deployment's origin, whose hosts the drive spells. Override with `LUMENIZE_PROD_ORIGIN`. */
+export const PROD_ORIGIN = (process.env.LUMENIZE_PROD_ORIGIN ?? 'https://lumenize.dev').replace(/\/$/, '');
+/** The platform host, where every session lives (ADR-022). */
+export const PROD_URL = hostOrigin({ kind: 'platform' }, PROD_ORIGIN, PROD_ORIGIN);
 const BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
-/** The reserved platform scope — a login here mints an `access.authScope: 'nebula-platform'` token,
- *  whose dominion is global because that scope is the ROOT of the scope tree. */
-export const PLATFORM_SCOPE = 'nebula-platform';
+/** The reserved platform scope — the ROOT of the scope tree, so a membership here has dominion
+ *  everywhere. It names no host: its cookie mints on whichever scope's page asks. */
+export const PLATFORM_SCOPE = '_platform';
 /** The harness identity. It must reach the email-test Worker: `claude@lumenize.io` has its own
  *  Email Routing rule, and any `@lumenize-test.dev` address rides that domain's catch-all. */
 export const HARNESS_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? 'claude@lumenize.io';
 
-/** A stored `*`-admin session. Shape is `EmailSession`; the alias keeps prod call sites readable. */
-type ProdSession = EmailSession;
+/** One stored cookie, as the jar holds it; `expires` round-trips as an ISO string. */
+type StoredCookie = ReturnType<Browser['getAllCookies']>[number];
 
-function readSession(): ProdSession | null {
+/** A browser holding the stored platform-host cookies, or `null` when none are stored. */
+function readSession(): Browser | null {
   if (!existsSync(SESSION_FILE)) return null;
   try {
-    return JSON.parse(readFileSync(SESSION_FILE, 'utf8')) as ProdSession;
+    const cookies = JSON.parse(readFileSync(SESSION_FILE, 'utf8')) as StoredCookie[];
+    if (!Array.isArray(cookies) || cookies.length === 0) return null;
+    const browser = new Browser();
+    for (const { name, value, expires, sameSite, ...rest } of cookies) {
+      browser.setCookie(name, value, {
+        ...rest, hostOnly: true,
+        ...(expires ? { expires: new Date(expires) } : {}),
+        ...(sameSite ? { sameSite: sameSite as 'Strict' | 'Lax' | 'None' } : {}),
+      });
+    }
+    return browser;
   } catch {
     return null;
   }
 }
 
-function writeSession(s: ProdSession): void {
-  writeFileSync(SESSION_FILE, JSON.stringify(s, null, 2));
+function writeSession(browser: Browser): void {
+  const host = new URL(PROD_URL).hostname;
+  writeFileSync(SESSION_FILE, JSON.stringify(browser.getAllCookies().filter((c) => c.domain === host), null, 2));
 }
 
 /**
- * One-time login: POST email-magic-link WITH the Turnstile-bypass header → catch the magic-link via
- * the email-test Worker → GET it to obtain the `refresh-token` cookie. Stores + returns the session.
- * Requires the harness identity (`HARNESS_EMAIL`) to be routed to the email-test Worker.
+ * One-time login on the platform host: request a link WITH the Turnstile-bypass header → catch it via
+ * the email-test Worker → press its page's Continue → accept the membership on Home. Stores the jar
+ * and returns the browser holding it. Requires `HARNESS_EMAIL` to be routed to the email-test Worker.
  */
-export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAIL): Promise<ProdSession> {
-  const session = await loginViaEmail({
+export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAIL): Promise<Browser> {
+  const browser = new Browser();
+  await loginViaEmail({
     baseUrl: PROD_URL,
     authScope,
     email,
     testToken: readDevVar('TEST_TOKEN'),
     bypassToken: readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN'),
     timeout: 120_000,
+    fetchImpl: browser.fetch,
   });
-  writeSession(session);
-  return session;
+  writeSession(browser);
+  return browser;
 }
 
 /**
@@ -72,7 +95,7 @@ export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAI
  * **Request-only** — does NOT consume the link, so no subject is created (the link expires unused).
  * Returns the received magic-link URL (proof of routing). First bit of the ADR-009 real-login harness.
  */
-export async function prodEmailSpin(email: string, authScope = PLATFORM_SCOPE): Promise<string> {
+export async function prodEmailSpin(email: string): Promise<string> {
   const bypassToken = readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN');
   const testToken = readDevVar('TEST_TOKEN');
   // ⚠️ `_scopeless` — the login request names no scope, so its mail carries no scope tag.
@@ -90,48 +113,48 @@ export async function prodEmailSpin(email: string, authScope = PLATFORM_SCOPE): 
   }
 }
 
-/** Refresh headlessly (NOT Turnstile-gated) → an access token whose `aud` is `activeScope`. */
-export async function prodRefresh(session: ProdSession, activeScope: string): Promise<string> {
-  return (await refreshAccessToken(PROD_URL, session, activeScope)).accessToken;
-}
-
 /**
- * Get a valid access token for `activeScope`: refresh the stored session if present, else log in once
- * (bypass + email) and store. This is the autonomous entry — no human, no per-request credentialing.
+ * The stored browser, or a fresh login when none is stored or its cookies no longer reach Home's
+ * summary. This is the autonomous entry — no human, no per-request credentialing.
  */
-export async function prodAccessToken(activeScope = PLATFORM_SCOPE): Promise<string> {
+export async function prodSession(): Promise<Browser> {
   const stored = readSession();
   if (stored) {
-    try {
-      return await prodRefresh(stored, activeScope);
-    } catch (e) {
-      // Refresh token lapsed/revoked → fall through to a fresh login.
-      console.error(`[prod] stored session refresh failed (${(e as Error).message.slice(0, 120)}); re-logging in`);
-    }
+    const probe = await homeSummary(stored);
+    if (probe.ok) return stored;
+    // The cookies lapsed or were revoked → fall through to a fresh login.
+    console.error(`[prod] stored session refused (${probe.status}); re-logging in`);
   }
-  const session = await prodLogin();
-  return prodRefresh(session, activeScope);
+  return prodLogin();
 }
 
 /**
- * POST /auth/scope-summary → the tree this admin reaches, budget-bounded.
- *
- * ⚠️ **Was `my-scopes`, which no longer exists.** That route returned a FLAT list with an unbounded
- * platform arm — a superuser's call read every scope in the table. `scope-summary` is `profileId`-
- * keyed and nested, descends only under ACCEPTED admin memberships, and marks what it did not
- * descend into with `childCount` rather than reading it. A caller wanting past that frontier asks
- * `expand-scope`.
- *
- * ⚠️ **This targets the POST-WIPE deployment**, like everything else on this branch: today's prod
- * still runs the pre-wipe build, where this route does not exist and `my-scopes` does. That is not a
- * regression to fix here — it is what the wipe gate is for.
+ * Refresh headlessly (NOT Turnstile-gated) as a page on `scope`'s host does → an access token whose
+ * `aud` is `scope`. A superuser's root cookie mints on any scope's page.
  */
-export async function prodEnumerate(accessToken: string): Promise<unknown> {
-  const res = await fetch(`${PROD_URL}/auth/scope-summary`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-    body: '{}',
+export async function prodRefresh(browser: Browser, scope: string): Promise<string> {
+  const page = hostOrigin({ kind: 'scope', scope }, PROD_ORIGIN, PROD_ORIGIN);
+  const res = await browser.context(page).fetch(`${PROD_URL}/auth/refresh-token`, { method: 'POST' });
+  if (!res.ok) throw new Error(`refresh-token ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return ((await res.json()) as { access_token: string }).access_token;
+}
+
+/** `POST /auth/home-summary` as Home on the platform host sends it. */
+function homeSummary(browser: Browser): Promise<Response> {
+  return browser.context(PROD_URL).fetch(`${PROD_URL}/auth/home-summary`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
   });
-  if (!res.ok) throw new Error(`scope-summary ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  return ((await res.json()) as { emails: unknown }).emails;
+}
+
+/**
+ * Home's summary → the tree this login reaches, budget-bounded, one group per Profile.
+ *
+ * It is `profileId`-keyed and nested, descends only under ACCEPTED admin memberships, and marks what
+ * it did not descend into with `childCount` rather than reading it. A caller wanting past that
+ * frontier asks the facade's `expandScope`, from that scope's page.
+ */
+export async function prodEnumerate(browser: Browser): Promise<unknown> {
+  const res = await homeSummary(browser);
+  if (!res.ok) throw new Error(`home-summary ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return ((await res.json()) as { groups: unknown }).groups;
 }

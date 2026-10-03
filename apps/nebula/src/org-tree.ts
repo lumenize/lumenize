@@ -169,8 +169,8 @@ export class OrgTree {
     const sub = cc.originAuth?.sub
     if (!sub) throw new Error('Authentication required')
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined
-    // Scope-admin bypass — a Galaxy/Universe admin holds no DAG grant, so without this they could
-    // not act on the tree they govern. NOT a Star admin (that IS a DAG `admin` grant on root).
+    // Scope-admin bypass — being a scope admin confers no DAG grant, a Star's own admin included, so
+    // without this they could not act on the tree they govern.
     //
     // ⚠️ Confined to THIS host (`hasDominionOver`), never the bare `access.scopeAdmin` bit. The bit
     // alone is not dominion: `requirePassage` deliberately admits a caller whose own scope sits
@@ -186,7 +186,7 @@ export class OrgTree {
     // through to the ordinary DAG lookup and needs a real grant. Never coerce to a sentinel:
     // it would flow into `isAtOrAbove`, where a superuser's root scope covers any string.
     const hostName = this.#getHostName()
-    if (hostName && hasDominionOver(claims?.access, hostName)) return sub
+    if (hostName && hasDominionOver(claims, hostName)) return sub
     if (!resolvePermission(this.#view, sub, nodeId, tier)) {
       throw new PermissionDeniedError(tier, nodeId)
     }
@@ -459,11 +459,12 @@ export class OrgTree {
    *      COMPLETE (it drives request-access; a query caller already named these
    *      nodes — ADR-008). Do NOT early-return on the first denial.
    *   3. **Explicit `sub` + stored `hasDominionOverHost` VERDICT** — at push time we don't hold the
-   *      subscriber's live JWT, so `requirePermission`'s scope-admin bypass (a Galaxy/Universe
-   *      admin who holds no DAG grant) is replicated here from the flag stored on the subscriber
-   *      row at subscribe time. `hasDominionOverHost:true` ⇒ ALL allowed. Otherwise
-   *      `resolvePermission` per node, which already honors a **Star** DAG `admin` grant (so a
-   *      Star admin needs no `hasDominionOverHost`).
+   *      subscriber's live JWT, so `requirePermission`'s scope-admin bypass (any admin whose
+   *      dominion reaches this host, a Star's own admin included, none of whom is granted anything
+   *      in the DAG by being an admin)
+   *      is replicated here from the flag stored on the subscriber row at subscribe time.
+   *      `hasDominionOverHost:true` ⇒ ALL allowed. Otherwise `resolvePermission` per node, which
+   *      honors the DAG grants in the tree.
    *
    * ⚠️ **This method takes no scope and no host name, so it is NOT a confinement point** — do not
    * add one, and do not claim it "inherits confinement from the store." It has TWO operand sources

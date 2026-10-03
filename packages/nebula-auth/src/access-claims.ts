@@ -4,7 +4,7 @@
  *
  * Reused by BOTH mint paths so a token minted anywhere is byte-for-byte the shape the
  * server issues:
- *   - the production Worker mint — `worker-token.mintAccessToken` (refresh / mint-narrower-token);
+ *   - the production Worker mint — `worker-token.mintAccessToken` (the refresh and the impersonation mint);
  *   - the test-util mint — {@link createNebulaTestToken} (a Node harness with the `.dev.vars` key).
  *
  * `email` and `adminApproved` are NOT claims (tasks/archive/nebula-auth-surrogate-sub.md): `email` is a
@@ -17,7 +17,7 @@
  * ([`tasks/archive/nebula-auth-decouple-from-auth.md`]) is shrinking — so new mint sites compose
  * this, never re-emit `access:{...}` inline.
  *
- * PURE by construction: imports only `./parse-id` and `./types` — no `cloudflare:workers`, and as of
+ * PURE by construction: imports only `./parse-id`, `./types` and `./hosts` — no `cloudflare:workers`, and as of
  * 2026-07-31 no crypto import either (the `jti` is a direct `crypto.randomUUID()` call) — so it is
  * safe to pull into the Node-safe `@lumenize/nebula-auth/testing` subpath, and it IS the
  * `@lumenize/nebula-auth/claims` subpath — the route by which a module in a Node-safe value graph
@@ -26,7 +26,7 @@
  * caller (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
  */
 import type { AccessEntry, ActClaim, NebulaJwtPayload } from './types';
-import { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER } from './types';
+import { ACCESS_TOKEN_TTL } from './types';
 import { isAtOrAbove } from './parse-id';
 
 // Re-exported here because this file IS the pure `@lumenize/nebula-auth/claims` subpath — the
@@ -34,8 +34,31 @@ import { isAtOrAbove } from './parse-id';
 // render) takes the constant without the root barrel's Registry DO (`cloudflare:workers`).
 export { NEBULA_SUB } from './types';
 
+// The slug grammar, for the same reason: apps/nebula's `org-ops.ts` validates an org-tree node's
+// slug with it and runs in the client bundle too.
+export { isValidSlug, MAX_SLUG_LENGTH, isAtOrAbove } from './parse-id';
+
+// The impersonation mint's refusal test, for the same reason: the client classifies a child's failed
+// re-mint with it, and runs in the browser.
+export { isImpersonationRefused } from './types';
+
+// The galaxy cap and its refusal, for the same reason: the `/live` harness runs under Node and matches
+// the refusal's wording.
+export { MAX_GALAXIES_PER_OWNER, GALAXY_CAP_MESSAGE } from './types';
+
+// The signup ticket's cookie name, the cookie cap and the access token's lifetime, for the same
+// reason: the harness presents the ticket, bounds a forged jar by the cap, and waits out the TTL.
+export { SIGNUP_TICKET_COOKIE, MINT_ALL_COOKIE_CAP, ACCESS_TOKEN_TTL } from './types';
+
+// Which host is which, for the same reason: vite's config and the harness read a host against the
+// deployment's origin with the one parse the Worker uses.
+export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo, type HostTarget } from './hosts';
+
 /** Inputs for {@link buildNebulaJwtPayload}. */
 export interface NebulaAccessClaimInput {
+  /** The deployment's issuer, `platformOrigin(deploymentOrigin(env))`. A parameter, because this
+   *  module has no `env`: each mint site threads it from the Worker's own. */
+  issuer: string;
   /** The registry-minted surrogate `sub` (one per email-in-a-scope) — the identity key. */
   sub: string;
   /** Issuing scope (universeGalaxyStarId) — becomes the minted `access.authScope`. */
@@ -63,7 +86,7 @@ export interface NebulaAccessClaimInput {
 /**
  * Build the scoped `access` entry: the issuing scope verbatim, plus `scopeAdmin: true` iff admin.
  * Every mint binds the claim to `instanceName` itself — there is no override, so a token whose
- * `authScope` is decoupled from its issuing scope is not constructible (`/mint-narrower-token`
+ * `authScope` is decoupled from its issuing scope is not constructible (the impersonation mint
  * passes the SUBJECT's scope as `instanceName`, which is the point).
  *
  * ⚠️ **The argument is not parsed here, deliberately.** Every live caller passes a server-trusted
@@ -78,7 +101,7 @@ export interface NebulaAccessClaimInput {
  * ⚠️ **That containment is NOT the property the guards need.** The old `org-tree.ts` comment
  * justified a bare-bit bypass by appealing to exactly this invariant — correct, but it establishes
  * only that the caller's ACTIVE SCOPE sits inside their dominion. The guards ask a different
- * question: is **the callee node** at or below `authScope`? `requirePassage`'s tenant branch
+ * question: is **the callee node** at or below the page's host, `aud`, for an admin? Passage
  * deliberately admits callers whose `aud` sits BELOW the node, so the two are not the same, and the
  * gap between them was the escalation. See tasks/archive/nebula-confine-admin-bypass.md.
  */
@@ -99,14 +122,12 @@ export function buildNebulaAccessEntry(
  * `#buildActingToken`) and any later cross-node mint path, so the two cannot drift on the
  * RFC semantics.
  *
- * ⚠️ **Applies to an actingToken RECORD only — never to a TOKEN.** Two live refusals key on an
- * actor chain being PRESENT, and both would fire on a session token that grew one: `router.ts`'s
- * `forwardWithSubject` withholds the tenancy summary from an impersonating caller, and
- * `worker-token.ts`'s root-identity gate refuses to re-narrow. Prepend an actor into somebody's own
- * session token and they lose their scope list and their ability to impersonate, for a reason
- * nobody intended. If a token ever seems to need this, the fix is to keep it off those two paths —
- * never to start comparing the chain's identity to the subject's, which `security.md` rule (1)
- * forbids outright.
+ * ⚠️ **Applies to an actingToken RECORD only — never to a TOKEN.** A live refusal keys on an actor
+ * chain being PRESENT and would fire on a session token that grew one: `worker-token.ts`'s
+ * root-identity gate refuses to re-narrow. Prepend an actor into somebody's own session token and
+ * they lose their ability to impersonate, for a reason nobody intended. If a token ever seems to
+ * need this, the fix is to keep it off that path — never to start comparing the chain's identity to
+ * the subject's, which `security.md` rule (1) forbids outright.
  *
  * The actor arrives as the PAIR — a bare `actorSub` would drop the `profileId` the chain is
  * supposed to carry for display — and the emitted entry matches `buildNebulaJwtPayload`'s `act`
@@ -133,6 +154,9 @@ export interface ActingTokenRecord {
   profileId: string;
   /** Authority as ASSERTED at write time. Immutable history — never read back as an authz input. */
   access?: NebulaJwtPayload['access'];
+  /** The page the call came from, whose scope bounds how far it reaches (ADR-016). Asserted history,
+   *  like `access`. */
+  aud?: string;
 }
 
 /**
@@ -150,16 +174,16 @@ export interface ActingTokenRecord {
  * the whole payload is what makes that shape impossible to write.
  */
 export function projectActingToken(claims: NebulaJwtPayload): ActingTokenRecord {
-  return { sub: claims.sub, act: claims.act, profileId: claims.profileId, access: claims.access };
+  return { sub: claims.sub, act: claims.act, profileId: claims.profileId, access: claims.access, aud: claims.aud };
 }
 
 /**
  * Build the full Nebula JWT payload (unsigned).
  *
- * Enforces the internal-consistency invariant — the active scope (`aud`) must sit at or below
- * the minted `authScope` — throwing the same error the server mint does. This is
- * defense-in-depth mirrored at `router.verifyNebulaAccessToken`: it makes an inconsistent
- * token impossible to construct here, not merely rejected downstream.
+ * Enforces the two internal-consistency invariants verification checks — the active scope (`aud`)
+ * sits at or below the minted `authScope`, and equals it for a plain membership — throwing as the
+ * server mint does. This is defense-in-depth mirrored at `verifyNebulaAccessToken`: it makes an
+ * inconsistent token impossible to construct here, not merely rejected downstream.
  */
 export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtPayload {
   const access = buildNebulaAccessEntry(input.instanceName, input.scopeAdmin);
@@ -170,9 +194,16 @@ export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtP
       `Requested scope "${input.activeScope}" is not at or below auth scope "${access.authScope}"`,
     );
   }
+  // A plain membership mints on its own host alone, so its token's host scope is its membership's.
+  // Verification refuses anything else, since passage reads `aud` and would otherwise reach below.
+  if (!access.scopeAdmin && input.activeScope !== access.authScope) {
+    throw new Error(
+      `A plain membership at "${access.authScope}" mints only for its own scope, not "${input.activeScope}"`,
+    );
+  }
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
   return {
-    iss: NEBULA_AUTH_ISSUER,
+    iss: input.issuer,
     aud: input.activeScope,
     sub: input.sub,
     exp: now + (input.ttlSeconds ?? ACCESS_TOKEN_TTL),

@@ -1,7 +1,6 @@
 /**
  * Identity authority — the load-bearing security invariants of the surrogate-`sub` +
- * NebulaAuth-dissolution model (tasks/nebula-auth-surrogate-sub.md, Phase 1 + Phase 2 success
- * criteria). Every test here is capable-of-failing: gutting the code under test reddens it.
+ * NebulaAuth-dissolution model (tasks/archive/nebula-auth-surrogate-sub.md). Every test here is capable-of-failing: gutting the code under test reddens it.
  *
  * Grounding: rung 2 (test-mode issuance) through the real Worker → registry → KV paths.
  */
@@ -11,8 +10,8 @@ import { hashString } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import {
   foundUniverse, inviteAndLogin, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse,
-  registryUrl, url, acceptMembership, claimUniverse, claimStar, createGalaxy, platformLogin,
-  expectNoSession,
+  authUrl, claimUniverse, claimStar, createGalaxy, platformLogin, verifiedClaims,
+  expectNoSession, consumeLink, lookupLink, plainLogin, refresh, refreshCookie, refreshCookiesSet,
   membershipsOf,
 } from './test-helpers';
 
@@ -21,7 +20,7 @@ const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
-const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: 'nebula-platform', scopeAdmin: true } }) as any;
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: '_platform', scopeAdmin: true } }) as any;
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
@@ -56,12 +55,12 @@ describe('Identity authority — mint only at authority points', () => {
     expect(mlResp.status).toBe(200);
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
 
-    // ⚠️ The CLICK proves their mailbox and mints NOTHING. It no longer errors: a proved address
-    // with no memberships is a new user, so they land on the signup screen — the property this test
-    // exists for is the absent mint and the absent session, and both still hold exactly.
-    const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
-    expect(clickResp.status).toBe(302);
-    expect(clickResp.headers.get('Location')).toBe('/auth/signup');
+    // ⚠️ The page's Continue proves their mailbox and mints NOTHING. It does not error: a proved
+    // address with no memberships is a new user, so they are sent to the signup page — the property
+    // this test exists for is the absent mint and the absent session, and both still hold exactly.
+    const clickResp = await consumeLink(SELF, magicLinkUrl);
+    expect(clickResp.status).toBe(200);
+    expect((await clickResp.clone().json() as { redirect: string }).redirect).toBe('/auth/signup');
     expectNoSession(clickResp);                                                 // NO refresh cookie
 
     // Negative control at a protected route: the stranger has no identity, so no membership exists.
@@ -111,15 +110,14 @@ describe('Identity authority — mint only at authority points', () => {
       await claimUniverse(SELF, second, email);
       expect(await scopeRows()).toEqual(expect.arrayContaining([first, second]));
 
-      // A click alone converges NOTHING — it is not consent. Reds against firing the retire at
-      // consume, where a mail scanner's prefetch would decide which claim survived.
-      const { tokenFor } = await clickLink(SELF, firstLink);
+      // Loading the link converges NOTHING — it is not consent. Reds against firing the retire on
+      // the page's lookup, where a mail scanner's prefetch would decide which claim survived.
+      expect((await lookupLink(SELF, firstLink)).status).toBe(200);
       expect(await scopeRows()).toEqual(expect.arrayContaining([first, second]));
-      const secondToken = (await membershipScopes(email)).includes(second) ? true : false;
-      expect(secondToken).toBe(true);
+      expect(await membershipScopes(email)).toEqual(expect.arrayContaining([first, second]));
 
-      // The Accept is what converges.
-      await acceptMembership(SELF, first, tokenFor(first));
+      // The page's Accept is what converges.
+      await clickLink(SELF, firstLink);
       const scopes = await scopeRows();
       expect(scopes).toContain(first);      // the accepted claim wins...
       expect(scopes).not.toContain(second); // ...and the superseded one is gone
@@ -135,21 +133,17 @@ describe('Identity authority — mint only at authority points', () => {
       const dropLink = await claimUniverse(SELF, drop, email);
       const keepLink = await claimUniverse(SELF, keep, email);
 
-      // Establish a real session at the claim that is about to be superseded.
-      const dropped = await clickLink(SELF, dropLink);
-      const droppedToken = dropped.tokenFor(drop);
+      // Establish a real session at the claim that is about to be superseded: a plain login places
+      // a cookie for each pending claim and accepts neither.
+      expect(dropLink).toBeTruthy();
+      const droppedToken = (await plainLogin(SELF, email)).tokenFor(drop);
 
-      const { tokenFor } = await clickLink(SELF, keepLink);
-      await acceptMembership(SELF, keep, tokenFor(keep));
+      await clickLink(SELF, keepLink); // the keep claim's Accept retires the other
 
-      // Probed same-scope per `security.md` — the cookie's own path, which is the only shape that
-      // can fail. Reds if the retire deletes rows without revoking sessions: the slug would be free
-      // for a stranger to claim while its previous holder still held a live admin token for it.
-      const resp = await SELF.fetch(new Request(url(drop, 'refresh-token'), {
-        method: 'POST',
-        headers: { Cookie: `refresh-token=${droppedToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: drop }),
-      }));
+      // Probed from the dropped scope's own page, the only shape that can fail. Reds if the retire
+      // deletes rows without revoking sessions: the slug would be free for a stranger to claim while
+      // its previous holder still held a live admin token for it.
+      const resp = await refresh(SELF, drop, refreshCookie(drop, droppedToken));
       expect(resp.status).toBe(401);
     });
 
@@ -162,12 +156,11 @@ describe('Identity authority — mint only at authority points', () => {
       // only the TIER conjunct separates them. Reds if the trigger is untiered.
       const host = await foundUniverse(SELF, uniqueUniverse(), `host-${crypto.randomUUID().slice(0, 6)}@example.com`);
       const galaxy = `${host.parsed.access.authScope}.app`;
-      await createGalaxy(SELF, galaxy, host.access_token);
+      await createGalaxy(galaxy, host.access_token);
       const star = `${galaxy}.tenant`;
       const starResp = await claimStar(SELF, star, email);
       const { magicLinkUrl } = await starResp.json() as { magicLinkUrl: string };
-      const { tokenFor } = await clickLink(SELF, magicLinkUrl);
-      await acceptMembership(SELF, star, tokenFor(star));
+      await clickLink(SELF, magicLinkUrl); // the star claim's Accept
 
       expect(await scopeRows()).toContain(pending); // the pending Universe is untouched
     });
@@ -198,9 +191,7 @@ describe('Identity authority — mint only at authority points', () => {
       // state, so a bare `acceptedAt IS NULL` target set would delete another tenant's live scope
       // the moment this address accepted a Universe of their own.
       const own = uniqueUniverse();
-      const link = await claimUniverse(SELF, own, email);
-      const { tokenFor } = await clickLink(SELF, link);
-      await acceptMembership(SELF, own, tokenFor(own));
+      await clickLink(SELF, await claimUniverse(SELF, own, email)); // the claim page's Accept
 
       expect(await scopeRows()).toContain(invitedScope);
       expect(await membershipScopes(email)).toEqual(expect.arrayContaining([own, invitedScope]));
@@ -217,9 +208,7 @@ describe('Identity authority — mint only at authority points', () => {
       });
 
       const fresh = uniqueUniverse();
-      const link = await claimUniverse(SELF, fresh, email);
-      const { tokenFor } = await clickLink(SELF, link);
-      await acceptMembership(SELF, fresh, tokenFor(fresh));
+      await clickLink(SELF, await claimUniverse(SELF, fresh, email)); // the claim page's Accept
 
       // An un-consumable claim is nobody's live intention — retiring it would be destruction with
       // no user act behind it at all. Reds if the TTL conjunct is dropped.
@@ -249,7 +238,7 @@ describe('Identity authority — adminApproved retired, enforced at MINT (edge g
     // Request a login link for an uninvited email, click it → rejected → NO refresh KV record exists.
     const mlResp = await requestMagicLink(SELF, 'ghost@example.com');
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
-    const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
+    const clickResp = await consumeLink(SELF, magicLinkUrl);
     expectNoSession(clickResp);                                // no token minted
     // And no refresh KV record was written for this scope — the mint never happened. (The click set no
     // cookie, so we can't derive a tokenHash; assert directly that consume left the KV token-space empty
@@ -331,17 +320,13 @@ describe('Logout deletes the KV record', () => {
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     expect(await kvRecord(admin.refreshToken)).not.toBeNull();
 
-    const logoutResp = await SELF.fetch(new Request(`http://localhost/auth/${uni}/logout`, {
-      method: 'POST', headers: { Cookie: `refresh-token=${admin.refreshToken}` },
+    const logoutResp = await SELF.fetch(new Request(authUrl('logout'), {
+      method: 'POST', headers: { Cookie: refreshCookie(uni, admin.refreshToken) },
     }));
     expect(logoutResp.status).toBe(200);
     expect(await kvRecord(admin.refreshToken)).toBeNull(); // KV record deleted
 
-    const refreshResp = await SELF.fetch(new Request(`http://localhost/auth/${uni}/refresh-token`, {
-      method: 'POST',
-      headers: { Cookie: `refresh-token=${admin.refreshToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: uni }),
-    }));
+    const refreshResp = await refresh(SELF, uni, refreshCookie(uni, admin.refreshToken));
     expect(refreshResp.status).toBe(401); // revoked
   });
 
@@ -362,21 +347,13 @@ describe('Logout deletes the KV record', () => {
     await (env as any).REFRESH_TOKEN_KV.delete(`refresh:${await hashString(admin.refreshToken)}`);
     expect(await kvRecord(admin.refreshToken)).toBeNull();
 
-    const resp = await SELF.fetch(new Request(`http://localhost/auth/${uni}/refresh-token`, {
-      method: 'POST',
-      headers: { Cookie: `refresh-token=${admin.refreshToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: uni }),
-    }));
+    const resp = await refresh(SELF, uni, refreshCookie(uni, admin.refreshToken));
     expect(resp.status).toBe(200);                             // resurrected — the index row is authoritative on a miss
     expect(await kvRecord(admin.refreshToken)).not.toBeNull(); // and self-healed back into KV
 
     // A REAL revoke removes both, so it sticks.
-    await registry.revokeRefreshToken(await hashString(admin.refreshToken));
-    const after = await SELF.fetch(new Request(`http://localhost/auth/${uni}/refresh-token`, {
-      method: 'POST',
-      headers: { Cookie: `refresh-token=${admin.refreshToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: uni }),
-    }));
+    await registry.logoutSessions([await hashString(admin.refreshToken)], false);
+    const after = await refresh(SELF, uni, refreshCookie(uni, admin.refreshToken));
     expect(after.status).toBe(401);
   });
 
@@ -402,7 +379,7 @@ describe('Logout deletes the KV record', () => {
     expect((await indexed()).filter((h: string) => hashes.includes(h))).toHaveLength(2);
 
     // Revoke ONLY the first.
-    await registry.revokeRefreshToken(hashes[0]!);
+    await registry.logoutSessions([hashes[0]!], false);
 
     const rows = await indexed();
     expect(rows).not.toContain(hashes[0]);          // the revoked one is gone from BOTH stores
@@ -420,53 +397,52 @@ describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-co
     await (env as any).REFRESH_TOKEN_KV.delete(`refresh:${await hashString(admin.refreshToken)}`);
     expect(await kvRecord(admin.refreshToken)).toBeNull();
 
-    const refreshed = await refreshAndParse(SELF, uni, admin.refreshToken); // fallback path
-    expect(refreshed.parsed.sub).toBe(admin.parsed.sub);
-    expect(refreshed.parsed.access.scopeAdmin).toBe(true);
+    const resp = await refresh(SELF, uni, refreshCookie(uni, admin.refreshToken)); // fallback path
+    expect(resp.status).toBe(200);
+    // A miss the index answers is a propagation gap, not a revocation, so the cookie is NOT expired.
+    // Reds against expiring on the first KV miss, which in a browser drops the cookie and 401s the
+    // next refresh.
+    expect(refreshCookiesSet(resp).has(uni)).toBe(false);
+    const { access_token } = await resp.json() as { access_token: string };
+    expect((await verifiedClaims(access_token)).sub).toBe(admin.parsed.sub);
     // Self-healed: the record is back in KV, so the NEXT refresh hits KV directly (no fallback).
     expect(await kvRecord(admin.refreshToken)).not.toBeNull();
+    expect((await refresh(SELF, uni, refreshCookie(uni, admin.refreshToken))).status).toBe(200);
   });
 
   it('a bogus refresh token (no index row) → 401, not a fallback mint', async () => {
     const uni = uniqueUniverse();
     await foundUniverse(SELF, uni, 'scope-admin@example.com');
-    const resp = await SELF.fetch(new Request(`http://localhost/auth/${uni}/refresh-token`, {
-      method: 'POST',
-      headers: { Cookie: 'refresh-token=totally-bogus', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: uni }),
-    }));
+    const resp = await refresh(SELF, uni, refreshCookie(uni, 'totally-bogus'));
     expect(resp.status).toBe(401);
   });
 });
 
-describe('M1 — refresh activeScope validated against the KV record scope, not client input', () => {
-  it('rejects an activeScope outside the KV record scope; accepts one within it', async () => {
+describe('M1 — a refresh mints only for a host the membership covers', () => {
+  it('refuses a page on a host the cookie\'s membership does not cover; mints one beneath it', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
-    // Within the universe admin's `{uni}.*` reach (KV record scope is the universe) → accepted.
+    // Beneath the universe admin's membership → minted, for that page.
     const ok = await refreshAndParse(SELF, uni, admin.refreshToken, `${uni}.app.tenant`);
     expect(ok.parsed.aud).toBe(`${uni}.app.tenant`);
 
-    // A scope the KV record does NOT cover → 403 (derived from the server-trusted record, not input).
-    const bad = await SELF.fetch(new Request(`http://localhost/auth/${uni}/refresh-token`, {
-      method: 'POST',
-      headers: { Cookie: `refresh-token=${admin.refreshToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: 'some-other-universe.app' }),
-    }));
-    expect(bad.status).toBe(403);
+    // A host the membership does NOT cover → 401, since no cookie at or above it is a candidate.
+    const bad = await refresh(SELF, 'some-other-universe.app', refreshCookie(uni, admin.refreshToken));
+    expect(bad.status).toBe(401);
+    expect((await bad.json() as { error: string }).error).toBe('invalid_token');
   });
 });
 
-describe('delete-scope — sub-first, fail-closed (M2)', () => {
-  it('fails CLOSED when callerSub resolves to no identity (403), not "no other users → wipe"', async () => {
+describe('scope deletion — sub-first, fail-closed (M2)', () => {
+  it('fails CLOSED when the caller\'s sub resolves to no identity (403), not "no other users → wipe"', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const registry = getRegistry();
-    // A callerSub with no Identity row → the caller-exclusion in `affectedUsers` can't be computed,
-    // so the warning would silently under-count → refuse rather than return a lying plan.
+    // A caller `sub` with no membership row → the caller-exclusion in `affectedUsers` can't be
+    // computed, so the warning would silently under-count → refuse rather than return a lying plan.
     await expect(
-      registry.executeScopeDeletion(uni, 'ghost-sub-with-no-identity', admin.parsed.access, admin.parsed),
+      registry.executeScopeDeletion(uni, { ...admin.parsed, sub: 'ghost-sub-with-no-identity' }),
     ).rejects.toThrow(/not found|forbidden/i);
   });
 
@@ -479,25 +455,19 @@ describe('delete-scope — sub-first, fail-closed (M2)', () => {
     // Invite a second member into the universe → shared.
     await inviteAndLogin(SELF, uni, admin.access_token, 'member@example.com');
 
+    // The Registry's own methods, handed the claims of the admin's verified token as the facade
+    // hands them — this lane has no Gateway to reach the facade through.
+    const claims = await verifiedClaims(admin.access_token);
     // The plan reports the other member (bounded warning) …
-    const planResp = await SELF.fetch(new Request(registryUrl('delete-scope-plan'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: uni }),
-    }));
-    expect(planResp.status).toBe(200);
-    const plan = await planResp.json() as any;
+    const plan = await getRegistry().planScopeDeletion(uni, claims) as any;
     expect(plan.affectedUsers.total).toBe(1);
     expect(plan.affectedUsers.sample).toEqual([{ instanceName: uni, email: 'member@example.com' }]);
 
     // … and the delete SUCCEEDS. Reds against the removed `409 scope_in_use`.
-    // Drive the real Worker path (router injects the verified caller `sub`; registry resolves it → email).
-    const resp = await SELF.fetch(new Request(registryUrl('delete-scope'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: uni }),
-    }));
-    expect(resp.status).toBe(200);
+    const executed = await getRegistry().executeScopeDeletion(uni, claims) as any;
+    // The universe and the first app its claim wrote beneath it.
+    expect(executed.affected.map((a: any) => a.instanceName).sort())
+      .toEqual([uni, `${uni}.first`, `${uni}.first.dev`]);
   });
 });
 
@@ -507,19 +477,14 @@ describe('Scopes is the existence authority — existence is NOT derived from Id
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const registry = getRegistry();
 
-    // Create a galaxy in-session (admin) — a Scopes row with NO admin identity identity (wildcard-managed).
-    const createResp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ universeGalaxyId: `${uni}.app` }),
-    }));
-    expect(createResp.status).toBe(201);
+    // Create a galaxy in-session (admin) — a Scopes row with NO identity (managed by dominion).
+    await createGalaxy(`${uni}.app`, admin.access_token);
 
     expect(await registry.checkSlugAvailable(`${uni}.app`)).toBe(false); // exists (reds if derived from Identity)
     // The Home tree surfaces it although NOBODY is a member there — the descent reads `Scopes`, and
     // that is the property this assertion has always been about (it outlived `myScopeTree`, whose
     // JSDoc named the same reason: an email-keyed read would not find a galaxy just created).
-    const summary = await registry.getScopeSummary(admin.parsed.profileId, admin.parsed.sub);
+    const summary = await registry.getScopeSummary(admin.parsed.profileId);
     const flat = (n: any): string[] => [n.scope, ...(n.children ?? []).flatMap(flat)];
     const tree = summary.emails.flatMap((e: any) => e.memberships.flatMap(flat));
     expect(tree).toContain(`${uni}.app`);                                // discoverable though member-less
@@ -705,13 +670,11 @@ describe('verification is per-ADDRESS, acceptance is per-MEMBERSHIP', () => {
     expect(invC.errors).toHaveLength(0);
     expect((await state(email)).byScope[c]).toBeNull();
 
-    // Accept ONLY B's invite. ⚠️ The click alone no longer takes anything up — it proves the mailbox
-    // and mints (inert) cookies; the consent modal's endpoint is the one writer of acceptance. That
-    // split is what this test's scoping assertion now exercises.
+    // Accept ONLY B's invite, through its own page: the Accept takes up the membership the link
+    // names, never every pending one the address holds. That is what the scoping assertion exercises.
     const inviteLink = inv.results[0]?.inviteUrl;
     expect(inviteLink).toBeTruthy();
-    const { tokenFor } = await clickLink(SELF, inviteLink!);
-    await acceptMembership(SELF, b, tokenFor(b));
+    await clickLink(SELF, inviteLink!); // the invite page's Accept takes up B alone
 
     const afterAccept = await state(email);
     expect(afterAccept.byScope[b]).not.toBeNull();          // B is now taken up...

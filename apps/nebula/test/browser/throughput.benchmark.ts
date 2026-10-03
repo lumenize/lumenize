@@ -29,6 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { withCommitStamp } from './bench-commit-stamp';
 import { ThroughputHarnessClient } from './throughput-harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
@@ -276,13 +277,12 @@ describe('parse-validate throughput', () => {
     // 1. Bootstrap admin at galaxy scope.
     const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
     const client = new ThroughputHarnessClient({
-      baseUrl,
-      authScope: universeScope,
-      activeScope: galaxyScope,
+      baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+      platformOrigin: baseUrl,
       ontologyVersion: 'v1',
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });

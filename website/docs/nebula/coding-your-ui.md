@@ -196,7 +196,7 @@ For richer status UI (color-coded badges, "last connected X minutes ago" tooltip
 
 ## Current user (`client.claims`)
 
-The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by nebula-auth), `aud` (audience), `access` (the user's scope grant — `{ authScope, scopeAdmin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
+The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by nebula-auth), `aud` (the scope of this page's host, which is what the token can act from), `access` (the membership the token rests on — `{ authScope, scopeAdmin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
 
 `client.claims` is `null` until the client's first token refresh completes, and `client` is not reactive — a `v-if` gated on it never re-evaluates. Studio-generated apps never see that window: the bootstrap top-level-awaits the factory's `ready` promise before the app mounts, so claims are populated before any component renders. That contract is pinned at [API reference § client.claims](./api-reference.md#clientclaims); the examples below rely on it. Outside a Studio bootstrap (admin tools, scripts), guard with `client.claims?.`.
 
@@ -212,7 +212,7 @@ The same `client.claims.sub` keying works in script too — the [Forms](#forms-e
 "Admin" has **two** independent sources, and admin-only UI checks both:
 
 - **App admin** — a user holding `admin` on the relevant org-tree node. App-wide admin is `admin` on the root node; per-area admin is `admin` (directly or cascaded) on that area's node. This lives in the reactive tree at `store.lmz.orgTree`, so the UI tracks grants as they change.
-- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.scopeAdmin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
+- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.scopeAdmin`. They have effective admin over this page's scope and everything beneath it, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
 
 A `computed` that covers both:
 
@@ -232,7 +232,7 @@ const isAppAdmin = computed(() =>
 <button v-if="isAppAdmin" class="btn">Admin settings</button>
 ```
 
-`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; the JWT `aud`-lock on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
+`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; passage and dominion, read from the page's host, on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
 
 `client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: LumenizeClient](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
 
@@ -324,8 +324,8 @@ import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 const sub = client.claims.sub;
 
 // Create the list under a node the user can write to. This demo signs in as
-// the Star's initial DataPlane root admin, who holds `admin` on the root node (granted when the
-// Star was created), so resources attach under ROOT_NODE_ID. In a multi-user
+// the Star's admin, who may write anywhere in the Star's tree without a grant of
+// their own, so resources attach under ROOT_NODE_ID. In a multi-user
 // app, attach under whatever node the user was granted — see "Mutating the
 // org/permission tree" for how access is granted.
 if (await client.resources.read('todoList', sub) === null) {

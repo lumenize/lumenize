@@ -4,8 +4,8 @@
  * `originRequest` is what the Gateway snapshots from a client's WebSocket upgrade: its IP,
  * `User-Agent`, `Accept-Language`, and Cloudflare's `cf` city, region, latitude, longitude,
  * timezone and colo. Server-side code reads it anywhere along the chain — an emailed link is built
- * from its `origin`. But a push that keeps the writer's chain, which `lmz.broadcast` sends by default,
- * used to carry it into every subscriber's socket, so each subscriber received the WRITER's
+ * from its `origin`. But a push that keeps the writer's chain, which `lmz.broadcast` sends with
+ * `{ newChain: false }`, used to carry it into every subscriber's socket, so each subscriber received the WRITER's
  * location and browser on every write. `originAuth` still reaches the client on purpose:
  * `LumenizeClient.onBeforeCall` authorizes an incoming call from it.
  *
@@ -81,8 +81,8 @@ it("a subscriber receives the writer's originAuth, never its originRequest", asy
   });
   await vi.waitFor(() => expect(contents[0]).toBe(''), { timeout: 10000 }); // subscribed
 
-  // The push that keeps the WRITER's chain (no `newChain`) — the shape `lmz.broadcast` sends by
-  // default.
+  // The push that keeps the WRITER's chain (no `newChain`) — the shape `lmz.broadcast` sends with
+  // `{ newChain: false }`.
   writer.lmz.call('DOCUMENT_DO', documentId,
     writer.ctn<DocumentDO>().updatePreservingOrigin('hello from writer'));
   await vi.waitFor(() => expect(contents).toContain('hello from writer'), { timeout: 10000 });
@@ -112,4 +112,38 @@ it("a subscriber receives the writer's originAuth, never its originRequest", asy
   // On the bytes, so a copy anywhere else in the frame reds too. MUTATION-CHECK (run, flipped):
   // smuggle it inside `state` and only this line reds.
   expect(push.raw).not.toContain('"originRequest"');
+}, 20000);
+
+// A broadcast starts a fresh chain by default, so the push speaks for the node and carries none of
+// the writer's claims — at the handler and on the wire — while the directed push above carries them.
+// MUTATION-CHECK: restore the inherit default in `broadcastShared`, and the writer's claims are back
+// in the frame.
+it("a broadcast push carries no originAuth, at the handler and on the frame", async () => {
+  const writerSub = crypto.randomUUID();
+  const subscriberFrames: string[] = [];
+  using writer = await connectEditor(writerSub);
+  using subscriber = await connectEditor(crypto.randomUUID(), subscriberFrames);
+  const documentId = crypto.randomUUID();
+
+  const contents: string[] = [];
+  const contexts: CallContext[] = [];
+  subscriber.openDocument(documentId, {
+    onContentUpdate: (c) => contents.push(c),
+    onContentUpdateContext: (ctx) => contexts.push(ctx),
+  });
+  await vi.waitFor(() => expect(contents[0]).toBe(''), { timeout: 10000 }); // subscribed
+
+  writer.lmz.call('DOCUMENT_DO', documentId, writer.ctn<DocumentDO>().publish('broadcast from writer'));
+  await vi.waitFor(() => expect(contents).toContain('broadcast from writer'), { timeout: 10000 });
+
+  expect(contexts).toHaveLength(1);
+  expect(contexts[0].callChain).toEqual([expect.objectContaining({ bindingName: 'DOCUMENT_DO', instanceName: documentId })]);
+  expect(contexts[0].originAuth).toBeUndefined();
+
+  const pushes = subscriberFrames
+    .map((raw) => JSON.parse(raw))
+    .filter((message) => message.type === GatewayMessageType.INCOMING_CALL);
+  expect(pushes).toHaveLength(1);
+  expect(pushes[0].callContext).not.toHaveProperty('originAuth');
+  expect(JSON.stringify(pushes[0])).not.toContain(writerSub);
 }, 20000);

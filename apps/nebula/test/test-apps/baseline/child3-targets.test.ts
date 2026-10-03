@@ -20,7 +20,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor } from '@lumenize/nebula';
-import { universeAdminClient, createInvitedClient, foundAndLogin, createSubject } from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueChatScope = () => `c3t-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -54,7 +54,6 @@ describe('child3 — a turn\'s chunks reach the readers of the chat node, and no
 
     // Non-admin "granted": explicit read on the chat node.
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'granted@example.com');
     const { client: granted, payload: grantedP } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);

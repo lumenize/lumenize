@@ -1,84 +1,82 @@
 /**
  * Integration — full stack through the Worker router over the registry + KV (the dissolved-DO model,
- * tasks/nebula-auth-surrogate-sub.md). Uses `Browser` from `@lumenize/testing` for automatic RFC 6265
- * path-scoped cookie handling (the same browser holds multiple path-scoped refresh cookies and sends
- * only the matching one per request).
+ * tasks/nebula-auth-surrogate-sub.md). Uses `Browser` from `@lumenize/testing`, whose jar admits a
+ * cookie as a browser does: a `__Host-` cookie set on the platform host stays there, and a page on a
+ * scope host gets its token by a credentialed `fetch` that carries the platform host's cookies and
+ * names the page in `Origin`.
  *
- * Grounding: rung 2 (test-mode issuance) through the real claim → magic-link → refresh → invite paths.
+ * Grounding: rung 2 (test-mode issuance) through the real claim → link page → refresh → invite paths.
  */
 import { describe, it, expect } from 'vitest';
-import { SELF, env } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/crypto';
-import { NEBULA_AUTH_PREFIX } from '../src/types';
 import type { NebulaJwtPayload } from '../src/types';
-import { issueInvitesAs, membershipsOf } from './test-helpers';
+import {
+  issueInvitesAs, membershipsOf, registryStub, verifiedClaims, authUrl, scopeOrigin,
+} from './test-helpers';
 
 const getRegistry = (): any => env.NEBULA_AUTH_REGISTRY.getByName('registry');
-
-const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
-const ORIGIN = 'http://localhost';
-const authUrl = (path: string) => `${ORIGIN}${PREFIX}/${path}`;
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 
-/** Found a Universe through the browser: claim (mints the admin) → click → refresh → admin JWT. */
+/** Press a link page's button in `browser`, as the page's own same-origin `POST` does. */
+async function consumeIn(browser: Browser, linkUrl: string): Promise<Response> {
+  const token = new URL(linkUrl).searchParams.get('token');
+  return browser.fetch(authUrl('magic-link'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin' },
+    body: JSON.stringify({ token }),
+  });
+}
+
+/** The refresh as a page on `scope`'s host sends it: credentialed, no body, `Origin` set by the context. */
+function refreshFromPage(browser: Browser, scope: string): Promise<Response> {
+  return browser.context(scopeOrigin(scope)).fetch(authUrl('refresh-token'), {
+    method: 'POST', credentials: 'include',
+  });
+}
+
+/** Found a Universe through the browser: claim (mints the admin) → the claim page's Accept → refresh. */
 async function browserFoundUniverse(browser: Browser, slug: string, email: string): Promise<NebulaJwtPayload> {
   const claim = await browser.fetch(authUrl('claim-universe'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, email }),
+    body: JSON.stringify({ slug, appSlug: 'first', email }),
   });
   expect(claim.status).toBe(200);
   const { magicLinkUrl } = await claim.json() as { magicLinkUrl: string };
-  await browser.fetch(magicLinkUrl); // browser captures the path-scoped refresh cookie(s)
-  // Consent, through the browser's own cookie jar — a cookie mints nothing until its holder accepts.
-  const accept = await browser.fetch(authUrl(`${slug}/accept-membership`), {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-  });
-  expect(accept.status).toBe(200);
-  const refresh = await browser.fetch(authUrl(`${slug}/refresh-token`), {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeScope: slug }),
-  });
+  expect((await consumeIn(browser, magicLinkUrl)).status).toBe(200); // the jar captures the cookies
+  const refresh = await refreshFromPage(browser, slug);
   expect(refresh.status).toBe(200);
   const { access_token } = await refresh.json() as { access_token: string };
   return parseJwtUnsafe(access_token)!.payload as unknown as NebulaJwtPayload;
 }
 
 describe('@lumenize/nebula-auth — Integration', () => {
-  describe('Multi-session with path-scoped cookies', () => {
-    it('a single browser maintains independent path-scoped sessions across two universes; logout isolates', async () => {
+  describe('One browser, one cookie per membership, all on the platform host', () => {
+    it('a single browser holds a session per universe, each page gets its own, and one logout ends both', async () => {
       const browser = new Browser();
       const a = uni();
       const b = uni();
       await browserFoundUniverse(browser, a, 'carol-a@example.com');
       await browserFoundUniverse(browser, b, 'carol-b@example.com');
 
-      // Two distinct path-scoped refresh cookies coexist.
-      const cookies = browser.getAllCookies().filter(c => c.name === 'refresh-token');
-      expect(cookies.some(c => c.path === `${PREFIX}/${a}`)).toBe(true);
-      expect(cookies.some(c => c.path === `${PREFIX}/${b}`)).toBe(true);
+      // Two refresh cookies coexist, each named for its scope, both on the platform host at `/`.
+      const cookies = browser.getAllCookies().filter((c) => c.name.startsWith('__Host-refresh-token.'));
+      expect(cookies.map((c) => c.name).sort()).toEqual([`__Host-refresh-token.${a}`, `__Host-refresh-token.${b}`].sort());
+      for (const c of cookies) expect(c.path).toBe('/');
 
-      // Both refresh independently.
+      // Each page gets a token for its own host.
       for (const s of [a, b]) {
-        const r = await browser.fetch(authUrl(`${s}/refresh-token`), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ activeScope: s }),
-        });
+        const r = await refreshFromPage(browser, s);
         expect(r.status).toBe(200);
+        const { access_token } = await r.json() as { access_token: string };
+        expect(parseJwtUnsafe(access_token)!.payload.aud).toBe(s);
       }
 
-      // Logout from B revokes only B.
-      expect((await browser.fetch(authUrl(`${b}/logout`), { method: 'POST' })).status).toBe(200);
-      const afterB = await browser.fetch(authUrl(`${b}/refresh-token`), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: b }),
-      });
-      expect(afterB.status).toBe(401); // B revoked
-      const afterA = await browser.fetch(authUrl(`${a}/refresh-token`), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: a }),
-      });
-      expect(afterA.status).toBe(200); // A intact
+      // Logging out ends every session the browser's cookies name.
+      expect((await browser.fetch(authUrl('logout'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin' }, body: '{}',
+      })).status).toBe(200);
+      for (const s of [a, b]) expect((await refreshFromPage(browser, s)).status).toBe(401);
     });
   });
 
@@ -102,17 +100,12 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const link = mint.results[0]?.inviteUrl;
       expect(link).toBeDefined();
 
-      // The member accepts + logs in — non-admin, exact star pattern.
+      // The member accepts on the invite's page and refreshes from the star's — non-admin, exact star.
       const memberBrowser = new Browser();
-      await memberBrowser.fetch(link!);
-      const memberAccept = await memberBrowser.fetch(authUrl(`${star}/accept-membership`), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-      });
-      expect(memberAccept.status).toBe(200); // the invitee consents at the modal before any session works
-      const memberRefresh = await memberBrowser.fetch(authUrl(`${star}/refresh-token`), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: star }),
-      });
+      const memberAccept = await consumeIn(memberBrowser, link!);
+      expect(memberAccept.status).toBe(200);
+      expect((await memberAccept.json() as { redirect: string }).redirect).toBe(`${scopeOrigin(star)}/`);
+      const memberRefresh = await refreshFromPage(memberBrowser, star);
       expect(memberRefresh.status).toBe(200);
       const memberToken = (await memberRefresh.json() as { access_token: string }).access_token;
       const memberPayload = parseJwtUnsafe(memberToken)!.payload as unknown as NebulaJwtPayload;
@@ -141,40 +134,9 @@ describe('@lumenize/nebula-auth — Integration', () => {
       // Duplicate claim rejected.
       const dup = await browser.fetch(authUrl('claim-universe'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, email: 'other@example.com' }),
+        body: JSON.stringify({ slug, appSlug: 'first', email: 'other@example.com' }),
       });
       expect(dup.status).toBe(409);
-    });
-
-    it('star creation e2e (current model): a universe admin creates a galaxy then a star in-session — Scopes-only, wildcard-managed', async () => {
-      const browser = new Browser();
-      const u = uni();
-      await browserFoundUniverse(browser, u, 'owner@example.com');
-      const adminToken = await currentToken(browser, u);
-      const galaxyId = `${u}.app`;
-      expect((await browser.fetch(authUrl('create-galaxy'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ universeGalaxyId: galaxyId }),
-      })).status).toBe(201);
-
-      // The current star-creation path is create-star (admin, in-session) — a Scopes row, no admin identity,
-      // no email, managed from the admin's `${u}` scope. (Open star self-signup is a future flow.)
-      // A NON-dev slug on purpose: `.dev` is born WITH the galaxy (createGalaxy bundles it),
-      // so creating it here would be the duplicate 409, not the create-star path under test.
-      const starId = `${galaxyId}.tenant`;
-      const createStar = await browser.fetch(authUrl('create-star'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ universeGalaxyStarId: starId }),
-      });
-      expect(createStar.status).toBe(201);
-      expect((await createStar.json() as any).instanceName).toBe(starId);
-
-      // No local admin identity was minted — the admin manages it from above (their `${u}` scope
-      // token already covers the star).
-      const scopes = (await membershipsOf(getRegistry(), 'owner@example.com')).map(e => e.universeGalaxyStarId);
-      expect(scopes).toEqual([u]); // only the universe admin identity; no star-scoped admin
     });
 
     it('two universes for one email → delete one scope → the other membership remains', async () => {
@@ -192,22 +154,14 @@ describe('@lumenize/nebula-auth — Integration', () => {
 
       // The B admin deletes universe B (solo scope → no blockers). Its identity is removed.
       const bToken = await currentToken(bB, b);
-      const del = await bB.fetch(authUrl('delete-scope'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bToken}` },
-        body: JSON.stringify({ target: b }),
-      });
-      expect(del.status).toBe(200);
+      // The Registry's own method, handed the token's verified claims as the facade hands them.
+      await registryStub().executeScopeDeletion(b, await verifiedClaims(bToken));
       expect(await disc()).toEqual([a]);
     });
   });
 });
 
-/** Re-mint a fresh access token for `scope` from the browser's stored refresh cookie. */
+/** Re-mint a fresh access token from a page on `scope`'s host. */
 async function currentToken(browser: Browser, scope: string): Promise<string> {
-  const r = await browser.fetch(`${ORIGIN}${PREFIX}/${scope}/refresh-token`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeScope: scope }),
-  });
-  return (await r.json() as { access_token: string }).access_token;
+  return (await (await refreshFromPage(browser, scope)).json() as { access_token: string }).access_token;
 }

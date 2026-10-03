@@ -61,6 +61,12 @@ describe('isValidSlug', () => {
   it('rejects consecutive hyphens', () => {
     expect(isValidSlug('acme--corp')).toBe(false);
   });
+
+  it('caps a slug at 30 characters', () => {
+    expect(isValidSlug('northwind-traders-international')).toBe(false); // 31
+    expect(isValidSlug('warehouse-management-system')).toBe(true);      // 27
+    expect(isValidSlug('a'.repeat(30))).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -145,11 +151,30 @@ describe('parseId', () => {
     });
   });
 
+  // The root is a name, never a scope a request may address: a reader that needs it checks
+  // `isPlatformScope` before it parses, as the refresh's cookie classification and `requirePassage` do.
   describe('platform instance', () => {
-    it('parses nebula-platform as a universe', () => {
-      const result = parseId('nebula-platform');
-      expect(result.tier).toBe('universe');
-      expect(result.universe).toBe('nebula-platform');
+    it('refuses the root, which the slug grammar refuses by its leading underscore', () => {
+      expect(isValidSlug(PLATFORM_SCOPE)).toBe(false);
+      expect(() => parseId(PLATFORM_SCOPE)).toThrow('Invalid slug');
+      expect(isPlatformScope(PLATFORM_SCOPE)).toBe(true);
+    });
+
+    it('refuses the root as a segment too', () => {
+      expect(() => parseId(`${PLATFORM_SCOPE}.app`)).toThrow('Invalid slug');
+    });
+  });
+
+  // A node named by an id is not a scope, so its name must not parse as one: a scope's guard decides
+  // passage from the parsed name. Each carries a 36-character UUID, which the grammar alone accepts.
+  describe('an id-shaped name', () => {
+    const uuid = '6f1d9c2e-4b7a-4c1e-9a3f-2d8b5e7c1a90';
+    it.each([
+      ['a profileId', uuid],
+      ["a persona's version-5 id", '0c3e9a57-1f2b-5d84-8a6e-3b9f2c7d4e15'],
+      ["a Gateway's {sub}.{tabId}", `${uuid}.k2f9x7`],
+    ])('%s does not parse', (_label, name) => {
+      expect(() => parseId(name)).toThrow('Invalid slug at position 1');
     });
   });
 });
@@ -161,12 +186,12 @@ describe('parseId', () => {
 describe('isPlatformScope', () => {
   it('identifies the reserved platform instance', () => {
     expect(isPlatformScope(PLATFORM_SCOPE)).toBe(true);
-    expect(isPlatformScope('nebula-platform')).toBe(true);
+    expect(isPlatformScope('_platform')).toBe(true);
   });
 
   it('rejects other instances', () => {
     expect(isPlatformScope('acme')).toBe(false);
-    expect(isPlatformScope('nebula-platform.something')).toBe(false);
+    expect(isPlatformScope('_platform.something')).toBe(false);
   });
 });
 
@@ -196,25 +221,25 @@ describe('getParentId', () => {
 describe('isAtOrAbove', () => {
   describe('the reserved platform scope is the ROOT of the tree', () => {
     it('is at or above a universe', () => {
-      expect(isAtOrAbove('nebula-platform', 'george-solopreneur')).toBe(true);
+      expect(isAtOrAbove('_platform', 'george-solopreneur')).toBe(true);
     });
 
     it('is at or above a star', () => {
-      expect(isAtOrAbove('nebula-platform', 'george-solopreneur.app.tenant')).toBe(true);
+      expect(isAtOrAbove('_platform', 'george-solopreneur.app.tenant')).toBe(true);
     });
 
     it('is at or above itself', () => {
-      expect(isAtOrAbove('nebula-platform', 'nebula-platform')).toBe(true);
+      expect(isAtOrAbove('_platform', '_platform')).toBe(true);
     });
 
     it('covers a target no grammar can produce — it reads only its FIRST argument', () => {
       // Deliberate: the root branch returns before comparing. A caller needing the 1–3-segment
       // grammar enforced parses at its own request boundary.
-      expect(isAtOrAbove('nebula-platform', 'a.b.c.d')).toBe(true);
+      expect(isAtOrAbove('_platform', 'a.b.c.d')).toBe(true);
     });
 
     it('does NOT make the platform scope reachable from below', () => {
-      expect(isAtOrAbove('george-solopreneur', 'nebula-platform')).toBe(false);
+      expect(isAtOrAbove('george-solopreneur', '_platform')).toBe(false);
     });
   });
 
@@ -297,7 +322,7 @@ describe('isAtOrBelow', () => {
     const pairs: [string, string][] = [
       ['george-solopreneur', 'george-solopreneur.app'],
       ['george-solopreneur.app', 'george-solopreneur'],
-      ['nebula-platform', 'george-solopreneur.app.tenant'],
+      ['_platform', 'george-solopreneur.app.tenant'],
       ['acme', 'acme-2'],
       ['george-solopreneur.app.s1', 'george-solopreneur.app.s10'],
     ];
@@ -316,8 +341,8 @@ describe('isAtOrBelow', () => {
   });
 
   it('EVERY scope sits at or below the platform root', () => {
-    expect(isAtOrBelow('george-solopreneur', 'nebula-platform')).toBe(true);
-    expect(isAtOrBelow('george-solopreneur.app.tenant', 'nebula-platform')).toBe(true);
+    expect(isAtOrBelow('george-solopreneur', '_platform')).toBe(true);
+    expect(isAtOrBelow('george-solopreneur.app.tenant', '_platform')).toBe(true);
   });
 
   it('a galaxy does NOT sit below its own star — downward is not upward', () => {
@@ -334,13 +359,43 @@ describe('isAtOrBelow', () => {
 //
 // ⚠️ Added 2026-08-16 after a verifier noticed this file imported every predicate in the module
 // EXCEPT the two that actually decide anything: both were exercised only indirectly, through
-// `requirePassage` in `apps/nebula`. In particular the **empty**-`authScope` half of the pinned
-// fail-closed contract was exercised nowhere at all.
+// `requirePassage` in `apps/nebula`. In particular the **empty**-scope half of the pinned
+// fail-closed contract was exercised nowhere at all. The scope both read is the token's `aud`.
 // ---------------------------------------------------------------------------
 
-/** The claim shape, built inline — there is nothing to get wrong in two fields. */
-const claim = (authScope?: string, scopeAdmin?: boolean) =>
-  ({ ...(authScope !== undefined ? { authScope } : {}), ...(scopeAdmin ? { scopeAdmin } : {}) }) as any;
+/**
+ * The claims a verdict reads, built inline: `aud`, the scope of the host the token was minted for,
+ * and the membership it rests on. The membership defaults to the host's scope, as a plain member's
+ * must; the host-rule tests below pull them apart.
+ */
+const claim = (aud?: string, scopeAdmin?: boolean, authScope = aud) => ({
+  ...(aud !== undefined ? { aud } : {}),
+  access: { ...(authScope !== undefined ? { authScope } : {}), ...(scopeAdmin ? { scopeAdmin } : {}) },
+}) as any;
+
+describe('the host rule — both verdicts read the host\'s scope, never the membership\'s', () => {
+  // A universe admin's token minted for a tenant's host: the membership covers everything, the host
+  // covers the tenant and nothing beside or above it.
+  const fromTenant = claim('acme.app.t1', true, 'acme');
+
+  it('dominion runs down from the host, not from the membership', () => {
+    expect(hasDominionOver(fromTenant, 'acme.app.t1')).toBe(true);
+    expect(hasDominionOver(fromTenant, 'acme.app.t2')).toBe(false);
+    expect(hasDominionOver(fromTenant, 'acme.app')).toBe(false);
+    expect(hasDominionOver(fromTenant, 'acme')).toBe(false);
+  });
+
+  it('passage runs up from the host, and never sideways', () => {
+    expect(hasPassageInto(fromTenant, 'acme.app')).toBe(true);
+    expect(hasPassageInto(fromTenant, 'acme')).toBe(true);
+    expect(hasPassageInto(fromTenant, 'acme.app.t2')).toBe(false);
+  });
+
+  it('the same membership from the universe\'s host holds all three', () => {
+    const fromUniverse = claim('acme', true);
+    for (const target of ['acme.app.t2', 'acme.app', 'acme']) expect(hasDominionOver(fromUniverse, target)).toBe(true);
+  });
+});
 
 describe('hasDominionOver', () => {
   it('is the CONJUNCTION — the bit alone is never dominion', () => {
@@ -356,7 +411,7 @@ describe('hasDominionOver', () => {
   });
 
   it('a platform admin holds dominion everywhere (the root branch, inherited)', () => {
-    expect(hasDominionOver(claim('nebula-platform', true), 'acme.app.tenant')).toBe(true);
+    expect(hasDominionOver(claim('_platform', true), 'acme.app.tenant')).toBe(true);
   });
 
   it('fails closed on an absent, empty or bit-less claim', () => {
@@ -396,7 +451,7 @@ describe('hasPassageInto', () => {
   it('EVERY authenticated caller has passage to the platform root, by construction', () => {
     // Not a leak — the root is at or above nothing, but everything is at or below IT, so the
     // upward arm admits. `nebula-do.ts`'s name reservation is what stands in front of it.
-    expect(hasPassageInto(claim('acme.app.tenant'), 'nebula-platform')).toBe(true);
+    expect(hasPassageInto(claim('acme.app.tenant'), '_platform')).toBe(true);
   });
 
   it('honours the whole-segment boundary', () => {

@@ -17,9 +17,10 @@ import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind, deriveParticipants } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { env } from 'cloudflare:test';
+import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
-import { universeAdminClient, ORIGIN } from '../../test-helpers';
+import { universeAdminClient, ORIGIN, pageOf } from '../../test-helpers';
 import { NebulaClientTest, GalaxyTest } from './index';
 
 const uniqueChatScope = () => `c3p-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -104,13 +105,16 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // (b) The misroute fence needs a fixture whose two pairs genuinely DIFFER (same-pair fixtures
     // are the safe shape — a fallback would be invisible): resources at the STAR `.dev` tier,
     // chat at the covering GALAXY. The posted Message must be readable on the GALAXY plane.
-    const { client: mixed } = await universeAdminClient(
+    const { client: mixed, payload: mixedPayload } = await universeAdminClient(
       NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, email,
       CHAT_MESSAGE_ONTOLOGY_VERSION,
       { resourceHostBinding: 'STAR', chatHostBinding: 'GALAXY', chatScope: scope },
     );
-    const posted = await mixed.postUserMessage('routed to the galaxy');
+    // From the `.dev` page this admin holds no dominion over the galaxy above it (the host rule),
+    // so its post needs the chat write a poster there is granted, given from the galaxy's page.
     const { client: galaxyReader } = await devClient(scope, email);
+    await galaxyReader.orgTree.setPermission(CHAT_NODE_ID, mixedPayload.sub, 'write');
+    const posted = await mixed.postUserMessage('routed to the galaxy');
     const snap = await galaxyReader.resources.read('Message', posted) as Snapshot;
     expect((snap.value as { content?: string }).content).toBe('routed to the galaxy');
     expect(snap.meta.nodeId).toBe(CHAT_NODE_ID);
@@ -187,6 +191,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     const coachSub = crypto.randomUUID();
     const coachProfile = crypto.randomUUID();
     const { access_token } = await createNebulaTestToken({
+      issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope: scope, instanceName: scope, scopeAdmin: true,
       sub: userSub, profileId: userProfile,
@@ -194,13 +199,12 @@ describe('child3 Phase 4 — client posts the user Message', () => {
       ttlSeconds: 3600,
     })();
     const browser = new Browser();
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(scope));
     const impersonated = new NebulaClientTest({
-      baseUrl: ORIGIN, authScope: scope, activeScope: scope,
-      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+      baseUrl: pageOf(scope), platformOrigin: ORIGIN,      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope,
       accessToken: access_token, instanceName: `${userSub}.${crypto.randomUUID().slice(0, 8)}`,
-      fetch: browser.fetch, WebSocket: browser.WebSocket,
+      fetch: ctx.fetch, WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
     });
     await vi.waitFor(() => expect(impersonated.connectionState).toBe('connected'));

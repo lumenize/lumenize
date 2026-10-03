@@ -43,7 +43,7 @@ import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionStarAdmin, loginViaEmail, refreshAccessToken } from '../../test/lib/email-login';
 import type { Star } from '@lumenize/nebula';
 
@@ -88,25 +88,25 @@ export async function run(stack: DevStack): Promise<void> {
     baseUrl: stack.baseUrl, authScope: universe, email: `owner-${subjectEmail}`,
     testToken, fetchImpl: browser.fetch,
   });
-  const admin = await refreshAccessToken(stack.baseUrl, adminSession, universe, browser.fetch);
+  // At the subject's own scope: an impersonation's child acts on its parent's page.
+  const admin = await refreshAccessToken(stack.baseUrl, adminSession, star, browser.fetch);
 
-  const ctx = browser.context(stack.baseUrl);
+  const ctx = browser.context(scopeUrlOf(stack, star));
   const adminClient = new NebulaClient({
-    baseUrl: stack.baseUrl,
-    authScope: universe,
-    activeScope: universe,
+    baseUrl: scopeUrlOf(stack, star),
+    platformOrigin: stack.baseUrl,
     // Inert — this scenario drives impersonation, never a resource op.
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     accessToken: admin.accessToken,
     instanceName: `${admin.sub}.${crypto.randomUUID().slice(0, 8)}`,
-    fetch: browser.fetch,
+    fetch: ctx.fetch,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
   });
   await waitForConnected(adminClient);
 
   // ── The impersonation, through the production capability ────────────────────────────────────────
-  const child = await adminClient.impersonate(subject.sub, star, { ttlSeconds: TTL_SECONDS });
+  const child = await adminClient.impersonate(subject.sub, { ttlSeconds: TTL_SECONDS });
   await waitForConnected(child);
 
   assert.equal(child.claims.sub, subject.sub, 'the child must BE the subject');
@@ -128,10 +128,7 @@ export async function run(stack: DevStack): Promise<void> {
 
   // Any operation forces the client through its refresh path, which is the mint helper.
   //
-  // ⚠️ **NOT a scope read.** `scopes.summary()` answers for a PERSON across every address and scope
-  // they hold, so it refuses an `act`-bearing token outright — an admin acting as someone must not
-  // receive that person's other tenancies.
-  // ⚠️ **NOT a resource read either, any more.** This used to read a `Message` and accept `null`;
+  // ⚠️ **NOT a resource read, any more.** This used to read a `Message` and accept `null`;
   // since ontologies install only by lazy pull (2026-08-30) a fresh Star has none, so ANY resource
   // read is refused as `OntologyStaleError` before the lookup — a refusal this scenario could not
   // see while the transport bug it exists for (2026-09-03: a post-lapse call sent on the stale

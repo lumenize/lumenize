@@ -18,21 +18,19 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
-import { browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
+import { foundAndLogin, ORIGIN, pageOf } from '../../test-helpers';
 
 function uniqueStar(): string {
   return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(star));
   return createNebulaClient({
-    baseUrl: ORIGIN,
-    authScope: universeOf(star),
-    activeScope: star,
+    baseUrl: pageOf(star), platformOrigin: ORIGIN,
     ontologyVersion: 'v1',
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
+    fetch: ctx.fetch,
+    WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     onShouldRefreshUI: () => {},

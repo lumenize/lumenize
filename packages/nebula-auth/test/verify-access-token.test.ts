@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { verifyNebulaAccessToken } from '../src/router';
-import { NEBULA_AUTH_ISSUER } from '../src/types';
+import { TEST_ISSUER } from './test-helpers';
 import type { NebulaJwtPayload, AccessEntry } from '../src/types';
 
 /**
@@ -21,7 +21,7 @@ async function createToken(overrides: Record<string, unknown> = {}, keyColor: 'B
   const now = Math.floor(Date.now() / 1000);
 
   const defaults: Record<string, unknown> = {
-    iss: NEBULA_AUTH_ISSUER,
+    iss: TEST_ISSUER,
     aud: 'acme.app.tenant-a',
     sub: crypto.randomUUID(),
     exp: now + 900,
@@ -85,7 +85,7 @@ describe('verifyNebulaAccessToken', () => {
       const result = await verifyNebulaAccessToken(token, env);
       expect(result).not.toBeNull();
       expect(result).toMatchObject({
-        iss: NEBULA_AUTH_ISSUER,
+        iss: TEST_ISSUER,
         aud: 'acme.app.tenant-a',
         sub,
         email: 'alice@example.com',
@@ -122,7 +122,7 @@ describe('verifyNebulaAccessToken', () => {
       const now = Math.floor(Date.now() / 1000);
       // Sign without aud field
       const token = await signJwt({
-        iss: NEBULA_AUTH_ISSUER,
+        iss: TEST_ISSUER,
         sub: crypto.randomUUID(),
         exp: now + 900,
         iat: now,
@@ -138,7 +138,7 @@ describe('verifyNebulaAccessToken', () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
-        iss: NEBULA_AUTH_ISSUER,
+        iss: TEST_ISSUER,
         aud: 'acme',
         exp: now + 900,
         iat: now,
@@ -168,7 +168,7 @@ describe('verifyNebulaAccessToken', () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
-        iss: NEBULA_AUTH_ISSUER,
+        iss: TEST_ISSUER,
         aud: 'acme',
         sub: crypto.randomUUID(),
         exp: now + 900,

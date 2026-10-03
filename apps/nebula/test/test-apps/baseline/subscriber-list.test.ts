@@ -15,14 +15,15 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { Browser } from '@lumenize/testing';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { canonicalQueryHash, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { QueryDescriptor, OntologyVersionConfig } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
+import { ORIGIN, pageOf } from '../../test-helpers';
 
-const ORIGIN = 'http://localhost';
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
@@ -40,17 +41,18 @@ async function connect(opts: {
 }): Promise<NebulaClientTest> {
   const sub = opts.sub ?? uuid();
   const { access_token } = await createNebulaTestToken({
+    issuer: platformOrigin(deploymentOrigin(env)),
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.star, instanceName: opts.star,
     scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId ?? uuid(), sub, ttlSeconds: 3600,
   })();
   const browser = new Browser();
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(opts.star));
   const client = new NebulaClientTest({
-    baseUrl: ORIGIN, authScope: opts.star, activeScope: opts.star, ontologyVersion: VERSION,
+    baseUrl: pageOf(opts.star), platformOrigin: ORIGIN, ontologyVersion: VERSION,
     resourceHostBinding: opts.binding ?? 'STAR', accessToken: access_token,
     instanceName: `${sub}.${opts.tab ?? uuid().slice(0, 8)}`,
-    fetch: browser.fetch, WebSocket: browser.WebSocket,
+    fetch: ctx.fetch, WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
   });
   clients.push(client);

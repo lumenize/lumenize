@@ -16,7 +16,9 @@ import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { TransactionResult, QuerySubscriberRow, QueryDescriptor, Snapshot } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
-import { adminClientAt, universeAdminClient, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject, ORIGIN } from '../../test-helpers';
+import {
+  adminClientAt, universeAdminClient, createInvitedClient, createPlatformAdminClient, browserLogin, createSubject, ORIGIN, pageOf,
+} from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -54,7 +56,6 @@ async function privateChild() {
   const c1 = crypto.randomUUID();
   await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
   const adminBrowser = new Browser();
-  await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
   await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
   const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P };
   return { star, a, P, priv, c1, query };
@@ -65,10 +66,10 @@ describe('a permission change and a query subscriber', () => {
     const { star, a, priv, c1, query } = await privateChild();
     const browser = new Browser();
     const { payload } = await browserLogin(browser, star, 'coach@example.com', star);
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
     const member = createNebulaClient({
-      baseUrl: ORIGIN, authScope: star, activeScope: star, ontologyVersion: VERSION,
-      fetch: browser.fetch, WebSocket: browser.WebSocket,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN, ontologyVersion: VERSION,
+      fetch: ctx.fetch, WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},
     });
@@ -109,14 +110,13 @@ describe('a permission change and a query subscriber', () => {
     );
     const posted = await owner.postUserMessage('before the grant');
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'collaborator@example.com');
     const browser = new Browser();
     const { payload } = await browserLogin(browser, scope, 'collaborator@example.com', scope);
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(scope));
     const member = createNebulaClient({
-      baseUrl: ORIGIN, authScope: scope, activeScope: scope, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION, ...pair,
-      fetch: browser.fetch, WebSocket: browser.WebSocket,
+      baseUrl: pageOf(scope), platformOrigin: ORIGIN, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION, ...pair,
+      fetch: ctx.fetch, WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},
     });
@@ -179,7 +179,7 @@ describe('a permission change and a query subscriber', () => {
   it('demote self-heal (D16): dominionOverHostAtSubscribe is derived per subscribe-time token', async () => {
     const universe = uniqueUniverse();
     const star = `${universe}.app.tenant-a`;
-    // Star-scoped admin first (sole ROOT admin grant) creates a private child.
+    // The Star's admin creates a private child.
     const { client: a, accessToken } = await admin(star);
     const P = crypto.randomUUID();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
@@ -207,7 +207,6 @@ describe('a permission change and a query subscriber', () => {
     // → DENIED. Mutation: registerQuerySubscriber hardcodes dominionOverHostAtSubscribe = 1 (keeps the
     // stale bypass) → this non-admin would WRONGLY see c1 → red.
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'demoted@example.com');
     const { client: ex } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'demoted@example.com');
     ex.callStarSubscribeQuery(star, query);

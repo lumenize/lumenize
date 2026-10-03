@@ -13,7 +13,7 @@
  *
  * The clients authenticate as a NON-scope-admin member granted `write` on ROOT, so
  * create-under-ROOT is authorized by the DAG grant alone — a `claims.access.scopeAdmin`
- * user would pass even if the grant were absent/broken (the seeded-root-admin intent).
+ * user would pass even if the grant were absent or broken, through the dominion bypass.
  *
  * Capable-of-failing: the contended run asserts the loser came back NOT `committed`
  * (the disambiguation branch ran); the serialized control asserts the second tab
@@ -40,7 +40,7 @@ async function awaitCall(c: NebulaClientTest): Promise<unknown> {
 }
 
 /**
- * Admin (scope-admin — root-admin seeding fires for it on first touch) installs the
+ * Admin (scope-admin, acting through the bypass with no grant of its own) installs the
  * ontology and grants a SECOND, non-scope-admin member `write` on ROOT. Returns
  * the member's sub so its create-under-ROOT relies on the DAG grant, not scope-admin.
  */

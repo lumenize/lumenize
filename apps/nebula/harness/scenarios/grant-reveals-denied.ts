@@ -27,7 +27,8 @@ import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
+import { refreshAccessToken } from '../../test/lib/email-login';
 import { provisionAndLogin, acceptInviteAndLogin } from '../../test/lib/email-login';
 
 export const needsContainer = true;
@@ -65,12 +66,18 @@ export async function run(stack: DevStack): Promise<void> {
       session: { accessToken: adminSession.accessToken, sub: adminSession.sub },
     });
 
-    // The ontology arrives by the REAL path: the dev Apply on the parent Galaxy, then the Star's
-    // first-touch pull when an op needs it.
+    // The ontology arrives by the REAL path: the dev Apply on the parent Galaxy, asked from Studio,
+    // the galaxy's own page (the host rule), then the Star's first-touch pull when an op needs it.
     const galaxy = star.split('.').slice(0, 2).join('.');
-    const { version } = await admin.client.lmz.callAsync(
-      'GALAXY', galaxy, admin.client.ctn<Galaxy>().applyOntology(), { timeoutMs: 240_000 },
-    ) as { version: string };
+    const studio = await connectDriver(stack, { scope: galaxy, session: await refreshAccessToken(origin, adminSession.session, galaxy) });
+    let version: string;
+    try {
+      ({ version } = await studio.client.lmz.callAsync(
+        'GALAXY', galaxy, studio.client.ctn<Galaxy>().applyOntology(), { timeoutMs: 240_000 },
+      ) as { version: string });
+    } finally {
+      studio.dispose();
+    }
 
     const pub = await admin.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'pub', 'Pub');
     const priv = await admin.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'priv', 'Priv');
@@ -87,18 +94,18 @@ export async function run(stack: DevStack): Promise<void> {
     ) as NodeInviteAck;
     assert.deepEqual(ack, { accepted: 1, errors: [] }, `node invite ack: ${JSON.stringify(ack)}`);
     const mail = await waiter.emailPromise;
-    const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(mail.html ?? '')?.[1];
-    assert.ok(href, 'the invite email carried no accept-invite link');
+    const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];
+    assert.ok(href, 'the invite email carried no magic link');
     await acceptInviteAndLogin({
       baseUrl: origin, inviteLink: href.replace(/&amp;/g, '&'), scope: star, fetchImpl: memberBrowser.fetch,
     });
 
-    // A factory client refreshing on the member's own cookie — the production shape, which
-    // watches the org tree by construction.
-    const ctx = memberBrowser.context(stack.baseUrl);
+    // A factory client on the Star's own page, refreshing on the member's own cookie against the
+    // platform host — the production shape, which watches the org tree by construction.
+    const ctx = memberBrowser.context(scopeUrlOf(stack, star));
     member = createNebulaClient({
-      baseUrl: stack.baseUrl, authScope: star, activeScope: star, ontologyVersion: version,
-      fetch: memberBrowser.fetch, sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
+      baseUrl: scopeUrlOf(stack, star), platformOrigin: stack.baseUrl, ontologyVersion: version,
+      fetch: ctx.fetch, sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},
     });
     await member.ready;

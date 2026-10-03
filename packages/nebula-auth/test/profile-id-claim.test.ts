@@ -2,7 +2,7 @@
  * Profile-store — the `profileId` mint (a column on the ADDRESS row) and the
  * bare custom `profileId` JWT claim, threaded through all THREE KV-record writers so the claim
  * survives the pure-KV refresh mint. Every test is capable-of-failing: gutting the code under test
- * reddens it. tasks/nebula-profile-store.md Phase 1.
+ * reddens it. tasks/archive/nebula-profile-store.md.
  *
  * Grounding: rung 2 (test-mode issuance) through the real Worker → registry → KV → JWT-mint paths
  * (ADR-009) — the same vehicle as identity-mint-point.test.ts. `foundUniverse`/`inviteAndLogin` mint
@@ -12,12 +12,13 @@ import { describe, it, expect } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { hashString, parseJwtUnsafe } from '@lumenize/crypto';
 import {
-  foundUniverse, inviteAndLogin, refreshAndParse, requestMagicLink, clickLink, adminRequest, mintNarrowerRequest,
+  foundUniverse, inviteAndLogin, refreshAndParse, requestMagicLink, clickLink, verifiedClaims,
 } from './test-helpers';
+import { mintImpersonationToken } from '../src/worker-token';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
-const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: 'nebula-platform', scopeAdmin: true } }) as any;
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: '_platform', scopeAdmin: true } }) as any;
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
@@ -27,7 +28,7 @@ async function kvRecord(refreshToken: string): Promise<any> {
 }
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idempotent)', () => {
+describe('profileId mint (one INSERT; a UUID distinct from sub; idempotent)', () => {
   it('claim-universe mints a profileId on the address row AND emits it as a JWT claim (rung-2 login)', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
@@ -74,7 +75,7 @@ describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idem
   });
 });
 
-describe('Phase 1 — profileId rides all THREE KV-record writers → the claim survives refresh', () => {
+describe('profileId rides all THREE KV-record writers → the claim survives refresh', () => {
   it('(a) the login record writer (#recordRefreshToken) puts profileId in the KV record', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
@@ -118,15 +119,15 @@ describe('Phase 1 — profileId rides all THREE KV-record writers → the claim 
   });
 });
 
-describe('Phase 1 — a narrower token carries the SUBJECT profileId (getIdentityScope path)', () => {
+describe('a narrower token carries the SUBJECT profileId (getIdentityScope path)', () => {
   it('a narrower token carries the SUBJECT identity profileId, never the caller', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'admin@example.com');
     const user = await inviteAndLogin(SELF, uni, admin.access_token, 'user@example.com');
 
-    const resp = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: uni });
-    expect(resp.status).toBe(200);
-    const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
+    const minted = await mintImpersonationToken(env as Env, await verifiedClaims(admin.access_token), user.parsed.sub);
+    if (!minted.ok) throw new Error(`refused: ${minted.message}`);
+    const parsed = parseJwtUnsafe(minted.accessToken)!.payload as any;
 
     expect(parsed.profileId).toBe(user.parsed.profileId);        // the SUBJECT's profile (the token acts AS them)
     expect(parsed.profileId).not.toBe(admin.parsed.profileId);   // NOT the caller's — reds if the wrong sub is used

@@ -1,4 +1,4 @@
-import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cookie-utils';
+import { Cookie, parseSetCookies, serializeCookies, cookieMatches, admitSetCookie } from './cookie-utils';
 import { getWebSocketShim } from './websocket-shim';
 import type { Metrics } from './metrics';
 import { StorageMock } from './storage-mock';
@@ -500,19 +500,13 @@ export class Browser {
       this.#inferredHostname = url.hostname;
     }
     
-    const cookies = parseSetCookies(setCookieHeaders);
-
-    for (const cookie of cookies) {
-      // Set default domain and path if not specified
-      if (!cookie.domain) {
-        cookie.domain = url.hostname;
-      }
-      if (!cookie.path) {
-        cookie.path = '/';
-      }
+    for (const parsed of parseSetCookies(setCookieHeaders)) {
+      // Admitted as a browser would: host-only without `Domain`, prefix rules enforced.
+      const cookie = admitSetCookie(parsed, url);
+      if (!cookie) continue;
 
       // Store cookie with a unique key (name + domain + path)
-      const key = this.#getCookieKey(cookie.name, cookie.domain, cookie.path);
+      const key = this.#getCookieKey(cookie.name, cookie.domain!, cookie.path!);
       this.#cookies.set(key, cookie);
     }
   }

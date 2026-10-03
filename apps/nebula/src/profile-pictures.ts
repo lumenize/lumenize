@@ -2,10 +2,15 @@
  * Profile pictures — the platform's first blob: uploaded behind a bearer, served in public.
  *
  * `picture` is a PUBLIC profile field (ADR-012): anyone holding the profileId may read it, and it
- * is rendered by `<img>` tags on every surface — Studio, a built app under `/app/*`, and later the
- * `lumenize.dev` data plane, which is a different origin. An image load carries no bearer and, cross-
- * site, no cookie, so serving MUST be unauthenticated. Holding the URL is the capability, exactly as
- * holding the profileId is for the field itself (`calibration.md` § 1 — do not gate a public thing).
+ * is rendered by `<img>` tags on every surface — Studio, a built app, Home — each on its own host.
+ * Serving is unauthenticated because holding the URL is the capability, exactly as holding the
+ * profileId is for the field itself (`calibration.md` § 1 — do not gate a public thing). There is
+ * little to gate it by in any case: an image load carries no bearer, and on a scope host no cookie of
+ * ours either, since every session lives on the platform host (ADR-022).
+ *
+ * The stored value is the relative path `/pictures/{key}`, so it names no host: no tenant's slug
+ * lands in markup another scope renders, and each `<img>` resolves it against the host that served
+ * its page, every one of which answers `/pictures`.
  *
  * The bucket is the platform's ONE blob bucket (`BLOBS`), never per-app infrastructure
  * (nebula-pre-alpha-fast-follow § blob storage). Keys are random and opaque (ADR-010) under a
@@ -78,9 +83,8 @@ export async function handlePictureUpload(request: Request, env: Env): Promise<R
     // Attribution only — never an authorization input (the serve is public by design).
     customMetadata: { profileId: jwt.profileId },
   });
-  // Absolute, from the origin the request arrived on — the same rule emailed links follow, so the
-  // URL is right wherever the Worker is being driven from (local vite, test-nebula, prod).
-  const url = `${new URL(request.url).origin}${PICTURES_PREFIX}/${segment}`;
+  // Relative, so the stored value names no host (the module JSDoc).
+  const url = `${PICTURES_PREFIX}/${segment}`;
   log.info('stored', { profileId: jwt.profileId, bytes: bytes.byteLength, type: kind.mime });
   return Response.json({ url, bytes: bytes.byteLength, type: kind.mime });
 }

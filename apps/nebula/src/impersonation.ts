@@ -6,19 +6,20 @@
  * two symbols but one seam, both read in the same constructor — and one teardown hook, reached from
  * the three end-of-session doors (`dispose()`, `logout()`, `[Symbol.dispose]()`). ⚠️ Deliberately NOT
  * `disconnect()`, which those doors route through but which application code also calls to pause a
- * connection reversibly. The only reason a `NebulaClient` would otherwise know `/mint-narrower-token`
- * exists is this feature, so the endpoint's URL, its body shape, its error mapping, the child's
- * naming rule, the chain refusal and the parent↔child registry are all here rather than smeared
- * across the client.
+ * connection reversibly. The only reason a `NebulaClient` would otherwise know the facade's
+ * `impersonate` exists is this feature, so the mint's error mapping, the child's naming rule, the
+ * chain refusal and the parent↔child registry are all here rather than smeared across the client.
+ * The call itself is built in `NebulaClient.impersonate()`, which alone holds the parent's `ctn`.
  *
  * ⚠️ **Node/browser-safe on purpose.** This module is reachable from `nebula-client.ts`, which must
  * stay importable from Node and from the Studio bundle, so it must never import
  * `@lumenize/nebula-auth`'s main barrel (that re-exports a `DurableObject` → `cloudflare:workers`).
- * Types only, from the `/client` subpath — same rule the client's own header states.
+ * Its one value import is `@lumenize/nebula-auth/claims`, the pure subpath, for the refusal test.
  *
  * @see tasks/archive/nebula-impersonation-client.md
  */
 import { debug } from '@lumenize/debug';
+import { isImpersonationRefused } from '@lumenize/nebula-auth/claims';
 
 /** What a caller may tune about the minted token. */
 export interface ImpersonateOptions {
@@ -32,7 +33,7 @@ export interface ImpersonateOptions {
    * which leaves most of a token's life outside it.
    *
    * ⚠️ **A shorter TTL does NOT shorten the caller-side revocation window**, which is the tempting
-   * misreading. Each re-mint re-runs the endpoint's gate chain, but that chain reads the CALLER's
+   * misreading. Each re-mint re-runs the mint's gate chain, but that chain reads the CALLER's
    * token for caller-side authority and the registry only for the subject — so a moved or deleted
    * *subject* ends the session at the next re-mint, while a demoted *admin* stays bounded by their
    * own token's lifetime plus KV propagation no matter how short this value is.
@@ -56,6 +57,8 @@ export const INTERNAL_PARENT = Symbol('lumenize.nebula.impersonation.parent');
 /** Exactly the parent config a child inherits. Named so the contract is a type, not a convention. */
 export interface ChildConfigBase {
   baseUrl?: string;
+  /** Inherited only to satisfy the config's shape: a child renews through its parent, never here. */
+  platformOrigin: string;
   /** Absent when the parent holds none — an app with no applied ontology still runs. */
   ontologyVersion?: string;
   fetch?: typeof fetch;
@@ -80,32 +83,19 @@ export class ImpersonationChainError extends Error {
   name = 'ImpersonationChainError';
 }
 
-/** Thrown when the endpoint refuses a mint — carries the endpoint's own status and message. */
+/**
+ * Thrown when a mint fails for good: the facade refused it, or the client it would mint through has
+ * been torn down. Retrying cannot help either way, so a child that meets one ends. A transport
+ * failure — a timeout, a disconnect — is never wrapped in one, and stays transient.
+ */
 export class ImpersonationMintError extends Error {
   name = 'ImpersonationMintError';
-  readonly status: number;
-  /** True when retrying cannot help: the gate chain now refuses this pairing. */
-  readonly terminal: boolean;
-  constructor(status: number, message: string, terminal?: boolean) {
-    super(message);
-    this.status = status;
-    // 4xx is terminal, 5xx and network failures are transient. Stated STRUCTURALLY rather than as a
-    // status list so a status the endpoint gains later inherits the right behaviour instead of
-    // falling into whichever default this happened to pick.
-    //
-    // ⚠️ The explicit override exists for failures that never had an HTTP status at all — chiefly
-    // the torn-down-parent latch, which is terminal BY CONSTRUCTION (the session it would re-mint
-    // through is over). Leaving that to the structural rule would classify it transient, and mesh
-    // would then reconnect-loop the child forever on the one signal that can never succeed.
-    this.terminal = terminal ?? (status >= 400 && status < 500);
-  }
 }
 
 /**
  * Refuse to chain. Decidable with certainty from the caller's own claims, and enforced
- * independently by the endpoint's root-identity gate — this exists to turn a structurally
- * impossible call into an accurate message rather than a 403 that reads as a problem with the
- * subject.
+ * independently by the mint's root-identity gate — this exists to turn a structurally impossible
+ * call into an accurate message rather than a refusal that reads as a problem with the subject.
  *
  * ⚠️ `claims` is genuinely nullable on the base client (`NebulaClient` only re-types it non-null),
  * so the caller must pass it as possibly-absent and this must not assume otherwise.
@@ -160,51 +150,39 @@ export function parentTabIdFrom(parentInstanceName: string): string {
 }
 
 /**
- * Mint a narrower token through the parent's authenticated transport.
+ * Mint through the parent's `impersonate` call on the facade, turning its typed refusal into an
+ * {@link ImpersonationMintError}.
  *
- * **One mint path**, used for the first mint AND every re-mint, so the two can never drift on body
- * shape, URL or error handling — and so the child depends on the parent's *capability to mint*
- * rather than on how the parent talks to the endpoint.
+ * **One mint path**, used for the first mint AND every re-mint, so the two cannot drift on error
+ * handling — and so the child depends on the parent's *capability to mint* rather than on how the
+ * parent talks to the facade. The parent's `callAsync` rides its own token, refreshing it first when
+ * needed, which is why a parent holding an expired token can still mint, and waits out a paused
+ * parent's reconnect, which is why a paused parent's child survives (`disconnect()` is a pause).
  *
- * `authedFetch` is the parent's, passed in bound: it is `protected` on `LumenizeClient`, which stops
- * a free function from *calling* it, not from *receiving* it. It also refreshes the parent's own
- * token first when needed, which is why a parent holding an expired token can still mint.
+ * ⚠️ **Only the facade's typed refusal is terminal.** Every other rejection — a `TimeoutError` after
+ * 30 s, *LumenizeClient disconnected before the callAsync result arrived*, a `QuotaExceededError` —
+ * is transport, and rethrown as-is so the child's reconnect loop retries it.
  */
-export async function mintNarrowerToken(
-  authedFetch: (url: string, init?: RequestInit) => Promise<Response>,
-  baseUrl: string,
-  body: { subOfNarrowerToken: string; activeScope: string; ttlSeconds?: number },
+export async function mintImpersonation(
+  call: () => Promise<{ access_token: string }>, sub: string,
 ): Promise<{ access_token: string; sub: string }> {
-  // Scope-less by design: the route carries no scope segment — the mint's whole authorization is
-  // the server's `canMintFor` against the SUBJECT's scope, so there is nothing for a URL to name.
-  const res = await authedFetch(`${baseUrl}/auth/mint-narrower-token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    let description = text;
-    try { description = (JSON.parse(text) as { error_description?: string }).error_description ?? text; }
-    catch { /* not JSON — use the raw text */ }
-    const err = new ImpersonationMintError(res.status, `mint-narrower-token ${res.status}: ${description}`);
-    // Two 4xx are STRUCTURALLY IMPOSSIBLE on a re-mint: the chaining refusal and self-narrow both
-    // depend on the parent, which has not changed since the first mint succeeded. They stay terminal
-    // — no special case in the predicate — but reaching one means the mint path is broken rather
-    // than authority having changed, and the child otherwise just quietly dies.
-    // ⚠️ Match on "root identity" ONLY. A bare /act/ would false-positive: several 403s interpolate
-    // the requested scope into their message, and a perfectly ordinary scope (`u.app.contact`)
-    // contains those letters — which would warn "the mint path is broken" at a routine refusal.
-    if (res.status === 400 || (res.status === 403 && /root identity/i.test(description))) {
+  try {
+    const { access_token } = await call();
+    return { access_token, sub };
+  } catch (e) {
+    if (!isImpersonationRefused(e)) throw e;
+    const message = (e as Error).message;
+    // Two refusals are STRUCTURALLY IMPOSSIBLE on a re-mint: the chaining refusal and self-narrow
+    // both depend on the parent, which has not changed since the first mint succeeded. They stay
+    // terminal, but reaching one means the mint path is broken rather than authority having changed,
+    // and the child otherwise just quietly dies.
+    if (/root identity|different sub/i.test(message)) {
       debug('nebula.impersonation.impossible').warn(
         'A mint failed in a way that should be unreachable once the first mint succeeded — ' +
-        'this is a defect in the mint path, not a revoked authority', {
-          status: res.status, description, subOfNarrowerToken: body.subOfNarrowerToken,
-        });
+        'this is a defect in the mint path, not a revoked authority', { message, subOfNarrowerToken: sub });
     }
-    throw err;
+    throw new ImpersonationMintError(message);
   }
-  return await res.json() as { access_token: string; sub: string };
 }
 
 // ── the parent → children registry ───────────────────────────────────────────────────────────────
@@ -241,9 +219,9 @@ export function childrenOf(parent: object): object[] {
  * ⚠️ **This is NEW STATE, not a consequence of disposal, and that is the whole point.** No teardown
  * door revokes minting on its own: `dispose()` is engine-teardown plus `disconnect()`,
  * `[Symbol.dispose]()` is just `disconnect()`, and `disconnect()` deliberately KEEPS the token so a
- * reconnect succeeds — while `authedFetch` needs only a `fetch` and a token, no connection. Without
- * this latch a disposed parent keeps minting for its full remaining token life, and "ending my
- * session ends impersonation" would be true only by timing.
+ * reconnect succeeds, holding a mint's `callAsync` until the next `connect()`. A disposed parent's
+ * mint would therefore wait out its timeout and reject as transport, which a child retries for as
+ * long as it lives. Without this latch "ending my session ends impersonation" would not be true.
  */
 const TORN_DOWN = new WeakSet<object>();
 
@@ -252,9 +230,10 @@ export function isTornDown(client: object): boolean {
 }
 
 /**
- * The single teardown hook. Called from `NebulaClient.disconnect()` — which is **touchpoint 2 of 2**
- * and is one site rather than three, because every teardown door routes through it: `dispose()`
- * calls it, `logout()` calls it, and `[Symbol.dispose]()` *is* it.
+ * The single teardown hook — **touchpoint 2 of 2** — called from `NebulaClient`'s three
+ * END-OF-SESSION doors: `dispose()`, `logout()` and `[Symbol.dispose]()`. ⚠️ Never from
+ * `disconnect()`, which application code also calls to PAUSE a connection: latching there would end
+ * impersonation for a session the user never ended, and a paused parent's child must survive.
  *
  * ⚠️ **`logout()` is NOT exempt from the marking**, though it looks like it closes minting already.
  * `clearAccessToken()` does not close minting — it makes the next mint REFRESH first, since a

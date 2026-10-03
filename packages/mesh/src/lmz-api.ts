@@ -5,6 +5,7 @@ import { getCurrentCallContext, runWithCallContext } from '#lmz-api-context';
 import { getOperationChain, executeOperationChain, executeFilledChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
 import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './broadcast.js';
+import { findRawRpcMethod } from './raw-rpc-decorator.js';
 
 // Re-export types for convenience
 export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
@@ -581,7 +582,8 @@ export interface LmzApi {
   /**
    * Send one continuation to many targets — one `call` per target, from this node, at any N.
    *
-   * `options.onResult` hears only failures; `newChain` and `state` pass through to each call.
+   * `options.onResult` hears only failures. Each call starts a fresh chain unless `newChain: false`,
+   * and `state` passes through to each call.
    * A target whose binding does not route throws synchronously, before any later target is sent.
    *
    * @see `broadcast.ts` — the chain each target sees, and where `callContext.callee` names the target
@@ -1192,6 +1194,31 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
           debug(`lmz.mesh.${nodeTypeName}.__executeOperation`).error(error.message.split('.')[0], details);
         },
       });
+    }
+
+    /**
+     * The one entry `rawRpcStub` calls (ADR-023): our own code reaching this node for an operation
+     * no client may call. It is reached by Workers RPC on the binding, which exists only in our
+     * Worker's `env`, so it runs no `onBeforeCall` and checks no claims — the decision it carries
+     * out was made where claims were checked.
+     *
+     * Before anything else it checks that `bindingName`/`instanceName` name THIS object — their
+     * `idFromName` must equal `ctx.id` — so a caller cannot stamp a wrong identity. It then refuses
+     * any name `@rawRpc()` did not decorate, looking up one name and never a path or a getter,
+     * stamps the identity exactly as the mesh path does, and invokes the method.
+     * @internal
+     */
+    async __rawRpc(bindingName: string, instanceName: string, method: string, args: unknown[]): Promise<unknown> {
+      const base = this as unknown as { ctx: DurableObjectState; env: any };
+      const namespace = typeof bindingName === 'string' ? base.env?.[bindingName] : undefined;
+      if (typeof namespace?.idFromName !== 'function' || typeof instanceName !== 'string'
+        || !namespace.idFromName(instanceName).equals(base.ctx.id)) {
+        throw new Error(`rawRpc: ${String(bindingName)}/${String(instanceName)} does not name this Durable Object`);
+      }
+      const fn = findRawRpcMethod(this, method);
+      if (!fn) throw new Error(`rawRpc: '${String(method)}' is not @rawRpc()-decorated on ${nodeTypeName}`);
+      this.lmz.__init({ bindingName, instanceName });
+      return await fn.apply(this, Array.isArray(args) ? args : []);
     }
 
     /**

@@ -26,7 +26,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind, ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
-import { universeAdminClient, foundAndLogin, createSubject, createInvitedClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueChatScope = () => `ctr-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -161,7 +161,6 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
 
     // A real non-admin member at the scope: passage yes, session-node grant NO.
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'member@example.com');
     const { client: member } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,

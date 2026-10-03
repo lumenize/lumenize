@@ -12,10 +12,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
-import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject, pageOf, ORIGIN } from '../../test-helpers';
 import { childrenOf, isTornDown } from '../../../src/impersonation';
 
-const ORIGIN = 'http://localhost'; // must match test-helpers.ts's ORIGIN — the clients' real baseUrl
 /** Outside the 30s refresh-ahead window — construction will not re-mint. */
 const SAFE_TTL = 300;
 /** Inside the window — the seeded token is born due, so the child re-mints while constructing. */
@@ -38,7 +37,7 @@ async function adminAndMember(email = 'member@example.com') {
 describe('lifetime — the cascade', () => {
   it('disposing the parent tears the child down, and it does NOT come back', async () => {
     const { star, admin, member } = await adminAndMember();
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     await admin.dispose();
@@ -59,7 +58,7 @@ describe('lifetime — the cascade', () => {
     // three, because a builder can hook the wrong one.
     for (const door of ['dispose', 'logout', 'symbol'] as const) {
       const { star, admin, member } = await adminAndMember();
-      const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+      const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
       await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
       if (door === 'dispose') await admin.dispose();
@@ -75,7 +74,7 @@ describe('lifetime — the cascade', () => {
 
   it('a BLIP does not cascade — the child survives the parent reconnecting', async () => {
     const { star, browser, admin, adminToken, member } = await adminAndMember();
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     // A REAL transient drop, via the supersede path `nebula-client-reconnect.test.ts` uses: a second
@@ -84,7 +83,7 @@ describe('lifetime — the cascade', () => {
     // `disconnect()` and never reaches 'disconnected' — which is the whole distinction under test.
     const browserB = new Browser();
     const superseder = new NebulaClientTest({
-      baseUrl: ORIGIN, authScope: star, activeScope: star, ontologyVersion: 'v1',
+      baseUrl: pageOf(star), platformOrigin: ORIGIN, ontologyVersion: 'v1',
       instanceName: admin.lmz.instanceName, accessToken: adminToken,
       fetch: browserB.fetch, WebSocket: browserB.WebSocket,
     });
@@ -112,74 +111,70 @@ describe('lifetime — a torn-down parent cannot re-mint', () => {
   it.each(['dispose', 'logout'] as const)(
     'after the parent %s(), the child re-mint path fails', async (door) => {
       const { star, admin, member } = await adminAndMember();
-      const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+      const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
       await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
       if (door === 'dispose') await admin.dispose(); else await admin.logout();
 
       // The latch is NEW STATE, not a consequence of disposal: `disconnect()` deliberately keeps the
-      // token and `authedFetch` needs no connection, so without it a torn-down parent keeps minting
-      // for its full remaining token life.
+      // token and holds a mint until the next `connect()`, so without it a torn-down parent's mint
+      // would wait out its timeout and fail as transport rather than end the session.
       // Mutation: leave the captured closure live after teardown → the re-mint succeeds → reds.
       // Second mutation: mark on `dispose()` but not `logout()` → the logout row reds alone.
       expect(isTornDown(admin), `door: ${door}`).toBe(true);
-      await expect(admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL }))
+      await expect(admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL }))
         .rejects.toThrow(/torn down/i);
     });
 });
 
 describe('lifetime — child logout() is child-only teardown', () => {
-  it('leaves the admin session intact — cookie, connection and the ability to mint', async () => {
-    // 🛑 **SAME-SCOPE ON PURPOSE — this is the only shape in which the guard is load-bearing.**
-    // With a universe admin impersonating into a STAR, the child's `authScope: activeScope` pin
-    // already saves the admin: RFC-6265 will not send a `/auth/{universe}` cookie to
-    // `/auth/{universe}.app.tenant/logout` (the first uncovered character is `.`, not `/`). So in
-    // that shape removing the child-only branch changes nothing and the test proves nothing — I
-    // wrote it that way first and the mutation stayed green.
-    //
-    // An admin who logged in AT the scope they impersonate into is the dangerous case the Decisions
-    // table names, and it is reachable: found at a UNIVERSE (so `authScope` === that universe) and
-    // impersonate a universe-scoped subject there. Now the cookie paths match EXACTLY, the pin is
-    // inert, and the branch is the only thing standing between a child logout and the admin's
-    // 30-day refresh token.
+  it('leaves the admin session intact — no navigation, cookie, connection and the ability to mint', async () => {
+    // A derived session holds no refresh cookie of its own, so its `logout()` is teardown only: the
+    // `#mintedFrom` branch ends it before the code that would send a top-level page to the platform
+    // host's logout page — where one click ends every session the browser holds, the admin's
+    // included. Every refresh cookie sits at `Path=/` on the platform host, so nothing about the
+    // scopes involved shields the admin; the branch is the control, whatever shape the pair takes.
     const universe = `impl-${crypto.randomUUID().slice(0, 8)}`;
     const browser = new Browser();
-    const { client: admin, accessToken: adminToken, authScope } = await universeAdminClient(
+    const { client: admin, accessToken: adminToken } = await universeAdminClient(
       NebulaClientTest, browser, universe, universe, 'admin@example.com',
     );
-    expect(authScope, 'fixture guard: the dangerous same-scope shape').toBe(universe);
-    await createSubject(browser, universe, adminToken, 'wide@example.com');
+    await createSubject(new Browser(), universe, adminToken, 'wide@example.com');
     const { payload: subject } = await createInvitedClient(
       NebulaClientTest, new Browser(), universe, universe, 'wide@example.com',
     );
 
-    const child = await admin.impersonate(subject.sub, universe, { ttlSeconds: SAFE_TTL });
+    const child = await admin.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
-    await child.logout();
+    // ⚠️ **THE discriminating observable: the navigation.** Under pool-workers there is no `window`,
+    // so the child's `logout()` would return before navigating whatever its branch did; a stubbed
+    // top-level window is what lets the defect show. Mutation: delete the `#mintedFrom` branch from
+    // `logout()` → the child falls through to the top-level navigation → the spy sees it → reds.
+    const assign = vi.fn();
+    const page = { location: { assign } } as { location: { assign: typeof assign }; top?: unknown; self?: unknown };
+    page.top = page;
+    page.self = page;
+    vi.stubGlobal('window', page);
+    try {
+      await child.logout();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(assign, "a child's logout must navigate nowhere").not.toHaveBeenCalled();
 
     expect(child.connectionState).toBe('disconnected');
     expect(childrenOf(admin).length).toBe(0);
 
-    // ⚠️ **THE discriminating assertion — the other three cannot red on this defect.** The harm is
-    // revocation of the ADMIN's 30-day refresh cookie, invisible to all of them: the admin's socket
-    // is already open and the Gateway verifies a stateless JWT, and `admin.impersonate()` rides
-    // `authedFetch`, whose token is a fresh 900s one, so it mints without refreshing and succeeds
-    // either way. Probe the cookie directly — 200 intact, 401 revoked — at the parent's REAL
-    // `authScope`, which is why the helper now returns it.
-    // Mutation: delete the `#mintedFrom` branch from `logout()` → the child POSTs
-    // `/auth/{universe}/logout` on the shared browser, the paths match exactly, the admin's refresh
-    // token is revoked → this 401s → reds.
-    const probe = await browser.fetch(`${ORIGIN}/auth/${authScope}/refresh-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: universe }),
-    });
+    // The regression guard, kept beside the navigation: the admin's cookie still mints on the
+    // universe's page. Invisible to the connection assertions — the admin's socket is already open
+    // and the Gateway verifies a stateless JWT.
+    const probe = await browser.context(pageOf(universe)).fetch(`${ORIGIN}/auth/refresh-token`, { method: 'POST' });
     expect(probe.status, "the admin's refresh cookie must survive a child logout").toBe(200);
 
     expect(admin.connectionState).toBe('connected');
     expect(isTornDown(admin)).toBe(false);
-    const again = await admin.impersonate(subject.sub, universe, { ttlSeconds: SAFE_TTL });
+    const again = await admin.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(again.connectionState).toBe('connected'));
     again.disconnect();
     admin.disconnect();
@@ -194,26 +189,27 @@ describe('lifetime — readiness follows the CREDENTIAL, not the CONNECTION', ()
   // REVERSIBLE (the base keeps the token so a later `connect()` succeeds). That made
   // `disconnect()` + `connect()` permanently kill impersonation for a session nobody ended, and
   // NOTHING caught it — because this criterion, which the task file states twice, had no test.
-  it('a DISCONNECTED parent still mints, and still mints after it reconnects', async () => {
-    const { star, admin, member } = await adminAndMember();
+  it('a PAUSED parent is not torn down: its mint waits for the reconnect, then succeeds', async () => {
+    const { admin, member } = await adminAndMember();
 
     // A deliberate, reversible pause — not a teardown door.
     admin.disconnect();
     expect(admin.connectionState).toBe('disconnected');
     expect(isTornDown(admin), 'a bare disconnect() must NOT mark the parent torn down').toBe(false);
 
+    // The mint rides the parent's socket, so one issued while paused waits for the reconnect. The
+    // one real precondition is that the parent already HAS a name — it connected once above — since
+    // the child's Gateway name derives from the parent's tabId.
     // Mutation: hook the impersonation teardown on `disconnect()` instead of on the three
     // end-of-session doors → the latch fires here → this rejects with /torn down/ → reds.
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    const pending = admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
+    admin.connect();
+    const child = await pending;
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
     expect(child.claims.sub).toBe(member.sub);
 
-    // ⚠️ `authedFetch` obtains its token on its own path, so minting never required the socket. The
-    // one real precondition is that the parent already HAS a name — it connected once above — since
-    // the child's Gateway name derives from the parent's tabId.
-    admin.connect();
-    await vi.waitFor(() => expect(admin.connectionState).toBe('connected'));
-    const second = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    // And the first mint after the reconnect, the shape the regression broke.
+    const second = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(second.connectionState).toBe('connected'));
 
     child.disconnect();
@@ -231,10 +227,10 @@ describe('lifetime — re-minting through the parent', () => {
       // Born inside the refresh-ahead window, so the re-mint fires with no waiting. ⚠️ Under
       // mint-then-seed the trigger is the child's OWN CONSTRUCTION, not a later call — assert on the
       // marker COUNT reaching two, never on "after the next operation", which would pass vacuously.
-      const child = await admin.impersonate(member.sub, star, { ttlSeconds: INSTANT_REMINT_TTL });
+      const child = await admin.impersonate(member.sub, { ttlSeconds: INSTANT_REMINT_TTL });
       await vi.waitFor(() => {
         const issued = sink.filter((e) =>
-          e.namespace === 'nebula-auth.worker.narrower.issued'
+          e.namespace === 'nebula-auth.facade.impersonate' && e.message === 'Impersonation token issued'
           && e.data?.subOfNarrowerToken === member.sub);
         // Mutation: give the child a `refresh` that returns its original token unchanged → no
         // second marker → reds.
@@ -266,12 +262,12 @@ describe('lifetime — re-minting through the parent', () => {
     const sink: any[] = [];
     setDebugSink((e) => sink.push(e));
     const issuedCount = () => sink.filter((e) =>
-      e.namespace === 'nebula-auth.worker.narrower.issued'
+      e.namespace === 'nebula-auth.facade.impersonate' && e.message === 'Impersonation token issued'
       && e.data?.subOfNarrowerToken === member.sub).length;
     try {
       // SAFE_TTL, so construction does NOT re-mint — otherwise the jump below would be redundant and
       // the test would pass without the expiry ever mattering.
-      const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+      const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
       await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
       expect(issuedCount(), 'precondition: exactly one mint so far').toBe(1);
 
@@ -302,50 +298,43 @@ describe('lifetime — re-minting through the parent', () => {
   });
 
   // ── the terminal/transient classification ──────────────────────────────────────────────────────
-  // Asserted at the unit level because that is where it is deterministic. The rule is structural
-  // (4xx terminal, everything else transient) rather than a status list, so a status the endpoint
-  // gains later inherits the right behaviour.
+  // Asserted at the unit level because that is where it is deterministic. Only the facade's typed
+  // refusal is terminal; everything else a `callAsync` can reject with is transport.
   it.each([
-    [400, true], [403, true], [404, true], [409, true],
-    [500, false], [502, false], [0, false],
-  ])('status %i classifies terminal=%s', async (status, terminal) => {
-    const { ImpersonationMintError } = await import('../../../src/impersonation');
-    // Mutation: classify every failure as terminal → the 5xx rows red, which is the direction that
-    // matters: a build that terminates on everything kills an impersonation session on a blip,
-    // inverting the invariant this file states three times.
-    expect(new ImpersonationMintError(status, 'x').terminal).toBe(terminal);
+    ['the typed refusal', Object.assign(new Error('The calling host\'s scope "u" does not administer this subject'),
+      { name: 'ImpersonationRefusedError', terminal: true }), true],
+    ['a disconnect', new Error('LumenizeClient disconnected before the callAsync result arrived'), false],
+    ['a timeout', Object.assign(new Error('callAsync timed out'), { name: 'TimeoutError' }), false],
+    ['a refusal-shaped error without `terminal`', Object.assign(new Error('x'), { name: 'ImpersonationRefusedError' }), false],
+  ])('%s classifies terminal=%s', async (_label, rejection, terminal) => {
+    const { mintImpersonation, ImpersonationMintError } = await import('../../../src/impersonation');
+    const outcome = await mintImpersonation(() => Promise.reject(rejection), 'sub').catch((e: unknown) => e);
+    // Mutation: classify every failure as terminal → the transport rows red, which is the direction
+    // that matters: a build that terminates on everything kills an impersonation session on a blip.
+    // Second mutation: classify the typed refusal as transient → the first row reds.
+    expect(outcome instanceof ImpersonationMintError).toBe(terminal);
+    if (!terminal) expect(outcome).toBe(rejection);
   });
 
   it('a NON-TERMINAL re-mint failure does NOT end the session', async () => {
     // The mirror of the terminal test, and the direction that actually protects a live session: a
     // build that classifies EVERY mint failure as terminal passes the terminal test and then kills
-    // an impersonation session on a transient 5xx — inverting the blip invariant this file states
+    // an impersonation session on a transient transport failure — inverting the blip invariant this file states
     // three times. testing.md requires each operand of a terminal-vs-transient condition to be
     // mutated independently rather than toggling the branch as a whole.
-    const universe = `impl-${crypto.randomUUID().slice(0, 8)}`;
-    const star = `${universe}.app.tenant`;
-    const browser = new Browser();
+    // The transport failure is injected on the parent's `callAsync`, the one call the mint makes:
+    // this lane cannot pause a parent at a chosen moment of a re-mint. The real paused parent is
+    // driven in `/live` (`impersonation-lifecycle`), against the running system.
+    const { admin, member } = await adminAndMember();
     let failMints = false;
-    const flaky = ((input: any, init?: any) => {
-      const url = typeof input === 'string' ? input : (input?.url ?? '');
-      if (failMints && String(url).includes('/mint-narrower-token')) {
-        return Promise.resolve(new Response(JSON.stringify({ error: 'server_error' }), {
-          status: 500, headers: { 'content-type': 'application/json' },
-        }));
-      }
-      return browser.fetch(input, init);
-    }) as typeof fetch;
-
-    const { client: admin, accessToken: adminToken } = await universeAdminClient(
-      NebulaClientTest, browser, star, star, 'admin@example.com', 'v1', { fetch: flaky },
-    );
-    await createSubject(browser, star, adminToken, 'member@example.com');
-    const { payload: member } = await createInvitedClient(
-      NebulaClientTest, new Browser(), star, star, 'member@example.com',
-    );
+    const realCallAsync = admin.lmz.callAsync;
+    (admin.lmz as { callAsync: unknown }).callAsync = (binding: string, ...rest: unknown[]) =>
+      failMints && binding === 'NEBULA_AUTH_FACADE'
+        ? Promise.reject(new Error('LumenizeClient disconnected before the callAsync result arrived'))
+        : (realCallAsync as (...a: unknown[]) => unknown)(binding, ...rest);
 
     // A token inside the refresh-ahead window, so any connect drives a re-mint.
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: INSTANT_REMINT_TTL });
+    const child = await admin.impersonate(member.sub, { ttlSeconds: INSTANT_REMINT_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     // Now make the mint fail TRANSIENTLY, and drive a reconnect. `disconnect()` is reversible and
@@ -354,12 +343,12 @@ describe('lifetime — re-minting through the parent', () => {
     child.disconnect();
     child.connect();
 
-    // Mutation: classify every mint failure as terminal (drop the `e.terminal` check, or make
-    // ImpersonationMintError always terminal) → the child converts to LoginRequiredError, mesh sets
-    // 'disconnected' and stops → this reds, because it never returns to 'reconnecting'/'connected'.
+    // Mutation: classify every mint failure as terminal → the child converts to LoginRequiredError,
+    // mesh sets 'disconnected' and stops → this reds, because it never returns to
+    // 'reconnecting'/'connected'.
     await vi.waitFor(() => expect(child.connectionState).toBe('reconnecting'));
 
-    // And it really is transient — the session recovers once the endpoint does, which is the whole
+    // And it really is transient — the session recovers once the transport does, which is the whole
     // point of NOT ending it.
     failMints = false;
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'), { timeout: 15_000 });
@@ -385,7 +374,7 @@ describe('lifetime — re-minting through the parent', () => {
       NebulaClientTest, new Browser(), star, star, 'member@example.com',
     );
 
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: INSTANT_REMINT_TTL });
+    const child = await admin.impersonate(member.sub, { ttlSeconds: INSTANT_REMINT_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     // Ending the admin's session revokes the child's authority: the latch refuses every later mint.
@@ -405,9 +394,9 @@ describe('lifetime — re-minting through the parent', () => {
     // because someone else's session ended → reds. That is the inheritance contract, which is what
     // actually protects the admin — not the error class, which mesh may treat as transient or
     // overwrite outright.
-    // Second mutation: drop the explicit `terminal` on the latch's error → the structural predicate
-    // classifies status 0 as TRANSIENT, mesh schedules a reconnect, and the child never settles on
-    // `disconnected` → reds. (That was a real defect until the verifier panel caught it.)
+    // Second mutation: throw the latch's refusal as a plain Error rather than an
+    // `ImpersonationMintError` → it classifies as TRANSIENT, mesh schedules a reconnect, and the
+    // child never settles on `disconnected` → reds.
     await vi.waitFor(() => expect(child.connectionState).toBe('disconnected'));
     expect(loginRequiredFired).toBe(false);
     expect(childrenOf(admin).length).toBe(0);
@@ -415,18 +404,33 @@ describe('lifetime — re-minting through the parent', () => {
     // ── Fixture guard, and it has to be a REAL one ────────────────────────────────────────────────
     // A bare `expect(typeof loginRequiredFired).toBe('boolean')` proves nothing — the local is
     // initialised to `false`, so it holds whether or not `extraConfig` ever threaded the hook onto
-    // the client. Instead, drive the ADMIN's own terminal path and require the hook to FIRE: its
-    // cookie is revoked, so a forced reconnect refreshes, 401s, and mesh calls the handler. If this
-    // does not fire, the `false` asserted above meant "never wired", not "did not fire".
+    // the client. Instead, drive a client's own terminal path through the same `extraConfig` and
+    // require the hook to FIRE: its session is revoked, so a forced reconnect refreshes, 401s, and
+    // mesh calls the handler. If this does not fire, the `false` asserted above meant "never wired",
+    // not "did not fire". It needs a universe of its own, since `admin@example.com` holds this one.
+    const guardUniverse = `implg-${crypto.randomUUID().slice(0, 8)}`;
+    const guardBrowser = new Browser();
     const guard = await universeAdminClient(
-      NebulaClientTest, new Browser(), `${universe}.app.guard`, `${universe}.app.guard`,
+      NebulaClientTest, guardBrowser, `${guardUniverse}.app.guard`, `${guardUniverse}.app.guard`,
       'guard@example.com', 'v1', { onLoginRequired: () => { guardFired = true; } },
-    ).catch(() => null);
-    if (guard) {
-      await guard.client.logout();     // revokes the cookie AND clears the token
-      guard.client.connect();          // → refresh → 401 → LoginRequiredError → the hook fires
+    );
+    guard.client.disconnect();
+    // The platform host's logout, as its page sends it, ends the session behind every cookie it
+    // receives; a client's own `logout()` in this lane only tears the client down.
+    const out = await guardBrowser.context(ORIGIN).fetch(`${ORIGIN}/auth/logout`, { method: 'POST' });
+    expect(out.ok).toBe(true);
+    await out.text();
+    // The client still holds a live access token, so a connect would not refresh. Moving the clock
+    // past its lifetime (testing.md: both isolates follow it) makes the connect refresh, meet the
+    // revocation, 401, and call the hook.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(Date.now() + 20 * 60_000);
+      guard.client.connect();
       await vi.waitFor(() => expect(guardFired).toBe(true));
-      guard.client.disconnect();
+    } finally {
+      vi.useRealTimers();
     }
+    guard.client.disconnect();
   });
 });

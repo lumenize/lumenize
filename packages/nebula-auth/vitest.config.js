@@ -1,5 +1,18 @@
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import swc from 'unplugin-swc';
+
+// The test worker exports the `Profile` DO, whose `@mesh()` decorators esbuild leaves verbatim, so
+// SWC transforms them — the same plugin `packages/mesh` uses, with its query-tolerant filter for
+// coverage's uncovered-file pass (see the comment there).
+const swcPlugin = swc.vite({
+  include: /\.m?[jt]sx?(\?.*)?$/,
+  jsc: {
+    parser: { syntax: 'typescript', decorators: true },
+    transform: { decoratorVersion: '2022-03' },
+    target: 'es2022',
+  },
+});
 
 export default defineConfig({
   test: {
@@ -28,7 +41,7 @@ export default defineConfig({
       {
         // Main tests (test mode — no real email)
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/wrangler.jsonc' },
           miniflare: {
             bindings: {

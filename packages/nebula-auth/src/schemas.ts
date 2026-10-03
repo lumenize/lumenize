@@ -6,8 +6,8 @@
  *   Emails            — one row per ADDRESS: the address itself, its `profileId`, mailbox-proof state.
  *   Memberships       — one row per (address, scope): the join table, keyed by surrogate `sub`.
  *   RefreshTokenIndex — live-token index (tokenHash → sub) for reliable KV invalidation.
- *   MagicLinks        — login channel, hashed token, ~30m TTL.
- *   InviteTokens      — login channel, hashed token, single-use, 7d TTL.
+ *   MagicLinks        — login channel, invites included, hashed token, single-use; 30m TTL, 7d for an invite.
+ *   SignupTickets     — a proved address's one-shot pass to the signup page's claim, hashed, 15m TTL.
  *
  * **Why `Emails` and `Memberships` are separate, since one table would be simpler:** a person's
  * `profileId` is a property of their ADDRESS, not of any one scope they joined. Holding it on the join
@@ -126,7 +126,8 @@ export const REFRESH_TOKEN_INDEX_SUB_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_RefreshTokenIndex_sub ON RefreshTokenIndex(sub)
 `;
 
-/** Magic-link login channel. Token stored HASHED. ~30m TTL, reusable within the window (scanner-safe).
+/** Magic-link login channel, first shape (migration 15). Token stored HASHED. `MAGIC_LINKS_SCHEMA_V3`
+ *  is the live shape, where a link is spent once its page `POST`s.
  *
  *  ⚠️ Holds the BARE ADDRESS, and it must NOT be "fixed" to an `emailId`. Two reasons, and the second
  *  is the load-bearing one: (1) ADR-010's replication rule permits a mutable value in a token whose
@@ -153,7 +154,7 @@ CREATE TABLE IF NOT EXISTS MagicLinks (
  *  - **`purpose` records HOW the link was issued, and it is explicit rather than inferred from the
  *    scope's presence** — inference would tie the answer to a column that now holds NULL for the
  *    common case. ⚠️ **It decides nothing**, which corrects what this bullet used to say: both values
- *    land on Home (`landingFor` reads `linkScope`), and the self-consent modal opens because the
+ *    land on Home, and the self-consent modal opens because the
  *    membership is unaccepted, not because a claim issued the link. Its consumer is the activity
  *    log, where "claim link or login link?" is a question a reader actually asks.
  *
@@ -165,6 +166,34 @@ CREATE TABLE IF NOT EXISTS MagicLinks (
   email                TEXT NOT NULL,
   universeGalaxyStarId TEXT,
   purpose              TEXT NOT NULL CHECK (purpose IN ('login', 'claim')),
+  expiresAt            TEXT NOT NULL
+) WITHOUT ROWID
+`;
+
+/** The rebuild every emailed link rides (migration 24; 23 drops the shape above).
+ *
+ *  An invite is a magic link that lives 7 days, so `InviteTokens` goes (migration 25): it held four of
+ *  these five columns and differed only in lifetime and `purpose`. Three changes:
+ *
+ *  - **`purpose` admits `'invite'`**, so the activity log still tells an invite from a sign-in. It
+ *    still decides nothing.
+ *  - **`returnTo` is where the consume sends the person**: a scope host's URL the login page passed
+ *    and the server checked through `parseHost`, or one the server chose — a claim's first Studio host,
+ *    an invite's own scope host. `NULL` lands on Home.
+ *  - **`spentAt` is set when the link's page `POST`s.** The page every link opens changes nothing on
+ *    load, so a scanner, an `<img>` or a redirector loading it consumes nothing; the `POST` spends it
+ *    once it has recorded the sessions, and the lookup reports a spent link so its page says so.
+ *
+ *  ⚠️ A DROP + CREATE like 17 and 18, free for the same reason: every row is an ephemeron, and the
+ *  wipe makes the links outstanding at deploy moot. */
+export const MAGIC_LINKS_SCHEMA_V3 = `
+CREATE TABLE IF NOT EXISTS MagicLinks (
+  tokenHash            TEXT PRIMARY KEY,
+  email                TEXT NOT NULL,
+  universeGalaxyStarId TEXT,
+  purpose              TEXT NOT NULL CHECK (purpose IN ('login', 'claim', 'invite')),
+  returnTo             TEXT,
+  spentAt              TEXT,
   expiresAt            TEXT NOT NULL
 ) WITHOUT ROWID
 `;
@@ -239,4 +268,7 @@ export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
   { idMonotonicInc: 20, description: 'Memberships.invitedByName (inviter-asserted, display-only)', sql: MEMBERSHIPS_INVITED_BY_NAME },
   { idMonotonicInc: 21, description: 'Memberships.invitedByProfileId (consent-modal attribution)', sql: MEMBERSHIPS_INVITED_BY_PROFILE_ID },
   { idMonotonicInc: 22, description: 'SignupTickets table (fallback slug screen, hashed, short TTL)', sql: SIGNUP_TICKETS_SCHEMA },
+  { idMonotonicInc: 23, description: 'Drop MagicLinks (ephemera; rebuilt at 24 with returnTo, spentAt and invites)', sql: 'DROP TABLE IF EXISTS MagicLinks' },
+  { idMonotonicInc: 24, description: 'MagicLinks rebuilt — returnTo, spentAt, purpose admits invite', sql: MAGIC_LINKS_SCHEMA_V3 },
+  { idMonotonicInc: 25, description: 'Drop InviteTokens (an invite is a 7-day magic link)', sql: 'DROP TABLE IF EXISTS InviteTokens' },
 ];

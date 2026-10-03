@@ -9,8 +9,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, END_OF_TIME } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, TransactionError } from '@lumenize/nebula';
-import { adminClientAt, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, foundAndLogin, createSubject, ownerOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
+
+/** Each universe's founder has its own address: one address may own at most MAX_GALAXIES_PER_OWNER
+ *  galaxies, and every founding's claim writes one, so a shared address hits the cap mid-file. */
+const adminOf = (scope: string) => `admin-${scope.split('.')[0]}@example.com`;
 
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; tags: any; metadata: any; createdAt: any; self: any; }`;
@@ -23,7 +27,7 @@ function uniqueStar(): string {
 // Helper: admin client
 async function adminClient(star: string) {
   const browser = new Browser();
-  const result = await adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
+  const result = await adminClientAt(NebulaClientTest, browser, star, star, adminOf(star));
 
   // Register ontology on the Galaxy
   const galaxyName = star.split('.').slice(0, 2).join('.');
@@ -39,7 +43,7 @@ async function adminClient(star: string) {
 // Helper: non-admin user client
 async function userClient(star: string, adminToken: string, email = 'user@example.com') {
   const adminBrowser = new Browser();
-  const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+  const { accessToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
   const userBrowser = new Browser();
   await createSubject(adminBrowser, star, accessToken, email);
   return createInvitedClient(NebulaClientTest, userBrowser, star, star, email);

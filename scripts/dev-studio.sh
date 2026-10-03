@@ -3,12 +3,12 @@
 # One-command Studio dev launcher — boots the two-process Studio dev loop in titled Terminal tabs.
 #
 #   Tab "Nebula Worker" → apps/nebula            `wrangler dev` (:8787) + the DevContainer (Docker Desktop)
-#   Tab "Studio UI"     → apps/nebula-studio-ui  `vite` (:5174), same-origin proxy → the Worker
-#   → then open http://localhost:5174 — the scope-less front door: one email field, the emailed
-#     link lands on :5174 (the Worker boots a derived config with `routes` stripped, and the vite
-#     proxy forwards the real Host — see apps/nebula/scripts/local-config.mjs), then Home.
+#   Tab "Studio UI"     → apps/nebula-studio-ui  `vite` (:5174), serving every *.lumenize.localhost host
+#   → then open http://platform.lumenize.localhost:5174/auth/login — the platform host's login page;
+#     the emailed link lands there too (the Worker boots a derived config with `routes` stripped, and
+#     the vite proxy forwards the real Host — see apps/nebula/scripts/local-config.mjs), then Home.
 #   ⚠️ Drive it in CHROME or FIREFOX, not Safari. Every auth cookie is `Secure`, and WebKit does not
-#     store Secure cookies on plain http://localhost (Chrome/Firefox do) — so in Safari the click
+#     store Secure cookies on a plain-http *.localhost host (Chrome/Firefox do) — so in Safari the click
 #     "works" but the next POST is a 401 with no cookie in sight (bit 2026-09-02). The real fix is
 #     local https (tasks/backlog.md § Testing & Quality); the cookie attributes are not negotiable.
 #
@@ -43,4 +43,4 @@ else
   npx ttab -t 'Studio UI' -d "$ROOT_DIR/apps/nebula-studio-ui" npm run dev
 fi
 
-echo "▶ Studio dev launched — 'Nebula Worker' (:8787) + 'Studio UI' (:5174). Open http://localhost:5174"
+echo "▶ Studio dev launched — 'Nebula Worker' (:8787) + 'Studio UI' (:5174). Open http://platform.lumenize.localhost:5174/auth/login"

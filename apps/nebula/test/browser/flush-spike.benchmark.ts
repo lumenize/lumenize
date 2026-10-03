@@ -51,6 +51,7 @@
 
 import { describe, it, inject, expect } from 'vitest';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { HarnessNebulaClient } from './harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
@@ -88,14 +89,13 @@ describe('flush-spike', () => {
 
     const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, star));
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: universeScope,
+      baseUrl: scopeOriginFrom(baseUrl, star),
+      platformOrigin: baseUrl,
       // Operate at the star (aud must equal it — structural guard, T6), not the galaxy.
-      activeScope: star,
       ontologyVersion: 'v1',
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });

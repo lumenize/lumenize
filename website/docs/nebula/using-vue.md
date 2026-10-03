@@ -41,7 +41,7 @@ The smallest thing that runs: load Vue, create the factory, mount an app whose t
 </script>
 ```
 
-`createNebulaClient({ ontologyVersion: 'v1' })` is the whole config in a deployed browser session: `baseUrl`, `activeScope`, and `onShouldRefreshUI` auto-detect from the environment (`authScope` is currently required-in-practice — see the [config table](./api-reference.md#createnebulaclient)). `ontologyVersion` is not substituted at build time: the serving layer injects it into the app shell, and it is **absent until an Apply has run** — an app that uses no resources runs fine without one, and only `resources.*` refuses.
+`createNebulaClient({ ontologyVersion: 'v1' })` is the whole config in a deployed browser session: `baseUrl`, `platformOrigin` and `onShouldRefreshUI` come from the page, and the client takes its scope from its first token (see the [config table](./api-reference.md#createnebulaclient)). `ontologyVersion` is not substituted at build time: the serving layer injects it into the app shell, and it is **absent until an Apply has run** — an app that uses no resources runs fine without one, and only `resources.*` refuses.
 
 This single-file shape uses **in-DOM templates** — the `v-model` markup lives in the HTML and is compiled in the browser by Vue's runtime compiler. That's the convenient path for a quick page, but it has a CSP cost (below) that production deploys avoid.
 

@@ -25,7 +25,7 @@
  * DAG-granted, and the per-op check lives inside the plane.
  */
 
-import { mesh } from '@lumenize/mesh';
+import { mesh, rawRpc } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
 import type { DurableObjectStorageLike } from '@cloudflare/computer';
@@ -55,6 +55,11 @@ import type { QueryDescriptor } from './query-hash';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
 import { serveApp } from './serve';
+import { afterCall, cloudflareCertificateApi, isFinalStatus, nextCall, onWake, packHosts, packNamesGalaxy, teardownSteps } from './certificate';
+import type { CertificateApi, CertificateState } from './certificate';
+import { PUBLIC_PREFIX, PUBLIC_SCOPE_HEADER } from './page-forward';
+import { LUMENIZE_ORIGIN_META } from './page-meta';
+import { deploymentOrigin, hostOrigin } from '@lumenize/nebula-auth/claims';
 import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
@@ -119,8 +124,14 @@ const CLIENT_GATEWAY_BINDING = 'NEBULA_CLIENT_GATEWAY';
  *  another source file in the Workspace). */
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
 
-const GIT_AUTHOR = { name: 'Nebula', email: 'dev@nebula.studio' };
+const GIT_AUTHOR = { name: 'Lumenize', email: 'noreply@lumenize.io' };
 const GIT_INITED_KEY = 'galaxy:gitInited';
+/** The certificate pack's state (`certificate.ts` `CertificateState`), in this Galaxy's own storage. */
+const CERTIFICATE_KEY = 'galaxy:certificate';
+/** The one alarm id the certificate uses, so a second wake re-arms it rather than adding another. */
+const CERTIFICATE_ALARM_ID = 'galaxy-certificate';
+/** How long a teardown waits for an order already in flight before listing packs. */
+const CERTIFICATE_ORDER_WAIT_MS = 20_000;
 
 /** The codegen model id — the ONE place a vendor id appears. Swappable: Studio is
  *  model-agnostic, and the model name is never surfaced in the UI or elsewhere. */
@@ -346,8 +357,11 @@ export function workersAiRestHeaders(opts: { token: string; gateway?: string; ex
 export class Galaxy extends NebulaDO implements ResourcesHost {
   // Cache over `ctx.storage` (the durable Workspace VFS) — reconstructed in onStart,
   // never the source of truth. `!`-asserted: onStart runs (inside the base
-  // blockConcurrencyWhile) before any @mesh method.
+  // blockConcurrencyWhile) before any @mesh method. Read it through `#workspace()`,
+  // which seeds the scaffold first; only that seed and the test seam touch it directly.
   #ws!: Workspace;
+  // The scaffold seed in flight, so concurrent first uses share one (coordination, not data).
+  #seeding?: Promise<void>;
   // Re-derivable cache (loss acceptable) — the tool-args typia validator facet
   // (durable-objects.md "ephemeral caches").
   #toolArgsFacet?: ParserValidator;
@@ -378,32 +392,21 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    *  tied a liveness knob to the token window for no property the design wants. */
   protected generationDeadlineMs = GENERATION_DEADLINE_MS;
 
-  /** Reconstruct the Workspace (fs + host-side git over this DO's own SQLite), seed the
-   *  framework scaffold + `git init` once (latched in kv), and register the container
-   *  BACKEND (an inert object until a build's exec connects — no container is started
-   *  here). Async — runs inside the base `blockConcurrencyWhile`, so requests block
-   *  until it completes (durable-objects.md § Initialization). */
+  /** Reconstruct the Workspace (fs + host-side git over this DO's own SQLite) and register the
+   *  container BACKEND (an inert object until a build's exec connects — no container is started
+   *  here). The scaffold is seeded on first use instead, by {@link #workspace}. Async — runs
+   *  inside the base `blockConcurrencyWhile`, so requests block until it completes
+   *  (durable-objects.md § Initialization).
+   *
+   *  ⚠️ **No git here.** A deletion constructs every Galaxy it tears down, and a teardown needs
+   *  nothing from the tree. `@cloudflare/computer` 0.3.2's bundled isomorphic-git serializes
+   *  index and ref writes through module-level locks keyed by path and ref name, so every Galaxy
+   *  in one isolate shares them (`/workspace/.git/index`, `refs/heads/main`). With the seed here,
+   *  deleting an account holding two cold apps seeded both at once under `wrangler dev`, and in
+   *  two runs on 2026-10-03 one stopped inside `git.add` while the other finished, until the
+   *  runtime reset it at 30 s, so its teardown never ran and its storage was never wiped. */
   override async onStart(): Promise<void> {
     this.#constructWorkspace();
-    if (!this.ctx.storage.kv.get(GIT_INITED_KEY)) {
-      // Seed the framework scaffold (container/app/, embedded at generation time) so the
-      // tree is a COMPLETE vite project from birth — the build box mounts this very tree
-      // at /workspace, so seeding the VFS is the whole delivery (no push step). Every
-      // host-side path lives under WS_ROOT: the mount serves that SUBTREE of the VFS,
-      // never its root (build-report.ts § WS_ROOT). The repo roots there too, so `.git`
-      // rides the mount like a normal checkout.
-      await this.#ws.fs.mkdir(WS_ROOT, { recursive: true });
-      for (const [rel, content] of Object.entries(SCAFFOLD_FILES)) {
-        if (rel.includes('/')) {
-          await this.#ws.fs.mkdir(wsPath(rel.slice(0, rel.lastIndexOf('/'))), { recursive: true });
-        }
-        await this.#ws.fs.writeFile(wsPath(rel), content);
-      }
-      await this.#ws.git.init({ dir: WS_ROOT, defaultBranch: 'main' });
-      await this.#ws.git.add({ dir: WS_ROOT, paths: Object.keys(SCAFFOLD_FILES) });
-      await this.#ws.git.commit({ dir: WS_ROOT, message: 'scaffold' });
-      this.ctx.storage.kv.put(GIT_INITED_KEY, true);
-    }
     // Compose the resources plane — the chat Chat/Message host. The plane installs the chat
     // ontology from the source below on first touch, the way a Star installs its app ontology.
     // The post-commit hook is THE codegen trigger's seam: a committed human Message starts a
@@ -414,6 +417,37 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       this.#chatOntologySource(),
       (mutations) => this.#onChatCommitted(mutations),
     );
+  }
+
+  /**
+   * The Workspace, with the framework scaffold seeded the first time anything here reads or writes
+   * it (`container/app/`, embedded at generation time), so the tree is a COMPLETE vite project
+   * before its first use — the build box mounts this very tree at /workspace, so seeding the VFS
+   * is the whole delivery (no push step). Concurrent first uses share one seed, and a failed seed
+   * is retried by the next use. Every host-side path lives under WS_ROOT: the mount serves that
+   * SUBTREE of the VFS, never its root (build-report.ts § WS_ROOT). The repo roots there too, so
+   * `.git` rides the mount like a normal checkout.
+   */
+  async #workspace(): Promise<Workspace> {
+    if (!this.ctx.storage.kv.get(GIT_INITED_KEY)) {
+      await (this.#seeding ??= this.#seedScaffold().finally(() => { this.#seeding = undefined; }));
+    }
+    return this.#ws;
+  }
+
+  async #seedScaffold(): Promise<void> {
+    if (this.ctx.storage.kv.get(GIT_INITED_KEY)) return;
+    await this.#ws.fs.mkdir(WS_ROOT, { recursive: true });
+    for (const [rel, content] of Object.entries(SCAFFOLD_FILES)) {
+      if (rel.includes('/')) {
+        await this.#ws.fs.mkdir(wsPath(rel.slice(0, rel.lastIndexOf('/'))), { recursive: true });
+      }
+      await this.#ws.fs.writeFile(wsPath(rel), content);
+    }
+    await this.#ws.git.init({ dir: WS_ROOT, defaultBranch: 'main' });
+    await this.#ws.git.add({ dir: WS_ROOT, paths: Object.keys(SCAFFOLD_FILES) });
+    await this.#ws.git.commit({ dir: WS_ROOT, message: 'scaffold' });
+    this.ctx.storage.kv.put(GIT_INITED_KEY, true);
   }
 
   /**
@@ -485,7 +519,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   async #registryRow(version: string): Promise<RegistryFile | null> {
     if (!VERSION_RE.test(version)) return null;
     try {
-      return JSON.parse(await this.#ws.fs.readFile(wsPath(registryPath(version)), 'utf8')) as RegistryFile;
+      return JSON.parse(await (await this.#workspace()).fs.readFile(wsPath(registryPath(version)), 'utf8')) as RegistryFile;
     } catch {
       return null;
     }
@@ -495,7 +529,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   async #registryRows(): Promise<RegistryFile[]> {
     let names: string[];
     try {
-      names = (await this.#ws.fs.readdir(wsPath(REGISTRY_DIR))).map((d) => d.name);
+      names = (await (await this.#workspace()).fs.readdir(wsPath(REGISTRY_DIR))).map((d) => d.name);
     } catch {
       return []; // no registry directory yet — nothing has been applied
     }
@@ -554,11 +588,11 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   async writeSource(path: string, content: string): Promise<{ oid: string; path: string }> {
     const rel = assertModelPath(path, { write: true });
     if (rel.includes('/')) {
-      await this.#ws.fs.mkdir(wsPath(rel.slice(0, rel.lastIndexOf('/'))), { recursive: true });
+      await (await this.#workspace()).fs.mkdir(wsPath(rel.slice(0, rel.lastIndexOf('/'))), { recursive: true });
     }
-    await this.#ws.fs.writeFile(wsPath(rel), content);
-    await this.#ws.git.add({ dir: WS_ROOT, paths: [rel] });
-    const { oid } = await this.#ws.git.commit({ dir: WS_ROOT, message: `edit ${rel}` });
+    await (await this.#workspace()).fs.writeFile(wsPath(rel), content);
+    await (await this.#workspace()).git.add({ dir: WS_ROOT, paths: [rel] });
+    const { oid } = await (await this.#workspace()).git.commit({ dir: WS_ROOT, message: `edit ${rel}` });
     const origin = this.#clientOrigin();
     debug('nebula.Galaxy.writeSource').debug('commit', {
       instanceName: this.lmz.instanceName,
@@ -575,7 +609,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   async readSource(path: string): Promise<string> {
     const rel = assertModelPath(path, { write: false });
-    return this.#ws.fs.readFile(wsPath(rel), 'utf8');
+    return (await this.#workspace()).fs.readFile(wsPath(rel), 'utf8');
   }
 
   /**
@@ -596,7 +630,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    *  `.d.ts`). The SINGLE source of the version label for the dev apply path, so a
    *  Star's lazy-pull and the client's pinned version agree by construction. */
   async #readOntology(): Promise<{ types: string; version: string }> {
-    const types = await this.#ws.fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8');
+    const types = await (await this.#workspace()).fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8');
     const { oid: version } = await git.hashBlob({ object: types });
     return { types, version };
   }
@@ -641,7 +675,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       const devStar = `${this.lmz.instanceName}.dev`;
       const origin = this.#clientOrigin();
       const claims = origin?.claims ?? this.#claimsIfAny();
-      if (!hasDominionOver(claims?.access, devStar)) {
+      if (!hasDominionOver(claims, devStar)) {
         throw new Error(`Wipe refused: dominion over ${devStar} is required to wipe its data on install`);
       }
       debug('nebula.Galaxy.applyOntology').info('wipe on install decided', {
@@ -657,7 +691,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
           : 'the ontology step did not run';
       throw new Error(`Ontology compile failed:\n${detail}`);
     }
-    const rowJson = await this.#ws.fs.readFile(wsPath(ROW_PATH), 'utf8');
+    const rowJson = await (await this.#workspace()).fs.readFile(wsPath(ROW_PATH), 'utf8');
     const row = JSON.parse(rowJson) as OntologyVersionRow;
     if (row.version !== version) {
       // A stale row file from an earlier cycle — never append it under this label:
@@ -668,20 +702,28 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     // The registry write IS a file write — the row was born as one (ROW_PATH); the
     // Apply gives it its durable name and the append-time stamp that orders the
     // directory. One write, no index to keep consistent with it.
-    await this.#ws.fs.mkdir(wsPath(REGISTRY_DIR), { recursive: true });
+    await (await this.#workspace()).fs.mkdir(wsPath(REGISTRY_DIR), { recursive: true });
     const stored: RegistryFile = { ...row, appliedAt: new Date().toISOString() };
-    await this.#ws.fs.writeFile(wsPath(registryPath(row.version)), JSON.stringify(stored));
+    await (await this.#workspace()).fs.writeFile(wsPath(registryPath(row.version)), JSON.stringify(stored));
     debug('nebula.Galaxy.applyOntology').debug('appended', { version, wipeOnInstall: wipe });
     return { version };
   }
 
   // ─── HTTP surface: the built app's serve + the build-box dial-back ──
 
+  /** The paths {@link onRequest} dispatches on, and the only ones: `npm run audit:do-http` holds it to these. */
+  static readonly HTTP_PREFIXES = [PUBLIC_PREFIX, '/api'] as const;
+
   /**
-   * The Galaxy's HTTP surface, reached by the entrypoint's `/app/*` forward (GET/HEAD,
-   * deliberately ungated — the bounding is the route's security property) and by the
-   * in-container `computerd` daemon dialing back over the workspace proxy (`/api`, the path
-   * `@cloudflare/computer` fixes, whose upgrade it refuses without the client secret it minted).
+   * The Galaxy's HTTP surface: two tracks, each on a prefix its own caller alone produces.
+   *
+   *  - **Pages, under `/_public/`.** The Worker's page step forwards a Star's or persona's host here
+   *    through the page track (`page-forward.ts`), naming the Star in its own header, so a page on
+   *    `dev.crm.acme.lumenize.dev` reaches the built app and nothing else.
+   *  - **The build box, at `/api`.** The in-container `computerd` daemon dials back over the
+   *    workspace proxy on the path `@cloudflare/computer` fixes, whose upgrade it refuses without
+   *    the client secret it minted. No page forward produces it.
+   *
    * Everything else is 404 — the data plane rides the mesh, never HTTP.
    */
   override async onRequest(request: Request): Promise<Response> {
@@ -689,24 +731,25 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     if (url.pathname === '/api') {
       return this.#buildBackend.handleFetch(request);
     }
-    if (url.pathname === '/app' || url.pathname.startsWith('/app/')) {
+    if (url.pathname === PUBLIC_PREFIX || url.pathname.startsWith(`${PUBLIC_PREFIX}/`)) {
       return this.#serveBuiltApp(request, url);
     }
     return new Response('Not Found', { status: 404 });
   }
 
   /**
-   * Serve the built app from this DO's own VFS — `/app/{u}.{g}.{s}/*`, where the star
-   * segment selects WHICH dist: `.dev` = the working tree's current build (`/dist`,
-   * the only tier pre-alpha); any other star is the published `dist-prod/` tier
-   * (deferred — 404 until it exists). `serve.ts` owns the match-first/SPA/caching/
-   * containment contract; the scope meta is injected here because only this side
-   * knows the routed identity (never request-supplied — the wrong-Star footgun guard).
+   * Serve the built app from this DO's own VFS to a page on one of this Galaxy's Star hosts. The
+   * page track names the Star in {@link PUBLIC_SCOPE_HEADER}, and it must be one of this Galaxy's:
+   * `.dev` serves the working tree's current build (`/dist`, the only tier pre-alpha); any other
+   * star is the published `dist-prod/` tier (deferred — 404 until it exists). `serve.ts` owns the
+   * match-first/SPA/caching/containment contract; the page meta is injected here because only this
+   * side knows the routed identity (never request-supplied — the wrong-Star footgun guard).
    */
   async #serveBuiltApp(request: Request, url: URL): Promise<Response> {
-    const star = url.pathname.split('/')[2] ?? '';
+    const star = request.headers.get(PUBLIC_SCOPE_HEADER) ?? '';
     const segs = star.split('.');
-    if (segs.length !== 3 || segs.some((s) => s.length === 0)) {
+    const galaxy = this.lmz.instanceName;
+    if (segs.length !== 3 || segs.some((s) => s.length === 0) || `${segs[0]}.${segs[1]}` !== galaxy) {
       return new Response('Not Found', { status: 404 });
     }
     if (segs[2] !== 'dev') {
@@ -715,12 +758,15 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       // that keeps "same homogeneous path" from meaning one-dist-for-all.
       return new Response('Not Found', { status: 404 });
     }
+    // The page's own path, served at the root of its host.
+    const pagePath = url.pathname.slice(PUBLIC_PREFIX.length) || '/';
+    const page = new Request(new URL(`${pagePath}${url.search}`, url), request);
     const res = await serveApp(
-      request,
-      { directory: '/dist', not_found_handling: 'single-page-application', base: `/app/${star}/` },
+      page,
+      { directory: '/dist', not_found_handling: 'single-page-application', base: '/' },
       async (path) => {
         try {
-          const stream = await this.#ws.fs.readFile(wsPath(path));
+          const stream = await (await this.#workspace()).fs.readFile(wsPath(path));
           return new Uint8Array(await new Response(stream).arrayBuffer());
         } catch {
           return null; // any read failure is a miss — the SPA fallback owns it
@@ -728,13 +774,15 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       },
     );
     if (res === null) return new Response('Not Found', { status: 404 });
-    // Server-derived scope meta for the app shell (activeScope = the star, authScope =
-    // the owning galaxy, plus the installed ontology version the client's data ops must
-    // ride). Injected only into HTML serves; asset serves pass through untouched.
+    // The page meta, injected only into HTML serves; asset serves pass through untouched.
     if ((res.headers.get('Content-Type') ?? '').includes('text/html')) {
+      const deployment = deploymentOrigin(this.env);
       const scopeMeta = JSON.stringify({
-        activeScope: star,
-        authScope: `${segs[0]}.${segs[1]}`,
+        // Whether this page is the dev Star, which Studio frames as the as-you dev tab.
+        dev: true,
+        // The origin a framed page posts its auth state to: this galaxy's Studio, the only page
+        // allowed to frame it (`frame-ancestors`, set by the Worker's page step).
+        parentOrigin: hostOrigin({ kind: 'scope', scope: galaxy }, deployment, url.origin),
         // The SAME derivation getCurrentOntology serves — one definition of "current",
         // so the version a client pins here is always one a Star can pull.
         //
@@ -748,6 +796,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       return new HTMLRewriter()
         .on('head', {
           element(el) {
+            el.prepend(`<meta name="${LUMENIZE_ORIGIN_META}" content="${deployment}">`, { html: true });
             el.prepend(`<meta name="nebula-scope" content='${scopeMeta}'>`, { html: true });
           },
         })
@@ -879,7 +928,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     try {
       // `cwd` is the mount root: the workspace IS the app project. `version` +
       // `wipeOnInstall` are HOST-computed and passed IN via env, never read back out.
-      const handle = await this.#ws.runtime.exec('node /build/job.cjs', {
+      const handle = await (await this.#workspace()).runtime.exec('node /build/job.cjs', {
         cwd: '/workspace',
         encoding: 'utf8',
         env: {
@@ -967,7 +1016,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     try {
       // Read as text, the way every other host-side read of this VFS is: vite's index.html
       // is UTF-8, so re-encoding is byte-exact and the digest matches the job's.
-      const text = await this.#ws.fs.readFile(wsPath('dist/index.html'), 'utf8');
+      const text = await (await this.#workspace()).fs.readFile(wsPath('dist/index.html'), 'utf8');
       if (!expectedSha256) return true;
       const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
       const hex = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -986,12 +1035,12 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     const keep = new Set(files);
     const walk = async (rel: string): Promise<void> => {
       let entries: Array<{ name: string; isDirectory: boolean }>;
-      try { entries = await this.#ws.fs.readdir(wsPath(rel ? `dist/${rel}` : 'dist')); } catch { return; }
+      try { entries = await (await this.#workspace()).fs.readdir(wsPath(rel ? `dist/${rel}` : 'dist')); } catch { return; }
       for (const e of entries) {
         const r = rel ? `${rel}/${e.name}` : e.name;
         if (e.isDirectory) { await walk(r); continue; }
         if (!keep.has(r)) {
-          try { await this.#ws.fs.rm(wsPath(`dist/${r}`), { force: true }); } catch { /* best effort */ }
+          try { await (await this.#workspace()).fs.rm(wsPath(`dist/${r}`), { force: true }); } catch { /* best effort */ }
         }
       }
     };
@@ -1024,6 +1073,162 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       defaultGitIdentity: GIT_AUTHOR,
       backends: [this.#buildBackend],
     });
+  }
+
+  /**
+   * Before a teardown wipes this Galaxy, destroy its build container, awaited and whatever its
+   * state: a container still running could otherwise name the fresh object. Unlike
+   * {@link #destroyBuildContainer}, which is deliberately not awaited, and gating on nothing,
+   * since `running` can be stale (`containers.md`). Every failure is tolerated and no build marker
+   * is logged.
+   */
+  protected override async beforeTeardown(): Promise<void> {
+    // The certificate's steps lead (certificate.ts `teardownSteps`): `disarm` runs before any
+    // `await`, so a wake or an alarm arriving mid-teardown orders nothing. `wipe` is the base
+    // teardown's own, after this returns.
+    const steps = teardownSteps(this.ordersCertificates(), this.#certificateOrder !== undefined);
+    for (const step of steps) {
+      if (step === 'disarm') this.#disarmCertificate();
+      else if (step === 'awaitOrder') await this.#awaitCertificateOrder();
+      else if (step === 'deletePacksNamingHost') await this.#deletePacksNamingHost();
+    }
+    try { await this.ctx.container?.destroy(); } catch { /* nothing running, or the 1006 */ }
+  }
+
+  // ─── The certificate pack (certificate.ts) ──────────────────────────────────
+  // Coordination, not data (`containers.md`'s latch): the order in flight, and whether a teardown
+  // has begun. Both die with the object, which the teardown aborts anyway.
+  #certificateOrder?: Promise<void>;
+  #tearingDown = false;
+  /** How long a teardown waits for an order in flight before listing packs. `protected` so a test
+   *  can shorten it, the way `generationDeadlineMs` is. */
+  protected certificateOrderWaitMs = CERTIFICATE_ORDER_WAIT_MS;
+
+  /** Whether this deployment orders certificates: only an `https` origin does. A seam for tests. */
+  protected ordersCertificates(): boolean {
+    return new URL(deploymentOrigin(this.env)).protocol === 'https:';
+  }
+
+  /** Cloudflare's certificate-packs API for this deployment's zone, or `undefined` where no token
+   *  or zone is configured, which the deploy preflight refuses for an `https` origin. A seam for
+   *  tests. */
+  protected certificateApi(): CertificateApi | undefined {
+    // The token is a deployed Worker's secret, which no local `.dev.vars` holds, so the generated
+    // `Env` cannot name it; the zone id is a `wrangler.jsonc` var, which it does.
+    const env = this.env as Env & { CERTIFICATE_API_TOKEN?: string };
+    if (!env.CERTIFICATE_API_TOKEN || !env.CERTIFICATE_ZONE_ID) return undefined;
+    return cloudflareCertificateApi(env.CERTIFICATE_ZONE_ID, env.CERTIFICATE_API_TOKEN);
+  }
+
+  /** This galaxy's own host, which its pack names beside its wildcard: `crm.acme.lumenize.dev`. */
+  #galaxyHost(): string {
+    return new URL(hostOrigin({ kind: 'scope', scope: this.lmz.instanceName ?? '' }, deploymentOrigin(this.env))).hostname;
+  }
+
+  #certificateState(): CertificateState {
+    return (this.ctx.storage.kv.get(CERTIFICATE_KEY) as CertificateState | undefined) ?? { wanted: false };
+  }
+
+  /**
+   * Wake this galaxy's certificate order — nebula-auth's `orderCertificate` hook, after a create or a
+   * claim's acceptance. `@rawRpc()`, never `@mesh()`: no client may make a Galaxy spend a pack, so a
+   * Galaxy nobody created never orders one (ADR-023). It records that a pack is wanted and arms the
+   * alarm, which is the one caller of Cloudflare's API, so two wakes order once.
+   *
+   * Logs its marker first, with `this.lmz.instanceName` read with no fallback, so an entry that
+   * stamped nothing shows as a missing name. An `http` origin orders nothing.
+   */
+  @rawRpc()
+  async orderCertificate(operationId: string): Promise<void> {
+    debug('nebula.Galaxy.orderCertificate').info('wake', { instanceName: this.lmz.instanceName, operationId });
+    if (!this.ordersCertificates()) return;
+    const { state, arm } = onWake(this.#certificateState(), this.#tearingDown);
+    this.ctx.storage.kv.put(CERTIFICATE_KEY, state);
+    if (arm) this.svc.alarms.schedule(0, this.ctn<Galaxy>().certificateAlarm(), { id: CERTIFICATE_ALARM_ID });
+  }
+
+  /**
+   * The certificate alarm: makes the one API call {@link nextCall} names, stores what it answered,
+   * and re-arms as {@link afterCall} says. Reached only from this Galaxy's own alarm, so it carries no
+   * `@mesh()`. The call runs in the latch a teardown waits on.
+   */
+  async certificateAlarm(): Promise<void> {
+    const call = nextCall(this.#certificateState(), this.#certificateOrder !== undefined, this.#tearingDown);
+    if (call.kind === 'none') return;
+    const log = debug('nebula.Galaxy.certificate');
+    const api = this.certificateApi();
+    if (!api) {
+      log.error('no certificate token or zone is configured; nothing ordered', { host: this.#galaxyHost() });
+      return;
+    }
+    const run = (async () => {
+      const result = call.kind === 'order'
+        ? await api.order(packHosts(new URL(deploymentOrigin(this.env)).hostname, this.#galaxyHost()))
+        : await api.get(call.packId);
+      // A teardown under way lists packs by host, so an order that lands now is still found.
+      if (this.#tearingDown) return;
+      const { state, rearmSeconds } = afterCall(this.#certificateState(), result);
+      this.ctx.storage.kv.put(CERTIFICATE_KEY, state);
+      // A pack that ended anywhere but `active` leaves the host without a certificate.
+      const failed = result.ok && result.status !== 'active' && isFinalStatus(result.status);
+      log[failed ? 'error' : 'info'](call.kind === 'order' ? 'ordered' : 'polled', {
+        host: this.#galaxyHost(), ok: result.ok, ...(result.ok ? { packId: result.packId, status: result.status } : {}),
+      });
+      if (rearmSeconds !== undefined) {
+        this.svc.alarms.schedule(rearmSeconds, this.ctn<Galaxy>().certificateAlarm(), { id: CERTIFICATE_ALARM_ID });
+      }
+    })();
+    this.#certificateOrder = run;
+    try { await run; } finally { if (this.#certificateOrder === run) this.#certificateOrder = undefined; }
+  }
+
+  /** Teardown's first step, synchronous: no wake or alarm after it orders, and none is pending. */
+  #disarmCertificate(): void {
+    this.#tearingDown = true;
+    this.svc.alarms.cancelSchedule(CERTIFICATE_ALARM_ID);
+    this.ctx.storage.kv.put(CERTIFICATE_KEY, { wanted: false } satisfies CertificateState);
+  }
+
+  /** Wait, with a bound, for an order already in flight, so the listing after it sees its pack. */
+  async #awaitCertificateOrder(): Promise<void> {
+    const order = this.#certificateOrder;
+    if (!order) return;
+    const outcome = await Promise.race([
+      order.then(() => 'returned', () => 'returned'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('outlived'), this.certificateOrderWaitMs)),
+    ]);
+    if (outcome === 'outlived') {
+      debug('nebula.Galaxy.certificate').error('an order outlived the teardown wait; its pack may survive', { host: this.#galaxyHost() });
+    }
+  }
+
+  /**
+   * Delete every pack naming this galaxy's host, found by host through the API rather than by the id
+   * in storage, so an order that returned during teardown is found too. A failed list or delete is
+   * logged at error, naming the pack and host, and the wipe goes ahead: a deleted scope's data never
+   * waits on Cloudflare's API.
+   */
+  async #deletePacksNamingHost(): Promise<void> {
+    const log = debug('nebula.Galaxy.certificate');
+    const host = this.#galaxyHost();
+    const api = this.certificateApi();
+    if (!api) {
+      log.error('no certificate token or zone is configured; no pack deleted', { host });
+      return;
+    }
+    let packs;
+    try { packs = await api.list(); } catch (e) {
+      log.error('certificate packs could not be listed; none deleted', { host, error: (e as Error).message });
+      return;
+    }
+    for (const pack of packs.filter((p) => packNamesGalaxy(p.hosts, host))) {
+      try {
+        await api.delete(pack.id);
+        log.info('pack deleted', { packId: pack.id, host });
+      } catch (e) {
+        log.error('certificate pack delete failed', { packId: pack.id, host, error: (e as Error).message });
+      }
+    }
   }
 
   /** Fresh-container teardown — tolerate every failure shape (nothing running, the
@@ -1165,7 +1370,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     // runs, the in-memory latch dies with the isolate, and a fresh message starts a
     // fresh generation.
     // The GENERATION DEADLINE stays: past it the latch releases and the turn surfaces
-    // as failed server-side (the client's Phase-6 idle-timeout owns the UX), so a hung
+    // as failed server-side (the client's idle timeout owns the UX), so a hung
     // await (which its own socket may keep resident!) cannot wedge the loop until
     // force-eviction.
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1266,7 +1471,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
     let sourceCommit: string | undefined;
-    try { sourceCommit = (await this.#ws.git.log({ dir: WS_ROOT, depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
+    try { sourceCommit = (await (await this.#workspace()).git.log({ dir: WS_ROOT, depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
       (step) => this.#chatProgress(agentMessageId, step, userMessageId),
@@ -1392,13 +1597,14 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    * caller ({@link announceBuildToRequester}): the former initial-load cue was deleted,
    * because `dist/` serves Galaxy-direct from this DO's VFS and the Studio sets the
    * iframe source before connecting, so there was nothing to warm and nothing to
-   * announce. NO `newChain` — the originating client's `originAuth` must ride through so
-   * the Gateway's aud check passes; fire-and-forget + try/catch (a delivery failure must
-   * never break the dev loop).
+   * announce. A fresh chain, like every push: the nudge is this Galaxy speaking, so the
+   * asking client's claims stay behind. Fire-and-forget + try/catch (a delivery failure
+   * must never break the dev loop), so a nudge sent while the socket is down is lost.
    */
   protected deliverPreviewReady(scope: string, clientId: string): void {
     try {
-      this.lmz.call(CLIENT_GATEWAY_BINDING, clientId, this.ctn<NebulaClient>().handlePreviewReady(scope));
+      this.lmz.call(CLIENT_GATEWAY_BINDING, clientId, this.ctn<NebulaClient>().handlePreviewReady(scope),
+        undefined, { newChain: true });
     } catch (e) {
       debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: e });
     }
@@ -1680,13 +1886,13 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     } = {},
   ): Promise<LoopResult> {
     let currentSource = '';
-    try { currentSource = await this.#ws.fs.readFile(wsPath('src/App.vue'), 'utf8'); } catch { /* none yet */ }
+    try { currentSource = await (await this.#workspace()).fs.readFile(wsPath('src/App.vue'), 'utf8'); } catch { /* none yet */ }
     let ontologyDts: string | undefined;
-    try { ontologyDts = await this.#ws.fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8'); } catch { /* none yet */ }
+    try { ontologyDts = await (await this.#workspace()).fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8'); } catch { /* none yet */ }
     // The Galaxy layer — absent on a Workspace seeded before the layer existed, and then
     // the turn simply runs without it.
     let galaxyAgents: string | undefined;
-    try { galaxyAgents = await this.#ws.fs.readFile(wsPath(GALAXY_AGENTS_PATH), 'utf8'); } catch { /* none */ }
+    try { galaxyAgents = await (await this.#workspace()).fs.readFile(wsPath(GALAXY_AGENTS_PATH), 'utf8'); } catch { /* none */ }
     const { bundle: history, posterLabel } = this.#historyBundle(opts.triggeringMessageId);
 
     const initial = assembleCodegenPrompt({

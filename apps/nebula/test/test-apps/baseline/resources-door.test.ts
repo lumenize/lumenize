@@ -35,9 +35,7 @@ import {
 } from '@lumenize/nebula';
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
 import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
-import {
-  adminClientAt, universeAdminClient, foundAndLogin, createSubject, createInvitedClient,
-} from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uuid = () => crypto.randomUUID();
@@ -363,7 +361,6 @@ describe('the Galaxy tells a Star-tier caller with no grant `permission`, and a 
     // A Star-tier caller: the galaxy invite co-mints a `.dev` membership WITH `scopeAdmin`, whose
     // dominion stops at the `.dev` Star — so passage carries it up to the Galaxy and nothing more.
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'tenant@example.com');
     const { client: tenant, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'tenant@example.com',

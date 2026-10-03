@@ -18,11 +18,10 @@
  * stuck (or the dialog never opens → `modalEl.open` false), and the final value
  * would be the server's `original`, not the user's `my edit`.
  */
-import { describe, it, expect, vi, inject } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createNebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/frontend';
-import { bootstrapAdmin } from './auth-bootstrap';
 import { OntologyAdminClient } from './ontology-admin';
-import { proxyBaseUrl, uniqueStar, ADMIN_EMAIL } from './factory-harness';
+import { pageEndpoints, PAGE_STAR } from './factory-harness';
 
 const ONTOLOGY = `interface todo { title: string; description?: string; status?: 'open' | 'done'; }`;
 
@@ -37,30 +36,20 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
   // this lane, not blind. Assertions left INTACT — the conflict-modal/use-this verdict contract
   // they encode is what that run re-verifies.
   it.skip('opens a real <dialog> on conflict; the user choice applies as a use-this verdict', async () => {
-    const scope = uniqueStar();
-    const baseUrl = proxyBaseUrl();
-    const testToken = inject('emailTestToken');
-
-    // Provision the tree and log in as the STAR's own admin (open `claim-star`), leaving cookies for
-    // both the universe admin and the star-scoped admin in chromium's jar.
-    const { universe } = await bootstrapAdmin({ baseUrl, scope, email: ADMIN_EMAIL, testToken });
-
-    // Install the 'todo' ontology as the USER-DEVELOPER — i.e. authenticated at the UNIVERSE, whose
-    // universe admin's scope `{u}` covers the tenant star. ⚠️ Not as the star-scoped admin's own
-    // publish: the app developer owns the ontology, the tenant consumes it. The install lands
-    // directly on the STAR via `StarTest.applyOntologyForTest` (the Galaxy test-install path was
-    // deleted — tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 3), which also means the
-    // tenant's data ops below no longer depend on the unbuilt prod lazy-pull for THIS seed.
-    const admin = new OntologyAdminClient({
-      baseUrl, authScope: universe, activeScope: scope, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
-    });
+    // The page is signed in as its Star's own admin (the lane's global setup), so every client here
+    // acts at that Star, and the admin's dominion there satisfies `applyOntologyForTest`'s
+    // `requireDominionHere`. The install lands directly on the STAR via `StarTest.applyOntologyForTest`,
+    // so the tenant's data ops below do not depend on the lazy pull for THIS seed.
+    const scope = PAGE_STAR;
+    const { baseUrl, platformOrigin } = pageEndpoints();
+    const admin = new OntologyAdminClient({ baseUrl, platformOrigin, ontologyVersion: 'v1' });
     await vi.waitFor(() => expect(admin.connectionState).toBe('connected'), { timeout: 15000 });
     admin.callStarInstallOntology(scope, { version: 'v1', types: ONTOLOGY });
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true), { timeout: 10000 });
 
     // The factory client — the doc's `client` + `store`.
     const { client, store, ready, dispose } = createNebulaClient({
-      baseUrl, authScope: scope, activeScope: scope, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
+      baseUrl, platformOrigin, ontologyVersion: 'v1', onShouldRefreshUI: () => {},
     });
     try {
       await ready;

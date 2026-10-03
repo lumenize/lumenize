@@ -5,7 +5,7 @@
  */
 import { verifyJwt, verifyJwtWithRotation, importPublicKey } from '@lumenize/crypto';
 import { isAtOrAbove } from './parse-id';
-import { NEBULA_AUTH_ISSUER } from './types';
+import { deploymentOrigin, platformOrigin } from './hosts';
 import type { NebulaJwtPayload } from './types';
 
 async function getPublicKeys(env: object): Promise<CryptoKey[]> {
@@ -39,15 +39,19 @@ export async function verifyNebulaAccessToken(
   const payload = rawPayload as NebulaJwtPayload;
 
   if (!payload.aud || typeof payload.aud !== 'string') return null;
-  if (payload.iss !== NEBULA_AUTH_ISSUER) return null;
+  // Each deployment accepts only its own tokens: the issuer derives from the deployment's origin.
+  if (payload.iss !== platformOrigin(deploymentOrigin(env))) return null;
   if (!payload.sub) return null;
   if (!payload.access?.authScope) return null;
 
   // Internal consistency: the active scope (aud) must sit at or below the token's own `authScope`.
   // The mint paths already prevent minting a token that violates this; this catches tampered/stale
   // tokens. Structural — a fact about two strings, with no `scopeAdmin` operand: it says nothing
-  // about dominion, and the Gateway's outbound `aud` fence assumes it holds.
+  // about dominion.
   if (!isAtOrAbove(payload.access.authScope, payload.aud)) return null;
+  // A plain membership's token is for its own scope's host alone: passage reads `aud`, so a plain
+  // member of `acme.crm` holding a token for `acme.crm.tenant1` would otherwise reach the tenant.
+  if (!payload.access.scopeAdmin && payload.aud !== payload.access.authScope) return null;
 
   return payload;
 }

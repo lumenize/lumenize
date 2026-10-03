@@ -65,14 +65,14 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 
 ### Config
 
-`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. In a browser session that has completed the auth discovery flow, **every field auto-detects** — the serving layer injects scope and ontology version into the app shell, and the scaffold reads them. The remaining fields stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no browser cookie or no same-origin server.
+`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. **No field names a scope**: the client takes its scope from its first token's `aud`, which the platform host's refresh mints for the page's host, and a call made before that token arrives waits for it. In a browser **every field auto-detects** from the page; they stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no page.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `ontologyVersion` | `string` | injected | The **applied** ontology version this client's resource ops ride (the server enforces the match). Auto-attached to every `resources.*` call. It arrives in the server-injected `<meta name="nebula-scope">`, which the scaffold reads — there is no build-time substitution. **Absent until someone runs Apply**, and that is fine: the client still connects, authenticates and renders, and only `resources.*` refuses, with `NoOntologyInstalledError`. An app that uses no resources never needs one. |
-| `baseUrl` | `string` | `window.location.origin` | Origin of the back end. Default works whenever UI and API share an origin, which is Nebula's standard deployment shape (the tenant's Star serves both). Specify only for cross-origin admin/scripting use. |
-| `authScope` | `string` | from deployment URL | The scope whose per-scope refresh endpoint (`/auth/{authScope}/refresh-token`) and path-scoped cookie this client uses. A deployed app is pinned to one scope, taken from the deployment URL (`window.location`). NOT readable from the refresh cookie (it's HttpOnly). Specify only for cross-origin admin/scripting callers. |
-| `activeScope` | `string` | same as `authScope` | The scope a call's JWT is bound to (`aud`) — where you're currently working. Defaults to `authScope`. A Galaxy/Universe admin sets it to any scope at or below their own to work in a child Star or back in the parent (see [Auth flows § Admin active-scope switching](./auth-flows.md#admin-active-scope-switching-within-one-scopes-subtree)). Sent in the refresh body; the server bounds it against the scope on their membership. Differs from `authScope` by at least the active branch once branches exist. |
+| `baseUrl` | `string` | `window.location.origin` | The page whose host is the client's scope, e.g. `https://tenant-a.app.acme.lumenize.dev`; its socket connects at `/gateway/` there. Specify only for admin/scripting use. |
+| `platformOrigin` | `string` | from the page | The platform host, where the client refreshes: `POST {platformOrigin}/auth/refresh-token` with `credentials: 'include'` and no body. Defaults to the platform host of the deployment the page's `<meta name="lumenize-origin">` names, at the page's own port. |
+| `parentOrigin` | `string` | from the page, in a frame | Where a framed page reports that it needs a login, posting `lumenize:login-required` to its parent at this origin instead of navigating. Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`; with neither, a framed page posts nothing. |
 | `onShouldRefreshUI?` | `(info: OntologyStaleInfo) => void` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale. The arg type **`OntologyStaleInfo`** (`{ clientVersion: string; currentVersion: string; reason: 'ontology-stale' }`) is exported from `@lumenize/nebula/frontend` — note its `reason` field is distinct from the `'ontology-stale'` **`TransactionOutcome`** variant's `kind` (different objects: the hook receives `OntologyStaleInfo`; the awaited transaction resolves `{ kind: 'ontology-stale', clientVersion, currentVersion }`). Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.). **To opt out, pass an explicit no-op `() => {}`; omitting it keeps the default reload** (a stray `null` is coerced to the default too — there is no "disable" sentinel, by design). The default reload is once-guarded (a `sessionStorage` sentinel) so an immediate re-stale after the reload shows nothing rather than looping. |
 | `unsubscribeGraceMs` | `number` | `2000` | Grace period (ms) between binding-refcount reaching zero and `client.resources.unsubscribe` firing. New bindings inside the window cancel the pending unsubscribe. |
 
@@ -82,7 +82,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 | --- | --- | --- |
 | `client` | `NebulaClient` | Lower-level API. Use for explicit subscriptions, reads, transactions, resolver registration. |
 | `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. Seeded with `resources`, `lmz` (`connection`, `orgTree`, `profiles`, `querySubscribers`), and empty `ui` / `app` objects. |
-| `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with a `LoginRequiredError` (mesh's existing terminal-auth signal, also delivered via the `onLoginRequired` hook — there is no separate `AuthRequiredError`) on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor); the bootstrap catches it and redirects to the login / auth-discovery flow. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
+| `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with a `LoginRequiredError` (mesh's existing terminal-auth signal, also delivered via the `onLoginRequired` hook — there is no separate `AuthRequiredError`) on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor). By then the factory's default `onLoginRequired` has acted: a top-level page goes to the platform host's login with `return_to` naming it, and a framed page posts to its parent instead. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
 | `use(middleware)` | `(mw: Middleware) => () => void` | Register an additional middleware. Returns a deregistration function. Synced-state middleware is always-on; user-supplied middleware layers on top. |
 | `dispose()` | `() => void` | Same as [`client.dispose()`](#clientdispose): flush pending debounced writes, clear refcount + pending-unsubscribe timers, dispose internal scopes, and disconnect the underlying `LumenizeClient` WebSocket. |
 
@@ -91,38 +91,29 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 The Studio-generated `nebula.ts` in a browser app:
 
 ```typescript @check-example('apps/nebula/container/app/src/nebula.ts')
-// nebula.ts (the scaffold). Scope is SERVER-DERIVED: the serving layer injects
-// `<meta name="nebula-scope">` and this reads it. `ontologyVersion` is absent until an
-// Apply has run, which is why it is optional — a resource-free app boots without one.
-const { activeScope, authScope, ontologyVersion } = readInjectedScope();
-// ...
-export const { client, store, ready } = createNebulaClient({
-  ontologyVersion,
-  authScope,
-  activeScope,
-});
+// nebula.ts (the scaffold). The page names no scope: the client takes it from its first
+// token. `ontologyVersion` arrives in the server-injected `<meta name="nebula-scope">`,
+// and is absent until an Apply has run — a resource-free app boots without one.
+const { ontologyVersion } = readInjectedScope();
 
-// Top-level await: main.ts (and every component) imports this module, so the
-// app mounts only after the first connection — client.claims is populated
-// before any component renders. See § client.claims.
-try {
-  await ready;
-} catch {
-  // Terminal auth failure (logged-out visitor) — go authenticate. Transient
-  // failures don't reject; they keep retrying behind a loading state.
-  window.location.assign('/login');
-}
+// With no session, the factory sends a top-level page to log in and brings it back here, and a
+// page framed in Studio tells Studio instead; `ready` rejects either way.
+export const { client, store, ready } = createNebulaClient({ ontologyVersion });
+
+// Top-level await: main.ts (and every component) imports this module, so the app mounts
+// only after the first connection — client.claims is populated before any component
+// renders. See § client.claims.
+await ready.catch(() => { /* the factory has already acted on it */ });
 ```
 
-All other fields auto-detect: `baseUrl` from `window.location.origin`, `authScope` from the deployment URL (`window.location`) with `activeScope` defaulting to it, `onShouldRefreshUI` from the default reload.
+All other fields auto-detect: `baseUrl` from `window.location.origin`, `platformOrigin` from the page's `lumenize-origin` meta, `parentOrigin` (in a frame) from `nebula-scope`, and `onShouldRefreshUI` from the default reload.
 
 Admin/scripting form with all overrides explicit:
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const { client, store } = createNebulaClient({
-  baseUrl: 'https://my-app.example.com',
-  authScope: 'acme.app.tenant-a',
-  activeScope: 'acme.app.tenant-a',
+  baseUrl: 'https://tenant-a.app.acme.lumenize.dev',   // the page whose scope the client works in
+  platformOrigin: 'https://platform.lumenize.dev',     // where its session lives
   ontologyVersion: 'v42',
   onShouldRefreshUI: () => {},    // opt out of auto-reload (null/undefined both KEEP the default reload)
 });
@@ -510,8 +501,9 @@ Every method requires the caller to hold a permission on the relevant node, reso
 ### Structural mutations (require `write`)
 
 ```typescript @skip-check
-// Create a child node. `slug` must match /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/
-// and be unique among siblings. The CALLER supplies the node's id (a v4 UUID,
+// Create a child node. `slug` follows the scope grammar — at most 30 characters of
+// lowercase letters, digits and single hyphens, with no leading or trailing hyphen —
+// and is unique among siblings. The CALLER supplies the node's id (a v4 UUID,
 // `crypto.randomUUID()`); createNode is idempotent — a retry with the same id
 // returns the same node (a reused id with a different slug throws loudly).
 createNode(nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string>;
@@ -689,7 +681,7 @@ Example — a "who's here" roster for a chat session, with each person's avatar 
 
 **Tag**: inherited from `LumenizeClient`
 
-NebulaClient extends [`LumenizeClient`](/docs/mesh/lumenize-client), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `access`, etc.) is available with no Nebula-specific wrapping. See [mesh: LumenizeClient § Client identity](/docs/mesh/lumenize-client#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`. For admin-only UI, gate on **both** `client.claims.access?.admin` (Galaxy/Universe scope admin) and an `admin` grant in the org-tree (app admin) — see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui).
+NebulaClient extends [`LumenizeClient`](/docs/mesh/lumenize-client), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `access`, etc.) is available with no Nebula-specific wrapping. See [mesh: LumenizeClient § Client identity](/docs/mesh/lumenize-client#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`. For admin-only UI, gate on **both** `client.claims.access?.scopeAdmin` (Galaxy/Universe scope admin) and an `admin` grant in the org-tree (app admin) — see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui).
 
 **Type — non-null on NebulaClient.** `LumenizeClient` is generic over its claims payload — `LumenizeClient<TClaims extends { sub: string } = JwtPayload>` with `get claims(): Readonly<TClaims> | null` (it has a genuine null window before first refresh). `NebulaClient extends LumenizeClient<NebulaJwtPayload>` and **re-declares the getter to drop the `| null`** — `get claims(): Readonly<NebulaJwtPayload>` — because the availability contract below guarantees it's populated by the time app code runs. The re-declaration is behaviorally neutral (the runtime getter is the inherited one; it only narrows the type). This is what lets the doc examples write `client.claims.sub` without a `!` or `?.` and still pass strict TypeScript.
 
@@ -709,7 +701,7 @@ export interface NebulaJwtPayload {
 }
 ```
 
-`access` carries `authScope` (the scope this token belongs to, verbatim — e.g. `"george-solopreneur"` for a Universe-level member) and `scopeAdmin` (`true` for a Galaxy/Universe scope admin, omitted when false). A scope covers itself and every scope beneath it, by whole dot-separated segment. `profileId` is the bearer's own public profile handle; `act` is present only under impersonation.
+`access` carries `authScope` (the membership this token rests on, verbatim — e.g. `"george-solopreneur"` for a Universe-level member) and `scopeAdmin` (`true` for a Galaxy/Universe scope admin, omitted when false). `aud` is the scope of the page's host, and it is what the token acts from: with `scopeAdmin`, it administers that scope and everything beneath it, and every token reaches the scopes above it by passage alone. A scope covers itself and every scope beneath it, by whole dot-separated segment. `profileId` is the bearer's own public profile handle; `act` is present only under impersonation.
 
 **Availability contract (pinned).** Under the hood `claims` is `null` until the client's first token refresh completes, and `client` is not Vue-reactive — claims-gated bindings never re-evaluate on their own. Studio-generated apps close this window structurally: the bootstrap top-level-awaits the factory's [`ready`](#createnebulaclient) promise, so **`client.claims` is populated by the time any component renders** — which is exactly what makes the non-null narrowing sound. Code that runs *outside* that contract (admin tools, scripts, anything before `ready`) is the one place the narrowing over-promises: there, treat `claims` as possibly-null and guard with `?.`.
 

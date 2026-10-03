@@ -19,8 +19,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import { universeAdminClient, uniqueGalaxyScope } from '../../test-helpers';
 import { NebulaClientTest } from './index';
+import type { GalaxyTest } from './index';
 
 /** One fake model round that calls the build tool, then one that marks complete. */
 const BUILD_THEN_COMPLETE = [
@@ -34,10 +36,11 @@ const BUILD_THEN_COMPLETE = [
 
 describe('nebula-client preview-ready hook — the build reply', () => {
   it('a turn whose build succeeds invokes onPreviewReady with the Galaxy scope, on the client that asked', async () => {
-    const { galaxy, dev } = uniqueGalaxyScope();
+    const { galaxy } = uniqueGalaxyScope();
     const captured: string[] = [];
+    // On Studio's page, the galaxy's own, where a chat turn is asked for.
     const { client } = await universeAdminClient(
-      NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1',
+      NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', 'v1',
       { onPreviewReady: (scope: string) => { captured.push(scope); } },
     );
 
@@ -51,5 +54,39 @@ describe('nebula-client preview-ready hook — the build reply', () => {
     expect(captured).toHaveLength(1);
 
     client[Symbol.dispose]();
+  });
+
+  // The nudge stays point-to-point and starts a fresh chain, like every push. Mutations: fan the
+  // nudge out to the chat's subscribers, and the second client counts one too; send it without
+  // `newChain`, and its frame carries the asking client's claims.
+  it('only the client that asked is nudged, and the nudge carries none of its claims', async () => {
+    const { galaxy } = uniqueGalaxyScope();
+    const chatPair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: galaxy } as const;
+    const { client: asker } = await universeAdminClient(
+      NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+    const { client: other } = await universeAdminClient(
+      NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+    expect(other.lmz.instanceName).not.toBe(asker.lmz.instanceName); // fixture guard: two tabs
+
+    // The other tab watches the chat, as a second Studio does, so it is on every list a fanout reads.
+    using chat = other.resources.subscribeQuery(
+      { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID });
+    await chat.ready;
+
+    asker.callGalaxyChatScripted(galaxy, 'build it', BUILD_THEN_COMPLETE);
+    await vi.waitFor(() => expect(asker.previewReadyCount).toBe(1), { timeout: 15000 });
+
+    // Barrier: a directed call from the same Galaxy to the other tab, sent after the asker's nudge
+    // landed, so a nudge the Galaxy had sent that tab is in before it.
+    const trees = other.orgTreeUpdateCount;
+    await asker.lmz.callAsync('GALAXY', galaxy,
+      asker.ctn<GalaxyTest>().callClientReporting(other.lmz.instanceName!, 'handleOrgTreeUpdate', { value: {} }));
+    await vi.waitFor(() => expect(other.orgTreeUpdateCount).toBe(trees + 1));
+    expect(other.previewReadyCount).toBe(0);
+    expect(asker.pushOrigins.filter((p) => p.handler === 'handlePreviewReady'))
+      .toEqual([{ handler: 'handlePreviewReady', originSub: undefined, chain: ['GALAXY'] }]);
+
+    asker[Symbol.dispose]();
+    other[Symbol.dispose]();
   });
 });

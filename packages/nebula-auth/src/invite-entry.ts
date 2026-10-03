@@ -12,12 +12,12 @@
  *    latency are invisible to every caller.
  *
  * **Template selection discriminates on ACCEPTANCE, not row-existence**: an accepted member gets
- * `invite-existing` (a redirect — they can already log in), while a pending, never-accepted invitee
+ * `invite-existing` (a link to the scope's host — they can already log in), while a pending, never-accepted invitee
  * gets `invite-new` again carrying the FRESH link the re-invite minted — the letter must deliver
  * it, or the invitee is stranded with a link-less letter and the recovery story is false.
  */
 import { debug } from '@lumenize/debug';
-import { landingBase } from './landing';
+import { deploymentOrigin, hostOrigin } from './hosts';
 import type { EmailMessage, InviteMintResult, InviteSummary, InviteeMintResult } from './types';
 
 /**
@@ -78,9 +78,10 @@ function buildInviteMessage(
   env: Env, instanceName: string, origin: string, invitee: InviteeMintResult,
 ): EmailMessage {
   if (invitee.accepted) {
-    // They can already log in — send them to the scope's landing page, same shape as the login
-    // redirect (`consumeAndLogin`'s Location), made absolute for an email body.
-    const redirectUrl = `${origin}${landingBase(instanceName)}/${encodeURIComponent(instanceName)}`;
+    // They can already log in, so the letter carries no token and links to the invited scope's own
+    // host, where the page's first refresh finds the cookie they already hold. The port is the
+    // request's, so a local stack's letter reaches the stack that sent it.
+    const redirectUrl = `${hostOrigin({ kind: 'scope', scope: instanceName }, deploymentOrigin(env), origin)}/`;
     return { type: 'invite-existing', to: invitee.email, instanceName, redirectUrl };
   }
   return { type: 'invite-new', to: invitee.email, instanceName, inviteUrl: invitee.inviteUrl };

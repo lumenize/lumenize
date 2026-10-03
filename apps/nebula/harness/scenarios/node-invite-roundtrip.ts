@@ -17,8 +17,8 @@
  *     install converges, which is this limb's other half: a fresh Star with no client op ever
  *     seen installs the Galaxy's current ontology because an INVITE needed it.
  *  2. The REAL letter arrives — `invite-new`-shaped, tagged with the STAR scope (the membership's
- *     scope, not the node), carrying the accept-invite link.
- *  3. Clicking THAT link logs in AT the star; the JWT carries `authScope = star` and NO
+ *     scope, not the node), carrying a magic link.
+ *  3. Accepting on THAT link's page logs in AT the star; the JWT carries `authScope = star` and NO
  *     `scopeAdmin` — the node path mints no admin (the cap in degenerate form).
  *  4. The invitee's first WRITE at the node commits — the invite-time grant authorizes it.
  *     *Live-mutation-checked: suppress the handler's grant write → this limb reds while 1–3 stay
@@ -35,7 +35,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
+import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
 import {
   provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
@@ -63,15 +63,21 @@ export async function run(stack: DevStack): Promise<void> {
 
     // A running Star needs an installed ontology for ANY resource write — and it arrives by the
     // REAL path, never a direct set. The dev Apply on the parent Galaxy compiles the SEED
-    // ontology in the build container and appends it to the registry (`provisionAndLogin`'s
-    // identity is a UNIVERSE admin, so dominion covers the galaxy); the Star then has NOTHING
-    // installed until the invite itself triggers the first-touch pull-current below.
-    // _InviteStatus rides every version (platform-unioned).
+    // ontology in the build container and appends it to the registry. It is asked from Studio,
+    // the galaxy's own page, where the universe admin holds dominion over the galaxy (the host
+    // rule); the Star then has NOTHING installed until the invite itself triggers the
+    // first-touch pull-current below. _InviteStatus rides every version (platform-unioned).
     const galaxy = star.split('.').slice(0, 2).join('.');
-    const appended = await admin.client.lmz.callAsync(
-      'GALAXY', galaxy, admin.client.ctn<Galaxy>().applyOntology(),
-      { timeoutMs: 240_000 },
-    ) as { version: string };
+    const studio = await connectDriver(stack, { scope: galaxy, session: await refreshAccessToken(origin, adminSession.session, galaxy) });
+    let appended: { version: string };
+    try {
+      appended = await studio.client.lmz.callAsync(
+        'GALAXY', galaxy, studio.client.ctn<Galaxy>().applyOntology(),
+        { timeoutMs: 240_000 },
+      ) as { version: string };
+    } finally {
+      studio.dispose();
+    }
     assert.ok(appended.version.length > 0, 'the Apply should return the appended seed version');
 
     // ── LIMB 1: the ack, via the first-touch install ──────────────────────────────────────────
@@ -99,8 +105,8 @@ export async function run(stack: DevStack): Promise<void> {
     const mail = await waiter.emailPromise;
     assert.equal(mail.instance, star, `invite mail tagged "${mail.instance ?? 'undefined'}", wanted the star`);
     const html = mail.html ?? '';
-    const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
-    assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
+    const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(html)?.[1];
+    assert.ok(href, `invite email carried no magic link (starts: ${html.slice(0, 60)})`);
     const link = href.replace(/&amp;/g, '&');
 
     // ── LIMB 3: the click IS the login, at the star, with NO admin bit ─────────────────────────
@@ -115,15 +121,14 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(claims.access.scopeAdmin, undefined, 'the node path must mint NO admin bit');
 
     // ── LIMB 4: the first write at the node commits under the invite-time grant ────────────────
-    const ctx = inviteeBrowser.context(stack.baseUrl);
+    const ctx = inviteeBrowser.context(scopeUrlOf(stack, star));
     invitee = new NebulaClient({
-      baseUrl: stack.baseUrl,
-      authScope: star,
-      activeScope: star,
+      baseUrl: scopeUrlOf(stack, star),
+      platformOrigin: stack.baseUrl,
       ontologyVersion: appended.version,
       accessToken: inviteeSession.accessToken,
       instanceName: `${inviteeSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
-      fetch: inviteeBrowser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -165,7 +170,7 @@ export async function run(stack: DevStack): Promise<void> {
       const w = waitForEmail({ testToken, instance: star, to: outsiderEmail, timeout: 60_000 });
       try { return await w.emailPromise; } finally { w.cleanup(); }
     })();
-    const outsiderHref = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(outsiderMail.html ?? '')?.[1];
+    const outsiderHref = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(outsiderMail.html ?? '')?.[1];
     assert.ok(outsiderHref, 'the outsider control never received an invite link');
     const outsiderBrowser = new Browser();
     const { refreshToken: outsiderCookie } = await acceptInviteAndLogin({
@@ -177,15 +182,14 @@ export async function run(stack: DevStack): Promise<void> {
     const outsiderSession = await refreshAccessToken(
       origin, { refreshToken: outsiderCookie, authScope: star }, star, outsiderBrowser.fetch,
     );
-    const octx = outsiderBrowser.context(stack.baseUrl);
+    const octx = outsiderBrowser.context(scopeUrlOf(stack, star));
     const outsider = new NebulaClient({
-      baseUrl: stack.baseUrl,
-      authScope: star,
-      activeScope: star,
+      baseUrl: scopeUrlOf(stack, star),
+      platformOrigin: stack.baseUrl,
       ontologyVersion: appended.version,
       accessToken: outsiderSession.accessToken,
       instanceName: `${outsiderSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
-      fetch: outsiderBrowser.fetch,
+      fetch: octx.fetch,
       sessionStorage: octx.sessionStorage,
       BroadcastChannel: octx.BroadcastChannel,
     });

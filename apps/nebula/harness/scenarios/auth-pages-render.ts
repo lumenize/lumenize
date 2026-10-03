@@ -1,7 +1,7 @@
 /**
  * **The auth screens actually render — the half a green suite cannot see.**
  *
- * Phase 6 built the SPA and asserted its server side: the routes exist, the ticket is spendable only
+ * The pool-workers lane asserts the auth screens' server side: the routes exist, the ticket is spendable only
  * at the claim, the coming-soon tag is a closed set. None of that says a person sees a form. The
  * capability that was fully present in code and never wired into the UI is this repo's own cautionary
  * tale (`live.md`), and these screens are where a repeat would be most expensive — they are every
@@ -22,16 +22,19 @@
  *     bundle fails to mount — a blank 200 — or if the affordance is dropped.*
  *  2. **The affordance expands to a name field.** *Reds against a dead toggle: the control renders
  *     but the newbie path behind it does not open.*
- *  3. **`/auth/{scope}/home` renders the CONSENT MODAL for an unaccepted membership**, with its
- *     checkbox and a disabled Accept. *Reds against a modal bypass — the failure that would let a
- *     click enrol someone silently — and against Accept being live before the box is ticked.*
+ *  3. **A claim link's page renders the CONSENT SCREEN, and loading it signs nobody in**: the
+ *     checkbox and a disabled Accept render, the token has left the address bar, and the browser
+ *     holds no cookie. *Reds against a modal bypass — the failure that would let a click enrol
+ *     someone silently — against Accept being live before the box is ticked, and against a page
+ *     load that consumes.*
  *  4. **The box AND a nickname enable Accept; the box alone does not.** The positive control for
  *     limb 3 (without it, "disabled" would also pass on a button that is never enabled at all),
  *     plus the guard on the nickname staying a genuine condition rather than an optional field.
  *  5. **The self flavour carries the data-use notice.** *Reds against dropping the notice from the
  *     placement where a person actually commits.*
- *  6. **The page reached the server cleanly** — no console errors, no failed requests. *Reds
- *     against a screen that looks right and is quietly 404ing its own bundle.*
+ *  6. **The page reached the server cleanly** — no console errors, no failed requests. The link
+ *     page holds no token, so it makes no refresh to be refused. *Reds against a screen that looks
+ *     right and is quietly 404ing its own bundle.*
  *  7. **The identity block: an optional full name, and a placeholder avatar that points at the
  *     editor.** *Reds if the consent screen grows an uploader (nothing here holds a session that
  *     could be authorized to store one) or regresses to the retired coming-soon stub.*
@@ -81,7 +84,7 @@ export async function run(stack: DevStack): Promise<void> {
       // Host). Until 2026-09-02 this requested at the wrangler port and a helper re-pointed the
       // link at vite afterwards, which is exactly the compensating-helper shape that hid the
       // links-point-at-prod bug from every lane; the link is now followed AS SENT.
-      const claimed = await requestUniverseClaim({ baseUrl: vite.viteBaseUrl, universe, email: person });
+      const claimed = await requestUniverseClaim({ baseUrl: vite.viteBaseUrl, universe, appSlug: 'first', email: person });
       assert.notEqual(claimed, null, 'the claim was refused — the slug should be free');
       link = extractMagicLink(await waiter.emailPromise);
     } finally {
@@ -89,26 +92,27 @@ export async function run(stack: DevStack): Promise<void> {
     }
     assert.ok(link.startsWith(vite.viteBaseUrl),
       `the emailed link must name the page's own origin as sent (got ${new URL(link).origin}, page is ${vite.viteBaseUrl})`);
-    // The click lands the cookies on the page's own origin because the link already names it — and
-    // it lands on HOME, because every arrival does (`landingFor`: a claim and an invite arrive with
-    // their consent modal front and centre).
+    // The link opens its page on the platform host, which for a claim is the consent screen.
     //
-    // ⚠️ **ONE navigation, not two.** A second `goto` to Home here is not merely redundant: it
-    // CANCELS this page's in-flight bootstrap, which Chromium reports as `net::ERR_ABORTED` on a
-    // request nothing was wrong with — a failure the scenario causes itself and then trips limb 6
-    // over. Readiness is established by the auto-waiting locator below, never by a quiet-period
-    // heuristic (`networkidle` is Playwright-discouraged for exactly this reason) and never by a
-    // fixed delay.
+    // ⚠️ **ONE navigation, not two.** A second `goto` here is not merely redundant: it CANCELS this
+    // page's in-flight lookup, which Chromium reports as `net::ERR_ABORTED` on a request nothing was
+    // wrong with — a failure the scenario causes itself and then trips limb 6 over. Readiness is
+    // established by the auto-waiting locator below, never by a quiet-period heuristic
+    // (`networkidle` is Playwright-discouraged for exactly this reason) and never by a fixed delay.
     await page.goto(link, { waitUntil: 'domcontentloaded' });
-    await page.waitForURL(new RegExp(`/auth/${universe}/home(?:[/?#]|$)`), { timeout: 30_000 });
 
-    // ── LIMB 3: Home renders the consent modal, Accept disabled ────────────────────────────────
+    // ── LIMB 3: the link's page renders the consent screen, Accept disabled, nobody signed in ──
     const checkbox = page.getByTestId('consent-checkbox');
     await checkbox.waitFor({ state: 'visible', timeout: 20_000 });
     const accept = page.getByTestId('consent-accept');
     assert.equal(await accept.isDisabled(), true,
       'Accept must be disabled until the box is checked — the checkbox is what makes this a decision');
-    console.error('  ✓ limb 3 — the consent modal renders with Accept disabled');
+    const landed = new URL(page.url());
+    assert.equal(landed.pathname, '/auth/magic-link', `the consent screen must be the link's own page, got ${landed.pathname}`);
+    assert.equal(landed.searchParams.has('token'), false, 'the token must leave the address bar once the page loads');
+    assert.deepEqual((await page.context().cookies()).map((c) => c.name), [],
+      'loading the link must sign nobody in — the browser must hold no cookie before Accept');
+    console.error('  ✓ limb 3 — the link page renders consent with Accept disabled; no token, no cookie');
 
     // ── LIMB 5 (read before clicking): the self flavour carries the notice ─────────────────────
     await page.getByTestId('data-use-notice').waitFor({ state: 'visible' });
@@ -131,8 +135,8 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 7 (before 6, which reads cumulative state): the identity block ────────────────────
     // The optional full name renders beside the required nickname, and the avatar is a PLACEHOLDER
-    // with a pointer, not an uploader: there is no session yet (the cookie is inert until Accept),
-    // so nothing here could be authorized to write a picture. The uploader lives in the Profile
+    // with a pointer, not an uploader: there is no session yet (no cookie exists until Accept), so
+    // nothing here could be authorized to write a picture. The uploader lives in the Profile
     // editor, which `signup-to-first-app` drives end to end through R2.
     await page.getByTestId('consent-name').waitFor({ state: 'visible' });
     await page.getByText("Add a picture from your profile once you're in.").waitFor({ state: 'visible' });
@@ -140,32 +144,13 @@ export async function run(stack: DevStack): Promise<void> {
       'the consent avatar must not be a coming-soon stub any more — pictures are real');
     console.error('  ✓ limb 7 — optional full name renders; the avatar points at the profile editor');
 
-    // ── LIMB 6: the page reached the server cleanly, and its ONE refusal is the designed one ───
+    // ── LIMB 6: the page reached the server cleanly ─────────────────────────────────────────────
     const capture = await captureArtifacts(inst, 'auth-pages-render');
-
-    // ⚠️ **The bootstrap 401 is EXPECTED and is asserted rather than filtered away.** Home refreshes
-    // on arrival; the membership is unaccepted; the server refuses. That refusal is the
-    // inert-until-accepted design working, and it is the thing that sends Home to the
-    // pending-membership card — so a run WITHOUT it means the modal rendered off a live session,
-    // which is the failure this whole flow exists to prevent. A blanket "no failed requests" check
-    // would have to swallow it, and would then swallow a real one too.
-    const isBootstrapRefusal = (r: { url: string; status: number | 'failed' }) =>
-      r.url.includes(`/auth/${universe}/refresh-token`) && (r.status === 401 || r.status === 'failed');
-    assert.ok(capture.failedRequests.some((r) => isBootstrapRefusal(r) && r.status === 401),
-      'the arrival refresh did NOT 401 — the modal would then be decorating a live session');
-
-    const unexpected = capture.failedRequests
-      .filter((r) => !r.url.includes('/favicon'))
-      .filter((r) => !isBootstrapRefusal(r));
-    assert.deepEqual(unexpected, [],
-      `the auth screens made UNEXPECTED failing requests: ${JSON.stringify(unexpected)}`);
-    // The browser also logs the same designed 401 as a console error — excluded by its exact shape,
-    // never by muting the channel, so a genuine script error still reds this.
-    const noisyConsole = capture.consoleErrors
-      .filter((m) => !/Failed to load resource.*401/.test(m));
-    assert.deepEqual(noisyConsole, [],
-      `the auth screens logged console errors: ${noisyConsole.join(' | ')}`);
-    console.error(`  ✓ limb 6 — the only refusal is the designed 401; no console errors (capture: ${capture.dir})`);
+    const failed = capture.failedRequests.filter((r) => !r.url.includes('/favicon'));
+    assert.deepEqual(failed, [], `the auth screens made failing requests: ${JSON.stringify(failed)}`);
+    assert.deepEqual(capture.consoleErrors, [],
+      `the auth screens logged console errors: ${capture.consoleErrors.join(' | ')}`);
+    console.error(`  ✓ limb 6 — no failed requests, no console errors (capture: ${capture.dir})`);
   } finally {
     await vite.close();
     await browser.close();

@@ -8,21 +8,19 @@
  *
  * ⚠️ **TTL choice is load-bearing in two opposite directions.** The client refreshes when a token is
  * within 30s of expiry, so a sub-30s token is *born* already due and re-mints during the child's own
- * construction. Tests that count mints must therefore stay comfortably ABOVE that window; Phase 3's
- * forced-re-mint test wants the opposite. Anything here that asserts a mint count uses
- * `SAFE_TTL`.
+ * construction. Tests that count mints must therefore stay comfortably ABOVE that window, while the
+ * forced re-mint tests in `impersonate-lifetime.test.ts` want the opposite. Anything here that asserts
+ * a mint count uses `SAFE_TTL`.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
-import {
-  universeAdminClient, createInvitedClient, createSubject, browserLogin,
-} from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject, browserLogin, ORIGIN, pageOf } from '../../test-helpers';
 import { ImpersonationChainError, ImpersonationMintError, childrenOf } from '../../../src/impersonation';
+import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 
-const ORIGIN = 'http://localhost'; // must match test-helpers.ts's ORIGIN — the clients' real baseUrl
 /** Comfortably outside the client's 30s refresh-ahead window, so construction does not re-mint. */
 const SAFE_TTL = 300;
 
@@ -48,7 +46,7 @@ describe('impersonate() — identity', () => {
   it('returns a connected client that IS the subject, with the admin as actor', async () => {
     const { star, admin, adminPayload, member } = await adminAndMember();
 
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     // Mutation: construct the child from the parent's own token instead of the mint response →
@@ -70,7 +68,7 @@ describe('impersonate() — identity', () => {
 
   it('round-trips ttlSeconds into the minted token', async () => {
     const { star, admin, member } = await adminAndMember();
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     // Mutation: accept `opts` and drop it before the request → the default lifetime comes back → reds.
@@ -89,11 +87,11 @@ describe('impersonate() — the mint', () => {
     sink = [];
     setDebugSink((e) => sink.push(e));
     try {
-      const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+      const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
       await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
       const issued = sink.filter((e) =>
-        e.namespace === 'nebula-auth.worker.narrower.issued'
+        e.namespace === 'nebula-auth.facade.impersonate' && e.message === 'Impersonation token issued'
         && e.data?.subOfNarrowerToken === member.sub);
       // Mutation: construct the child WITHOUT seeding the minted token → its eager connect finds no
       // token, `#needsTokenRefresh()` is true, and its `refresh` mints a second time → two markers.
@@ -106,76 +104,56 @@ describe('impersonate() — the mint', () => {
   });
 
   it('refuses to chain — before any network call', async () => {
-    // ⚠️ The counter must be on the PARENT's `fetch`, because the child INHERITS it — that is the
-    // transport `child.impersonate()` would use. Counting on a separate client built alongside would
-    // count nothing, and the "no network call" assertion would pass no matter what the guard did.
-    const universe = `imp-${crypto.randomUUID().slice(0, 8)}`;
-    const star = `${universe}.app.tenant`;
-    const browser = new Browser();
-    let mintRequests = 0;
-    const counting = ((input: any, init?: any) => {
-      const url = typeof input === 'string' ? input : (input?.url ?? '');
-      if (String(url).includes('/mint-narrower-token')) mintRequests++;
-      return browser.fetch(input, init);
-    }) as typeof fetch;
-    const { client: admin, accessToken: adminToken } = await universeAdminClient(
-      NebulaClientTest, browser, star, star, 'admin@example.com', 'v1', { fetch: counting },
-    );
-    await createSubject(browser, star, adminToken, 'member@example.com');
-    const { payload: member } = await createInvitedClient(
-      NebulaClientTest, new Browser(), star, star, 'member@example.com',
-    );
+    // The witness is the FACADE's own `called` marker: every call that reaches `impersonate` logs one
+    // before any check, so a refusal the facade would have answered still counts. A client-side
+    // counter would have to know which client's transport the child would use; the server sees
+    // every call whichever it is.
+    const { admin, member } = await adminAndMember();
+    const sink: any[] = [];
+    setDebugSink((e) => sink.push(e));
+    const calls = () => sink.filter((e) =>
+      e.namespace === 'nebula-auth.facade.impersonate' && e.message === 'called').length;
+    try {
+      const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
+      await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
+      // Fixture guard: the witness really is wired — the FIRST mint went through it. Without this,
+      // a zero below would be indistinguishable from a marker attached to nothing.
+      expect(calls()).toBeGreaterThanOrEqual(1);
+      const afterFirstMint = calls();
 
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
-    await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
-    // Fixture guard: the counter really is wired — the FIRST mint went through it. Without this, a
-    // zero below would be indistinguishable from a counter attached to nothing.
-    expect(mintRequests).toBeGreaterThanOrEqual(1);
-    const afterFirstMint = mintRequests;
+      // Mutation: delete the guard → the call reaches the facade → the count rises → reds.
+      await expect(child.impersonate(member.sub)).rejects.toThrow(ImpersonationChainError);
+      await expect(child.impersonate(member.sub)).rejects.toThrow(/does not chain/i);
+      expect(calls()).toBe(afterFirstMint);
 
-    // The instrument has to be a REQUEST COUNTER, not the debug sink: the endpoint's root-identity
-    // gate returns a bare errorResponse with NO marker, so the sink cannot tell "never called"
-    // from "called and refused".
-    // Mutation: delete the guard → the call reaches the endpoint → the count rises → reds.
-    await expect(child.impersonate(member.sub, star)).rejects.toThrow(ImpersonationChainError);
-    await expect(child.impersonate(member.sub, star)).rejects.toThrow(/does not chain/i);
-    expect(mintRequests).toBe(afterFirstMint);
-
-    child.disconnect();
-    admin.disconnect();
+      child.disconnect();
+      admin.disconnect();
+    } finally { clearDebugSink(); }
   });
 
-  // TWO different refusals, on purpose. Asserting one status could be satisfied by a build that
-  // hard-codes it; two prove the mapping TRANSPORTS `res.status` and `error_description` rather than
-  // coinciding with a constant. Nothing else exercises that mapping — the classification test builds
-  // `ImpersonationMintError` by hand, so it covers the predicate, not the extraction.
+  // TWO different refusals, on purpose: each carries the facade's own message through the typed
+  // refusal into `ImpersonationMintError`, so a build that drops or fixes the message reds one row.
   //
-  // The 403 row is the mint's COLLAPSED refusal: an absent subject and a subject the caller may not
-  // act for answer identically (refusal-and-absence indistinguishability — the old distinct 404 was
-  // a `sub`-existence oracle). The 400 row is the self-narrow rejection, which precedes the lookup.
+  // The second row is the mint's COLLAPSED refusal: an absent subject and a subject the caller may
+  // not act for answer identically (refusal-and-absence indistinguishability — a distinct answer
+  // would be a `sub`-existence oracle). The first is the self-narrow rejection, which precedes the
+  // lookup.
   it.each([
-    ['400 — self-narrowing (the caller\'s own sub)', 400, /must be a different sub/],
-    ['403 — absent subject, indistinguishable from a refused one', 403, /does not administer this subject/],
+    ['self-narrowing (the caller\'s own sub)', 'self', /different sub/],
+    ['an absent subject, indistinguishable from a refused one', 'absent', /does not administer this subject/],
   ])('a failed FIRST mint (%s) rejects cleanly and leaves no half-registered child',
-    async (_label, expectedStatus, expectedMessage) => {
-      const { star, admin, adminPayload } = await adminAndMember();
+    async (_label, kind, expectedMessage) => {
+      const { admin, adminPayload } = await adminAndMember();
       expect(childrenOf(admin).length).toBe(0);
 
-      const target = expectedStatus === 403
-        ? { sub: crypto.randomUUID(), scope: star }   // absent subject → the collapsed 403
-        : { sub: adminPayload.sub, scope: star };     // the caller's own sub → 400 pre-lookup
-
-      const rejected = admin.impersonate(target.sub, target.scope, { ttlSeconds: SAFE_TTL });
+      const target = kind === 'absent' ? crypto.randomUUID() : adminPayload.sub;
+      const rejected = admin.impersonate(target, { ttlSeconds: SAFE_TTL });
       await expect(rejected).rejects.toThrow(ImpersonationMintError);
-      // Mutation: map every failure to a fixed status, or drop `error_description` from the message
-      // → one of these two rows reds. (The previous `status: expect.any(Number)` could not: the
-      // constructor assigns a number unconditionally, so it restated the class's own invariant.)
-      await expect(rejected).rejects.toMatchObject({ status: expectedStatus });
+      // Mutation: drop the facade's message when wrapping the typed refusal → both rows red.
       await expect(rejected).rejects.toThrow(expectedMessage);
 
-      // ⚠️ Not an edge case: the design deliberately does NO client-side `activeScope` validation, so
-      // a wrong scope is an EXPECTED caller error. A half-registered child would hold an open socket,
-      // the exact leak the `Set<WeakRef>` rejection argues GC cannot close.
+      // A half-registered child would hold an open socket, the exact leak the `Set<WeakRef>`
+      // rejection argues GC cannot close.
       // Mutation: register the child before the mint resolves → a failed mint leaves it → reds.
       expect(childrenOf(admin).length).toBe(0);
       admin.disconnect();
@@ -188,15 +166,17 @@ describe('impersonate() — two children coexist', () => {
   // The failure it catches is SILENT — the Gateway names one DO per instanceName, so a colliding
   // pair supersedes each other's socket rather than erroring.
   it('two different subjects, from one parent', async () => {
-    const { star, browser, admin, adminToken } = await adminAndMember('m1@example.com');
-    const { payload: m1 } = await browserLogin(browser, star, 'm1@example.com', star);
-    await createSubject(browser, star, adminToken, 'm2@example.com');
+    const { star, admin, adminToken } = await adminAndMember('m1@example.com');
+    // Each person in a browser of their own: one holding the admin's cookie as well would be the
+    // admin on the star's page, since the refresh mints from the broadest admin membership.
+    const { payload: m1 } = await browserLogin(new Browser(), star, 'm1@example.com', star);
+    await createSubject(new Browser(), star, adminToken, 'm2@example.com');
     const { payload: m2 } = await createInvitedClient(
       NebulaClientTest, new Browser(), star, star, 'm2@example.com',
     );
 
-    const c1 = await admin.impersonate(m1.sub, star, { ttlSeconds: SAFE_TTL });
-    const c2 = await admin.impersonate(m2.sub, star, { ttlSeconds: SAFE_TTL });
+    const c1 = await admin.impersonate(m1.sub, { ttlSeconds: SAFE_TTL });
+    const c2 = await admin.impersonate(m2.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(c1.connectionState).toBe('connected'));
     await vi.waitFor(() => expect(c2.connectionState).toBe('connected'));
 
@@ -207,37 +187,42 @@ describe('impersonate() — two children coexist', () => {
     c1.disconnect(); c2.disconnect(); admin.disconnect();
   });
 
-  it('ONE subject at two different activeScopes — the case the scope segment exists for', async () => {
-    // ⚠️ The subject must be a UNIVERSE-scoped identity, and that is the whole fixture. `#mintIdentity`
-    // keys on (email, scope), so inviting the same address into two stars yields two DIFFERENT `sub`s
-    // — and then the child names differ by the *sub* segment, so dropping the scope segment still
-    // passes and the test proves nothing. (It did: the first draft of this test stayed green under
-    // exactly that mutation.) A universe-scoped subject has one `sub` whose reach pattern covers both
-    // stars, which is the only way to get one identity at two `activeScope`s.
+});
+
+describe('impersonate() — the child acts on its parent\'s page', () => {
+  // No client names the impersonation scope: the child's `aud` is the caller's own. So a tenant
+  // member is impersonated from that tenant's page, and from the galaxy's page the same mint is
+  // refused, since the galaxy is outside the member's own scope.
+  it('mints from the subject\'s own page, and the child\'s page is the parent\'s', async () => {
+    const { star, admin, member } = await adminAndMember();
+    const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
+    await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
+    expect(child.claims.aud).toBe(star);
+    child.disconnect();
+    admin.disconnect();
+  });
+
+  // Called through the facade directly, since the client method takes no scope to pass. The extra
+  // argument is what an old caller would send; the facade has no parameter for it.
+  // Mutation: honour a third argument as the child's `aud` in the facade → the galaxy-page mint
+  // succeeds → reds.
+  it('refuses from the galaxy\'s page, whatever scope the call names', async () => {
     const universe = `imp-${crypto.randomUUID().slice(0, 8)}`;
-    const star = `${universe}.app.tenant`;
-    const star2 = `${universe}.app.tenant2`;
+    const galaxy = `${universe}.app`;
+    const star = `${galaxy}.tenant`;
     const browser = new Browser();
     const { client: admin, accessToken: adminToken } = await universeAdminClient(
-      NebulaClientTest, browser, universe, universe, 'admin@example.com',
+      NebulaClientTest, browser, galaxy, galaxy, 'admin@example.com',
     );
-    await createSubject(browser, universe, adminToken, 'wide@example.com');
-    const { payload: subject } = await createInvitedClient(
-      NebulaClientTest, new Browser(), universe, universe, 'wide@example.com',
+    await createSubject(browser, star, adminToken, 'member@example.com');
+    const { payload: member } = await createInvitedClient(
+      NebulaClientTest, new Browser(), star, star, 'member@example.com',
     );
-
-    const a = await admin.impersonate(subject.sub, star, { ttlSeconds: SAFE_TTL });
-    const b = await admin.impersonate(subject.sub, star2, { ttlSeconds: SAFE_TTL });
-    await vi.waitFor(() => expect(a.connectionState).toBe('connected'));
-    await vi.waitFor(() => expect(b.connectionState).toBe('connected'));
-
-    // Same person, two scopes — so the ONLY thing distinguishing the two Gateway DO names is the
-    // scope segment. Mutation: drop it → the names collide, the pair supersedes each other's socket,
-    // and one never reaches `connected` → reds.
-    expect(a.claims.sub).toBe(subject.sub);
-    expect(b.claims.sub).toBe(subject.sub);
-    expect(a.lmz.instanceName).not.toBe(b.lmz.instanceName);
-    a.disconnect(); b.disconnect(); admin.disconnect();
+    const facade = admin.ctn<NebulaAuthFacade>() as any;
+    await expect(admin.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+      facade.impersonate(member.sub, { ttlSeconds: SAFE_TTL }, star)))
+      .rejects.toThrow(`This page's scope "${galaxy}" is outside the subject's own scope`);
+    admin.disconnect();
   });
 });
 
@@ -249,7 +234,7 @@ describe('impersonate() — the parent is untouched', () => {
     const universe = `imp-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
     const { client: admin, accessToken: adminToken } = await universeAdminClient(
       NebulaClientTest, browser, star, star, 'admin@example.com', 'v1',
       { sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel },
@@ -262,7 +247,7 @@ describe('impersonate() — the parent is untouched', () => {
     const before = ctx.sessionStorage.getItem('lmz_tab');
     expect(before).toBeTruthy(); // fixture guard: there IS a stored id to preserve
 
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    const child = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     // Mutation: let the child derive its own tabId via `getOrCreateTabId` → the duplicate-tab probe

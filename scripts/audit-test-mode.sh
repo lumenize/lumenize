@@ -10,7 +10,7 @@
 #
 # Bootstrap-admin emails (NEBULA_AUTH_BOOTSTRAP_EMAIL, LUMENIZE_AUTH_BOOTSTRAP_EMAIL)
 # are privilege-granting (auto-admin for the first subject registering that email —
-# and at nebula-platform, a `*` super-admin). A value committed in a WRANGLER CONFIG
+# and at _platform, a `*` super-admin). A value committed in a WRANGLER CONFIG
 # deploys as a prod var — a standing admin backdoor — so those are scanned too
 # (wrangler configs only; the deployed test/browser/worker harness is the excepted home).
 #

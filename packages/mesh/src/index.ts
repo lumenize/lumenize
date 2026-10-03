@@ -51,6 +51,9 @@ export * from './ocan/index';
 
 // @mesh() decorator, which makes a method or getter mesh-callable
 export { mesh, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from './mesh-decorator';
+// The callee half of the bridge our own code uses to reach a node (ADR-023); the caller half,
+// `rawRpcStub`, is the light subpath `@lumenize/mesh/raw-rpc`.
+export { rawRpc } from './raw-rpc-decorator';
 export type { MeshGuard } from './mesh-decorator';
 
 // LumenizeClientGateway - WebSocket bridge for mesh clients

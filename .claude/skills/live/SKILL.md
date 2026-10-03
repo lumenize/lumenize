@@ -45,7 +45,7 @@ Scenarios (`apps/nebula/harness/scenarios/`, registered in `drive.ts`):
   DAG grant, via the `access.scopeAdmin` bypass; a non-admin at that Star is denied the same op.
   (Renamed from `superadmin-dominion` and re-derived onto a real login — the old mint path narrowed the
   claim in lockstep with the scope, so it could not produce a denial at all.)
-- **`superuser-end-to-end`** — a REAL bootstrap-email login at `nebula-platform`: verify → refresh into a
+- **`superuser-end-to-end`** — a REAL bootstrap-email login at `_platform`: verify → refresh into a
   foreign Star → enumerate → refuse an ungrammatical scope → pass the Profile gate. Re-points
   `NEBULA_AUTH_BOOTSTRAP_EMAIL` at the test catch-all for that boot only.
 - **`passage-not-dominion`** — upward passage RETURNS while upward dominion REFUSES, over named methods
@@ -60,12 +60,12 @@ Scenarios (`apps/nebula/harness/scenarios/`, registered in `drive.ts`):
 carries several more (impersonation, identity convergence, revocation, profile takeover, codegen). Run
 with an unknown name to have it print every registered key.
 
-## Prod drive — autonomous, no boot (`nebula.lumenize.com`)
+## Prod drive — autonomous, no boot (`platform.lumenize.dev`)
 
-Drive the DEPLOYED Nebula with no local boot, for exploring/inspecting **prod** data:
+Drive the DEPLOYED Lumenize with no local boot, for exploring/inspecting **prod** data:
 
 ```sh
-npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod Universes (my-scopes, * token)
+npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod scope tree (Home's summary)
 ```
 
 ⚠️ **Standing authorization — when Larry asks me to explore / inspect / read prod data, DO IT
@@ -73,13 +73,16 @@ autonomously: no reconfirming, no manual credentialing.** He built this capabili
 move fast, and explicitly accepted the security tradeoff. This standing OK is **read-mostly**: prod
 *writes* / deploys / secret changes stay deliberate + rare (not covered by it).
 
-How it works: a one-time login uses the **Turnstile-bypass token** (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`
-in `.dev.vars`, sent as the `x-lumenize-turnstile-bypass` header) to get past prod's Turnstile, then
-seeds a gitignored **stored refresh token** (`harness/.prod-session.json`); subsequent runs refresh
-headlessly (~2.5s, no email). Needs `claude@lumenize.io` routed to the email-test Worker (an Email
-Routing rule → Destination Worker). **Kill-switch: delete `.prod-session.json`.** M1 controls +
-details: `apps/nebula/harness/FINDINGS.md`. Add prod commands to `prod.ts` as needed (narrowest
-`activeScope` per read).
+How it works: a one-time login on the platform host, as a superuser at `_platform`, uses the
+**Turnstile-bypass token** (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN` in `.dev.vars`, sent as the
+`x-lumenize-turnstile-bypass` header) to get past prod's Turnstile, then stores the platform host's
+refresh cookies in a gitignored **cookie jar** (`harness/.prod-session.json`); later runs refresh
+headlessly (~2.5s, no email), from the page of whichever scope they read (`prodRefresh(browser,
+scope)`). Needs `claude@lumenize.io` routed to the email-test Worker (an Email Routing rule →
+Destination Worker). **Kill-switch: delete `.prod-session.json`.** M1 controls + details:
+`apps/nebula/harness/FINDINGS.md`. Add prod commands to `prod.ts` as needed, each refreshing on the
+narrowest scope's page it reads. ⚠️ It targets the post-wipe deployment: until the wipe, prod runs
+the pre-wipe build on another host, and the drive cannot log in there.
 
 ## Prerequisites (a clean checkout needs only these)
 
@@ -103,6 +106,9 @@ scenario's own asserts passed against the live system.
   dev` reaches `Ready on` — that's the reference boot.
 - **Browser login flakes on the email leg** (real CF email loop, variable latency) — a `No email
   received` timeout is that flake, not a defect; re-run.
+- **Cloudflare's daily sending quota runs out on a day of sweeps**, and every claim then answers 500
+  with `account daily sending quota exceeded` in the stdio. `HARNESS_EMAIL_PROVIDER=resend` boots on
+  Resend instead, the provider production sends through.
 
 ## Add a scenario
 

@@ -1,32 +1,40 @@
 <script setup lang="ts">
 /**
- * Home — where a proved address chooses what to enter, and consents to each membership.
+ * Home — where a person chooses what to enter, and consents to each membership.
  *
- * The bootstrap is a plain refresh at the scope the URL names: the click that landed here set one
- * cookie per membership, so exchanging the one for this scope gives a token that authenticates the
- * summary read. Everything else on the page comes from that single read — the addresses, the tree,
- * each row's acceptance state, and the inviter attribution the consent modal renders. There is no
- * second call.
+ * Home lives on the platform host, which holds a refresh cookie per membership and gives a page no
+ * token. So it reads one route, `POST /auth/home-summary`, authenticated by those cookies: a summary
+ * per Profile they resolve to, the scopes of the cookies whose memberships are still pending, and the
+ * scope and admin bit of each live cookie it read. One browser can hold several people's sessions, so
+ * each Profile gets a card of its own.
+ *
+ * Home acts on nothing. Every row links to the host that can act on it: entering a scope, adding an
+ * app on its account's page, deleting an account there. Its only requests are the summary and the
+ * consent pair, which live on this host because they are about the cookies.
  *
  * ⚠️ **A row's decisions are NOT made in this template.** Which modal a row opens, whether it is
- * clickable, and whether the whole screen fast-forwards all come from `home-logic.ts`, so they are
- * assertable. See that file's header for why.
+ * clickable, whether it needs a fresh login, and whether the whole screen fast-forwards all come from
+ * `home-logic.ts`, so they are assertable. See that file's header for why.
  *
- * ⚠️ **Accept re-fetches the summary before it navigates or re-renders.** Taking up a membership can
+ * **Every move into a scope's host waits for that host to answer** (`HostWait`). A ticket-backed
+ * signup is accepted here and then fast-forwards into its new app (`afterAcceptTarget`), whose
+ * certificate is still being issued, so the count-up shows instead of a certificate error.
+ *
+ * ⚠️ **Accept re-reads the summary before it navigates or re-renders.** Taking up a membership can
  * change what the tree contains rather than just how one row looks — accepting the platform root
  * reveals its first level of descendants, which were withheld while the membership was unaccepted —
  * so patching the row in place would leave the screen showing a tree the server no longer agrees
  * with.
  */
-import { leaveTo, takeReturnTo } from '../view-state';
+import { leaveTo, scopeUrl, platformUrl } from '../view-state';
 import { ref, onMounted, computed } from 'vue';
+import { Plus, Trash2 } from 'lucide-vue-next';
 import ConsentModal from './ConsentModal.vue';
+import HostWait from '../HostWait.vue';
 import {
-  modalFlavorFor, surfaceFor, rendersExpanded, fastForwardTarget, crossEmailNotice, authHintFor,
-  type ScopeSummary, type ScopeNode, type EmailScopes, returnTarget,
+  modalFlavorFor, surfaceFor, rendersExpanded, homeFastForward, afterAcceptTarget, needsFreshLogin, offersAccountActions, offersAppDelete,
+  type HomeSummary, type ScopeNode,
 } from './home-logic';
-
-const props = defineProps<{ scope: string }>();
 
 /**
  * Read and discard a response body so the load completes.
@@ -35,199 +43,135 @@ const props = defineProps<{ scope: string }>();
  * read leaves the load open for Chromium to cancel, which surfaces as `net::ERR_ABORTED` on a
  * request that actually succeeded. Anything watching the network then cannot tell it from a real
  * failure, which would force a blanket "ignore failed requests" filter and blind the very check
- * that catches a screen quietly 404ing its own bundle (`harness/scenarios/auth-pages-render.ts`
- * limb 6). Every early return below abandons a body nobody was going to read.
+ * that catches a screen quietly 404ing its own bundle (`harness/scenarios/auth-pages-render.ts`).
  */
 const drain = (resp: Response) => resp.text().catch(() => { /* nothing to drain is fine */ });
 
-const summary = ref<ScopeSummary | undefined>();
+const home = ref<HomeSummary | undefined>();
 const error = ref('');
 const loading = ref(true);
-const accessToken = ref('');
 const pending = ref<ScopeNode | undefined>(); // the row whose modal is open
 /** The display names already on file, handed to the consent modal to pre-fill. Kept beside
  *  `pending` rather than on the node: they belong to the PERSON, not to the membership. */
 const pendingNickname = ref('');
 const pendingName = ref('');
 const accepting = ref(false);
-const selectedEmail = ref('');
-
-const sections = computed<EmailScopes[]>(() => summary.value?.emails ?? []);
-const activeSection = computed(() =>
-  sections.value.find((s) => s.email === selectedEmail.value) ?? sections.value[0]);
-
-async function bootstrap() {
-  const resp = await fetch(`/auth/${encodeURIComponent(props.scope)}/refresh-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeScope: props.scope }),
-  });
-  if (!resp.ok) { await drain(resp); throw new Error('needs-login'); }
-  const { access_token } = await resp.json() as { access_token: string };
-  accessToken.value = access_token;
-}
+/** The app this page is entering once its host answers. */
+const waitingFor = ref<string | undefined>();
 
 /**
- * The consent modal's inputs when there is no session to read a summary with.
- *
- * ⚠️ **This is the ONLY path for a brand-new arrival, and missing it made the screen useless for
- * exactly the case it exists for.** A claim or invite 302 lands here holding one INERT cookie: the
- * refresh above refuses an unaccepted membership by design, so the bootstrap fails, so the summary
- * is unreachable, so the modal never renders — the person is told to sign in again on the screen
- * that was supposed to let them in. Found by driving it (`harness/scenarios/auth-pages-render.ts`);
- * the bootstrap order in the design predates inert-until-accepted and the two clauses collide.
- *
- * The endpoint is credentialed by the same cookie and resolves it server-side to its own membership.
+ * Pending memberships no summary lists — the browser holds their cookies but no accepted one that
+ * reaches the same Profile, as after a signup or a first invite. Each still needs its consent.
  */
-async function loadPendingCard(): Promise<ScopeNode | undefined> {
-  const resp = await fetch(`/auth/${encodeURIComponent(props.scope)}/pending-membership`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+const orphanPending = computed<ScopeNode[]>(() => {
+  const listed = new Set((home.value?.groups ?? [])
+    .flatMap((g) => g.summary.emails.flatMap((e) => e.memberships.map((m) => m.scope))));
+  return (home.value?.pending ?? []).filter((scope) => !listed.has(scope)).map((scope) => {
+    const depth = scope.split('.').length;
+    return { scope, tier: depth === 1 ? 'universe' : depth === 2 ? 'galaxy' : 'star', accepted: false } as ScopeNode;
   });
-  if (!resp.ok) { await drain(resp); return undefined; }
-  const card = await resp.json() as {
-    universeGalaxyStarId: string; accepted: boolean;
-    invited?: boolean; invitedByName?: string; nickname?: string; name?: string;
-  };
-  if (card.accepted) return undefined; // already taken up — nothing to consent to
-  pendingNickname.value = card.nickname ?? '';
-  pendingName.value = card.name ?? '';
-  const depth = card.universeGalaxyStarId.split('.').length;
-  return {
-    scope: card.universeGalaxyStarId,
-    tier: depth === 1 ? 'universe' : depth === 2 ? 'galaxy' : 'star',
-    accepted: false,
-    ...(card.invited ? { invited: true } : {}),
-    ...(card.invitedByName !== undefined ? { invitedByName: card.invitedByName } : {}),
-  };
+});
+
+/** Whether a row this browser could not open from here should say so. Pending rows go to consent. */
+const marked = (m: ScopeNode) => m.accepted !== false && needsFreshLogin(m, home.value?.held ?? []);
+
+
+/** `POST` a route on this host, as a page here does. */
+function post(path: string, body: Record<string, unknown> = {}): Promise<Response> {
+  return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }
 
-async function loadSummary(): Promise<ScopeSummary> {
-  const resp = await fetch('/auth/scope-summary', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken.value}`, 'Content-Type': 'application/json' },
-  });
-  if (!resp.ok) { await drain(resp); throw new Error(`scope-summary ${resp.status}`); }
-  return await resp.json() as ScopeSummary;
+/** The summary, or `undefined` when no cookie of this browser covers anything. */
+async function loadHome(): Promise<HomeSummary | undefined> {
+  const resp = await post('/auth/home-summary');
+  if (resp.status === 401) { await drain(resp); return undefined; }
+  if (!resp.ok) { await drain(resp); throw new Error(`home-summary ${resp.status}`); }
+  return await resp.json() as HomeSummary;
 }
 
+/** The pending row's consent inputs: whether it came by invite, who sent it, the names to pre-fill. */
+async function openConsent(node: ScopeNode) {
+  const resp = await post('/auth/pending-membership', { scope: node.scope });
+  if (resp.ok) {
+    const card = await resp.json() as { invited?: boolean; invitedByName?: string; nickname?: string; name?: string };
+    pendingNickname.value = card.nickname ?? '';
+    pendingName.value = card.name ?? '';
+    pending.value = {
+      ...node,
+      ...(card.invited ? { invited: true } : {}),
+      ...(card.invitedByName !== undefined ? { invitedByName: card.invitedByName } : {}),
+    };
+  } else {
+    await drain(resp);
+    pending.value = node;
+  }
+}
+
+/** Consent for a pending row; otherwise its host, through a fresh login when this browser holds no
+ *  cookie that opens it. */
 function openOrEnter(node: ScopeNode) {
-  const flavor = modalFlavorFor(node);
-  if (flavor) { pending.value = node; return; }
-  const surface = surfaceFor(node);
-  if (surface) enter(node, surface);
-}
-
-/**
- * Navigate into a scope's own surface, leaving the destination the one fact it cannot derive.
- *
- * ⚠️ **The hint says WHICH COOKIE to spend, and that is not guessable from the destination URL.**
- * Studio at `/acme.crm` knows the scope it is working in; it does not know that the refresh
- * cookie authorizing it sits at `/auth/acme`, because a person's session is established at whatever
- * scope their link named — which here is the segment this very page bootstrapped from. Without the
- * hint Studio falls back to trying the active scope as its own auth scope, and for anyone who
- * entered below their membership that refresh is sent to a path holding no cookie.
- *
- * ⚠️ **The key and store are Studio's, not ours to choose** — `localStorage`, under
- * `nebula.authScope:{activeScope}`, which is what `App.vue`'s `authHint` reads. `NebulaClient`
- * rewrites the same entry on every successful token acquisition, so this is a seed for the first
- * load rather than a second source of truth.
- *
- * ⚠️ **Written BEFORE the navigation.** Written after, the navigation has already begun.
- */
-function enter(node: ScopeNode, surface: string) {
-  try {
-    const hint = authHintFor(node.scope, props.scope);
-    localStorage.setItem(hint.key, hint.value);
-  } catch { /* private mode — Studio falls back to trying the active scope */ }
-  leaveTo(surface);
+  if (modalFlavorFor(node)) { void openConsent(node); return; }
+  const surface = surfaceFor(node, (s) => scopeUrl(s));
+  if (!surface) return;
+  if (marked(node)) leaveTo(platformUrl(`/auth/login?return_to=${encodeURIComponent(surface)}`));
+  else waitingFor.value = surface;
 }
 
 async function accept(names: { nickname: string; name?: string }) {
   if (!pending.value) return;
   const node = pending.value;
   accepting.value = true;
+  let leaving = false;
   try {
     // The names ride the acceptance itself — one request, so a person cannot end up enrolled
     // somewhere while the name everyone will see them by failed to save separately.
-    const resp = await fetch(`/auth/${encodeURIComponent(node.scope)}/accept-membership`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(names),
-    });
-    if (!resp.ok) { await drain(resp); error.value = 'Could not accept that. Try again.'; return; }
-
-    // Re-fetch rather than patch — see the header. This is also the moment a first-time arrival
-    // gets a session at all: the cookie was inert until the Accept above, so the bootstrap that
-    // failed on arrival succeeds now.
-    accessToken.value = '';
-    await bootstrap();
-    summary.value = await loadSummary();
-    selectedEmail.value = summary.value.emails.find((e) => e.current)?.email
-      ?? summary.value.emails[0]?.email ?? selectedEmail.value;
+    const resp = await post('/auth/accept-membership', { scope: node.scope, ...names });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({})) as { error_description?: string };
+      error.value = body.error_description ?? 'Could not accept that. Try again.';
+      pending.value = undefined;
+      return;
+    }
+    await drain(resp);
+    // Re-read rather than patch — see the header.
+    home.value = await loadHome();
     pending.value = undefined;
-
-    const surface = surfaceFor(node);
-    if (surface) enter(node, surface);
+    const target = afterAcceptTarget(home.value!, node, (s) => scopeUrl(s));
+    if (target) { leaving = true; waitingFor.value = target; }
   } catch {
     error.value = 'Could not reach the server. Try again.';
   } finally {
-    accepting.value = false;
+    // A page on its way out stays busy, so Accept cannot be clicked again while the host is awaited.
+    if (!leaving) accepting.value = false;
   }
 }
 
 onMounted(async () => {
   try {
-    await bootstrap();
-    const loaded = await loadSummary();
-    summary.value = loaded;
-    selectedEmail.value = loaded.emails.find((e) => e.current)?.email ?? loaded.emails[0]?.email ?? '';
+    const loaded = await loadHome();
+    if (!loaded) { leaveTo(platformUrl('/auth/login')); return; }
+    home.value = loaded;
 
-    // Where they were when they left for this login — a lapsed session, or a shared link opened
-    // signed out — outranks the fast-forward: they already said where they were going. One shot;
-    // the hint is keyed by the DESTINATION scope, which may sit below the membership that covers it.
-    const back = takeReturnTo();
-    const target = back ? returnTarget(loaded, back) : undefined;
-    if (target) {
-      try {
-        const hint = authHintFor(target.scope, props.scope);
-        localStorage.setItem(hint.key, hint.value);
-      } catch { /* private mode — Studio falls back to trying the active scope */ }
-      leaveTo(target.path);
-      return;
-    }
+    // One accepted place to work and nothing else: they came to use it, not to choose between one option.
+    const straightIn = homeFastForward(loaded, (s) => scopeUrl(s));
+    if (straightIn) { waitingFor.value = straightIn; return; }
 
-    // One accepted Star and nothing else: they came to use an app, not to choose between one option.
-    const straightIn = fastForwardTarget(loaded);
-    if (straightIn) {
-      const only = loaded.emails.flatMap((e) => e.memberships)[0];
-      enter(only, straightIn);
-      return;
-    }
-
-    // A membership that arrived unaccepted opens its modal immediately — a claim or invite 302 lands
-    // here precisely so its consent can be taken, and making the person hunt for the row would be a
-    // step the redirect exists to remove.
-    const needsConsent = loaded.emails
-      .flatMap((e) => e.memberships)
-      .find((m) => m.scope === props.scope && modalFlavorFor(m));
-    if (needsConsent) pending.value = needsConsent;
-  } catch (e) {
-    if ((e as Error).message === 'needs-login') {
-      // The likeliest reason a bootstrap is refused is the one this screen exists for: a membership
-      // that has not been taken up yet. Ask for its consent card before concluding anything.
-      const card = await loadPendingCard().catch(() => undefined);
-      if (card) { pending.value = card; loading.value = false; return; }
-      error.value = 'This session needs to be signed in again.';
-    } else {
-      error.value = 'Could not load your accounts.';
-    }
+    // A lone pending membership and nothing else — a signup's, typically — opens its consent at
+    // once: it is the only thing here to do.
+    if (loaded.groups.length === 0 && orphanPending.value.length === 1) void openConsent(orphanPending.value[0]);
+  } catch {
+    error.value = 'Could not load your accounts.';
   } finally {
-    loading.value = false;
+    // A fast-forward keeps "Loading…" up rather than flashing the list it is skipping.
+    if (!waitingFor.value) loading.value = false;
   }
 });
 </script>
 
 <template>
   <div class="w-full max-w-2xl mx-auto space-y-4">
+    <HostWait v-if="waitingFor" :url="waitingFor" />
+
     <p v-if="loading" class="text-center text-base-content/70">Loading…</p>
 
     <div v-else-if="error" class="card bg-base-200">
@@ -238,75 +182,103 @@ onMounted(async () => {
     </div>
 
     <template v-else>
-      <!-- The email strip: every address on this identity, the signed-in one selected. -->
-      <div v-if="sections.length > 1" class="tabs tabs-box">
-        <button
-          v-for="s in sections" :key="s.email"
-          class="tab" :class="{ 'tab-active': s.email === activeSection?.email }"
-          @click="selectedEmail = s.email"
-        >
-          {{ s.email }}
-        </button>
+      <div v-if="orphanPending.length" class="card bg-base-200" data-testid="home-pending">
+        <div class="card-body">
+          <ul class="space-y-1">
+            <li v-for="m in orphanPending" :key="m.scope">
+              <button class="btn btn-ghost btn-block justify-start" @click="openOrEnter(m)">
+                <span class="font-mono">{{ m.scope }}</span>
+                <span class="badge badge-warning badge-sm">Confirm</span>
+              </button>
+            </li>
+          </ul>
+        </div>
       </div>
 
-      <div v-if="activeSection" class="card bg-base-200">
-        <div class="card-body">
-          <p v-if="crossEmailNotice(activeSection)" class="alert alert-info text-sm">
-            {{ crossEmailNotice(activeSection) }}
-          </p>
+      <!-- One card per Profile: each is one person's addresses and everything they hold. -->
+      <div v-for="g in home?.groups ?? []" :key="g.profileId" class="card bg-base-200" data-testid="home-group">
+        <div class="card-body space-y-3">
+          <section v-for="section in g.summary.emails" :key="section.email" class="space-y-1">
+            <h2 class="text-sm font-semibold text-base-content/70">{{ section.email }}</h2>
 
-          <p v-if="activeSection.memberships.length === 0" class="text-base-content/70">
-            Nothing here yet.
-          </p>
+            <p v-if="section.memberships.length === 0" class="text-base-content/70">Nothing here yet.</p>
 
-          <ul v-else class="space-y-1">
-            <li v-for="m in activeSection.memberships" :key="m.scope">
-              <button
-                class="btn btn-ghost btn-block justify-start"
-                :disabled="!modalFlavorFor(m) && !surfaceFor(m)"
-                @click="openOrEnter(m)"
-              >
-                <span class="font-mono">{{ m.scope }}</span>
-                <span v-if="modalFlavorFor(m)" class="badge badge-warning badge-sm">
-                  {{ modalFlavorFor(m) === 'invite' ? 'Invitation' : 'Confirm' }}
-                </span>
-                <span v-else-if="m.childCount" class="badge badge-ghost badge-sm">
-                  {{ m.childCount }}
-                </span>
-              </button>
-
-              <!-- Descendants, only for a membership that has been taken up (the server withholds
-                   them otherwise), and only expanded while the level is small enough to read. -->
-              <ul v-if="m.children && rendersExpanded(m.children)" class="pl-6 space-y-1">
-                <li v-for="c in m.children" :key="c.scope">
+            <ul v-else class="space-y-1">
+              <li v-for="m in section.memberships" :key="m.scope" data-testid="home-row" :data-scope="m.scope">
+                <div class="flex items-center gap-1">
                   <button
-                    class="btn btn-ghost btn-sm btn-block justify-start"
-                    :disabled="!surfaceFor(c)"
-                    @click="openOrEnter(c)"
+                    class="btn btn-ghost flex-1 justify-start"
+                    :disabled="!modalFlavorFor(m) && !surfaceFor(m, scopeUrl)"
+                    @click="openOrEnter(m)"
                   >
-                    <span class="font-mono">{{ c.scope }}</span>
-                    <span v-if="c.childCount" class="badge badge-ghost badge-xs">{{ c.childCount }}</span>
+                    <span class="font-mono">{{ m.scope }}</span>
+                    <span v-if="modalFlavorFor(m)" class="badge badge-warning badge-sm">
+                      {{ modalFlavorFor(m) === 'invite' ? 'Invitation' : 'Confirm' }}
+                    </span>
+                    <span v-else-if="marked(m)" class="badge badge-info badge-sm" data-testid="home-relogin">Sign in again</span>
+                    <span v-else-if="m.childCount" class="badge badge-ghost badge-sm">{{ m.childCount }}</span>
                   </button>
-                </li>
-              </ul>
-              <details v-else-if="m.children" class="pl-6">
-                <summary class="cursor-pointer text-sm text-base-content/70">
-                  {{ m.children.length }} inside
-                </summary>
-                <ul class="space-y-1 pt-1">
-                  <li v-for="c in m.children" :key="c.scope">
+                  <!-- An app's Studio deletes it; Home only links there. -->
+                  <button v-if="offersAppDelete(m)" class="btn btn-ghost btn-sm btn-square" title="Delete this app"
+                    data-testid="home-app-delete" @click="leaveTo(scopeUrl(m.scope, '/?app'))">
+                    <Trash2 class="size-4" />
+                  </button>
+                  <!-- An account's own page does both; Home only links there. -->
+                  <template v-if="offersAccountActions(m)">
+                    <button class="btn btn-ghost btn-sm gap-1" title="Add an app" data-testid="home-add-app"
+                      @click="leaveTo(scopeUrl(m.scope, '/?create'))">
+                      <Plus class="size-4" /> App
+                    </button>
+                    <button class="btn btn-ghost btn-sm btn-square" title="Delete this account" data-testid="home-delete"
+                      @click="leaveTo(scopeUrl(m.scope))">
+                      <Trash2 class="size-4" />
+                    </button>
+                  </template>
+                </div>
+
+                <!-- Descendants, only for a membership that has been taken up (the server withholds
+                     them otherwise), and only expanded while the level is small enough to read. -->
+                <ul v-if="m.children && rendersExpanded(m.children)" class="pl-6 space-y-1">
+                  <li v-for="c in m.children" :key="c.scope" data-testid="home-row" :data-scope="c.scope" class="flex items-center gap-1">
                     <button
-                      class="btn btn-ghost btn-sm btn-block justify-start"
-                      :disabled="!surfaceFor(c)"
+                      class="btn btn-ghost btn-sm flex-1 justify-start"
+                      :disabled="!surfaceFor(c, scopeUrl)"
                       @click="openOrEnter(c)"
                     >
                       <span class="font-mono">{{ c.scope }}</span>
+                      <span v-if="marked(c)" class="badge badge-info badge-xs" data-testid="home-relogin">Sign in again</span>
+                      <span v-else-if="c.childCount" class="badge badge-ghost badge-xs">{{ c.childCount }}</span>
+                    </button>
+                    <button v-if="offersAppDelete(c, m)" class="btn btn-ghost btn-xs btn-square" title="Delete this app"
+                      data-testid="home-app-delete" @click="leaveTo(scopeUrl(c.scope, '/?app'))">
+                      <Trash2 class="size-3" />
                     </button>
                   </li>
                 </ul>
-              </details>
-            </li>
-          </ul>
+                <details v-else-if="m.children" class="pl-6">
+                  <summary class="cursor-pointer text-sm text-base-content/70">
+                    {{ m.children.length }} inside
+                  </summary>
+                  <ul class="space-y-1 pt-1">
+                    <li v-for="c in m.children" :key="c.scope" data-testid="home-row" :data-scope="c.scope" class="flex items-center gap-1">
+                      <button
+                        class="btn btn-ghost btn-sm flex-1 justify-start"
+                        :disabled="!surfaceFor(c, scopeUrl)"
+                        @click="openOrEnter(c)"
+                      >
+                        <span class="font-mono">{{ c.scope }}</span>
+                        <span v-if="marked(c)" class="badge badge-info badge-xs" data-testid="home-relogin">Sign in again</span>
+                      </button>
+                      <button v-if="offersAppDelete(c, m)" class="btn btn-ghost btn-xs btn-square" title="Delete this app"
+                        data-testid="home-app-delete" @click="leaveTo(scopeUrl(c.scope, '/?app'))">
+                        <Trash2 class="size-3" />
+                      </button>
+                    </li>
+                  </ul>
+                </details>
+              </li>
+            </ul>
+          </section>
         </div>
       </div>
     </template>

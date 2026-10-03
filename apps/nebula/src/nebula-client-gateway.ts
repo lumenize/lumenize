@@ -1,30 +1,46 @@
 /**
- * NebulaClientGateway — extends LumenizeClientGateway with active-scope verification.
+ * NebulaClientGateway — a tab receives a call only from a sender its holder has passage into.
  *
- * `onBeforeCallToClient` gates deliver-to-client pushes on a same-`aud` check (a subscriber only
- * receives pushes originating in its own active scope) — EXCEPT for pushes from the global `Profile`
- * DO, which are intentionally cross-scope (see the PROFILE-fence below).
+ * The sender is the call's last hop, `callChain.at(-1)`, which the mesh stamps and no client can
+ * write. Its scope is its name when that parses as one: a Galaxy reaches a tab on one of its Stars'
+ * pages, since upward is free, and a sibling Star is refused as lateral (ADR-015). A sender whose
+ * name is no scope, the `Profile`, passes, so a node not named by a scope must hold no tenant's
+ * data. A Client sender's scope is the `aud` its own Gateway verified.
+ *
+ * It reads the sender's address and no claims of the writer's, so a push that starts a fresh chain
+ * passes it. It is kept because a subscriber row outlives the page it was made on: the row can go on
+ * addressing a tab after that tab has moved to another scope's page.
  */
 
 import { LumenizeClientGateway } from '@lumenize/mesh';
 import type { CallEnvelope, GatewayConnectionInfo } from '@lumenize/mesh';
+import { hasPassageInto, noPassageMessage, parseId } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+
+/** A node's scope is its name when that parses as one; anything else names none. */
+function scopeNamed(instanceName: string | undefined): string | undefined {
+  if (!instanceName) return undefined;
+  try { return parseId(instanceName).raw; } catch { return undefined; }
+}
 
 export class NebulaClientGateway extends LumenizeClientGateway {
   override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
-    // PROFILE-fence (ADR-012; tasks/archive/nebula-profile-store.md § Routing model): a push from the global
-    // Profile DO carries PUBLIC fields ONLY and public profile read is OPEN to any authenticated caller
-    // holding the profileId, so cross-scope delivery is intentional — skip the same-aud check. `metadata.caller`
-    // is stamped by the trusted mesh (never the client), and every leaf of a Profile push is sent by the
-    // Profile itself — `lmz.broadcast` makes one call per target from the node that pushes — so it reads
-    // `PROFILE` at any N. The exemption reads no claim, which is what lets those pushes carry none.
-    // Absent metadata falls through to the aud check (fail-closed). Every other push (STAR / GALAXY / …)
-    // keeps the same-Star aud gate, behavior-identical.
-    if (envelope.metadata?.caller?.bindingName === 'PROFILE') return;
+    const sender = envelope.callContext.callChain.at(-1);
+    if (!sender) throw new Error('Call to a client names no sender');
 
-    const aud = (envelope.callContext.originAuth?.claims as NebulaJwtPayload | undefined)?.aud;
-    if (aud !== connectionInfo.claims.aud) {
-      throw new Error('Active-scope mismatch on call to client');
+    let senderScope: string | undefined;
+    if (sender.type === 'LumenizeClient') {
+      // A client's call starts its own chain, so its Gateway's verified claims are the origin's.
+      senderScope = (envelope.callContext.originAuth?.claims as NebulaJwtPayload | undefined)?.aud;
+      if (!senderScope) throw new Error('Call to a client names no sender scope');
+    } else {
+      senderScope = scopeNamed(sender.instanceName);
+      if (senderScope === undefined) return;
+    }
+
+    const claims = connectionInfo.claims as unknown as NebulaJwtPayload;
+    if (!hasPassageInto(claims, senderScope)) {
+      throw new Error(noPassageMessage(claims?.aud, senderScope));
     }
   }
 }

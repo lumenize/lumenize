@@ -11,21 +11,21 @@
  *
  *  1. **The mint summary returns synchronously and carries NO URL** — the caller's `callAsync`
  *     resolves with per-invitee outcomes while the send finishes under `ctx.waitUntil`; the raw
- *     link exists only in the mail. *Reds against an unfiltered summary (the `invite_token`
+ *     link exists only in the mail. *Reds against an unfiltered summary (the `magic-link?token=`
  *     probe) or a dead facade binding (no summary at all).*
  *  2. **The REAL letter arrives, tagged and deliverable** — the catch-all receives an
- *     `invite-new`-shaped mail tagged with the target scope, carrying an `accept-invite` link.
+ *     `invite-new`-shaped mail tagged with the target scope, carrying a magic link.
  *     *Reds if the facade never dispatches the send (a 60s timeout here, while limb 1 stays
  *     green — the mutation that isolates this limb).*
- *  3. **Clicking THAT link is the login** — the cookie lands, and the refresh mints a JWT whose
+ *  3. **Accepting on THAT link's page is the login** — the cookie lands, and the refresh mints a JWT whose
  *     `authScope` is the star and whose `scopeAdmin` is true (scenario 4: the invite requested the
  *     bit under the inviter's dominion). *The bit's own mutations are validated in-lane
  *     (nebula-auth-invite.test.ts drives the same mint); what only this tier can add is that the
  *     DELIVERED link carries them.*
- *  4. **First arrival fires the founder stamp** — the star was created by `create-star` (mints no
- *     identity), so the invitee is its first star-scoped admin; their first Star touch seeds the
- *     DAG root `admin` grant, observed on the orgTree channel. *Reds against suppressing the seed
- *     (`Star.onBeforeCall`) while limbs 1–3 stay green.*
+ *  4. **The invited star admin acts on its tree through the bypass, holding no grant there** —
+ *     the tree arrives on the orgTree channel with no grant for the invitee, and their own
+ *     `createNode` lands in it. *Reds if the scope-admin bypass in `requirePermission` stops
+ *     admitting an admin whose dominion is exactly this Star, while limbs 1–3 stay green.*
  *
  * `needsContainer = false` — auth + orgTree only, never a build, so the boot skips Docker.
  */
@@ -34,7 +34,7 @@ import { Browser } from '@lumenize/testing';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import { NebulaClient, ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, type OrgTreeState } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
 import {
   provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
@@ -51,8 +51,8 @@ export async function run(stack: DevStack): Promise<void> {
   const inviteeEmail = uniqueTestEmail();
 
   // The inviter: a real universe admin (claim → real email → login), with the galaxy + star scopes
-  // created beneath — `create-star` registers the scope and mints NO identity, which is what makes
-  // the invitee below this Star's FIRST star-scoped admin (limb 4's precondition).
+  // created beneath — the Star by a throwaway claimer whose membership is never taken up, so the
+  // invitee below is the one accepted star-scoped admin limb 4 drives.
   const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, testToken });
   let admin: Driver | undefined;
   let invitee: NebulaClient | undefined;
@@ -70,7 +70,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(summary.results[0]?.outcome, 'invited', 'a fresh invitee must mint as `invited`');
     assert.ok(summary.results[0]?.sub, 'the minted sub must ride the summary');
     const wire = JSON.stringify(summary);
-    assert.ok(!wire.includes('invite_token'), 'the production summary must carry no invite URL');
+    assert.ok(!wire.includes('magic-link?token='), 'the production summary must carry no invite URL');
     assert.equal(summary.links, undefined, 'test-mode links must not appear on a production summary');
 
     // ── LIMB 2: the real letter — tagged, invite-new-shaped, deliverable ─────────────────────────
@@ -80,8 +80,8 @@ export async function run(stack: DevStack): Promise<void> {
       `invite mail must be tagged with its instance (got ${mail.instance ?? 'undefined'})`,
     );
     const html = mail.html ?? '';
-    const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
-    assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
+    const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(html)?.[1];
+    assert.ok(href, `invite email carried no magic link (starts: ${html.slice(0, 60)})`);
     const link = href.replace(/&amp;/g, '&');
 
     // ── LIMB 3: the click IS the login, and the persisted bit rides the real path ────────────────
@@ -96,39 +96,36 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(claims.access.scopeAdmin, true, 'the requested bit, licensed by dominion, must persist to the JWT');
     assert.equal(claims.sub, summary.results[0]!.sub, 'the login must resolve to the SAME membership the mint returned');
 
-    // ── LIMB 4: first arrival fires the founder stamp ─────────────────────────────────────────────
+    // ── LIMB 4: the invited star admin acts on its tree through the bypass ──────────────────────────
     // Constructed by hand (not connectDriver) so the orgTree listener registers BEFORE the client
     // reaches 'connected' — the tree subscription only fires at connect when a listener exists.
-    // `resourceHostBinding` is left to its default ('STAR'): the orgTree lives on the Star, and the
-    // subscribe is itself the invitee's first Star touch — the exact moment the seed runs.
-    const ctx = inviteeBrowser.context(stack.baseUrl);
+    // `resourceHostBinding` is left to its default ('STAR'): the orgTree lives on the Star.
+    const ctx = inviteeBrowser.context(scopeUrlOf(stack, star));
     let tree: OrgTreeState | undefined;
     invitee = new NebulaClient({
-      baseUrl: stack.baseUrl,
-      authScope: star,
-      activeScope: star,
+      baseUrl: scopeUrlOf(stack, star),
+      platformOrigin: stack.baseUrl,
       // Inert — the invitee only watches orgTree here, never a resource op.
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       accessToken: inviteeSession.accessToken,
       instanceName: `${inviteeSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
-      fetch: inviteeBrowser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
     invitee.onOrgTreeUpdate((state) => { tree = state; });
 
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      const grant = tree?.permissions?.get(ROOT_NODE_ID)?.get(inviteeSession.sub);
-      if (grant === 'admin') break;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    const grant = tree?.permissions?.get(ROOT_NODE_ID)?.get(inviteeSession.sub);
-    assert.equal(
-      grant, 'admin',
-      'the invited star-scoped admin\'s FIRST arrival must seed the DAG root admin grant ' +
-      `(founder stamp) — got ${grant ?? 'no grant'} with tree ${tree ? 'delivered' : 'never delivered'}`,
-    );
+    const treeDeadline = Date.now() + 30_000;
+    while (!tree && Date.now() < treeDeadline) await new Promise((r) => setTimeout(r, 200));
+    assert.ok(tree, 'the invitee\'s orgTree was never delivered');
+    assert.equal(tree.permissions?.get(ROOT_NODE_ID)?.get(inviteeSession.sub), undefined,
+      'a star admin holds no grant in its tree — it acts through the bypass');
+
+    const nodeId = crypto.randomUUID();
+    await invitee.orgTree.createNode(nodeId, ROOT_NODE_ID, 'first', 'First');
+    const nodeDeadline = Date.now() + 30_000;
+    while (!tree.nodes?.has(nodeId) && Date.now() < nodeDeadline) await new Promise((r) => setTimeout(r, 200));
+    assert.ok(tree.nodes?.has(nodeId), 'the invited star admin\'s own createNode never reached its tree');
   } finally {
     waiter.cleanup(); // a leaked waiter's WebSocket keeps Node's event loop alive past the verdict
     try { invitee?.[Symbol.dispose](); } catch { /* already disposed */ }
@@ -137,6 +134,6 @@ export async function run(stack: DevStack): Promise<void> {
 
   console.error(
     '[invite-roundtrip] mint summary synchronous + URL-free; real letter tagged + delivered; ' +
-    'the click logged in with the licensed bit; first arrival seeded the founder grant',
+    'the click logged in with the licensed bit; the star admin acted on its tree through the bypass',
   );
 }

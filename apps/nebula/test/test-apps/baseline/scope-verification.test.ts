@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { env } from 'cloudflare:test';
-import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
+import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 
 /**
  * Craft a JWT with specific authScope and aud for testing.
@@ -24,7 +24,7 @@ async function craftJwt(options: {
 
   const now = Math.floor(Date.now() / 1000);
   const payload = {
-    iss: NEBULA_AUTH_ISSUER,
+    iss: platformOrigin(deploymentOrigin(env)),
     aud: options.aud,
     sub: options.sub ?? crypto.randomUUID(),
     exp: now + 900,
@@ -59,5 +59,28 @@ describe('entrypoint auth-scope verification (e2e)', () => {
       },
     });
     expect(resp.status).toBe(403);
+  });
+
+  // A plain membership mints on its own host alone, so a token whose `aud` sits below its
+  // `authScope` without the admin bit is one no real mint can produce — which is why this is a
+  // rung-4 craft rather than a login. Without the equality, reading `aud` would widen a plain
+  // member of `acme.app` into passage over `acme.app.tenant-a`.
+  const upgrade = (token: string) => SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/test.tab1', {
+    headers: { 'Upgrade': 'websocket', 'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}` },
+  });
+
+  it("refuses a plain membership's token whose aud sits below its authScope", async () => {
+    const token = await craftJwt({ authScope: 'acme.app', aud: 'acme.app.tenant-a', sub: 'test' });
+    expect((await upgrade(token)).status).toBe(403);
+  });
+
+  it("accepts a plain membership's token at its own scope, and an admin's below it", async () => {
+    // The positive controls: the same Gateway path answers the upgrade once the token is consistent.
+    const plain = await upgrade(await craftJwt({ authScope: 'acme.app.tenant-a', aud: 'acme.app.tenant-a', sub: 'test' }));
+    expect(plain.status).toBe(101);
+    plain.webSocket?.accept(); plain.webSocket?.close();
+    const admin = await upgrade(await craftJwt({ authScope: 'acme.app', aud: 'acme.app.tenant-a', scopeAdmin: true, sub: 'test' }));
+    expect(admin.status).toBe(101);
+    admin.webSocket?.accept(); admin.webSocket?.close();
   });
 });

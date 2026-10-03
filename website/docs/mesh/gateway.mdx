@@ -138,7 +138,7 @@ The Gateway sits at the boundary between untrusted and trusted. It is the **only
 
 - **`onBeforeAccept`** — validates *who is connecting*. The default confirms the JWT subject matches the instance name so a stolen token can't hijack someone else's Gateway. All JWT payload fields are auto-included in `claims`; the hook can return a `Record` to merge additional claims on top. A multi-tenant app might extend this to verify the tenant ID embedded in the instance name (e.g., `{sub}.{tenantId}.{tabId}`).
 - **`onBeforeCallToMesh`** — validates whether *this particular user* should be allowed to make *this particular call*. Every inbound call passes through here before reaching any Cloudflare-hosted mesh node.
-- **`onBeforeCallToClient`** — validates whether *this particular user* should be allowed to receive *this particular call*. For example, a multi-tenant app can reject calls whose context doesn't match the connected user's tenantcy.
+- **`onBeforeCallToClient`** — validates whether *this particular user* should be allowed to receive *this particular call*. For example, a multi-tenant app can reject a call sent by a node outside the connected user's tenancy.
 
 ### `onBeforeAccept(instanceName, sub, jwtPayload)`
 
@@ -183,7 +183,7 @@ interface GatewayConnectionInfo {
 
 ### `onBeforeCallToClient(envelope, connectionInfo)`
 
-Called before forwarding a DO-initiated call to the connected client. `connectionInfo` carries the connected client's verified identity and claims — use it to compare against the envelope's `callContext`. Throw to reject — the error is wrapped as `{ $error }` for Workers RPC compatibility.
+Called before forwarding a DO-initiated call to the connected client. `connectionInfo` carries the connected client's verified identity and claims — compare it against the sender, `envelope.callContext.callChain.at(-1)`, which the mesh stamps. Check the sender rather than `originAuth`: a [broadcast](./broadcast) starts a fresh chain by default and carries no `originAuth`. Throw to reject — the error is wrapped as `{ $error }` for Workers RPC compatibility.
 
 ```typescript @skip-check
 onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void
@@ -227,12 +227,14 @@ export class MyGateway extends LumenizeClientGateway {
     };
   }
 
-  // Reject calls originating from a different tenant
+  // Deliver only what a node of this connection's tenant sends. This app names each
+  // tenant's Durable Objects `{tenantId}.{…}`, so the sender's name carries its tenant.
   override onBeforeCallToClient(
     envelope: CallEnvelope,
     connectionInfo: GatewayConnectionInfo
   ): void {
-    if ((envelope.callContext as any)?.tenantId !== connectionInfo.claims?.tenantId) {
+    const sender = envelope.callContext.callChain.at(-1);
+    if (sender?.instanceName?.split('.')[0] !== connectionInfo.claims?.tenantId) {
       throw new Error('Cross-tenant call rejected');
     }
   }

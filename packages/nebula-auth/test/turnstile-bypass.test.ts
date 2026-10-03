@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { isTurnstileBypassed, routeNebulaAuthRequest, TURNSTILE_BYPASS_HEADER } from '../src/router';
+import { recordingHooks } from './test-worker-and-dos';
 
 const TOKEN = 'bypass-secret-3f9a2c8e1b7d4056a1c2e3f40506a7b8';
 // The URL is inert for these — `isTurnstileBypassed` reads the HEADER — but it names a live route so
@@ -59,7 +60,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
   const post = (path: string, body: unknown = {}) =>
     routeNebulaAuthRequest(new Request(`https://nebula.lumenize.com/auth/${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }), gatedEnv);
+    }), gatedEnv, { hooks: recordingHooks });
 
   // The open rows — the ONLY bound on them besides the connection limiter: `checkRateLimit`
   // keys on the verified `payload.sub`, so it never runs where there is no JWT. (`discover` was a
@@ -88,26 +89,21 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
     // a route, delete it here too — `turnstile-by-credential.test.ts` is the check that CANNOT rot
     // this way, because it derives its set from the table itself.
     const posts = [
-      'scope-summary', 'expand-scope', 'create-galaxy', 'create-star', 'delete-scope',
-      'delete-scope-plan', 'mint-narrower-token', 'coming-soon', 'signup',
-      'some-scope/refresh-token', 'some-scope/logout', 'some-scope/logout-all',
-      'some-scope/accept-membership',
+      'coming-soon', 'signup', 'refresh-token', 'logout', 'home-summary', 'pending-membership',
+      'accept-membership', 'magic-link', 'magic-link/lookup',
     ];
     for (const path of posts) {
       const resp = await post(path);
       expect((await resp!.json().catch(() => ({})) as any).error, path).not.toBe('turnstile_required');
     }
-    // The two GET navigations need a sharper anchor than not-turnstile_required: a turnstileGuard
-    // gained on a bodyless GET fails checkTurnstile's BODY PARSE (400 invalid_request), never
-    // turnstile_required — so only the handler's own missing-token description proves no gate ran
-    // ahead of it.
-    for (const [path, expected] of [
-      ['some-scope/magic-link', 'Missing one_time_token'],
-      ['some-scope/accept-invite', 'Missing invite_token'],
-    ]) {
+    // The page GETs need a sharper anchor than not-turnstile_required: a turnstileGuard gained on a
+    // bodyless GET fails checkTurnstile's BODY PARSE (400 invalid_request), never
+    // turnstile_required — so only the page step's own answer, the missing assets binding, proves
+    // no gate ran ahead of it.
+    for (const path of ['magic-link', 'login', 'logout']) {
       const resp = await routeNebulaAuthRequest(
-        new Request(`https://nebula.lumenize.com/auth/${path}`), gatedEnv);
-      expect((await resp!.json() as any).error_description, path).toBe(expected);
+        new Request(`https://nebula.lumenize.com/auth/${path}`), gatedEnv, { hooks: recordingHooks });
+      expect((await resp!.json() as any).error, path).toBe('assets_unavailable');
     }
   });
 
@@ -118,7 +114,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
     const resp = await routeNebulaAuthRequest(new Request('https://nebula.lumenize.com/auth/claim-universe', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slug: 'x', email: 'x@example.com', turnstileToken: 'dummy-token' }),
-    }), { ...env, TURNSTILE_SECRET_KEY: '2x0000000000000000000000000000000AA' } as any);
+    }), { ...env, TURNSTILE_SECRET_KEY: '2x0000000000000000000000000000000AA' } as any, { hooks: recordingHooks });
     expect(resp?.status).toBe(403);
     expect((await resp!.json() as any).error).toBe('turnstile_failed');
   });
@@ -130,7 +126,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
     const resp = await routeNebulaAuthRequest(new Request('https://nebula.lumenize.com/auth/claim-universe', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'x@example.com' }),
-    }), env as any);
+    }), env as any, { hooks: recordingHooks });
     expect((await resp!.json() as any).error).not.toBe('turnstile_required');
   });
 
@@ -139,7 +135,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', [TURNSTILE_BYPASS_HEADER]: TOKEN },
       body: JSON.stringify({ email: 'x@example.com' }), // no slug → the DO's own 400, not Turnstile's
-    }), { ...env, TURNSTILE_SECRET_KEY: 'gate-on', NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN } as any);
+    }), { ...env, TURNSTILE_SECRET_KEY: 'gate-on', NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN } as any, { hooks: recordingHooks });
     expect((await resp!.json() as any).error).not.toBe('turnstile_required');
   });
 });

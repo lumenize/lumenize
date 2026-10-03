@@ -11,12 +11,19 @@
  *
  * All `client.resources.*` — the public mesh CLIENT surface (never raw stub RPC / DO-internal
  * access); `callAsync` under the covers is the only awaitable (mesh.md bright line).
+ *
+ * The last limb is a second tab of the same person: a client constructed with no token and no
+ * scope, which subscribes in the same turn, before its first refresh has answered. It names no
+ * host to call until that token's `aud` says which, so the subscription has to wait for it.
+ * Mutation: call at once with the scope still unknown, and the snapshot never arrives.
  */
 import assert from 'node:assert/strict';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID, NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Snapshot } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, mintDegradedToken, assertTokenRejected } from '../lib/harness';
+import {
+  connectDriver, mintDegradedToken, assertTokenRejected, scopeUrlOf, constructionPairs,
+} from '../lib/harness';
 
 /** Galaxy-tier sandbox under the `claude` Universe — the collapse's chat/resource host. */
 export const SCOPE = 'claude.sandbox';
@@ -94,6 +101,33 @@ export async function run(stack: DevStack): Promise<void> {
       scope: SCOPE,
       token: await mintDegradedToken(stack, { scope: SCOPE, kind: 'base' }),
     });
+
+    // ── A CLIENT THAT NAMES NO SCOPE FINDS ITS OWN: a second tab, subscribing before its first token ──
+    {
+      const page = scopeUrlOf(stack, SCOPE);
+      const ctx = driver.browser.context(page);
+      const early = new NebulaClient({
+        baseUrl: page,
+        platformOrigin: stack.baseUrl,
+        ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+        ...constructionPairs(SCOPE),
+        fetch: ctx.fetch,
+        sessionStorage: ctx.sessionStorage,
+        BroadcastChannel: ctx.BroadcastChannel,
+      });
+      try {
+        assert.equal(early.activeScope, undefined,
+          'fixture guard: the subscribe must go out before the first token, or it proves nothing about the wait');
+        using sub = early.resources.subscribe('Message', messageId);
+        const snap = await sub.snapshot;
+        assert.equal((snap?.value as { content: string } | undefined)?.content, marker,
+          "a subscription made before the first token must reach this host's own resource host");
+        assert.equal(early.activeScope, SCOPE, "the client's scope must be its host's, read from the token's aud");
+      } finally {
+        early[Symbol.dispose]();
+        ctx.close();
+      }
+    }
 
     // (No wipe: the galaxy tier has no `resetDevData`; the deterministic local reset is the
     // fresh boot.)

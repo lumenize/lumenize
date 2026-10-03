@@ -27,6 +27,10 @@ export type {
 } from './nebula-auth-registry';
 // The Home screen's tree shapes live in `types` with the rest of the wire vocabulary.
 export type { ScopeNode, EmailScopes, ScopeSummary } from './types';
+// The seam a consumer's `NebulaAuthFacade` subclass fills, to wipe Durable Objects only it can name.
+export type { ScopeLifecycleHooks, ScopeTarget } from './types';
+// The impersonation mint's typed refusal, detected by name across a mesh hop.
+export { ImpersonationRefusedError, isImpersonationRefused } from './types';
 
 // Email sender (WorkerEntrypoint for service binding)
 export { NebulaEmailSender } from './nebula-email-sender';
@@ -38,7 +42,7 @@ export { routeNebulaAuthRequest } from './router';
 // routes-and-steps table convention (apps/nebula entrypoint.ts is the consumer).
 export { createRouter, type RouteEntry, type Step, type RouteState } from './route-pipeline';
 
-// JWT verification — primary export for consuming packages (Phase 2 entrypoint)
+// JWT verification — primary export for consuming packages
 export { verifyNebulaAccessToken } from './router';
 
 // universeGalaxyStarId parsing, plus the two structural containment predicates the
@@ -52,6 +56,7 @@ export {
   isAtOrBelow,
   hasDominionOver,
   hasPassageInto,
+  noPassageMessage,
 } from './parse-id';
 
 // ADR-016's acting-principal projection — the ONE shared shape every record site uses.
@@ -75,14 +80,19 @@ export type {
   InviteSummary,
   InviteeMintResult,
   InviteMintResult,
+  AcceptanceOutcome,
+  AcceptanceCredential,
+  RefreshPut,
 } from './types';
 
 // Constants needed externally
 export {
   PLATFORM_SCOPE,
+  RESERVED_STAR_SLUGS,
   REGISTRY_INSTANCE_NAME,
   NEBULA_AUTH_PREFIX,
   ACCESS_TOKEN_TTL,
-  NEBULA_AUTH_ISSUER,
   NEBULA_SUB,
+  MAX_GALAXIES_PER_OWNER,
+  GALAXY_CAP_MESSAGE,
 } from './types';

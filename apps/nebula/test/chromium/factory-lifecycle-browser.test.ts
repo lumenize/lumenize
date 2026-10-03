@@ -7,7 +7,7 @@
  *
  *   1. CONNECTIVITY + bundle regression — `@lumenize/nebula/frontend` bundles
  *      for real chromium (Vite would fail on any transitive cloudflare:workers /
- *      node:async_hooks import), the factory connects through the proxy to a real
+ *      node:async_hooks import), the factory connects through Studio's vite to a real
  *      Star, and `ready` resolves with claims populated + `lmz.connection` connected.
  *   2. PATH 4 — mid-session drop → reconnect: `connected`→`reconnecting`→`connected`;
  *      `lastConnectedAt` never cleared while reconnecting; banner state is
@@ -47,7 +47,7 @@ describe('factory connection lifecycle (real chromium, real WS)', () => {
     const transitions: string[] = [];
     let loginRequiredCount = 0;
 
-    const { client, store, ready, dispose } = await bootstrapFactory({
+    const { client, store, ready, dispose } = bootstrapFactory({
       WebSocket: rec.WebSocket,
       fetch: refresh401AfterFlag(() => revoked),
       onConnectionStateChange: (s) => transitions.push(s),

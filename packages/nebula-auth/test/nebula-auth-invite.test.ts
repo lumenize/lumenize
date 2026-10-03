@@ -3,15 +3,15 @@
  *
  * Issuance MINTS per invitee (`invitees: [{ email, scopeAdmin? }]`) and names its outcome
  * (`invited | already-member | promoted`); re-inviting an existing non-admin member WITH the bit
- * promotes them (and converges their live sessions); the invite token is REUSABLE within its TTL
- * (scanner-safe — deleted only by the expiry sweep); `issueInvites` is mint-only — the entry
+ * promotes them (and converges their live sessions); an invite is a magic link that lives 7 days and
+ * signs in once, its page's `POST` spending it; `issueInvites` is mint-only — the entry
  * (production: the mesh facade, covered in apps/nebula's baseline lane) dispatches mail
  * post-return through `sendInviteEmails`, template picked by ACCEPTANCE.
  *
  * Issuance here is a direct Registry RPC with claims parsed off a REAL server-minted token
  * (`issueInvitesAs`) — there is no HTTP invite route any more, and this package has no mesh stack
  * to host the facade. ADR-009 still binds: the persisted bit is asserted through the real path
- * (accept → refresh → the JWT), never the mint result alone. Template tests assert on the REAL
+ * (the invite page's Accept → refresh → the JWT), never the mint result alone. Template tests assert on the REAL
  * message handed to the sender — never a test-mode `links` map (the recorded 2026-08-04 defect).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -20,9 +20,8 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { sendInviteEmails, summarizeInvites } from '../src/invite-entry';
 import type { EmailMessage, InviteMintResult, NebulaJwtPayload } from '../src/types';
 import {
-  foundUniverse, issueInvitesAs, clickLink, refreshAndParse, url, createGalaxy, inviteAndLogin,
-  acceptMembership,
-  membershipsOf,
+  foundUniverse, issueInvitesAs, clickLink, refreshAndParse, authUrl, createGalaxy, inviteAndLogin,
+  membershipsOf, consumeLink, refreshCookiesSet, requestMagicLink, scopeOrigin,
 } from './test-helpers';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
@@ -37,55 +36,47 @@ function linkFor(mint: InviteMintResult, email: string): string {
   return row!.inviteUrl;
 }
 
-/** Accept an invite link and refresh at `scope` → the parsed JWT payload (the ADR-009 path). */
+/** Accept an invite through its page and refresh at `scope` → the parsed JWT payload (the ADR-009
+ *  path). The page's Accept consumes and accepts in one click, so the cookie it sets mints at once. */
 async function acceptAndParse(link: string, scope: string): Promise<NebulaJwtPayload> {
-  // The consent step is not optional: a cookie minted at the click is inert until its holder
-  // accepts, so a click-then-refresh 401s — which is the design, not a fixture detail.
   const { tokenFor } = await clickLink(SELF, link);
-  const refreshToken = tokenFor(scope);
-  await acceptMembership(SELF, scope, refreshToken);
-  const { parsed } = await refreshAndParse(SELF, scope, refreshToken);
+  const { parsed } = await refreshAndParse(SELF, scope, tokenFor(scope));
   return parsed as NebulaJwtPayload;
 }
 
-/** The InviteTokens rows for (email, scope) — reusable-TTL asserts on the actual stored rows. */
-async function inviteRows(email: string, scope: string): Promise<Array<{ expiresAt: string }>> {
+/** The `MagicLinks` rows for `email` with one `purpose` — assertions on the actual stored rows. */
+async function linkRows(email: string, purpose: 'invite' | 'login'): Promise<Array<{ expiresAt: string; spentAt: string | null }>> {
   return (runInDurableObject as any)(getRegistry(), (_i: any, c: any) => [...c.storage.sql.exec(
-    'SELECT expiresAt FROM InviteTokens WHERE email = ? AND universeGalaxyStarId = ?', email, scope,
+    'SELECT expiresAt, spentAt FROM MagicLinks WHERE email = ? AND purpose = ?', email, purpose,
   )]);
 }
 
-describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () => {
+describe('Galaxy invite — the workspace SECOND HALF', () => {
   it('a galaxy invite co-mints a `.dev` scopeAdmin membership, and ONE acceptance click seeds BOTH sessions', async () => {
     const u = uni();
     const galaxy = `${u}.app`;
     const admin = await foundUniverse(SELF, u, em('adm'));
-    expect((await createGalaxy(SELF, galaxy, admin.access_token)).status).toBe(201);
+    await createGalaxy(galaxy, admin.access_token);
 
     const invitee = em('austen');
     const mint = await issueInvitesAs(admin.access_token, galaxy, [{ email: invitee }]);
 
-    // ONE click → TWO Set-Cookie headers, Path-scoped per enrolled scope.
-    const resp = await SELF.fetch(new Request(linkFor(mint, invitee), { redirect: 'manual' }));
-    expect(resp.status).toBe(302);
-    const cookies = resp.headers.getSetCookie();
-    expect(cookies).toHaveLength(2);
-    const galaxyCookie = cookies.find((c) => c.includes(`Path=/auth/${galaxy};`))!;
-    const devCookie = cookies.find((c) => c.includes(`Path=/auth/${galaxy}.dev;`))!;
-    expect(galaxyCookie, 'a refresh cookie Path-scoped to the galaxy').toBeTruthy();
-    expect(devCookie, 'a SECOND refresh cookie Path-scoped to the .dev workspace').toBeTruthy();
+    // ONE Accept → TWO cookies, one per enrolled scope.
+    const resp = await consumeLink(SELF, linkFor(mint, invitee));
+    expect(resp.status).toBe(200);
+    const cookies = refreshCookiesSet(resp);
+    expect([...cookies.keys()].sort()).toEqual([galaxy, `${galaxy}.dev`]);
 
     // The galaxy session mints NO admin bit (the collaborator is a peer there)…
-    const galaxyToken = galaxyCookie.split(';')[0]!.split('=')[1]!;
-    // ONE consent covers the bundle the invite arrived as: accepting the galaxy takes up the
-    // co-minted `.dev` sibling too, so the second session below needs no second Accept.
-    await acceptMembership(SELF, galaxy, galaxyToken);
+    const galaxyToken = cookies.get(galaxy)!;
+    // ONE consent covers the bundle the invite arrived as: the page's Accept takes up the galaxy and
+    // its co-minted `.dev` sibling together, so neither session needs a second Accept.
     const { parsed: gp } = await refreshAndParse(SELF, galaxy, galaxyToken);
     expect(gp.access.authScope).toBe(galaxy);
     expect(gp.access.scopeAdmin).toBeUndefined();
     // …and the workspace session mints scopeAdmin over the `.dev` Star — dominion over
     // the workspace IS the whole grant (the pinned second half).
-    const devToken = devCookie.split(';')[0]!.split('=')[1]!;
+    const devToken = cookies.get(`${galaxy}.dev`)!;
     const { parsed: dp } = await refreshAndParse(SELF, `${galaxy}.dev`, devToken);
     expect(dp.access.authScope).toBe(`${galaxy}.dev`);
     expect(dp.access.scopeAdmin).toBe(true);
@@ -103,7 +94,7 @@ describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () =>
     const u = uni();
     const galaxy = `${u}.app`;
     const admin = await foundUniverse(SELF, u, em('adm'));
-    expect((await createGalaxy(SELF, galaxy, admin.access_token)).status).toBe(201);
+    await createGalaxy(galaxy, admin.access_token);
 
     // A real peer: invited by the admin with NO bit, then logged in through the real
     // acceptance. Their token is the caller below — a member of the galaxy, no dominion.
@@ -119,17 +110,12 @@ describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () =>
     expect(mint.errors).toHaveLength(0);
 
     // Both sessions still seed — collaboration is not the thing being withheld …
-    const resp = await SELF.fetch(new Request(linkFor(mint, third), { redirect: 'manual' }));
-    expect(resp.status).toBe(302);
-    const cookies = resp.headers.getSetCookie();
-    expect(cookies).toHaveLength(2);
+    const resp = await consumeLink(SELF, linkFor(mint, third));
+    expect(resp.status).toBe(200);
+    const cookies = refreshCookiesSet(resp);
+    expect(cookies.size).toBe(2);
     // … but the workspace session carries NO admin bit, because the inviter had none to give.
-    const devCookie = cookies.find((c) => c.includes(`Path=/auth/${galaxy}.dev;`))!;
-    const devToken = devCookie.split(';')[0]!.split('=')[1]!;
-    // Consent first — the invitee accepts the galaxy, which takes up its `.dev` sibling with it.
-    const galaxyToken2 = cookies.find((c) => c.includes(`Path=/auth/${galaxy};`))!.split(';')[0]!.split('=')[1]!;
-    await acceptMembership(SELF, galaxy, galaxyToken2);
-    const { parsed: dp } = await refreshAndParse(SELF, `${galaxy}.dev`, devToken);
+    const { parsed: dp } = await refreshAndParse(SELF, `${galaxy}.dev`, cookies.get(`${galaxy}.dev`)!);
     expect(dp.access.authScope).toBe(`${galaxy}.dev`);
     expect(dp.access.scopeAdmin).toBeUndefined();
   });
@@ -139,9 +125,9 @@ describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () =>
     const admin = await foundUniverse(SELF, u, em('adm'));
     const invitee = em('solo');
     const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
-    const resp = await SELF.fetch(new Request(linkFor(mint, invitee), { redirect: 'manual' }));
-    expect(resp.status).toBe(302);
-    expect(resp.headers.getSetCookie()).toHaveLength(1);
+    const resp = await consumeLink(SELF, linkFor(mint, invitee));
+    expect(resp.status).toBe(200);
+    expect([...refreshCookiesSet(resp).keys()]).toEqual([u]);
   });
 });
 
@@ -237,9 +223,8 @@ describe('Invite Flow (per-invitee primitive)', () => {
 
       // Establish a real non-admin session and HOLD its refresh cookie.
       const first = await issueInvitesAs(admin.access_token, u, [{ email: member }]);
-      const { tokenFor } = await clickLink(SELF, linkFor(first, member));
+      const { tokenFor } = await clickLink(SELF, linkFor(first, member)); // the invite page's Accept
       const refreshToken = tokenFor(u);
-      await acceptMembership(SELF, u, refreshToken); // a live session needs a taken-up membership
       const before = await refreshAndParse(SELF, u, refreshToken);
       expect(before.parsed.access.scopeAdmin).toBeUndefined();
 
@@ -322,40 +307,55 @@ describe('Invite Flow (per-invitee primitive)', () => {
     });
   });
 
-  describe('reusable within TTL (scanner-safe)', () => {
-    it('a second GET of the same link within TTL logs in again; the row dies only at the expiry sweep', async () => {
+  describe('an invite is a magic link that lives a week and signs in once', () => {
+    it('its row expires 7 days after issue, where a sign-in\'s expires in 30 minutes', async () => {
+      // In-lane: the lifetime is a value the mint writes, and waiting out a week proves no more.
       const u = uni();
       const admin = await foundUniverse(SELF, u, em('adm'));
-      const invitee = em('scanned');
+      const invitee = em('week');
+      await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
+      await requestMagicLink(SELF, invitee);
+      const minutesLeft = (iso: string) => (Date.parse(iso) - Date.now()) / 60_000;
+      const [invite] = await linkRows(invitee, 'invite');
+      const [login] = await linkRows(invitee, 'login');
+      expect(minutesLeft(invite.expiresAt)).toBeGreaterThan(7 * 24 * 60 - 5);
+      expect(minutesLeft(invite.expiresAt)).toBeLessThanOrEqual(7 * 24 * 60);
+      expect(minutesLeft(login.expiresAt)).toBeGreaterThan(25);
+      expect(minutesLeft(login.expiresAt)).toBeLessThanOrEqual(30);
+    });
 
-      const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
-      const link = linkFor(mint, invitee);
+    it('its page\'s Accept spends it, and a replay is refused with the used-link message and no cookie', async () => {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, em('adm'));
+      const invitee = em('once');
+      const link = linkFor(await issueInvitesAs(admin.access_token, u, [{ email: invitee }]), invitee);
 
-      // The scanner-then-human sequence: both GETs must log in.
-      const first = await SELF.fetch(new Request(link, { redirect: 'manual' }));
-      expect(first.status).toBe(302);
-      expect(first.headers.get('Set-Cookie')).toContain('refresh-token=');
+      const first = await consumeLink(SELF, link);
+      expect(first.status).toBe(200);
+      expect(refreshCookiesSet(first).has(u)).toBe(true);
+      expect((await linkRows(invitee, 'invite'))[0].spentAt).not.toBeNull();
 
-      const second = await SELF.fetch(new Request(link, { redirect: 'manual' }));
-      expect(second.status).toBe(302);
-      expect(second.headers.get('Set-Cookie')).toContain('refresh-token=');
-      expect(second.headers.get('Location')).not.toContain('error=');
+      const replay = await consumeLink(SELF, link);
+      expect(replay.status).toBe(409);
+      expect(await replay.json()).toEqual({
+        error: 'link_used', error_description: 'This link was already used. Sign in again for a new one.',
+      });
+      expect(replay.headers.getSetCookie()).toEqual([]);
+    });
 
-      // The row survived both consumes…
-      expect(await inviteRows(invitee, u)).toHaveLength(1);
-
-      // …and dies only at the expiry sweep: age it past expiry, fire the sweep (the alarm tick),
-      // and the row is gone — after which the link is inert.
+    it('the expiry sweep removes its row, after which the link is refused as invalid', async () => {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, em('adm'));
+      const invitee = em('swept');
+      const link = linkFor(await issueInvitesAs(admin.access_token, u, [{ email: invitee }]), invitee);
       await (runInDurableObject as any)(getRegistry(), (_i: any, c: any) => {
-        c.storage.sql.exec(
-          'UPDATE InviteTokens SET expiresAt = ? WHERE email = ? AND universeGalaxyStarId = ?',
-          '2000-01-01T00:00:00.000Z', invitee, u,
-        );
+        c.storage.sql.exec("UPDATE MagicLinks SET expiresAt = '2000-01-01T00:00:00.000Z' WHERE email = ? AND purpose = 'invite'", invitee);
       });
       await (runInDurableObject as any)(getRegistry(), (instance: any) => instance.alarm());
-      expect(await inviteRows(invitee, u)).toHaveLength(0);
-      const dead = await SELF.fetch(new Request(link, { redirect: 'manual' }));
-      expect(dead.headers.get('Location')).toContain('error=invalid_token');
+      expect(await linkRows(invitee, 'invite')).toHaveLength(0);
+      const dead = await consumeLink(SELF, link);
+      expect(dead.status).toBe(400);
+      expect((await dead.json() as { error: string }).error).toBe('invalid_token');
     });
   });
 
@@ -373,7 +373,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
 
       const envStub = {
-        AUTH_EMAIL_SENDER: { send: () => Promise.reject(new Error('provider exploded')) },
+        ...(env as object), AUTH_EMAIL_SENDER: { send: () => Promise.reject(new Error('provider exploded')) },
       };
       // Reds against dropping the per-invitee catch: the rejection would surface here.
       await expect(sendInviteEmails(envStub, {
@@ -386,7 +386,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       expect(failures[0].data.email).toBe(invitee);
       expect(failures[0].data.instanceName).toBe(u);
       // Identifiers only — never the URL or its token (critical.md).
-      expect(JSON.stringify(failures[0].data)).not.toContain('invite_token');
+      expect(JSON.stringify(failures[0].data)).not.toContain('token=');
     });
 
     it('template selection discriminates on ACCEPTANCE, observed on the real message; the fresh link is deliverable', async () => {
@@ -404,7 +404,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const reinvite = await issueInvitesAs(admin.access_token, u, [{ email: acceptedMember }, { email: pendingInvitee }]);
       const captured: EmailMessage[] = [];
       await sendInviteEmails(
-        { AUTH_EMAIL_SENDER: { send: async (m: EmailMessage) => { captured.push(m); } } },
+        { ...(env as object), AUTH_EMAIL_SENDER: { send: async (m: EmailMessage) => { captured.push(m); } } },
         { instanceName: u, origin: 'http://localhost', invitees: reinvite.results },
       );
       expect(captured).toHaveLength(2);
@@ -412,11 +412,13 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const toPending = captured.find(m => m.to === pendingInvitee)!;
       expect(toAccepted.type).toBe('invite-existing'); // reds against always-invite-new
       expect(toPending.type).toBe('invite-new');
+      // The accepted member's letter carries no token and links to the invited scope's own host.
+      expect((toAccepted as { redirectUrl: string }).redirectUrl).toBe(`${scopeOrigin(u)}/`);
 
       // The pending letter carries the FRESH link, and consuming THAT DELIVERED message's link
       // logs them in — the recovery story, asserted on the message that went to the sender.
       const inviteUrl = (toPending as { inviteUrl: string }).inviteUrl;
-      expect(inviteUrl).toContain('accept-invite');
+      expect(inviteUrl).toContain('/auth/magic-link?token=');
       const parsed = await acceptAndParse(inviteUrl, u);
       expect(parsed.access.authScope).toBe(u);
     });
@@ -430,12 +432,12 @@ describe('Invite Flow (per-invitee primitive)', () => {
       // Production shape: no links key, no URL anywhere. Reds against unfiltered pass-through.
       const prod = summarizeInvites(mint, false);
       expect(prod.links).toBeUndefined();
-      expect(JSON.stringify(prod)).not.toContain('invite_token');
+      expect(JSON.stringify(prod)).not.toContain('token=');
       expect(Object.keys(prod.results[0]).sort()).toEqual(['email', 'outcome', 'sub']);
 
       // Test-mode shape: links per normalized email, as before the reshape.
       const test = summarizeInvites(mint, true);
-      expect(test.links![invitee]).toContain('accept-invite');
+      expect(test.links![invitee]).toContain('/auth/magic-link?token=');
     });
   });
 
@@ -460,25 +462,11 @@ describe('Invite Flow (per-invitee primitive)', () => {
     });
   });
 
-  describe('GET /accept-invite (the click stays HTTP — session lifecycle)', () => {
-    it('rejects a missing invite_token (400)', async () => {
-      const resp = await SELF.fetch(new Request(url('someu', 'accept-invite'), { redirect: 'manual' }));
-      expect(resp.status).toBe(400);
-      expect((await resp.json() as any).error).toBe('invalid_request');
-    });
-
-    it('rejects an invalid invite token (302 error redirect)', async () => {
-      const resp = await SELF.fetch(new Request(url('someu', 'accept-invite?invite_token=bogus'), { redirect: 'manual' }));
-      expect(resp.status).toBe(302);
-      expect(resp.headers.get('Location')).toContain('error=invalid_token');
-    });
-  });
-
   describe('there is no HTTP invite surface (structural)', () => {
     it('POST /auth/{scope}/invite 404s — the route table carries no row for it', async () => {
       const u = uni();
       const admin = await foundUniverse(SELF, u, em('adm'));
-      const resp = await SELF.fetch(new Request(url(u, 'invite'), {
+      const resp = await SELF.fetch(new Request(authUrl(`${u}/invite`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ invitees: [{ email: em('x') }] }),

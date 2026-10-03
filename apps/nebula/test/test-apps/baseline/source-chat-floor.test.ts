@@ -26,7 +26,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
 import type { Galaxy, OntologyVersionRow, Snapshot } from '@lumenize/nebula';
-import { universeAdminClient, foundAndLogin, createSubject, createInvitedClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueScope = () => `scf-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -55,7 +55,6 @@ async function ownerAndMember(scope: string) {
     NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, PAIR(scope),
   );
   const adminBrowser = new Browser();
-  await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
   await createSubject(adminBrowser, scope, accessToken, 'member@example.com');
   const { client: member, payload } = await createInvitedClient(
     NebulaClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, PAIR(scope),
@@ -86,7 +85,7 @@ describe('the source entries sit at the chat floor', () => {
     const g = galaxy(member, scope);
 
     // THE DOOR: refused at the DAG — the message names the tier and the node. Passage
-    // admitted the call (a boundary refusal would read `Active-scope mismatch`), and a
+    // admitted the call (a boundary refusal would read `No passage from …`), and a
     // dominion guard would read `Admin access required` — neither is this.
     const denied = await refusal(g.write('src/App.vue', '<template><p>no</p></template>'));
     expect(denied).toMatch(/^write permission required on node /);

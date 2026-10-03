@@ -24,7 +24,7 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { inviteViaMesh, readDevVar } from '../lib/harness';
+import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
 import {
   provisionStarAdmin, loginViaEmail, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
@@ -32,11 +32,17 @@ import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
 } from '../../src/impersonation';
+import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 
 export const needsContainer = false;
+export const bootVars = { DEBUG: 'nebula-auth.facade.impersonate' };
 
 /** Outside the client's 30s refresh-ahead window, so nothing here re-mints on its own. */
 const SAFE_TTL = 300;
+/** Inside it — a token born due, so every `connect()` re-mints. */
+const REMINT_TTL = 20;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void> {
   const start = Date.now();
@@ -58,9 +64,12 @@ async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void
  * put a SECOND person inside a scope someone else founded.
  */
 async function inviteAndLogin(
-  stack: DevStack, browser: Browser, scope: string, adminSession: { accessToken: string; sub: string },
+  stack: DevStack, scope: string, adminSession: { accessToken: string; sub: string },
   email: string, testToken: string,
 ): Promise<{ accessToken: string; sub: string }> {
+  // The invitee's own browser: a browser holding the admin's cookie would be the admin on every
+  // page beneath, since the refresh picks the broadest admin membership its cookies reach.
+  const browser = new Browser();
   // NO `instance` FILTER, but we DO assert the tag's value below — two different things, and the
   // reason for each has changed over time. The filter could once not work at all (`NebulaEmailSender`
   // stamped `X-Lumenize-Auth-Instance` per message TYPE and covered magic-link only, so an invite
@@ -74,14 +83,9 @@ async function inviteAndLogin(
     // The ONE production surface: NebulaClient.invite → Gateway → facade (there is no HTTP route).
     const summary = await inviteViaMesh(stack, adminSession, scope, [{ email }]);
     assert.equal(summary.errors.length, 0, `invite to ${scope} failed: ${JSON.stringify(summary.errors)}`);
-    // `extractMagicLink` matches the magic-link route specifically; an invite is a different
-    // endpoint (`accept-invite?invite_token=`), so pull the href here rather than widen a shared
-    // helper that other callers rely on to be magic-link-specific.
     const email_ = await waiter.emailPromise;
-    // ⚠️ Assert the tag's VALUE, not merely that mail arrived. Without this the scenario is true
-    // BEFORE and AFTER the change — invite mail is already tagged today, because `accept-invite` is
-    // an instance-bearing route, so URL derivation happened to get it right. What this pins is that
-    // the value now comes from the caller-supplied field and is still correct. (Deliberately NOT
+    // ⚠️ Assert the tag's VALUE, not merely that mail arrived. What this pins is that the value comes
+    // from the caller-supplied field and is correct. (Deliberately NOT
     // added for magic-link: `apps/nebula/test/lib/email-login.ts` already passes `instance`, so a
     // wrong tag there already times out every `/live` boot.)
     assert.equal(
@@ -89,8 +93,8 @@ async function inviteAndLogin(
       `invite mail must be tagged with its instance (got ${email_.instance ?? 'undefined'})`,
     );
     const html = email_.html ?? '';
-    const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
-    assert.ok(href, `invite email carried no accept-invite link (subject: ${html.slice(0, 60)})`);
+    const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(html)?.[1];
+    assert.ok(href, `invite email carried no magic link (subject: ${html.slice(0, 60)})`);
     const link = href.replace(/&amp;/g, '&');
     const { refreshToken } = await acceptInviteAndLogin({
       baseUrl: stack.baseUrl, inviteLink: link, scope, fetchImpl: browser.fetch,
@@ -118,59 +122,93 @@ export async function run(stack: DevStack): Promise<void> {
   const star = `${universe}.app.tenant`;
   const subjectEmail = `subject-${suffix}@lumenize-test.dev`;
 
-  // Count mints on the ADMIN's transport, which the child inherits — the only place a counter is
-  // meaningful, since that is the transport a refused call would have used.
-  let mintRequests = 0;
   let loginRequiredFired = false;
-  const countingFetch = ((input: any, init?: any) => {
-    const url = typeof input === 'string' ? input : (input?.url ?? '');
-    if (String(url).includes('/mint-narrower-token')) mintRequests++;
-    return browser.fetch(input, init);
-  }) as typeof fetch;
 
-  // The SUBJECT (a real star-scoped admin) and, as a side effect, the universe owner above it — our ADMIN.
+  // The SUBJECT (a real star-scoped admin, in a browser of their own) and, as a side effect, the
+  // universe owner above it — our ADMIN.
   const subject = await provisionStarAdmin({
-    baseUrl: stack.baseUrl, scope: star, email: subjectEmail, testToken, fetchImpl: browser.fetch,
+    baseUrl: stack.baseUrl, scope: star, email: subjectEmail, testToken, fetchImpl: new Browser().fetch,
   });
   const adminSession = await loginViaEmail({
     baseUrl: stack.baseUrl, authScope: universe, email: `owner-${subjectEmail}`,
     testToken, fetchImpl: browser.fetch,
   });
-  const admin = await refreshAccessToken(stack.baseUrl, adminSession, universe, browser.fetch);
 
-  const ctx = browser.context(stack.baseUrl);
-  const mkAdminClient = () => new NebulaClient({
-    baseUrl: stack.baseUrl,
-    authScope: universe,
-    activeScope: universe,
-    // Inert — this scenario drives impersonation, never a resource op.
-    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
-    accessToken: admin.accessToken,
-    instanceName: `${admin.sub}.${crypto.randomUUID().slice(0, 8)}`,
-    fetch: countingFetch,
-    sessionStorage: ctx.sessionStorage,
-    BroadcastChannel: ctx.BroadcastChannel,
-    // A REAL config hook, which is the only kind there is here. The baseline version of this
-    // assertion set an invented instance property that nothing read, so it could never fire.
-    onLoginRequired: () => { loginRequiredFired = true; },
-  });
-  const adminClient = mkAdminClient();
-  await connected(adminClient);
+  // An impersonation's child acts on its parent's page, so the parent refreshes at the subject's
+  // own scope — the star — for the subject's limbs, and at the universe for the same-scope peer's.
+  const mkAdminClient = async (page: string) => {
+    // A page on `page`'s own host: its socket connects there, and its refresh names it in `Origin`.
+    const ctx = browser.context(scopeUrlOf(stack, page));
+    const token = await refreshAccessToken(stack.baseUrl, adminSession, page, browser.fetch);
+    const client = new NebulaClient({
+      baseUrl: scopeUrlOf(stack, page),
+      platformOrigin: stack.baseUrl,
+      // Inert — this scenario drives impersonation, never a resource op.
+      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+      accessToken: token.accessToken,
+      instanceName: `${token.sub}.${crypto.randomUUID().slice(0, 8)}`,
+      fetch: ctx.fetch,
+      sessionStorage: ctx.sessionStorage,
+      BroadcastChannel: ctx.BroadcastChannel,
+      // A REAL config hook, which is the only kind there is here. The baseline version of this
+      // assertion set an invented instance property that nothing read, so it could never fire.
+      onLoginRequired: () => { loginRequiredFired = true; },
+    });
+    await connected(client);
+    return { client, token };
+  };
+  const { client: adminClient, token: admin } = await mkAdminClient(star);
+
+  // Count the parent's calls to the facade — the transport every mint rides, and so the place a
+  // refused call would have shown. Observation only: each call passes straight through.
+  let mintRequests = 0;
+  const realCallAsync = adminClient.lmz.callAsync;
+  (adminClient.lmz as { callAsync: unknown }).callAsync = (binding: string, ...rest: unknown[]) => {
+    if (binding === 'NEBULA_AUTH_FACADE') mintRequests++;
+    return (realCallAsync as (...a: unknown[]) => unknown)(binding, ...rest);
+  };
 
   // ── 1. The returned client IS the subject, and authority is REDUCED ─────────────────────────────
-  const child = await adminClient.impersonate(subject.sub, star, { ttlSeconds: SAFE_TTL });
+  const child = await adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
   await connected(child);
   assert.equal(child.claims.sub, subject.sub, 'the child must be the subject');
   assert.equal(child.claims.act?.sub, admin.sub, 'the admin must be the actor');
-  assert.equal(child.claims.aud, star, 'the token must be bound to the requested scope');
+  assert.equal(child.claims.aud, star, "the child's page must be its parent's");
   const mintsAfterFirst = mintRequests;
   assert.equal(mintsAfterFirst, 1, 'impersonate() must mint EXACTLY once (mint-then-seed)');
+
+  // ── 1a. The mint's record names the page ────────────────────────────────────────────────────────
+  // ADR-016: a mint establishes a session, so its record names the subject beside the caller's
+  // whole projected claims, the page included. Read from the stack's stdio, waiting for the record
+  // itself, which is the line this limb reads; a deployed target captures none.
+  // Mutation: strip the claims from the record → it names only the subject → reds.
+  if (stack.logs) {
+    const deadline = Date.now() + 20_000;
+    let record: { data: { subOfNarrowerToken?: string; actingToken?: Record<string, unknown> } } | undefined;
+    while (!record && Date.now() < deadline) {
+      for (const block of (stack.logs() ?? '').replace(/\x1b\[[0-9;]*m/g, '').split(/\n(?=\{\n)/)) {
+        const end = block.indexOf('\n}');
+        if (end < 0) continue;
+        try {
+          const obj = JSON.parse(block.slice(0, end + 2));
+          if (obj.message === 'Impersonation token issued' && obj.data?.subOfNarrowerToken === subject.sub) record = obj;
+        } catch { /* not one of ours */ }
+      }
+      if (!record) await sleep(100);
+    }
+    assert.ok(record, 'the mint logged no record');
+    assert.equal(record.data.actingToken?.sub, admin.sub, "the mint's record must carry the caller's claims");
+    assert.equal(record.data.actingToken?.aud, star, "the mint's record must name the caller's page");
+    assert.ok(record.data.actingToken?.access, "the mint's record must carry the authority asserted");
+  } else {
+    console.error('[impersonation-lifecycle] limb 1a record: not observable on a deployed target');
+  }
 
   // ── 1b. MINT FIDELITY: the derived token is indistinguishable from the subject's own ────────────
   // The reference token can only be produced by the subject actually logging in — which is exactly
   // what `provisionStarAdmin` did (a real claim-star email loop), so nothing here is hand-written.
   // Fidelity, not capability: `authScope` and `scopeAdmin` are compared FIELD-FOR-FIELD against the
-  // subject's real token, and the summary must answer both tokens identically.
+  // subject's real token.
   // Per-limb mutation (live.md): hard-code the mint's `scopeAdmin` to false → the bit comparison
   // below reds while limb 1's sub/act/aud assertions stay green.
   {
@@ -180,100 +218,117 @@ export async function run(stack: DevStack): Promise<void> {
     // values a real claim-star login must carry.
     assert.equal(subjectClaims.access.authScope, star, "the subject's own token must carry the star as authScope");
     assert.equal(subjectClaims.access.scopeAdmin, true, "the subject's own token must carry scopeAdmin");
-    const minted = await browser.fetch(`${stack.baseUrl}/auth/mint-narrower-token`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin.accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subOfNarrowerToken: subject.sub, activeScope: star }),
-    });
-    assert.equal(minted.status, 200, `the scope-less mint route refused a real admin (${minted.status})`);
-    const derivedToken = (await minted.json() as { access_token: string }).access_token;
+    const { access_token: derivedToken } = await realCallAsync('NEBULA_AUTH_FACADE', undefined,
+      adminClient.ctn<NebulaAuthFacade>().impersonate(subject.sub, {})) as { access_token: string };
     const derived = parseJwtUnsafe(derivedToken)!.payload as any;
     assert.equal(derived.access.authScope, subjectClaims.access.authScope,
       "the derived token's authScope must be the SUBJECT's membership scope, verbatim");
     assert.equal(derived.access.scopeAdmin, subjectClaims.access.scopeAdmin,
       "the derived token's scopeAdmin must MIRROR the subject's own bit");
-    assert.equal(derived.aud, star, 'the requested scope becomes only the aud');
+    assert.equal(derived.aud, star, "the caller's page becomes only the aud");
 
-    // ⚠️ **`scope-summary` REFUSES a token carrying `act`** — it answers for a PERSON across every
-    // scope they hold, and a derived token deliberately carries the SUBJECT's `profileId`, so
-    // answering would hand the admin every tenancy that person holds anywhere. That refusal IS the
-    // fidelity check now: the two tokens are distinguishable exactly here and nowhere else, which is
-    // the design, not a gap. (This limb compared `my-scopes` output field-for-field until that route
-    // was retired; the flat list it returned had no such refusal.)
-    const summaryStatus = async (token: string) => (await browser.fetch(
-      `${stack.baseUrl}/auth/scope-summary`,
-      { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
-    )).status;
-    assert.equal(await summaryStatus(subject.accessToken), 200,
-      "the subject's OWN token must be able to read their summary — the positive control");
-    assert.equal(await summaryStatus(derivedToken), 403,
-      'a derived (act-bearing) token must be refused the person-scoped summary');
+    // ⚠️ **The mint refuses a token carrying `act`** — impersonation does not chain, so the facade's
+    // `impersonate` answers a derived token with a refusal naming a root identity. That refusal IS the
+    // fidelity check: the two tokens are distinguishable exactly here and nowhere else, which is the
+    // design, not a gap. The same call on the subject's own token, for someone beneath them, mints —
+    // the positive control. Both go straight to the facade, past the client's own pre-flight, which
+    // limb 2 covers. Mutation: drop the mint's `act` gate → the derived token mints → reds.
+    const below = await inviteAndLogin(
+      stack, star, { accessToken: subject.accessToken, sub: subject.sub },
+      `below-${suffix}@lumenize-test.dev`, testToken,
+    );
+    const asSubject = await connectDriver(stack, { scope: star, session: { accessToken: subject.accessToken, sub: subject.sub } });
+    try {
+      const own = await asSubject.client.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+        asSubject.client.ctn<NebulaAuthFacade>().impersonate(below.sub, {})) as { access_token: string };
+      assert.equal((parseJwtUnsafe(own.access_token)!.payload as any).sub, below.sub,
+        "the subject's OWN token must mint for someone beneath them — the positive control");
+    } finally {
+      asSubject.dispose();
+    }
+    const chained = await child.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+      child.ctn<NebulaAuthFacade>().impersonate(below.sub, {})).then(() => null, (e: unknown) => (e as Error).message);
+    assert.match(chained ?? '(it minted)', /root identity/,
+      'a derived (act-bearing) token must be refused the mint, by the root-identity message');
   }
+  const mintsBeforeChain = mintRequests;
 
-  // ── 2. Impersonation does not chain, and makes no network call ──────────────────────────────────
+  // ── 2. Impersonation does not chain, and makes no call ──────────────────────────────────────────
   await assert.rejects(
-    () => child.impersonate(subject.sub, star),
+    () => child.impersonate(subject.sub),
     (e: unknown) => e instanceof ImpersonationChainError && /does not chain/i.test((e as Error).message),
     'a child must refuse to impersonate',
   );
-  assert.equal(mintRequests, mintsAfterFirst, 'the chain refusal must happen BEFORE any request');
+  assert.equal(mintRequests, mintsBeforeChain, 'the chain refusal must happen BEFORE any call');
 
   // ── 3. A failed FIRST mint rejects cleanly and leaves no half-registered child ──────────────────
-  // Two refusals with different statuses: one status could be satisfied by a build that hard-codes
-  // it. The 403 is the mint's COLLAPSED refusal — an absent subject answers identically to one the
-  // caller may not act for (no `sub`-existence oracle); the 400 is the pre-lookup self-narrow.
+  // Two refusals with different messages: one message could be satisfied by a build that hard-codes
+  // it. The first is the mint's COLLAPSED refusal — an absent subject answers identically to one the
+  // caller may not act for (no `sub`-existence oracle); the second is the pre-lookup self-narrow.
   const childrenBefore = childrenOf(adminClient).length;
   await assert.rejects(
-    () => adminClient.impersonate(crypto.randomUUID(), star, { ttlSeconds: SAFE_TTL }),
-    (e: unknown) => e instanceof ImpersonationMintError && (e as ImpersonationMintError).status === 403
-      && /does not administer this subject/.test((e as Error).message),
-    'an absent subject must get the collapsed 403',
+    () => adminClient.impersonate(crypto.randomUUID(), { ttlSeconds: SAFE_TTL }),
+    (e: unknown) => e instanceof ImpersonationMintError && /does not administer this subject/.test((e as Error).message),
+    'an absent subject must get the collapsed refusal',
   );
   await assert.rejects(
-    () => adminClient.impersonate(admin.sub, universe, { ttlSeconds: SAFE_TTL }),
-    (e: unknown) => e instanceof ImpersonationMintError && (e as ImpersonationMintError).status === 400
-      && /must be a different sub/.test((e as Error).message),
-    'a self-narrow must 400 before the lookup',
+    () => adminClient.impersonate(admin.sub, { ttlSeconds: SAFE_TTL }),
+    (e: unknown) => e instanceof ImpersonationMintError && /different sub/.test((e as Error).message),
+    'a self-narrow must be refused before the lookup',
   );
   assert.equal(childrenOf(adminClient).length, childrenBefore, 'a refused mint must leave NO child registered');
 
-  // ── 4. Readiness follows the CREDENTIAL, not the CONNECTION ─────────────────────────────────────
-  // The direct regression guard for a shipped bug: hooking teardown on `disconnect()` made this
-  // permanently false, because `disconnect()` is a reversible pause and not an end-of-session door.
+  // ── 4. A paused parent is not a dead one ────────────────────────────────────────────────────────
+  // The direct regression guard for a shipped bug: hooking teardown on `disconnect()` made a parent
+  // that paused and came back unable to mint, because `disconnect()` is a reversible pause and not an
+  // end-of-session door. Mutation: latch teardown on `disconnect()` again → the mint after
+  // `connect()` fails as terminal → reds.
   adminClient.disconnect();
   assert.equal(isTornDown(adminClient), false, 'a bare disconnect() must NOT mark the parent torn down');
-  const whileDisconnected = await adminClient.impersonate(subject.sub, star, { ttlSeconds: SAFE_TTL });
-  await connected(whileDisconnected);
-  assert.equal(whileDisconnected.claims.sub, subject.sub, 'a disconnected parent must still mint');
   adminClient.connect();
   await connected(adminClient);
+  const afterPause = await adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
+  await connected(afterPause);
+  assert.equal(afterPause.claims.sub, subject.sub, 'the first mint after a pause must succeed');
 
-  // ── 5. Two children coexist — the DO-name collision is silent, so this is its only guard ────────
-  // ONE subject at TWO scopes: the names then differ ONLY by the scope segment. (Two different
-  // subjects would differ by the sub segment, which is why the baseline version of this test passed
-  // with the scope segment removed.) The universe-scoped admin can impersonate the star-scoped admin at
-  // the star; a second scope for the SAME sub is the universe itself is not reachable here, so this
-  // asserts the weaker-but-real property: distinct children, distinct names, both live.
-  const secondChild = await adminClient.impersonate(subject.sub, star, { ttlSeconds: SAFE_TTL });
+  // ── 4b. A transport failure does not end a child ────────────────────────────────────────────────
+  // The child's token is born due, so its `connect()` re-mints over the parent's socket — which the
+  // parent then pauses, and holds paused past `callAsync`'s 30 s timeout, so at least one re-mint
+  // rejects as transport. Once the parent reconnects, the queued re-mint lands.
+  // Mutation: classify any rejection but the typed refusal as terminal → the child ends
+  // `disconnected` → reds.
+  const pausing = await adminClient.impersonate(subject.sub, { ttlSeconds: REMINT_TTL });
+  await connected(pausing);
+  pausing.disconnect();
+  pausing.connect();
+  adminClient.disconnect();
+  await sleep(35_000);
+  assert.notEqual(pausing.connectionState, 'disconnected',
+    "a paused parent's transport failure must not end its child");
+  adminClient.connect();
+  await connected(adminClient);
+  await connected(pausing, 45_000);
+  assert.equal(pausing.claims.sub, subject.sub, 'the re-minted child must still be the subject');
+
+  // ── 5. Two children coexist ─────────────────────────────────────────────────────────────────────
+  const secondChild = await adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
   await connected(secondChild);
   assert.notEqual(
-    whileDisconnected.lmz.instanceName, adminClient.lmz.instanceName,
+    secondChild.lmz.instanceName, adminClient.lmz.instanceName,
     'a child must never share the parent Gateway name',
   );
   assert.ok(childrenOf(adminClient).length >= 2, 'the parent must hold its live children');
 
   // ── 6. child.logout() is CHILD-ONLY teardown — the admin's cookie must survive ─────────────────
-  // 🛑 **The SAME-SCOPE shape, which is the only one where the guard is load-bearing.** With the
-  // admin at the universe and a child at the star, the child's `authScope: activeScope` pin already
-  // stops the cookie being sent (`/auth/{universe}` does not path-match
-  // `/auth/{universe}.app.tenant/logout` — first uncovered char is `.`, not `/`), so deleting the
-  // branch changes nothing and the test proves nothing. Confirmed: it stayed green that way.
-  // An invited identity AT THE UNIVERSE gives a subject the admin can impersonate at its OWN
-  // authScope, so the paths match exactly and only the branch stands between a child logout and the
-  // admin's 30-day refresh token.
+  // 🛑 Every refresh cookie sits at `Path=/` on the platform host, so a logout the child sent would
+  // carry every cookie this browser holds, the admin's included; only `NebulaClient.logout()`'s
+  // `#mintedFrom` branch stands between a child logout and the admin's refresh token. The child here
+  // is an invited identity AT THE UNIVERSE, impersonated from the universe's page, the ordinary
+  // support shape.
+  const { client: universeAdmin, token: universeToken } = await mkAdminClient(universe);
   const peerEmail = `peer-${suffix}@lumenize-test.dev`;
-  const peer = await inviteAndLogin(stack, browser, universe, admin, peerEmail, testToken);
-  const sameScopeChild = await adminClient.impersonate(peer.sub, universe, { ttlSeconds: SAFE_TTL });
+  const peer = await inviteAndLogin(stack, universe, universeToken, peerEmail, testToken);
+  const sameScopeChild = await universeAdmin.impersonate(peer.sub, { ttlSeconds: SAFE_TTL });
   await connected(sameScopeChild);
   assert.equal(sameScopeChild.claims.sub, peer.sub, 'the same-scope child must be the invited peer');
 
@@ -282,28 +337,43 @@ export async function run(stack: DevStack): Promise<void> {
 
   // ⚠️ THE discriminating assertion. Revoking the admin's cookie is invisible to connectionState
   // (socket open, stateless JWT) and to impersonate() (rides a still-fresh access token) — so probe
-  // the cookie itself, at the parent's REAL authScope.
-  const probe = await browser.fetch(`${stack.baseUrl}/auth/${universe}/refresh-token`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeScope: universe }),
+  // the cookie itself, refreshing from the universe's page as the admin's browser does.
+  const probe = await browser.context(scopeUrlOf(stack, universe)).fetch(`${stack.baseUrl}/auth/refresh-token`, {
+    method: 'POST',
   });
   assert.equal(probe.status, 200, "a child logout must NOT revoke the admin's refresh cookie");
-  assert.equal(adminClient.connectionState, 'connected', 'the admin must stay connected');
+  assert.equal(universeAdmin.connectionState, 'connected', 'the admin must stay connected');
 
-  // ── 7. Disposing the parent tears the children down, and closes minting ─────────────────────────
+  // ── 7. A refusal ends a child ───────────────────────────────────────────────────────────────────
+  // The subject's membership goes with their Star, deleted by the admin above it. The child's next
+  // re-mint is then refused by the facade, and the refusal is terminal: the child ends.
+  // Mutation: classify the typed refusal as transient → the child keeps retrying and never settles
+  // on `disconnected` → reds.
+  const ending = await adminClient.impersonate(subject.sub, { ttlSeconds: REMINT_TTL });
+  await connected(ending);
+  await universeAdmin.scopes.delete(star);
+  ending.disconnect();
+  ending.connect();
+  await until('the refused child to end', () => ending.connectionState === 'disconnected', 30_000);
+  await sleep(3_000);
+  assert.equal(ending.connectionState, 'disconnected', 'a refused child must stay ended');
+  assert.equal(childrenOf(adminClient).includes(ending), false, 'an ended child must leave its parent');
+
+  // ── 8. Disposing the parent tears the children down, and closes minting ─────────────────────────
   await adminClient.dispose();
   await until('the children to be torn down', () => child.connectionState === 'disconnected'
-    && whileDisconnected.connectionState === 'disconnected');
+    && afterPause.connectionState === 'disconnected');
   assert.equal(isTornDown(adminClient), true, 'an end-of-session door must mark the parent');
   assert.equal(childrenOf(adminClient).length, 0, 'teardown must clear the parent’s children');
   await assert.rejects(
-    () => adminClient.impersonate(subject.sub, star, { ttlSeconds: SAFE_TTL }),
+    () => adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL }),
     /torn down/i,
     'a torn-down parent must not mint again',
   );
   // The admin was never bounced to login by any of this — someone else's session ending must not
   // end theirs. (Real hook, so a false here means "did not fire", not "was never wired".)
   assert.equal(loginRequiredFired, false, "the admin's onLoginRequired must never fire");
+  await universeAdmin.dispose();
 
-  console.error('[impersonation-lifecycle] ok — identity, refusals, readiness, teardown');
+  console.error('[impersonation-lifecycle] ok — identity, refusals, a paused parent, teardown');
 }

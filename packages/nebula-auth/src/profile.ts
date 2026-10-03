@@ -24,8 +24,9 @@
  *    capability levels, never per-field roles: anyone who can read a private field can also write it and
  *    write every public one. Owner (JWT `profileId` === this instance — an impersonation token included,
  *    because acceptance is enforced where that token is minted) and
- *    super-admin (`authScope` is the platform root) short-circuit with NO read; a scoped admin whose scope
- *    covers a scope where this profile holds an **ACCEPTED** membership is the ONE path that reads (the
+ *    a platform-root token on the agent's own Profile (`NEBULA_SUB`) short-circuit with NO read; an
+ *    admin, a superuser included, whose page's host holds dominion over a scope where this profile
+ *    holds an **ACCEPTED** membership is the ONE path that reads (the
  *    registry's `getScopesForProfile`, whose acceptance predicate is what makes that branch safe — see
  *    the comment at the branch). Fail CLOSED.
  *
@@ -35,7 +36,7 @@
  *      — data model; tasks/archive/nebula-profile-store.md — the frozen design record
  */
 import { DurableObject } from 'cloudflare:workers';
-import { ComposedMeshDO, mesh, newContinuation, type Continuation } from '@lumenize/mesh';
+import { ComposedMeshDO, mesh, newContinuation, rawRpc, type Continuation } from '@lumenize/mesh';
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, isPlatformScope } from './parse-id';
@@ -101,12 +102,13 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // — identity is not stamped this early (the same trap Resources documents), while a
     // named DO's `ctx.id.name` is available at construction. INSERT OR IGNORE: one more
     // statement in this constructor's established seed pattern, and a later super-admin edit is
-    // never clobbered on reconstruct. Write-authz needs no special-casing — #requireOwnerOrAdmin
-    // already denies everyone but a super-admin on an ownerless, not-in-Registry profile.
+    // never clobbered on reconstruct. Write-authz is `#requireOwnerOrAdmin`'s branch (3), which lets
+    // a super-admin edit this one profile, since an ownerless, not-in-Registry profile has no scope
+    // the scoped arm could find.
     if (ctx.id.name === NEBULA_SUB) {
       for (const [field, value] of [
-        ['name', 'Nebula'],
-        ['nickname', 'Nebula'],
+        ['name', 'Lumenize'],
+        ['nickname', 'Lumenize'],
         ['picture', 'https://lumenize.com/img/logo.svg'],
       ] as const) {
         ctx.storage.sql.exec(
@@ -134,8 +136,9 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
 
   /**
    * Subscribe the calling client to public-field updates: store its subscriber row, then deliver the
-   * INITIAL snapshot. The initial push is fired INSIDE this subscribe call, so it inherits the
-   * subscriber's `originAuth` → passes the Gateway aud-check with or without the PROFILE-fence.
+   * INITIAL snapshot. The initial push is fired INSIDE this subscribe call, so it carries the
+   * subscriber's own `originAuth`: it answers the subscriber's call, where every later push is this
+   * Profile speaking and carries none.
    * Open — no authz.
    *
    * Both halves of the row come from `callChain[0]`, the element the Gateway stamps from the
@@ -186,7 +189,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     this.#fanout();
   }
 
-  // ── The auth Worker's seam (NOT `@mesh`) ─────────────────────────────────────────────────────────
+  // ── The auth Worker's seam: `@rawRpc()`, never `@mesh()` ────────────────────────────────────────
 
   /**
    * Read the DISPLAY NAMES on behalf of a person the AUTH WORKER has already authenticated — the
@@ -195,9 +198,10 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * ⚠️ **Trust boundary, named (security.md § trust-boundary crossings).** This pair cannot
    * re-validate its caller: the proof is a `refresh-token` cookie, which lives in the Worker's hands
    * and never reaches a DO, so there is nothing here for `#requireOwnerOrAdmin` to read. What stands
-   * in its place is that the `PROFILE` binding is held only by the auth Worker, and the Worker
-   * resolves `profileId` from the cookie it JUST verified — the identical shape to
-   * `registry.acceptMembership(sub)`, which likewise acts on an identity the Worker proved.
+   * in its place is ADR-023's `@rawRpc()` bridge: only code holding the `PROFILE` binding reaches it,
+   * which is our own Worker, and the Worker resolves `profileId` from the cookie it JUST verified —
+   * the identical shape to `registry.acceptMembership(sub)`, which likewise acts on an identity the
+   * Worker proved. No `@mesh()`, which would let any caller with a token write anyone's names.
    *
    * ⚠️ **Deliberately narrow: the two display NAMES, never `picture` and never the private set.**
    * The consent screen is the one caller and these are all it collects, so a mistake at this seam
@@ -205,6 +209,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * yet — the consent screen's avatar is a coming-soon affordance — and adding it here would be a
    * security decision rather than a refactor.
    */
+  @rawRpc()
   readDisplayNames(): { nickname?: string; name?: string } {
     const out: { nickname?: string; name?: string } = {};
     for (const row of this.ctx.storage.sql.exec(
@@ -225,6 +230,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * consent screen, so an absent one means "not offered", never "remove the one I have". A person
    * accepting a second membership would otherwise wipe a full name they set at the first.
    */
+  @rawRpc()
   setDisplayNames(fields: { nickname: string; name?: string }): void {
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('nickname', ?)`, fields.nickname,
@@ -242,14 +248,11 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
 
   /**
    * Push the new public snapshot to every subscriber with `lmz.broadcast`, which sends each push
-   * from this Profile, so every leaf's `metadata.caller` is `PROFILE` and the Gateway's cross-scope
-   * PROFILE-fence holds at any N.
-   *
-   * The `newChain` option starts each push's chain here, so the writer's claims — `sub`, `aud`,
+   * from this Profile and starts each push's chain here, so the writer's claims — `sub`, `aud`,
    * `access`, and `act` under impersonation — stay behind rather than riding into every
-   * subscriber's scope. That is safe because the PROFILE-fence lets a Profile push through without
-   * reading a claim, and a client's `onBeforeCall` decides from the caller, which is this Profile.
-   * On a failed delivery the Gateway answers with a `ClientDisconnectedError`, and
+   * subscriber's scope. A subscriber's Gateway lets the push through because this Profile's name,
+   * a `profileId`, is no scope, and a client's `onBeforeCall` decides from the caller, which is
+   * this Profile. On a failed delivery the Gateway answers with a `ClientDisconnectedError`, and
    * `onProfileBroadcastResult` drops that subscriber's row (self-healing, per
    * testing.md §self-healing-transient).
    */
@@ -263,7 +266,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     this.lmz.broadcast(
       targets,
       this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()),
-      { onResult: this.ctn().onProfileBroadcastResult(), newChain: true },
+      { onResult: this.ctn().onProfileBroadcastResult() },
     );
   }
 
@@ -311,9 +314,10 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
   // ── Internals ────────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * This DO's name, which is its `profileId`. Read from `ctx.id.name`, as the constructor does, and
-   * not from `lmz.instanceName`: the framework stamps that on the first MESH entry, and a brand-new
-   * person's Profile is first reached by the auth Worker's raw `setDisplayNames` at acceptance.
+   * This DO's name, which is its `profileId`. Read from `ctx.id.name`, as the constructor does: the
+   * name the namespace addressed is there before any entry runs, where `lmz.instanceName` is stamped
+   * by whichever entry arrives first — a mesh call, or the `@rawRpc()` entry that carries a brand-new
+   * person's `setDisplayNames` at acceptance.
    */
   #profileId(): string {
     const id = this.ctx.id.name;
@@ -353,7 +357,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // means everywhere else.
     //
     // ⚠️ **What makes that safe is not here — it is the acceptance conjunct at the MINT.**
-    // `/mint-narrower-token` resolves its subject through the registry's accepted-only
+    // The impersonation mint resolves its subject through the registry's accepted-only
     // `getIdentityScope`, so a token carrying somebody's `profileId` cannot exist unless that person
     // took their membership up, and acceptance needs the mailbox plus an explicit act behind the
     // consent modal. The escalation this branch used to carry a no-actor-chain conjunct against —
@@ -368,11 +372,15 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // could not pass it under any scope. Deleting it changes no verdict; replacing it with the
     // predicate is impossible, since the predicate needs the very list this exists to avoid fetching.
     if (!claims?.access?.scopeAdmin) throw new Error('Forbidden: profile write requires owner or admin');
-    // (3) Super-admin — the reserved platform scope is the ROOT, so it covers every scope → pass. NO
-    // read. ⚠️ An IDENTITY test, deliberately not `hasDominionOver`: this is a work-avoidance
-    // short-circuit whose whole purpose is to answer before the registry read, and the predicate
-    // would need the very scope list this branch exists to avoid fetching.
-    if (isPlatformScope(claims.access.authScope)) return;
+    // (3) The system's own profile — `NEBULA_SUB`'s is ownerless and in no Registry, so the scoped
+    // arm below finds no scopes for it, and a superuser is the one who may edit it. NO read.
+    // ⚠️ Confined to THAT profile on purpose. A superuser's token is minted on some scope's host
+    // like anyone's, and under the host rule it acts on that host's subtree alone (ADR-015 and
+    // ADR-022), so for every other profile it falls through to the scoped arm, which asks
+    // `hasDominionOver` from the calling host. A test on the membership here for all profiles would
+    // hand private read and write on every profile to any page a superuser opens, a generated
+    // app's included.
+    if (profileId === NEBULA_SUB && isPlatformScope(claims.access.authScope)) return;
 
     // (4) Scoped admin — the ONE registry read. Fail CLOSED on error: a read that did not complete
     // proves no dominion, so deny whatever the error carries.
@@ -405,7 +413,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // The END shape: the ONE shared dominion predicate, asked about each scope this profile
     // actually touches. Its `scopeAdmin` conjunction is re-checked here rather than assumed from
     // branch (2) — that is the point of routing through the predicate, and it costs one boolean.
-    if (scopes.some((s) => hasDominionOver(claims.access, s))) return;
+    if (scopes.some((s) => hasDominionOver(claims, s))) return;
     throw new Error('Forbidden: admin does not cover any of the profile scopes');
   }
 

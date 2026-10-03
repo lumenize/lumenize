@@ -28,7 +28,11 @@ export { BenchAgent } from './bench-agent';
 export {
   Universe,
   Galaxy,
+  NebulaAuthFacade,
+  PlatformHost,
 } from '@lumenize/nebula';
+// The consent route reaches a person's Profile through the `@rawRpc()` bridge.
+export { Profile } from '@lumenize/nebula-auth/profile';
 
 // Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,
 // re-exported under the `NebulaClientGateway` name so the wrangler.jsonc class

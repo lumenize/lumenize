@@ -7,7 +7,7 @@
  *     on the Galaxy's whole prototype chain: the bare `@mesh()` door `resources` and the
  *     registry and config reads; the source entries — every entry `LOOP_TOOL_ENTRIES` names plus
  *     the Apply — at the CHAT FLOOR (`requireChatWrite`, the door a Message create passes); and
- *     configuration and the inherited `teardown` at dominion. Past the door the plane's
+ *     configuration at dominion; the inherited `teardown` is `@rawRpc()`, on no tier. Past the door the plane's
  *     `requests` and `results` member lists are frozen, and so is `OrgTree`'s, which `requests`
  *     hands out as `orgTree` — past a gate nothing is checked, so a member added there is on the
  *     wire the moment it is written. The deleted initial-load cue (`warmPreview`) stays deleted
@@ -33,7 +33,7 @@ import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '../../../src/chat-constants';
 // chain in a detached `waitUntil` task, so the result would travel via fire-back, unobservable from
 // a bare envelope. The guard on the entry is not what these facet-behavior tests exercise (the
 // three-tier *surface* is frozen statically above), so bypassing it is correct.
-const uniqueGalaxyScope = () => `${crypto.randomUUID()}.app`;
+const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
 async function callGalaxy(instance: string, method: string, args: unknown[] = []) {
   const stub = (env as any).GALAXY.getByName(instance);
   return (runInDurableObject as any)(stub, (inst: any) => inst[method](...args));
@@ -89,11 +89,11 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     expect(chat).toEqual(['applyOntology', 'buildNow', 'readSource', 'writeSource']);
   });
 
-  it('the DOMINION list is exactly Galaxy configuration and the inherited teardown', () => {
+  it('the DOMINION list is exactly Galaxy configuration', () => {
     // A source entry accidentally shipped with requireDominionHere ENTERS this set → red;
-    // a config method dropped to the chat floor LEAVES it → red. `teardown` is `NebulaDO`'s,
-    // wire-reachable on every host, which is why the walk climbs the whole chain.
-    expect(meshMethods('dominion')).toEqual(['setGalaxyConfig', 'teardown']);
+    // a config method dropped to the chat floor LEAVES it → red. `NebulaDO.teardown` carries
+    // `@rawRpc()`, never `@mesh()`, so the walk up the whole chain does not find it.
+    expect(meshMethods('dominion')).toEqual(['setGalaxyConfig']);
   });
 
   it('what the door hands back is frozen: `requests`, `results`, and the `OrgTree` behind `requests.orgTree`', async () => {

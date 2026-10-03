@@ -1,18 +1,17 @@
 <script setup lang="ts">
 /**
- * The Universe page — where a freshly-signed-up account admin sees their apps and creates new ones.
+ * The Universe page — an account's own page, at its host (`acme.lumenize.dev` is the account
+ * `acme`, ADR-021): its apps, the form that creates one, and the account's delete.
  *
- * Reached at `/{universe}` (a one-segment scope; `App.vue`'s `isWorkspace` is false here), and
- * it is the FIRST authenticated surface a self-signup lands on: Home fast-forwards a lone-universe
- * identity straight here (`home-logic.ts` `fastForwardTarget` + `surfaceFor`). Before this existed a
- * self-signup dead-ended on Home with an unclickable account label — the create-your-first-app flow
- * lived only inside a galaxy, so it could make your *second* app but never your first.
+ * Every action on an account lives here, and Home only links to it: Home's "+ App" opens this page at
+ * `?create`, and its Delete opens this page. An app is deleted from its own Studio instead, so an
+ * app's admin who holds nothing at the account can still delete it.
  *
- * ⚠️ **Two flavours, and only one is built.** FLAVOUR A (built): create an app — a slug, a POST, and
- * you are in its Studio. FLAVOUR B (stub): list existing apps as clickable rows. A brand-new account
- * has no apps, so A is all a day-1 user meets; the list renders what few apps exist but is not yet
- * the richer manager it will become. The create modal opens itself when the list is empty, so the
- * empty state IS the create form.
+ * The create form is open exactly when the URL says `?create` (ADR-017). An account holding no apps
+ * has nothing to choose between, so the page navigates there itself — a claim writes the account's
+ * first app, so that is an account whose apps were all deleted. "Delete this account" stands behind a
+ * confirmation that is component state and never the URL, since a confirmation is something a person
+ * is doing rather than looking at.
  *
  * ⚠️ **Slug only — there is no app NAME to collect.** `createGalaxy(universe, slug)` takes a slug and
  * the schema stores no galaxy label, so the form asks for the one thing that exists. The server is
@@ -20,7 +19,8 @@
  * `error` for the person to correct.
  */
 import { ref, computed, watch } from 'vue';
-import { Plus, Loader2, Rocket } from 'lucide-vue-next';
+import { Plus, Loader2, Rocket, Trash2 } from 'lucide-vue-next';
+import DataUseNotice from './DataUseNotice.vue';
 
 const props = defineProps<{
   /** The one-segment universe scope this page manages (e.g. `acme`). */
@@ -45,6 +45,8 @@ const emit = defineEmits<{
   (e: 'create-open', auto: boolean): void;
   (e: 'create-close'): void;
   (e: 'open', scope: string): void;
+  /** Ask the shell to confirm and delete this account. */
+  (e: 'delete-account'): void;
 }>();
 
 const slug = ref('');
@@ -66,8 +68,9 @@ function submit() {
   emit('create', slug.value.trim());
 }
 
-// A fresh account has no apps and nothing to choose — so the create form IS the page. An account
-// that already has apps opens on the list, with Create one click away.
+// An account with no apps has nothing to choose — so the create form IS the page. A claim writes
+// the account's first app, so this is an account whose apps were all deleted. An account that has
+// apps opens on the list, with Create one click away.
 //
 // ⚠️ **Gated on `ready`, and fires at most once.** On mount the list is always empty — the scope
 // load has not resolved yet — so an `onMounted` version popped the create form open on EVERY visit,
@@ -92,12 +95,17 @@ watch(
           <h1 class="text-xl font-bold">{{ universe }}</h1>
           <p class="text-sm opacity-70">Your account. Everything you build lives here.</p>
         </div>
-        <button class="btn btn-primary btn-sm gap-2" :disabled="busy" @click="openCreate()">
-          <Plus class="size-4" /> Create app
-        </button>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost btn-sm gap-2" :disabled="busy" data-testid="universe-delete" @click="emit('delete-account')">
+            <Trash2 class="size-4" /> Delete this account
+          </button>
+          <button class="btn btn-primary btn-sm gap-2" :disabled="busy" @click="openCreate()">
+            <Plus class="size-4" /> Create app
+          </button>
+        </div>
       </header>
 
-      <!-- FLAVOUR B (stub): the app list. Empty for a fresh account. -->
+      <!-- The account's apps, each opening its Studio. -->
       <div class="card bg-base-200">
         <div class="card-body">
           <p v-if="apps.length === 0" class="text-base-content/70">
@@ -119,7 +127,7 @@ watch(
       </div>
     </div>
 
-    <!-- FLAVOUR A (built): create an app. -->
+    <!-- Create an app. -->
     <dialog class="modal" :open="props.create">
       <div class="modal-box">
         <h3 class="text-lg font-bold">Create an app</h3>
@@ -134,6 +142,7 @@ watch(
             :disabled="busy"
           />
           <p class="text-xs opacity-60">Lowercase letters, numbers and hyphens.</p>
+          <DataUseNotice />
           <p v-if="error" class="text-sm text-error">{{ error }}</p>
           <div class="flex justify-end gap-2">
             <button

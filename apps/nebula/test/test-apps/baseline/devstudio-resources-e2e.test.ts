@@ -18,7 +18,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // Chat lives on the Galaxy at the `{u}.{g}` tier (the collapse).
@@ -111,7 +111,6 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
 
     // A non-admin subject at the same {u}.{g}.dev scope (real signup; no grant yet).
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
     const { client: user, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,

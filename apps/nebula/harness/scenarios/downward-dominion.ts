@@ -10,7 +10,7 @@
  *
  * ⚠️ **Re-derived, not ported, and the reason is the whole argument for this tier.** The earlier
  * version of this scenario drove `connectDriver`'s **mint** path with `issuerInstanceName:
- * 'nebula-platform'`, and its own JSDoc had to record the consequence: *you could not produce a
+ * '_platform'`, and its own JSDoc had to record the consequence: *you could not produce a
  * denial by narrowing through this harness*, because the mint set the issuing instance from the
  * scope, so narrowing the scope narrowed the claim in lockstep and it still covered the callee.
  * That is a harness whose construction diverges from what the server issues — every assertion riding
@@ -23,9 +23,8 @@
  * A covering admin at a real tier is therefore the stronger observer, not a weaker one.
  *
  * ⚠️ **The admin holds no DAG grant at TARGET, and that is load-bearing.** Post-collapse the host
- * is the GALAXY chat plane, which has no root-admin seed at all (`Star.onBeforeCall`'s seed is
- * Star-only and exact-identity besides), so the admin's commit can come from nothing but the
- * confined scope-admin bypass. The control limb is what keeps it honest: the identical op denied
+ * is the GALAXY chat plane, and being a scope admin confers no DAG grant on any host, so the
+ * admin's commit can come from nothing but the confined scope-admin bypass. The control limb is what keeps it honest: the identical op denied
  * proves the first result is the bypass rather than an ungated scope.
  */
 import assert from 'node:assert/strict';
@@ -63,8 +62,8 @@ export async function run(stack: DevStack): Promise<void> {
     const summary = await admin.client.invite(TARGET, [{ email: controlEmail }]);
     assert.equal(summary.errors.length, 0, `invite refused: ${JSON.stringify(summary.errors)}`);
     const mail = await waiter.emailPromise;
-    const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(mail.html ?? '')?.[1];
-    assert.ok(href, 'invite email carried no accept-invite link');
+    const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];
+    assert.ok(href, 'invite email carried no magic link');
     inviteLink = href.replace(/&amp;/g, '&'); // followed AS SENT — it names this stack's origin
   } finally {
     waiter.cleanup();

@@ -29,6 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { withCommitStamp } from './bench-commit-stamp';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { OperationDescriptor } from '@lumenize/nebula/client';
@@ -125,13 +126,12 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
     const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
     // Register ontology + warm up the bundle via a one-off transaction.
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
     const setupClient = new HarnessNebulaClient({
-      baseUrl,
-      authScope: universeScope,
-      activeScope: galaxyScope,
+      baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+      platformOrigin: baseUrl,
       ontologyVersion: ONTOLOGY_VERSION,
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -510,15 +510,9 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
 
     // Inline the multi-client bootstrap (mirroring throughput-multi.benchmark.ts)
     // so we can pre-create M_MAX clients and slice subsets per N step.
-    const refreshResponse = await browser.fetch(
-      `${baseUrl}/auth/${universeScope}/refresh-token`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: galaxyScope }),
-      },
-    );
+    const refreshResponse = await browser.context(scopeOriginFrom(baseUrl, galaxyScope)).fetch(`${baseUrl}/auth/refresh-token`, {
+    method: 'POST', credentials: 'include',
+  });
     if (!refreshResponse.ok) {
       throw new Error(`refresh-token failed ${refreshResponse.status} ${await refreshResponse.text()}`);
     }
@@ -527,14 +521,13 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
     const allClients: HarnessNebulaClient[] = [];
     const allContexts: ReturnType<Browser['context']>[] = [];
     for (let i = 0; i < M_MAX; i++) {
-      const ctx = browser.context(baseUrl);
+      const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
       const tabId = crypto.randomUUID().slice(0, 8);
       const client = new HarnessNebulaClient({
-        baseUrl,
-        authScope: universeScope,
-        activeScope: galaxyScope,
+        baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+        platformOrigin: baseUrl,
         ontologyVersion: ONTOLOGY_VERSION,
-        fetch: browser.fetch,
+        fetch: ctx.fetch,
         sessionStorage: ctx.sessionStorage,
         BroadcastChannel: ctx.BroadcastChannel,
         accessToken,

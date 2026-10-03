@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueChatScope = () => `c2e-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -140,7 +140,6 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
 
     // A non-admin user granted read on BOTH sibling nodes (so it initially sees both).
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
     const { client: user, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });

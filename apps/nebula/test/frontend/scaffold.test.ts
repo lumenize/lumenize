@@ -28,9 +28,9 @@ describe('nebula frontend scaffold', () => {
     expect(typeof makeLongformResolver).toBe('function');
   });
 
-  it('createNebulaClient throws clearly when authScope cannot be auto-detected (deferred)', () => {
-    // authScope URL auto-detect is deferred (Studio-hosting decision); omitting
-    // it must fail loudly rather than connect to a wrong/undefined scope.
-    expect(() => createNebulaClient({ ontologyVersion: 'dev' })).toThrow(/authScope/);
+  it('createNebulaClient throws clearly outside a served page when no platformOrigin is given', () => {
+    // A served page names its deployment in `<meta name="lumenize-origin">`; with neither that nor
+    // an explicit `platformOrigin` the client must fail loudly rather than refresh nowhere.
+    expect(() => createNebulaClient({ ontologyVersion: 'dev' })).toThrow(/platformOrigin/);
   });
 });

@@ -9,6 +9,7 @@
  *
  * Nothing in this file reaches the network or reads the DOM, so it can be asserted directly.
  */
+import { isAtOrAbove } from '@lumenize/nebula/frontend';
 
 /** The wire shapes, mirrored from `@lumenize/nebula-auth`'s `types.ts`. */
 export type Tier = 'universe' | 'galaxy' | 'star';
@@ -28,7 +29,6 @@ export interface ScopeNode {
 
 export interface EmailScopes {
   email: string;
-  current?: boolean;
   memberships: ScopeNode[];
 }
 
@@ -36,7 +36,34 @@ export interface ScopeSummary {
   emails: EmailScopes[];
 }
 
-export const PLATFORM_SCOPE = 'nebula-platform';
+/** What `POST /auth/home-summary` answers: one summary per Profile the browser's cookies resolve
+ *  to, and the scopes of the cookies whose memberships are still pending. */
+export interface HomeSummary {
+  groups: { profileId: string; summary: ScopeSummary }[];
+  pending: string[];
+  /** The accepted cookies the summary read, with their admin bit. */
+  held: HeldSession[];
+}
+
+/** A cookie Home's summary read: the scope its membership sits at, and whether it is an admin's. */
+export interface HeldSession {
+  scope: string;
+  scopeAdmin: boolean;
+}
+
+/**
+ * Whether opening a row's host from this browser needs a fresh login.
+ *
+ * A host's refresh mints from that membership's own cookie, or from an admin cookie at or above it,
+ * so a row covered by neither would answer 401 there: an app accepted on another device, say, which
+ * this browser holds no cookie for. A plain cookie above the row covers nothing — a plain membership
+ * mints on its own host alone.
+ */
+export function needsFreshLogin(row: ScopeNode, held: readonly HeldSession[]): boolean {
+  return !held.some((h) => h.scope === row.scope || (h.scopeAdmin && isAtOrAbove(h.scope, row.scope)));
+}
+
+export const PLATFORM_SCOPE = '_platform';
 
 /**
  * How many children render expanded before a level collapses behind a disclosure.
@@ -91,23 +118,39 @@ export function canAccept(consentChecked: boolean, nickname: string): boolean {
 /**
  * Where clicking a row goes, or `undefined` when the row has no surface of its own.
  *
- * Scope-first URLs: the scope IS the path. A Universe goes to `/{u}` (its manage-apps page), a
- * Galaxy to `/{u}.{g}` (its Studio), a Star to `/app/{u}.{g}.{s}` (the running app). The Studio
- * shell reads the scope from the first path segment, so its segment count picks the view — one
- * segment is universe (manage-apps) mode, two is workspace (author) mode. Only the Star keeps a
- * prefix, because it is served by the Worker (the built app), not the Studio SPA — and it is the
- * route the `lumenize.dev` data-plane split will lift off this domain entirely.
+ * Every scope is served from its own host (ADR-021): a Universe's page at `acme.lumenize.dev`, a
+ * Galaxy's Studio at `crm.acme.lumenize.dev`, a Star's running app at
+ * `tenant1.crm.acme.lumenize.dev`. `urlFor` spells a scope's host, so this stays a pure decision
+ * over the row.
  *
  * ⚠️ **The reserved platform scope is the one universe with NO surface, and it needs an explicit
- * guard.** `nebula-platform` is a single segment, so the server always delivers it as a universe;
- * without this line the platform root would be clickable into `/nebula-platform`, a Studio page that
- * does not exist. The guard is reachable and `home-logic.test.ts` reds if it is removed.
+ * guard.** `_platform` is a single segment, so the server always delivers it as a universe;
+ * without this line the platform root would be clickable into a host no scope spells. The guard is
+ * reachable and `home-logic.test.ts` reds if it is removed.
  */
-export function surfaceFor(node: ScopeNode): string | undefined {
-  if (node.tier === 'star') return `/app/${node.scope}`;
-  if (node.tier === 'galaxy') return `/${node.scope}`;
+export function surfaceFor(node: ScopeNode, urlFor: (scope: string) => string): string | undefined {
   if (node.scope === PLATFORM_SCOPE) return undefined; // the platform root has no page of its own
-  return `/${node.scope}`; // universe — its manage-apps page
+  return urlFor(node.scope);
+}
+
+/**
+ * Whether an account's row offers adding an app and deleting the account — links to the account's
+ * own page, which performs both. Only an accepted admin of the account can do either there, and the
+ * reserved platform scope has no page.
+ */
+export function offersAccountActions(node: ScopeNode): boolean {
+  return node.tier === 'universe' && node.scopeAdmin === true && node.accepted === true && node.scope !== PLATFORM_SCOPE;
+}
+
+/**
+ * Whether an app's row offers its delete — a link to the app's Studio, which performs it. Its
+ * accepted admin can delete it there, and so can an accepted admin of the account above it, whose
+ * row is `account`. A row of the summary's descent has no `accepted` of its own.
+ */
+export function offersAppDelete(node: ScopeNode, account?: ScopeNode): boolean {
+  if (node.tier !== 'galaxy') return false;
+  if (node.accepted !== undefined) return node.scopeAdmin === true && node.accepted === true;
+  return account !== undefined && offersAccountActions(account);
 }
 
 /** Whether a level renders every child, or collapses behind a disclosure. */
@@ -119,69 +162,60 @@ export function rendersExpanded(children: readonly unknown[] | undefined): boole
  * The one destination to skip Home for entirely, if there is one.
  *
  * Someone whose entire account is a single membership came here to use it, not to choose between one
- * option — so Home fast-forwards them to it: a self-signup universe to its manage-apps page, a lone
- * Star to its running app. Every other shape renders Home: more than one membership (a real choice),
- * anything unaccepted (its consent comes first), or a single membership with no surface.
+ * option — so Home fast-forwards them to it: a universe holding one app to that app's Studio, a
+ * universe holding none or several to its page, a lone Star to its running app. Every other shape
+ * renders Home: more than one membership (a real choice), anything unaccepted (its consent comes
+ * first), or a single membership with no surface.
  *
  * ⚠️ **ACCEPTED is load-bearing.** Fast-forwarding an unaccepted membership would carry the person
  * past the consent modal into a surface whose session is inert, which is both the wrong outcome and
  * a confusing one: they would arrive somewhere that immediately refuses them.
  *
  * ⚠️ **A surfaceless single membership stays on Home, and that is what keeps the superuser here.** A
- * lone `nebula-platform` membership has no surface ({@link surfaceFor} returns `undefined`), so a
+ * lone `_platform` membership has no surface ({@link surfaceFor} returns `undefined`), so a
  * superuser lands on Home with an unclickable platform row rather than being sent to a Studio that
  * does not exist. This is why the fast-forward is expressed as "has a surface" rather than a tier
  * check — the tier that lacks one drops out for the right reason.
  */
-export function fastForwardTarget(summary: ScopeSummary): string | undefined {
+export function fastForwardTarget(summary: ScopeSummary, urlFor: (scope: string) => string): string | undefined {
   const all = summary.emails.flatMap((e) => e.memberships);
   if (all.length !== 1) return undefined;
   const only = all[0];
   if (only.accepted !== true) return undefined;
-  return surfaceFor(only);
+  // An account holding exactly one app: the one place to work is that app. A frontier past the
+  // children listed means more apps than the level shows, so the person has a choice to make.
+  const apps = only.tier === 'universe' ? only.children ?? [] : [];
+  if (apps.length === 1 && only.childCount === undefined) return surfaceFor(apps[0], urlFor);
+  return surfaceFor(only, urlFor);
 }
 
 /**
- * Where to send a person who left for this login from somewhere — a lapsed session, or a shared
- * link opened signed out — if their memberships cover it; else `undefined` and Home decides as usual.
- *
- * The path names a Studio scope in its first segment. It is honoured when an ACCEPTED membership
- * sits at that scope or above it (a universe membership covers `/{u}.{g}`); an unaccepted one, or
- * a scope the person does not hold, is not a place to send them, and authorization is re-checked on
- * arrival regardless (ADR-017). The returned `scope` is the DESTINATION's, which is what the auth
- * hint must be keyed by ({@link authHintFor}) — the membership's scope may sit above it.
+ * Where Home sends a browser with no choice to make: its cookies resolve to one Profile, nothing is
+ * pending, and that summary fast-forwards ({@link fastForwardTarget}).
  */
-export function returnTarget(summary: ScopeSummary, path: string): { scope: string; path: string } | undefined {
-  const seg = path.match(/^\/([^/?#]+)/)?.[1];
-  if (!seg) return undefined;
-  const scope = decodeURIComponent(seg);
-  const covered = summary.emails.flatMap((e) => e.memberships)
-    .some((m) => m.accepted === true && (m.scope === scope || scope.startsWith(`${m.scope}.`)));
-  return covered ? { scope, path } : undefined;
+export function homeFastForward(home: HomeSummary, urlFor: (scope: string) => string): string | undefined {
+  const only = home.groups.length === 1 && home.pending.length === 0 ? home.groups[0].summary : undefined;
+  return only ? fastForwardTarget(only, urlFor) : undefined;
 }
 
 /**
- * The hand-off hint Home leaves for Studio: which cookie to spend at a destination.
- *
- * ⚠️ **The KEY is where you are going and the VALUE is where your session lives**, and getting them
- * the wrong way round is silent — it writes a real entry that Studio reads and then refreshes
- * against a path holding no cookie. Studio owns this key (`App.vue`'s `authHint`), which is why the
- * shape is pinned here rather than spelled inline at the call site.
- *
- * Not derivable at the destination: `/acme.crm` cannot know the session was established at
- * `acme`, because a person's cookie sits at whatever scope their link named.
+ * Where Home goes once a membership is accepted, given the summary re-read after it: where a fresh
+ * visit would fast-forward, and otherwise the accepted row's own page. A ticket-backed signup is
+ * accepted here, so this is what carries it into its first app, as a claim's link page does.
  */
-export function authHintFor(destinationScope: string, authScope: string): { key: string; value: string } {
-  return { key: `nebula.authScope:${destinationScope}`, value: authScope };
+export function afterAcceptTarget(home: HomeSummary, node: ScopeNode, urlFor: (scope: string) => string): string | undefined {
+  return homeFastForward(home, urlFor) ?? surfaceFor(node, urlFor);
 }
 
 /**
- * The banner a non-session email's section carries, or `undefined` for the current one.
+ * The pending membership a login page should offer consent for instead of a login form, if any.
  *
- * Every address on the identity is listed, but this browser only holds cookies for the one it signed
- * in as. Clicking into another address's tenancy means a fresh sign-in, and saying so up front beats
- * a login form appearing without explanation.
+ * A person who signed in through a plain link without accepting an invite holds that membership's
+ * cookie, pending. Visiting the invite's host then fails its refresh, which sends them here with
+ * `return_to` naming that host — so the membership at the host's scope is the one to consent to. A
+ * pending membership anywhere else is not what they came for, and a login form is.
  */
-export function crossEmailNotice(section: EmailScopes): string | undefined {
-  return section.current ? undefined : `Signing in here emails ${section.email}`;
+export function pendingFor(pending: readonly string[], returnScope: string | undefined): string | undefined {
+  return returnScope !== undefined && pending.includes(returnScope) ? returnScope : undefined;
 }
+

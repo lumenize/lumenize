@@ -10,10 +10,9 @@
  * project; run it with `npx vitest run --project ui-smoke`).
  *
  * Login uses the REAL email magic-link loop (never test-mode), so the same test body
- * runs identically local + (later) prod. Reuses only the Node-side `waitForEmail` /
- * `extractMagicLink` helpers; Playwright itself navigates the magic-link URL THROUGH
- * the vite origin so the `Secure;SameSite=Strict;Path=/auth/{scope}` refresh cookie
- * lands natively in the BrowserContext (no Node-`Browser`-jar → context transfer).
+ * runs identically local + (later) prod. Playwright follows the emailed link as sent, to the
+ * platform host's link page, and its Continue sets the `__Host-refresh-token.{scope}` cookie
+ * there natively in the BrowserContext (no Node-`Browser`-jar → context transfer).
  *
  * Structure (per feedback_e2e_test_granularity): one cheap pre-login shell check, then
  * one narrative authenticated flow (login → connected → prompt → preview), with the
@@ -22,38 +21,21 @@
  * @see tasks/nebula-local-smoke.md
  */
 import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
-import { provisionAndLogin } from '../lib/email-login';
+import type { Browser, BrowserContext, Page } from 'playwright';
+import { uniqueTestEmail } from '@lumenize/email-test/client';
+import { provisionAndLogin, scopeOriginFrom } from '../lib/email-login';
 import { HAS_DOCKER, HAS_AI_PATH } from './gates';
-import { resolveChromiumExecutable } from './helpers';
+import { launchChromium, loginToStudio } from './helpers';
 
-/**
- * Chromium executable for the raw-Playwright driver. Returns `undefined` (→ Playwright's
- * default launch) when the version Playwright pins is installed — GHA/local, where
- * `playwright install` provides it. When that pinned build is ABSENT but a pre-installed
- * Chromium exists under `PLAYWRIGHT_BROWSERS_PATH` (the Claude Code web image ships a build
- * that may not match the pinned version), fall back to launching it by path — the image's
- * documented contract is "use executablePath, never `playwright install`". Skips the
- * `chromium_headless_shell-` dirs (reduced binary) in favor of the full browser under a
- * `chromium-` dir (its `chrome-linux/chrome` or `chrome-linux64/chrome`), which drives
- * headless fine.
- */
-// (Moved to ./helpers so the delete-scope scenario can share it — two copies of this
-// resolution logic would drift.)
-
-/** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must be valid
- *  for BOTH slug validators: org-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
- *  stricter nebula-auth `parse-id.isValidSlug` (ALSO no consecutive hyphens), so a single
- *  hyphen — NOT `test--`. Separate from any manually-claimed scope; the working scope is the
+/** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must pass
+ *  nebula-auth's `isValidSlug` (no leading, trailing or consecutive hyphens, at most 30
+ *  characters), so a single hyphen — NOT `test--`. Separate from any manually-claimed scope; the working scope is the
  *  GALAXY post-collapse — the Wipe teardown targets its `.dev` star (`{scope}.dev`). */
 const TEST_SCOPE = 'test-u0.test-g0';
-/** Login lands at the UNIVERSE — login never mints, the claim's membership is AT the
- *  universe, and a galaxy-scoped magic link finds no membership. `/{universe}`
- *  then auto-opens the one workspace (nudgeNextStep), same as the harness scenario. */
+/** The account that owns the workspace; its page is where an app is created. */
 const TEST_UNIVERSE = TEST_SCOPE.split('.')[0];
-/** Bootstrap admin email = the address CF Email Routing forwards to the email-test Worker. */
-const ADMIN_EMAIL = 'test@lumenize-test.dev';
+/** Fresh per run, so no other lane's mail can answer this lane's waiter (`testing.md`). */
+const ADMIN_EMAIL = uniqueTestEmail('ui-smoke');
 
 describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docker)', () => {
   let browser: Browser;
@@ -67,7 +49,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     viteBaseUrl = inject('viteBaseUrl');
     workerBaseUrl = inject('workerBaseUrl');
     testToken = inject('emailTestToken');
-    browser = await chromium.launch({ executablePath: resolveChromiumExecutable() });
+    browser = await launchChromium();
   });
 
   afterAll(async () => {
@@ -86,185 +68,79 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     await browser?.close();
   });
 
-  it('Studio shell renders at the vite origin (pre-login)', async () => {
+  it("a signed-out visit to Studio's host is sent to the platform host's login, and back", async () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
-      await page.goto(`${viteBaseUrl}/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+      const studio = scopeOriginFrom(viteBaseUrl, TEST_SCOPE);
+      await page.goto(`${studio}/`, { waitUntil: 'domcontentloaded' });
 
-      // Capable-of-failing: each waitFor auto-waits and THROWS if the element never appears —
-      // reds if the SPA fails to mount (build/bundle break) or the shell doesn't render.
-      //
-      // ⚠️ The DISCRIMINATING unauthenticated marker is the signed-out LANDING — its welcome
-      // heading and "Sign in" button — not a login form: Studio has no login form (the auth SPA
-      // owns every front door), and no chat rail either when signed out (the rail's "Nebula
-      // Studio" header exists only inside a workspace on a live session; `studio-signed-out-landing`
-      // pins that). "Sign in" being reachable still confirms what it always did: auto-connect
-      // correctly FAILED with no cookie (the auth-path negative control).
-      await page.getByRole('heading', { name: 'Welcome to Nebula' }).waitFor({ state: 'visible' });
-      await page.getByRole('button', { name: /Sign in/ }).waitFor({ state: 'visible' });
-      expect(await page.getByRole('heading', { name: 'Nebula Studio' }).count()).toBe(0);
-      // And the login form is GONE from Studio — reds if a login block is ever reintroduced here.
-      expect(await page.getByPlaceholder('you@example.com').count()).toBe(0);
-      // The preview iframe is correctly ABSENT pre-login: the stage is the help/intro until you
-      // connect AND open a dev workspace (it's `v-else` after help/manage). A `1` here would mean a
-      // preview leaked into the unauthenticated shell. (Was `1` before the help/manage/preview stage
-      // refactor, when the iframe was always mounted.)
+      // Capable-of-failing: reds if the SPA fails to mount (it is what sends the visit on) or the
+      // refresh stops answering 401 to a browser holding no cookie. The login names Studio as where
+      // to return, so a person signing in lands back where they started.
+      await page.waitForURL((u) => u.origin === viteBaseUrl && u.pathname === '/auth/login', { timeout: 30_000 });
+      expect(new URL(page.url()).searchParams.get('return_to')).toBe(`${studio}/`);
+      await page.getByPlaceholder('you@example.com').waitFor({ state: 'visible' });
+      // Nothing of Studio rendered on the way: no composer, and no preview of the workspace.
+      expect(await page.getByPlaceholder('Describe a change…').count()).toBe(0);
       expect(await page.locator('iframe[title="Preview"]').count()).toBe(0);
     } finally {
       await ctx.close();
     }
   });
 
-  it('real-email login through the auth SPA → Home → into the app workspace', async () => {
+  it("real-email login on the platform host → Home's fast-forward → into the app workspace", async () => {
     // 0. PROVISION through the real claim path (API): claims `test-u0` for ADMIN_EMAIL and
     //    creates the workspace galaxy beneath it — global-setup wipes `.wrangler/state`, so
     //    every run claims fresh. Login never mints; this is what creates the membership the
     //    in-UI form's magic link needs, by the same path a real user's first visit does.
     await provisionAndLogin({ baseUrl: workerBaseUrl, scope: TEST_SCOPE, email: ADMIN_EMAIL, testToken });
 
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
+    // 1–4. The login form on the platform host, the emailed link followed as sent, Continue, and
+    //      Home, which fast-forwards an account holding one app straight into that app's Studio
+    //      on the workspace's own host.
+    const { ctx, page } = await loginToStudio({ browser, viteBaseUrl, testToken, scope: TEST_SCOPE, email: ADMIN_EMAIL });
 
-    // 1. The front door is SCOPE-LESS now, and it is not in Studio. Nothing about the address is
-    //    known before the click, so the form names no scope and the page is the auth SPA's.
-    await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
-
-    // 2. Arm the email waiter BEFORE driving the form (listen first, then send). ⚠️ The instance
-    //    tag is `_scopeless`, not the universe — a scope-less request cannot name a scope, so a
-    //    waiter filtered on TEST_UNIVERSE would hang for its full timeout and read as a slow boot.
-    const waiter = waitForEmail({ testToken, instance: '_scopeless', to: ADMIN_EMAIL });
-    let link: string;
-    try {
-      await page.getByPlaceholder('you@example.com').fill(ADMIN_EMAIL);
-      await page.getByRole('button', { name: /Email me a link/ }).click();
-      // The confirmation only renders on the 2xx path — reds if the form misfired or the POST 4xx'd.
-      await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
-      link = extractMagicLink(await waiter.emailPromise);
-    } finally {
-      waiter.cleanup();
-    }
-
-    // 3. Navigate the magic link THROUGH the vite origin (not the worker host) so the Set-Cookie
-    //    lands on the Studio origin. `context.request` shares the context's cookie jar, so the
-    //    refresh cookies are captured without loading a page. One click, one cookie per membership.
-    const u = new URL(link);
-    await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
-
-    // 4. HOME is where the click lands, and where the person chooses. The tree renders with the
-    //    galaxy beneath the universe; clicking that row is the hand-off into Studio.
-    //    ⚠️ **This identity does NOT fast-forward, and the reason is worth knowing before "fixing"
-    //    it.** `fastForwardTarget` skips Home only for a LONE accepted membership, and ADMIN_EMAIL
-    //    is the BOOTSTRAP address (`--var NEBULA_AUTH_BOOTSTRAP_EMAIL` in global-setup), so it also
-    //    holds the platform membership — two, so Home renders. A one-membership identity lands on
-    //    its Universe page instead and enters the galaxy by its SLUG from there, which is the path
-    //    `harness/scenarios/signup-to-first-app.ts` drives.
-    await page.goto(`${viteBaseUrl}/auth/${TEST_UNIVERSE}/home`, { waitUntil: 'domcontentloaded' });
-    const galaxyRow = page.getByRole('button', { name: new RegExp(TEST_SCOPE.replace('.', '\\.')) });
-    await galaxyRow.waitFor({ state: 'visible', timeout: 30_000 });
-    await galaxyRow.click();
-
-    // 5. Studio, entered from Home. Capable-of-failing: reds if the shell fails to render or the
-    //    /gateway connect never completes — and specifically reds if the HAND-OFF HINT is wrong,
-    //    because the cookie lives at `/auth/test-u0` while this page is `/test-u0.test-g0` (scope-first),
-    //    so without the hint Studio refreshes against a path holding no cookie.
-    await page.waitForURL(new RegExp(`//[^/]+/${TEST_SCOPE.replace(/\./g, '\\.')}(?:[/?#]|$)`), { timeout: 30_000 });
-    await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
-    // The sign-in control sits in the SAME `v-if="!connected"` slot, so a failed connect leaves it
-    // present — count==0 is what makes the assertion above non-vacuous.
-    expect(await page.getByRole('button', { name: /^Sign in$/ }).count()).toBe(0);
-
-    // 4b. NOTHING to complete on arrival. The nickname is collected once at the consent modal
-    //     (`ConsentModal.vue` / `canAccept`), so Studio has no blocking gate of its own — asserted
-    //     here as the absence of an open dialog, which is what would red if one came back.
-    await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
+    // 5. Studio, on the workspace's host, with nothing to complete on arrival. The composer
+    //    `loginToStudio` waited for renders only once the /gateway connect completes, and that
+    //    connect needs this host's refresh to find the universe's cookie on the platform host. The
+    //    nickname is collected once at the consent modal, so Studio has no blocking gate of its
+    //    own — asserted as the absence of an open dialog, which is what would red if one came back.
+    await page.getByRole('heading', { name: 'Lumenize Studio' }).waitFor({ state: 'visible' });
     expect(await page.locator('dialog.modal[open]').count()).toBe(0);
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
     // The preview renders on connect with NO refresh cue: `dist/` serves from the Galaxy's VFS, so
-    // the iframe src is the bare `/app/{scope}.dev/` and only a build's reply ever bumps it.
-    expect(await page.locator('iframe[title="Preview"]').getAttribute('src')).toBe(`/app/${TEST_SCOPE}.dev/`);
+    // the iframe frames the dev Star's own host and only a build's reply ever bumps it.
+    expect(await page.locator('iframe[title="Preview"]').getAttribute('src'))
+      .toBe(`${scopeOriginFrom(viteBaseUrl, `${TEST_SCOPE}.dev`)}/`);
 
     authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
   });
 
-  it('create an app from the manage panel — the flow with zero automated coverage until now', async () => {
+  it("create an app from the account's page — the flow with zero automated coverage until now", async () => {
     // ⚠️ **This is the create-app flow `backlog.md` § *Nebula* recorded as having NO automated
-    // coverage.** It is reachable only by hand through the avatar menu, so nothing exercised it and
-    // a break would have surfaced as a user-developer unable to make their second app.
+    // coverage.** A break would surface as a user-developer unable to make their second app.
     expect(authed, 'login step must have established a session').not.toBeNull();
-    const { page } = authed!;
+    // A second tab of the same person, so the workspace page the codegen case shares stays put.
+    const page = await authed!.ctx.newPage();
+    try {
+      // The account already has an app, so the page lists it, and `?create` opens the form.
+      await page.goto(`${scopeOriginFrom(viteBaseUrl, TEST_UNIVERSE)}/?create`, { waitUntil: 'domcontentloaded' });
+      const slugField = page.getByPlaceholder('crm');
+      await slugField.waitFor({ state: 'visible', timeout: 30_000 });
 
-    // Open the manage panel from the avatar menu, the way a person does.
-    await page.getByRole('button', { name: 'Account' }).click();
-    await page.getByRole('button', { name: 'Manage my account' }).click();
-    await page.getByRole('heading', { name: 'Manage my account' }).waitFor({ state: 'visible' });
+      // A fresh name per run — global-setup wipes state, but a retry inside one run must not 409.
+      const appSlug = `smoke-${Date.now().toString(36).slice(-6)}`;
+      await slugField.fill(appSlug);
+      await page.getByRole('button', { name: 'Create', exact: true }).click();
 
-    // ⚠️ **Target the row by NAME, never `.first()`.** A bootstrap address holds an UNACCEPTED
-    // `nebula-platform` membership that sorts above every real one, so `.first()` picked the platform
-    // row and tried to create an app in the platform ROOT — which is how the unaccepted-row
-    // affordance bug was found. Both halves are asserted now: the unaccepted row offers no button,
-    // and the right row is addressed explicitly.
-    //
-    // ⚠️ Unconditional, because the row is GUARANTEED here: `global-setup.ts` pins
-    // `--var NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev`, and every consume by a bootstrap address
-    // mints that platform membership UNACCEPTED. Guarding this behind `if (count)` would let it pass
-    // silently on a build where the row stopped rendering at all.
-    const platformRow = page.locator('.rounded-box').filter({ hasText: 'nebula-platform' }).first();
-    await platformRow.getByText('Not accepted').waitFor({ state: 'visible', timeout: 15_000 });
-    // Reds against offering superuser actions on a membership nobody consented to.
-    expect(await platformRow.getByRole('button', { name: /^App$/ }).count()).toBe(0);
-    expect(await platformRow.getByRole('button', { name: /Delete/ }).count()).toBe(0);
-
-    // Opening the right row reveals the name field AND the data-use notice — the notice's SECOND
-    // placement, which nothing else asserts renders.
-    const universeRow = page.locator('.rounded-box')
-      .filter({ has: page.getByText(TEST_UNIVERSE, { exact: true }) }).first();
-    await universeRow.getByRole('button', { name: /^App$/ }).click();
-    const nameField = page.getByPlaceholder('name your app');
-    await nameField.waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByTestId('data-use-notice').waitFor({ state: 'visible' });
-
-    // A fresh name per run — global-setup wipes state, but a retry inside one run must not 409.
-    const appName = `smoke-app-${Date.now().toString(36).slice(-6)}`;
-    await nameField.fill(appName);
-    await page.getByRole('button', { name: /^Add$/ }).click();
-
-    // ⚠️ The ROW is the assertion, not the absence of an error. `create-galaxy` treats 409 as
-    // success elsewhere, and a silently-failed create leaves the panel looking fine — so this reds
-    // only if the scope was really created and the tree really re-read.
-    //
-    // ⚠️ Racing the row against the error bubble turns a bare 30 s timeout into a DIAGNOSIS. A
-    // create that fails logs into the chat; without this the failure reads "element never
-    // appeared", which is true of both a broken create and a broken render and distinguishes
-    // neither.
-    const row = page.getByText(`${TEST_UNIVERSE}.${appName}`);
-    const errorBubble = page.locator('.chat-bubble-error').last();
-    await Promise.race([
-      row.waitFor({ state: 'visible', timeout: 30_000 }),
-      errorBubble.waitFor({ state: 'visible', timeout: 30_000 }).then(async () => {
-        const claims = await page.evaluate(async () => {
-          const hints = Object.fromEntries(Object.entries(localStorage)
-            .filter(([k]) => k.startsWith('nebula.authScope:')));
-          const authScope = Object.values(hints)[0] as string | undefined;
-          if (!authScope) return { hints, note: 'no auth hint written' };
-          const r = await fetch(`/auth/${authScope}/refresh-token`, {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ activeScope: location.pathname.split('/')[2] }),
-          });
-          if (!r.ok) return { hints, refresh: r.status, body: (await r.text()).slice(0, 200) };
-          const { access_token } = await r.json() as { access_token: string };
-          return { hints, payload: JSON.parse(atob(access_token.split('.')[1])) };
-        });
-        throw new Error(`create-app reported: ${await errorBubble.innerText()}\nDIAG ${JSON.stringify(claims)}`);
-      }),
-    ]);
-    await row.waitFor({ state: 'visible' });
-
-    // ⚠️ Leave the stage as we found it. The codegen case that follows shares this page and reads
-    // the preview iframe, which is `v-else` after the manage panel — so a panel left open makes
-    // THAT test fail for a reason that has nothing to do with it. (It did, on the first run.)
-    await page.getByRole('button', { name: /Back/ }).click();
-    await page.locator('iframe[title="Preview"]').waitFor({ state: 'visible', timeout: 15_000 });
+      // ⚠️ Landing in the NEW app's Studio is the assertion, not the absence of an error: it happens
+      // only once the galaxy really exists and its host's refresh mints there.
+      await page.waitForURL((u) => u.origin === scopeOriginFrom(viteBaseUrl, `${TEST_UNIVERSE}.${appSlug}`), { timeout: 60_000 });
+      await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 60_000 });
+    } finally {
+      await page.close();
+    }
   });
 
   // Un-skipped 2026-08-29: the "no kernel FUSE locally so the build can't run" premise was

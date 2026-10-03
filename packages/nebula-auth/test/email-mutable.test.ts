@@ -14,13 +14,13 @@ import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
 import {
-  foundUniverse, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, url, expectNoSession,
+  foundUniverse, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, consumeLink, expectNoSession,
   membershipsOf,
 } from './test-helpers';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
-const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: 'nebula-platform', scopeAdmin: true } }) as any;
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: '_platform', scopeAdmin: true } }) as any;
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
@@ -72,7 +72,7 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     // Logging in with the OLD address is rejected (no identity resolves there anymore).
     const oldMl = await requestMagicLink(SELF, 'old@example.com');
     const { magicLinkUrl: oldUrl } = await oldMl.json() as { magicLinkUrl: string };
-    const oldClick = await SELF.fetch(new Request(oldUrl, { redirect: 'manual' }));
+    const oldClick = await consumeLink(SELF, oldUrl);
     expectNoSession(oldClick); // rejected — old email no longer an identity
   });
 
@@ -89,8 +89,8 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     const registry = getRegistry();
 
     const first = await foundUniverse(SELF, a, old);
-    await registry.claimUniverse(b, old, 'http://localhost');
-    await registry.claimUniverse(c, old, 'http://localhost');
+    await registry.claimUniverse(b, 'first', old, 'http://localhost');
+    await registry.claimUniverse(c, 'first', old, 'http://localhost');
     const before = (await membershipsOf(registry, old)).map((d) => d.universeGalaxyStarId).sort();
     expect(before).toEqual([a, b, c].sort());
 
@@ -131,7 +131,7 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     const moved = `moved-${crypto.randomUUID().slice(0, 8)}@example.com`;
     expect(await registry.changeEmail(await subForEmail(old, u), moved, ACTING())).toBe(true);
 
-    const click = await SELF.fetch(new Request(link, { redirect: 'manual' }));
+    const click = await consumeLink(SELF, link);
     expectNoSession(click); // refused — no membership resolves the old address
   });
 

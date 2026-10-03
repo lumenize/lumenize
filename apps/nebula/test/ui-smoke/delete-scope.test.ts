@@ -1,172 +1,205 @@
 /**
- * Scope deletion through the RENDERED Studio — the Vue half of
- * `tasks/archive/nebula-star-founder-provisioning.md` Phase 1 (warn-don't-block, ADR-015).
+ * Apps and accounts, created and deleted from the pages that own them — the rendered half of
+ * ADR-015's warn-don't-block deletion.
  *
- * ⚠️ Why this must exist at the UI level, not as a registry test: `apps/nebula-studio-ui` has **zero
- * test files, no test script, no `vue-tsc`**, and is the sole `SKIP_PACKAGES` entry in
- * `scripts/type-check.sh`. The `blockedBy` → `affectedUsers` change rewrote the confirm handler, the
- * button's `:disabled`, and a `v-if="deletePlan.affectedUsers.total"` — and a stale field reference
- * reds in **no gate**, surfacing only as a runtime `TypeError` on the confirm screen. A registry-only
- * test passes while the button is dead. This is the test that proves it isn't.
+ * Every action lives on the page that can perform it. An account's apps are listed, and created, on
+ * the account's own page; an app is deleted from its Studio; an account from its page. Home only
+ * links each to its host. Each delete stands behind a confirmation that never rides the URL, and
+ * warns about the other people it removes without ever refusing over them.
  *
- * Gated `describe.runIf(HAS_DOCKER)` ONLY — deliberately not `&& HAS_AI_PATH`: an admin deleting a
- * scope touches no model. (`global-setup` boots the stack on `HAS_DOCKER` for the same reason; the
- * codegen scenarios keep their own `HAS_AI_PATH` gate.) Run it with
- * `npx vitest run --project ui-smoke`.
+ * ⚠️ Why this must exist at the UI level, not as a registry test: `apps/nebula-studio-ui` has no
+ * `vue-tsc`, so a stale field reference in a confirm handler reds in no gate, surfacing only as a
+ * runtime `TypeError` on the confirm screen. A registry-only test passes while the button is dead.
  *
- * Fixture discipline: this creates its OWN throwaway Galaxy and deletes that — it never touches the
- * shared `.dev` workspace the codegen smoke depends on.
+ * The cast: **O** owns account U and two others, so Home has a real choice to render rather than
+ * stepping aside, even once U is gone. **G** is invited as an admin of one of U's apps and holds no
+ * membership at U.
+ * **P** is invited into that app as a plain member, so its delete has someone to warn about.
+ *
+ * Gated `describe.runIf(HAS_DOCKER)` — deliberately not `&& HAS_AI_PATH`: nothing here touches a
+ * model. Run it with `npx vitest run --project ui-smoke`. It provisions its own accounts, so it never
+ * touches the workspace the codegen smoke depends on.
  */
 import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import type { Browser, BrowserContext, Page } from 'playwright';
+import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import { HAS_DOCKER } from './gates';
-import { resolveChromiumExecutable, loginToStudio, openScopeManager } from './helpers';
-import { provisionAndLogin } from '../lib/email-login';
+import { launchChromium } from './helpers';
+import { provisionAndLogin, scopeOriginFrom } from '../lib/email-login';
+import { inviteViaMesh } from '../../harness/lib/harness';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
+import { LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
 
-// ⚠️ The GALAXY, not its `.dev` star. Post-collapse, `/{u}.{g}` IS the authoring workspace
-// (`App.vue`'s `isWorkspace` is two segments) and `{u}.{g}.dev` is the preview star it serves. The
-// three-segment form this lane used to carry was pre-collapse addressing.
-const TEST_SCOPE = 'test-u0.test-g0';
-const ADMIN_EMAIL = 'test@lumenize-test.dev';
-/** The universe the admin owns — the parent under which the throwaway Galaxy is created. */
-const UNIVERSE = 'test-u0';
-/**
- * ⚠️ **The ORIGINAL blocker is discharged; a DIFFERENT one now holds this lane (2026-09-01).**
- *
- * It was skipped pending "a login path into a `.dev` scope", reasoning that a universe login's
- * cookie is `Path=/auth/{universe}` and so never reaches `/auth/{u}.{g}…/refresh-token`. That is
- * still true and was never the whole story: the refresh happens AT the universe with `activeScope`
- * set deeper, and what was missing was anything telling Studio to do that for a scope it had not
- * already entered. Home's hand-off hint supplies it, and `loginToStudio` now proves the journey —
- * `smoke.test.ts` drives exactly it, green.
- *
- * What replaced the blocker: **fixture isolation between the two ui-smoke files.** Both provision
- * `test-u0` against one shared `wrangler dev`, and running both reds whichever goes second. Everything
- * else here was migrated and verified while briefly un-skipped — the scope-less login, Home entry,
- * the profile-name modal, the post-collapse two-segment addressing, the `+ App` / "name your app"
- * selectors, and a tree-scoped detach locator (the confirm panel renders the same name, so the old
- * unscoped one was a strict-mode violation that read as a failed delete). ⇒ **Un-skipping needs a
- * per-file universe, not more login work.**
- */
-const LANE_BLOCKED_ON_DEV_SCOPE_LOGIN = true;
+const SUFFIX = crypto.randomUUID().slice(0, 8);
+const U = `del${SUFFIX}`;
+const U2 = `del${SUFFIX}b`;
+const U3 = `del${SUFFIX}c`;
+const O = uniqueTestEmail('owner');
 
-describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler dev + Docker)', () => {
+describe.runIf(HAS_DOCKER)('Apps and accounts from the pages that own them (wrangler dev + Docker)', () => {
   let browser: Browser;
-  let authed: { ctx: BrowserContext; page: Page } | null = null;
+  let viteBaseUrl: string;
+  let workerBaseUrl: string;
+  let testToken: string;
+  /** O's signed-in browser. */
+  let owner: { ctx: BrowserContext; page: Page };
+  const host = (scope: string) => scopeOriginFrom(viteBaseUrl, scope);
+
+  /** The one link a send produces, armed before the send and filtered by its unique recipient. */
+  async function letterTo(to: string, send: () => Promise<unknown>): Promise<string> {
+    const waiter = waitForEmail({ testToken, to, timeout: 120_000 });
+    try {
+      await send();
+      const mail = await waiter.emailPromise;
+      const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];
+      return href ? href.replace(/&amp;/g, '&') : extractMagicLink(mail);
+    } finally {
+      waiter.cleanup();
+    }
+  }
+
+  /** A browser signed in as `email` through the login form and the emailed link's Continue. */
+  async function signIn(email: string): Promise<{ ctx: BrowserContext; page: Page }> {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
+    const link = await letterTo(email, async () => {
+      await page.getByPlaceholder('you@example.com').fill(email);
+      await page.getByRole('button', { name: /Email me a link/ }).click();
+      await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
+    });
+    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    await page.getByTestId('link-continue').click();
+    await page.waitForURL((u) => u.pathname !== '/auth/magic-link', { timeout: 30_000 });
+    return { ctx, page };
+  }
+
+  /** Invite `email` into `scope` as O, and accept it through the invite's page in a fresh browser. */
+  async function inviteAndAccept(email: string, scope: string, scopeAdmin: boolean): Promise<{ ctx: BrowserContext; page: Page }> {
+    const at = await owner.page.evaluate(async (refresh) =>
+      await (await fetch(refresh, { method: 'POST', credentials: 'include' })).json() as { access_token: string; sub: string },
+    `${viteBaseUrl}/auth/refresh-token`);
+    const link = await letterTo(email, () => inviteViaMesh(
+      { baseUrl: workerBaseUrl, origin: LOCAL_ORIGIN }, { accessToken: at.access_token, sub: at.sub }, scope, [{ email, scopeAdmin }], 'Oh',
+      { scopeUrl: host, platformOrigin: viteBaseUrl },
+    ));
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    await page.getByTestId('consent-checkbox').check({ timeout: 30_000 });
+    await page.getByTestId('consent-nickname').fill(email.split('@')[0].slice(0, 12));
+    await page.getByTestId('consent-accept').click();
+    await page.waitForURL((u) => u.origin === host(scope), { timeout: 30_000 });
+    return { ctx, page };
+  }
+
+  /**
+   * Confirm the open delete, which never rides the URL, and wait until the page `lands` where the
+   * delete sends it. A refusal shows its message in the dialog, so a wait that times out reports
+   * that message, or the address the page stopped at, rather than a bare timeout.
+   */
+  async function confirmDelete(page: Page, lands: (u: URL) => boolean, warning?: RegExp) {
+    const address = page.url();
+    const dialog = page.getByTestId('confirm-delete');
+    await dialog.waitFor({ state: 'visible', timeout: 15_000 });
+    expect(page.url(), 'a confirmation must not ride the URL').toBe(address);
+    if (warning) await dialog.getByText(warning).waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByTestId('confirm-delete-go').click();
+    await expect.poll(async () => {
+      const refused = page.getByTestId('confirm-delete-error');
+      if (await refused.count()) return `refused: ${await refused.innerText()}`;
+      return lands(new URL(page.url())) ? 'landed' : `still at ${page.url()}`;
+    }, { timeout: 60_000, interval: 500 }).toBe('landed');
+  }
 
   beforeAll(async () => {
-    if (LANE_BLOCKED_ON_DEV_SCOPE_LOGIN) return;
-    // ⚠️ **This lane provisions its OWN fixture.** It used to rely on `smoke.test.ts` having claimed
-    // `test-u0` first, which is a cross-file ordering dependency vitest makes no promise about — and
-    // it was invisible while both tests were skipped. Same real claim path a first visit takes.
-    await provisionAndLogin({
-      baseUrl: inject('workerBaseUrl'),
-      scope: TEST_SCOPE,
-      email: ADMIN_EMAIL,
-      testToken: inject('emailTestToken'),
-    });
-    browser = await chromium.launch({ executablePath: resolveChromiumExecutable() });
-    authed = await loginToStudio({
-      browser,
-      viteBaseUrl: inject('viteBaseUrl'),
-      testToken: inject('emailTestToken'),
-      scope: TEST_SCOPE,
-      email: ADMIN_EMAIL,
-    });
-  }, 120_000);
+    viteBaseUrl = inject('viteBaseUrl');
+    workerBaseUrl = inject('workerBaseUrl');
+    testToken = inject('emailTestToken');
+    browser = await launchChromium();
+    // O's three accounts, each with its first app, provisioned the way a signup writes them.
+    await provisionAndLogin({ baseUrl: workerBaseUrl, scope: `${U}.one`, email: O, testToken });
+    await provisionAndLogin({ baseUrl: workerBaseUrl, scope: `${U2}.first`, email: O, testToken });
+    await provisionAndLogin({ baseUrl: workerBaseUrl, scope: `${U3}.third`, email: O, testToken });
+    owner = await signIn(O);
+  }, 240_000);
 
   afterAll(async () => {
-    await authed?.ctx.close();
+    await owner?.ctx.close();
     await browser?.close();
   });
 
-  // ⛔ SKIPPED — blocked on the SAME lane-wide login break, not on anything in this scenario.
-  // LOGIN NEVER MINTS (post-surrogate-sub) and nothing provisions `TEST_SCOPE`, so the magic-link
-  // consume returns `302 /app?error=invalid_token` with no Set-Cookie and the Studio never reaches
-  // `connected` (proven 2026-07-25 — see smoke.test.ts's skip comment for the full trace).
-  // ⚠️ **CORRECTED 2026-07-25 while building Phase 2: `claim-star` does NOT unblock this.** The lane
-  // logs in AT `test-u0.test-g0.dev`, and `.dev` is on the RESERVED list `claim-star` itself adds —
-  // it refuses that slug by design (a stranger founding the user-developer's own Studio workspace is
-  // exactly what the list prevents). A `.dev` scope has no star-scoped admin by construction, so an identity
-  // reaches it only by (a) logging in at an ANCESTOR the covering admin holds — but `refreshCookie` sets
-  // `Path=/auth/{scope}`, so a universe login's cookie is not sent to `/auth/{u}.{g}.dev/refresh-token`
-  // — or (b) an INVITE into the scope (tasks/nebula-auth-identity-mint.md). Which one is a design
-  // question, tracked in tasks/archive/nebula-star-founder-provisioning.md § Phase 2.
-  // ⛔ Do NOT unblock by dropping `dev` from the reserved list.
-  // The assertions below are the real Phase-1 UI contract and are left intact.
-  it.skip('an admin deletes a scope through the confirm screen — the button is LIVE and the row goes', async () => {
-    const page = authed!.page;
-    const slug = `del-${Date.now().toString(36)}`;
-    const target = `${UNIVERSE}.${slug}`;
+  it("an account's page lists its apps, and Home's + App opens its create form", async () => {
+    const { page } = owner;
+    await page.goto(`${host(U)}/`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'one', exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+    expect(await page.locator('dialog.modal[open]').count(), 'an account with apps opens on its list, not the form').toBe(0);
 
-    await openScopeManager(page);
+    await page.goto(`${viteBaseUrl}/`, { waitUntil: 'domcontentloaded' });
+    const row = page.locator(`[data-testid="home-row"][data-scope="${U}"]`);
+    await row.getByTestId('home-add-app').click();
+    await page.waitForURL((u) => u.origin === host(U) && u.searchParams.has('create'), { timeout: 30_000 });
+    // Once the list has loaded, so a form that opened only while it looked empty does not pass.
+    await page.getByRole('button', { name: 'one', exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+    expect(await page.locator('dialog.modal[open]').count(), "Home's + App must open the form over a list").toBe(1);
+    await page.getByPlaceholder('crm').waitFor({ state: 'visible', timeout: 15_000 });
+    // The data-use notice sits where a person commits to an app, as it did on the Manage panel.
+    await page.getByTestId('data-use-notice').waitFor({ state: 'visible', timeout: 5_000 });
+  }, 120_000);
 
-    // Create a throwaway Galaxy to delete (never the shared `.dev` workspace).
-    // ⚠️ Scoped to the universe row, never `.first()`: a bootstrap address holds an unaccepted
-    // `nebula-platform` row that sorts above it (which is how the unaccepted-affordance bug surfaced).
-    const universeRow = page.locator('.rounded-box')
-      .filter({ has: page.getByText(UNIVERSE, { exact: true }) }).first();
-    await universeRow.getByRole('button', { name: /^App$/ }).click();
-    await page.getByPlaceholder('name your app').fill(slug);
-    await page.getByRole('button', { name: /^Add$/ }).click();
-    await page.getByText(target, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
-
-    // Open its delete confirm (the per-row trash button).
-    const row = page.locator('div', { has: page.getByText(target, { exact: true }) }).last();
-    await row.getByTitle('Delete').click();
-
-    // ⚠️ Capable-of-failing on the RENAME: this heading only renders inside `v-if="deletePlan"`, and
-    // the sibling `v-if="deletePlan.affectedUsers.total"` evaluates on the same render — a stale
-    // `blockedBy` reference throws a TypeError here and the confirm screen never appears.
-    await page.getByText(`Delete ${target}?`).waitFor({ state: 'visible', timeout: 30_000 });
-    // An empty scope → the safe-to-wipe branch of the warning block (proves `affectedUsers` resolved).
-    await page.getByText('No other users — safe to wipe.').waitFor({ state: 'visible' });
-
-    // ⚠️ THE Phase-1 assertion: the button is ENABLED. Before warn-don't-block it was bound to
-    // `:disabled="busy || deletePlan.blockedBy.length > 0"` and the handler early-returned on the
-    // same value — reds against that code.
-    const confirmBtn = page.getByRole('button', { name: /Delete permanently/ });
-    await expect.poll(() => confirmBtn.isEnabled(), { timeout: 10_000 }).toBe(true);
-
-    await confirmBtn.click();
-
-    // The row is gone from the hierarchy → the delete round-tripped through the real Worker.
-    // ⚠️ Raced against the error bubble so a failure is a DIAGNOSIS, not a bare detach timeout —
-    // "the row is still there" is true of a refused delete and of a delete that never re-read.
-    // ⚠️ Scoped to the TREE LIST. The confirm panel renders the same name ("Delete {target}?"), so an
-    // unscoped locator resolves to two elements and Playwright refuses in strict mode — which reads
-    // as a delete failure and is really an ambiguous selector.
-    const gone = page.getByRole('list').getByText(target, { exact: true });
-    const errorBubble = page.locator('.chat-bubble-error').last();
-    await Promise.race([
-      gone.waitFor({ state: 'detached', timeout: 60_000 }),
-      errorBubble.waitFor({ state: 'visible', timeout: 60_000 }).then(async () => {
-        throw new Error(`delete reported: ${await errorBubble.innerText()}`);
-      }),
-    ]);
-    await gone.waitFor({ state: 'detached' });
-    expect(await page.getByText(`Delete ${target}?`).count()).toBe(0);
+  it("deleting an account's only app from its Studio returns to its page with the form open", async () => {
+    const { page } = owner;
+    // Seen once with its app, so a form that opened only on a first visit would stay shut.
+    await page.goto(`${host(U2)}/`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'first', exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+    // Home's Delete on the app's row opens the app's Studio, where the delete lives.
+    await page.goto(`${viteBaseUrl}/`, { waitUntil: 'domcontentloaded' });
+    await page.locator(`[data-testid="home-row"][data-scope="${U2}.first"]`).getByTestId('home-app-delete').click();
+    await page.waitForURL((u) => u.origin === host(`${U2}.first`) && u.searchParams.has('app'), { timeout: 30_000 });
+    await page.getByTestId('app-delete').click();
+    await confirmDelete(page, (u) => u.origin === host(U2) && u.searchParams.has('create'));
+    await page.getByPlaceholder('crm').waitFor({ state: 'visible', timeout: 15_000 });
   }, 180_000);
 
-  // ⛔ DEFERRED — the invite CARRIER now exists (`NebulaClient.invite` → the mesh facade, built by
-  // tasks/archive/nebula-invite.md 2026-08-19; the Studio still has no invite affordance), but this whole
-  // lane is blocked upstream of it: `loginToStudio` needs a `.dev` login this suite cannot mint —
-  // backlog § *Testing & Quality*'s ui-smoke row OWNS that debt and this skip with it. Deliberately
-  // NOT satisfied with an out-of-band registry seed: a test-only fixture in this lane is exactly the
-  // ossifying stand-in `workflow.md` warns about ("prefer `it.skip` over an ossifying stand-in —
-  // skipping defers ONE test; a stand-in creates an artifact N future tests anchor to").
-  //
-  // UN-SKIP when that lane unblock lands: connect an admin client, `client.invite(target, [...])`
-  // a second identity in, then assert the confirm screen's bounded warning. The registry-level
-  // equivalent IS covered today: `nebula-auth-registry.test.ts`
-  // "warning: another user on the target is reported, and the delete still succeeds" +
-  // `identity-mint-point.test.ts` "a genuinely shared scope is deleted, not refused".
-  // ⚠️ Still `it.skip`, and it MUST stay so while the body is empty: an un-skipped empty test is a
-  // vacuous green — it reports coverage for a scenario nobody wrote. (A blanket un-skip of this file
-  // briefly made it exactly that.)
-  it.skip('deletes a scope WITH another user attached, showing the bounded warning', async () => {
-    // Invite a second user into `target`, then assert: the confirm screen shows
-    // "Warning — 1 other user will lose access: {target} (peer@…)", the Delete button is still
-    // ENABLED, and the delete completes.
-  });
+  it("an app's admin who holds no membership at its account deletes it from its Studio, warned about the others", async () => {
+    // Created on the account's page, where the create form now lives.
+    const { page } = owner;
+    await page.goto(`${host(U)}/?create`, { waitUntil: 'domcontentloaded' });
+    await page.getByPlaceholder('crm').fill('two');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.waitForURL((u) => u.origin === host(`${U}.two`), { timeout: 60_000 });
+
+    const g = await inviteAndAccept(uniqueTestEmail('appadmin'), `${U}.two`, true);
+    const p = await inviteAndAccept(uniqueTestEmail('member'), `${U}.two`, false);
+    await p.ctx.close();
+    try {
+      await g.page.goto(`${host(`${U}.two`)}/?app`, { waitUntil: 'domcontentloaded' });
+      await g.page.getByTestId('app-delete').click();
+      // Warned, never refused: the other member is named and the delete still goes ahead.
+      await confirmDelete(g.page, (u) => u.origin !== host(`${U}.two`), /1 other user will lose access/);
+    } finally {
+      await g.ctx.close();
+    }
+    await page.goto(`${host(U)}/`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'one', exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+    expect(await page.getByRole('button', { name: 'two', exact: true }).count(), 'the deleted app must leave the list').toBe(0);
+  }, 300_000);
+
+  it("an account holding two apps is deleted from its page, which Home's Delete opens", async () => {
+    const { page } = owner;
+    await page.goto(`${host(U)}/?create`, { waitUntil: 'domcontentloaded' });
+    await page.getByPlaceholder('crm').fill('three');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.waitForURL((u) => u.origin === host(`${U}.three`), { timeout: 60_000 });
+
+    await page.goto(`${viteBaseUrl}/`, { waitUntil: 'domcontentloaded' });
+    await page.locator(`[data-testid="home-row"][data-scope="${U}"]`).getByTestId('home-delete').click();
+    await page.waitForURL((u) => u.origin === host(U), { timeout: 30_000 });
+    await page.getByTestId('universe-delete').click();
+    await confirmDelete(page, (u) => u.origin === viteBaseUrl);
+    await page.locator(`[data-testid="home-row"][data-scope="${U2}"]`).waitFor({ state: 'visible', timeout: 30_000 });
+    const listed = await page.getByTestId('home-group').allInnerTexts();
+    expect(listed.join('\n'), 'Home must list neither the account nor its apps').not.toContain(U + '.');
+    expect(await page.locator(`[data-testid="home-row"][data-scope="${U}"]`).count()).toBe(0);
+  }, 300_000);
 });

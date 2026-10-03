@@ -60,7 +60,7 @@ export type OriginCf = Pick<IncomingRequestCfProperties,
  * the Gateway leaves it out of every call it forwards down a socket, and a `LumenizeClient` types
  * `this.lmz.callContext` as `Omit<CallContext, 'originRequest'>`, so reading it there fails to
  * compile. These are the origin's IP, location and browser, and a push that inherits a writer's
- * chain (`lmz.broadcast`, by default) would otherwise hand them to every subscriber.
+ * chain (`lmz.broadcast` with `{ newChain: false }`) would otherwise hand them to every subscriber.
  * `originAuth` does reach the client.
  *
  * Trust, per field — this is what decides what each may be used for:

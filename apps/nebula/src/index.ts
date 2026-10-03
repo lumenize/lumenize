@@ -7,6 +7,8 @@ export { NebulaDO, requireDominionHere, requirePassage } from './nebula-do';
 export { Universe } from './universe';
 export { Galaxy, requireChatWrite, assertModelPath, LOOP_TOOL_ENTRIES } from './galaxy';
 export { Star } from './star';
+// The session entry, with the hooks that wipe this Worker's Durable Objects on a deletion or creation.
+export { NebulaAuthFacade } from './nebula-auth-facade';
 export type { NodeInvitee, NodeInviteAck } from './resources';
 
 // Ontology — TYPES only. The compile fn is deliberately NOT re-exported: this barrel
@@ -103,3 +105,5 @@ export type {
 
 // Entrypoint
 export { default as entrypoint } from './entrypoint';
+// The platform host's own routes — every Worker that runs the entrypoint binds it as `PLATFORM_HOST`.
+export { PlatformHost } from './platform-host';

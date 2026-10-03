@@ -1,22 +1,22 @@
 /**
- * Phase 2–3 — the self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md;
+ * The self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md;
  * the per-write compile died with tasks/archive/nebula-move-compilers-out-of-the-worker.md —
  * a `write_file` is a pure write, and the container `build`'s per-step report is the
  * self-correction signal).
  *
  * Two layers, both container-free, no AI binding (the `dev-studio` project):
  *  - **Loop-logic unit tests** drive `runCodegenLoop` directly with injected fake
- *    deps + a synthetic model script — the bound (D4), loop-detection (D4, each
- *    operand mutated independently), the m2 malformed-envelope cases, and the user-layer
- *    build-report feedback round-trip (D1/D7/D8's successor).
+ *    deps + a synthetic model script — the bound, loop-detection (each operand
+ *    mutated independently), the malformed-envelope cases, and the user-layer
+ *    build-report feedback round-trip.
  *  - **Galaxy integration tests** go through the real node (the `GalaxyLoopProbe`
- *    whose `callModel` replays a script): the real typia arg-validator facet (D5), the
+ *    whose `callModel` replays a script): the real typia arg-validator facet, the
  *    ENTRY's path rule reached through the real `write_file → writeSource` dep, the
  *    `build → buildNow` reach of the `LOOP_TOOL_ENTRIES` table, and the
- *    **secure-by-default D2 guard** — a written ontology never installs/wipes the
+ *    **secure-by-default guard** — a written ontology never installs/wipes the
  *    `.dev` Star.
  *
- * @see tasks/archive/nebula-codegen-loop.md § Phases 2–3
+ * @see tasks/archive/nebula-codegen-loop.md
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
@@ -138,7 +138,7 @@ function harness(
   return { deps, writes, files, reads, paramsSeen, messagesSeen };
 }
 
-describe('Phase 2 — loop driver: stop conditions (D4)', () => {
+describe('loop driver: stop conditions', () => {
   it('write_file then mark_complete → stop=complete, file written once, PURE write (no check ran)', async () => {
     const h = harness([
       resp([toolCall('write_file', { path: 'src/App.vue', content: GOOD_APP })]),
@@ -217,7 +217,7 @@ describe('Phase 2 — loop driver: stop conditions (D4)', () => {
   });
 });
 
-describe('Phase 2 — loop-detection: each operand mutated independently (D4)', () => {
+describe('loop-detection: each operand mutated independently', () => {
   it('identical write_file repeat → loop-detected (the identical-call detector)', async () => {
     // Same call (path+content) twice; text DIFFERS each round so this isolates the
     // identical-call detector from the text-repetition detector.
@@ -242,7 +242,7 @@ describe('Phase 2 — loop-detection: each operand mutated independently (D4)', 
   });
 });
 
-describe('Phase 2 — malformed envelopes + tool errors (m2), captured not crashed', () => {
+describe('malformed envelopes + tool errors, captured not crashed', () => {
   it('m2a: malformed tool arguments JSON → captured tool error, write not dispatched', async () => {
     const h = harness([
       resp([malformedToolCall('write_file', '{ not json')]),
@@ -315,7 +315,7 @@ describe('Phase 2 — malformed envelopes + tool errors (m2), captured not crash
 // so a unit harness with a fake `write_file` dep cannot see it. `path-guard.test.ts`
 // enumerates the rule's operands.)
 
-describe('Phase 2 — the build report round-trips into the next round (D1/D7/D8\'s successor)', () => {
+describe('the build report round-trips into the next round', () => {
   it('a build with findings pushes findings-plus-touched-files into the next round\'s user layer', async () => {
     const FINDING = "src/App.vue(3,7): error TS2339: Property 'frobnicate' does not exist on type 'Client'.";
     const h = harness([
@@ -471,7 +471,7 @@ describe('unknownToolArgKeys — the excess-key refusal the typia facet cannot m
   });
 });
 
-describe('Phase 3 — prompt assembly (D7, re-derived for the cache) + per-call params (D6)', () => {
+describe('prompt assembly (re-derived for the cache) + per-call params', () => {
   it('assembleCodegenPrompt: the bundles ride the system block in order; the ontology, source and request are the user block', () => {
     // The ontology LEFT the system block (it changes most turns and would invalidate every
     // cached token after it) — this assertion inverted when it moved; the bundle presence
@@ -569,7 +569,7 @@ describe('Phase 3 — prompt assembly (D7, re-derived for the cache) + per-call 
     expect(wire['x-session-affinity']).toBe(`${dev}:main`);
   });
 
-  it('per-call params: round 1 uses generate params; the round after a findings build uses fix params (D6)', async () => {
+  it('per-call params: round 1 uses generate params; the round after a findings build uses fix params', async () => {
     // The old trigger (a per-write compile error) died with the Worker-side gate —
     // fixMode's successor fires on ANY failed step or non-empty findings.
     const h = harness([
@@ -587,7 +587,7 @@ describe('Phase 3 — prompt assembly (D7, re-derived for the cache) + per-call 
   });
 });
 
-describe('Phase 2 — D2 structural guard: the loop names no install/wipe sink', () => {
+describe('structural guard: the loop names no install/wipe sink', () => {
   it('runCodegenLoop references none of the Star/DevContainer install/wipe symbols', () => {
     const src = runCodegenLoop.toString();
     for (const forbidden of [
@@ -600,7 +600,7 @@ describe('Phase 2 — D2 structural guard: the loop names no install/wipe sink',
 
 // ─── Galaxy integration layer (real node via the probe) ───
 
-const uniqueGalaxyScope = () => `${crypto.randomUUID()}.app`;
+const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
 const VALID_ONTOLOGY = `interface Todo { title: string; done: boolean; }`;
 
 // Direct in-DO call — returns the method's result. The loop is LOCAL now (compile/
@@ -610,7 +610,7 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 const tc = toolCall;
 const aiResp = resp;
 
-describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', () => {
+describe('integration — real Galaxy loop (probe replays a script)', () => {
   it('clean write_file then mark_complete: commits the file + completes', async () => {
     const dev = uniqueGalaxyScope();
     const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
@@ -788,7 +788,7 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
     expect(await inDO(env.GALAXY, dev, (s) => s.readSource('src/App.vue'))).toBe(GOOD_APP);
   });
 
-  it('D5: a non-string path is rejected by the REAL typia validator facet (never written)', async () => {
+  it('a non-string path is rejected by the REAL typia validator facet (never written)', async () => {
     const dev = uniqueGalaxyScope();
     const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
       'build',
@@ -796,14 +796,14 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
     ))) as any;
     expect(result.toolCalls[0].error).toContain('invalid write_file args');
     // Capable-of-failing: nothing landed in the Workspace. The scaffold seeds
-    // src/App.vue at git-init (Phase 3), so ABSENCE is no longer the signal — assert
+    // src/App.vue at git-init, so ABSENCE is no longer the signal — assert
     // the SEED content is untouched (a landed write would have replaced it).
     const appVue = await inDO(env.GALAXY, dev, (s) => s.readSource('src/App.vue')) as string;
     expect(appVue).toContain('Seed App.vue');
     expect(result.appliedPaths).toEqual([]);
   });
 
-  it('D2 SECURE-BY-DEFAULT: a hostile ontology write_file NEVER installs/wipes the .dev Star', async () => {
+  it('SECURE-BY-DEFAULT: a hostile ontology write_file NEVER installs/wipes the .dev Star', async () => {
     const dev = uniqueGalaxyScope();
     const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
       'add a Todo type',
@@ -821,8 +821,8 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
     expect(await inDO(env.STAR, `${dev}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
   });
 
-  // (The two m4 recorder tests died with the `Turns` apparatus — an agent `Message` IS a
-  // codegen turn; the corpus folds into its `codegen` value object in Phase 2 of
+  // (The two recorder tests died with the `Turns` apparatus — an agent `Message` IS a
+  // codegen turn; the corpus folds into its `codegen` value object, per
   // tasks/archive/nebula-galaxy-collapse-and-chat.md.)
 
   // (The `response_format: json_schema` Workers-AI capability probe was a one-off
@@ -830,7 +830,7 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
   // tool-call args, fully covered above — so it's not kept as a placeholder test.)
 });
 
-// ─── Workers-AI REST envelope (Phase 2 callModel swap) ───────────────────────
+// ─── Workers-AI REST envelope (the callModel swap) ───────────────────────────
 //
 // The hosted-lane `callModel` calls Workers AI over REST, which wraps the binding's
 // result in `{ result, success, errors }`. `unwrapWorkersAiRest` must yield the SAME
@@ -838,7 +838,7 @@ describe('Phase 2/3 integration — real Galaxy loop (probe replays a script)', 
 // REST swap silently no-ops (zero tool_calls → loop "stops"). Cheap + deterministic
 // (no fetch); only REST exercises the unwrap (the binding path returns the inner shape
 // directly), so the ui-smoke GHA lane — which uses the binding — can't catch this.
-describe('Phase 3 — the build TOOL (the per-step report as a tool result)', () => {
+describe('the build TOOL (the per-step report as a tool result)', () => {
   it('a clean report round-trips as the tool result and the loop CONTINUES to mark_complete', async () => {
     const buildCalls: unknown[] = [];
     const h = harness([
@@ -943,7 +943,7 @@ describe('Phase 3 — the build TOOL (the per-step report as a tool result)', ()
   });
 });
 
-describe('Phase 2 — Workers-AI REST envelope unwrap feeds parseModelTurn', () => {
+describe('Workers-AI REST envelope unwrap feeds parseModelTurn', () => {
   it('unwraps `.result` so a wrapped REST envelope parses identically to the binding shape', () => {
     const inner = resp([toolCall('writeSource', { path: 'App.vue', source: 'x' })]);
     const restEnvelope = { result: inner, success: true, errors: [], messages: [] };

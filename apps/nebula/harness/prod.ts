@@ -1,13 +1,14 @@
 /**
- * PROD drive entry — autonomous, NO local boot. Points at `nebula.lumenize.com`, uses the Turnstile
- * bypass token for a one-time login (then a stored refresh token), and runs a read-mostly command.
+ * PROD drive entry — autonomous, NO local boot. Points at `lumenize.dev`'s platform host, uses the
+ * Turnstile bypass token for a one-time login (then a stored cookie jar), and runs a read-mostly
+ * command.
  *
- *   npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod Universes (scope-summary, * token)
+ *   npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod Universes (Home's summary)
  *
  * Needs `.dev.vars` with NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN + TEST_TOKEN. No Docker, no wrangler dev.
  * @see tasks/archive/claude-live-verification.md — Phase 3b/3d
  */
-import { PROD_URL, PLATFORM_SCOPE, prodAccessToken, prodEnumerate, prodEmailSpin } from './lib/prod-drive';
+import { PROD_URL, prodSession, prodEnumerate, prodEmailSpin } from './lib/prod-drive';
 
 async function main(): Promise<void> {
   const cmd = process.argv[2] ?? 'enumerate';
@@ -26,8 +27,8 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const token = await prodAccessToken(PLATFORM_SCOPE); // a `*` super-admin token
-  const scopes = await prodEnumerate(token);
+  const scopes = await prodEnumerate(await prodSession()); // a superuser's cookies
+
   console.log(JSON.stringify(scopes, null, 2));
   console.error('[prod] ✅ enumerated the prod scope tree');
 }

@@ -7,7 +7,7 @@ description: Send one continuation to many targets — one call each, from the n
 
 `this.lmz.broadcast(targets, remote, options?)` sends one continuation to many `(bindingName, instanceName)` targets: one `this.lmz.call(...)` per target, made by the node that decided to push. Every mesh node's `this.lmz` carries it — a [LumenizeDO](./lumenize-do), a [LumenizeWorker](./lumenize-worker) and a [LumenizeClient](./lumenize-client).
 
-It is the loop in [Making Calls § Breaking Call Chains](./calls#breaking-call-chains), with drop-on-failed-fanout cleanup built in. That helper passes `newChain: true`; `broadcast` inherits the caller's chain unless you pass the same option.
+It is the loop in [Making Calls § Breaking Call Chains](./calls#breaking-call-chains), with drop-on-failed-fanout cleanup built in. That helper passes `newChain: true`, and `broadcast` does the same by default.
 
 ## Basic Usage
 
@@ -40,7 +40,7 @@ export interface BroadcastOptions extends Pick<CallOptions, 'newChain' | 'state'
 ```
 
 - **`onResult`** — a handler that hears failed deliveries. See [Result Handling](#result-handling-drop-on-failed-fanout) below.
-- **`newChain`** — `true` starts a fresh chain at this node for each target, carrying no `originAuth`. By default each target inherits the caller's chain with this node appended, exactly as a [`call()`](./mesh-api#calloptions) does.
+- **`newChain`** — by default a broadcast starts a fresh chain at this node for each target, carrying no `originAuth`, because a push speaks for the node that sends it rather than for whoever's call caused it. `false` makes each target inherit the caller's chain with this node appended, exactly as a [`call()`](./mesh-api#calloptions) does, for an app that wants the writer's claims to ride.
 - **`state`** — seeds or merges `callContext.state` for each target, as on `call()`.
 
 ## Result Handling (Drop-on-Failed-Fanout)
@@ -109,8 +109,8 @@ If you have a real need for success callbacks, file an issue; the design accommo
 ## Implementation
 
 ```typescript @check-example('packages/mesh/src/broadcast.ts')
-const { onResult, ...passedThrough } = options;
-const callOptions: CallOptions = { ...passedThrough };
+const { onResult, newChain = true, ...passedThrough } = options;
+const callOptions: CallOptions = { ...passedThrough, newChain };
 if (onResult) callOptions.onErrorOnly = true;
 for (const t of targets) {
   lmz.call(t.bindingName, t.instanceName, remote, onResult, callOptions);

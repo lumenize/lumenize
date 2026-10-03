@@ -131,10 +131,11 @@ export interface AccessEntry {
  * membership by construction, so there is no edge gate to feed).
  */
 export interface NebulaJwtPayload {
-  /** Issuer — always NEBULA_AUTH_ISSUER */
+  /** Issuer — the deployment's platform origin (`hosts.ts`' `platformOrigin`), so each deployment
+   *  accepts only its own tokens. */
   iss: string;
   /** Audience — the active universeGalaxyStarId this token is scoped to.
-   *  Set from the required `activeScope` field in the refresh / mint-narrower-token request body. */
+   *  Set from the refresh's required `activeScope`; an impersonation token takes its caller's. */
   aud: string;
   /** Subject — the registry-minted surrogate `sub` (one per email-in-a-scope). */
   sub: string;
@@ -228,23 +229,6 @@ export interface RefreshTokenKV {
   profileId: string;
 }
 
-/** `MagicLinks` row — login channel, token stored HASHED. */
-export interface MagicLink {
-  tokenHash: string;
-  email: string;
-  universeGalaxyStarId: string;
-  expiresAt: string;
-}
-
-/** `InviteTokens` row — login channel, token stored HASHED. Reusable within its TTL (scanner-safe,
- *  matching `MagicLinks`); rows die only at the expiry sweep, never on consume. */
-export interface InviteToken {
-  tokenHash: string;
-  email: string;
-  universeGalaxyStarId: string;
-  expiresAt: string;
-}
-
 // ---------------------------------------------------------------------------
 // Invite wire shapes — the per-invitee contract
 // ---------------------------------------------------------------------------
@@ -293,8 +277,57 @@ export interface InviteeMintResult extends InviteeSummary {
    *  the send helper's template discriminator: accepted → `invite-existing` (a redirect; they can
    *  already log in), pending/new → `invite-new` carrying the fresh link. */
   accepted: boolean;
-  /** Absolute accept-invite URL backed by the freshly minted token. */
+  /** Absolute magic-link URL backed by the freshly minted invite token. */
   inviteUrl: string;
+}
+
+/** One scope a lifecycle hook acts on: its id, and the tier that picks its Durable Object binding. */
+export interface ScopeTarget {
+  instanceName: string;
+  tier: 'universe' | 'galaxy' | 'star';
+}
+
+/**
+ * What nebula-auth asks the platform to do to Durable Objects it cannot name, since dependency
+ * direction keeps it from naming a Galaxy or a Star (ADR-023). The platform answers each through
+ * `@rawRpc()`, so neither is a mesh method: `@mesh()` would let any admin wipe a live app without
+ * deleting it. Required wherever it is taken, since an optional seam would skip a teardown silently.
+ */
+export interface ScopeLifecycleHooks {
+  /**
+   * Wipe each scope's Durable Objects. A deletion calls it on what it removed, and a creation on
+   * every scope it wrote, so a new owner starts empty. Each target is attempted on its own; one that
+   * fails is logged and the rest still run, so this never rejects. `operationId` names the facade
+   * call that ordered it, and rides into each target's teardown marker.
+   */
+  teardown(targets: ScopeTarget[], cause: 'deletion' | 'creation', operationId: string): Promise<void>;
+  /**
+   * Wake a galaxy's certificate order (`acme.crm`): the Galaxy records that a pack is wanted and
+   * orders it from its own alarm, so a second wake orders nothing. Called after a create, and after
+   * any acceptance of a universe membership for each galaxy standing beneath it, a re-accept
+   * included; never by a client. Never rejects; a failure is logged naming the galaxy.
+   */
+  orderCertificate(galaxy: string, operationId: string): Promise<void>;
+}
+
+/**
+ * The refusal an impersonation mint ends a session with: the caller may not act for this subject,
+ * or the subject's membership is gone. Detected by `name` plus `terminal`, since a class does not
+ * survive a mesh hop (`mesh.md` § *Errors across mesh calls*); every other rejection of a mint is
+ * transient.
+ */
+export class ImpersonationRefusedError extends Error {
+  readonly terminal = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImpersonationRefusedError';
+  }
+}
+
+/** Whether `err` is the {@link ImpersonationRefusedError} a mint ends a session with. */
+export function isImpersonationRefused(err: unknown): boolean {
+  return err instanceof Error && err.name === 'ImpersonationRefusedError'
+    && (err as { terminal?: unknown }).terminal === true;
 }
 
 /** What `issueInvites` returns to its entry (never directly to a caller). */
@@ -309,47 +342,53 @@ export interface InviteMintResult {
 
 /** The reserved platform scope — the ROOT of the scope tree, not an exception to it.
  *  `isAtOrAbove` carries that root branch, so a superuser's dominion everywhere is the ordinary
- *  downward rule applied from the top rather than a special arm at any call site. */
-export const PLATFORM_SCOPE = 'nebula-platform';
+ *  downward rule applied from the top rather than a special arm at any call site.
+ *
+ *  The leading underscore is what reserves it: the slug grammar refuses one, so no claim can take
+ *  the name and no host label can spell it (ADR-021). `parseId` refuses it too, so
+ *  `isPlatformScope` is the one thing that recognizes it. */
+export const PLATFORM_SCOPE = '_platform';
 
 /** Singleton instance name for NebulaAuthRegistry */
 export const REGISTRY_INSTANCE_NAME = 'registry';
 
 /**
- * Star slugs a stranger may NOT self-claim via `claim-star`.
+ * Star slugs a stranger may NOT self-claim via `claim-star`: the environment names (ADR-021).
  *
  * A star id's third segment is one slot holding two kinds of value: a **tenant** slug (self-claimed,
- * self-claimed admin identity) or a reserved **environment** name (admin-created and no identity minted, via `createStar`).
+ * self-claimed admin identity) or a reserved **environment** name (system-written — `.dev` is born
+ * with its galaxy — and no identity minted).
  * There is no structural separator between them — this list is the only thing keeping the two apart.
  *
- * `dev` is reserved by structure, not by policy: `nebula-client` hardcodes `${galaxy}.dev` as the
- * user-developer's authoring workspace, `Star.resetDevData` gates on `s[2] === 'dev'`, and
- * `#parseScope`'s `isDev` flags the same thing. Without the reject a stranger founds the
- * user-developer's OWN Studio workspace as `scopeAdmin: true` — their Studio then 409s forever, and the
- * squatter's exact-star admin clears `resetDevData`'s `requireDominionHere`, i.e. they can wipe it.
+ * `dev` is in use today: `nebula-client` hardcodes `${galaxy}.dev` as the user-developer's
+ * authoring workspace, `Star.resetDevData` gates on `s[2] === 'dev'`, and `#parseScope`'s `isDev`
+ * flags the same thing. Without the reject a stranger founds the user-developer's OWN Studio
+ * workspace as `scopeAdmin: true` — their Studio then 409s forever, and the squatter's exact-star
+ * admin clears `resetDevData`'s `requireDominionHere`, i.e. they can wipe it. The other seven are
+ * reserved before anything uses them, because releasing a name later is free and reclaiming one a
+ * customer holds is a migration.
  *
  * Reserved **per galaxy**, not globally: uniqueness is on the full `{u}.{g}.{s}`, so every galaxy has
- * its own `{u}.{g}.dev`. Extend this with any environment name the Galaxy collapse pins for its
- * `{u}.{g}.{env}` cast (`staging`/`prod`), for the same reason.
+ * its own `{u}.{g}.dev`, and later its own `{u}.{g}.staging`.
  */
-export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
+export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set([
+  'dev', 'staging', 'prod', 'test', 'preview', 'sandbox', 'qa', 'demo',
+]);
 
 /**
- * Universe slugs that cannot be claimed because they collide with a top-level ROUTE.
+ * Universe slugs that cannot be claimed, because each is a host label the platform keeps (ADR-021).
  *
- * A universe's own page is served scope-first — `nebula.lumenize.com/{universe}` — so the universe
- * slug IS a first path segment. These words are already first path segments that mean something
- * else: `app` / `auth` / `gateway` are the Worker-served prefixes (`run_worker_first` in
- * `apps/nebula/wrangler.jsonc`), `assets` is the Studio bundle's own asset directory (served
- * directly by Workers Assets before the SPA fallback), and `studio` is the retired pre-scope-first
- * prefix, reserved so the old shape can never be re-minted as a live account; `pictures` is where
- * profile pictures are served (`/pictures/{key}`, Worker-served from R2). A universe with any
- * of these names would have its bare URL shadowed by the route, so the claim is refused up front.
- * `_`-prefixed names (e.g. `_version`) are unclaimable already — `SLUG_RE` in `parse-id.ts` rejects
- * a leading underscore — so they need no entry here.
+ * A universe's host is its slug directly under `lumenize.dev`, as `acme.lumenize.dev`, and so is
+ * every platform host: `platform.lumenize.dev` holds every session and would look exactly like a
+ * universe named `platform`. `platform`, `email` and `www` are platform labels. `app`, `auth`,
+ * `gateway`, `assets`, `studio` and `pictures` each name a platform service, so each would read as
+ * Lumenize's own host on a link; they are kept because releasing a reservation later is free and
+ * reclaiming a name a customer holds is a migration. `_`-prefixed names (e.g. `_platform`) are
+ * unclaimable already — `SLUG_RE` in `parse-id.ts` rejects a leading underscore — so they need no
+ * entry here.
  */
 export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
-  'app', 'auth', 'gateway', 'assets', 'studio', 'pictures',
+  'platform', 'email', 'www', 'app', 'auth', 'gateway', 'assets', 'studio', 'pictures',
 ]);
 
 /**
@@ -362,7 +401,7 @@ export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
  * a reserved sentinel cannot collide with minted UUIDs (the {@link RESERVED_STAR_SLUGS}
  * precedent — ADR-010's axis is coordination, and reservation IS coordination), and `profileId`
  * is never an authz input, so the shared value leaks nothing. The `Profile` DO whose instance
- * name equals this id SELF-SEEDS the public "Nebula" fields (profile.ts) — no deploy step.
+ * name equals this id SELF-SEEDS the agent's public "Lumenize" fields (profile.ts) — no deploy step.
  *
  * Home: here beside the other reserved names, because the `Profile` DO seeds off it and a
  * package may not import from `apps/nebula`. Browser-safe consumers (deriving `kind` at render)
@@ -375,44 +414,11 @@ export const NEBULA_SUB = 'agent:nebula';
 export const NEBULA_AUTH_PREFIX = '/auth';
 
 /**
- * The auth routes whose URL carries the `instanceName` segment. Its job is to type
- * `instanceAuthUrl`'s `route` parameter: adding a route here is a deliberate one-line act, while
- * mistyping one at a call site is a compile error rather than a silently-404ing link in an email.
- *
- * ⚠️ **Re-derived 2026-07-31, and the old rationale is DEAD — do not restore it.** This used to be
- * the single source for *building* those URLs **and** for *recognizing* them: `NebulaEmailSender`
- * tagged outgoing mail by matching a URL's route against this list, so a route missing from it
- * shipped untagged (that is how invite mail shipped untagged, 2026-07-30). **The sender no longer
- * parses URLs at all** — `EmailMessage.instanceName` is required and stamped directly — so the
- * recognize-side is gone and with it the fail-apart-silently hazard. The list survives on the
- * narrower, still-real construction-typing job above, not on that one.
- */
-export const INSTANCE_BEARING_ROUTES = ['magic-link', 'accept-invite'] as const;
-export type InstanceBearingRoute = typeof INSTANCE_BEARING_ROUTES[number];
-
-/**
- * Build an instance-bearing auth URL: `${origin}/auth/${instanceName}/${route}?${query}`.
- *
- * ⚠️ Use this rather than interpolating the path by hand — the type of `route` is what forces a new
- * instance-bearing route to be declared above, so a typo cannot become a live link in an email.
- */
-export function instanceAuthUrl(
-  origin: string,
-  instanceName: string,
-  route: InstanceBearingRoute,
-  query: Record<string, string>,
-): string {
-  const qs = new URLSearchParams(query).toString();
-  return `${origin}${NEBULA_AUTH_PREFIX}/${instanceName}/${route}${qs ? `?${qs}` : ''}`;
-}
-
-/**
- * What a `MagicLinks` row was issued FOR — read at consume to decide where the 302 lands.
- * `'login'` → the Home screen, where the prover chooses among whatever memberships the address
- * holds; `'claim'` → Home with the self-consent modal over the scope the link just claimed.
+ * What a `MagicLinks` row was issued FOR — a sign-in, a claim, or an invite. Recorded for the
+ * activity log and decides nothing: where the consume sends the person is the row's `returnTo`.
  * Explicit rather than inferred from the scope column, which is NULL for the common case.
  */
-export type MagicLinkPurpose = 'login' | 'claim';
+export type MagicLinkPurpose = 'login' | 'claim' | 'invite';
 
 /**
  * Who created a membership FOR someone else, captured at mint and never rewritten (ADR-013's
@@ -434,17 +440,32 @@ export interface InvitedByStamp {
 export interface ConsumePlan {
   email: string;
   /**
-   * The scope the link itself named, if any. Absent on the bare front door.
-   *
-   * ⚠️ **This, not the link's `purpose`, is what decides the landing** — `landingFor` sends the 302
-   * to this scope's Home when the address still holds it. The row's `purpose` was documented here as
-   * the deciding field and never was: both values land on Home, and the self-consent modal opens
-   * because the membership is unaccepted rather than because a claim issued the link. It stays a
-   * recorded fact on `MagicLinks` and reaches the activity log, so it is not carried on the wire.
+   * The scope the link itself named, if any — a claim's or an invite's. Absent on a plain login link.
+   * Its unaccepted membership is the one the link's page accepts. The row's `purpose` decides nothing
+   * and stays a recorded fact on `MagicLinks` for the activity log.
    */
   linkScope?: string;
+  /** Where the consume sends the person: a scope host the server checked or chose, or Home when absent. */
+  returnTo?: string;
   /** Every membership the address holds, most recently created first. */
   memberships: ConsumeMembership[];
+}
+
+/**
+ * What a link's page shows before anything is consumed. Read by a lookup that writes nothing, so a
+ * scanner or an `<img>` loading the page proves no mailbox and creates nothing.
+ */
+export interface LinkLookup {
+  email: string;
+  /** The link was already used: its page says so and offers sign-in. */
+  spent: boolean;
+  /** The membership the page offers to accept: unaccepted, at the scope the link names. */
+  pending?: { scope: string; sub: string; invited: boolean; invitedByName?: string };
+  /**
+   * A `sub` of an accepted membership the address holds, whose Profile the page pre-fills from.
+   * Absent when it holds none, so a lookup never reads, and so never creates, a new invitee's Profile.
+   */
+  acceptedSub?: string;
 }
 
 /** One membership in a {@link ConsumePlan} — everything a refresh record needs, plus the acceptance
@@ -462,6 +483,80 @@ export interface SessionRecord {
   sub: string;
   tokenHash: string;
 }
+
+/**
+ * A Workers KV refresh record the Registry composed and the Worker puts. The Worker writes it
+ * because the Worker is where the person is, then re-reads the Registry's answer for the hash and
+ * deletes its put if the two differ, so a revoke landing between the answer and the put cannot
+ * leave a live record nobody indexes.
+ */
+export interface RefreshPut {
+  tokenHash: string;
+  record: RefreshTokenKV;
+}
+
+/**
+ * KV `expirationTtl` (seconds-from-now) from an absolute ISO expiry. CF KV requires ≥ 60s; clamp up so
+ * a near-expiry re-put doesn't throw. The absolute expiry is the source of truth (M4) — this only
+ * translates it to the seconds-from-now KV wants at write time. Both writers use it: the Worker's
+ * puts and `setIdentityAdmin`'s.
+ */
+export function kvTtlSeconds(expiresAtIso: string): number {
+  const seconds = Math.floor((new Date(expiresAtIso).getTime() - Date.now()) / 1000);
+  return Math.max(60, seconds);
+}
+
+/**
+ * Whether a put record still says what the Registry says now — the reap's test. Every field is
+ * compared, so a concurrent `setIdentityAdmin` reaps a stale put as surely as a revoke does.
+ */
+export function sameRefreshRecord(a: RefreshTokenKV | null, b: RefreshTokenKV | null): boolean {
+  if (!a || !b) return false;
+  return a.sub === b.sub && a.universeGalaxyStarId === b.universeGalaxyStarId
+    && a.scopeAdmin === b.scopeAdmin && a.accepted === b.accepted
+    && a.expiresAt === b.expiresAt && a.profileId === b.profileId;
+}
+
+/**
+ * The most galaxies one address may own, counted live at `createGalaxy` and at a claim's
+ * acceptance over the address's ACCEPTED admin memberships, less any at the platform root. A
+ * runaway stop rather than an anti-abuse guard: it stops a script in a loop, or a bug in our own
+ * create path, from spending a budget every customer on the zone shares. It counts galaxies others
+ * created under a universe you administer, so the number has headroom. Raise it on request.
+ */
+export const MAX_GALAXIES_PER_OWNER = 20;
+
+/** The cap's refusal, worded once so both sites say the same thing. */
+export const GALAXY_CAP_MESSAGE =
+  `One account owner may hold at most ${MAX_GALAXIES_PER_OWNER} apps. Ask us and we will raise it.`;
+
+/** What proved the mailbox behind an acceptance, named in its record. */
+export type AcceptanceCredential = 'link' | 'refresh-cookie';
+
+/**
+ * What one Accept did, as a value rather than a throw, so the Worker can tell an order still owed
+ * from a refusal (`raw-comm.md` § *Errors over raw Workers RPC*).
+ *
+ * - `accepted` — the flip landed. `teardown` is non-empty only on a claim's FIRST acceptance and
+ *   names every scope the claim wrote, which the Worker wipes before it answers. `sessions` are the
+ *   KV records the Worker re-puts so the cookies stop being inert.
+ * - `already-accepted` — nothing changed, and nothing is torn down.
+ * - `refused` — the cap; the membership stays unaccepted.
+ * - `not-found` — no such membership, which arises when a deletion lands between the page's load
+ *   and its Accept.
+ *
+ * `galaxies` names every live galaxy beneath a universe membership, accepted or already, so a
+ * caller can order each one's certificate; ordering is idempotent, and nothing stores which galaxy
+ * a claim wrote.
+ */
+export type AcceptanceOutcome =
+  | {
+    outcome: 'accepted'; scope: string; accepted: string[];
+    sessions: RefreshPut[]; teardown: ScopeTarget[]; galaxies: string[];
+  }
+  | { outcome: 'already-accepted'; scope: string; galaxies: string[] }
+  | { outcome: 'refused'; reason: 'galaxy_cap'; message: string }
+  | { outcome: 'not-found' };
 
 /**
  * Most cookies one consume will set. A third party can grow a victim's membership count for free
@@ -506,8 +601,6 @@ export interface ScopeNode {
 /** One address of the person, with everything they reach through it. */
 export interface EmailScopes {
   email: string;
-  /** True for the address whose membership this session was established under. */
-  current?: boolean;
   memberships: ScopeNode[];
 }
 
@@ -549,22 +642,6 @@ export function sanitizeInviterName(name: unknown): string | undefined {
  *  real slug — `parse-id`'s `SLUG_RE` requires `[a-z0-9]` first — so this can never collide. */
 export const SCOPELESS_INSTANCE_TAG = '_scopeless';
 
-/**
- * The same URL for a link that names NO scope — the bare login link, whose whole point is that the
- * mailbox is proved before any scope is chosen. One segment shorter than {@link instanceAuthUrl},
- * and deliberately a separate function rather than an optional argument: a caller that has no scope
- * to pass must not be able to reach the instance-bearing builder with `undefined` and produce
- * `/auth/undefined/magic-link`.
- */
-export function scopelessAuthUrl(
-  origin: string,
-  route: InstanceBearingRoute,
-  query: Record<string, string>,
-): string {
-  const qs = new URLSearchParams(query).toString();
-  return `${origin}${NEBULA_AUTH_PREFIX}/${route}${qs ? `?${qs}` : ''}`;
-}
-
 /** Access token lifetime in seconds (15 minutes) — the DEFAULT and the enforced ceiling. */
 export const ACCESS_TOKEN_TTL = 900;
 
@@ -582,7 +659,7 @@ export const ACCESS_TOKEN_TTL = 900;
  * ⚠️ Deliberately NOT a floor. A floor would make an expiring-token test unreachable without a
  * test-mode bypass, and it would not address the second hazard at all — which is semantic, not a
  * range problem: a shorter TTL shortens only the SUBJECT-side revocation leash. The caller-side
- * gates on `/mint-narrower-token` read the caller's own token, never the registry, so a demoted
+ * gates on the impersonation mint read the caller's own token, never the registry, so a demoted
  * admin stays bounded by their parent token's lifetime plus KV propagation regardless of how short
  * the minted token is.
  */
@@ -607,12 +684,10 @@ export const INVITE_TTL = 604800;
 export const SIGNUP_TICKET_TTL = 900;
 
 /**
- * The cookie carrying a signup ticket to the slug screen.
- *
- * `Path=/auth` rather than the per-scope path the refresh cookies use — there is no scope yet, which
- * is the entire situation the ticket exists for.
+ * The cookie carrying a signup ticket to the signup page's claim, on the platform host. `__Host-`
+ * like the refresh cookies, so no other host can plant one for the claim to spend.
  */
-export const SIGNUP_TICKET_COOKIE = 'signup-ticket';
+export const SIGNUP_TICKET_COOKIE = '__Host-signup-ticket';
 
 /**
  * What a coming-soon affordance may report, as a closed set.
@@ -639,5 +714,4 @@ export type ComingSoonTag = (typeof COMING_SOON_TAGS)[number];
  *  (ADR-018), and an earlier 5-minute value was inherited from a mechanism that no longer exists. */
 export const SWEEP_INTERVAL_SECONDS = 3600;
 
-/** JWT issuer */
-export const NEBULA_AUTH_ISSUER = 'https://nebula.lumenize.com';
+

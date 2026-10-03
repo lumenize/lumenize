@@ -17,6 +17,10 @@ import type { QueryDescriptor, SubscriptionKind, TransactionResult } from '@lume
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
+/** Each universe's founder has its own address: one address may own at most MAX_GALAXIES_PER_OWNER
+ *  galaxies, and every founding's claim writes one, so a shared address hits the cap mid-file. */
+const adminOf = (scope: string) => `admin-${scope.split('.')[0]}@example.com`;
+
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
@@ -26,7 +30,7 @@ const uuid = () => crypto.randomUUID();
 const uniqueStar = () => `subt-${uuid().slice(0, 8)}.app.tenant-a`;
 
 async function starAdmin(star: string): Promise<NebulaClientTest> {
-  const { client } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const { client } = await adminClientAt(NebulaClientTest, new Browser(), star, star, adminOf(star));
   client.callStarInstallOntology(star, { version: VERSION, types: TYPES });
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
   expect(client.lastError).toBeUndefined();
@@ -145,7 +149,7 @@ describe('each kind hears only its own updates', () => {
       [P]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 'p' } },
       [topic]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 't' } },
     });
-    const tab = async () => (await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com')).client;
+    const tab = async () => (await adminClientAt(NebulaClientTest, new Browser(), star, star, adminOf(star))).client;
     const r = await tab();
     await r.resources.subscribe('Parent', topic).snapshot;
     const w = await tab();
@@ -207,7 +211,7 @@ async function holdEveryKind() {
   const topic = canonicalQueryHash(query);
   await commit(admin, star, { [topic]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 'h' } } });
 
-  const { client } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const { client } = await adminClientAt(NebulaClientTest, new Browser(), star, star, adminOf(star));
   const resource = client.resources.subscribe('Parent', topic);
   await resource.snapshot;
   const data = client.resources.subscribeQuery(query);

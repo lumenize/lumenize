@@ -39,9 +39,7 @@ import { newContinuation } from '@lumenize/mesh';
 import type { Continuation } from '@lumenize/mesh';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, ResourcesHost, SubscriptionKind, TransactionResult } from '@lumenize/nebula';
-import {
-  adminClientAt, universeAdminClient, createInvitedClient, createSubject, foundAndLogin, uniqueStar,
-} from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -220,7 +218,6 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     expect((await admin.resources.transaction({ [uuid()]: message(nodeA), [uuid()]: message(nodeB) })).kind).toBe('committed');
 
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'member@example.com');
     const { client: doomed, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);

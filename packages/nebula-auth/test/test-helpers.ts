@@ -13,30 +13,54 @@
 import { expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
-import { NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, REGISTRY_INSTANCE_NAME } from '../src/types';
+import { NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, REGISTRY_INSTANCE_NAME, SIGNUP_TICKET_COOKIE } from '../src/types';
+import { verifyNebulaAccessToken } from '../src/verify';
+import { deploymentOrigin, hostOrigin, platformOrigin } from '../src/hosts';
+import { isPlatformScope } from '../src/parse-id';
+import { REFRESH_COOKIE_PREFIX } from '../src/worker-token';
 import type { InviteMintResult, InviteeRequest, NebulaJwtPayload } from '../src/types';
 
 export const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
-const ORIGIN = 'http://localhost';
+
+/** The test Worker's own issuer — what a token must carry to verify here. */
+export const TEST_ISSUER = platformOrigin(deploymentOrigin(env));
+
+/** The platform host, where every `/auth/` route answers: `http://platform.lumenize.localhost`. */
+export const PLATFORM = hostOrigin({ kind: 'platform' }, deploymentOrigin(env));
+
+/** A scope's own host, where its pages live and whose `Origin` the refresh reads. */
+export function scopeOrigin(scope: string): string {
+  return hostOrigin({ kind: 'scope', scope }, deploymentOrigin(env));
+}
+
+/**
+ * The universe page a superuser opens when a test needs their token and names no page. A page loads
+ * without asking the Registry whether its scope exists, and so does the refresh, so nothing here is
+ * claimed; it is only the host the token's `aud` names. The platform host's own pages get no token.
+ */
+export const SUPERUSER_PAGE_SCOPE = 'support-desk';
 
 /** A minimal fetcher — `SELF` from `cloudflare:test`, or a `Browser` from `@lumenize/testing`. */
 export interface Fetcher { fetch(request: Request): Promise<Response>; }
 
-/** Full URL for an instance + endpoint (`/auth/{instanceName}/{endpoint}`). */
-export function url(instanceName: string, endpoint: string, query = ''): string {
-  return `${ORIGIN}${PREFIX}/${instanceName}/${endpoint}${query}`;
+/** Full URL for a route on the platform host (`/auth/{endpoint}`). */
+export function authUrl(endpoint: string): string {
+  return `${PLATFORM}${PREFIX}/${endpoint}`;
 }
 
-/** Full URL for a registry endpoint (`/auth/{endpoint}`). */
-export function registryUrl(endpoint: string): string {
-  return `${ORIGIN}${PREFIX}/${endpoint}`;
+/** One membership's refresh cookie as a browser presents it: `__Host-refresh-token.{scope}={token}`. */
+export function refreshCookie(scope: string, token: string): string {
+  return `${REFRESH_COOKIE_PREFIX}${scope}=${token}`;
 }
 
-/** Claim a Universe (self-signup — MINTS the admin identity). Returns the test-mode magic-link URL. */
-export async function claimUniverse(self: Fetcher, slug: string, email: string): Promise<string> {
-  const resp = await self.fetch(new Request(registryUrl('claim-universe'), {
+/**
+ * Claim a Universe with its first app (self-signup — MINTS the admin identity, and writes the
+ * universe, `{slug}.{appSlug}` and its `.dev` Star). Returns the test-mode magic-link URL.
+ */
+export async function claimUniverse(self: Fetcher, slug: string, email: string, appSlug = 'first'): Promise<string> {
+  const resp = await self.fetch(new Request(authUrl('claim-universe'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, email }),
+    body: JSON.stringify({ slug, appSlug, email }),
   }));
   expect(resp.status).toBe(200);
   const body = await resp.json() as { magicLinkUrl?: string };
@@ -49,19 +73,41 @@ export async function claimUniverse(self: Fetcher, slug: string, email: string):
  * callers can assert the reject codes; on success the test-mode body carries `magicLinkUrl`.
  */
 export async function claimStar(self: Fetcher, universeGalaxyStarId: string, email: string): Promise<Response> {
-  return self.fetch(new Request(registryUrl('claim-star'), {
+  return self.fetch(new Request(authUrl('claim-star'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ universeGalaxyStarId, email }),
   }));
 }
 
-/** Create a Galaxy (admin-gated, `Scopes` row only, NO admin identity). */
-export async function createGalaxy(self: Fetcher, universeGalaxyId: string, adminToken: string): Promise<Response> {
-  return self.fetch(new Request(registryUrl('create-galaxy'), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ universeGalaxyId }),
-  }));
+/**
+ * The verified claims of `accessToken`, as a facade method receives them in `originAuth`. Fails the
+ * test on a token that does not verify, so a helper built on it cannot pass a forged claims object.
+ */
+export async function verifiedClaims(accessToken: string): Promise<NebulaJwtPayload> {
+  const claims = await verifyNebulaAccessToken(accessToken, env as Env);
+  expect(claims, 'the access token did not verify').not.toBeNull();
+  return claims!;
+}
+
+/** The Registry stub, for the methods only the facade reaches in production. */
+export function registryStub(): any {
+  return (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+}
+
+/**
+ * Create a Galaxy and its `.dev` Star — the Registry's own method, handed the verified claims of the
+ * admin's token, as `NebulaAuthFacade.createGalaxy` hands them once its pre-check passes. This lane
+ * holds no Gateway to reach the facade through; the facade itself is driven in `apps/nebula`'s
+ * baseline lane. Throws the Registry's refusal; {@link ensureGalaxy} tolerates an existing one.
+ */
+export async function createGalaxy(universeGalaxyId: string, adminToken: string): Promise<void> {
+  await registryStub().createGalaxy(universeGalaxyId, await verifiedClaims(adminToken));
+}
+
+/** {@link createGalaxy}, treating an already-claimed galaxy as success — for provisioning. */
+export async function ensureGalaxy(universeGalaxyId: string, adminToken: string): Promise<void> {
+  try { await createGalaxy(universeGalaxyId, adminToken); }
+  catch (e) { if ((e as { errorCode?: string }).errorCode !== 'slug_taken') throw e; }
 }
 
 /**
@@ -75,56 +121,106 @@ export async function createGalaxy(self: Fetcher, universeGalaxyId: string, admi
  * address holds.
  */
 export async function requestMagicLink(self: Fetcher, email: string): Promise<Response> {
-  return self.fetch(new Request(registryUrl('email-magic-link'), {
+  return self.fetch(new Request(authUrl('email-magic-link'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   }));
 }
 
-/**
- * Click a magic/invite link → the cookie set it produced. Asserts the Home redirect.
- *
- * ⚠️ **A click now sets one cookie PER MEMBERSHIP of the address (mint-all), so "the first cookie"
- * is not a thing a caller can rely on** — the order is the link's own scope first, then accepted
- * memberships, then most-recent (`selectSessionsToMint`), so for an address with history the first
- * cookie is not generally the one a given caller wants. Callers say which scope
- * they want; `refreshToken` is the one for the link's own landing scope, which is what every login
- * helper wants. Each cookie's `Path` is `/auth/{scope}`, so the scope is read back from there.
- */
-export async function clickLink(
-  self: Fetcher, linkUrl: string,
-): Promise<{ setCookie: string; refreshToken: string; tokenFor: (scope: string) => string; landedAt: string }> {
-  const resp = await self.fetch(new Request(linkUrl, { redirect: 'manual' }));
-  expect(resp.status).toBe(302);
-  const location = resp.headers.get('Location')!;
-  expect(location).toMatch(/^\/auth\/[^/]+\/home$/); // every arrival lands on Home to choose + consent
-  const landedAt = decodeURIComponent(location.split('/')[2]);
+/** The link page's `POST /auth/magic-link` — its Continue or Accept — for the token a link URL carries. */
+export function consumeRequest(linkUrl: string, body: Record<string, unknown> = {}): Request {
+  const token = new URL(linkUrl).searchParams.get('token');
+  expect(token, `no token in "${new URL(linkUrl).pathname}"`).toBeTruthy();
+  return new Request(authUrl('magic-link'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, ...body }),
+  });
+}
 
+/** The link page's lookup, `POST /auth/magic-link/lookup`, which writes nothing — what loading a link does. */
+export function lookupLink(self: Fetcher, linkUrl: string): Promise<Response> {
+  const token = new URL(linkUrl).searchParams.get('token');
+  return self.fetch(new Request(authUrl('magic-link/lookup'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+  }));
+}
+
+/** {@link consumeRequest}, sent. */
+export function consumeLink(self: Fetcher, linkUrl: string, body: Record<string, unknown> = {}): Promise<Response> {
+  return self.fetch(consumeRequest(linkUrl, body));
+}
+
+/** Every refresh cookie a response sets, by scope. */
+export function refreshCookiesSet(resp: Response): Map<string, string> {
   const all = (resp.headers as any).getSetCookie?.() as string[] | undefined
-    ?? [resp.headers.get('Set-Cookie')!];
+    ?? [resp.headers.get('Set-Cookie') ?? ''];
   const byScope = new Map<string, string>();
   for (const c of all) {
-    expect(c).toContain('refresh-token=');
-    const path = /Path=([^;]+)/.exec(c)?.[1] ?? '';
-    byScope.set(decodeURIComponent(path.split('/').pop()!), c.split(';')[0].split('=')[1]);
+    const [pair] = c.split(';');
+    const eq = pair.indexOf('=');
+    const name = pair.slice(0, eq);
+    if (name.startsWith(REFRESH_COOKIE_PREFIX)) byScope.set(name.slice(REFRESH_COOKIE_PREFIX.length), pair.slice(eq + 1));
   }
-  const tokenFor = (scope: string) => {
-    const tok = byScope.get(scope);
-    expect(tok, `no cookie was set for "${scope}" (got: ${[...byScope.keys()].join(', ')})`).toBeDefined();
-    return tok!;
-  };
-  return { setCookie: all[0], refreshToken: tokenFor(landedAt), tokenFor, landedAt };
+  return byScope;
 }
 
 /**
- * Take up a membership the way its holder does — through the consent modal's endpoint, with that
- * membership's own path-scoped cookie. Every login helper below runs this, because a cookie mints
- * nothing until it does: acceptance is a deliberate act, and the tests are not exempt from it.
+ * Open a magic/invite link's page and press its button → the cookie set it produced.
+ *
+ * The page's `POST` consumes the link: it sets one cookie PER MEMBERSHIP of the address (mint-all),
+ * and accepts the pending membership at the link's own scope, a claim's or an invite's, so a helper
+ * that clicks one needs no separate Accept. The link's scope is minted first
+ * (`selectSessionsToMint`), so `landedAt` is it when the link named one. Callers say which scope's
+ * cookie they want through `tokenFor`.
  */
-export async function acceptMembership(self: Fetcher, instanceName: string, refreshToken: string): Promise<void> {
-  const resp = await self.fetch(new Request(url(instanceName, 'accept-membership'), {
+export async function clickLink(
+  self: Fetcher, linkUrl: string, body: Record<string, unknown> = {},
+): Promise<{
+  setCookie: string; refreshToken: string; tokenFor: (scope: string) => string; landedAt: string;
+  redirect: string; cookies: Map<string, string>;
+}> {
+  const resp = await consumeLink(self, linkUrl, body);
+  expect(resp.status).toBe(200);
+  const { redirect } = await resp.json() as { redirect: string };
+  const cookies = refreshCookiesSet(resp);
+  expect(cookies.size, 'the consume set no refresh cookie').toBeGreaterThan(0);
+  const tokenFor = (scope: string) => {
+    const tok = cookies.get(scope);
+    expect(tok, `no cookie was set for "${scope}" (got: ${[...cookies.keys()].join(', ')})`).toBeDefined();
+    return tok!;
+  };
+  const landedAt = [...cookies.keys()][0];
+  return {
+    setCookie: refreshCookie(landedAt, cookies.get(landedAt)!), refreshToken: tokenFor(landedAt),
+    tokenFor, landedAt, redirect, cookies,
+  };
+}
+
+/**
+ * Sign in through a plain magic link, which accepts nothing: every membership the address holds gets
+ * its cookie, a pending one included — the state of someone who closed an invite's consent screen
+ * and signed in later, which is what Home's Accept serves.
+ */
+export async function plainLogin(self: Fetcher, email: string): ReturnType<typeof clickLink> {
+  const resp = await requestMagicLink(self, email);
+  expect(resp.status).toBe(200);
+  const { magicLinkUrl } = await resp.json() as { magicLinkUrl?: string };
+  expect(magicLinkUrl).toBeDefined();
+  return clickLink(self, magicLinkUrl!);
+}
+
+/**
+ * Take up a membership the way its holder does on Home — `accept-membership`, naming the scope whose
+ * cookie it presents. A plain login link places a pending membership's cookie without accepting it,
+ * which is what this is for; a claim's or an invite's own link accepts as it consumes.
+ */
+export async function acceptMembership(
+  self: Fetcher, instanceName: string, refreshToken: string, body: Record<string, unknown> = {},
+): Promise<void> {
+  const resp = await self.fetch(new Request(authUrl('accept-membership'), {
     method: 'POST',
-    headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+    headers: { Cookie: refreshCookie(instanceName, refreshToken), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope: instanceName, ...body }),
   }));
   expect(resp.status).toBe(200);
 }
@@ -132,26 +228,49 @@ export async function acceptMembership(self: Fetcher, instanceName: string, refr
 /** Alias kept for call-site familiarity. */
 export const clickMagicLink = clickLink;
 
-/** Exchange a refresh cookie for an access token; returns the body + parsed JWT payload. */
+/** `POST /auth/logout` presenting `cookies`, with `everywhere` when asked. */
+export function logoutRequest(cookies: string[], everywhere?: boolean): Request {
+  return new Request(authUrl('logout'), {
+    method: 'POST',
+    headers: { Cookie: cookies.join('; '), 'Content-Type': 'application/json' },
+    body: JSON.stringify(everywhere === undefined ? {} : { everywhere }),
+  });
+}
+
+/**
+ * `POST /auth/refresh-token` as a page on `hostScope`'s host sends it: `Origin` names the page, the
+ * cookies ride, and there is no body.
+ */
+export function refresh(self: Fetcher, hostScope: string, cookieHeader: string): Promise<Response> {
+  return self.fetch(new Request(authUrl('refresh-token'), {
+    method: 'POST', headers: { Origin: scopeOrigin(hostScope), Cookie: cookieHeader },
+  }));
+}
+
+/**
+ * Exchange one membership's refresh cookie for an access token from a page on `activeScope`'s host,
+ * the membership's own by default; returns the body + parsed JWT payload. The platform membership's
+ * default page is {@link SUPERUSER_PAGE_SCOPE}, since the platform host's pages get no token.
+ */
 export async function refreshAndParse(
   self: Fetcher, instanceName: string, refreshToken: string, activeScope?: string,
 ): Promise<any> {
-  const resp = await self.fetch(new Request(url(instanceName, 'refresh-token'), {
-    method: 'POST',
-    headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeScope: activeScope ?? instanceName }),
-  }));
+  const host = activeScope ?? (isPlatformScope(instanceName) ? SUPERUSER_PAGE_SCOPE : instanceName);
+  const resp = await refresh(self, host, refreshCookie(instanceName, refreshToken));
   expect(resp.status).toBe(200);
   const body = await resp.json() as any;
   expect(body.access_token).toBeDefined();
   return { ...body, parsed: parseJwtUnsafe(body.access_token)!.payload };
 }
 
-/** Found a Universe end-to-end: claim (mint the admin) → click → refresh. Returns an ADMIN token. */
-export async function foundUniverse(self: Fetcher, slug: string, email: string) {
-  const magicLink = await claimUniverse(self, slug, email);
+/**
+ * Found a Universe end-to-end: claim (mint the admin, write the first app) → the link page's Accept
+ * → refresh. Returns an ADMIN token.
+ */
+export async function foundUniverse(self: Fetcher, slug: string, email: string, appSlug = 'first') {
+  const magicLink = await claimUniverse(self, slug, email, appSlug);
+  // The claim's link page is its consent screen, so its Accept consumes and accepts in one click.
   const { refreshToken, setCookie } = await clickLink(self, magicLink);
-  await acceptMembership(self, slug, refreshToken); // the claimer consents, then the cookie mints
   const { parsed, access_token } = await refreshAndParse(self, slug, refreshToken);
   return { magicLink, refreshToken, setCookie, parsed, access_token };
 }
@@ -170,12 +289,12 @@ export async function issueInvitesAs(
   const registry = (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
   // ⚠️ Straight to the registry, so `inviterName` arrives UNSANITIZED — the facade is what caps and
   // strips it, and a test asserting that sanitization must drive the facade instead.
-  return await registry.issueInvites(scope, invitees, 'http://localhost', claims, inviterName) as InviteMintResult;
+  return await registry.issueInvites(scope, invitees, PLATFORM, claims, inviterName) as InviteMintResult;
 }
 
 /**
  * Invite `email` into `scope` (as the admin whose token is passed) and log them in: issue (mints
- * the invitee identity + token) → accept (find-and-flip) → refresh. Returns a MEMBER token
+ * the invitee identity + token) → the invite page's Accept → refresh. Returns a MEMBER token
  * (non-admin). Issuance is the registry RPC above; the CLICK stays HTTP — the session lifecycle
  * kept its routes when the issuing side moved to the mesh facade.
  */
@@ -184,8 +303,7 @@ export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: s
   expect(mint.errors).toHaveLength(0);
   const link = mint.results[0]?.inviteUrl;
   expect(link).toBeDefined();
-  const { refreshToken, setCookie } = await clickLink(self, link!);
-  await acceptMembership(self, scope, refreshToken); // the invitee consents at the modal
+  const { refreshToken, setCookie } = await clickLink(self, link!); // the invite page's Accept
   const { parsed, access_token } = await refreshAndParse(self, scope, refreshToken);
   return { link, refreshToken, setCookie, parsed, access_token };
 }
@@ -195,7 +313,7 @@ export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: s
  * with an EXACT-STAR `authScope` (`claimStar` stamps it — `nebula-auth-registry.ts`).
  *
  * This is the only real (ADR-009 rung 1) path to a **sub-universe admin** identity, which is what any
- * test needing a token that actually carries `access.scopeAdmin` under the `mint-narrower-token` `admin`
+ * test needing a token that actually carries `access.scopeAdmin` under the impersonation mint's
  * mirror requires. `inviteAndLogin` yields `scopeAdmin=0`, so it cannot stand in.
  *
  * ⚠️ **Non-obvious prerequisite: the parent galaxy must exist first** or `claim-star` 400s
@@ -205,22 +323,21 @@ export async function foundStarAndLogin(
   self: Fetcher, star: string, email: string, universeAdminToken: string, activeScope?: string,
 ) {
   const [universe, galaxySlug] = star.split('.');
-  const galaxyResp = await createGalaxy(self, `${universe}.${galaxySlug}`, universeAdminToken);
-  expect([201, 409]).toContain(galaxyResp.status); // 409 = already exists, fine for provisioning
+  await ensureGalaxy(`${universe}.${galaxySlug}`, universeAdminToken);
 
   const resp = await claimStar(self, star, email);
   expect(resp.status).toBe(200);
   const { magicLinkUrl } = await resp.json() as { magicLinkUrl?: string };
   expect(magicLinkUrl).toBeDefined();
-  const { refreshToken, setCookie } = await clickLink(self, magicLinkUrl!);
-  await acceptMembership(self, star, refreshToken); // the star claimer consents
+  const { refreshToken, setCookie } = await clickLink(self, magicLinkUrl!); // the claim page's Accept
   const { parsed, access_token } = await refreshAndParse(self, star, refreshToken, activeScope);
   return { refreshToken, setCookie, parsed, access_token };
 }
 
 /**
- * Log in the configured **platform bootstrap admin** at `nebula-platform` → an `authScope: 'nebula-platform'`
- * identity, the widest principal there is.
+ * Log in the configured **platform bootstrap admin** at `_platform` → an `authScope: '_platform'`
+ * identity, the widest principal there is, refreshed from a page on `activeScope`'s host
+ * ({@link SUPERUSER_PAGE_SCOPE} when absent).
  *
  * A configured bootstrap address is minted its platform membership at CONSUME (the shared registry
  * consume ensures it, behind mailbox proof), so this is a real rung-1
@@ -228,13 +345,11 @@ export async function foundStarAndLogin(
  * unlisted address mints nothing and the login is rejected.
  */
 export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, activeScope?: string) {
-  const ml = await requestMagicLink(self, email);
-  expect(ml.status).toBe(200);
-  const { magicLinkUrl } = await ml.json() as { magicLinkUrl?: string };
-  expect(magicLinkUrl).toBeDefined();
-  const { refreshToken } = await clickLink(self, magicLinkUrl!);
-  await acceptMembership(self, PLATFORM_SCOPE, refreshToken); // the superuser consents like anyone else
-  return refreshAndParse(self, PLATFORM_SCOPE, refreshToken, activeScope);
+  // A plain login link accepts nothing, so the superuser consents on Home like anyone else.
+  const { tokenFor } = await plainLogin(self, email);
+  const refreshToken = tokenFor(PLATFORM_SCOPE);
+  await acceptMembership(self, PLATFORM_SCOPE, refreshToken);
+  return { ...await refreshAndParse(self, PLATFORM_SCOPE, refreshToken, activeScope), refreshToken };
 }
 
 /** The first entry of `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL` list. */
@@ -253,36 +368,44 @@ export const SECOND_BOOTSTRAP_EMAIL = 'second-bootstrap@example.com';
 export async function inviteIntoGalaxy(
   self: Fetcher, galaxy: string, universeAdminToken: string, email: string,
 ) {
-  const galaxyResp = await createGalaxy(self, galaxy, universeAdminToken);
-  expect([201, 409]).toContain(galaxyResp.status);
+  await ensureGalaxy(galaxy, universeAdminToken);
   return inviteAndLogin(self, galaxy, universeAdminToken, email);
 }
 
-/**
- * POST the SCOPE-LESS `/auth/mint-narrower-token`. The route carries no scope segment — the mint's
- * whole authorization is the server-side `canMintFor` against the SUBJECT's scope — so unlike
- * {@link adminRequest} there is no instance in the URL to vary.
- */
-export async function mintNarrowerRequest(
-  self: Fetcher, accessToken: string, body: Record<string, unknown>,
-): Promise<Response> {
-  return self.fetch(new Request(registryUrl('mint-narrower-token'), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }));
+/** Read one cookie's value out of a response's `Set-Cookie` list. */
+export function cookieValue(resp: Response, name: string): string | undefined {
+  const all = (resp.headers as any).getSetCookie?.() as string[] | undefined
+    ?? [resp.headers.get('Set-Cookie') ?? ''];
+  for (const c of all) {
+    const [pair] = c.split(';');
+    const [k, ...rest] = pair.split('=');
+    if (k.trim() === name) return rest.join('=');
+  }
+  return undefined;
 }
 
-/** Make an authenticated request to an instance endpoint. Returns the Response. */
-export async function adminRequest(
-  self: Fetcher, instanceName: string, endpoint: string, accessToken: string,
-  options: { method?: string; body?: any } = {},
-): Promise<Response> {
-  const { method = 'GET', body } = options;
-  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  return self.fetch(new Request(url(instanceName, endpoint), {
-    method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
+/**
+ * Drive the real front door for a BRAND-NEW address: request a scope-less link, press its page's
+ * Continue, and hand back the signup ticket that consume issued. Rung 2 (test-mode issuance) — the point is the ticket the
+ * server minted, not the mail transport.
+ */
+export async function proveNewAddress(self: Fetcher, email: string): Promise<{ ticket: string; location: string }> {
+  const req = await requestMagicLink(self, email);
+  const { magicLinkUrl } = await req.json() as { magicLinkUrl: string };
+  const resp = await consumeLink(self, magicLinkUrl);
+  expect(resp.status).toBe(200);
+  const ticket = cookieValue(resp, SIGNUP_TICKET_COOKIE);
+  expect(ticket, 'the zero-membership consume must issue a signup ticket').toBeDefined();
+  return { ticket: ticket!, location: (await resp.json() as { redirect: string }).redirect };
+}
+
+/** POST the signup page's claim, presenting a signup ticket when one is given. The form posts the
+ *  first app's slug beside the account's, so this does too unless the body names its own. */
+export function signupClaim(self: Fetcher, body: Record<string, unknown>, ticket?: string): Promise<Response> {
+  return self.fetch(new Request(authUrl('signup'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(ticket ? { Cookie: `${SIGNUP_TICKET_COOKIE}=${ticket}` } : {}) },
+    body: JSON.stringify({ appSlug: 'first', ...body }),
   }));
 }
 
@@ -290,7 +413,7 @@ export async function adminRequest(
  * No SESSION was minted by this click — the invariant every "not an identity" test asserts.
  *
  * ⚠️ **Not "no `Set-Cookie` at all", which is what these used to check.** A member-less but PROVED
- * address now receives a `signup-ticket` cookie on its way to the slug screen, and that is not a
+ * address now receives a signup-ticket cookie on its way to the signup page, and that is not a
  * session: it mints no token, reaches no scope, and expires in minutes. Asserting the absence of any
  * cookie conflated "you got nothing" with "you got nowhere to go", and the second is a legitimate
  * outcome of the front door. What must stay true is that no REFRESH cookie was set.
@@ -298,7 +421,7 @@ export async function adminRequest(
 export function expectNoSession(resp: Response): void {
   const all = (resp.headers as any).getSetCookie?.() as string[] | undefined
     ?? [resp.headers.get('Set-Cookie')].filter((c): c is string => c !== null);
-  expect(all.filter((c) => c.startsWith('refresh-token='))).toEqual([]);
+  expect(all.filter((c) => c.startsWith(REFRESH_COOKIE_PREFIX))).toEqual([]);
 }
 
 /**

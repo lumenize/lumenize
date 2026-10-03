@@ -98,7 +98,7 @@ export function nebulaInviteNewHtml(message: InviteNewMessage, appName: string):
  */
 export class NebulaEmailSender extends WorkerEntrypoint {
   from: string;
-  appName = 'Nebula';
+  appName = 'Lumenize';
 
   /** Reply-to address. Defaults to `no-reply@{domain from 'from'}`. */
   replyTo?: string;
@@ -205,7 +205,7 @@ export class NebulaEmailSender extends WorkerEntrypoint {
   // ============================================
 
   magicLinkSubject(_message: MagicLinkMessage): string {
-    return 'Your login link';
+    return `Your ${this.appName} login link`;
   }
 
   adminNotificationSubject(message: AdminNotificationMessage): string {

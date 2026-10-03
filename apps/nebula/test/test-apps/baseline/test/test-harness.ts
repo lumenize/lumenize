@@ -15,6 +15,6 @@ export const {
 } = instrumented.dos;
 
 // Non-DO classes are passed through unwrapped
-export const { NebulaEmailSender, NebulaAuthFacade } = instrumented;
+export const { NebulaEmailSender, NebulaAuthFacade, PlatformHost } = instrumented;
 
 export default instrumented;

@@ -5,10 +5,10 @@
  * functions for @mesh(guard) decorators.
  */
 
-import { LumenizeDO, mesh } from '@lumenize/mesh';
+import { LumenizeDO, mesh, rawRpc } from '@lumenize/mesh';
 import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { hasDominionOver, hasPassageInto, isPlatformScope, parseId } from '@lumenize/nebula-auth';
+import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 /**
@@ -31,9 +31,11 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * (passage), `requireDominionHere` decides *whether the caller holds dominion here*.
  *
  * ⚠️ **The bare `access.scopeAdmin` bit is NOT dominion** — it is dominion only over what the
- * caller's `authScope` covers. `requirePassage` deliberately admits a caller whose own scope sits
- * *below* this node (a member of a child may call its parent), so a bare bit check let an admin of
- * a child scope act as admin on its ancestors. See tasks/archive/nebula-confine-admin-bypass.md.
+ * calling host's scope covers, the token's `aud` (the host rule, ADR-015 and ADR-022). A universe
+ * admin calling from a tenant's host is an admin here only if this node is that tenant or beneath
+ * it. `requirePassage` deliberately admits a caller whose host sits *below* this node (a page on a
+ * child may call its parent), so a bare bit check would let that caller act as admin on its
+ * ancestors. See tasks/archive/nebula-confine-admin-bypass.md.
  *
  * **Fail closed on a missing instance name.** `instanceName` is permanently `undefined` on a
  * `LumenizeWorker`, and a node type could compose this guard *without* `requirePassage`. Never
@@ -63,13 +65,15 @@ export function requireDominionHere(instance: HasCallContext) {
   if (!claims?.access?.scopeAdmin) {
     throw new Error('Admin access required');
   }
-  if (!hasDominionOver(claims.access, name)) {
-    // Distinct from the bare-non-admin message above: the caller IS an admin, just not of THIS
-    // node — a different user action (switch scope / ask the admin above you, vs. request admin).
-    // ADR-008 disclaims confidentiality of the scope boundary and discloses the denied set on
-    // purpose, and both operands are already in the caller's own JWT, so naming them leaks nothing.
+  if (!hasDominionOver(claims, name)) {
+    // Distinct from the bare-non-admin message above: the caller IS an admin, just not from THIS
+    // host over THIS node — a different user action (go to this node's own page, or ask the admin
+    // above you, vs. request admin). It names the operand that decided, the calling host's scope,
+    // and the membership the token rests on, which may well cover this node. ADR-008 disclaims
+    // confidentiality of the scope boundary, and both are in the caller's own JWT.
     throw new Error(
-      `Admin access required for ${name} — your admin scope is ${claims.access.authScope}`,
+      `Admin access required for ${name} — the calling host's scope is ${claims.aud}, ` +
+      `and the token rests on the membership at ${claims.access.authScope}`,
     );
   }
 }
@@ -87,14 +91,11 @@ export function requireDominionHere(instance: HasCallContext) {
  * below this node (a member of a child reaching its parent, conferring no dominion),
  * OR the caller holds dominion here (the whole downward rule).
  *
- * ⚠️ **Passage is computed from the caller's own `authScope`, never from the
- * client-chosen `aud`.** That is the substantive change over the previous body, and it
- * is what makes the name true: `aud` is a value the client selects at refresh, so
- * deciding passage on it let a non-admin at `{u}` select `aud = {u}.{g}.{s}` and reach
- * a tenant Star it holds no membership in. Under `authScope` that is refused **by
- * construction** — there is no branch to get wrong, because the input a caller can
- * choose is no longer read. `aud` remains on the token and on the wire for the
- * Gateway's outbound fence (`onBeforeCallToClient`); it just stops deciding this.
+ * **Passage is computed from the calling host's scope, the token's `aud`** (the host
+ * rule, ADR-015 and ADR-022). The refresh derives `aud` from the page's `Origin`, which page
+ * script cannot set, so it says which page, and so whose code, made the call. A plain member
+ * cannot widen it: verification refuses a plain membership's token whose `aud` differs from
+ * its `authScope`.
  *
  * Branch ORDER is load-bearing: the missing-name fail-close, the platform-name
  * reject, and the name parse all run BEFORE the passage clause — otherwise a
@@ -113,7 +114,7 @@ export function requirePassage(
     throw new Error('Mesh call missing callee instance name');
   }
 
-  // (b) NAME RESERVATION — `nebula-platform` is the reserved platform scope, and under the root
+  // (b) NAME RESERVATION — `_platform` is the reserved platform scope, and under the root
   // model it is the one instance name EVERY authenticated caller has passage to. Nothing is
   // deployed there yet, and `lmz.call` takes the binding and the instance name separately, so
   // without this reject a caller could instantiate an arbitrary DO class at the most-reachable
@@ -121,7 +122,7 @@ export function requirePassage(
   // it fires for a superuser too. ⚠️ It is TEMPORARY and goes from REJECTED to BOUND — never to
   // open — in whatever change eventually registers an occupant for the name.
   if (isPlatformScope(name)) {
-    throw new Error('Active-scope mismatch');
+    throw new Error(`"${name}" is the reserved platform scope, and no call may reach it`);
   }
 
   // (d) throws on an unparseable tier name (e.g. >3 segments, illegal slug) — fail closed rather
@@ -131,18 +132,16 @@ export function requirePassage(
   // name has passage from anywhere and an unparseable name would never reach this parse.
   parseId(name);
 
-  // (c) PASSAGE — the ONE shared predicate (ADR-007), both arms, computed from the caller's own
-  // `authScope`. Not re-assembled here: a disjunction spelled at the call site is how one arm
+  // (c) PASSAGE — the ONE shared predicate (ADR-007), both arms, computed from the calling host's
+  // scope. Not re-assembled here: a disjunction spelled at the call site is how one arm
   // silently goes missing, and each omission breaks a different half of ADR-015 (drop the upward
   // arm and a Star member cannot reach its own Galaxy; drop dominion and an admin cannot act
   // downward at all).
   //
   // ⚠️ The absent-claim case is the predicate's, not this line's: it returns `false` rather than
-  // throwing, so an unauthenticated or malformed claim lands here as an ordinary refusal. The old
-  // `if (!aud) throw` is GONE with the `aud` read that justified it — `verify.ts` already refuses
-  // any token without an `aud`, so it was unreachable on the live path even before this.
-  if (!hasPassageInto(claims?.access, name)) {
-    throw new Error('Active-scope mismatch');
+  // throwing, so an unauthenticated or malformed claim lands here as an ordinary refusal.
+  if (!hasPassageInto(claims, name)) {
+    throw new Error(noPassageMessage(claims?.aud, name));
   }
 }
 
@@ -152,13 +151,13 @@ export function requirePassage(
  * onBeforeCall() enforces **structural** passage via the shared
  * {@link requirePassage} helper (composed, not reimplemented — ADR-007). A
  * mesh call is accepted iff the caller is an `access.scopeAdmin` whose dominion
- * covers this DO's **instance name** (downward dominion), OR the caller's own
- * `access.authScope` sits at or below the scope encoded in that name (the tenant
- * boundary; the non-admin path). Containment is by whole dot-separated segment —
+ * from its host covers this DO's **instance name** (downward dominion), OR the
+ * calling host's scope, the token's `aud`, sits at or below the scope encoded in
+ * that name (the non-admin path). Containment is by whole dot-separated segment —
  * a scope covers itself and every descendant, and nothing else — so no tier
  * grammar is involved. There is no trust-on-first-use lock and no stored `aud`;
- * the scope is read off the name on every call, and the caller's half comes from
- * their membership rather than from a value they select.
+ * the node's half is read off its name on every call, and the caller's half comes
+ * from the host the refresh read off `Origin`, which page script cannot set.
  *
  * Soundness rests on name == routing key: a tier DO is addressed by the same
  * `parseId`-valid id that becomes its `instanceName` (never a 64-hex DO id), so
@@ -168,24 +167,39 @@ export function requirePassage(
  */
 export class NebulaDO extends LumenizeDO {
   /**
-   * Tear this node down — wipe ALL of its storage. The destructive deprovision primitive the
-   * scope-deletion cascade fans out to (and the one a future soft-delete reaper will call after
-   * its grace window — so this is the foundation, NOT a stopgap). Distinct from
-   * `Star.resetDevData`, which wipes then RE-INITS to keep the live `.dev` sandbox usable:
-   * teardown does not re-init, because the node is being removed from existence, not reset.
+   * Tear this node down: wipe all of its storage and reset the object, so the next call constructs
+   * a fresh one. A deletion calls it on every scope it removes, and a creation on every scope it
+   * writes, so a new owner starts empty. Distinct from `Star.resetDevData`, which wipes and then
+   * re-initialises to keep the `.dev` sandbox usable.
    *
-   * `@mesh(requireDominionHere)` + `onBeforeCall`'s passage gate it — only an admin whose dominion
-   * covers this instance can fire it (the same wall as every other admin mutator; not in the
-   * non-admin frozen surface). `deleteAll()` is the sanctioned async-storage exception (no sync
-   * variant); it clears the entire private store (SQL + KV + alarms). `blockConcurrencyWhile`
-   * closes the input gate so nothing lands mid-wipe (the sync `requireDominionHere` already ran).
+   * `@rawRpc()`, never `@mesh()`: it carries out a decision the Registry made where claims were
+   * checked, and `@mesh()` would let any admin wipe a live app without deleting it (ADR-023).
+   *
+   * Logs `nebula.scope.teardown` first, with `this.lmz.instanceName` read with no fallback, so an
+   * entry that stamped nothing shows as a missing name, and with the `operationId` of the facade
+   * call that ordered it, so a reader counts what one call caused. Then {@link beforeTeardown}, `deleteAll()`,
+   * a macrotask yield so the wipe persists before the abort (`durable-objects.md` § *Persist before
+   * `ctx.abort()`*), and `ctx.abort('scope-deleted')`, without which `Resources`, `OrgTree` and the
+   * Galaxy's Workspace would stay pointed at dropped tables and a re-created scope would fail with
+   * `no such table`. The abort rejects the caller's call; the scope lifecycle hooks read that
+   * rejection as the reset it is.
    */
-  @mesh(requireDominionHere) // dominion over this host; a descendant's member is refused
-  async teardown(): Promise<void> {
-    await this.ctx.blockConcurrencyWhile(async () => {
-      await this.ctx.storage.deleteAll();
+  @rawRpc()
+  async teardown(cause: 'deletion' | 'creation', operationId: string): Promise<void> {
+    const instanceName = this.lmz.instanceName;
+    let tier: string | undefined;
+    try { tier = instanceName ? parseId(instanceName).tier : undefined; } catch { tier = undefined; }
+    debug('nebula.scope.teardown').info('tearing down', {
+      tier, cause, operationId, binding: this.lmz.bindingName, instanceName,
     });
+    await this.beforeTeardown();
+    await this.ctx.storage.deleteAll();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    this.ctx.abort('scope-deleted');
   }
+
+  /** What a node releases outside its storage before {@link teardown} wipes it. Default: nothing. */
+  protected async beforeTeardown(): Promise<void> {}
 
   onBeforeCall() {
     // Scope is derived from this DO's instance name (stamped from the envelope's

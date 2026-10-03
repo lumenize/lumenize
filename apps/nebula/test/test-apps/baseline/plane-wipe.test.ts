@@ -25,8 +25,7 @@ import {
 } from '@lumenize/nebula';
 import type { Galaxy, QueryDescriptor, Snapshot, TransactionResult, OntologyVersionConfig } from '@lumenize/nebula';
 import {
-  adminClientAt, universeAdminClient, foundAndLogin, createSubject, createInvitedClient,
-} from '../../test-helpers';
+  adminClientAt, universeAdminClient, foundAndLogin, createSubject, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { GalaxyTest, StarTest } from './index';
 
@@ -60,6 +59,7 @@ async function admin(galaxy: string, scope: string, ontologyVersion = 'v1', extr
 /** A plain member OF the `.dev` Star — passage into it, no admin bit anywhere. */
 async function devMember(galaxy: string, dev: string, email: string, ontologyVersion = 'v1') {
   const adminBrowser = new Browser();
+  // `admin()` founded the universe as this address, so it is the universe's admin here.
   const { accessToken } = await foundAndLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
   await createSubject(adminBrowser, dev, accessToken, email);
   return createInvitedClient(NebulaClientTest, new Browser(), dev, dev, email, ontologyVersion);
@@ -164,7 +164,9 @@ describe('an install-triggered wipe on the .dev Star', () => {
     const record = wipes(dev)[0].data!;
     expect(record.cause).toBe('install');
     expect(record.version).toBe(applied.data!.version);
-    expect(record.actingToken).toEqual({ sub: bClaims.sub, act: undefined, profileId: bClaims.profileId, access: bClaims.access });
+    expect(record.actingToken).toEqual({
+      sub: bClaims.sub, act: undefined, profileId: bClaims.profileId, access: bClaims.access, aud: bClaims.aud,
+    });
 
     // Studio's path: whoever pressed Wipe.
     const presser = await admin(galaxy, dev);

@@ -7,10 +7,36 @@ import { NebulaEmailSender as ProdNebulaEmailSender } from '../src/nebula-email-
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import type { ResolvedEmail } from '@lumenize/email';
-import type { EmailMessage } from '../src/types';
+import type { EmailMessage, ScopeLifecycleHooks, ScopeTarget } from '../src/types';
 
-// Re-export the singleton registry DO for wrangler bindings (the per-scope NebulaAuth DO is dissolved).
-export { NebulaAuthRegistry } from '../src/nebula-auth-registry';
+import { NebulaAuthRegistry as NebulaAuthRegistryBase } from '../src/nebula-auth-registry';
+
+/**
+ * Runs after each refresh-KV delete the Registry makes, while the Registry still awaits it — where a
+ * test plays a concurrent writer inside a revoke, the one interleaving no request can time. The test
+ * and the Registry share one isolate.
+ */
+export const registryKvHook: { afterDelete?: (key: string) => Promise<void> } = {};
+
+/** The singleton Registry, for wrangler bindings, with its refresh KV wrapped for
+ *  {@link registryKvHook}; with no hook set, every call passes straight through. */
+export class NebulaAuthRegistry extends NebulaAuthRegistryBase {
+  constructor(ctx: DurableObjectState, env: Env) {
+    const kv = (env as any).REFRESH_TOKEN_KV as KVNamespace;
+    const wrapped = new Proxy(kv, {
+      get(target, prop) {
+        if (prop === 'delete') {
+          return async (key: string) => { await target.delete(key); await registryKvHook.afterDelete?.(key); };
+        }
+        const value = (target as any)[prop];
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    super(ctx, { ...(env as any), REFRESH_TOKEN_KV: wrapped });
+  }
+}
+// The consent route's display names live on the person's Profile (bound as PROFILE).
+export { Profile } from '../src/profile';
 
 /**
  * A behavior-less SQLite-backed DO used ONLY to obtain a virgin `ctx.storage` in migration tests.
@@ -56,9 +82,34 @@ export class NebulaEmailSender extends ProdNebulaEmailSender {
   }
 }
 
+/**
+ * Every teardown the router asked for, in order. This package names no Galaxy or Star, so the
+ * hooks record rather than wipe; a test reads this directly (one isolate, as with
+ * {@link capturedEmails}) and clears it between cases.
+ */
+export const recordedTeardowns: Array<{ targets: ScopeTarget[]; cause: string; operationId: string }> = [];
+
+/** Every certificate wake the router asked for, in order, read and cleared like the teardowns. */
+export const recordedOrders: Array<{ galaxy: string; operationId: string }> = [];
+
+/** What a wake does besides recording, set by a test: a deletion landing in the gap, say. */
+export const orderHook: { onOrder?: (galaxy: string) => Promise<void> } = {};
+
+/** The `hooks` every router call under test passes. */
+export const recordingHooks: ScopeLifecycleHooks = {
+  async teardown(targets, cause, operationId) {
+    recordedTeardowns.push({ targets, cause, operationId });
+  },
+  async orderCertificate(galaxy, operationId) {
+    recordedOrders.push({ galaxy, operationId });
+    await orderHook.onOrder?.(galaxy);
+  },
+};
+
 // Default Worker export — test-only, not part of the library's public API
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    return await routeNebulaAuthRequest(request, env) ?? new Response('Not Found', { status: 404 });
+    return await routeNebulaAuthRequest(request, env, { hooks: recordingHooks })
+      ?? new Response('Not Found', { status: 404 });
   },
 };

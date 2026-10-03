@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * The fallback slug screen: someone proved their address and turned out to have nowhere to go.
+ * The signup page: someone proved their address and turned out to have nowhere to go.
  *
  * ⚠️ **No email field, deliberately.** The address is carried by the signup-ticket cookie the click
  * just set, and the server reads it from there — a field here would be both a lie (typing a
- * different address would change nothing) and an invitation to try. The only thing this screen
- * collects is the name.
+ * different address would change nothing) and an invitation to try. The only things this screen
+ * collects are the account's name and its first app's.
  *
  * ⚠️ **No second email is sent.** The claim spends the ticket and logs the person straight in, which
  * is the whole reason the ticket exists: the mailbox was proved seconds ago by the click that landed
@@ -15,6 +15,7 @@ import { leaveTo } from '../view-state';
 import { ref } from 'vue';
 
 const accountName = ref('');
+const appName = ref('');
 const busy = ref(false);
 const error = ref('');
 
@@ -25,7 +26,7 @@ async function claim() {
     const resp = await fetch('/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: accountName.value.trim() }),
+      body: JSON.stringify({ slug: accountName.value.trim(), appSlug: appName.value.trim() }),
     });
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({})) as { error_description?: string };
@@ -34,8 +35,8 @@ async function claim() {
     }
     // The response names where to go, rather than this screen rebuilding the path — the server
     // already decided which scope was claimed, and it is the one that knows.
-    const { home } = await resp.json() as { home: string };
-    leaveTo(home);
+    const { redirect } = await resp.json() as { redirect: string };
+    leaveTo(redirect);
   } catch {
     error.value = 'Could not reach the server. Try again.';
   } finally {
@@ -49,15 +50,22 @@ async function claim() {
     <div class="card-body">
       <h1 class="card-title">Name your account</h1>
       <p class="text-base-content/70">
-        Your email is confirmed. Pick a name and you're in — no second email.
+        Your email is confirmed. Name your account and its first app, and you're in — no second email.
       </p>
 
       <form class="space-y-3" @submit.prevent="claim">
         <fieldset class="fieldset">
-          <legend class="fieldset-legend">Account name</legend>
+          <legend class="fieldset-legend">Account</legend>
           <input
             v-model="accountName" type="text" required autofocus
             class="input w-full" placeholder="acme"
+          />
+        </fieldset>
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Your first app</legend>
+          <input
+            v-model="appName" type="text" required
+            class="input w-full" placeholder="crm"
           />
           <p class="label">Lowercase letters, numbers and hyphens.</p>
         </fieldset>

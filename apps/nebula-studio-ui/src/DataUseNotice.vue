@@ -3,7 +3,7 @@
  * The data-use notice — one component, rendered at both placements.
  *
  * It appears where a person COMMITS to something: the self-signup consent modal (directly under
- * "Only accept if you initiated this signup"), and Studio's create-App flow. Not on a login page —
+ * "Only accept if you initiated this signup"), and the universe page's create-app form. Not on a login page —
  * an Account or App owner owns their own tenants' data relationship, and a per-tenant notice is
  * theirs to write, not ours to impose.
  *

@@ -46,7 +46,7 @@ DEBUG=
 # with SEPARATE vars — this is NOT a duplicate/typo. Set BOTH; never rename or delete either.
 #   LUMENIZE_AUTH_BOOTSTRAP_EMAIL — base @lumenize/auth LumenizeAuth DO (lumenize-auth.ts).
 #   NEBULA_AUTH_BOOTSTRAP_EMAIL   — nebula-auth NebulaAuth DO (nebula-auth.ts); at the reserved
-#                                   nebula-platform instance this email becomes a `*` super-admin.
+#                                   _platform instance this email becomes a `*` super-admin.
 # First subject to log in with a bootstrap email is auto-promoted to admin. Both accept a
 # COMMA-SEPARATED list (`a@x.io, b@y.io`) — every listed email is promoted (whitespace/case are
 # normalized per entry). Privilege-granting, so in TESTS these belong in vitest miniflare.bindings,
@@ -96,6 +96,24 @@ JWT_PRIVATE_KEY_GREEN="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KE
 JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
 
 # PRIMARY_JWT_KEY (the BLUE/GREEN selector) lives in each worker's wrangler.jsonc "vars" — not here.
+# These keys sign for local stacks and the deployed test target. Production signs with a key pair of
+# its own, generated for it and set only as its Worker secrets, so a token minted here never verifies
+# there (apps/nebula/scripts/deploy.sh).
+
+# The deployed test target's own refresh-token KV namespace id (`wrangler kv namespace create`).
+# apps/nebula/scripts/deploy-test.sh refuses to run without it, since wrangler.jsonc names production's.
+# TEST_REFRESH_TOKEN_KV_ID=
+
+# The deployed test target's certificate zone, `lumenize-test.dev`: its zone id, which deploy-test.sh
+# writes into the test config and refuses to run without, and a token scoped to that zone's SSL and
+# Certificates, which is set as `test-nebula`'s CERTIFICATE_API_TOKEN secret (deploy-test.sh's header
+# shows how). A galaxy orders and deletes its certificate pack with them (apps/nebula/src/certificate.ts).
+# TEST_CERTIFICATE_ZONE_ID=
+# TEST_CERTIFICATE_API_TOKEN=
+
+# A token with Account → Workers Scripts → Read, with which the deployed pass lists a test app's
+# Durable Objects to confirm a deletion wiped them (tasks/nebula-scope-moves-to-subdomain.md Phase 16).
+# CLOUDFLARE_WORKERS_READ_TOKEN=
 
 # Optional — only needed if you use ResendEmailSender (see https://lumenize.com/docs/auth/using-resend-instead).
 # CloudflareEmailSender (the default) uses the EMAIL binding and needs no secret.

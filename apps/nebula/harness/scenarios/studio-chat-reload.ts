@@ -35,8 +35,6 @@ import { provisionAndLogin } from '../../test/lib/email-login';
  *  browser drives the SAME email through the rendered login form. */
 const UNIVERSE = 'claude-browser';
 const SCOPE = `${UNIVERSE}.app`;
-/** The galaxy's slug — what the Universe page labels its app row with. */
-const APP_SLUG = SCOPE.slice(UNIVERSE.length + 1);
 /** Login email — MUST be an `@lumenize-test.dev` address CF Email Routing forwards to the email-test
  *  Worker (the catch-all). A fresh address per run keeps the claim path clean. */
 const LOGIN_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? `test-${Date.now().toString(36)}@lumenize-test.dev`;
@@ -50,21 +48,19 @@ export async function run(stack: DevStack): Promise<void> {
   //    real user's first visit does.
   await provisionAndLogin({ baseUrl: stack.baseUrl, scope: SCOPE, email: LOGIN_EMAIL, testToken });
 
-  const { viteBaseUrl, close: closeVite } = await bootStudioVite(stack.baseUrl);
+  const { viteBaseUrl, scopeUrl, close: closeVite } = await bootStudioVite(stack.baseUrl);
   const browser = await launchChromium();
 
   try {
     const inst = await instrumentedPage(browser);
     const { page } = inst;
-    const ctx = page.context();
 
     // 1. The front door is the AUTH SPA, not Studio. Studio no longer carries a login of its own —
     //    a person proves their address first and chooses a destination afterwards, so there is no
     //    scope to name here and nothing about the address is known before the click.
     await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
 
-    // 2. Real-email login: arm the waiter, drive the form, extract the link, land the cookies on the
-    //    vite origin (ctx.request shares the context cookie jar).
+    // 2. Real-email login: arm the waiter, drive the form, extract the link.
     //    The email loop is a real external dependency (CF Email Sending → Routing → email-test Worker)
     //    and its latency varies — a generous timeout keeps the harness from flaking on a slow delivery
     //    (a `No email received` timeout here is that flake, NOT a code defect). See FINDINGS.md.
@@ -79,22 +75,12 @@ export async function run(stack: DevStack): Promise<void> {
     } finally {
       waiter.cleanup();
     }
-    const u = new URL(link);
-    await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
-
-    // 2b. Enter through HOME — the real journey, and the only thing that makes the GALAXY reachable.
-    //     The cookie sits at `/auth/{universe}` and never travels to `/auth/{universe}.{galaxy}/…`
-    //     (RFC 6265 stops at the `.`), so Studio learns which cookie to spend from the hand-off hint
-    //     written on the way out.
-    //     ⚠️ **Home renders no row to pick.** A lone ACCEPTED membership fast-forwards to its own
-    //     surface, which for a universe is its Universe page — so the galaxy is entered by clicking
-    //     the app there (`surfaceFor`/`fastForwardTarget`, 2026-09-02).
-    await page.goto(`${viteBaseUrl}/auth/${UNIVERSE}/home`, { waitUntil: 'domcontentloaded' });
-    await page.waitForURL(new RegExp(`//[^/]+/${UNIVERSE}(?:[/?#]|$)`), { timeout: 30_000 });
-    const appRow = page.getByRole('button', { name: APP_SLUG, exact: true });
-    await appRow.waitFor({ state: 'visible', timeout: 30_000 });
-    await appRow.click();
-    await page.waitForURL(new RegExp(`//[^/]+/${SCOPE.replace(/\./g, "\\.")}(?:[/?#]|$)`), { timeout: 30_000 });
+    // 2b. Open the letter on its own page and press Continue, which lands on HOME — the real
+    //     journey. Home renders no row to pick: a lone accepted account holding one app
+    //     fast-forwards into that app's Studio (`fastForwardTarget`).
+    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    await page.getByTestId('link-continue').click();
+    await page.waitForURL((u) => u.origin === scopeUrl(SCOPE), { timeout: 30_000 });
 
     // 3. Connected → the chat input renders. This is the harness's real gate (login worked).
     //    On failure, capture the page + console + network FIRST — "never connected" has many
@@ -122,7 +108,7 @@ export async function run(stack: DevStack): Promise<void> {
     //    subscription, and the marker renders AGAIN from the durable Message (history
     //    restore). Asserted, not reported — this is exactly what the old scenario's
     //    optimistic echo could not distinguish.
-    await page.goto(`${viteBaseUrl}/${SCOPE}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${scopeUrl(SCOPE)}/`, { waitUntil: 'domcontentloaded' });
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
     const after = await captureArtifacts(inst, 'studio-chat-after-reload');

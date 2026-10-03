@@ -15,12 +15,11 @@
  */
 
 import { mesh } from '@lumenize/mesh';
+import { debug } from '@lumenize/debug';
 import { NebulaDO, requireDominionHere } from './nebula-do';
-import { ROOT_NODE_ID } from './org-ops';
 import { Resources } from './resources';
 import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from './resources';
 import type { Galaxy } from './galaxy';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 // Node-invite types re-exported from their home (the composed plane) so
 // existing `@lumenize/nebula` import sites are unchanged.
@@ -30,6 +29,9 @@ export class Star extends NebulaDO implements ResourcesHost {
   #resources!: Resources
 
   onStart() {
+    // Construction is observable: `ctx.id.name`, since `onStart` runs before any identity is
+    // stamped. A route that refuses a binding before routing proves itself by this never appearing.
+    debug('nebula.Star.onStart').debug('started', { name: this.ctx.id.name })
     this.#resources = new Resources(this.ctx, () => this.lmz, this.#ontologySource())
   }
 
@@ -52,51 +54,6 @@ export class Star extends NebulaDO implements ResourcesHost {
       },
       bundleId: (version) => `${this.galaxyId}/${version}`,
     }
-  }
-
-  /**
-   * Seed the **initial DataPlane root admin** — a DAG `admin` grant on `ROOT_NODE_ID`, granted to the
-   * first **star-scoped admin** to touch this Star.
-   *
-   * Two distinct things, in two planes, easily conflated: a *star-scoped admin* is a registry
-   * `Memberships` row (`scopeAdmin=1` at this 3-segment scope, so the token's `authScope` IS this Star);
-   * the *DataPlane root admin* is this DAG grant. This method is the bridge between them, and it runs
-   * exactly once — later root admins are added by an ordinary `setPermission`, which is why this one
-   * is the **initial** one and not the only possible one.
-   *
-   * The grant's job is to give the request-access climb a findable terminus *inside the tree*: a
-   * scope-admin holding only the `claims.access.scopeAdmin` bypass is **not** in the permissions map, so
-   * the climb cannot discover them. `setPermission` satisfies its own `admin` gate via that same
-   * bypass (org-tree.ts `requirePermission`), so no un-guarded path is needed.
-   *
-   * ⚠️ **EXACT-star, not `hasDominionOver`** (2026-08-02). A covering Galaxy/Universe admin passes
-   * `hasDominionOver` here, so under the old predicate whichever admin wandered in first took the
-   * grant — and because the KV flag is one-shot with no re-seed path, that Star's climb would
-   * terminate at the covering admin **forever**, routing its tenants' access requests away from their
-   * own Star admin. Requiring `authScope` to EQUAL this Star's id makes the grant follow ownership
-   * rather than arrival order. This costs the covering admin nothing: ADR-015 keeps their dominion
-   * total via the bypass — only climb *discoverability* is at stake.
-   *
-   * ⚠️ A Star with no star-scoped admin (`createStar` mints no identity — the `.dev` workspace) simply
-   * stays root-adminless until one exists, which is already the behavior for a non-admin first caller.
-   * `claim-star` self-signup needs no special machinery: the claimer's `authScope` IS this Star, so it
-   * satisfies this gate on their first authenticated touch.
-   *
-   * ⚠️ Keep this predicate if the seed ever moves onto hosts that are NOT leaves — on a non-leaf
-   * host a containment form would let a descendant's admin seed an ancestor.
-   */
-  onBeforeCall() {
-    super.onBeforeCall() // passage into this Star; a refused caller throws before the seed below
-    if (this.ctx.storage.kv.get('__nebula_rootAdminSeeded')) return
-    const auth = this.lmz.callContext.originAuth
-    const claims = auth?.claims as NebulaJwtPayload | undefined
-    if (!auth?.sub || !this.lmz.instanceName) return
-    // Exact equality, NOT `hasDominionOver` — see the EXACT-star note above. This is the one site
-    // where the transient scope-admin bypass becomes a DURABLE DAG grant.
-    const access = claims?.access
-    if (access?.scopeAdmin !== true || access.authScope !== this.lmz.instanceName) return
-    this.#resources.requests.orgTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
-    this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────

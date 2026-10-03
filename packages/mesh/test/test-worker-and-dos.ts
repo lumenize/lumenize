@@ -1,6 +1,7 @@
 import { LumenizeDO } from '../src/lumenize-do';
 import { LumenizeWorker } from '../src/lumenize-worker';
 import { mesh } from '../src/mesh-decorator';
+import { rawRpc } from '../src/raw-rpc-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '../src/alarms';
 import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
@@ -88,6 +89,17 @@ export interface BroadcastOutcome {
 }
 
 export class TestDO extends LumenizeDO<Env> {
+  // The `@rawRpc()` entry's subjects (raw-rpc.test.ts): one decorated method that reports the
+  // identity the entry stamped, one undecorated method, and the getter every node has.
+  @rawRpc()
+  rawRpcEcho(value: string): { value: string; bindingName?: string; instanceName?: string } {
+    return { value, bindingName: this.lmz.bindingName, instanceName: this.lmz.instanceName };
+  }
+
+  notRawRpc(): string {
+    return 'reached';
+  }
+
   /** @internal - for tests only */
   executedAlarms: Array<{ payload: any; schedule: Schedule | null }> = [];
 
@@ -609,8 +621,8 @@ export class TestDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('broadcast_barrier') === true;
   }
 
-  // Broadcast `captureContext` with the given options. Reached from a client, so the chain it
-  // inherits by default has a client origin and that client's `originAuth`.
+  // Broadcast `captureContext` with the given options. Reached from a client, so a chain inherited
+  // with `newChain: false` has a client origin and that client's `originAuth`.
   @mesh()
   broadcastCaptureContext(targets: string[], options: { newChain?: boolean; state?: Record<string, unknown> }): void {
     this.lmz.broadcast(
@@ -1663,6 +1675,33 @@ export class AlarmTestDO extends LumenizeDO<Env> {
   // Test helper: Schedule an alarm with a throwing callback
   scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
     return this.svc.alarms.schedule(when, this.ctn().handleThrowingAlarm(payload));
+  }
+
+  // Test helper: an alarm under a caller-chosen id, whose handler re-arms it under that same id,
+  // as a poll does
+  scheduleRearmingAlarm(id: string) {
+    return this.svc.alarms.schedule(new Date(Date.now() + 10_000), this.ctn().handleRearmingAlarm(id), { id });
+  }
+
+  handleRearmingAlarm(id: string) {
+    this.executedAlarms.push({ payload: 'rearming' });
+    this.svc.alarms.schedule(60, this.ctn().handleAlarm('rearmed'), { id });
+  }
+
+  // Test helper: an alarm under a caller-chosen id whose handler awaits `ms`, so another call can
+  // land while it runs
+  scheduleSlowAlarm(id: string, ms: number) {
+    return this.svc.alarms.schedule(new Date(Date.now() + 10_000), this.ctn().handleSlowAlarm(ms), { id });
+  }
+
+  async handleSlowAlarm(ms: number) {
+    await new Promise((r) => setTimeout(r, ms));
+    this.executedAlarms.push({ payload: 'slow' });
+  }
+
+  // Test helper: schedule under a caller-chosen id
+  scheduleAlarmWithId(id: string, delaySeconds: number, payload?: any) {
+    return this.svc.alarms.schedule(delaySeconds, this.ctn().handleAlarm(payload), { id });
   }
 
   // Test helper: Schedule alarm with invalid type

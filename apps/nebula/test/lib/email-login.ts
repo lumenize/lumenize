@@ -19,6 +19,9 @@
  * enough that speed is never a reason to drop to a lower rung.
  */
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
+import { LumenizeClient } from '@lumenize/mesh/client';
+import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 
 /** Cookie-aware fetch. `@lumenize/testing`'s `Browser` satisfies this, as does global `fetch`. */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -28,11 +31,12 @@ const SCOPELESS_TAG = '_scopeless';
 
 export interface EmailLoginOptions {
   /**
-   * Where to send auth requests — a wrangler-dev origin, `http://localhost` for
-   * an in-process pool-workers Worker, or a deployed origin. Trailing slash ok.
+   * The platform host's origin, where every session route answers —
+   * `http://platform.lumenize.localhost:<port>` for a local stack, the same host for an in-process
+   * pool-workers Worker, `https://platform.lumenize-test.dev` deployed. Trailing slash ok.
    */
   baseUrl: string;
-  /** The `authScope` path segment: `/auth/<authScope>/…`. Also the email `instance` filter. */
+  /** The membership whose cookie this login is for — its scope names the cookie. */
   authScope: string;
   /** TEST_TOKEN for the deployed email-test Worker. */
   testToken: string;
@@ -70,9 +74,9 @@ export interface EmailLoginOptions {
 }
 
 export interface EmailSession {
-  /** The `refresh-token` cookie value — a real credential. NEVER log it. */
+  /** The refresh cookie's value — a real credential. NEVER log it. */
   refreshToken: string;
-  /** The authScope the refresh cookie is Path-bound to. */
+  /** The membership's scope, which names its cookie: `__Host-refresh-token.{authScope}`. */
   authScope: string;
   email: string;
   savedAt: string;
@@ -80,86 +84,126 @@ export interface EmailSession {
 
 const BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
 
-function cookieValue(setCookies: string[], name: string): string | undefined {
-  for (const c of setCookies) {
-    const m = c.match(new RegExp(`^${name}=([^;]+)`));
-    if (m) return m[1];
+/** Every refresh cookie's name: the prefix, then the membership's scope. */
+const REFRESH_COOKIE_PREFIX = '__Host-refresh-token.';
+
+/** One membership's refresh cookie as a browser presents it. */
+export function refreshCookie(scope: string, token: string): string {
+  return `${REFRESH_COOKIE_PREFIX}${scope}=${token}`;
+}
+
+/** A scope's own host, at the platform host's port — where a page on that scope lives. */
+export function scopeOriginFrom(platformUrl: string, scope: string): string {
+  const url = new URL(platformUrl);
+  if (!url.hostname.startsWith('platform.')) {
+    throw new Error(`expected the platform host's origin, got ${url.origin}`);
   }
-  return undefined;
+  const deployment = `${url.protocol}//${url.hostname.slice('platform.'.length)}`;
+  return hostOrigin({ kind: 'scope', scope }, deployment, url.origin);
 }
 
 /**
- * The `refresh-token` cookie a click set FOR A GIVEN SCOPE.
+ * The refresh cookie a consume set FOR A GIVEN SCOPE.
  *
- * ⚠️ **A click sets one cookie per membership of the address (mint-all), so "the first cookie" is
- * not something a caller can rely on** — the order is the link's own scope first, then accepted
- * memberships, then most-recent (`selectSessionsToMint`), so for an address with history the first
- * cookie is whichever scope the link named rather than the one the caller wants next. Each cookie's
- * `Path` is `/auth/{scope}`, so the scope is read back from there.
+ * ⚠️ **A consume sets one cookie per membership of the address (mint-all), so "the first cookie" is
+ * not something a caller can rely on.** Each is named for its membership's scope, so the scope is
+ * read back from the name.
  */
 export function refreshTokenForScope(headers: string[], scope: string): string | undefined {
+  const name = `${REFRESH_COOKIE_PREFIX}${scope}=`;
   for (const c of headers) {
-    if (!c.startsWith('refresh-token=')) continue;
-    const path = /Path=([^;]+)/.exec(c)?.[1] ?? '';
-    if (decodeURIComponent(path.split('/').pop() ?? '') === scope) return c.split(';')[0].split('=')[1];
+    if (c.startsWith(name)) return c.slice(name.length).split(';')[0];
   }
   return undefined;
 }
 
 /**
- * Take up a membership — the consent modal's endpoint, driven the way its holder drives it.
+ * Press a link's page's button — the page's same-origin `POST /auth/magic-link`, on the host the
+ * link names, as sent. The page's own `GET` changes nothing, so this is the one request that
+ * consumes. For a link that opens a pending membership — a claim's or an invite's — it is the
+ * consent screen's Accept, and `body` carries the names the screen collects.
+ */
+export async function consumeLink(
+  link: string, fetchImpl: FetchLike = fetch, body: Record<string, unknown> = {},
+): Promise<Response> {
+  const url = new URL(link);
+  const token = url.searchParams.get('token');
+  if (!token) throw new Error(`no token in the link's ${url.pathname}`);
+  return fetchImpl(`${url.origin}/auth/magic-link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin' },
+    body: JSON.stringify({ token, ...body }),
+  });
+}
+
+/**
+ * Take up a membership on Home — `accept-membership`, naming the scope whose cookie it presents.
  *
- * ⚠️ **Not optional.** A cookie minted at the click is INERT until its holder accepts, so a login
- * that skipped this would 401 at its first refresh. Acceptance is a deliberate act by design (a link
- * click is not consent — mail scanners click links), and a test identity is not exempt from it.
+ * A plain login link places a pending membership's cookie without accepting it, which is what this
+ * is for; a claim's or an invite's own link accepts as it is consumed. An already-accepted
+ * membership answers 200 and changes nothing.
  */
 export async function acceptMembership(
   baseUrl: string, refreshToken: string, scope: string, fetchImpl: FetchLike = fetch,
 ): Promise<void> {
   const origin = baseUrl.replace(/\/$/, '');
-  const res = await fetchImpl(`${origin}/auth/${scope}/accept-membership`, {
+  const res = await fetchImpl(`${origin}/auth/accept-membership`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${refreshToken}` },
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', Cookie: refreshCookie(scope, refreshToken) },
+    body: JSON.stringify({ scope }),
   });
   if (!res.ok) throw new Error(`accept-membership ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
 /**
- * Click an invite link and come back with a session that can actually mint — the invitee's whole
- * arrival, in one call.
+ * `POST /auth/refresh-token` as a page on `scope`'s host sends it — `Origin` names the page, the
+ * cookies ride, no body — and the raw answer, for a caller that asserts a refusal.
+ */
+export function refreshFromPage(
+  baseUrl: string, scope: string, cookieHeader: string, fetchImpl: FetchLike = fetch,
+): Promise<Response> {
+  const origin = baseUrl.replace(/\/$/, '');
+  return fetchImpl(`${origin}/auth/refresh-token`, {
+    method: 'POST', headers: { Origin: scopeOriginFrom(origin, scope), Cookie: cookieHeader },
+  });
+}
+
+/** `POST /auth/home-summary` as Home on the platform host sends it, and the raw answer. */
+export function homeSummary(baseUrl: string, cookieHeader: string, fetchImpl: FetchLike = fetch): Promise<Response> {
+  return fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/home-summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', Cookie: cookieHeader },
+    body: '{}',
+  });
+}
+
+/**
+ * Accept an invite on its link's page and come back with the session it set — the invitee's whole
+ * arrival, in one call. The page's Accept consumes the link and accepts the membership together, so
+ * the cookie it sets mints at once.
  *
- * ⚠️ **It exists because the three steps are separable and the middle one is silently omissible.**
- * A click sets a cookie per membership and every one of them is INERT; the refusal only shows up
- * later, at whatever `refresh-token` the scenario reaches for next, as a `membership_not_accepted`
- * far from the line that caused it. Four scenarios hand-rolled click → pick-a-cookie → refresh, and
- * when acceptance landed all four broke — three of them additionally picking the first cookie in the
- * header rather than the one Path-bound to the scope they went on to use, which is a second bug that
- * only bites an address with history. Bundling the trio means a caller cannot express the broken
- * order.
- *
- * The `clicked` response is returned because scenarios legitimately assert on it — the 302's status
- * and its `Location` are the landing contract. A scenario testing consent ITSELF (that the click is
- * *not* enrolment) must NOT use this: drive the two halves separately, as `invite-consent` does.
+ * The consume's response is returned because scenarios legitimately assert on it — its `redirect`
+ * is the landing contract. A scenario testing consent ITSELF must NOT use this.
  */
 export async function acceptInviteAndLogin(options: {
   baseUrl: string;
-  /** The `accept-invite?invite_token=…` URL from the invitation, already pointed at this origin. */
+  /** The `/auth/magic-link?token=…` URL from the invitation, followed as sent. */
   inviteLink: string;
-  /** The scope being joined — picks the cookie by `Path` and names what is consented to. */
+  /** The scope being joined — picks the cookie by name and names what is consented to. */
   scope: string;
   fetchImpl?: FetchLike;
+  /** The names the consent screen collects. */
+  names?: { nickname?: string; name?: string };
 }): Promise<{ refreshToken: string; clicked: Response }> {
   const { inviteLink, scope, fetchImpl = fetch } = options;
-  const origin = options.baseUrl.replace(/\/$/, '');
-  const clicked = await fetchImpl(inviteLink, { redirect: 'manual' });
+  const clicked = await consumeLink(inviteLink, fetchImpl, options.names ?? {});
   const refreshToken = refreshTokenForScope(setCookieHeaders(clicked), scope);
   if (!refreshToken) {
     throw new Error(
-      `accept-invite (${clicked.status}) set no refresh-token cookie for "${scope}" — ` +
-      `Location=${clicked.headers.get('Location') ?? '(none)'}`,
+      `the invite's Accept (${clicked.status}) set no refresh cookie for "${scope}": ` +
+      `${(await clicked.clone().text().catch(() => '')).slice(0, 200)}`,
     );
   }
-  await acceptMembership(origin, refreshToken, scope, fetchImpl);
   return { refreshToken, clicked };
 }
 
@@ -192,9 +236,10 @@ export function setCookieHeaders(res: Response): string[] {
 
 
 /**
- * POST `claim-universe` — the one open, admin-minting entry point. Returns the magic-link
- * URL in test mode, `undefined` in email mode (the link arrives by email instead), or
- * `null` when the slug is **already claimed** (409).
+ * POST `claim-universe` — the one open, admin-minting entry point, which writes the account and its
+ * first app, `{universe}.{appSlug}` with its `.dev` Star. Returns the magic-link URL in test mode,
+ * `undefined` in email mode (the link arrives by email instead), or `null` when the slug is
+ * **already claimed** (409).
  *
  * ⚠️ 409 is legitimate and common, not an error: one admin backing several clients claims
  * once, then re-logs-in. Callers fall through to an ordinary login. It is NOT silently
@@ -202,14 +247,14 @@ export function setCookieHeaders(res: Response): string[] {
  * this one and the login fails visibly at consume.
  */
 export async function requestUniverseClaim(options: {
-  baseUrl: string; universe: string; email: string;
+  baseUrl: string; universe: string; appSlug: string; email: string;
   fetchImpl?: FetchLike; bypassToken?: string;
 }): Promise<string | null | undefined> {
-  const { baseUrl, universe, email, fetchImpl = fetch, bypassToken } = options;
+  const { baseUrl, universe, appSlug, email, fetchImpl = fetch, bypassToken } = options;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
   const res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/claim-universe`, {
-    method: 'POST', headers, body: JSON.stringify({ slug: universe, email }),
+    method: 'POST', headers, body: JSON.stringify({ slug: universe, appSlug, email }),
   });
   if (res.status === 409) return null;
   if (!res.ok) {
@@ -236,12 +281,14 @@ export async function requestUniverseClaim(options: {
 export async function requestMagicLink(options: {
   baseUrl: string; email: string;
   fetchImpl?: FetchLike; bypassToken?: string;
+  /** A page on this deployment to come back to — checked by the server, which stores it with the link. */
+  returnTo?: string;
 }): Promise<string | undefined> {
-  const { baseUrl, email, fetchImpl = fetch, bypassToken } = options;
+  const { baseUrl, email, fetchImpl = fetch, bypassToken, returnTo } = options;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
   const res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/email-magic-link`, {
-    method: 'POST', headers, body: JSON.stringify({ email }),
+    method: 'POST', headers, body: JSON.stringify({ email, ...(returnTo ? { return_to: returnTo } : {}) }),
   });
   if (!res.ok) {
     // 403 here usually means Turnstile blocked us — a missing/stale bypassToken.
@@ -251,14 +298,13 @@ export async function requestMagicLink(options: {
 }
 
 /**
- * POST `claim-star` — the open Star self-signup. Mints an `scopeAdmin` star-scoped admin AT the star scope and
- * issues its claim link in one call, so unlike `create-star` there IS an identity to log in as
- * afterwards. Returns the link in test mode, `undefined` in email mode, or `null` on 409 (already
- * claimed — fall through to an ordinary login for the existing identity).
+ * POST `claim-star` — the open Star self-signup, and the one way a tenant Star comes to exist. Mints
+ * a `scopeAdmin` star-scoped admin AT the star scope and issues its claim link in one call. Returns
+ * the link in test mode, `undefined` in email mode, or `null` on 409 (already claimed — fall through
+ * to an ordinary login for the existing identity).
  *
- * ⚠️ Requires the parent galaxy to exist, and refuses reserved environment slugs (`dev`). A
- * `{u}.{g}.dev` workspace has no star-scoped admin by construction — provision that with `create-star` and
- * drive it from a covering admin instead.
+ * ⚠️ Requires the parent galaxy to exist, and refuses reserved environment slugs (`dev`). Nobody
+ * founds a `{u}.{g}.dev` workspace — it is born with its galaxy — so drive it from a covering admin.
  */
 export async function requestStarClaim(options: {
   baseUrl: string; universeGalaxyStarId: string; email: string;
@@ -279,7 +325,7 @@ export async function requestStarClaim(options: {
 
 /**
  * Provision a tenant Star and log in AS ITS FOUNDER — a real, star-scoped session whose refresh
- * cookie is `Path=/auth/{u}.{g}.{s}` and whose token carries an **exact-star** `authScope`.
+ * cookie is `__Host-refresh-token.{u}.{g}.{s}` and whose token carries an **exact-star** `authScope`.
  *
  * This is what {@link provisionAndLogin} cannot give you. That helper climbs: it claims the
  * *universe* and returns a universe-admin token whose scope `{u}` merely *covers* the star. The
@@ -308,7 +354,10 @@ export async function provisionStarAdmin(
 
   // 1–2. The universe + galaxy above the star, provisioned by the universe admin (a DIFFERENT
   //      identity from the star-scoped admin — which is the point: the star-scoped admin is a stranger).
-  await provisionAndLogin({ ...options, scope: `${universe}.${galaxy}`, email: `owner-${email}` });
+  //      ⚠️ On a fetch of its own, never the caller's: a different person is a different browser, and
+  //      a browser holding the owner's cookie gets the owner's token on every page beneath, since
+  //      the refresh picks the broadest admin membership the cookies reach.
+  await provisionAndLogin({ ...options, fetchImpl: fetch, scope: `${universe}.${galaxy}`, email: `owner-${email}` });
 
   // 3. Claim the star as the tenant. Open — no admin in the loop, no token needed.
   // ⚠️ **No `instance` filter, because the branch below decides the tag and it has not run yet.**
@@ -326,7 +375,7 @@ export async function provisionStarAdmin(
       baseUrl: origin, universeGalaxyStarId: scope, email, fetchImpl, bypassToken,
     });
     // 409 — already claimed (a second Browser for the same admin). An ordinary login works,
-    // because unlike a `create-star` scope this one HAS an identity.
+    // because a claimed Star HAS an identity.
     const rawLink = claimed === null
       ? await requestMagicLink({ baseUrl: origin, email, fetchImpl, bypassToken })
       : claimed;
@@ -343,15 +392,17 @@ export async function provisionStarAdmin(
       }
       link = rawLink;
     }
-    const linkRes = await fetchImpl(link, { redirect: 'manual' });
+    // The claim's page is its consent screen, so its Accept consumes and accepts; the plain-login
+    // fallback places the cookie and Home's Accept takes it up (an already-accepted one is a no-op).
+    const linkRes = await consumeLink(link, fetchImpl);
     const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), scope);
     if (!refreshToken) {
       throw new Error(
-        `claim-star magic-link GET (${linkRes.status}) set no refresh-token cookie for "${scope}" — ` +
-        `Location=${linkRes.headers.get('Location') ?? '(none)'}`,
+        `claim-star link's consume (${linkRes.status}) set no refresh cookie for "${scope}": ` +
+        `${(await linkRes.clone().text().catch(() => '')).slice(0, 200)}`,
       );
     }
-    await acceptMembership(origin, refreshToken, scope, fetchImpl); // the claimer consents
+    await acceptMembership(origin, refreshToken, scope, fetchImpl);
     session = { refreshToken, authScope: scope, email, savedAt: new Date().toISOString() };
   } finally {
     waiter?.cleanup();
@@ -362,8 +413,8 @@ export async function provisionStarAdmin(
 }
 
 /**
- * Log in for real: POST the magic-link request → catch the email via the
- * email-test Worker → GET the link → capture the `refresh-token` cookie.
+ * Log in for real: POST the magic-link request → catch the email via the email-test Worker →
+ * press the link page's Continue → capture the membership's refresh cookie → accept it on Home.
  *
  * No test-mode bypass and no synthetic mint — this walks the same path a user
  * walks, which is the whole point: a shortcut path exercises different code, and
@@ -388,24 +439,21 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
     await requestMagicLink({ baseUrl: origin, email, fetchImpl, bypassToken });
 
     const link = extractMagicLink(await waiter.emailPromise);
-    // `manual` so we can read Set-Cookie: the 302 Location is a client-side route.
-    const linkRes = await fetchImpl(link, { redirect: 'manual' });
+    const linkRes = await consumeLink(link, fetchImpl);
     const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), authScope);
     if (!refreshToken) {
-      // Say WHY, not just "no cookie". `Location` carries the auth layer's own error code
-      // when the link was REJECTED (`?error=invalid_token` = the token was not found or was
-      // already consumed), while the presence of other Set-Cookie names separates "server
-      // never set it" from "our client dropped it". Report both; don't guess between them.
+      // Say WHY, not just "no cookie": the body carries the auth layer's own error code when the
+      // link was refused, and the other cookie names separate "server never set it" from "our
+      // client dropped it". Report both; don't guess between them.
       const others = setCookieHeaders(linkRes).map((c) => c.split('=')[0]).join(', ') || '(none)';
       throw new Error(
-        `magic-link GET (${linkRes.status}) set no refresh-token cookie — ` +
-        `Location=${linkRes.headers.get('Location') ?? '(none)'}; Set-Cookie names=${others}; ` +
-        `origin=${new URL(origin).origin}`,
+        `the link's consume (${linkRes.status}) set no refresh cookie for "${authScope}" — ` +
+        `body=${(await linkRes.clone().text().catch(() => '')).slice(0, 200)}; Set-Cookie names=${others}`,
       );
     }
 
-    // The consent step — see `acceptMembership`. Without it this session's first refresh 401s,
-    // because mint-all places cookies before anyone has agreed to enter the scope.
+    // A plain link accepts nothing, so a pending membership is taken up on Home, as its holder
+    // would; an accepted one answers 200 and changes nothing.
     await acceptMembership(origin, refreshToken, authScope, fetchImpl);
 
     return { refreshToken, authScope, email, savedAt: new Date().toISOString() };
@@ -415,8 +463,9 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
 }
 
 /**
- * Exchange a refresh token for an access token whose `aud` is `activeScope`.
- * Not Turnstile-gated, so no bypass token is involved.
+ * Exchange a refresh token for an access token whose `aud` is `activeScope` — the refresh a page on
+ * `activeScope`'s host sends: `Origin` names that page, the membership's cookie rides, no body. Not
+ * Turnstile-gated, so no bypass token is involved.
  */
 export async function refreshAccessToken(
   baseUrl: string,
@@ -425,13 +474,12 @@ export async function refreshAccessToken(
   fetchImpl: FetchLike = fetch,
 ): Promise<{ accessToken: string; sub: string }> {
   const origin = baseUrl.replace(/\/$/, '');
-  const res = await fetchImpl(`${origin}/auth/${session.authScope}/refresh-token`, {
+  const res = await fetchImpl(`${origin}/auth/refresh-token`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      Cookie: `refresh-token=${session.refreshToken}`,
+      Origin: scopeOriginFrom(origin, activeScope),
+      Cookie: refreshCookie(session.authScope, session.refreshToken),
     },
-    body: JSON.stringify({ activeScope }),
   });
   if (!res.ok) throw new Error(`refresh-token ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const { access_token, sub } = (await res.json()) as { access_token: string; sub: string };
@@ -444,21 +492,21 @@ export async function refreshAccessToken(
  *
  * Why this and not just `loginViaEmail`: **login never mints an identity.** Identity
  * mint is authority-point-only (`nebula-auth-registry.ts` says outright *"NEVER call
- * from a login path"*), so a magic link for a scope with no identity is issued, emailed,
- * and then rejected on consumption — `302 /app?error=invalid_token`, no cookie. The one
- * open, admin-minting entry point today is `claim-universe`, which mints the universe admin
- * with `scopeAdmin: true` before sending the link.
+ * from a login path"*), so an address holding no membership gets a link whose Continue sends it
+ * to sign up, holding no refresh cookie. The one open, admin-minting entry point today is
+ * `claim-universe`, which mints the universe admin with `scopeAdmin: true` before sending the link.
  *
- * So: claim the **universe**, log in there for real, then create the galaxy/star beneath
- * it with that admin's token. The returned token's universe-admin reach covers every
+ * So: claim the **universe** with the requested galaxy as its first app, log in there for real,
+ * then create what is left beneath it with that admin's token. The returned token's universe-admin reach covers every
  * scope below, which is what lets a caller drive a star it never logged into directly —
- * the same shape prod uses (`prodLogin` at `nebula-platform`, then refresh at the target).
+ * the same shape prod uses (`prodLogin`'s root cookie, refreshed on the target's page).
  *
- * ⚠️ Logging in *directly* at a fresh star is a different thing, and `create-star` cannot get you
- * there — it writes a `Scopes` row with no admin identity, so there is no identity to log in as. The path
- * that can is the open `claim-star` self-signup, which mints an `scopeAdmin` star-scoped admin at the star scope
- * and emails it a claim link (`tasks/archive/nebula-star-founder-provisioning.md`). Re-ground this helper
- * onto it rather than climbing from the universe (that task's Phase 4).
+ * A galaxy the claim did not write — the universe was claimed already — is created the one way a
+ * session creates one, `NebulaAuthFacade.createGalaxy`, on a short-lived mesh client
+ * ({@link createGalaxyViaFacade}). A scope with no galaxy segment claims the first app `first`. A
+ * tenant Star is founded the one way any comes to exist, by its own claimer, who then accepts it
+ * ({@link foundTenantStar}); the universe admin's dominion is what drives it. To log in AS a star's
+ * own admin, use {@link provisionStarAdmin}.
  *
  * @param scope 1–3 dot-separated segments (`u`, `u.g`, or `u.g.s`). Each level below the
  *              universe is created in order.
@@ -480,12 +528,14 @@ export async function provisionAndLogin(
     ? waitForEmail({ testToken, to: email, timeout: timeout ?? 60_000 })
     : undefined;
   let session: EmailSession;
-  // Returned to the caller: magic links are deliberately MULTI-USE within their TTL (the scanner
-  // invariant — mail scanners fetch the link before the human does), so a caller wanting a SECOND
-  // real session for the same person clicks this again rather than sending a second letter.
+  // Returned to the caller, so a scenario can show the link is now spent: a link signs in once.
   let usedLink!: string;
+  let claimedFresh = false;
   try {
-    const claimed = await requestUniverseClaim({ baseUrl: origin, universe, email, fetchImpl, bypassToken });
+    const claimed = await requestUniverseClaim({
+      baseUrl: origin, universe, appSlug: galaxy ?? 'first', email, fetchImpl, bypassToken,
+    });
+    claimedFresh = claimed !== null;
     let rawLink: string | undefined;
     if (claimed === null) {
       // Already claimed — fall through to an ordinary login for the existing identity.
@@ -506,15 +556,17 @@ export async function provisionAndLogin(
       link = rawLink;
     }
     usedLink = link;
-    const linkRes = await fetchImpl(link, { redirect: 'manual' });
+    // The claim's page is its consent screen, so its Accept consumes and accepts; the plain-login
+    // fallback places the cookie and Home's Accept takes it up (an already-accepted one is a no-op).
+    const linkRes = await consumeLink(link, fetchImpl);
     const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), universe);
     if (!refreshToken) {
       throw new Error(
-        `claim-universe magic-link GET (${linkRes.status}) set no refresh-token cookie for "${universe}" — ` +
-        `Location=${linkRes.headers.get('Location') ?? '(none)'}`,
+        `claim-universe link's consume (${linkRes.status}) set no refresh cookie for "${universe}": ` +
+        `${(await linkRes.clone().text().catch(() => '')).slice(0, 200)}`,
       );
     }
-    await acceptMembership(origin, refreshToken, universe, fetchImpl); // the claimer consents
+    await acceptMembership(origin, refreshToken, universe, fetchImpl);
     session = { refreshToken, authScope: universe, email, savedAt: new Date().toISOString() };
   } finally {
     waiter?.cleanup();
@@ -523,22 +575,14 @@ export async function provisionAndLogin(
   // 2. Token at the universe, used to authorize the scope creations below it.
   let { accessToken, sub } = await refreshAccessToken(origin, session, universe, fetchImpl);
 
-  // 3. Create each level below the universe. Both endpoints are admin-gated over the
-  //    parent, and the universe admin is admin — so this admin authorizes its own tree.
-  const levels: Array<[string, string]> = [];
-  if (galaxy) levels.push(['create-galaxy', `${universe}.${galaxy}`]);
-  if (star) levels.push(['create-star', `${universe}.${galaxy}.${star}`]);
-  for (const [endpoint, id] of levels) {
-    const key = endpoint === 'create-galaxy' ? 'universeGalaxyId' : 'universeGalaxyStarId';
-    const res = await fetchImpl(`${origin}/auth/${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ [key]: id }),
-    });
-    // 409 = already exists, which is success for provisioning purposes.
-    if (!res.ok && res.status !== 409) {
-      throw new Error(`${endpoint} ${res.status} for ${id}: ${(await res.text()).slice(0, 200)}`);
-    }
+  // 3. Create each level below the universe the claim did not write. The galaxy (born with its
+  //    `.dev` Star) through the facade, where this universe admin's dominion licenses it; a tenant
+  //    Star by its own claim.
+  if (galaxy && !claimedFresh) {
+    await createGalaxyViaFacade({ baseUrl: scopeOriginFrom(origin, universe), accessToken, sub, universeGalaxyId: `${universe}.${galaxy}` });
+  }
+  if (star && star !== 'dev') {
+    await foundTenantStar({ baseUrl: origin, star: scope, testToken, bypassToken, channel: options.channel, timeout });
   }
 
   // 4. Re-issue at the requested scope. `aud` becomes `scope`; reach stays the admin's.
@@ -546,6 +590,68 @@ export async function provisionAndLogin(
     ({ accessToken, sub } = await refreshAccessToken(origin, session, scope, fetchImpl));
   }
   return { accessToken, sub, session, link: usedLink };
+}
+
+/**
+ * Found a tenant Star the way a tenant does: its own `claim-star` by a fresh address, the emailed
+ * link followed as sent, and that founder's Accept. Nothing is invited into a Star whose founder is
+ * still pending, so a Star a caller means to use is founded whole. The founder is a stranger to
+ * whoever asked, so their requests ride plain `fetch`, never the asker's cookie jar. Returns the
+ * founder's address, or `null` when the Star was claimed already.
+ */
+export async function foundTenantStar(options: {
+  baseUrl: string; star: string; testToken: string; bypassToken?: string;
+  channel?: EmailLoginOptions['channel']; timeout?: number;
+}): Promise<string | null> {
+  const { star, testToken, bypassToken, timeout } = options;
+  const origin = options.baseUrl.replace(/\/$/, '');
+  const founder = uniqueTestEmail();
+  const useEmail = (options.channel ?? 'email') === 'email';
+  const waiter = useEmail ? waitForEmail({ testToken, to: founder, timeout: timeout ?? 60_000 }) : undefined;
+  try {
+    const claimed = await requestStarClaim({ baseUrl: origin, universeGalaxyStarId: star, email: founder, bypassToken });
+    if (claimed === null) return null;
+    const link = useEmail ? extractMagicLink(await waiter!.emailPromise) : claimed;
+    if (!link) throw new Error(`claim-star for ${star} returned no link in test mode`);
+    const clicked = await consumeLink(link); // the claim page's Accept
+    if (!refreshTokenForScope(setCookieHeaders(clicked), star)) {
+      throw new Error(`the founder's Accept (${clicked.status}) set no refresh cookie for "${star}"`);
+    }
+    return founder;
+  } finally {
+    waiter?.cleanup();
+  }
+}
+
+/** The mesh client `createGalaxyViaFacade` calls through: nothing but the base, which is abstract. */
+class FacadeCaller extends LumenizeClient {}
+
+/**
+ * Create an app through `NebulaAuthFacade.createGalaxy` — the one way a session creates a galaxy —
+ * on a short-lived mesh client holding `accessToken`, which must carry dominion over the universe.
+ * The client is the same identity as the token, for one call, so it renews nothing (`testing.md`).
+ * An app that already exists is success, for provisioning.
+ */
+export async function createGalaxyViaFacade(options: {
+  baseUrl: string; accessToken: string; sub: string; universeGalaxyId: string; WebSocket?: unknown;
+}): Promise<void> {
+  const { baseUrl, accessToken, sub, universeGalaxyId } = options;
+  const client = new FacadeCaller({
+    baseUrl: baseUrl.replace(/\/$/, ''),
+    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+    instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
+    accessToken,
+    refresh: async () => ({ access_token: accessToken, sub }),
+    ...(options.WebSocket ? { WebSocket: options.WebSocket } : {}),
+  } as ConstructorParameters<typeof LumenizeClient>[0]);
+  try {
+    await client.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+      client.ctn<NebulaAuthFacade>().createGalaxy(universeGalaxyId));
+  } catch (e) {
+    if ((e as { errorCode?: string }).errorCode !== 'slug_taken') throw e;
+  } finally {
+    client.disconnect();
+  }
 }
 
 /**

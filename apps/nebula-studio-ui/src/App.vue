@@ -1,36 +1,22 @@
 <script setup lang="ts">
-import { viewState, navigate, leaveTo, clearOverlays, forgetReturnTo, scopeOf } from "./view-state";
+import { viewState, navigate, leaveTo, pageScope, scopeUrl, platformUrl } from "./view-state";
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { Send, RotateCw, Eraser, LogIn, Loader2, User, UserRound, LogOut, Trash2, ChevronLeft, Plus, Hammer, Home, Mail } from "lucide-vue-next";
-import DataUseNotice from "./DataUseNotice.vue";
+import { Send, RotateCw, Eraser, Loader2, User, UserRound, LogOut, Home, Mail, Settings } from "lucide-vue-next";
 import UniverseView from "./UniverseView.vue";
+import AppSettings from "./AppSettings.vue";
+import ConfirmDelete from "./ConfirmDelete.vue";
+import HostWait from "./HostWait.vue";
+import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
 import type { TurnLiveness } from "@lumenize/nebula/frontend";
-import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
 
-// You build your hierarchy explicitly — claim a Universe, add a Galaxy, add a `.dev` Star, open it
-// to author. No magic first-run, no `?scope=` sidestep (tasks/nebula-release-process.md § B2 + the
-// hierarchy-builder sidebar). `authScope` = where you logged in (the refresh-cookie scope);
-// `activeScope` = the scope you're working IN (a `.dev` Star under your authority). They differ once
-// you "open" a Star: your Universe cookie mints a token whose admin pattern reaches the Star.
-// The ACTIVE scope comes from the path, scope-first: `/{scope}` IS the URL — the scope is the first
-// segment, and its tier (segment count) picks the view (universe manage-apps, galaxy Studio). The
-// Worker-served prefixes (`/auth`, `/app`, `/gateway`) never reach this SPA — Workers Assets serves
-// the SPA only for everything else — and universe slugs colliding with them are refused at claim
-// (`RESERVED_UNIVERSE_SLUGS`), so a first segment that reaches here is a scope or nothing. There is
-// deliberately NO `?scope=` fallback: a second way in is an interim that gets reached for later (the
-// unlearning tax). The AUTH scope comes from the per-workspace localStorage hint
-// `nebula.authScope:{activeScope}` — written by NebulaClient on every successful token acquisition,
-// never the URL and never a cookie (the client must know it to hit the path-scoped refresh
-// endpoint). Cold browser, no hint: pre-alpha the consumed link's scope IS the landing's active
-// scope, so trying the active scope itself succeeds and writes the entry.
-const urlScope = scopeOf(viewState.value.pathname);
-const AUTH_HINT_PREFIX = "nebula.authScope:";
-const authHint = (active: string) => localStorage.getItem(AUTH_HINT_PREFIX + active) ?? undefined;
-const activeScope = ref<string | undefined>(urlScope);
-const authScope = ref<string | undefined>(urlScope ? (authHint(urlScope) ?? urlScope) : undefined);
+// The scope this Studio works in is its HOST's: `crm.acme.lumenize.dev` is the galaxy `acme.crm`,
+// and `acme.lumenize.dev` the universe `acme`, whose page lists its apps (ADR-021). Its tier picks
+// the view. The client names no scope: its token comes from the platform host's refresh, which reads
+// this page's host from `Origin` and answers with that host's scope as the token's `aud`.
+const activeScope = pageScope;
 
 // ── The URL, through src/view-state.ts only: `viewState` reads it, `navigate` / `leaveTo` write it ──
 const overlay = computed(() => viewState.value.overlay);
@@ -45,7 +31,7 @@ const connected = ref(false);
 const connecting = ref(false); // post-magic-link auto-connect in flight (shows "Signing you in…")
 const busy = ref(false);
 
-// ── The live thread (the durable `Message` subscription — the collapse's Phase 4) ──
+// ── The live thread (the durable `Message` subscription) ──
 // Membership rides the query subscription (ids only); content + meta auto-subscribe by
 // READING `store.resources.Message[id]` in the render, and every participant's display
 // name auto-subscribes by reading `store.lmz.profiles[profileId]` (refcounted; a name
@@ -120,7 +106,7 @@ function closeChatThread() {
 type Party = { name: string; title?: string; picture?: string; kind: "agent" | "human" };
 type ThreadMsg = {
   id: string; kind: "agent" | "human"; mine: boolean; byline: string; title?: string;
-  /** Front-to-back. An act-bearing message stacks the ACTOR in front of the SUBJECT — Nebula on top,
+  /** Front-to-back. An act-bearing message stacks the ACTOR in front of the SUBJECT — the agent on top,
    *  the person it ran for behind, offset just enough to stay hoverable. A plain message is one face. */
   stack: Party[];
   content: string; thought?: string;
@@ -138,7 +124,7 @@ function participantPicture(p: { kind: "agent" | "human"; profileId?: string }):
 }
 function participantName(p: { kind: "agent" | "human"; profileId?: string }): string {
   const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
-  return prof?.nickname || prof?.name || (p.kind === "agent" ? "Nebula" : "Someone");
+  return prof?.nickname || prof?.name || (p.kind === "agent" ? "Lumenize" : "Someone");
 }
 const thread = computed<ThreadMsg[]>(() => {
   const store = nebula.value?.store;
@@ -154,7 +140,7 @@ const thread = computed<ThreadMsg[]>(() => {
       id,
       kind: parties[0]!.kind,
       mine: at.sub === mySub && parties.length === 1,
-      // The WHOLE-chain byline, top-down: "Nebula for {coach} for {user}" — every party
+      // The WHOLE-chain byline, top-down: "Lumenize for {coach} for {user}" — every party
       // resolved via its own Profile (the read IS the subscription).
       byline: parties.map(participantName).join(" for "),
       // The full names behind the byline, in the same order — shown on hover.
@@ -230,9 +216,6 @@ const elapsedSec = computed(() =>
 const previewSrc = ref("");
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
-// login
-const sessionExpired = ref(false); // a mid-session terminal auth failure flipped us back to login
-
 // account / hierarchy
 const menuOpen = ref(false);
 
@@ -247,52 +230,12 @@ const profileSaving = ref(false);
  *  preview is the real served object), written into the Profile on Save with the names. */
 const profilePicture = ref<string | undefined>();
 const pictureUploading = ref(false);
-const manageOpen = computed(() => overlay.value.manage && connected.value);
-const accountEmail = ref<string | null>(null);
-type Scope = { instanceName: string; tier: string; isDev: boolean; accepted?: boolean };
-const scopes = ref<Scope[]>([]);
-/** True once a scope load has COMPLETED. Distinct from `scopes.value.length === 0`, which is also
- *  true before the first load resolves — a difference UniverseView's empty state depends on. */
-const scopesLoaded = ref(false);
-
-/**
- * Flatten the person-scoped summary into the flat list this screen still renders.
- *
- * ⚠️ **A flat list cannot express a frontier.** The summary is budget-bounded and marks what it did
- * not descend into with `childCount`, so anything past the budget is absent here rather than merely
- * collapsed. That is acceptable for the two consumers below — a galaxy count and the manage tree of
- * a pre-alpha user, who is nowhere near the budget — and it is why the Home screen reads the NESTED
- * form instead. Anything that must be complete has to walk `children` and honour `childCount`.
- */
-function flattenSummary(summary: { emails: { memberships: any[] }[] }): Scope[] {
-  const out: Scope[] = [];
-  const walk = (n: any) => {
-    // ⚠️ `accepted` is carried, and its ABSENCE means something different from `false`. A membership
-    // row states it; a descendant reached THROUGH one does not carry it at all, and is actionable
-    // because the membership above it was accepted — that is what let the server return it.
-    out.push({
-      instanceName: n.scope, tier: n.tier, isDev: n.scope.endsWith('.dev'), accepted: n.accepted,
-    } as Scope);
-    (n.children ?? []).forEach(walk);
-  };
-  summary.emails.forEach((e) => e.memberships.forEach(walk));
-  return out;
-}
-const addChildFor = ref<string | null>(null); // a Universe row whose "name a Galaxy" input is open
-const addChildSlug = ref("");
-// The SHARED wire type — never hand-copy it: this package has no `vue-tsc` and is the sole
-// `SKIP_PACKAGES` entry, so a drifted copy reds in no gate and surfaces as a runtime TypeError.
-const deleteTarget = ref<string | null>(null);
-const deletePlan = ref<ScopeDeletionPlan | null>(null);
 
 const log = (role: Msg["role"], text: string) => messages.value.push({ role, text });
 
 // Post-collapse Studio's WORKING scope is the app-level GALAXY ({u}.{g}); the preview it embeds
 // is per-STAR, composed as the galaxy + `.dev` — the one surface where the split is real.
 const isWorkspace = (s?: string) => !!s && s.split(".").length === 2;
-/** Tree indent per depth, on the spacing scale. Literal so Tailwind's scanner emits every step;
- *  an inline `marginLeft: depth * 20px` was the one off-scale value in the shell. */
-const INDENT = ["ml-0", "ml-5", "ml-10", "ml-15", "ml-20"] as const;
 
 /** MY live public profile — the same slot every byline reads, so a save here re-renders them all. */
 const myProfile = computed<{ name?: string; nickname?: string; picture?: string } | undefined>(() => {
@@ -394,70 +337,62 @@ const chatPair = (s?: string) => {
   // fixture and harness driver uses).
   return g ? { resourceHostBinding: "GALAXY", chatHostBinding: "GALAXY", chatScope: g } : {};
 };
-// Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (inside a
-// workspace) > the Universe page (connected at a one-segment account scope, where you create/see
-// apps) > the signed-out landing (welcome + sign in; no chat rail, since there is nothing to chat with).
-const stageMode = computed<"manage" | "preview" | "universe" | "landing">(() =>
-  manageOpen.value ? "manage"
-    : !connected.value ? "landing"
-    : isWorkspace(activeScope.value) ? "preview"
+// Stage content: the live preview (inside a workspace) > the Universe page (a one-segment account
+// scope, where you create and open apps). Until the client connects the stage says it is signing in;
+// with no session at all the client sends this page to log in and brings it back.
+const stageMode = computed<"preview" | "universe" | "connecting">(() =>
+  !connected.value ? "connecting"
+    : isWorkspace(activeScope) ? "preview"
     : "universe",
 );
 
-// A session worth a "Log out" affordance even before the WS connects (e.g. a stale cookie that
-// failed to auto-connect, or a half-finished login) — so logout never vanishes when the avatar does.
-const hasSession = computed(() => !!authScope.value);
+/** The dev Star's own host — the as-you dev tab this Studio frames, and the only page it frames. */
+const devTabUrl = (galaxy: string) => scopeUrl(previewStar(galaxy));
+const devTabOrigin = activeScope && isWorkspace(activeScope) ? new URL(devTabUrl(activeScope)).origin : undefined;
 
 function reloadPreview() {
-  if (activeScope.value) previewSrc.value = `/app/${previewStar(activeScope.value)}/?t=${Date.now()}`;
+  if (activeScope && isWorkspace(activeScope)) previewSrc.value = `${devTabUrl(activeScope)}?t=${Date.now()}`;
 }
 
 // ── session ──────────────────────────────────────────────────────────────────
-// ⚠️ **There is deliberately no login code here.** Signing in lives in the auth SPA at
-// `/auth/login`, which serves every tier — a Tenant who never sees Studio needs the same front door,
-// and a person with no session should not have to load Studio's whole bundle to find a form. Studio
-// only ever ARRIVES authenticated; all that remains is where to send someone who is not.
-
-/** The front door, and where a chosen Account/App/Tenant is picked. */
-const AUTH_LOGIN = "/auth/login";
-const homeFor = (s: string) => `/auth/${encodeURIComponent(s)}/home`;
-
-// Leaving for a login is never the person's choice — a lapsed session, or a shared link opened
-// signed out — so where they were is remembered and Home brings them back (src/view-state.ts).
-function goToLogin() { leaveTo(AUTH_LOGIN, { returnHere: true }); }
+// ⚠️ **There is deliberately no login code here.** Signing in lives on the platform host, which
+// serves every tier — a Tenant who never sees Studio needs the same front door. Studio only ever
+// ARRIVES authenticated: with no session, the client sends this page to log in, naming it in
+// `return_to`, and the login brings the person back.
 
 /** Back to Home to pick a different Account, App or Tenant. */
 function goHome() {
   menuOpen.value = false;
-  leaveTo(authScope.value ? homeFor(authScope.value) : AUTH_LOGIN);
+  leaveTo(platformUrl("/"));
 }
 
-/** A terminal auth failure (refresh token expired/invalid) on an ALREADY-connected tab — fired
- *  by the mesh client's onLoginRequired. A full reload re-runs connect() and falls back to the
- *  login form; an OPEN tab has no such path, so without this it stays stuck on a dead session
- *  ("warming up" forever). Mirror the reload: drop to the login view + tell the user why. */
-function onSessionExpired() {
-  connected.value = false;
-  busy.value = false;
-  connecting.value = false;
-  sessionExpired.value = true;
+/**
+ * What the dev tab inside this Studio says about its session. The frame's client posts when it has
+ * no token for the dev Star, or when someone logs out inside it; either way Studio's own session is
+ * untouched, and the stage says so. ⚠️ Only a message from the frame this page created, at the
+ * origin it framed, is read — any other page could post the same shape.
+ */
+const previewNotice = ref<string | undefined>();
+const previewFrame = ref<HTMLIFrameElement | null>(null);
+function onFrameMessage(e: MessageEvent) {
+  if (!devTabOrigin || e.origin !== devTabOrigin || e.source !== previewFrame.value?.contentWindow) return;
+  const type = (e.data as { type?: unknown } | null)?.type;
+  if (type === "lumenize:login-required") previewNotice.value = "The preview has no session for its workspace.";
+  else if (type === "lumenize:logout") previewNotice.value = "You logged out inside the preview. Your Studio session is unchanged.";
 }
+onMounted(() => window.addEventListener("message", onFrameMessage));
+onUnmounted(() => window.removeEventListener("message", onFrameMessage));
 
 async function connect() {
-  if (!authScope.value) throw new Error("no scope to connect to");
-  if (!activeScope.value) activeScope.value = authScope.value;
   const n = createNebulaClient({
-    authScope: authScope.value,
-    activeScope: activeScope.value,
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
-    ...chatPair(activeScope.value),
+    ...chatPair(activeScope),
     // The build reply lands here: the Galaxy answers whoever asked for the build. The
     // initial load needs no cue — `dist/` serves from the Galaxy's VFS and the iframe
     // source is set below before anything is asked.
-    onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
-    onLoginRequired: onSessionExpired,
+    onPreviewReady: (scope) => { if (scope === activeScope) reloadPreview(); },
   });
-  await n.ready; // throws if not authenticated
+  await n.ready; // rejects with no session, after the client has sent this page to log in
   n.client.setOnStreamChunk((messageId, text, replyTo) => {
       // Render EVERY chunk — the thread is shared, so watching another participant's
       // reply appear is the product working. But only MY turn's chunks are liveness for
@@ -475,9 +410,8 @@ async function connect() {
     });
   nebula.value = n;
   connected.value = true;
-  sessionExpired.value = false;
-  if (isWorkspace(activeScope.value)) {
-    previewSrc.value = `/app/${previewStar(activeScope.value!)}/`; // render now; a build's reply refreshes it
+  if (isWorkspace(activeScope)) {
+    previewSrc.value = devTabUrl(activeScope!); // render now; a build's reply refreshes it
     openChatThread(n.client);
   }
   await nudgeNextStep();
@@ -485,30 +419,24 @@ async function connect() {
 
 /** After connecting, prepare the view for the scope the URL named.
  *
- *  ⚠️ **No auto-forward — the URL is the view (ADR-017).** `/{universe}` IS the Universe page:
- *  UniverseView renders the apps and the Create form, and *entering* an app is a URL navigation the
- *  person makes (a click → `enterScope` → new URL). An earlier version dropped a lone-galaxy account
- *  straight into that galaxy's Studio here, which meant `/{universe}` silently showed a galaxy — a
- *  view the address did not name. All this does now is load the app list for UniverseView; a
- *  workspace just confirms it is ready. */
+ *  ⚠️ **No auto-forward — the URL is the view (ADR-017).** An account's host, `acme.lumenize.dev`,
+ *  IS the Universe page: UniverseView renders the apps and the Create form, and *entering* an app is
+ *  a navigation the person makes (a click → `enterScope` → the app's host). Forwarding a lone-app
+ *  account into its Studio from here would show a view the address does not name; Home's
+ *  fast-forward does that before any host is chosen. All this does is load the app list for
+ *  UniverseView; a workspace just confirms it is ready. */
 async function nudgeNextStep() {
   // A workspace is ready to chat. The empty-thread hint lives in the template (shown only
   // while the conversation has no content), so there is nothing to log here.
-  if (isWorkspace(activeScope.value)) return;
-  await loadScopes(); // populate UniverseView's app list; an empty list opens the Create form
+  if (isWorkspace(activeScope)) return;
+  await loadUniverseApps(); // an empty list opens the Create form
 }
 
 onMounted(() => {
-  if (!authScope.value) return;
+  if (!activeScope) return; // not a scope's host: nothing to connect to
   connecting.value = true;
   connect()
-    .catch(() => {
-      // Auto-connect failed (not authenticated, or the scope was deleted/wiped). A failed
-      // per-workspace hint is stale — drop it so the next load falls back to trying the
-      // active scope itself (and, past pre-alpha, discovery). The URL scope is an explicit
-      // navigation — keep showing the login form targeting it.
-      if (urlScope) localStorage.removeItem(AUTH_HINT_PREFIX + urlScope);
-    })
+    .catch(() => { /* no session — the client has already sent this page to log in */ })
     .finally(() => {
       connecting.value = false;
     });
@@ -531,7 +459,7 @@ function onVisibilityChange() {
   }
   const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
   hiddenAt = 0;
-  if (awayMs > 4 * 60_000 && connected.value && isWorkspace(activeScope.value)) {
+  if (awayMs > 4 * 60_000 && connected.value && isWorkspace(activeScope)) {
     reloadPreview();
   }
 }
@@ -562,14 +490,14 @@ async function send() {
 }
 
 async function wipe() {
-  if (!nebula.value || busy.value || !isWorkspace(activeScope.value)) return;
+  if (!nebula.value || busy.value || !isWorkspace(activeScope)) return;
   busy.value = true;
   try {
     const client = nebula.value.client;
     // Fire-and-forget under the continuation-only model (no awaited callRaw). The wipe's
     // effect is reflected when the preview reloads; a dispatch failure is logged by the
-    // framework (D6), so the confirmation log here is optimistic.
-    client.lmz.call("STAR", previewStar(activeScope.value!), client.ctn<Star>().resetDevData());
+    // framework, so the confirmation log here is optimistic.
+    client.lmz.call("STAR", previewStar(activeScope!), client.ctn<Star>().resetDevData());
     log("studio", "Wiped the development test data.");
     reloadPreview();
   } catch (e) {
@@ -579,160 +507,48 @@ async function wipe() {
   }
 }
 
-// ── account + hierarchy ────────────────────────────────────────────────────────
-// The client (NebulaClient.scopes) owns EVERY authed registry call — the JWT never leaves it, so
-// there's no token plumbing in the view, a single auth authority, and no cookie-rotation race (the
-// 2026-06-26 back-to-back-refresh hang). App code just calls methods and reacts.
-
-async function loadScopes() {
-  const client = nebula.value?.client;
-  if (!client) return;
-  accountEmail.value = (client.claims as { email?: string } | null)?.email ?? accountEmail.value;
-  // Render order: parents before children, so the indent reads as a tree.
-  scopes.value = flattenSummary(await client.scopes.summary())
-    .sort((a, b) => a.instanceName.localeCompare(b.instanceName));
-  scopesLoaded.value = true;
-}
-
-function openManage() {
-  menuOpen.value = false;
-  navigate({ manage: true });
-}
-// Loads when the panel OPENS — by button or by URL — so `?manage` on arrival is the same panel.
-watch(manageOpen, async (open) => {
-  if (!open) return;
-  deletePlan.value = null;
-  deleteTarget.value = null;
-  addChildFor.value = null;
-  busy.value = true;
-  try {
-    await loadScopes();
-  } catch (e) {
-    log("error", `Could not load your account: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}, { immediate: true });
-
-function closeManage() {
-  navigate({ manage: false });
-  deletePlan.value = null;
-  deleteTarget.value = null;
-  addChildFor.value = null;
-}
-
-/** Indent depth for the tree (universe 0, galaxy/app 1 — `.dev` workspaces aren't tree rows). */
-const depth = (s: Scope) => s.instanceName.split(".").length - 1;
-/** Whether a galaxy's `.dev` development workspace exists yet (created with the app; `develop`
- *  lazily creates it for any app made before that). */
-const hasDevStar = (galaxy: string) => scopes.value.some((s) => s.instanceName === `${galaxy}.dev`);
-/** Tree rows = the hierarchy WITHOUT the `.dev` development workspaces — those aren't tenants and
- *  aren't shown as rows; you reach one via a galaxy's "Develop" button. */
-const treeScopes = computed(() => scopes.value.filter((s) => !s.isDev));
-
-/**
- * Whether this row's actions are live.
- *
- * ⚠️ **An unaccepted membership confers nothing** (ADR-012), so offering "+ App" or Delete on one is
- * an affordance for authority its holder has not taken up — it answers 403 and reads as a bug in the
- * product rather than as consent working. Found by driving the running app: a bootstrap address gets
- * an UNACCEPTED `nebula-platform` membership on any login, it sorts to the top of this list, and its
- * "+ App" button offered to create an app in the platform root.
- *
- * Only an explicit `false` disables — a descendant carries no flag and is reachable precisely
- * because the membership above it was accepted.
- */
-const isActionable = (s: Scope) => s.accepted !== false;
-
-/**
- * The reserved platform root — visible, never operated on from here.
- *
- * A platform admin holds dominion over everything, so "+ App" on this row would genuinely SUCCEED
- * and create an app inside the platform scope; Delete is refused server-side ("cannot be deleted")
- * but offering it at all reads as a product that will let you try. The row still renders, because
- * seeing it is the point — platform-level tools will live behind it eventually — it simply carries
- * no actions until there is something real to do there.
- */
-const PLATFORM_ROOT = "nebula-platform";
-const isReservedRoot = (s: Scope) => s.instanceName === PLATFORM_ROOT;
-
-async function addGalaxy(universe: string) {
-  const slug = addChildSlug.value.trim();
-  if (!slug || busy.value) return;
-  busy.value = true;
-  try {
-    await nebula.value!.client.scopes.createGalaxy(universe, slug); // its .dev workspace is born with it
-    addChildFor.value = null;
-    addChildSlug.value = "";
-    await loadScopes();
-  } catch (e) {
-    log("error", `Could not add app: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-/** Enter a galaxy's Studio to author it. Ensures its private `.dev` workspace exists (created with
- *  the app, so this only fires for older apps that predate that), then NAVIGATES — a URL push, not
- *  an in-place client swap. A full reload at `/{galaxy}` rebuilds the client exactly as `connect()`
- *  does, so there is no second setup path to keep in sync, and the address always names the view
- *  (ADR-017). authScope/cookie unchanged; `enterScope` seeds the hint so the reload knows the
- *  universe cookie to spend. */
-async function develop(galaxy: string) {
-  if (busy.value) return;
-  if (!hasDevStar(galaxy)) {
-    busy.value = true;
-    try {
-      await nebula.value!.client.scopes.createDevWorkspace(galaxy);
-    } catch (e) {
-      log("error", `Could not start the development workspace: ${(e as Error).message}`);
-      busy.value = false;
-      return;
-    }
-    busy.value = false;
-  }
-  enterScope(galaxy);
-}
-
-/** Guided first-run ("B"): one app name → Galaxy + its `.dev` Star + open it, so a fresh user goes
- *  straight from their Universe to authoring without hunting through "Manage my scopes". The explicit
- *  per-row builder is still there for power users; this is the frictionless path. */
 // ── The Universe page (UniverseView) — create an app, or open an existing one ──────────────────
 const createError = ref<string | undefined>();
 
-/** The apps under the account this page manages: galaxies directly beneath `activeScope`, never the
- *  hidden `.dev` workspaces. Empty for a fresh account, which is what makes the create modal open. */
-const universeApps = computed(() =>
-  scopes.value.filter(
-    (s) => s.tier === "galaxy" && !s.isDev && s.instanceName.startsWith(`${activeScope.value}.`),
-  ).map((s) => ({ scope: s.instanceName })),
-);
+/** The apps under the account this page manages: the galaxies directly beneath this page's own
+ *  scope, read through `expand`, whose parent is the token's `aud`. Empty once an account's last app
+ *  is deleted — a claim writes the first — which is what makes the create modal open. */
+const universeApps = ref<{ scope: string }[]>([]);
+/** True once the list has loaded — distinct from an empty list, which UniverseView's empty state
+ *  depends on. */
+const universeAppsLoaded = ref(false);
 
-/** Create the app, then NAVIGATE (not an in-place switch) to its Studio so the URL is the clean
- *  `/{u}.{g}` a person can share (ADR-017). A full reload for a brand-new app costs nothing —
- *  there is no chat or preview state to preserve — and lands App.vue straight in workspace mode. The
- *  scope to open comes from the server's returned `instanceName`, not the typed slug, so a URL can
- *  never disagree with what was created. */
-/**
- * Seed the auth hint, then navigate to a scope's Studio.
- *
- * ⚠️ **The hint is what stops a "session expired" 401.** A galaxy's session lives at the UNIVERSE's
- * refresh cookie (`Path=/auth/{universe}`), and `/auth/{universe}.{galaxy}/refresh-token` does NOT
- * receive it — RFC-6265 path matching fails because the character after the `/auth/{universe}` prefix
- * is `.`, not `/`. So Studio must be told which cookie to spend: `authScope.value` (the universe this
- * page authenticated at). Home seeds this when IT navigates (`home-logic.ts` `authHintFor`); a
- * create/open from the Universe page has to do the same, because these NAVIGATE rather than switch in
- * place — a full reload drops the in-memory `authScope`, so only the stored hint survives.
- */
-function enterScope(scope: string): void {
-  try {
-    if (authScope.value) localStorage.setItem(AUTH_HINT_PREFIX + scope, authScope.value);
-  } catch { /* private mode — Studio falls back to trying the active scope, which 401s for a galaxy */ }
-  leaveTo(`/${scope}`);
+async function loadUniverseApps() {
+  const client = nebula.value?.client;
+  if (!client) return;
+  const apps: { scope: string }[] = [];
+  let after: string | undefined;
+  do {
+    const page = await client.scopes.expand(after);
+    apps.push(...page.children.filter((c) => c.tier === "galaxy").map((c) => ({ scope: c.scope })));
+    after = page.nextCursor;
+  } while (after);
+  universeApps.value = apps;
+  universeAppsLoaded.value = true;
 }
 
+/** The scope's page this page is entering once its host answers (`HostWait`). */
+const waitingFor = ref<string | undefined>();
+
+/** Open a scope's own page — its Studio for an app, its account page for a universe — once its host
+ *  answers (`HostWait`): an app created moments ago may still be waiting for its certificate. A full
+ *  load on another host: a different scope is a different socket and token, and the host IS the
+ *  scope. */
+function enterScope(scope: string): void {
+  waitingFor.value = scopeUrl(scope);
+}
+
+/** Create the app, then NAVIGATE to its Studio, whose host a person can share (ADR-017), once that
+ *  host answers: creating it ordered its certificate, which takes minutes to issue. The scope to
+ *  open is the server's returned `instanceName`, not the typed slug, so the host can never disagree
+ *  with what was created. `busy` stays set while the page waits, so the form cannot submit again. */
 async function onCreateApp(slug: string) {
-  const universe = activeScope.value;
+  const universe = activeScope;
   if (!universe || busy.value) return;
   createError.value = undefined;
   busy.value = true;
@@ -747,119 +563,42 @@ async function onCreateApp(slug: string) {
   enterScope(created);
 }
 
-/** Open an existing app's Studio (the FLAVOUR-B list) — same clean-URL navigation, same hint. */
+/** Open an existing app's Studio (the FLAVOUR-B list). */
 function onOpenApp(scope: string) {
   enterScope(scope);
 }
 
-async function openDeleteConfirm(target: string) {
-  busy.value = true;
-  try {
-    deletePlan.value = await nebula.value!.client.scopes.deletePlan(target);
-    deleteTarget.value = target;
-  } catch (e) {
-    log("error", `Could not plan delete: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-function cancelDelete() {
-  deletePlan.value = null;
-  deleteTarget.value = null;
-}
-
-async function confirmDelete() {
-  const target = deleteTarget.value;
-  const plan = deletePlan.value;
-  // Warn-don't-block (ADR-015): attached users never gate the delete — only a missing plan does.
-  if (!target || !plan || busy.value) return;
-  busy.value = true;
-  try {
-    const { affected } = await nebula.value!.client.scopes.delete(target);
-    // Fan out the platform-DO teardown via mesh (the registry cleared its own rows already).
-    const client = nebula.value?.client;
-    if (client) {
-      // Fire-and-forget teardown (continuation-only model): these were already
-      // error-discarding (`.catch(() => {})`); a 3-arg call() drops the result and the
-      // framework logs any dispatch failure (D6). The registry rows are already cleared.
-      const ctnT = () => client.ctn<{ teardown(): Promise<void> }>().teardown();
-      for (const a of affected) {
-        const binding = a.tier === "universe" ? "UNIVERSE" : a.tier === "galaxy" ? "GALAXY" : "STAR";
-        client.lmz.call(binding, a.instanceName, ctnT());
-        // Post-collapse a `.dev` row needs no extra calls: the brain (chat + Workspace +
-        // registry) lives on the GALAXY row's own teardown above, and DEV_STUDIO /
-        // DEV_CONTAINER no longer exist. The dev star's data dies with its STAR teardown.
-      }
-    }
-    cancelDelete();
-    if (affected.some((a) => a.instanceName === authScope.value)) {
-      resetToLoggedOut(); // deleted the scope we logged in at → clean first-run
-    } else if (affected.some((a) => a.instanceName === activeScope.value)) {
-      enterScope(authScope.value!); // deleted the app we're IN → navigate to the Universe page (URL push)
-    } else {
-      await loadScopes(); // deleted some other app while at the Universe page → just refresh the list
-    }
-  } catch (e) {
-    log("error", `Delete failed: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-function resetToLoggedOut() {
-  closeChatThread();
-  if (activeScope.value) localStorage.removeItem(AUTH_HINT_PREFIX + activeScope.value);
+/** Log out: the client sends this page to the platform host's logout page, which ends every
+ *  session this browser holds, with ending them on every device already chosen when `everywhere`. */
+async function logout(options: { everywhere?: boolean } = {}) {
   menuOpen.value = false;
-  clearOverlays();
-  forgetReturnTo(); // leaving on purpose is not something to come back to
-  deletePlan.value = null;
-  deleteTarget.value = null;
-  connected.value = false;
-  nebula.value = null;
-  authScope.value = undefined;
-  activeScope.value = undefined;
-  previewSrc.value = "";
-  messages.value = [];
-  accountEmail.value = null;
-  scopes.value = [];
+  closeChatThread();
+  const client = nebula.value?.client;
+  if (client) await client.logout(options);
+  else leaveTo(platformUrl(options.everywhere ? "/auth/logout?everywhere=1" : "/auth/logout"));
 }
+
+// ── Deleting: an app from its Studio (`?app`), an account from its page ─────────────────────────
+// Each delete stands behind ConfirmDelete, which is component state and never the URL.
+
+/** The app's settings are open: its tenants and its own delete. A workspace's overlay only. */
+const appSettingsOpen = computed(() => overlay.value.app && connected.value && isWorkspace(activeScope));
 
 /**
- * End every session this address holds, not just this one.
- *
- * ⚠️ **The symmetric twin of mint-all.** One click on a link minted a cookie per membership, so
- * "log out" meaning only THIS app would leave the others live — a genuine surprise on a shared
- * machine, where the plain reading of the words is "not still signed in over there". The server
- * expires each cookie at its own path; this side only has to stop using the session.
+ * After this app is deleted, its account's page if the cookie behind this page's token opens it,
+ * otherwise Home. An app's admin who holds nothing at the account would only meet a login there.
  */
-async function logoutEverywhere() {
-  menuOpen.value = false;
-  const scope = authScope.value;
-  try {
-    if (scope) {
-      await fetch(`/auth/${scope}/logout-all`, { method: "POST", credentials: "include" }).catch(() => {});
-    }
-  } finally {
-    resetToLoggedOut();
-    goToLogin();
-  }
+function onAppDeleted() {
+  const universe = activeScope!.split(".")[0];
+  const access = (nebula.value?.client as { claims?: { access?: { authScope?: string; scopeAdmin?: boolean } } } | undefined)
+    ?.claims?.access;
+  const opens = access?.authScope !== undefined && !needsFreshLogin(
+    { scope: universe, tier: "universe" }, [{ scope: access.authScope, scopeAdmin: access.scopeAdmin === true }]);
+  leaveTo(opens ? scopeUrl(universe) : platformUrl("/"));
 }
 
-async function logout() {
-  menuOpen.value = false;
-  // Works whether or not the WS is up: connected → client.logout(); otherwise best-effort hit the
-  // logout endpoint for the remembered scope (clears the HttpOnly cookie a stale session left behind).
-  const client = nebula.value?.client as { logout?: () => Promise<void> } | undefined;
-  const scope = authScope.value;
-  try {
-    if (client?.logout) await client.logout();
-    else if (scope) await fetch(`/auth/${scope}/logout`, { method: "POST", credentials: "include" }).catch(() => {});
-  } catch {
-    /* best-effort */
-  }
-  resetToLoggedOut();
-}
+/** "Delete this account" was pressed on the universe page; the confirmation is open. */
+const confirmingAccount = ref(false);
 </script>
 
 <template>
@@ -928,6 +667,11 @@ async function logout() {
           </form>
         </div>
 
+        <button type="button" class="btn btn-link btn-sm px-0" data-testid="profile-logout-everywhere"
+          @click="logout({ everywhere: true })">
+          Log out on every device
+        </button>
+
         <div class="modal-action">
           <button type="button" class="btn btn-ghost btn-sm" :disabled="profileSaving" @click="closeProfile">
             Cancel
@@ -949,7 +693,7 @@ async function logout() {
     <!-- The full live transcript — opened from the strip; scrolls with the stream. -->
     <dialog class="modal" :open="streamModalOpen" @cancel.prevent="closeStreamModal">
       <div class="modal-box max-w-3xl">
-        <h3 class="text-lg font-bold">What Nebula is thinking</h3>
+        <h3 class="text-lg font-bold">What Lumenize is thinking</h3>
         <p v-if="transcriptMissing" class="mt-3 text-sm opacity-70" data-testid="stream-transcript-missing">This page did not see that message being written.</p>
         <pre v-else ref="transcriptEl" class="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-base-200 p-3 font-mono text-xs" data-testid="stream-transcript">{{ streamTranscript || "(nothing yet)" }}</pre>
         <div class="modal-action">
@@ -960,11 +704,10 @@ async function logout() {
 
     <!-- Chat rail -->
     <!-- The chat rail exists only inside a workspace on a live session. A Universe has no chat — it
-         renders UniverseView full-width in the stage — and the signed-out landing has nothing to
-         chat with, so both render the stage alone. -->
+         renders UniverseView full-width in the stage — so it renders the stage alone. -->
     <section v-if="connected && isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
-        <h1 class="text-lg font-bold">Nebula Studio</h1>
+        <h1 class="text-lg font-bold">Lumenize Studio</h1>
         <button
           v-if="isWorkspace(activeScope)"
           class="btn btn-sm btn-ghost"
@@ -1017,7 +760,7 @@ async function logout() {
         <!-- ONE status bubble, chosen by `turnDisplay` — the branches are keyed on the
              derived value, so precedence is the reducer's and not this list's order. -->
         <div v-if="turnDisplay === 'streaming'" class="chat chat-start">
-          <div class="chat-header text-xs opacity-60 mb-0.5">Nebula</div>
+          <div class="chat-header text-xs opacity-60 mb-0.5">Lumenize</div>
           <!-- The strip: a pulse, the tail of what is being written, and a click to read it all. -->
           <button
             type="button"
@@ -1027,7 +770,7 @@ async function logout() {
             @click="openStreamModal"
           >
             <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
-            <span class="shrink-0 text-xs opacity-70">Nebula is thinking</span>
+            <span class="shrink-0 text-xs opacity-70">Lumenize is thinking</span>
             <span class="truncate font-mono text-xs opacity-80" data-testid="stream-tail">{{ streamTail }}</span>
           </button>
         </div>
@@ -1068,7 +811,7 @@ async function logout() {
       </footer>
     </section>
 
-    <!-- Stage: account bar + help / hierarchy manager / preview -->
+    <!-- Stage: account bar + the Universe page / preview -->
     <section class="flex-1 bg-base-100 flex flex-col min-w-0">
       <div v-if="connected" class="relative flex items-center justify-end gap-2 px-3 py-2 border-b border-base-300">
         <span v-if="busy" class="mr-auto flex items-center gap-1.5 text-xs opacity-70">
@@ -1084,145 +827,45 @@ async function logout() {
           <RotateCw class="size-4" />
         </button>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
-          <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
           <img v-if="myProfile?.picture" :src="myProfile.picture" :alt="myProfile?.name ?? ''" :title="myProfile?.name" class="size-7 rounded-full object-cover" data-testid="account-picture" />
           <span v-else class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
         </button>
         <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
           <button class="btn btn-sm btn-ghost justify-start" @click="goHome"><Home class="size-4" /> Home</button>
           <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-profile" @click="openProfile"><UserRound class="size-4" /> Profile</button>
-          <button class="btn btn-sm btn-ghost justify-start" @click="openManage">Manage my account</button>
-          <a class="btn btn-sm btn-ghost justify-start" href="/auth/emails"><Mail class="size-4" /> Email addresses</a>
+          <button v-if="isWorkspace(activeScope)" class="btn btn-sm btn-ghost justify-start" data-testid="menu-app"
+            @click="menuOpen = false; navigate({ app: true })"><Settings class="size-4" /> App settings</button>
+          <a class="btn btn-sm btn-ghost justify-start" :href="platformUrl('/auth/emails')"><Mail class="size-4" /> Email addresses</a>
           <div class="divider my-0"></div>
-          <!-- Two logouts, because they mean different things on a shared machine: one ends this
-               app's session, the other ends every session this address holds anywhere. -->
-          <button class="btn btn-sm btn-ghost justify-start" @click="logout"><LogOut class="size-4" /> Log out of this app</button>
-          <button class="btn btn-sm btn-ghost justify-start text-error" @click="logoutEverywhere"><LogOut class="size-4" /> Log out everywhere</button>
+          <!-- One logout: it ends every session this browser holds, on the platform host's logout
+               page, which also offers ending them on every device. -->
+          <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-logout" @click="logout"><LogOut class="size-4" /> Log out</button>
         </div>
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto">
-        <!-- Signed-out landing: sign in, and the three-level picture of what you are signing in to.
-             Studio has no login of its own — the auth SPA owns every front door. -->
-        <div v-if="stageMode === 'landing'" class="p-8 max-w-2xl mx-auto flex flex-col gap-5" data-testid="landing">
-          <h2 class="text-xl font-bold">Welcome to Nebula</h2>
-          <!-- Post-magic-link auto-connect in flight — don't flash a sign-in prompt. -->
-          <div v-if="connecting" class="flex items-center gap-2 text-sm opacity-80">
-            <Loader2 class="size-4 animate-spin" /> Signing you in…
-          </div>
-          <div v-else class="flex flex-col gap-2">
-            <p v-if="sessionExpired" class="text-sm text-warning">
-              Your session expired — please sign in again.
-            </p>
-            <button class="btn btn-primary self-start" @click="goToLogin">
-              <LogIn class="size-4" /> Sign in
-            </button>
-            <!-- Escape hatch with no avatar (stale cookie / half-finished sign-in). -->
-            <button v-if="hasSession" type="button" class="btn btn-ghost btn-xs self-start opacity-70" @click="logout">
-              <LogOut class="size-3.5" /> Log out
-            </button>
-          </div>
-          <p class="opacity-80">You build inside a simple three-level hierarchy. You'll create it yourself, one level at a time.</p>
-          <div class="flex flex-col gap-4">
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">🌌 Your account — that's you</p>
-              <p class="text-sm opacity-80 mt-1">Your top-level space. If you have a company or a brand, that's probably the best name for it. If you're a solopreneur, you might use your own.</p>
-            </div>
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">✨ An app</p>
-              <p class="text-sm opacity-80 mt-1">Each app you build lives in your account. You can have as many as you like.</p>
-            </div>
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">🧪 Development workspace — where you build</p>
-              <p class="text-sm opacity-80 mt-1">While you build an app it has a private development workspace: you describe changes, see them live, and fill it with throwaway test data.</p>
-            </div>
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">⭐ A tenant (later)</p>
-              <p class="text-sm opacity-80 mt-1">When your app goes live, each of your end-customers gets their own isolated tenant — a private copy of the app with their own data. You don't create these by hand; they arrive via sign-up or invite.</p>
-            </div>
-          </div>
-        </div>
+        <!-- Deleting, behind confirmations that never ride the URL. Outside the chain below, whose
+             v-else belongs to the universe page's v-else-if. -->
+        <ConfirmDelete
+          v-if="confirmingAccount && stageMode === 'universe' && activeScope && nebula"
+          :target="activeScope"
+          what="this account"
+          :scopes="nebula.client.scopes"
+          @deleted="leaveTo(platformUrl('/'))"
+          @cancel="confirmingAccount = false"
+        />
+        <HostWait v-if="waitingFor" :url="waitingFor" />
+        <AppSettings
+          v-if="appSettingsOpen && activeScope && nebula"
+          :galaxy="activeScope"
+          :scopes="nebula.client.scopes"
+          @close="navigate({ app: false })"
+          @app-deleted="onAppDeleted"
+        />
 
-        <!-- Hierarchy manager. -->
-        <div v-else-if="stageMode === 'manage'" class="p-6 flex flex-col gap-4 max-w-2xl" data-testid="manage-panel">
-          <div class="flex items-center justify-between">
-            <h2 class="text-lg font-bold">Manage my account</h2>
-            <button class="btn btn-sm btn-ghost" @click="closeManage"><ChevronLeft class="size-4" /> Back</button>
-          </div>
-          <p v-if="accountEmail" class="text-sm opacity-70">Signed in as <span class="font-mono">{{ accountEmail }}</span></p>
-
-          <!-- Destructive confirm. -->
-          <div v-if="deletePlan" class="border border-error/60 rounded-box p-4 flex flex-col gap-3">
-            <p class="font-medium">Delete <span class="font-mono">{{ deleteTarget }}</span>?</p>
-            <p class="text-sm opacity-80">Permanently wipes (no undo):</p>
-            <ul class="text-sm flex flex-col gap-1">
-              <li v-for="a in deletePlan.affected" :key="a.instanceName">
-                <span class="font-mono">{{ a.instanceName }}</span>
-                <span class="opacity-50">({{ a.tier }}{{ a.isDev ? " · dev" : "" }})</span>
-              </li>
-            </ul>
-            <p v-if="deletePlan.affectedUsers.total" class="text-sm text-warning">
-              Warning — {{ deletePlan.affectedUsers.total }}
-              other {{ deletePlan.affectedUsers.total === 1 ? "user" : "users" }} will lose access:
-              {{ deletePlan.affectedUsers.sample.map((b) => `${b.instanceName} (${b.email})`).join(", ")
-              }}{{ deletePlan.affectedUsers.total > deletePlan.affectedUsers.sample.length ? ", …" : "" }}.
-            </p>
-            <p v-else class="text-sm text-success">No other users — safe to wipe.</p>
-            <div class="flex gap-2">
-              <button class="btn btn-sm" :disabled="busy" @click="cancelDelete">Cancel</button>
-              <button class="btn btn-sm btn-error" :disabled="busy" @click="confirmDelete">
-                <Loader2 v-if="busy" class="size-4 animate-spin" /><Trash2 v-else class="size-4" /> Delete permanently
-              </button>
-            </div>
-          </div>
-
-          <!-- Hierarchy tree. -->
-          <div v-else class="flex flex-col gap-2">
-            <p v-if="busy && !scopes.length" class="text-sm opacity-60 flex items-center gap-2">
-              <Loader2 class="size-4 animate-spin" /> Loading…
-            </p>
-            <p v-else-if="!scopes.length" class="text-sm opacity-60">Nothing here yet.</p>
-            <template v-for="s in treeScopes" :key="s.instanceName">
-              <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :class="INDENT[Math.min(depth(s), INDENT.length - 1)]">
-                <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
-                <span class="text-xs opacity-40">{{ s.tier === "galaxy" ? "app" : s.tier }}</span>
-
-                <!-- Not yet taken up: no actions, and a pointer to where consent is given. -->
-                <template v-if="!isActionable(s)">
-                  <span class="badge badge-warning badge-sm">Not accepted</span>
-                  <a class="btn btn-xs btn-ghost" :href="`/auth/${authScope}/home`">Review</a>
-                </template>
-                <!-- The reserved platform root: shown, not operated on. -->
-                <template v-else-if="isReservedRoot(s)">
-                  <span class="badge badge-ghost badge-sm">Platform</span>
-                </template>
-                <template v-else>
-                  <button v-if="s.tier === 'galaxy'" class="btn btn-xs btn-primary" :disabled="busy" @click="develop(s.instanceName)" title="Open this app's private development workspace to build &amp; test it">
-                    <Hammer class="size-3.5" /> Develop
-                  </button>
-                  <button v-else-if="s.tier === 'universe'" class="btn btn-xs btn-ghost" :disabled="busy" @click="addChildFor = addChildFor === s.instanceName ? null : s.instanceName">
-                    <Plus class="size-3.5" /> App
-                  </button>
-
-                  <button class="btn btn-xs btn-ghost text-error" :disabled="busy" title="Delete" @click="openDeleteConfirm(s.instanceName)">
-                    <Trash2 class="size-3.5" />
-                  </button>
-                </template>
-              </div>
-              <!-- inline "name a Galaxy" input under a Universe row -->
-              <!-- The notice's SECOND placement: creating an app is a commit, so it renders here as
-                   well as in the self-signup consent modal. One component, two renders. -->
-              <form v-if="addChildFor === s.instanceName" class="flex flex-col gap-2" :class="INDENT[Math.min(depth(s) + 1, INDENT.length - 1)]" @submit.prevent="addGalaxy(s.instanceName)">
-                <div class="flex gap-2 items-center">
-                  <input v-model="addChildSlug" class="input input-sm flex-1 font-mono" placeholder="name your app" :disabled="busy" />
-                  <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">
-                    <Loader2 v-if="busy" class="size-3.5 animate-spin" /> Add
-                  </button>
-                </div>
-                <DataUseNotice />
-              </form>
-            </template>
-          </div>
+        <!-- Until the client connects. With no session it has already sent this page to log in. -->
+        <div v-if="stageMode === 'connecting'" class="p-8 flex items-center gap-2 text-sm opacity-80" data-testid="connecting">
+          <Loader2 class="size-4 animate-spin" /> Signing you in…
         </div>
 
         <!-- The Universe page: create an app, or open an existing one. -->
@@ -1230,7 +873,7 @@ async function logout() {
           v-else-if="stageMode === 'universe' && activeScope"
           :universe="activeScope"
           :apps="universeApps"
-          :ready="scopesLoaded"
+          :ready="universeAppsLoaded"
           :create="overlay.create"
           :busy="busy"
           :error="createError"
@@ -1238,10 +881,14 @@ async function logout() {
           @create-open="(auto) => navigate({ create: true }, { replace: auto })"
           @create-close="navigate({ create: false })"
           @open="onOpenApp"
+          @delete-account="confirmingAccount = true"
         />
 
-        <!-- Live preview. -->
-        <iframe v-else :src="previewSrc" class="w-full h-full border-0" title="Preview" />
+        <!-- Live preview: the dev Star's own host, the one page this Studio frames. -->
+        <div v-else class="w-full h-full flex flex-col">
+          <p v-if="previewNotice" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ previewNotice }}</p>
+          <iframe ref="previewFrame" :src="previewSrc" class="w-full flex-1 border-0" title="Preview" />
+        </div>
       </div>
     </section>
   </div>

@@ -8,45 +8,37 @@
  * forever because a transient branch sat ahead of a terminal one. `screenForPath` is a named
  * function precisely so this file can exist.
  *
- * The property that actually matters: the scope-less paths win over the `/auth/{scope}/home`
- * pattern. `signup` must never be read as a scope.
+ * Every screen is a page on the platform host, and no path carries a scope: Home is the root, the
+ * rest sit under `/auth/`. The property that matters is the fall-through — a route the Worker
+ * answers with JSON, such as the refresh or a link's lookup, must never render a screen.
  */
 import { describe, it, expect } from 'vitest';
 import { screenForPath } from '../../../nebula-studio-ui/src/auth/routes';
 
 describe('auth SPA screen routing', () => {
-  it('routes the three scope-less screens', () => {
+  it('routes Home at the root and every screen under /auth/', () => {
+    expect(screenForPath('/')).toEqual({ screen: 'home' });
     expect(screenForPath('/auth/login')).toEqual({ screen: 'login' });
     expect(screenForPath('/auth/signup')).toEqual({ screen: 'signup' });
     expect(screenForPath('/auth/emails')).toEqual({ screen: 'emails' });
-  });
-
-  it('routes Home and carries the scope, decoded', () => {
-    expect(screenForPath('/auth/acme/home')).toEqual({ screen: 'home', scope: 'acme' });
-    // Scopes are dotted, and the segment is URL-encoded on the way in.
-    expect(screenForPath('/auth/acme.crm.dev/home')).toEqual({ screen: 'home', scope: 'acme.crm.dev' });
-    expect(screenForPath(`/auth/${encodeURIComponent('acme.crm')}/home`))
-      .toEqual({ screen: 'home', scope: 'acme.crm' });
-  });
-
-  it('a fixed screen is never read as a scope', () => {
-    // Reds against reordering the match so the `/auth/{scope}/…` pattern is tried first — which is
-    // the class of bug that lives invisibly in a template's branch order.
-    expect(screenForPath('/auth/signup').screen).toBe('signup');
-    expect(screenForPath('/auth/login').screen).toBe('login');
+    expect(screenForPath('/auth/magic-link')).toEqual({ screen: 'magic-link' });
+    expect(screenForPath('/auth/logout')).toEqual({ screen: 'logout' });
   });
 
   it('anything else is unknown rather than a wrong screen', () => {
-    // ⚠️ `refresh-token` is the one that matters: it sits one segment from `/auth/{scope}/home`, and
-    // a loose match would render HTML where the app expects JSON.
-    expect(screenForPath('/auth/acme/refresh-token').screen).toBe('unknown');
-    expect(screenForPath('/auth/acme/home/extra').screen).toBe('unknown');
+    // ⚠️ The JSON routes are the ones that matter: each sits beside a screen's path, and a loose
+    // match would render HTML where a page expects JSON.
+    expect(screenForPath('/auth/refresh-token').screen).toBe('unknown');
+    expect(screenForPath('/auth/magic-link/lookup').screen).toBe('unknown');
+    expect(screenForPath('/auth/home-summary').screen).toBe('unknown');
+    // The retired scope-path shape names nothing now.
+    expect(screenForPath('/auth/acme/home').screen).toBe('unknown');
     expect(screenForPath('/auth').screen).toBe('unknown');
     expect(screenForPath('/acme').screen).toBe('unknown');
   });
 
   it('a trailing slash still routes', () => {
     expect(screenForPath('/auth/login/').screen).toBe('login');
-    expect(screenForPath('/auth/acme/home/').screen).toBe('home');
+    expect(screenForPath('/auth/magic-link/').screen).toBe('magic-link');
   });
 });

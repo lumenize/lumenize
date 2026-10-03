@@ -26,6 +26,10 @@ import { resolve as resolvePath } from 'node:path';
 import { execSync } from 'node:child_process';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
+import { hostOrigin } from '@lumenize/nebula-auth/claims';
+
+/** The deployment this lane's Worker serves — `LUMENIZE_ORIGIN` in its `wrangler.jsonc`. */
+const DEPLOYMENT = 'https://lumenize.localhost';
 
 const WRANGLER_CONFIG = './test/browser/worker/wrangler.jsonc';
 
@@ -93,7 +97,7 @@ function readTestToken(): string {
 export default async function setup(project: TestProject) {
   const testToken = readTestToken();
 
-  // BENCH_BASE_URL override: point the bench at a deployed Worker instead of
+  // BENCH_BASE_URL override: point the bench at a deployed Worker's PLATFORM host instead of
   // spawning wrangler-dev. Used to capture publishable numbers from real
   // Cloudflare infrastructure. .dev.vars still supplies TEST_TOKEN for the
   // email-test WebSocket; everything else lives on the deployed Worker.
@@ -131,7 +135,9 @@ export default async function setup(project: TestProject) {
   });
   cleanupWrangler = cleanup;
 
-  project.provide('wranglerBaseUrl', baseUrl);
+  // The tests' base is the platform host on wrangler's port: every session's routes live there, and
+  // a scope's page is spelled from it (`scopeOriginFrom` in `test/lib/email-login.ts`).
+  project.provide('wranglerBaseUrl', hostOrigin({ kind: 'platform' }, DEPLOYMENT, baseUrl));
   project.provide('emailTestToken', testToken);
 
   return async () => {

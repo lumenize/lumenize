@@ -17,6 +17,11 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
+import { hostOrigin } from '@lumenize/nebula-auth/claims';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
+import { LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
+import { TEST_ORIGIN } from '../../scripts/test-deploy-config.mjs';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
@@ -49,27 +54,57 @@ export function launchChromium(): Promise<Browser> {
   return chromium.launch({
     executablePath: resolveChromiumExecutable(),
     headless: process.env.HARNESS_HEADED !== '1',
+    // Every host of a local stack is a `*.lumenize.localhost` name on loopback. Chromium resolves
+    // `*.localhost` there itself; the rule makes that explicit, so no resolver is ever asked.
+    args: ['--host-resolver-rules=MAP *.lumenize.localhost 127.0.0.1'],
   });
 }
 
 /**
- * Boot a vite dev server rendering the real Studio SPA, proxying `/auth /gateway /app`
- * to the booted worker. `NEBULA_WORKER_URL` is read by the Studio's `vite.config.ts` at config
- * load, so it MUST be set before `createViteServer`. Lifted from `test/ui-smoke/global-setup.ts`.
+ * Boot a vite dev server rendering the real Studio SPA and the auth app, proxying the Worker's
+ * paths (and every request on a Star's host) to the booted worker. `NEBULA_WORKER_URL` is read by
+ * the Studio's `vite.config.ts` at config load, so it MUST be set before `createViteServer`. Lifted
+ * from `test/ui-smoke/global-setup.ts`.
+ *
+ * `workerBaseUrl` is any URL on the worker's port. The answer's `viteBaseUrl` is the PLATFORM host
+ * on vite's port — where login, Home and a link's page live — and `scopeUrl` spells a scope's host
+ * on the same port.
  */
-export async function bootStudioVite(workerBaseUrl: string): Promise<{ viteBaseUrl: string; close: () => Promise<void> }> {
+export async function bootStudioVite(workerBaseUrl: string): Promise<{
+  viteBaseUrl: string; scopeUrl: (scope: string) => string; close: () => Promise<void>;
+}> {
+  // A deployed target serves Studio and the auth screens itself, on its own hosts, so there is
+  // nothing to boot: the hosts it answers are the deployment's.
+  const target = process.env.HARNESS_TARGET_URL;
+  if (target) {
+    return {
+      viteBaseUrl: hostOrigin({ kind: 'platform' }, TEST_ORIGIN, target),
+      scopeUrl: (scope) => hostOrigin({ kind: 'scope', scope }, TEST_ORIGIN, target),
+      close: async () => {},
+    };
+  }
   // wrangler's `assets` block hard-errors without a dir; an empty one satisfies it (we serve via vite).
   mkdirSync(resolve(STUDIO_UI_DIR, 'dist'), { recursive: true });
-  process.env.NEBULA_WORKER_URL = workerBaseUrl;
+  // The proxy target is the worker's port on loopback; the browser's own `Host` rides through.
+  const worker = new URL(workerBaseUrl);
+  process.env.NEBULA_WORKER_URL = `${worker.protocol}//localhost:${worker.port}`;
+  process.env.LUMENIZE_ORIGIN = LOCAL_ORIGIN;
   const vite: ViteDevServer = await createViteServer({
     root: STUDIO_UI_DIR,
+    // The config imports the shared host parse from a TypeScript workspace package, which the
+    // default bundling loader hands to Node unresolved; the runner loader transforms it.
+    configLoader: 'runner',
     configFile: resolve(STUDIO_UI_DIR, 'vite.config.ts'),
     server: { port: 5174, strictPort: false },
     logLevel: 'warn',
   });
   await vite.listen();
-  const viteBaseUrl = (vite.resolvedUrls?.local?.[0] ?? 'http://localhost:5174/').replace(/\/$/, '');
-  return { viteBaseUrl, close: () => vite.close() };
+  const raw = (vite.resolvedUrls?.local?.[0] ?? 'http://localhost:5174/').replace(/\/$/, '');
+  return {
+    viteBaseUrl: hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, raw),
+    scopeUrl: (scope) => hostOrigin({ kind: 'scope', scope }, LOCAL_ORIGIN, raw),
+    close: () => vite.close(),
+  };
 }
 
 /** A page with live console/network capture attached. */
@@ -154,20 +189,22 @@ export async function captureArtifacts(inst: InstrumentedPage, label: string): P
 
 /**
  * Sign a NEW account up through the rendered auth screens, exactly as a person does: the login
- * form's create-account affordance, the letter that really arrives, the link followed AS SENT,
- * consent with a nickname. Ends on the Universe page. Performs only steps production performs —
- * a helper here MUST NOT bridge a difference between this stack and production (`live.md`).
+ * form's create-account affordance naming the account and its first app, the letter that really
+ * arrives, the link followed AS SENT, consent with a nickname on the link's own page. Ends in the
+ * first app's Studio, where the claim's link returns. Performs only steps production performs — a
+ * helper here MUST NOT bridge a difference between this stack and production (`live.md`).
  */
 export async function signUpInBrowser(
   inst: InstrumentedPage,
   viteBaseUrl: string,
-  opts: { universe: string; email: string; nickname: string; testToken: string },
+  opts: { universe: string; appSlug: string; email: string; nickname: string; testToken: string },
 ): Promise<void> {
   const { page } = inst;
   await page.goto(`${viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: /Create a new account/ }).click();
   await page.getByPlaceholder('you@example.com').fill(opts.email);
   await page.getByPlaceholder('acme').fill(opts.universe);
+  await page.getByPlaceholder('crm').fill(opts.appSlug);
   // Armed BEFORE the click, filtered by the unique recipient only (`live.md`).
   const waiter = waitForEmail({ testToken: opts.testToken, to: opts.email, timeout: 120_000 });
   let link: string;
@@ -180,9 +217,12 @@ export async function signUpInBrowser(
   }
   if (!link.startsWith(viteBaseUrl)) throw new Error(`emailed link names ${new URL(link).origin}, page is ${viteBaseUrl}`);
   await page.goto(link, { waitUntil: 'domcontentloaded' });
-  await page.waitForURL(new RegExp(`/auth/${opts.universe}/home(?:[/?#]|$)`), { timeout: 30_000 });
   await page.getByTestId('consent-checkbox').check();
   await page.getByTestId('consent-nickname').fill(opts.nickname);
   await page.getByTestId('consent-accept').click();
-  await page.waitForURL(new RegExp(`//[^/]+/${opts.universe}(?:[/?#]|$)`), { timeout: 30_000 });
+  // A deployed app's host answers once its certificate is issued, which the page waits out with a
+  // count-up; measured at two and a half to four minutes. A local host answers at once.
+  const deployed = process.env.HARNESS_TARGET_URL !== undefined;
+  const app = new URL(hostOrigin({ kind: 'scope', scope: `${opts.universe}.${opts.appSlug}` }, deployed ? TEST_ORIGIN : LOCAL_ORIGIN, viteBaseUrl)).hostname;
+  await page.waitForURL((u) => u.hostname === app, { timeout: deployed ? 300_000 : 30_000 });
 }

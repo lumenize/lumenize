@@ -34,4 +34,5 @@ export type {
   AccessEntry, NebulaJwtPayload, Tier, ParsedId,
   InviteeRequest, InviteOutcome, InviteeSummary, InviteeError, InviteSummary,
 } from './types';
-export { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER, NEBULA_AUTH_PREFIX, PLATFORM_SCOPE } from './types';
+export { ACCESS_TOKEN_TTL, NEBULA_AUTH_PREFIX, PLATFORM_SCOPE } from './types';
+export { parseHost, platformOrigin, deploymentOrigin, type HostTarget } from './hosts';

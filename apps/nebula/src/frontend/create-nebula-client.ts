@@ -45,6 +45,7 @@ import { debug } from '@lumenize/debug';
 import { deepEquals } from './deep-equals';
 import type { Middleware, StoreClient, WriteContext } from './types';
 import { NebulaClient } from '../nebula-client';
+import { deploymentOriginOfPage, platformOriginOf } from '../page-origin';
 import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscription, OntologyStaleInfo, NebulaClientConfig } from '../nebula-client';
 
 /** The common shape the factory holds + disposes: a `ResourceSubscription`/profile handle (error-surface
@@ -77,7 +78,7 @@ export interface CreateNebulaStoreOptions {
 }
 
 /** Factory output (the store half — the public `createNebulaClient` wraps this
- *  and adds `client` + `ready` in Phase 7). */
+ *  and adds `client` + `ready`). */
 export interface NebulaStoreResult {
   /** The Vue-reactive, path-aware Proxy. Consumers read/write properties on it. */
   store: Record<string, any>;
@@ -97,8 +98,8 @@ const DEFAULT_UNSUBSCRIBE_GRACE_MS = 2000;
 
 /**
  * Build a Vue-reactive store around an existing NebulaClient (or a structural
- * stand-in). Internal — the public {@link createNebulaClient} (Phase 7)
- * constructs the client and calls this.
+ * stand-in). Internal — the public {@link createNebulaClient} constructs the client and calls
+ * this.
  */
 export function createNebulaStore(
   client: StoreClient,
@@ -755,22 +756,21 @@ export function createNebulaStore(
 export { effectScope, vueComputed as computed };
 
 /**
- * Configuration for {@link createNebulaClient}. `baseUrl` / `activeScope` /
- * `onShouldRefreshUI` auto-detect, and all the
- * inherited `NebulaClient` fields (`fetch`, `sessionStorage`, `onLoginRequired`,
- * `onConnectionStateChange`, …) stay available as escape hatches for
- * admin/scripting/tests. api-reference § createNebulaClient is the contract.
+ * Configuration for {@link createNebulaClient}. `platformOrigin`, `parentOrigin`, `baseUrl` and
+ * `onShouldRefreshUI` come from the page, and all the inherited `NebulaClient` fields (`fetch`,
+ * `sessionStorage`, `onLoginRequired`, `onConnectionStateChange`, …) stay available as escape
+ * hatches for admin/scripting/tests. api-reference § createNebulaClient is the contract.
  *
- * **`authScope` is currently required-in-practice** — its URL auto-detect is
- * deferred (coupled to the open Studio-hosting/deployment-URL decision; see
- * tasks/backlog.md). Omitting it throws a clear error at call time.
+ * No scope is configured: the client takes its scope from its first token's `aud`, which the
+ * platform host's refresh reads from this page's host.
  */
 export interface CreateNebulaClientConfig
-  extends Omit<NebulaClientConfig, 'authScope' | 'activeScope' | 'onShouldRefreshUI'> {
-  /** Cookie-path auth scope. Auto-detect deferred — pass explicitly for now. */
-  authScope?: string;
-  /** JWT `aud` active scope. Defaults to `authScope`. */
-  activeScope?: string;
+  extends Omit<NebulaClientConfig, 'platformOrigin' | 'parentOrigin' | 'onShouldRefreshUI'> {
+  /** Defaults to the platform host of the deployment the page's `lumenize-origin` meta names, at
+   *  the page's own port. */
+  platformOrigin?: string;
+  /** Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`. */
+  parentOrigin?: string;
   /** Called on `ontology-stale`. `undefined`/`null` → default once-guarded
    *  `window.location.reload()`; pass an explicit `() => {}` to opt out. */
   onShouldRefreshUI?: ((info: OntologyStaleInfo) => void) | null;
@@ -814,10 +814,26 @@ function defaultOnShouldRefreshUI(_info: OntologyStaleInfo): void {
   }
 }
 
+/** The `parentOrigin` the serving layer put in a built app's `nebula-scope` meta, if any. */
+function parentOriginOfPage(): string | undefined {
+  if (typeof document === 'undefined') return undefined;
+  const content = document.querySelector('meta[name="nebula-scope"]')?.getAttribute('content');
+  if (!content) return undefined;
+  try {
+    const parent = (JSON.parse(content) as { parentOrigin?: unknown }).parentOrigin;
+    return typeof parent === 'string' ? parent : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function inFrame(): boolean {
+  return typeof window !== 'undefined' && window.top !== window.self;
+}
+
 /**
- * Pure config resolution (auto-detect + defaults), split out so it's unit-testable
- * without opening a connection. Throws on a missing `authScope` (its URL auto-detect is
- * deferred — see {@link CreateNebulaClientConfig}).
+ * Pure config resolution (auto-detect + defaults), split out so it's unit-testable without opening
+ * a connection. Throws when no platform origin is configured and the page names no deployment.
  *
  * ⚠️ **A missing `ontologyVersion` is NOT an error here.** An app with no applied ontology has no
  * version to pin, and it is still an app — it connects, authenticates and renders. The resource
@@ -828,25 +844,52 @@ function defaultOnShouldRefreshUI(_info: OntologyStaleInfo): void {
  */
 export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   baseUrl?: string;
-  authScope: string;
-  activeScope: string;
+  platformOrigin: string;
+  parentOrigin?: string;
   ontologyVersion?: string;
   onShouldRefreshUI: (info: OntologyStaleInfo) => void;
 } {
-  if (config.authScope === undefined) {
+  const pageOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
+  const deployment = deploymentOriginOfPage();
+  const platformOrigin = config.platformOrigin
+    ?? (deployment && pageOrigin ? platformOriginOf(deployment, pageOrigin) : undefined);
+  if (platformOrigin === undefined) {
     throw new Error(
-      'createNebulaClient: `authScope` auto-detect from the deployment URL is not yet implemented ' +
-        '(coupled to the open Studio-hosting / deployment-URL decision — see tasks/backlog.md). ' +
-        'Pass `authScope` explicitly for now.',
+      'createNebulaClient: no `platformOrigin`, and the page names no deployment ' +
+        '(`<meta name="lumenize-origin">`, which every Lumenize page carries). Pass `platformOrigin` ' +
+        'outside a served page.',
     );
   }
-  const baseUrl = config.baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : undefined);
-  const authScope = config.authScope;
-  const activeScope = config.activeScope ?? authScope;
+  const baseUrl = config.baseUrl ?? pageOrigin;
+  const parentOrigin = config.parentOrigin ?? (inFrame() ? parentOriginOfPage() : undefined);
   // `?? ` coalesces both `undefined` and `null` to the default reload (by design —
   // there is no "disable" sentinel; opt out with an explicit `() => {}`).
   const onShouldRefreshUI = config.onShouldRefreshUI ?? defaultOnShouldRefreshUI;
-  return { baseUrl, authScope, activeScope, ontologyVersion: config.ontologyVersion, onShouldRefreshUI };
+  return { baseUrl, platformOrigin, parentOrigin, ontologyVersion: config.ontologyVersion, onShouldRefreshUI };
+}
+
+/**
+ * What a page does when no session covers it, unless the app supplies `onLoginRequired`. A top-level
+ * page goes to the platform host's login with `return_to` naming itself, fragment included, so the
+ * login brings the person back here. A framed page — the dev tab inside Studio — posts once to its
+ * parent at the origin the serving layer named, and stays where it is: the parent's session is the
+ * one that ended, and it decides. A frame with no named parent posts nothing.
+ */
+export function defaultOnLoginRequired(platformOrigin: string, parentOrigin: string | undefined): () => void {
+  let posted = false;
+  return () => {
+    if (typeof window === 'undefined') return;
+    if (inFrame()) {
+      if (parentOrigin && !posted) {
+        posted = true;
+        window.parent.postMessage({ type: 'lumenize:login-required' }, parentOrigin);
+      }
+      return;
+    }
+    const login = new URL(`${platformOrigin}/auth/login`);
+    login.searchParams.set('return_to', window.location.href);
+    window.location.assign(login.href);
+  };
 }
 
 /**
@@ -878,11 +921,13 @@ export function createNebulaClient(config: CreateNebulaClientConfig): FactoryRes
   });
   let readySettled = false;
 
+  const onSessionMissing = userOnLoginRequired ?? defaultOnLoginRequired(resolved.platformOrigin, resolved.parentOrigin);
+
   const client = new NebulaClient({
     ...config,
     baseUrl: resolved.baseUrl,
-    authScope: resolved.authScope,
-    activeScope: resolved.activeScope,
+    platformOrigin: resolved.platformOrigin,
+    parentOrigin: resolved.parentOrigin,
     ontologyVersion: resolved.ontologyVersion,
     onShouldRefreshUI: resolved.onShouldRefreshUI,
     onConnectionStateChange: (state) => {
@@ -899,7 +944,7 @@ export function createNebulaClient(config: CreateNebulaClientConfig): FactoryRes
         readySettled = true;
         rejectReady(err);
       }
-      userOnLoginRequired?.(err);
+      onSessionMissing(err);
     },
   });
 

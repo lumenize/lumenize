@@ -1,37 +1,42 @@
 /**
- * Worker token layer — the auth flows that used to live in the per-scope `NebulaAuth` DO, now handled
- * in the default Worker (composed via `routeNebulaAuthRequest`) over Workers KV + registry RPC:
+ * Worker token layer — the session lifecycle, on the platform host, over Workers KV + registry RPC
+ * (composed via `routeNebulaAuthRequest`):
  *
- *  - `email-magic-link` (request)  → registry creates the hashed `MagicLinks` row + sends the email.
- *  - `magic-link` / `accept-invite` (click) → Worker generates the raw refresh token, registry
- *    validates the login channel + find-and-flips the identity + writes the index (sync) then the KV
- *    record; Worker sets the refresh cookie + redirects.
- *  - `refresh-token` → **pure KV read**, then mint the JWT here. The registry is NEVER on this path.
- *  - `logout` → registry deletes the KV record + index entry.
- *  - `mint-narrower-token` (admin) → mint a scope-bounded narrower token here.
+ *  - `email-magic-link` (request) → registry creates the hashed `MagicLinks` row + sends the email.
+ *  - `magic-link/lookup` and `magic-link` (the link's page) → a lookup that writes nothing, then the
+ *    page's `POST`, which proves the mailbox, records the sessions, sets one refresh cookie per
+ *    membership and accepts the link's pending membership through the one acceptance helper.
+ *  - `refresh-token` → the one route a page on a scope host calls: `Origin` names the host's scope,
+ *    the cookies at or above it are read broadest first, and the JWT is minted here.
+ *  - `home-summary`, `pending-membership`, `accept-membership` → Home, by cookie.
+ *  - `logout` → expires every refresh cookie the request carries and revokes the records behind them.
+ *  - impersonation → {@link mintImpersonationToken}, reached from `NebulaAuthFacade.impersonate`.
  *
  * Invites are NOT here: every invite enters mesh-side through `NebulaAuthFacade`
- * (`@lumenize/nebula-auth/facade`); only the accept-invite CLICK (session lifecycle) stays HTTP.
+ * (`@lumenize/nebula-auth/facade`); the invite's link is a magic link like any other.
  *
  * The JWT is minted HERE (the Worker holds the signing keys); `email` never enters it. All bearer
- * tokens (magic-link/invite/refresh) are stored HASHED — the Worker hashes the raw refresh token and
+ * tokens (magic-link and refresh) are stored HASHED — the Worker hashes the raw refresh token and
  * passes only the hash to the registry.
- *
- * @see tasks/archive/nebula-auth-surrogate-sub.md § The seam
  */
 import { debug } from '@lumenize/debug';
 import { signJwt, importPrivateKey, generateRandomString, hashString } from '@lumenize/crypto';
 import { buildNebulaJwtPayload, projectActingToken } from './access-claims';
-import { hasDominionOver, isAtOrAbove, parseId } from './parse-id';
+import { hasDominionOver, isAtOrAbove, isPlatformScope, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';
 import {
-  NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME, PLATFORM_SCOPE, MINT_ALL_COOKIE_CAP,
+  NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME, MINT_ALL_COOKIE_CAP,
   ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, MAGIC_LINK_TTL, RECOMMENDED_MIN_TTL_SECONDS,
-  SIGNUP_TICKET_TTL, SIGNUP_TICKET_COOKIE, COMING_SOON_TAGS,
+  SIGNUP_TICKET_TTL, SIGNUP_TICKET_COOKIE, COMING_SOON_TAGS, kvTtlSeconds, sameRefreshRecord,
 } from './types';
-import type { ComingSoonTag, ConsumeMembership, ConsumePlan, NebulaJwtPayload, RefreshTokenKV } from './types';
+import type {
+  AcceptanceCredential, AcceptanceOutcome, ComingSoonTag, ConsumeMembership, ConsumePlan, LinkLookup,
+  NebulaJwtPayload, RefreshPut, RefreshTokenKV, ScopeLifecycleHooks,
+} from './types';
 import type { NebulaAuthRegistry, TicketClaimResult } from './nebula-auth-registry';
-import { landingBase, homePath, SIGNUP_PATH } from './landing';
+import { checkedReturnTo, deploymentOrigin, parseHost, personaId, platformOrigin } from './hosts';
+import type { HostTarget } from './hosts';
+import { rawRpcStub } from '@lumenize/mesh/raw-rpc';
 
 // ── error helpers ──────────────────────────────────────────────────────────────────────────────
 
@@ -39,14 +44,6 @@ function errorResponse(status: number, error: string, description: string): Resp
   return new Response(JSON.stringify({ error, error_description: description }), {
     status, headers: { 'Content-Type': 'application/json' },
   });
-}
-
-function extractCookie(cookieHeader: string, name: string): string | null {
-  for (const cookie of cookieHeader.split(';')) {
-    const [cookieName, ...rest] = cookie.trim().split('=');
-    if (cookieName === name) return rest.join('=');
-  }
-  return null;
 }
 
 /** Basic email format validation: non-empty local part, @, non-empty domain. */
@@ -77,31 +74,49 @@ function identityReads(env: Env):
 }
 
 /**
- * One person's Profile stub (raw Workers RPC), or `null` where the binding is absent. The trust
- * model for what may be called on it is stated on `Profile.readNickname`.
- *
- * ⚠️ **Absent is a legitimate configuration, not a defect.** `nebula-auth` is a standalone package;
- * the `Profile` DO runs in the `nebula` Worker that re-exports it, and this package's own test
- * worker binds no `PROFILE` at all. Both nickname legs are therefore best-effort BY DESIGN: the
- * consent pre-fill degrades to an empty field, and a failed write degrades to `participantName`'s
- * "Someone". Neither may take down acceptance — being unable to store a display name is not a
- * reason to refuse somebody entry to the account they were invited to.
- */
-function profile(env: Env, profileId: string): any | null {
-  const ns = (env as Env & { PROFILE?: { getByName(name: string): unknown } }).PROFILE;
-  return ns ? ns.getByName(profileId) : null;
-}
-
-/**
- * This person's Profile stub, resolved from a `sub` the caller has ALREADY verified.
+ * This person's Profile, through the `@rawRpc()` bridge (ADR-023), resolved from a `sub` the caller
+ * has ALREADY verified. The trust model for what may be called on it is stated on
+ * `Profile.readDisplayNames`. `null` when the `sub` resolves to no identity.
  *
  * The PENDING-aware read, because the consent screen's name prefill runs before anyone has accepted —
  * a membership still pending is exactly the one it is asking about. Its sibling caller, the accept
  * handler's name write, runs just after the flip and resolves either way.
+ *
+ * ⚠️ **Both callers are best-effort BY DESIGN, and that is about the CALL failing, not the binding
+ * being absent**: every Worker that runs these routes binds `PROFILE`. The consent pre-fill degrades
+ * to an empty field, and a failed write degrades to `participantName`'s "Someone". Neither may take
+ * down acceptance — being unable to store a display name is not a reason to refuse somebody entry
+ * to the account they were invited to.
  */
-async function profileForSub(env: Env, sub: string): Promise<any | null> {
+async function profileForSub(env: Env, sub: string) {
   const identity = await identityReads(env).getIdentityScopeIncludingPending(sub);
-  return identity?.profileId ? profile(env, identity.profileId) : null;
+  return identity?.profileId ? rawRpcStub('PROFILE', identity.profileId) : null;
+}
+
+/**
+ * Put each refresh record in Workers KV, then reap any the Registry no longer stands behind.
+ *
+ * The Worker writes because it is where the person is: KV is read-your-writes at the colo that
+ * wrote, and the next read is that person's refresh. The Registry indexed each hash before it
+ * answered, so a put never precedes its row. After each put, the Registry's current record for the
+ * hash is read back; if the row is gone, or any value differs, the put is deleted, so a revoke or a
+ * `setIdentityAdmin` landing between the Registry's answer and the put cannot leave a live record
+ * nobody indexes. A reap logs `orphan-reaped` with the `sub` it put. There is no acting token: the
+ * reap rolls back only its own request's write, and the revoke recorded its own principal.
+ *
+ * Returns the record each hash now stands for — the put's when it survived, else the Registry's
+ * current one or `null` — so a caller that mints from it never mints from a reaped write.
+ */
+async function putRefreshRecords(env: Env, puts: RefreshPut[]): Promise<Array<RefreshTokenKV | null>> {
+  const kv = (env as any).REFRESH_TOKEN_KV as KVNamespace;
+  return Promise.all(puts.map(async ({ tokenHash, record }) => {
+    await kv.put(`refresh:${tokenHash}`, JSON.stringify(record), { expirationTtl: kvTtlSeconds(record.expiresAt) });
+    const current = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+    if (sameRefreshRecord(current, record)) return record;
+    await kv.delete(`refresh:${tokenHash}`);
+    debug('nebula-auth.worker.token').warn('orphan-reaped', { sub: record.sub });
+    return current;
+  }));
 }
 
 /** Longest display name we store. A handle, not prose — the cap is what stops a byline becoming one. */
@@ -133,47 +148,74 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
   }
 }
 
-/** Path-scoped refresh cookie: `Path={prefix}/{scope}`, `Max-Age` = the FIXED refresh TTL (no slide). */
+/** Every refresh cookie's name: the prefix, then the membership's scope — `__Host-refresh-token.acme.crm`. */
+export const REFRESH_COOKIE_PREFIX = '__Host-refresh-token.';
+
+/**
+ * A refresh cookie on the platform host, one per membership (ADR-022 § *The cookie rules*). `__Host-`
+ * keeps it to `Secure`, `Path=/` and no `Domain`, so no other host can plant or overwrite it, and
+ * `SameSite=Lax` lets a person arriving from an email or another site be recognised. `Max-Age` is the
+ * FIXED refresh TTL; nothing slides it.
+ */
 function refreshCookie(scope: string, token: string): string {
-  return `refresh-token=${token}; Path=${NEBULA_AUTH_PREFIX}/${scope}; HttpOnly; Secure; SameSite=Strict; Max-Age=${REFRESH_TOKEN_TTL}`;
+  return `${REFRESH_COOKIE_PREFIX}${scope}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${REFRESH_TOKEN_TTL}`;
+}
+
+/** The same cookie, expired. The attributes are the set-side ones: a browser discards a `__Host-`
+ *  header without `Secure`, so an expiry without it would expire nothing. */
+function expiredRefreshCookie(scope: string): string {
+  return `${REFRESH_COOKIE_PREFIX}${scope}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
 /**
- * The signup ticket's cookie — `Path=/auth`, because there is no scope yet.
- *
- * Same hardening as the refresh cookie (`HttpOnly; Secure; SameSite=Strict`), so the slug screen's
- * own JavaScript cannot read it and the browser presents it only on a same-site navigation to the
- * claim. Short-lived by {@link SIGNUP_TICKET_TTL}.
+ * The signup ticket's cookie, short-lived by {@link SIGNUP_TICKET_TTL}. `HttpOnly` and `Strict`: the
+ * signup page's own script cannot read it, and the browser presents it only to the claim on this host.
  */
 function signupTicketCookie(rawTicket: string): string {
-  return `${SIGNUP_TICKET_COOKIE}=${rawTicket}; Path=${NEBULA_AUTH_PREFIX}; HttpOnly; Secure; SameSite=Strict; Max-Age=${SIGNUP_TICKET_TTL}`;
+  return `${SIGNUP_TICKET_COOKIE}=${rawTicket}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SIGNUP_TICKET_TTL}`;
 }
 
 /** The ticket cookie, expired — set once it is spent so a stale one cannot linger for the next visit. */
 function expiredSignupTicketCookie(): string {
-  return `${SIGNUP_TICKET_COOKIE}=; Path=${NEBULA_AUTH_PREFIX}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+  return `${SIGNUP_TICKET_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }
 
-/** The same cookie, expired — what a logout sets so the browser drops it. */
-function expiredRefreshCookie(scope: string): string {
-  return `refresh-token=; Path=${NEBULA_AUTH_PREFIX}/${scope}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+/** Every cookie in a `Cookie` header, as name and value. */
+function cookiesOf(cookieHeader: string): Array<{ name: string; value: string }> {
+  const out: Array<{ name: string; value: string }> = [];
+  for (const cookie of cookieHeader.split(';')) {
+    const [name, ...rest] = cookie.trim().split('=');
+    if (name) out.push({ name, value: rest.join('=') });
+  }
+  return out;
 }
 
 /**
- * A failed login redirect, tier-split like the success path.
- *
- * ⚠️ The split matters most HERE. An **expired** claim link is the exact case the resumable claim
- * exists for: an unsplit error branch lands a Star admin identity in the user-developer's control
- * plane — the outcome the split prevents.
+ * The refresh cookies a request carries whose names parse as a scope, the platform root included,
+ * broadest first. A name that parses as no scope is dropped unread. The name only NOMINATES: a
+ * browser never sends a cookie whose record disagrees with its name, since the consume names each
+ * from its record, but a client that is not a browser can send any `Cookie` header, so every reader
+ * checks the record's own scope against the name before it trusts either.
  */
-function redirectWithError(_env: Env, error: string, universeGalaxyStarId?: string): Response {
-  // The control-plane prefix is EMPTY (scope-first), so used as a standalone error path it needs a
-  // real root — `/` — or the Location would be a bare `?error=` resolved against the current URL.
-  // The star prefix (`/app`) is already a real path. See {@link STUDIO_LANDING_PREFIX}.
-  const redirect = landingBase(universeGalaxyStarId) || '/';
-  const separator = redirect.includes('?') ? '&' : '?';
-  return new Response(null, { status: 302, headers: { Location: `${redirect}${separator}error=${error}` } });
+export function refreshCookies(cookieHeader: string): Array<{ scope: string; token: string }> {
+  const out: Array<{ scope: string; token: string }> = [];
+  for (const { name, value } of cookiesOf(cookieHeader)) {
+    if (!name.startsWith(REFRESH_COOKIE_PREFIX) || !value) continue;
+    const scope = name.slice(REFRESH_COOKIE_PREFIX.length);
+    if (!isPlatformScope(scope)) {
+      try { parseId(scope); } catch { continue; }
+    }
+    out.push({ scope, token: value });
+  }
+  const depth = (s: string) => (isPlatformScope(s) ? 0 : s.split('.').length);
+  return out.sort((a, b) => depth(a.scope) - depth(b.scope));
 }
+
+/** Where a person with nowhere else to go lands: Home, at the platform host's root. */
+export const HOME_PATH = '/';
+
+/** Where a proved address with no memberships lands: the signup page, on the platform host. */
+export const SIGNUP_PATH = `${NEBULA_AUTH_PREFIX}/signup`;
 
 // ── JWT mint ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -275,6 +317,7 @@ export async function mintAccessToken(
     sub: opts.sub, activeScope: opts.activeScope,
   });
   const payload = buildNebulaJwtPayload({
+    issuer: platformOrigin(deploymentOrigin(env)),
     sub: opts.sub,
     instanceName: opts.universeGalaxyStarId,
     activeScope: opts.activeScope,
@@ -292,114 +335,172 @@ export async function mintAccessToken(
  * Request a login magic link. Turnstile is gated by the router. The registry inserts the hashed
  * `MagicLinks` row + sends the email (or, in test mode, returns the raw URL). **No identity is minted**
  * — the login-request path must never create membership.
+ *
+ * `return_to` is checked here, where it is stored, and never only in the login page: it must carry
+ * the deployment's scheme and name a host the parse turns into a scope or the platform host, or the
+ * request is refused with 400 and no record is written. The consume sends the person there.
  */
 export async function handleEmailMagicLink(request: Request, env: Env): Promise<Response> {
   let email: string;
+  let rawReturnTo: unknown;
   try {
-    const body = await request.json() as { email?: string };
+    const body = await request.json() as { email?: string; return_to?: unknown };
     email = body.email?.toLowerCase().trim() || '';
+    rawReturnTo = body.return_to;
   } catch {
     return errorResponse(400, 'invalid_request', 'Invalid JSON body');
   }
   // Validate the email HERE — a check that needs no registry data, so a malformed address never costs
   // the singleton a hop (ADR-018), and the registry RPC has no refusal to return for it.
   if (!isValidEmail(email)) return errorResponse(400, 'invalid_request', 'Valid email required');
+  let returnTo: string | undefined;
+  if (rawReturnTo !== undefined && rawReturnTo !== null && rawReturnTo !== '') {
+    returnTo = checkedReturnTo(rawReturnTo, deploymentOrigin(env)) ?? undefined;
+    if (!returnTo) return errorResponse(400, 'invalid_return_to', 'return_to must name a page on this site');
+  }
 
   const origin = new URL(request.url).origin;
   // The link names no scope. The prover chooses among whatever memberships the address holds once
-  // the click lands them on Home.
-  const result = await registry(env).requestMagicLink(email, origin) as
+  // the link's page lands them on Home, or follows `return_to`.
+  const result = await registry(env).requestMagicLink(email, origin, returnTo) as
     { message: string; magicLinkUrl?: string };
   return Response.json({ ...result, expires_in: MAGIC_LINK_TTL });
 }
 
-// ── magic-link / accept-invite (click) ───────────────────────────────────────────────────────────
+// ── the link page: a lookup that writes nothing, and a POST that consumes ──────────────────────────
 
-/** Shared consume: generate the raw refresh token, call the registry consume RPC, set cookie + redirect.
+/**
+ * `POST /auth/magic-link/lookup` — what a link's page shows before anything is consumed: the address,
+ * whether the link was used, and for a pending membership at the link's scope its card and the
+ * display names to pre-fill. Writes no Registry state, so a scanner or a page's own script loading the
+ * link proves nothing. Names are read only for an address that already holds an accepted membership,
+ * so a lookup never creates a new invitee's Profile near whoever loaded the page.
+ */
+export async function handleMagicLinkLookup(request: Request, env: Env): Promise<Response> {
+  const { token } = await readJsonBody(request);
+  if (typeof token !== 'string' || token.length === 0) return errorResponse(400, 'invalid_request', 'Missing token');
+  const lookup = await registry(env).lookupLink(await hashString(token)) as LinkLookup | null;
+  if (!lookup) return errorResponse(400, 'invalid_token', 'This link is invalid or has expired');
+  // Logged after the Registry answered, so a line the lookup caused there precedes this one.
+  debug('nebula-auth.worker.lookup').debug('looked up', { email: lookup.email, spent: lookup.spent });
+  let names: { nickname?: string; name?: string } = {};
+  if (lookup.acceptedSub) {
+    try {
+      names = (await (await profileForSub(env, lookup.acceptedSub))?.readDisplayNames() ?? {}) as typeof names;
+    } catch (e) {
+      // Best-effort (see `profileForSub`) — empty fields are a worse consent screen, not a broken one.
+      debug('nebula-auth.worker.lookup').warn('display-name read failed (continuing)', {
+        email: lookup.email, error: (e as Error).message,
+      });
+    }
+  }
+  return Response.json({
+    email: lookup.email,
+    spent: lookup.spent,
+    ...(lookup.pending ? {
+      pending: {
+        scope: lookup.pending.scope, invited: lookup.pending.invited,
+        ...(lookup.pending.invitedByName ? { invitedByName: lookup.pending.invitedByName } : {}),
+      },
+    } : {}),
+    ...(names.nickname ? { nickname: names.nickname } : {}),
+    ...(names.name ? { name: names.name } : {}),
+  });
+}
+
+/** The page's answer when a link was already used, by its page's `POST` or a replay. */
+const LINK_USED = 'This link was already used. Sign in again for a new one.';
+
+/**
+ * `POST /auth/magic-link` — the link page's Continue, or its consent screen's Accept. Consumes the
+ * link: proves the mailbox, sets one refresh cookie per membership, accepts the pending membership at
+ * the link's scope through the one acceptance helper, and answers where to go, `return_to` or Home.
  *
- * ⚠️ Placement invariant: this request touches only the PRE-PLACED Registry singleton (+ KV) and
- * 302s to static assets — it first-touches no per-user DO. That is load-bearing because corporate
- * email scanners fetch these links and follow the redirect (why they are multi-use within TTL),
- * and a Durable Object is permanently placed near its FIRST request — so a per-user DO created
- * here would live near the scanner's datacenter, not the user, forever. Per-user placement
- * happens at WebSocket connect (per-tab Gateway instance — self-correcting) and at provisioning
- * (Turnstile-gated, real browser). If this path ever gains a per-user DO first-touch, it inherits
- * the scanner-placement problem; the known remedy is an interstitial POST-on-click form (rendering
- * scanners follow GET links but do not submit forms). */
-async function consumeAndLogin(
-  env: Env,
-  rawLoginToken: string,
-  kind: 'magic-link' | 'invite',
-  urlInstanceName?: string,
+ * The link is spent once the sessions are recorded, whatever the acceptance then answers, so a
+ * failure before that leaves it live for a retry, and a refused Accept leaves nothing to replay. A
+ * spent link is refused here as well as on the page, since a token from browser history or a
+ * forwarded mail can be posted without the page. An Accept the cap refuses still sets the cookies a
+ * consume sets and answers 403 with the cap's message, leaving the membership pending.
+ *
+ * Placement: this request is the person's own, from the page their browser rendered, so the first
+ * touch of anything it reaches — the Profile behind a display-name write, the scopes a claim's first
+ * acceptance wipes — comes from them rather than from a scanner that fetched the link.
+ */
+export async function handleMagicLinkConsume(
+  request: Request, env: Env, hooks: ScopeLifecycleHooks,
 ): Promise<Response> {
-  const loginTokenHash = await hashString(rawLoginToken);
+  const body = await readJsonBody(request);
+  const token = body.token;
+  if (typeof token !== 'string' || token.length === 0) return errorResponse(400, 'invalid_request', 'Missing token');
+  const tokenHash = await hashString(token);
+  const operationId = crypto.randomUUID();
 
-  // ── RPC 1: validate the link, prove the mailbox, learn what this address reaches. ─────────────
-  const plan = await registry(env).resolveConsume(kind, loginTokenHash) as ConsumePlan | null;
-  // No token resolved, so there is no server-trusted scope — fall back to the URL segment purely to
-  // pick a landing surface for the error page (it grants nothing; see `landingBase`).
-  if (!plan) return redirectWithError(env, 'invalid_token', urlInstanceName);
+  const consumed = await registry(env).consumeLink(tokenHash) as ({ spent: false } & ConsumePlan) | { spent: true } | null;
+  if (!consumed) return errorResponse(400, 'invalid_token', 'This link is invalid or has expired');
+  if (consumed.spent) return errorResponse(409, 'link_used', LINK_USED);
+  const plan = consumed;
 
-  // ── Choose which memberships get a cookie. ────────────────────────────────────────────────────
   const chosen = selectSessionsToMint(plan);
 
-  // A proved address with nothing to enter is a new user: send them to sign up rather than to a
-  // Home screen that would render empty. The ticket rides along so that screen's claim can spend
-  // the proof THIS click just established instead of mailing a second link.
+  // A proved address with nothing to enter is a new user: send them to sign up rather than to a Home
+  // screen that would render empty. The ticket rides along so that screen's claim can spend the proof
+  // THIS click just established instead of mailing a second link; the link is spent with it.
   if (chosen.length === 0) {
-    const rawTicket = await registry(env).issueSignupTicket(plan.email);
-    return new Response(null, {
-      status: 302,
-      headers: new Headers({ Location: SIGNUP_PATH, 'Set-Cookie': signupTicketCookie(rawTicket) }),
+    const rawTicket = await registry(env).issueSignupTicket(plan.email, tokenHash);
+    return new Response(JSON.stringify({ redirect: SIGNUP_PATH }), {
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json', 'Set-Cookie': signupTicketCookie(rawTicket) }),
     });
   }
 
-  // ── Mint N raw tokens Worker-side (only this side ever holds them), then RPC 2 records hashes. ─
+  // Mint N raw tokens Worker-side (only this side ever holds them), record their hashes, spend the link.
   const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString();
   const minted = await Promise.all(chosen.map(async (m) => {
     const rawRefreshToken = generateRandomString(32);
     return { membership: m, rawRefreshToken, tokenHash: await hashString(rawRefreshToken) };
   }));
-  await registry(env).recordSessions(
+  const puts = await registry(env).recordSessions(
     minted.map((x) => ({ sub: x.membership.sub, tokenHash: x.tokenHash })), refreshExpiresAt,
-  );
+    operationId, tokenHash,
+  ) as RefreshPut[];
+  await putRefreshRecords(env, puts);
 
-  // ── One 302, one Set-Cookie per membership. Different `Path`s never collide, so the browser
-  // holds one session per enrolled scope — and an UNACCEPTED one mints nothing until its consent
-  // modal flips it, so placing the cookie grants no access on its own.
-  const headers = new Headers({ Location: landingFor(plan, chosen) });
+  const headers = new Headers({ 'Content-Type': 'application/json' });
   for (const x of minted) {
     headers.append('Set-Cookie', refreshCookie(x.membership.universeGalaxyStarId, x.rawRefreshToken));
   }
-  return new Response(null, { status: 302, headers });
+
+  // The link's own pending membership is the one its page offered to accept.
+  const pending = plan.linkScope === undefined ? undefined
+    : plan.memberships.find((m) => m.universeGalaxyStarId === plan.linkScope && !m.accepted);
+  if (pending) {
+    const outcome = await settleAcceptance(env, hooks, pending.sub, 'link', body);
+    if (outcome.outcome === 'refused') {
+      return new Response(JSON.stringify({ error: outcome.reason, error_description: outcome.message }), {
+        status: 403, headers,
+      });
+    }
+  }
+  return new Response(JSON.stringify({ redirect: plan.returnTo ?? HOME_PATH }), { status: 200, headers });
 }
 
 /**
  * Which of an address's memberships get a cookie on this click, in priority order.
  *
  * ⚠️ **The platform membership is NOT special-cased, and that reversal is deliberate (2026-09-01).**
- * An earlier cut excluded the `nebula-platform` cookie unless the consumed link itself named that
- * scope, to keep an unsolicited peer invite from leaving an ambient superuser cookie in a bootstrap
- * address's browser. Two things retired it. First, the carve-out and the front door were in direct
- * conflict: the scope-less login is the ONLY door now, so a superuser could see their platform row on
- * Home and never accept it — the accept endpoint authenticates by the very cookie the carve-out
- * refused to set. Second, the risk it was written against was answered by a sibling decision in the
- * same build: **a cookie is inert until its membership is accepted**, so an ambient one grants
- * nothing, and taking it up requires clicking Accept past a modal that says "Only accept if you
- * initiated this signup." The consent modal is the control; the carve-out was a second guard on a
- * mechanism that no longer needs one.
+ * A cookie is inert until its membership is accepted, so an ambient one grants nothing, and taking it
+ * up requires an Accept past a screen that says "Only accept if you initiated this signup." The
+ * consent screen is the control.
  *
  * ⚠️ **The set is capped**, because a third party can grow it: `claimStar` is open self-signup and
  * `issueInvites` is peer-reachable, so an unbounded fan-out is an unbounded `Set-Cookie` list that a
  * browser would silently start evicting — deadening a membership whose accept endpoint authenticates
  * by the very cookie the jar dropped.
  *
- * ⚠️ **The scope THIS LINK NAMED is minted first, ahead of even an accepted membership**, and that
- * ordering is load-bearing rather than a preference: it is the membership the click is *about*, and
- * it is typically the one that has never been entered — so ranking acceptance above it means an
- * address holding a capful of older memberships cannot complete a fresh claim or invite at all,
- * because the one cookie the next step needs is the one that got dropped. Accepted memberships come
- * next (a live session someone is using outranks one they have never opened), then most-recent.
+ * ⚠️ **The scope THIS LINK NAMED is minted first, ahead of even an accepted membership**: it is the
+ * membership the click is *about*, typically never entered, so ranking acceptance above it would let
+ * an address holding a capful of older memberships never complete a fresh claim or invite. Accepted
+ * memberships come next (a live session someone is using outranks one never opened), then most-recent.
  */
 export function selectSessionsToMint(plan: ConsumePlan): ConsumeMembership[] {
   const eligible = plan.memberships;
@@ -408,135 +509,126 @@ export function selectSessionsToMint(plan: ConsumePlan): ConsumeMembership[] {
   return [...eligible].sort((a, b) => rank(a) - rank(b)).slice(0, MINT_ALL_COOKIE_CAP);
 }
 
-/**
- * Where the 302 lands — decided by the link's PURPOSE, never inferred from the scope column.
- *
- * Every arrival goes to Home: a claim and an invite land there with their consent modal front and
- * center, and a bare login lands there to choose. The scope segment is what Home bootstraps its
- * session at, so it names a membership this click actually minted a cookie for.
- */
-function landingFor(plan: ConsumePlan, chosen: ConsumeMembership[]): string {
-  const named = chosen.find((m) => m.universeGalaxyStarId === plan.linkScope);
-  return homePath((named ?? chosen[0]).universeGalaxyStarId);
-}
-
-export async function handleMagicLinkClick(request: Request, env: Env, instanceName?: string): Promise<Response> {
-  const token = new URL(request.url).searchParams.get('one_time_token');
-  if (!token) return errorResponse(400, 'invalid_request', 'Missing one_time_token');
-  return consumeAndLogin(env, token, 'magic-link', instanceName);
-}
-
-export async function handleAcceptInvite(request: Request, env: Env, instanceName?: string): Promise<Response> {
-  const token = new URL(request.url).searchParams.get('invite_token');
-  if (!token) return errorResponse(400, 'invalid_request', 'Missing invite_token');
-  return consumeAndLogin(env, token, 'invite', instanceName);
-}
+// ── certificates: wake, then reap ───────────────────────────────────────────────────────────────
 
 /**
- * `POST /auth/{scope}/logout-all` — end every session this ADDRESS holds, in one response.
- *
- * Credentialed by the calling scope's own path-scoped cookie, which is the only shape available:
- * cookies are `Path={prefix}/{scope}`, so a scope-less route would receive none and would have to
- * take the address from the client — precisely what must not decide whose sessions end. The sibling
- * scopes come back from the registry and each gets a `Max-Age=0` cookie at its own `Path`.
- *
- * ⚠️ **A DERIVED session must never reach here.** An impersonated client holds no refresh cookie of
- * its own, so this call would spend the ORIGINATOR's — `security.md` § *A DERIVED session MUST NOT
- * revoke…*. The client-side guard is `NebulaClient.logout()`'s `#mintedFrom` branch, which ends an
- * impersonation by teardown alone; this endpoint is unreachable from that path by construction.
+ * Wake each galaxy's certificate order, then re-read its `Scopes` row and tear it down again if a
+ * deletion landed in between. Without the re-read, a deletion between the Registry's answer and the
+ * wake would leave a fresh Galaxy, its tearing-down flag lost with the abort, ordering a pack for a
+ * galaxy with no row, outside the owner cap and past every later teardown. It is the write-then-reap
+ * shape the refresh records use, at one indexed Registry read per wake. The create and both
+ * acceptance writers call it.
  */
-export async function handleLogoutAll(request: Request, env: Env): Promise<Response> {
-  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
-  if (!refreshToken) return errorResponse(401, 'invalid_token', 'No refresh token provided');
-  const tokenHash = await hashString(refreshToken);
-  const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
-  if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
-
-  const { scopes } = await registry(env).revokeAllForAddress(record.sub) as { scopes: string[] };
-  const headers = new Headers({ 'Content-Type': 'application/json' });
-  for (const scope of scopes) headers.append('Set-Cookie', expiredRefreshCookie(scope));
-  return new Response(JSON.stringify({ scopes }), { status: 200, headers });
-}
-
-/**
- * `POST /auth/{scope}/accept-membership` — the ONE writer of acceptance, behind the consent modal.
- *
- * ⚠️ **It also takes the display names**, because this is the one screen every arrival passes
- * through and therefore the only place to ask once rather than interrupt later. The nickname is
- * required by the screen (`canAccept`) and optional here; the full name is optional in both.
- *
- * Credentialed by that membership's OWN path-scoped refresh cookie, which is self-carrying proof:
- * the browser only sends it to this scope's auth routes, so no cross-membership authorization rule
- * exists to get wrong. The cookie is the same one the consume placed and left inert — accepting is
- * what makes it mint.
- */
-export async function handleAcceptMembership(request: Request, env: Env): Promise<Response> {
-  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
-  if (!refreshToken) return errorResponse(401, 'invalid_token', 'No refresh token provided');
-  const tokenHash = await hashString(refreshToken);
-  // Resolve through the registry rather than the KV record: an UNACCEPTED session is exactly the
-  // case this endpoint exists for, and the KV read path refuses those by design.
-  const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
-  if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
-  // Read the body BEFORE the accept: a malformed one should not leave a half-done acceptance behind.
-  const body = await readJsonBody(request);
-  const nickname = normalizeDisplayName(body.nickname);
-  const name = normalizeDisplayName(body.name);
-  const result = await registry(env).acceptMembership(record.sub) as { accepted: string[] };
-  // ⚠️ **The nickname rides acceptance because this is the moment a person is ASKED for it**, and
-  // it is the last moment before they reach a surface where other people can see them. Written after
-  // the accept, never before: a failed acceptance must not leave a name behind, while a failed write
-  // only costs the "Someone" fallback until they set one.
-  if (nickname) {
-    try {
-      await (await profileForSub(env, record.sub))?.setDisplayNames({ nickname, ...(name ? { name } : {}) });
-    } catch (e) {
-      // Best-effort (see `profile`): the membership is already accepted and refusing now would
-      // strand the person outside an account they agreed to join. Loud in the log, silent to them.
-      debug('nebula-auth.worker.acceptMembership').warn('display-name write failed (continuing)', {
-        sub: record.sub, error: (e as Error).message,
-      });
+export async function wakeCertificates(
+  registryStub: { checkSlugAvailable(id: string): unknown },
+  hooks: ScopeLifecycleHooks, galaxies: readonly string[], operationId: string,
+): Promise<void> {
+  for (const galaxy of galaxies) {
+    await hooks.orderCertificate(galaxy, operationId);
+    if (await registryStub.checkSlugAvailable(galaxy)) {
+      debug('nebula-auth.certificate').warn('woken galaxy was deleted meanwhile; tearing it down again', { galaxy, operationId });
+      await hooks.teardown([{ instanceName: galaxy, tier: 'galaxy' }, { instanceName: `${galaxy}.dev`, tier: 'star' }], 'deletion', operationId);
     }
   }
-  return Response.json({ accepted: result.accepted.length > 0, scope: record.universeGalaxyStarId });
 }
 
-// ── pending-membership (the consent modal's inputs, before any session exists) ────────────────────
+// ── acceptance: one helper, two writers ─────────────────────────────────────────────────────────
 
 /**
- * What the consent modal needs, for the membership this cookie names.
- *
- * ⚠️ **This exists because a refresh REFUSES an unaccepted membership**, which is exactly the
- * membership Home renders a modal for. A claim or invite 302 lands there holding one inert cookie
- * and no token, so the screen that takes consent had no way to learn what it was taking consent for.
- * Same credential and same resolution as {@link handleAcceptMembership} — the cookie is resolved to
- * ITS OWN membership through the registry, never to the scope named in the URL.
- *
- * Narrow on purpose: acceptance state, and the sender-supplied name when the membership was
- * invite-minted. Nothing about any other membership, and nothing a holder is not about to be shown.
+ * Accept a membership and carry out what the Registry answered — the one helper both acceptance
+ * writers call, the link page's `POST` and Home's `accept-membership`. On `accepted` it re-puts every
+ * session's KV record with the reap, then wipes the scopes a claim's first acceptance names through
+ * `hooks.teardown` before it returns: the request is the person's own, so that teardown is the first
+ * call to reach those Durable Objects and places them near them, which is why it must never move into
+ * the Registry or anything placed beside it. Then it wakes the certificate order of every galaxy the
+ * Registry names, accepted or already ({@link wakeCertificates}). Display names are written on any
+ * acceptance that landed.
+ * The completion line is logged last, so a reader counts what this acceptance caused by its id.
+ */
+async function settleAcceptance(
+  env: Env, hooks: ScopeLifecycleHooks, sub: string, credential: AcceptanceCredential,
+  body: Record<string, unknown>,
+): Promise<AcceptanceOutcome> {
+  const operationId = crypto.randomUUID();
+  const log = debug('nebula-auth.worker.acceptMembership');
+  const result = await registry(env).acceptMembership(sub, { credential, operationId }) as AcceptanceOutcome;
+  if (result.outcome === 'accepted') {
+    await putRefreshRecords(env, result.sessions);
+    if (result.teardown.length > 0) await hooks.teardown(result.teardown, 'creation', operationId);
+  }
+  // Already accepted orders too: ordering is idempotent, and a Worker that died before the wake
+  // leaves nothing else to retry it. The Registry names only galaxies whose rows stand.
+  if (result.outcome === 'accepted' || result.outcome === 'already-accepted') {
+    await wakeCertificates(registry(env), hooks, result.galaxies, operationId);
+  }
+  const nickname = normalizeDisplayName(body.nickname);
+  const name = normalizeDisplayName(body.name);
+  if (nickname && (result.outcome === 'accepted' || result.outcome === 'already-accepted')) {
+    try {
+      await (await profileForSub(env, sub))?.setDisplayNames({ nickname, ...(name ? { name } : {}) });
+    } catch (e) {
+      // Best-effort (see `profileForSub`): the membership is already accepted and refusing now would
+      // strand the person outside an account they agreed to join. Loud in the log, silent to them.
+      log.warn('display-name write failed (continuing)', { sub, error: (e as Error).message });
+    }
+  }
+  log.info('accepted', {
+    operationId, outcome: result.outcome,
+    ...(result.outcome === 'accepted' || result.outcome === 'already-accepted' ? { scope: result.scope } : {}),
+  });
+  return result;
+}
+
+/** The refresh cookie a body's `scope` names, resolved to its record and checked against the name. */
+async function membershipCookie(
+  request: Request, env: Env, scope: unknown,
+): Promise<{ record: RefreshTokenKV } | Response> {
+  if (typeof scope !== 'string') return errorResponse(400, 'invalid_request', 'Missing scope');
+  const cookie = refreshCookies(request.headers.get('Cookie') || '').find((c) => c.scope === scope);
+  if (!cookie) return errorResponse(401, 'invalid_token', 'No refresh cookie for that scope');
+  // Through the registry rather than the KV record: an UNACCEPTED session is the case these routes
+  // serve, and the KV read path refuses those.
+  const record = await registry(env).getRefreshRecord(await hashString(cookie.token)) as RefreshTokenKV | null;
+  if (!record || record.universeGalaxyStarId !== scope) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
+  return { record };
+}
+
+/**
+ * `POST /auth/accept-membership` — Home's Accept for a pending row, the second acceptance writer.
+ * The body names the membership's scope, which picks its refresh cookie; the record behind that
+ * cookie decides, never the name.
+ */
+export async function handleAcceptMembership(
+  request: Request, env: Env, hooks: ScopeLifecycleHooks,
+): Promise<Response> {
+  const body = await readJsonBody(request);
+  const resolved = await membershipCookie(request, env, body.scope);
+  if (resolved instanceof Response) return resolved;
+  const result = await settleAcceptance(env, hooks, resolved.record.sub, 'refresh-cookie', body);
+  if (result.outcome === 'not-found') return errorResponse(404, 'not_found', 'No such membership');
+  if (result.outcome === 'refused') return errorResponse(403, result.reason, result.message);
+  return Response.json({ accepted: result.outcome === 'accepted', scope: resolved.record.universeGalaxyStarId });
+}
+
+/**
+ * `POST /auth/pending-membership` — the consent card for a pending row on Home: its scope, whether it
+ * came by invite, the sender-supplied name, and the person's display names to pre-fill. The body
+ * names the scope, which picks the cookie; their own public fields, behind their own cookie, so no
+ * disclosure question arises (ADR-012).
  */
 export async function handlePendingMembership(request: Request, env: Env): Promise<Response> {
-  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
-  if (!refreshToken) return errorResponse(401, 'invalid_token', 'No refresh token provided');
-  const tokenHash = await hashString(refreshToken);
-  // Through the registry rather than the KV record: an UNACCEPTED session is the case this serves,
-  // and the KV read path refuses those.
-  const record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
-  if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
-  const card = await registry(env).getMembershipCard(record.sub) as
+  const body = await readJsonBody(request);
+  const resolved = await membershipCookie(request, env, body.scope);
+  if (resolved instanceof Response) return resolved;
+  const card = await registry(env).getMembershipCard(resolved.record.sub) as
     { universeGalaxyStarId: string; accepted: boolean; invited?: boolean; invitedByName?: string } | null;
   if (!card) return errorResponse(404, 'not_found', 'No such membership');
-  // The consent screen asks for a nickname, so it needs whatever is already on file to pre-fill with.
-  // Without it a second acceptance would re-ask, and the person would either retype their own name or
-  // silently replace it — a global field changed as a side effect of joining somewhere new. Their own
-  // public field, behind their own cookie: no disclosure question (ADR-012).
   let names: { nickname?: string; name?: string } = {};
   try {
-    names = (await (await profileForSub(env, record.sub))?.readDisplayNames() ?? {}) as typeof names;
+    names = (await (await profileForSub(env, resolved.record.sub))?.readDisplayNames() ?? {}) as typeof names;
   } catch (e) {
-    // Best-effort (see `profile`) — empty fields are a worse consent screen, not a broken one.
     debug('nebula-auth.worker.pendingMembership').warn('display-name read failed (continuing)', {
-      sub: record.sub, error: (e as Error).message,
+      sub: resolved.record.sub, error: (e as Error).message,
     });
   }
   return Response.json({
@@ -546,39 +638,83 @@ export async function handlePendingMembership(request: Request, env: Env): Promi
   });
 }
 
+// ── Home's summary, by cookie ───────────────────────────────────────────────────────────────────
+
+/** At most this many cookies one request resolves: the cookie cap, twice, against a forged flood. */
+const RESOLVE_BOUND = 2 * MINT_ALL_COOKIE_CAP;
+
+/**
+ * `POST /auth/home-summary` — Home's one read. Authenticated by every accepted refresh cookie the
+ * request carries, resolved in one batched Registry call bounded at {@link RESOLVE_BOUND}, and grouped
+ * by `profileId`, each group answered from `getScopeSummary`, which keys on the person and reads no
+ * `access` claim. It is the only route that returns a person's whole summary; no scope host has one.
+ * The pending cookies are named beside it, so Home can offer each one's consent, and so are the
+ * accepted ones with their admin bit, `held`, so Home can mark a row whose host this browser could
+ * not open — the refresh mints only from that membership's own cookie or an admin cookie above it.
+ */
+export async function handleHomeSummary(request: Request, env: Env): Promise<Response> {
+  const operationId = crypto.randomUUID();
+  const log = debug('nebula-auth.worker.homeSummary');
+  const all = refreshCookies(request.headers.get('Cookie') || '');
+  if (all.length > RESOLVE_BOUND) log.warn('truncated', { operationId, received: all.length, bound: RESOLVE_BOUND });
+  const cookies = all.slice(0, RESOLVE_BOUND);
+  const hashes = await Promise.all(cookies.map((c) => hashString(c.token)));
+  for (const c of cookies) log.debug('resolve', { operationId, scope: c.scope });
+  const records = hashes.length === 0 ? []
+    : await registry(env).currentRefreshRecords(hashes) as Array<RefreshTokenKV | null>;
+  const profileIds = new Set<string>();
+  const pending: string[] = [];
+  const held: Array<{ scope: string; scopeAdmin: boolean }> = [];
+  records.forEach((record, i) => {
+    if (!record || record.universeGalaxyStarId !== cookies[i].scope) return;
+    if (!record.accepted) { pending.push(record.universeGalaxyStarId); return; }
+    held.push({ scope: record.universeGalaxyStarId, scopeAdmin: record.scopeAdmin });
+    profileIds.add(record.profileId);
+  });
+  if (profileIds.size === 0 && pending.length === 0) return errorResponse(401, 'invalid_token', 'No live session');
+  const summaries = await Promise.all([...profileIds].map(async (profileId) => ({
+    profileId, summary: await registry(env).getScopeSummary(profileId),
+  })));
+  return Response.json({ groups: summaries, pending, held });
+}
+
 // ── signup (spend the ticket, claim, log in) ─────────────────────────────────────────────────────
 
 /** What each ticket-claim refusal tells the person, kept beside the mapping that uses it. */
 const SIGNUP_REFUSALS: Record<Exclude<TicketClaimResult, { ok: true }>['reason'], string> = {
   invalid_ticket: 'Signup ticket is missing or expired',
   invalid_slug: 'Invalid universe slug format',
+  invalid_app_slug: 'Invalid app slug format',
   reserved_slug: 'That name is reserved',
   slug_taken: 'That name is already claimed',
 };
 
 /**
- * The fallback slug screen's claim: spend the signup ticket, claim the universe, mint the session.
+ * The fallback signup page's claim: spend the signup ticket, claim the universe and its first app,
+ * mint the session.
  *
  * ⚠️ **No link is sent and no address is read from the body.** The ticket the browser presents was
  * issued minutes ago to a click on mail that reached this address, so the mailbox is already proved
- * and the registry derives the claimer from the ticket row. `slug` is the only thing the caller
- * supplies, and it is the only thing they are entitled to choose.
+ * and the registry derives the claimer from the ticket row. `slug` and `appSlug`, the account and
+ * its first app, are the only things the caller supplies, and the only things they may choose.
  *
- * The membership is minted UNACCEPTED like every other one — the Home screen's self-flavor modal is
- * what takes it up — so the cookie set here grants nothing until its holder consents.
+ * The membership is minted UNACCEPTED like every other one — Home's consent card is what takes it up —
+ * so the cookie set here grants nothing until its holder consents.
  */
 export async function handleSignupClaim(request: Request, env: Env): Promise<Response> {
-  const rawTicket = extractCookie(request.headers.get('Cookie') || '', SIGNUP_TICKET_COOKIE);
+  const rawTicket = cookiesOf(request.headers.get('Cookie') || '').find((c) => c.name === SIGNUP_TICKET_COOKIE)?.value;
   if (!rawTicket) return errorResponse(401, 'invalid_ticket', 'No signup ticket provided');
 
   let slug: unknown;
-  try { ({ slug } = await request.json() as { slug?: unknown }); } catch { /* handled below */ }
+  let appSlug: unknown;
+  try { ({ slug, appSlug } = await request.json() as { slug?: unknown; appSlug?: unknown }); } catch { /* handled below */ }
   if (typeof slug !== 'string' || slug.length === 0) {
     return errorResponse(400, 'invalid_request', 'Missing slug');
   }
 
   const ticketHash = await hashString(rawTicket);
-  const claimed = await registry(env).claimUniverseWithTicket(ticketHash, slug) as TicketClaimResult;
+  // `appSlug` goes through unchecked: the Registry's refusal is the one the direct claim gives too.
+  const claimed = await registry(env).claimUniverseWithTicket(ticketHash, slug, appSlug) as TicketClaimResult;
   if (!claimed.ok) {
     // The registry answers with a REASON, not a status — an HTTP code is this side's business, and
     // `SIGNUP_REFUSALS` does not compile without a message for every reason (`raw-comm.md`).
@@ -589,10 +725,12 @@ export async function handleSignupClaim(request: Request, env: Env): Promise<Res
   }
 
   const rawRefreshToken = generateRandomString(32);
-  await registry(env).recordSessions(
+  const puts = await registry(env).recordSessions(
     [{ sub: claimed.sub, tokenHash: await hashString(rawRefreshToken) }],
     new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
-  );
+    crypto.randomUUID(),
+  ) as RefreshPut[];
+  await putRefreshRecords(env, puts);
 
   const headers = new Headers();
   headers.append('Set-Cookie', refreshCookie(claimed.universeGalaxyStarId, rawRefreshToken));
@@ -601,7 +739,7 @@ export async function handleSignupClaim(request: Request, env: Env): Promise<Res
   headers.append('Set-Cookie', expiredSignupTicketCookie());
   headers.set('Content-Type', 'application/json');
   return new Response(
-    JSON.stringify({ scope: claimed.universeGalaxyStarId, home: homePath(claimed.universeGalaxyStarId) }),
+    JSON.stringify({ scope: claimed.universeGalaxyStarId, redirect: HOME_PATH }),
     { status: 200, headers },
   );
 }
@@ -631,151 +769,204 @@ export async function handleComingSoon(request: Request, _env: Env): Promise<Res
   return new Response(null, { status: 204 });
 }
 
-// ── refresh-token (pure KV read → mint JWT) ──────────────────────────────────────────────────────
+// ── refresh-token: the one route a page on another host calls ───────────────────────────────────
 
 /**
- * Exchange the refresh cookie for an access token — a **pure KV read**, no registry, no writes on the
- * hot path. ⚠️ M1: `activeScope` is validated against the KV record's server-trusted
- * `universeGalaxyStarId`, NOT the request path or body — bounding it by client input would let a
- * caller mint a token for any scope they name. `scopeAdmin` comes from the KV record.
+ * `POST /auth/refresh-token` — a page on a scope host gets its access token (ADR-022 § *Getting an
+ * access token*). It reads no body and no `Content-Type`, so it is a simple request a page's
+ * credentialed `fetch` sends without a preflight.
+ *
+ * 1. **`Origin` decides the host's scope**, through the deployment's parse. A host that names no scope
+ *    — the platform host, the apex, one the parse refuses — answers 403 with no CORS headers, so the
+ *    asking script cannot read even that.
+ * 2. **The candidates are the cookies named at or above that scope**, at most four, broadest first,
+ *    since the scope tree caps them. A cookie named for any other scope is never read.
+ * 3. **Each candidate's record decides, not its name.** A record whose scope disagrees with the name
+ *    is skipped at warn. An unaccepted membership mints nothing. The first accepted `scopeAdmin` one
+ *    wins — the broadest dominion — else the membership at the host's own scope, else 401.
+ * 4. **A KV miss falls back once to the Registry**, which heals the record through the reap. A miss
+ *    on both expires that cookie, so a revoked membership's cookie stops costing a Registry read.
+ * 5. **It answers CORS for that origin alone**, with credentials; no other route answers CORS.
+ * 6. **A persona's host mints the persona's own plain token**, `manny--dev.crm.acme` answering as
+ *    Manny, for a browser whose ACCEPTED admin cookie at or above the Star holds dominion over it —
+ *    never a plain one, and only in the `dev` Star (ADR-022 § *A persona's host*). The token carries
+ *    no `act`; the opener is recorded instead, from its cookie's record (ADR-016).
  */
 export async function handleRefreshToken(request: Request, env: Env): Promise<Response> {
-  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
-  if (!refreshToken) return errorResponse(401, 'invalid_token', 'No refresh token provided');
-
-  const tokenHash = await hashString(refreshToken);
-  const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${tokenHash}`);
-  let record: RefreshTokenKV | null;
-  if (raw) {
-    record = JSON.parse(raw) as RefreshTokenKV;
-  } else {
-    // KV miss. Almost always a genuinely-invalid/revoked token — but it can also be a login→first-refresh
-    // cross-colo propagation gap (KV is eventually consistent, ~edge cacheTtl). Fall back ONCE to the
-    // registry's strongly-consistent index, which reconstructs + self-heals the KV record; a genuinely-
-    // invalid token isn't there → still 401. Defensive: in practice the user's edge PoP usually serves
-    // both the login write + the refresh read, so this rarely fires.
-    record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
-    if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
+  const log = debug('nebula-auth.worker.refresh');
+  const origin = request.headers.get('Origin');
+  let target: HostTarget | null = null;
+  if (origin) {
+    try { target = parseHost(new URL(origin).host, deploymentOrigin(env)); } catch { target = null; }
   }
-  // Belt-and-suspenders: KV TTL already drops expired records, but a clock-skewed edge could serve one.
-  if (new Date().toISOString() > record.expiresAt) return errorResponse(401, 'token_expired', 'Refresh token expired');
-
-  // ⚠️ **An unaccepted membership's cookie mints NOTHING.** Mint-all places a cookie for every
-  // membership the address holds, so a person can hold a session at a scope they have never agreed
-  // to enter — an invitation from a stranger, most importantly. Refusing here is what keeps the
-  // consent modal load-bearing rather than decorative: without it, a direct link to that scope's
-  // surface would connect and ADR-012's accepted-membership gate would be the only thing standing.
-  // The refusal is temporary by design — the accept endpoint converges this flag, and the same
-  // cookie then works.
-  if (!record.accepted) {
-    return errorResponse(401, 'membership_not_accepted', 'This membership has not been accepted yet');
+  if (!origin || !target || (target.kind !== 'scope' && target.kind !== 'persona')) {
+    return errorResponse(403, 'invalid_origin', 'The refresh answers a page on a scope host');
   }
-
-  const contentType = request.headers.get('Content-Type');
-  if (!contentType?.includes('application/json')) {
-    return errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
+  const persona = target.kind === 'persona' ? target.persona : undefined;
+  // The refresh serves every page on the site, so `same-site` passes beside `same-origin`; a request
+  // with no `Sec-Fetch-Site` is not a browser's, and the `Origin` above already decided it.
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin' && site !== 'same-site') {
+    return errorResponse(403, 'cross_site', 'The refresh answers only pages on this site');
   }
-  let body: { activeScope?: string; ttlSeconds?: unknown };
-  try { body = await request.json() as typeof body; }
-  catch { return errorResponse(400, 'invalid_request', 'Invalid JSON body'); }
-  if (!body.activeScope) return errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
-  // ⚠️ Validate BEFORE the mint, and by accept-list — a truthiness check (the shape of the
-  // `activeScope` guard above) would pass `'abc'` straight through to an `exp: NaN`, which verifies
-  // forever. This endpoint is gated by the refresh cookie ALONE, so it is the reachable one.
-  const ttlCheck = validateTtlSeconds(body.ttlSeconds);
-  if ('error' in ttlCheck) return errorResponse(400, 'invalid_request', ttlCheck.error);
-  // The scope grammar is enforced HERE, at the request boundary, because `isAtOrAbove` below is
-  // deliberately grammar-free — it compares two strings and knows nothing about the 1–3-segment
-  // tier tree. Without this a four-segment `activeScope` would sit "beneath" the record's scope and
-  // mint a token naming a scope no grammar can produce. Explicit 400 rather than a bare throw:
-  // `router.ts` wraps this handler in a blanket 500.
-  try { parseId(body.activeScope); }
-  catch (e) { return errorResponse(400, 'invalid_request', (e as Error).message); }
+  const hostScope = target.scope;
+  const cors = (response: Response): Response => {
+    response.headers.set('Access-Control-Allow-Origin', origin);
+    response.headers.set('Access-Control-Allow-Credentials', 'true');
+    response.headers.append('Vary', 'Origin');
+    return response;
+  };
+  const operationId = crypto.randomUUID();
+  const expired: string[] = [];
+  let pendingSeen = false;
+  let picked: RefreshTokenKV | undefined;
+  let exact: RefreshTokenKV | undefined;
+  const now = new Date().toISOString();
 
-  // M1: compare against the KV record's scope (server-trusted), never the client body/path.
-  if (!isAtOrAbove(record.universeGalaxyStarId, body.activeScope)) {
-    return errorResponse(403, 'insufficient_scope',
-      `Requested scope "${body.activeScope}" is not at or below "${record.universeGalaxyStarId}"`);
+  for (const candidate of refreshCookies(request.headers.get('Cookie') || '')) {
+    if (!isAtOrAbove(candidate.scope, hostScope)) continue;
+    log.debug('read', { operationId, scope: candidate.scope });
+    const tokenHash = await hashString(candidate.token);
+    const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${tokenHash}`);
+    let record: RefreshTokenKV | null = raw ? JSON.parse(raw) as RefreshTokenKV : null;
+    if (!record) {
+      // KV miss: a propagation gap, or a revoked record. The Registry's strongly consistent index
+      // tells them apart; a healed record is put here, where the person is, and reaped if orphaned.
+      const healed = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+      if (healed) [record] = await putRefreshRecords(env, [{ tokenHash, record: healed }]);
+      if (!record) { expired.push(candidate.scope); continue; }
+    }
+    if (now > record.expiresAt) continue;
+    if (record.universeGalaxyStarId !== candidate.scope) {
+      log.warn('cookie name disagrees with its record', { operationId, name: candidate.scope, sub: record.sub });
+      continue;
+    }
+    if (!record.accepted) { pendingSeen = true; continue; }
+    if (record.scopeAdmin) { picked = record; break; }
+    if (record.universeGalaxyStarId === hostScope) exact = record;
   }
+  // A persona's page opens only for dominion over its Star: a plain member of the Star is no opener.
+  if (!persona) picked ??= exact;
 
+  const withExpiries = (response: Response): Response => {
+    for (const scope of expired) response.headers.append('Set-Cookie', expiredRefreshCookie(scope));
+    return cors(response);
+  };
+  if (!picked) {
+    return withExpiries(pendingSeen
+      ? errorResponse(401, 'membership_not_accepted', 'This membership has not been accepted yet')
+      : errorResponse(401, 'invalid_token', 'No refresh cookie covers this host'));
+  }
+  if (persona) {
+    // Only the `dev` Star has personas a page may open: an environment beside it, `staging` say,
+    // parses as a persona's host and is refused here.
+    if (hostScope.split('.')[2] !== 'dev') {
+      return withExpiries(errorResponse(401, 'invalid_token', 'A persona page opens only in a dev Star'));
+    }
+    const id = await personaId(hostScope, persona);
+    const minted = await mintAccessToken(env, {
+      sub: id, universeGalaxyStarId: hostScope, scopeAdmin: false, profileId: id, activeScope: hostScope,
+    });
+    // ADR-016: this establishes a session, so it records the opener from its cookie's record. The
+    // persona's token carries no `act`, so the record is the only place the opener is named.
+    debug('nebula-auth.worker.refresh.persona').info('persona minted', {
+      operationId, sub: id, star: hostScope, aud: hostScope,
+      opener: { sub: picked.sub, profileId: picked.profileId, scope: picked.universeGalaxyStarId, scopeAdmin: picked.scopeAdmin },
+    });
+    return withExpiries(Response.json({
+      access_token: minted.accessToken, token_type: 'Bearer', expires_in: minted.effectiveTtlSeconds, sub: id,
+    }));
+  }
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
-    sub: record.sub,
-    universeGalaxyStarId: record.universeGalaxyStarId,
-    scopeAdmin: record.scopeAdmin,
-    profileId: record.profileId,
-    activeScope: body.activeScope,
-    ttlSeconds: body.ttlSeconds as number | undefined,
+    sub: picked.sub,
+    universeGalaxyStarId: picked.universeGalaxyStarId,
+    scopeAdmin: picked.scopeAdmin,
+    profileId: picked.profileId,
+    activeScope: hostScope,
   });
-
-  // No rotation, no slide (security.md): the refresh token keeps its fixed TTL from login. We do NOT
-  // re-set the cookie — refresh is a pure read.
-  return Response.json({
+  // The completion line, by which a reader finds this refresh's `read` markers: the host and the
+  // `sub` it minted are what a caller holding the answer knows.
+  log.debug('minted', { operationId, host: hostScope, sub: picked.sub });
+  // No rotation, no slide (security.md): the refresh token keeps its fixed TTL from login.
+  return withExpiries(Response.json({
     access_token: accessToken,
     token_type: 'Bearer',
-    // The EFFECTIVE (post-clamp) lifetime, not the constant — a client that trusted a constant here
-    // while the JWT carried a shorter `exp` would mis-schedule its own refresh.
     expires_in: effectiveTtlSeconds,
-    sub: record.sub,
-  });
+    sub: picked.sub,
+  }));
 }
 
 // ── logout ───────────────────────────────────────────────────────────────────────────────────────
 
-export async function handleLogout(request: Request, env: Env, instanceName: string): Promise<Response> {
-  const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
-  if (refreshToken) {
-    const tokenHash = await hashString(refreshToken);
-    try { await registry(env).revokeRefreshToken(tokenHash); }
-    catch (err) {
-      debug('nebula-auth.worker.logout').warn('revoke failed (continuing)', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+/**
+ * `POST /auth/logout` — end every session the browser's cookies name (§ *Logging out* in the task
+ * that built it). Every refresh cookie the request carries is expired, which costs no Registry read;
+ * the revocations are bounded at {@link RESOLVE_BOUND}, and a truncation is logged at warn. With
+ * `everywhere`, every session of each address those cookies name ends, on every device.
+ *
+ * ⚠️ **A DERIVED session never reaches here.** An impersonated client holds no refresh cookie of its
+ * own, so this call would spend the ORIGINATOR's — `security.md`'s derived-session rule. The client's
+ * guard is `NebulaClient.logout()`'s `#mintedFrom` branch, which ends an impersonation by teardown.
+ */
+export async function handleLogout(request: Request, env: Env): Promise<Response> {
+  const operationId = crypto.randomUUID();
+  const log = debug('nebula-auth.worker.logout');
+  const { everywhere } = await readJsonBody(request);
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  // Every refresh cookie received is expired, parsed as a scope or not.
+  for (const { name } of cookiesOf(cookieHeader)) {
+    if (name.startsWith(REFRESH_COOKIE_PREFIX)) headers.append('Set-Cookie', expiredRefreshCookie(name.slice(REFRESH_COOKIE_PREFIX.length)));
   }
-  const cookiePath = `${NEBULA_AUTH_PREFIX}/${instanceName}`;
-  return new Response(JSON.stringify({ message: 'Logged out' }), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Set-Cookie': `refresh-token=; Path=${cookiePath}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
-    },
-  });
+  const all = refreshCookies(cookieHeader);
+  if (all.length > RESOLVE_BOUND) log.warn('truncated', { operationId, received: all.length, bound: RESOLVE_BOUND });
+  const hashes = await Promise.all(all.slice(0, RESOLVE_BOUND).map((c) => hashString(c.token)));
+  let subs: string[] = [];
+  try {
+    // A request with no refresh cookie has nothing to revoke, so it never wakes the singleton.
+    if (hashes.length > 0) {
+      ({ subs } = await registry(env).logoutSessions(hashes, everywhere === true, operationId) as { subs: string[] });
+    }
+  } catch (err) {
+    log.warn('revoke failed (continuing)', { operationId, error: err instanceof Error ? err.message : String(err) });
+  }
+  log.info('logged out', { operationId, ended: subs.length, everywhere: everywhere === true });
+  return new Response(JSON.stringify({ ended: subs.length }), { status: 200, headers });
 }
 
 // ── (there is no invite handler here: every invite enters mesh-side through NebulaAuthFacade —
 //     `@lumenize/nebula-auth/facade` — which owns the eligibility verdicts, the bit cap, and the
 //     post-return send dispatch through `invite-entry.ts`) ─────────────────────────────────────────
 
-// ── mint-narrower-token (admin branch) ───────────────────────────────────────────────────────────
+// ── the impersonation mint ──────────────────────────────────────────────────────────────────────
 
 /**
  * May `callerClaims` mint a token wearing this subject's identity? — dominion over the SUBJECT's
- * scope (`security.md` § Delegation, mint-side).
+ * scope, read from the caller's own host like every verdict (`security.md` § Delegation,
+ * mint-side, and the host rule).
  *
  * Deliberately thin, and it exists for ONE reason: naming which scope goes in. The live
- * substitution risk is any scope reachable at the call site other than the subject's — and with a
- * scope-less route the nearest wrong argument is the CALLER's own `access.authScope`, which makes
- * the predicate reflexively true and therefore silent: a check that can never refuse, which
- * mutation testing cannot red. Taking the whole `subject` row (never a bare scope string) is what
- * forecloses writing that.
- *
- * ⚠️ Takes no `activeScope` — `activeScope` is not an authorization input here (it is confined by
- * `authScope` on every verify, so a decision on it is a decision on a derived value). Not exported:
- * `apps/nebula` has no business minting.
+ * substitution risk is any scope reachable at the call site other than the subject's — and the
+ * nearest wrong argument is the CALLER's own host scope, `aud`, which makes the predicate
+ * reflexively true and therefore silent: a check that can never refuse, which mutation testing
+ * cannot red. Taking the whole `subject` row (never a bare scope string) is what forecloses writing
+ * that. Not exported: `apps/nebula` has no business minting.
  */
 function canMintFor(
   callerClaims: NebulaJwtPayload,
   subject: { universeGalaxyStarId: string },
 ): boolean {
-  return hasDominionOver(callerClaims.access, subject.universeGalaxyStarId);
+  return hasDominionOver(callerClaims, subject.universeGalaxyStarId);
 }
 
+/** What {@link mintImpersonationToken} answers: a token, or the refusal a caller may read. */
+export type ImpersonationMint =
+  | { ok: true; accessToken: string; expiresIn: number }
+  | { ok: false; message: string };
+
 /**
- * Mint a scope-bounded narrower token for another person: `sub` = the subject, `act.sub` = the caller.
- * The `AuthorizedActor` non-admin branch is CUT (tasks/archive/nebula-auth-surrogate-sub.md) — only the ADMIN
- * branch survives. The request parameters ARE the token fields the caller is asking for
- * (`subOfNarrowerToken` is the minted `sub`; `activeScope` is its `aud` + its minted `authScope`);
- * the actor is always the caller, taken from the Bearer token, so it is never a parameter.
+ * Mint a token that acts as another person: `sub` = the subject, `act` = the caller. Reached from
+ * `NebulaAuthFacade.impersonate`, which turns a refusal into its typed terminal error.
  *
  * **The authorization is ONE question plus one validation:**
  *
@@ -785,121 +976,86 @@ function canMintFor(
  *    registry's `getIdentityScope` answers only for an accepted membership, so an unaccepted
  *    subject arrives as `null` and the collapsed refusal below covers them (ADR-012).
  *  - **mint:** `{ sub, authScope, scopeAdmin }` ← all the SUBJECT's, verbatim; `aud` ← the
- *    requested `activeScope`; `act` ← the caller.
+ *    CALLER's `aud`, so the child acts on the page its parent is on; `act` ← the caller.
  *
- * The old `activeScope` bounds are gone as CHECKS because they are now theorems: eligibility places
- * the subject's whole scope inside the caller's dominion, the minted `authScope` IS the subject's
- * scope, and `verify.ts` unconditionally requires `aud ⊆ authScope` — so `aud ⊆ subject ⊆ caller`
- * falls out. The one containment check that remains is the **`aud` validation** (a mirror of what
- * the token could ever verify as, answered early as a 403 instead of late as a dead token), which
- * is a validation, never an authorization. Faithfulness — the subject's own bit and scope, not the
- * caller's — is the property the use case needs: it is what puts `resolvePermission` back in the
- * decision, so an admin can actually observe the denial they came to debug (`org-tree.ts`'s
- * scope-admin bypass would otherwise fire off the caller's bit and the denial would never happen).
- *
- * @param payload the caller's already-verified access token (the route pipeline verifies the
- *   Bearer; the route is scope-less, so every authorization decision is made HERE).
+ * No caller names the child's scope: a parameter for it would be a second source for a value the
+ * page already fixes. The old bounds on a requested scope are theorems now — eligibility places the
+ * subject's whole scope inside the caller's dominion, the minted `authScope` IS the subject's scope,
+ * and `verify.ts` requires `aud ⊆ authScope` — so the one containment check left is the **`aud`
+ * validation**, which answers a page outside the subject's scope early instead of minting a token
+ * that verifies nowhere. Faithfulness — the subject's own bit and scope, not the caller's — is what
+ * puts `resolvePermission` back in the decision, so an admin can observe the denial they came to
+ * debug.
  */
-export async function mintNarrowerToken(
-  request: Request, env: Env, payload: NebulaJwtPayload,
-): Promise<Response> {
+export async function mintImpersonationToken(
+  env: Env, callerClaims: NebulaJwtPayload, sub: unknown, ttlSeconds?: unknown, operationId?: string,
+): Promise<ImpersonationMint> {
   // Mint from a ROOT identity only (a token carrying no `act` chain) — never re-narrow. The
   // `¬caller.act` conjunct of the authorize line, a licensed mint-side presence gate under
-  // `security.md` rule (1). ⚠️ The 403 message is load-bearing — `apps/nebula/src/impersonation.ts`
-  // classifies terminal failures by matching /root identity/i against `error_description`, and no
-  // test asserts the string, so a reword greens everywhere and breaks the client's classification.
-  if (payload.act) {
-    return errorResponse(403, 'forbidden', '/mint-narrower-token requires a root identity (a token carrying no `act` chain)');
+  // `security.md` rule (1).
+  if (callerClaims.act) {
+    return { ok: false, message: 'Impersonation requires a root identity (a token carrying no `act` chain)' };
   }
-  const contentType = request.headers.get('Content-Type');
-  if (!contentType?.includes('application/json')) {
-    return errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
-  }
-  let body: { subOfNarrowerToken?: string; activeScope?: string; ttlSeconds?: unknown };
-  try { body = await request.json() as typeof body; }
-  catch { return errorResponse(400, 'invalid_request', 'Invalid JSON body'); }
-  if (!body.subOfNarrowerToken) return errorResponse(400, 'invalid_request', 'subOfNarrowerToken required');
-  if (!body.activeScope) return errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
+  if (typeof sub !== 'string' || !sub) return { ok: false, message: 'Impersonation needs the subject\'s sub' };
   // Accept-list, before the mint — see `validateTtlSeconds` on why a non-positive check is not enough.
-  const ttlCheck = validateTtlSeconds(body.ttlSeconds);
-  if ('error' in ttlCheck) return errorResponse(400, 'invalid_request', ttlCheck.error);
-  // The scope grammar is enforced HERE, at the request boundary — the ONLY parse this client-supplied
-  // value gets. `isAtOrAbove` below is deliberately grammar-free (two strings, no tier tree), and the
-  // mint no longer derives anything from `activeScope` that would parse it on the way past. Explicit
-  // 400 rather than a bare throw: `router.ts` wraps this handler in a blanket 500.
-  try { parseId(body.activeScope); }
-  catch (e) { return errorResponse(400, 'invalid_request', (e as Error).message); }
+  const ttlCheck = validateTtlSeconds(ttlSeconds);
+  if ('error' in ttlCheck) return { ok: false, message: ttlCheck.error };
 
   // Reject SELF-NARROWING, before the registry read. There is no second party, so an actor pair
   // naming the token's own `sub` records nothing: it pollutes attribution, and it costs that session
-  // both of the things an actor chain is refused — the tenancy summary at `router.ts`'s
-  // `forwardWithSubject`, and re-narrowing past the root-identity gate above — for no second party's
-  // sake. ⚠️ The invariant is *a chain must name someone else*, NOT "the two subs are different
-  // people": `#mintIdentity` keys on (email, scope), so one human legitimately holds several `sub`s,
-  // and this compares the one field a caller supplies against the one the Bearer already proved.
-  if (body.subOfNarrowerToken === payload.sub) {
-    return errorResponse(400, 'invalid_request', 'subOfNarrowerToken must be a different sub than the caller');
+  // what an actor chain is refused — re-narrowing past the root-identity gate above — for no second
+  // party's sake. ⚠️ The invariant is *a chain must name someone else*, NOT "the two subs are different
+  // people": one human legitimately holds several `sub`s.
+  if (sub === callerClaims.sub) {
+    return { ok: false, message: 'Impersonation needs a different sub than the caller\'s' };
   }
 
   // The subject lookup — the ACCEPTED-only read, which is what makes the refusal below cover a
-  // subject who never took their membership up. ⚠️ An absent subject is NOT 404'd here — see the
-  // collapsed refusal.
-  const subjectIdentity = await identityReads(env).getIdentityScope(body.subOfNarrowerToken);
+  // subject who never took their membership up.
+  const subjectIdentity = await identityReads(env).getIdentityScope(sub);
 
   // ── AUTHORIZE — one question, and refusal is indistinguishable from absence ─────────────────────
-  // The route is scope-less, so this call is the whole verdict. A `null` subject and a subject the
-  // caller may not act for get the SAME 403 with the SAME body: the lookup precedes authorization,
-  // so a distinct not-found answer would make this route a `sub`-existence oracle for any
-  // authenticated caller — one singleton RPC per probe. (`sub`s are unguessable randoms behind a
-  // `sub`-rate-limited path, so the exposure is thin — which is why this is a collapse of two
-  // responses, never a reason to reinstate a pre-lookup gate.)
+  // A `null` subject and a subject the caller may not act for get the SAME refusal: the lookup
+  // precedes authorization, so a distinct not-found answer would make this a `sub`-existence oracle
+  // for any authenticated caller.
   //
   // ⚠️ **ORDER MATTERS, and it is a disclosure decision.** The `aud` validation below can pass
   // while this refuses, so running it first would tell a caller who is about to be refused WHERE
   // the subject sits in the tree — across a Star boundary ADR-008 bounds visibility to. Neither
-  // 403 body may name the subject's scope; this one names the caller's own and nothing else. Do
-  // not hoist the validation for "fail-fast on an unverifiable token" — that is the order this
-  // comment forbids.
-  if (!subjectIdentity || !canMintFor(payload, subjectIdentity)) {
-    return errorResponse(403, 'forbidden',
-      `Caller scope "${payload.access.authScope}" does not administer this subject`);
+  // refusal may name the subject's scope; this one names the caller's own and nothing else.
+  if (!subjectIdentity || !canMintFor(callerClaims, subjectIdentity)) {
+    return { ok: false, message: `The calling host's scope "${callerClaims.aud}" does not administer this subject` };
   }
 
   // ── The `aud` VALIDATION — a validation, never an authorization ─────────────────────────────────
-  // The requested `activeScope` becomes the token's `aud`, and `verify.ts` unconditionally refuses
-  // any token whose `aud` is not inside its `authScope` — which the mint below sets to the
-  // SUBJECT's scope. So an `activeScope` outside the subject's scope could only ever mint a token
-  // that verifies NOWHERE; this refuses it early, as a 403 the caller can read instead of a dead
-  // token they cannot. The 403 names only the caller-supplied `activeScope` (ADR-008 — never the
-  // subject's scope, which is exactly what its second operand is).
-  if (!isAtOrAbove(subjectIdentity.universeGalaxyStarId, body.activeScope)) {
-    return errorResponse(403, 'insufficient_scope',
-      `Requested scope "${body.activeScope}" is outside the subject's own scope`);
+  // The child's `aud` is the caller's, and `verify.ts` refuses any token whose `aud` is not inside
+  // its `authScope`, the SUBJECT's scope. A host outside it could only mint a token that verifies
+  // nowhere. With the authorization above reading dominion from that same host, the two together
+  // hold the child's `aud` to exactly the subject's scope: an admin impersonates from the subject's
+  // own page. The message names only the caller's own host scope (ADR-008).
+  if (!isAtOrAbove(subjectIdentity.universeGalaxyStarId, callerClaims.aud)) {
+    return { ok: false, message: `This page's scope "${callerClaims.aud}" is outside the subject's own scope` };
   }
 
   // Mint the MIRROR: `sub`, `authScope` and `scopeAdmin` are all the SUBJECT's, verbatim — never
-  // the caller's, and never derived from `activeScope`, which only becomes the `aud`. The
-  // `profileId` claim is the SUBJECT's — top-level `sub` and top-level `profileId` always describe
-  // the same person.
+  // the caller's. The `profileId` claim is the SUBJECT's — top-level `sub` and top-level `profileId`
+  // always describe the same person.
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
-    sub: body.subOfNarrowerToken,
+    sub,
     universeGalaxyStarId: subjectIdentity.universeGalaxyStarId,
     scopeAdmin: subjectIdentity.scopeAdmin,
     profileId: subjectIdentity.profileId,
-    activeScope: body.activeScope,
-    // The ACTOR pair — the caller. `profileId` rides alongside `sub` so a consumer never has to
-    // resolve it live.
-    actor: { sub: payload.sub, profileId: payload.profileId },
-    ttlSeconds: body.ttlSeconds as number | undefined,
+    activeScope: callerClaims.aud,
+    actor: { sub: callerClaims.sub, profileId: callerClaims.profileId },
+    ttlSeconds: ttlSeconds as number | undefined,
   });
 
   // ADR-016: a mint ESTABLISHES a session, so the record names every party through the one shared
-  // projection. A hand-picked `sub` + `act.sub` pair is what that ADR's Alternatives table rejects —
-  // it drops the authority the caller asserted, which is the question a post-incident reader has.
-  debug('nebula-auth.worker.narrower.issued').info('Narrower token issued', {
-    subOfNarrowerToken: body.subOfNarrowerToken, actingToken: projectActingToken(payload),
+  // projection — the subject's `sub` beside the caller's whole projected claims.
+  debug('nebula-auth.facade.impersonate').info('Impersonation token issued', {
+    subOfNarrowerToken: sub, operationId, actingToken: projectActingToken(callerClaims),
   });
-  return Response.json({ access_token: accessToken, token_type: 'Bearer', expires_in: effectiveTtlSeconds });
+  return { ok: true, accessToken, expiresIn: effectiveTtlSeconds };
 }
 
 export { verifyNebulaAccessToken };

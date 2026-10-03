@@ -13,7 +13,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, TransactionError } from '@lumenize/nebula';
-import { adminClientAt, browserLogin, createSubject } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // ─── Helpers ─────────────────────────────────────────────────────────

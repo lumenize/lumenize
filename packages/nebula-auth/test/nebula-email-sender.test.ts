@@ -83,9 +83,9 @@ describe('the correctness gap this closed', () => {
 });
 
 describe('NebulaEmailSender identity', () => {
-  it('resolves a non-empty from-address (env AUTH_EMAIL_FROM or the verified default) + Nebula appName', () => {
+  it('resolves a non-empty from-address (env AUTH_EMAIL_FROM or the verified default) + the Lumenize appName', () => {
     const sender = new NebulaEmailSender({} as any, env as any);
     expect(sender.from.length).toBeGreaterThan(0);
-    expect(sender.appName).toBe('Nebula');
+    expect(sender.appName).toBe('Lumenize');
   });
 });

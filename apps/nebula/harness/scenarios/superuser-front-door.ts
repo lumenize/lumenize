@@ -8,7 +8,7 @@
  * self-flavour modal a new account gets.
  *
  * ⚠️ **The platform carve-out this scenario used to be blocked by was dropped on 2026-09-01**, and
- * limb 2 is what stands in its place. mint-all no longer withholds the `nebula-platform` cookie, so
+ * limb 2 is what stands in its place. mint-all no longer withholds the `_platform` cookie, so
  * the safety story rests entirely on the cookie being INERT until accepted — which is asserted here
  * against a real server, not against a header shape.
  *
@@ -19,9 +19,10 @@
  *     carve-out, which would leave a superuser unable to accept their own row.*
  *  2. **That cookie is INERT until accepted.** *Reds against dropping inert-until-accepted — the
  *     one thing between an unsolicited invite click and a live superuser session.*
- *  3. **Accept enrols, and the same cookie mints a platform token.** The positive control for
- *     limb 2: without it, a broken platform path would satisfy limb 2 by failing everywhere.
- *  4. **POST-ACCEPT the summary reaches the platform root and DESCENDS**, showing scopes the
+ *  3. **Accept enrols, and the same cookie mints a platform token** on a universe's page, since the
+ *     platform host's own pages get no token. The positive control for limb 2: without it, a broken
+ *     platform path would satisfy limb 2 by failing everywhere.
+ *  4. **POST-ACCEPT Home's summary reaches the platform root and DESCENDS**, showing scopes the
  *     superuser holds no membership in. *Reds against a summary that self-confines to the caller's
  *     own membership — the thing that made a superuser indistinguishable from an ordinary admin.*
  *  5. **And it stays BUDGET-BOUNDED.** The read that answers a superuser is the one that could
@@ -38,14 +39,15 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import {
-  provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership,
+  provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership, consumeLink, refreshCookie,
+  refreshFromPage, homeSummary,
 } from '../../test/lib/email-login';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
 export const needsContainer = false;
 
 /** The reserved platform scope. Spelled out rather than imported — the worker is the authority. */
-const PLATFORM = 'nebula-platform';
+const PLATFORM = '_platform';
 
 /** A stable address for this boot, pinned as the bootstrap identity below. */
 const SUPERUSER = 'front-door-superuser@lumenize-test.dev';
@@ -78,8 +80,8 @@ export async function run(stack: DevStack): Promise<void> {
     waiter.cleanup();
   }
 
-  const clicked = await fetch(link, { redirect: 'manual' });
-  assert.equal(clicked.status, 302, `the click did not redirect (${clicked.status})`);
+  const clicked = await consumeLink(link);
+  assert.equal(clicked.status, 200, `the link page's Continue was refused (${clicked.status})`);
   const cookie = refreshTokenForScope(setCookieHeaders(clicked), PLATFORM);
   assert.ok(cookie,
     'the ordinary front door set no platform cookie — a superuser would see their row on Home and ' +
@@ -87,11 +89,10 @@ export async function run(stack: DevStack): Promise<void> {
   console.error('  ✓ limb 1 — the scope-less login minted the platform cookie, no scope named');
 
   // ── LIMB 2: INERT until accepted ───────────────────────────────────────────────────────────────
-  const preAccept = await fetch(`${origin}/auth/${PLATFORM}/refresh-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${cookie}` },
-    body: JSON.stringify({ activeScope: PLATFORM }),
-  });
+  // From a page on the stranger's universe: the superuser's platform membership is at or above every
+  // host, and the platform host's own pages get no token at all.
+  const cookieHeader = refreshCookie(PLATFORM, cookie!);
+  const preAccept = await refreshFromPage(origin, stranger, cookieHeader);
   assert.equal(preAccept.status, 401,
     'an unaccepted platform membership must mint NOTHING — with the carve-out gone this is the only ' +
     'thing between an unsolicited invite click and a live superuser session');
@@ -100,11 +101,7 @@ export async function run(stack: DevStack): Promise<void> {
 
   // ── LIMB 3: Accept enrols, the same cookie mints ───────────────────────────────────────────────
   await acceptMembership(origin, cookie!, PLATFORM);
-  const postAccept = await fetch(`${origin}/auth/${PLATFORM}/refresh-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${cookie}` },
-    body: JSON.stringify({ activeScope: PLATFORM }),
-  });
+  const postAccept = await refreshFromPage(origin, stranger, cookieHeader);
   assert.equal(postAccept.status, 200,
     `the same cookie must mint once accepted (${postAccept.status}) — the positive control for limb 2`);
   const { access_token } = await postAccept.json() as { access_token: string };
@@ -114,15 +111,12 @@ export async function run(stack: DevStack): Promise<void> {
   console.error('  ✓ limb 3 — accept enrols; the same cookie mints a platform token');
 
   // ── LIMB 4: the summary reaches beyond the superuser's own memberships ─────────────────────────
-  const summaryRes = await fetch(`${origin}/auth/scope-summary`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
-  });
-  assert.equal(summaryRes.status, 200, `scope-summary refused a superuser (${summaryRes.status})`);
+  const summaryRes = await homeSummary(origin, cookieHeader);
+  assert.equal(summaryRes.status, 200, `Home's summary refused a superuser (${summaryRes.status})`);
   type Node = { scope: string; children?: Node[]; childCount?: number };
-  const summary = await summaryRes.json() as { emails: { memberships: Node[] }[] };
+  const { groups } = await summaryRes.json() as { groups: { summary: { emails: { memberships: Node[] }[] } }[] };
   const walk = (n: Node): Node[] => [n, ...(n.children ?? []).flatMap(walk)];
-  const nodes = summary.emails.flatMap((e) => e.memberships.flatMap(walk));
+  const nodes = groups.flatMap((g) => g.summary.emails.flatMap((e) => e.memberships.flatMap(walk)));
   const ids = nodes.map((n) => n.scope);
   assert.ok(ids.includes(PLATFORM), 'the platform root is missing from the superuser\'s own summary');
   assert.ok(ids.includes(stranger),

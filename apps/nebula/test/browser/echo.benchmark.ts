@@ -28,6 +28,7 @@
 
 import { describe, it, expect, inject } from 'vitest';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { OperationDescriptor } from '@lumenize/nebula/client';
 import { HarnessNebulaClient } from './harness-client';
@@ -116,13 +117,12 @@ describe('echo latency (cold-start anatomy)', () => {
     console.log(`[echo-bench] ${label} — ${baseUrl} — galaxy ${galaxyScope}`);
 
     const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: universeScope,
-      activeScope: galaxyScope,
+      baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+      platformOrigin: baseUrl,
       ontologyVersion: 'v1',
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });

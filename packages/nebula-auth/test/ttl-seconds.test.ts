@@ -1,5 +1,7 @@
 /**
- * `ttlSeconds` on the two token mints — `/refresh-token` and `/mint-narrower-token`.
+ * `ttlSeconds` on the impersonation mint (`mintImpersonationToken`, behind
+ * `NebulaAuthFacade.impersonate`), and its absence from the refresh, which reads no body and so always
+ * mints the default lifetime.
  *
  * The parameter can only ever SHORTEN a token: the ceiling is clamped (not rejected), the lower
  * bound and the type are an accept-list (rejected), and an implausibly short value is warned about
@@ -15,22 +17,25 @@
  * deletes that bound. Hence the finite-`exp` assertion below, which is the property that matters
  * rather than a proxy for it.
  *
- * ADR-009 rung 2 — real server issuance through the real endpoints, no email hop, no client mint.
+ * ADR-009 rung 2 — real server issuance, no email hop, no client mint. The impersonation mint is
+ * driven as the function the facade calls, with the claims of a real login's verified token: this
+ * lane holds no Gateway to reach the facade through, and the facade adds only the typed refusal.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { foundUniverse, inviteAndLogin, mintNarrowerRequest, url } from './test-helpers';
+import { foundUniverse, inviteAndLogin, verifiedClaims, authUrl, refreshCookie, scopeOrigin } from './test-helpers';
+import { mintImpersonationToken } from '../src/worker-token';
 import { ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from '../src/types';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 
-/** POST /refresh-token with an arbitrary body, so a test can send a malformed `ttlSeconds`. */
+/** The refresh with a body page script might add, which the route never reads. */
 async function refreshWith(scope: string, refreshToken: string, body: Record<string, unknown>) {
-  return SELF.fetch(new Request(url(scope, 'refresh-token'), {
+  return SELF.fetch(new Request(authUrl('refresh-token'), {
     method: 'POST',
-    headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+    headers: { Origin: scopeOrigin(scope), Cookie: refreshCookie(scope, refreshToken), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }));
 }
@@ -41,23 +46,25 @@ function lifetimeOf(accessToken: string): number {
   return p.exp - p.iat;
 }
 
+/** What one mint answered: a refusal and its message, or the token and its reported lifetime. */
+type Outcome = { refused: true; message: string } | { refused: false; access_token: string; expires_in: number };
+
 /**
- * Both endpoints, each returning a mint response for a given `ttlSeconds`. Kept as a pair so every
- * criterion below is asserted on BOTH — an endpoint-agnostic test is satisfiable on
- * `/mint-narrower-token` alone, shipping the parameter untested on the cookie-authenticated path,
- * which is the one gated by the refresh cookie ALONE (no JWT, no scope check).
+ * The impersonation mint's answer for a given `ttlSeconds`, keyed by its name so each assertion
+ * below says which mint it is about. The refresh is not here: it takes no `ttlSeconds` at all, which
+ * the last describe asserts.
  */
-async function bothEndpoints(ttlSeconds?: unknown) {
+async function impersonationMint(ttlSeconds?: unknown): Promise<Record<string, Outcome>> {
   const u = uni();
-  const admin = await foundUniverse(SELF, u, 'admin@example.com');
+  // One address per call: each founding writes a first app, and one address may own at most
+  // MAX_GALAXIES_PER_OWNER galaxies, so a shared address would hit the cap a few dozen calls in.
+  const admin = await foundUniverse(SELF, u, `admin-${u}@example.com`);
   const member = await inviteAndLogin(SELF, u, admin.access_token, 'member@example.com');
-
-  const body: Record<string, unknown> = { activeScope: u };
-  if (ttlSeconds !== undefined) body.ttlSeconds = ttlSeconds;
-
-  const refresh = await refreshWith(u, admin.refreshToken, body);
-  const narrower = await mintNarrowerRequest(SELF, admin.access_token, { ...body, subOfNarrowerToken: member.parsed.sub });
-  return { 'refresh-token': refresh, 'mint-narrower-token': narrower };
+  const minted = await mintImpersonationToken(env as Env, await verifiedClaims(admin.access_token), member.parsed.sub, ttlSeconds);
+  const impersonate: Outcome = minted.ok
+    ? { refused: false, access_token: minted.accessToken, expires_in: minted.expiresIn }
+    : { refused: true, message: minted.message };
+  return { impersonate };
 }
 
 describe('ttlSeconds — the accept-list (type + lower bound)', () => {
@@ -71,21 +78,18 @@ describe('ttlSeconds — the accept-list (type + lower bound)', () => {
     ['a float', 1.5],
     ['zero', 0],
     ['a negative', -1],
-  ])('refuses %s with 400 invalid_request on BOTH endpoints', async (_label, value) => {
-    const resps = await bothEndpoints(value);
-    for (const [endpoint, resp] of Object.entries(resps)) {
-      expect(resp.status, `${endpoint} should refuse`).toBe(400);
-      const body = await resp.json() as { error: string; error_description: string };
-      expect(body.error, `${endpoint} error code`).toBe('invalid_request');
-      expect(body.error_description).toMatch(/ttlSeconds/);
+  ])('refuses %s, naming ttlSeconds', async (_label, value) => {
+    const resps = await impersonationMint(value);
+    for (const [endpoint, out] of Object.entries(resps)) {
+      expect(out.refused, `${endpoint} should refuse`).toBe(true);
+      expect((out as { message: string }).message, endpoint).toMatch(/ttlSeconds/);
     }
   });
 
-  it('an ABSENT ttlSeconds is fine and mints the default lifetime, on both endpoints', async () => {
-    const resps = await bothEndpoints(undefined);
-    for (const [endpoint, resp] of Object.entries(resps)) {
-      expect(resp.status, endpoint).toBe(200);
-      const body = await resp.json() as { access_token: string; expires_in: number };
+  it('an ABSENT ttlSeconds is fine and mints the default lifetime', async () => {
+    const resps = await impersonationMint(undefined);
+    for (const [endpoint, body] of Object.entries(resps)) {
+      if (body.refused) throw new Error(`${endpoint} refused: ${body.message}`);
       expect(lifetimeOf(body.access_token), endpoint).toBe(ACCESS_TOKEN_TTL);
       expect(body.expires_in, endpoint).toBe(ACCESS_TOKEN_TTL);
     }
@@ -104,12 +108,11 @@ describe('ttlSeconds — the accept-list (type + lower bound)', () => {
     ['valid: ceiling', ACCESS_TOKEN_TTL], ['valid: over-ceiling', 99_999],
     ['malformed: string', 'abc'], ['malformed: null', null], ['malformed: object', {}],
     ['malformed: float', 1.5], ['malformed: zero', 0], ['malformed: negative', -1],
-  ])('%s is either refused or mints a finite exp, on both endpoints', async (_label, ttl) => {
-    const resps = await bothEndpoints(ttl);
-    for (const [endpoint, resp] of Object.entries(resps)) {
-      if (resp.status === 400) continue; // refused — no token to inspect
-      expect(resp.status, `${endpoint} must 200 or 400`).toBe(200);
-      const { access_token } = await resp.json() as { access_token: string };
+  ])('%s is either refused or mints a finite exp', async (_label, ttl) => {
+    const resps = await impersonationMint(ttl);
+    for (const [endpoint, out] of Object.entries(resps)) {
+      if (out.refused) continue; // refused — no token to inspect
+      const { access_token } = out;
       const exp = (parseJwtUnsafe(access_token)!.payload as { exp: unknown }).exp;
       expect(Number.isFinite(exp), `${endpoint} minted a token with exp=${JSON.stringify(exp)}`).toBe(true);
     }
@@ -118,11 +121,10 @@ describe('ttlSeconds — the accept-list (type + lower bound)', () => {
 
 describe('ttlSeconds — the ceiling is CLAMPED, not rejected', () => {
   // Mutation: pass the requested value straight through → `exp - iat` exceeds the ceiling → reds.
-  it('a TTL longer than ACCESS_TOKEN_TTL mints a token clamped to it, on BOTH endpoints', async () => {
-    const resps = await bothEndpoints(ACCESS_TOKEN_TTL * 4);
-    for (const [endpoint, resp] of Object.entries(resps)) {
-      expect(resp.status, endpoint).toBe(200);
-      const body = await resp.json() as { access_token: string; expires_in: number };
+  it('a TTL longer than ACCESS_TOKEN_TTL mints a token clamped to it', async () => {
+    const resps = await impersonationMint(ACCESS_TOKEN_TTL * 4);
+    for (const [endpoint, body] of Object.entries(resps)) {
+      if (body.refused) throw new Error(`${endpoint} refused: ${body.message}`);
       expect(lifetimeOf(body.access_token), `${endpoint} lifetime`).toBe(ACCESS_TOKEN_TTL);
       expect(body.expires_in, `${endpoint} expires_in`).toBe(ACCESS_TOKEN_TTL);
     }
@@ -134,12 +136,11 @@ describe('ttlSeconds — a short TTL is honoured, and expires_in reports the EFF
   // The `expires_in` half is separate on purpose: a build that honours `ttlSeconds` in the JWT while
   // leaving the response constant passes the lifetime assertion alone while misreporting by up to
   // 15 minutes on the OAuth-conventional field.
-  it('mints exactly the requested lifetime and reports it, on BOTH endpoints', async () => {
+  it('mints exactly the requested lifetime and reports it', async () => {
     const requested = 300;
-    const resps = await bothEndpoints(requested);
-    for (const [endpoint, resp] of Object.entries(resps)) {
-      expect(resp.status, endpoint).toBe(200);
-      const body = await resp.json() as { access_token: string; expires_in: number };
+    const resps = await impersonationMint(requested);
+    for (const [endpoint, body] of Object.entries(resps)) {
+      if (body.refused) throw new Error(`${endpoint} refused: ${body.message}`);
       expect(lifetimeOf(body.access_token), `${endpoint} lifetime`).toBe(requested);
       expect(body.expires_in, `${endpoint} expires_in`).toBe(requested);
     }
@@ -154,13 +155,12 @@ describe('ttlSeconds — the advisory short-TTL warn', () => {
   const warns = () => sink.filter((e) => e.namespace === 'nebula-auth.worker.ttl.short');
 
   // Mutation: drop the warn → the marker is absent → reds.
-  it('warns below RECOMMENDED_MIN_TTL_SECONDS, on BOTH endpoints, naming both hazards', async () => {
+  it('warns below RECOMMENDED_MIN_TTL_SECONDS, naming both hazards', async () => {
     const requested = RECOMMENDED_MIN_TTL_SECONDS - 1;
-    const resps = await bothEndpoints(requested);
-    for (const resp of Object.values(resps)) expect(resp.status).toBe(200);
+    const resps = await impersonationMint(requested);
+    for (const out of Object.values(resps)) expect(out.refused).toBe(false);
 
-    // One per endpoint — this is the property that keeps the two mints from diverging.
-    expect(warns().length).toBe(2);
+    expect(warns().length).toBe(1);
     for (const w of warns()) {
       expect(w.data.requestedTtlSeconds).toBe(requested);
       expect(w.data.effectiveTtlSeconds).toBe(requested);
@@ -173,9 +173,9 @@ describe('ttlSeconds — the advisory short-TTL warn', () => {
     }
   });
 
-  it('does NOT warn at or above the threshold, on either endpoint', async () => {
-    for (const resp of Object.values(await bothEndpoints(RECOMMENDED_MIN_TTL_SECONDS))) {
-      expect(resp.status).toBe(200);
+  it('does NOT warn at or above the threshold', async () => {
+    for (const out of Object.values(await impersonationMint(RECOMMENDED_MIN_TTL_SECONDS))) {
+      expect(out.refused).toBe(false);
     }
     expect(warns()).toEqual([]);
   });
@@ -186,16 +186,32 @@ describe('ttlSeconds — the advisory short-TTL warn', () => {
   // it does pin is that the warn is CONDITIONAL — it reds if the warn is made unconditional or the
   // comparison is inverted.
   it('does not warn for an over-ceiling request, which clamps to a long lifetime', async () => {
-    for (const resp of Object.values(await bothEndpoints(ACCESS_TOKEN_TTL * 4))) {
-      expect(resp.status).toBe(200);
+    for (const out of Object.values(await impersonationMint(ACCESS_TOKEN_TTL * 4))) {
+      expect(out.refused).toBe(false);
     }
     expect(warns()).toEqual([]);
   });
 
   it('never logs the minted token', async () => {
-    await bothEndpoints(30);
+    await impersonationMint(30);
     for (const w of warns()) {
       expect(JSON.stringify(w.data)).not.toMatch(/eyJ/); // a JWT's base64url header prefix
     }
+  });
+});
+
+describe('the refresh takes no ttlSeconds', () => {
+  // The refresh reads no body, so a page cannot shorten, lengthen or break its own token's
+  // lifetime. Mutation: read `ttlSeconds` from a body again, and the short request mints short.
+  it.each([
+    ['a short value', 30], ['a string', 'abc'], ['zero', 0], ['an over-ceiling value', ACCESS_TOKEN_TTL * 4],
+  ])('ignores %s in a body, minting the default lifetime', async (_label, ttlSeconds) => {
+    const u = uni();
+    const admin = await foundUniverse(SELF, u, `admin-${u}@example.com`);
+    const resp = await refreshWith(u, admin.refreshToken, { ttlSeconds });
+    expect(resp.status).toBe(200);
+    const { access_token, expires_in } = await resp.json() as { access_token: string; expires_in: number };
+    expect(lifetimeOf(access_token)).toBe(ACCESS_TOKEN_TTL);
+    expect(expires_in).toBe(ACCESS_TOKEN_TTL);
   });
 });

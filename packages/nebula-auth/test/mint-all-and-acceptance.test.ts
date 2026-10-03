@@ -1,31 +1,32 @@
 /**
- * Phase 2: one click mints a session per membership, and every one of them is INERT until its holder
+ * One click mints a session per membership, and every one of them is INERT until its holder
  * consents.
  *
  * The three properties, and why each is here:
  *
- *  - **Mint-all.** A click used to mint one session, for the scope the link named — which is why an
- *    address with several memberships dead-ended. Now the click proves the mailbox and the browser
- *    ends up holding one path-scoped cookie per membership, so choosing a scope afterwards is
- *    navigation rather than another email. Asserted as the exact SET of cookie `Path` values: a
- *    count would pass while minting the wrong ones.
+ *  - **Mint-all.** A consume used to mint one session, for the scope the link named — which is why
+ *    an address with several memberships dead-ended. Now the link page's `POST` proves the mailbox
+ *    and the browser ends up holding one `__Host-refresh-token.{scope}` cookie per membership, so
+ *    choosing a scope afterwards is navigation rather than another email. Asserted as the exact SET
+ *    of cookie names: a count would pass while minting the wrong ones.
  *  - **The superuser comes through the front door.** A configured bootstrap address gets its
- *    `nebula-platform` membership on any consume (behind mailbox proof), and mint-all sets that
+ *    `_platform` membership on any consume (behind mailbox proof), and mint-all sets that
  *    cookie like any other. ⚠️ A carve-out here used to withhold it unless the link itself named the
  *    platform scope; it was dropped 2026-09-01 and the tests below assert the reversal — read them,
  *    not this bullet, and see `selectSessionsToMint`'s JSDoc for why both reasons retired it.
- *  - **Inert until accepted.** The cookies exist before consent, so something must stop them being
- *    usable — otherwise the consent modal decorates a session that already works, and a direct link
- *    to the scope's surface would connect. `refresh-token` refuses an unaccepted membership, and the
- *    accept endpoint is what converges the record.
+ *  - **Inert until accepted.** A plain login sets cookies for pending memberships too, so something
+ *    must stop them being usable — otherwise the consent screen decorates a session that already
+ *    works, and a direct link to the scope's host would connect. `refresh-token` refuses an
+ *    unaccepted membership, and acceptance is what converges the record.
  */
 import { describe, it, expect } from 'vitest';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
 import {
-  foundUniverse, issueInvitesAs, clickLink, refreshAndParse, acceptMembership,
-  createGalaxy, requestMagicLink, claimUniverse, url,
+  foundUniverse, issueInvitesAs, refreshAndParse, acceptMembership, createGalaxy, requestMagicLink,
+  claimUniverse, consumeLink, plainLogin, authUrl, refresh, refreshCookie, refreshCookiesSet,
+  SUPERUSER_PAGE_SCOPE,
 } from './test-helpers';
 import { PLATFORM_SCOPE, MINT_ALL_COOKIE_CAP } from '../src/types';
 import { selectSessionsToMint } from '../src/worker-token';
@@ -35,18 +36,13 @@ const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 const addr = () => `p2-${crypto.randomUUID().slice(0, 8)}@example.com`;
 const getRegistry = (): any => env.NEBULA_AUTH_REGISTRY.getByName('registry');
 
-/** The scopes a click set cookies for, read off each cookie's `Path`. */
+/** The scopes a consume set cookies for, read off each cookie's name. */
 function cookieScopes(resp: Response): string[] {
-  return (resp.headers as any).getSetCookie().map(
-    (c: string) => decodeURIComponent(/Path=([^;]+)/.exec(c)![1].split('/').pop()!),
-  ).sort();
+  return [...refreshCookiesSet(resp).keys()].sort();
 }
 
 async function scopelessLink(email: string): Promise<string> {
-  const resp = await SELF.fetch(new Request('https://example.com/auth/email-magic-link', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
-  }));
-  return (await resp.json() as { magicLinkUrl: string }).magicLinkUrl;
+  return (await (await requestMagicLink(SELF, email)).json() as { magicLinkUrl: string }).magicLinkUrl;
 }
 
 /** The stored acceptance for one (address, scope) — the row, not a derived copy. */
@@ -65,15 +61,15 @@ async function kvRecord(refreshToken: string): Promise<any> {
   return raw ? JSON.parse(raw) : null;
 }
 
-describe('Phase 2 — one click, a session per membership', () => {
-  it('an address with THREE memberships gets exactly that set of cookie Paths, on one 302', async () => {
+describe('one click, a session per membership', () => {
+  it('an address with THREE memberships gets exactly that set of cookies, from one consume', async () => {
     const person = addr();
     const a = uni(); const b = uni(); const c = uni();
     // Three universes, each claimed by the same address — three memberships, three scopes.
     for (const u of [a, b, c]) await foundUniverse(SELF, u, person);
 
-    const resp = await SELF.fetch(new Request(await scopelessLink(person), { redirect: 'manual' }));
-    expect(resp.status).toBe(302);
+    const resp = await consumeLink(SELF, await scopelessLink(person));
+    expect(resp.status).toBe(200);
     // ⚠️ The SET, never a count: minting three cookies for the wrong three scopes would pass a
     // length check. Reds against minting only the link's scope (the pre-mint-all behaviour).
     expect(cookieScopes(resp)).toEqual([a, b, c].sort());
@@ -85,7 +81,7 @@ describe('Phase 2 — one click, a session per membership', () => {
     // only front door now, so that rule left a superuser able to see their platform row on Home and
     // unable to accept it: the accept endpoint authenticates by the very cookie the rule withheld.
     const link = await scopelessLink(BOOTSTRAP);
-    const resp = await SELF.fetch(new Request(link, { redirect: 'manual' }));
+    const resp = await consumeLink(SELF, link);
     expect(cookieScopes(resp)).toContain(PLATFORM_SCOPE);
   });
 
@@ -94,16 +90,11 @@ describe('Phase 2 — one click, a session per membership', () => {
     // cookie grants NOTHING: it mints no token until its membership is accepted, and accepting means
     // clicking through a modal that says "Only accept if you initiated this signup."
     const link = await scopelessLink(BOOTSTRAP);
-    const resp = await SELF.fetch(new Request(link, { redirect: 'manual' }));
-    const token = (resp.headers as any).getSetCookie()
-      .find((c: string) => c.includes(`Path=${'/auth/'}${PLATFORM_SCOPE}`))!
-      .split(';')[0].split('=')[1];
+    const resp = await consumeLink(SELF, link);
+    const token = refreshCookiesSet(resp).get(PLATFORM_SCOPE)!;
 
     expect(await acceptedAt(BOOTSTRAP, PLATFORM_SCOPE)).toBeNull(); // minted, un-taken-up
-    const minted = await SELF.fetch(new Request(url(PLATFORM_SCOPE, 'refresh-token'), {
-      method: 'POST', headers: { Cookie: `refresh-token=${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: PLATFORM_SCOPE }),
-    }));
+    const minted = await refresh(SELF, SUPERUSER_PAGE_SCOPE, refreshCookie(PLATFORM_SCOPE, token));
     // ⚠️ THE assertion. Reds against dropping inert-until-accepted, which is now the ONLY thing
     // standing between an unsolicited invite click and a live superuser session.
     expect(minted.status).toBe(401);
@@ -132,7 +123,7 @@ describe('Phase 2 — one click, a session per membership', () => {
     const entries: any[] = [];
     setDebugSink((e) => entries.push(e));
     try {
-      await SELF.fetch(new Request(await scopelessLink(person), { redirect: 'manual' }));
+      await consumeLink(SELF, await scopelessLink(person));
     } finally {
       clearDebugSink();
     }
@@ -181,23 +172,25 @@ describe('Phase 2 — one click, a session per membership', () => {
   });
 });
 
-describe('Phase 10 — the consent modal can be rendered before any session exists', () => {
+describe('the consent modal can be rendered before any session exists', () => {
   /**
    * ⚠️ **This endpoint exists because a refresh REFUSES an unaccepted membership**, which is exactly
    * the membership Home renders a modal for — so without it the screen that takes consent could
    * never learn what it was taking consent for. Found by driving the rendered page
    * (`harness/scenarios/auth-pages-render.ts`), not by any suite.
    */
-  const card = (scope: string, token: string) => SELF.fetch(new Request(url(scope, 'pending-membership'), {
-    method: 'POST', headers: { Cookie: `refresh-token=${token}`, 'Content-Type': 'application/json' },
+  const card = (scope: string, cookie: string) => SELF.fetch(new Request(authUrl('pending-membership'), {
+    method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope }),
   }));
 
-  it('answers the modal inputs for an UNACCEPTED membership, with no access token anywhere', async () => {
+  it('answers the consent card for an UNACCEPTED membership, with no access token anywhere', async () => {
     const claimer = addr();
     const u = uni();
-    const { tokenFor } = await clickLink(SELF, await claimUniverse(SELF, u, claimer));
+    await claimUniverse(SELF, u, claimer);
+    const { tokenFor } = await plainLogin(SELF, claimer);
 
-    const resp = await card(u, tokenFor(u));
+    const resp = await card(u, refreshCookie(u, tokenFor(u)));
     expect(resp.status).toBe(200);
     expect(await resp.json()).toMatchObject({ universeGalaxyStarId: u, accepted: false });
   });
@@ -211,9 +204,9 @@ describe('Phase 10 — the consent modal can be rendered before any session exis
     const u = uni();
     const admin = await foundUniverse(SELF, u, addr());
     const invitee = addr();
-    const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
-    const { tokenFor } = await clickLink(SELF, mint.results[0].inviteUrl);
-    const invited = await (await card(u, tokenFor(u))).json() as any;
+    await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
+    const { tokenFor } = await plainLogin(SELF, invitee);
+    const invited = await (await card(u, refreshCookie(u, tokenFor(u)))).json() as any;
     expect(invited.invited).toBe(true);
     expect(invited).not.toHaveProperty('invitedByName'); // the fixture supplied none
 
@@ -221,52 +214,45 @@ describe('Phase 10 — the consent modal can be rendered before any session exis
     // would pass on a build that marked EVERY membership invited.
     const selfClaimer = addr();
     const su = uni();
-    const self = await clickLink(SELF, await claimUniverse(SELF, su, selfClaimer));
-    const own = await (await card(su, self.tokenFor(su))).json() as any;
+    await claimUniverse(SELF, su, selfClaimer);
+    const self = await plainLogin(SELF, selfClaimer);
+    const own = await (await card(su, refreshCookie(su, self.tokenFor(su)))).json() as any;
     expect(own.invited).toBeUndefined();
   });
 
-  it('answers about the COOKIE\'s membership, never the scope in the URL', async () => {
-    // ⚠️ The security property. Presenting scope A's cookie at scope B's path must describe A —
-    // otherwise a holder of any cookie could read the modal inputs of any membership they name.
+  it('answers only for the cookie its body names, and only when that cookie\'s record agrees', async () => {
+    // ⚠️ The security property. A holder of one cookie must not read the card of a membership they
+    // merely name, whether by naming it in the body or by putting their value under its name.
     const person = addr();
     const a = uni(); const b = uni();
     await foundUniverse(SELF, a, person);
     await claimUniverse(SELF, b, person);
-    const resp = await SELF.fetch(new Request('https://example.com/auth/email-magic-link', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: person }),
-    }));
-    const { tokenFor } = await clickLink(SELF, (await resp.json() as any).magicLinkUrl);
+    const { tokenFor } = await plainLogin(SELF, person);
 
-    const answered = await (await card(b, tokenFor(a))).json() as any;
-    expect(answered.universeGalaxyStarId).toBe(a);
-    expect(answered.universeGalaxyStarId).not.toBe(b);
+    expect((await card(b, refreshCookie(a, tokenFor(a)))).status).toBe(401); // no cookie for b
+    expect((await card(b, refreshCookie(b, tokenFor(a)))).status).toBe(401); // a's record, b's name
+    const answered = await (await card(b, refreshCookie(b, tokenFor(b)))).json() as any;
+    expect(answered.universeGalaxyStarId).toBe(b); // positive control: b's own cookie reads b
   });
 
   it('refuses a cookie-less request', async () => {
-    const resp = await SELF.fetch(new Request(url(uni(), 'pending-membership'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-    }));
-    expect(resp.status).toBe(401);
+    expect((await card(uni(), '')).status).toBe(401);
   });
 });
 
-describe('Phase 2 — a cookie is inert until its holder accepts', () => {
+describe('a cookie is inert until its holder accepts', () => {
   it('an unaccepted membership refuses to mint, and accepting the SAME cookie makes it work', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, addr());
     const galaxy = `${u}.app`;
-    await createGalaxy(SELF, galaxy, admin.access_token);
+    await createGalaxy(galaxy, admin.access_token);
     const invitee = addr();
-    const mint = await issueInvitesAs(admin.access_token, galaxy, [{ email: invitee }]);
-    const { tokenFor } = await clickLink(SELF, mint.results[0].inviteUrl);
+    await issueInvitesAs(admin.access_token, galaxy, [{ email: invitee }]);
+    const { tokenFor } = await plainLogin(SELF, invitee); // signed in, the invite not accepted
     const token = tokenFor(galaxy);
 
     // Before consent: the cookie exists, and mints nothing.
-    const before = await SELF.fetch(new Request(url(galaxy, 'refresh-token'), {
-      method: 'POST', headers: { Cookie: `refresh-token=${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: galaxy }),
-    }));
+    const before = await refresh(SELF, galaxy, refreshCookie(galaxy, token));
     expect(before.status).toBe(401);
     expect(await before.text()).toContain('membership_not_accepted');
     expect((await kvRecord(token)).accepted).toBe(false);
@@ -282,10 +268,10 @@ describe('Phase 2 — a cookie is inert until its holder accepts', () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, addr());
     const galaxy = `${u}.app`;
-    await createGalaxy(SELF, galaxy, admin.access_token);
+    await createGalaxy(galaxy, admin.access_token);
     const invitee = addr();
-    const mint = await issueInvitesAs(admin.access_token, galaxy, [{ email: invitee }]);
-    const { tokenFor } = await clickLink(SELF, mint.results[0].inviteUrl);
+    await issueInvitesAs(admin.access_token, galaxy, [{ email: invitee }]);
+    const { tokenFor } = await plainLogin(SELF, invitee);
 
     expect(await acceptedAt(invitee, `${galaxy}.dev`)).toBeNull();
     await acceptMembership(SELF, galaxy, tokenFor(galaxy));
@@ -294,23 +280,6 @@ describe('Phase 2 — a cookie is inert until its holder accepts', () => {
     expect(await acceptedAt(invitee, `${galaxy}.dev`)).not.toBeNull();
     const dev = await refreshAndParse(SELF, `${galaxy}.dev`, tokenFor(`${galaxy}.dev`));
     expect(dev.parsed.access.authScope).toBe(`${galaxy}.dev`);
-  });
-
-  it('NO consume flips acceptance — not the claim arm, not the invite arm', async () => {
-    // The claim arm: its own consume must leave the claimer un-taken-up.
-    const claimer = addr();
-    const u = uni();
-    const magicLinkUrl = await claimUniverse(SELF, u, claimer);
-    await clickLink(SELF, magicLinkUrl);
-    expect(await acceptedAt(claimer, u)).toBeNull(); // reds against a consume-time flip on the claim arm
-
-    // The invite arm: same.
-    const admin = await foundUniverse(SELF, uni(), addr());
-    const invitee = addr();
-    const scope = admin.parsed.access.authScope;
-    const mint = await issueInvitesAs(admin.access_token, scope, [{ email: invitee }]);
-    await clickLink(SELF, mint.results[0].inviteUrl);
-    expect(await acceptedAt(invitee, scope)).toBeNull(); // reds against a consume-time flip on the invite arm
   });
 
   it('acceptance is idempotent, and a second Accept writes nothing new', async () => {

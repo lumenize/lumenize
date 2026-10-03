@@ -1,10 +1,10 @@
 /**
- * NebulaClient — extends LumenizeClient with the two-scope model + reactive
- * resource bindings.
+ * NebulaClient — extends LumenizeClient with Nebula's sessions + reactive resource bindings.
  *
- * Auth scope: determines the refresh cookie path (e.g., 'acme.app.tenant-a' or 'acme')
- * Active scope: baked into the JWT's aud claim AND used as the Star DO
- * instance name for all `client.resources.*` traffic.
+ * Its token comes from the platform host's refresh, which reads the page's host from `Origin` and
+ * answers with that host's scope as the token's `aud` (ADR-022). The client names no scope: it takes
+ * its active scope from that first token's `aud` — the Star DO instance name for all
+ * `client.resources.*` traffic — and a call made before the first token waits for it.
  */
 
 // Imports use the Node-safe /client subpath so this file can be imported
@@ -24,11 +24,12 @@ import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import { debug } from '@lumenize/debug';
 import { isOntologyStaleError, NoOntologyInstalledError } from './errors';
 // Impersonation's own knowledge lives in its module — this client keeps only the two touchpoints
-// (the construction seam below, and one hook in `disconnect()`). Relative import: deliberately not
+// (the construction seam below, and the teardown hook its end-of-session doors call). Relative
+// import: deliberately not
 // on the package barrel, and Node/browser-safe like the rest of this file.
 import {
   INTERNAL_REFRESH, INTERNAL_PARENT, assertCanImpersonate, childInstanceName, parentTabIdFrom,
-  mintNarrowerToken, registerChild, deregisterChild, onClientTornDown, isTornDown,
+  mintImpersonation, registerChild, deregisterChild, onClientTornDown, isTornDown,
   ImpersonationMintError,
   type ChildConfigBase, type ImpersonateOptions, type RefreshFn,
 } from './impersonation';
@@ -146,7 +147,7 @@ export interface SubscribeQueryOptions {
 
 /**
  * A `using`-compatible query-subscription handle returned by
- * {@link NebulaClient.resources.subscribeQuery} (Child 2). The membership
+ * {@link NebulaClient.resources.subscribeQuery}. The membership
  * (`resourceIds`, ordered) is REPLACED on every push (idempotent, self-healing —
  * no delta merge). `subscribeQuery` is fire-and-forget (the client computes the
  * canonical `queryHash` LOCALLY and correlates pushes by it — ADR-003), so the
@@ -249,10 +250,17 @@ export interface ReadOptions {
 }
 
 export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {
-  /** Auth scope — determines refresh cookie path (e.g., 'acme.app.tenant-a' or 'acme' for admins) */
-  authScope: string;
-  /** Active scope — baked into JWT aud claim AND Star DO instance name (e.g., 'acme.app.tenant-a') */
-  activeScope: string;
+  /**
+   * The platform host's origin, `https://platform.lumenize.dev`, where every refresh goes. The
+   * browser sends the platform host's cookies with it and names this page in `Origin`, and the
+   * answer's `aud` is the page host's scope. `createNebulaClient` derives it from the page.
+   */
+  platformOrigin: string;
+  /**
+   * The origin a framed page tells about its session ending — its galaxy's Studio, the one page
+   * allowed to frame it. Absent on a top-level page, and a framed page without one posts nothing.
+   */
+  parentOrigin?: string;
   /**
    * App version this client was built against (lock-step with the server's ontology version).
    * Auto-attached to every `client.resources.*` call. The serving layer injects it, from the
@@ -418,9 +426,25 @@ interface ProfileSubscribeTarget {
   writeProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void>;
 }
 
+/** A token's `aud`, read without verifying — the server already did, and this only routes calls. */
+function audOf(accessToken: string): string | undefined {
+  try {
+    const payload = accessToken.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/');
+    const aud = (JSON.parse(atob(payload)) as { aud?: unknown }).aud;
+    return typeof aud === 'string' ? aud : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
-  #authScope: string;
-  #activeScope: string;
+  /** The page host's scope, from the first token's `aud`; `undefined` until that token arrives. */
+  #activeScope?: string;
+  #resolveActiveScope!: (scope: string) => void;
+  /** Settles with {@link #activeScope} once the first token arrives — what an early call waits on. */
+  #activeScopeKnown: Promise<string> = new Promise((resolve) => { this.#resolveActiveScope = resolve; });
+  #platformOrigin: string;
+  #parentOrigin?: string;
   /** Absent when no ontology has been applied — see {@link NebulaClientConfig.ontologyVersion}. */
   #ontologyVersion?: string;
   /** Binding hosting this client's Resources (default 'STAR'; the resource pair). */
@@ -549,7 +573,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #profileListener: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null = null;
 
   /**
-   * Active query subscriptions (Child 2), keyed by the locally-computed canonical
+   * Active query subscriptions, keyed by the locally-computed canonical
    * `queryHash`. Shared across handles of the same query (refcounted). Each entry
    * holds the membership set, the windowed per-resource content subs, and the
    * grace timers — see {@link QueryEntry}.
@@ -566,8 +590,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
 
   /**
-   * Ephemeral assistant-progress streams, keyed by `assistantMessageId` (Child 3
-   * option (b)). Accumulates the transient `handleStreamChunk` pushes for the
+   * Ephemeral assistant-progress streams, keyed by `assistantMessageId`.
+   * Accumulates the transient `handleStreamChunk` pushes for the
    * in-flight reply — a **deliberate ephemeral cache** (client-side, not a DO, so
    * mutable instance state is fine): loss on reload/disconnect just drops the live
    * animation; the durable `Message` arrives via the query sub regardless. Reconciled
@@ -582,8 +606,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   constructor(config: NebulaClientConfig) {
     const {
-      authScope,
-      activeScope,
+      platformOrigin,
+      parentOrigin,
       ontologyVersion,
       onShouldRefreshUI,
       onPreviewReady,
@@ -594,30 +618,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       ...baseConfig
     } = config;
 
-    // LumenizeClient defers the initial onConnectionStateChange to a microtask,
-    // so this wrapper only ever fires *after* construction completes — meaning
-    // it can safely read/write subclass fields (`#prevConnectionState`,
-    // `#state`) directly. No closure-variable workaround needed.
-    super({
-      ...baseConfig,
-      gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
-      // ── TOUCHPOINT 1 of 2: the impersonation construction seam ──────────────────────────────────
-      // A child from `impersonate()` renews through its parent's mint helper, not off a cookie it
-      // does not have. `refresh` is `Omit`ted from `NebulaClientConfig` AND overwritten here, so it
-      // cannot be supplied even by casting — which is exactly the footgun we keep closed (a caller
-      // could otherwise build a client whose token and `authScope` disagree). The symbol is the
-      // narrow exception: unreachable from the public config type, and not exported from the barrel.
-      refresh: (config as unknown as Record<symbol, unknown>)[INTERNAL_REFRESH] as RefreshFn | undefined ?? (async () => {
+    // ── TOUCHPOINT 1 of 2: the impersonation construction seam ──────────────────────────────────
+    // A child from `impersonate()` renews through its parent's mint helper, not off a cookie it
+    // does not have. `refresh` is `Omit`ted from `NebulaClientConfig` AND overwritten here, so it
+    // cannot be supplied even by casting. The symbol is the narrow exception: unreachable from the
+    // public config type, and not exported from the barrel.
+    const refreshFn: RefreshFn = (config as unknown as Record<symbol, unknown>)[INTERNAL_REFRESH] as RefreshFn | undefined
+      ?? (async () => {
         const fetchFn = config.fetch ?? fetch;
-        const res = await fetchFn(
-          `${config.baseUrl}/auth/${authScope}/refresh-token`,
-          {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ activeScope }),
-          },
-        );
+        // A simple request: no body and no `Content-Type`, so a browser sends it without a
+        // preflight. The cookies are the platform host's, and `Origin` names this page.
+        const res = await fetchFn(`${platformOrigin}/auth/refresh-token`, { method: 'POST', credentials: 'include' });
         if (!res.ok) {
           // Read the body to completion even though nothing wants it. An unread body keeps the
           // response open, and in a browser a navigation while it is pending logs a phantom
@@ -625,14 +636,12 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           // followed by "Sign in". (Not `body.cancel()`: that aborts at the network layer and
           // produces the same phantom deterministically.)
           await res.text().catch(() => { /* nothing to drain is fine */ });
-          // Classify like mesh's #refreshToken string-endpoint path (P9): a
-          // 401/403 means the refresh cookie is expired/invalid → terminal, so
-          // #connectInternal fires onLoginRequired + 'disconnected' and the
-          // factory's `ready` rejects (a logged-out visitor redirects, not hangs);
-          // any other status is transient → reconnect. Because NebulaClient
-          // supplies `refresh` as a FUNCTION, mesh's string-path classification
-          // never runs — we MUST throw the typed error here, or a first-connect
-          // 401 silently swallows into unbounded reconnect.
+          // A 401/403 means no cookie covers this page → terminal, so #connectInternal fires
+          // onLoginRequired + 'disconnected' and the factory's `ready` rejects (a logged-out visitor
+          // is sent to log in, not left hanging); any other status is transient → reconnect.
+          // Because NebulaClient supplies `refresh` as a FUNCTION, mesh's string-path
+          // classification never runs — we MUST throw the typed error here, or a first-connect 401
+          // silently swallows into unbounded reconnect.
           if (res.status === 401 || res.status === 403) {
             throw new LoginRequiredError(
               `Refresh failed: ${res.status}`,
@@ -643,19 +652,23 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           throw new Error(`Refresh failed: ${res.status}`);
         }
         const data = await res.json() as { access_token: string; sub: string };
-        // The per-workspace AUTH-SCOPE HINT, written at the one authoritative moment:
-        // the client just PROVED the (authScope, activeScope) pair works — it called
-        // this authScope's path-scoped refresh for this activeScope and got a token.
-        // localStorage, never a cookie (the hint tells the CLIENT which refresh
-        // endpoint to call; it must never ride to the server), keyed per active scope
-        // (one machine, several workspaces, several identities). Self-healing: a later
-        // success under a different identity overwrites; nothing ever clears. Both
-        // surfaces embed this client, so built apps inherit it with no Studio code.
-        try {
-          localStorage.setItem(`nebula.authScope:${activeScope}`, authScope);
-        } catch { /* no localStorage outside a browser (tests, restricted iframes) */ }
         return { access_token: data.access_token, sub: data.sub };
-      }),
+      });
+
+    // LumenizeClient defers the initial onConnectionStateChange to a microtask,
+    // so this wrapper only ever fires *after* construction completes — meaning
+    // it can safely read/write subclass fields (`#prevConnectionState`,
+    // `#state`) directly. No closure-variable workaround needed.
+    super({
+      ...baseConfig,
+      gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+      refresh: async () => {
+        const minted = await refreshFn();
+        // The page's scope is the token's `aud`, set by the server from this page's host. Learned
+        // here, after an await, so the class fields exist even when this runs from `super()`.
+        this.#learnActiveScope(minted.access_token);
+        return minted;
+      },
       onConnectionStateChange: (state) => {
         // Re-subscribe everything on reconnect. The
         // `reconnecting → connected` transition is the precise signal that
@@ -682,7 +695,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // tests) that don't render the tree don't register/broadcast needlessly.
         // Idempotent server-side (INSERT OR REPLACE).
         if (state === 'connected' && this.#orgTreeListener) {
-          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeTree());
+          this.#hostCall(this.ctn<Star>().resources.subscribeTree());
         }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
@@ -693,8 +706,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       },
     });
 
-    this.#authScope = authScope;
-    this.#activeScope = activeScope;
+    this.#platformOrigin = platformOrigin;
+    this.#parentOrigin = parentOrigin;
+    // A seeded token (an impersonated child's first mint) is the first token: no refresh runs for it.
+    if (config.accessToken) this.#learnActiveScope(config.accessToken);
     this.#ontologyVersion = ontologyVersion;
     this.#resourceHostBinding = resourceHostBinding ?? 'STAR';
     this.#chatHostBinding = chatHostBinding;
@@ -706,6 +721,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // admin's handler, or someone else's session ending would bounce the admin to login.
     this.#childConfigBase = {
       baseUrl: config.baseUrl,
+      platformOrigin,
       ontologyVersion,
       fetch: config.fetch,
       // Passed THROUGH, `undefined` included — the `/live` harness supplies no `WebSocket` and
@@ -741,6 +757,38 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       flash: (rt, rid, cls) => this.#storeAdapter.flash(rt, rid, cls),
       onShouldRefreshUI: (info) => this.#dispatchOntologyStale(info.clientVersion, info.currentVersion),
     });
+  }
+
+  /**
+   * The page host's scope — the `aud` the platform host's refresh answered with — or `undefined`
+   * before the first token arrives.
+   */
+  get activeScope(): string | undefined {
+    return this.#activeScope;
+  }
+
+  /** Take the page's scope from a token's `aud`, once: a page's host never changes under it. */
+  #learnActiveScope(accessToken: string): void {
+    if (this.#activeScope !== undefined) return;
+    const aud = audOf(accessToken);
+    if (aud === undefined) return;
+    this.#activeScope = aud;
+    this.#resolveActiveScope(aud);
+  }
+
+  /** A one-way call to this page's resource host; one made before the first token waits for it. */
+  #hostCall(remote: unknown): void {
+    if (this.#activeScope !== undefined) {
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope, remote as never);
+      return;
+    }
+    void this.#activeScopeKnown.then((scope) => this.lmz.call(this.#resourceHostBinding, scope, remote as never));
+  }
+
+  /** {@link #hostCall}, awaiting the answer. */
+  async #hostCallAsync<T = any>(remote: unknown): Promise<T> {
+    const scope = this.#activeScope ?? await this.#activeScopeKnown;
+    return this.lmz.callAsync<T>(this.#resourceHostBinding, scope, remote as never);
   }
 
   /**
@@ -846,62 +894,40 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * User-initiated sign-out. Revokes + clears the (HttpOnly, path-scoped) refresh
-   * cookie via the nebula-auth `POST /auth/{authScope}/logout` endpoint, drops the
-   * in-memory access token + claims ({@link LumenizeClient.clearAccessToken}), and
-   * tears down the connection ({@link LumenizeClient.disconnect} → the factory
-   * mirrors `lmz.connection.state = 'disconnected'`).
+   * User-initiated sign-out, which ends every session this browser holds.
    *
-   * Does NOT navigate — the app redirects to login after this resolves (typically
-   * the same redirect as the `onLoginRequired` terminal-auth path). Distinct from
-   * {@link dispose}, which tears down WITHOUT revoking the session.
+   * Sessions live on the platform host, so a page here cannot end them itself: a top-level page is
+   * sent to the platform host's logout page, which says what is about to end and posts the logout
+   * there, `everywhere` preselected when asked. A framed page — the dev tab inside Studio — holds a
+   * session that is its parent's, so it tears this client down and tells its parent instead. An
+   * impersonated child holds no cookie at all and only tears down.
    *
-   * Best-effort revoke: a failed endpoint call (offline, 5xx) is logged but does
-   * not throw — the user is still signed out client-side (in-memory token dropped,
-   * connection closed); only the server-side cookie revocation is missed. Always
-   * resolves.
+   * Distinct from {@link dispose}, which tears down WITHOUT ending the session. Without a window
+   * (a script, the `/live` harness) it tears down only; the caller ends the session itself.
    *
    * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
    */
   async logout(options: { everywhere?: boolean } = {}): Promise<void> {
     if (this.#mintedFrom) {
-      // ⚠️ `everywhere` changes NOTHING here, and that is the point: a derived session holds no
-      // refresh cookie of its own, so either endpoint would spend the ORIGINATOR's. Ending an
-      // impersonation is teardown, whichever button was pressed (`security.md` § derived sessions).
+      // A derived session holds no refresh cookie of its own, so any logout would spend the
+      // ORIGINATOR's. Ending an impersonation is teardown, whichever button was pressed
+      // (`security.md` § derived sessions).
       await this.dispose();
       return;
-    }
-    // ⚠️ On an IMPERSONATED CHILD this is child-only teardown, and that is the faithful reading of
-    // the method rather than a weakening of it: `logout()` is revoke + clear + disconnect, and a
-    // child holds NO refresh cookie (the whole design is that no new durable credential exists), so
-    // the revoke half is vacuous and the remainder IS dispose.
-    //
-    // Inheriting the parent's behaviour here would be actively harmful. `authScope` IS the
-    // refresh-cookie path (`security.md` § two-scope model) and `logout()` is its only reader, so
-    // the POST below would go to a path whose cookie belongs to the ADMIN — revoking the admin's
-    // 30-day refresh token because someone ended an impersonation session. ⚠️ Pinning the child's
-    // `authScope` to the impersonated scope is NOT a sufficient guard on its own: it diverges from
-    // the parent's path only while the two scopes differ, and an admin who logged in AT the scope
-    // they impersonate into gets an exact cookie-path match — the ordinary support shape.
-    const baseUrl = this.#baseUrl
-      ?? (typeof window !== 'undefined' ? window.location.origin : '');
-    try {
-      // `logout-all` ends every session this ADDRESS holds — the shared-machine meaning of the
-      // word, and the symmetric twin of a login that mints one cookie per membership.
-      const endpoint = options.everywhere ? 'logout-all' : 'logout';
-      await this.#fetchFn(`${baseUrl}/auth/${this.#authScope}/${endpoint}`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch (error) {
-      const log = debug('nebula.NebulaClient.logout');
-      log.warn('Logout endpoint call failed; signing out client-side anyway', {
-        error: error instanceof Error ? error.message : String(error),
-      });
     }
     this.clearAccessToken();
     this.disconnect();
     this.#tearDownImpersonation();
+    if (typeof window === 'undefined') return;
+    if (window.top !== window.self) {
+      // The session is the parent's; it decides. Posted only to the origin the serving layer named,
+      // and not at all without one.
+      if (this.#parentOrigin) window.parent.postMessage({ type: 'lumenize:logout' }, this.#parentOrigin);
+      return;
+    }
+    const page = new URL(`${this.#platformOrigin}/auth/logout`);
+    if (options.everywhere) page.searchParams.set('everywhere', '1');
+    window.location.assign(page.href);
   }
 
   /**
@@ -914,52 +940,47 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * `profileId` are the person being acted as, and the presence of `act` is what makes it an
    * impersonation session.
    *
+   * **The child acts on this client's page.** Its `aud` is this client's own, so no argument names
+   * a scope: to debug a tenant, impersonate from that tenant's page.
+   *
    * **The parent is the credential.** No durable credential is created anywhere: the child renews by
    * re-minting through this client, so revocation propagates at the next token boundary and the
    * session dies with this client rather than at term.
    *
    * ⚠️ **Precondition:** this client must already have an `instanceName` — it has connected at least
    * once, or was constructed with one — because the child's Gateway name derives from this one's
-   * tabId. A *disconnected* or *expired-token* parent is fine (the mint refreshes its own token
-   * first); a never-connected one is not.
+   * tabId. A *paused* (`disconnect()`ed) or *expired-token* parent is fine — its mint waits for the
+   * reconnect and refreshes its own token first; a never-connected one is not.
    *
    * @param sub The subject's surrogate `sub` — the person to act as.
-   * @param activeScope The scope to act in. Required and explicit: it is the token's `aud`, bounded
-   *   by the subject's dominion rather than equal to it, so deriving it would pick the WIDEST valid
-   *   value — the wrong end of the range for a debug session, which wants the specific star where
-   *   the trouble is.
    * @throws {ImpersonationChainError} when this client is itself impersonating — before any network
    *   call. Impersonation does not chain.
-   * @throws {ImpersonationMintError} when the endpoint refuses, carrying its status and message.
+   * @throws {ImpersonationMintError} when the facade refuses, carrying its message.
    */
-  async impersonate(sub: string, activeScope: string, opts?: ImpersonateOptions): Promise<NebulaClient> {
-    // Local, decidable, and enforced independently by the endpoint's root-identity gate. `?.` is
+  async impersonate(sub: string, opts?: ImpersonateOptions): Promise<NebulaClient> {
+    // Local, decidable, and enforced independently by the mint's root-identity gate. `?.` is
     // required rather than defensive: `claims` is genuinely nullable on the base class.
     assertCanImpersonate(this.claims as { act?: unknown } | null | undefined);
 
-    const base = this.#baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '');
-    // Bound, because `authedFetch` is `protected` — that stops a free function from CALLING it, not
-    // from receiving it. It also refreshes this client's own token first when needed, which is what
-    // lets a parent holding an expired token still mint.
-    const authedFetch = (url: string, init?: RequestInit) => this.authedFetch(url, init);
     // ONE mint path, captured LEXICALLY — never via the child's `#mintedFrom`, which does not exist
     // yet while the child's `refresh` may already be running inside `super()`. `opts` is captured
     // too, so every re-mint replays the same `ttlSeconds` and the session keeps its cadence.
     const parent = this;
+    // The child acts on this client's page, so its scope is this one's; a parent that holds a token
+    // has learned it.
+    const activeScope = this.#activeScope ?? await this.#activeScopeKnown;
     // Assigned immediately after construction; see the TDZ note in the terminal branch below.
     let childRef: NebulaClient | undefined;
     const mint = async () => {
       // The latch, checked on every mint including the first. Ending the admin's session ends
       // impersonation BY CONSTRUCTION rather than by waiting for the token to lapse.
       if (isTornDown(parent)) {
-        throw new ImpersonationMintError(
-          0, 'The client that created this impersonation session has been torn down',
-          /* terminal */ true, // by construction — the session it would mint through is over
-        );
+        throw new ImpersonationMintError('The client that created this impersonation session has been torn down');
       }
-      return mintNarrowerToken(authedFetch, base, {
-        subOfNarrowerToken: sub, activeScope, ttlSeconds: opts?.ttlSeconds,
-      });
+      return mintImpersonation(() => parent.lmz.callAsync(
+        'NEBULA_AUTH_FACADE', undefined,
+        parent.ctn<NebulaAuthFacade>().impersonate(sub, { ttlSeconds: opts?.ttlSeconds }),
+      ), sub);
     };
 
     // MINT FIRST, then seed. Doing it the other way round — constructing tokenless and letting the
@@ -969,19 +990,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
     const child = new NebulaClient({
       ...this.#childConfigBase,
-      // `authScope` is INERT on a child: it names a refresh-cookie path and a child has no cookie.
-      // It is set to the impersonated scope rather than this client's so that nothing inherited can
-      // address the admin's cookie path by accident.
-      authScope: activeScope,
-      activeScope,
       accessToken: minted.access_token,
       instanceName: childInstanceName(sub, parentTabIdFrom(this.lmz.instanceName), activeScope),
       [INTERNAL_REFRESH]: (async () => {
         try {
           return await mint();
         } catch (e) {
-          // TERMINAL vs TRANSIENT, stated structurally (4xx / everything else) rather than as a
-          // status list, so a status the endpoint gains later inherits the right behaviour.
+          // TERMINAL vs TRANSIENT: only a mint that failed for good is terminal — the facade's typed
+          // refusal or the torn-down latch, both `ImpersonationMintError`. Everything else is
+          // transport, and transient.
           //
           // ⚠️ Terminal reuses `LoginRequiredError` DELIBERATELY. It is the only signal mesh's
           // reconnect catch treats as terminal — its comment names the transient default as the
@@ -989,7 +1006,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           // ending. What protects the admin is NOT the error class but the inheritance contract:
           // a child never receives `onLoginRequired`, so mesh's terminal path has nothing to call
           // and the admin is never bounced to login because someone else's session ended.
-          if (e instanceof ImpersonationMintError && e.terminal) {
+          if (e instanceof ImpersonationMintError) {
             // The child is ending here and `disconnect()` will not run, so deregister explicitly.
             // ⚠️ Via a mutable holder, NOT the `const child` below: this closure can run inside
             // `super()` (a seeded token already inside the refresh-ahead window refreshes during
@@ -998,10 +1015,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
             // the child was never registered — registration happens after the first mint resolves.
             if (childRef) deregisterChild(parent, childRef);
             throw new LoginRequiredError(
-              `Impersonation session ended: ${e.message}`, e.status, 'impersonation_ended',
+              `Impersonation session ended: ${e.message}`, 403, 'impersonation_ended',
             );
           }
-          throw e; // transient (5xx, network) → mesh schedules a reconnect and the session survives
+          throw e; // transient (timeout, disconnect) → mesh schedules a reconnect and the session survives
         }
       }) as RefreshFn,
       [INTERNAL_PARENT]: this,
@@ -1046,63 +1063,39 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   // ─── Scope hierarchy (Universe / Galaxy / Star management) ────────────────
   //
-  // The nebula-auth registry endpoints are HTTP routes (NOT on the mesh), so they need a Bearer
-  // header — supplied by the base `authedFetch`, which keeps the JWT INSIDE the client (the bearer
-  // never reaches UI/page code, and there's a single token authority — no cookie-rotation race).
-  // App code calls `client.scopes.createGalaxy(...)` etc. and reacts to the result; it never touches
-  // a token. (Platform-DO `teardown` after a delete still goes over the mesh — see the UI.)
+  // What a session does with the scope tree — listing an account's apps, creating one, deleting a
+  // scope — is a mesh call to the `NEBULA_AUTH_FACADE` Worker binding, so the verified claims ride
+  // `callContext.originAuth` and never a Bearer header. Home's summary is not here: it reads the
+  // platform host's cookies, which no page on a scope host reaches. A deletion's Durable Objects are
+  // wiped server-side, so a caller reacts to the result and wipes nothing itself.
 
   get scopes() {
-    const base = this.#baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '');
-    const post = async (endpoint: string, body: Record<string, unknown> = {}): Promise<unknown> => {
-      const res = await this.authedFetch(`${base}/auth/${endpoint}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        throw new Error(`${endpoint} ${res.status}: ${await res.text().catch(() => '')}`);
-      }
-      return res.json();
-    };
+    // A fresh continuation per call: a chain is built by recording operations onto its root.
+    const facade = () => this.ctn<NebulaAuthFacade>();
+    const call = <T>(remote: unknown): Promise<T> =>
+      this.lmz.callAsync('NEBULA_AUTH_FACADE', undefined, remote as never) as Promise<T>;
     return {
       /**
-       * Everything this PERSON reaches — their addresses, each membership on them, and the tree
-       * beneath their accepted admin memberships, budget-bounded with a `childCount` frontier.
-       *
-       * ⚠️ Nested, not the flat list `my-scopes` returned: a flat shape cannot carry a frontier, so
-       * flattening a budget-truncated tree would silently drop everything past it. Consumers walk
-       * `children` and render `childCount` as "N more".
-       */
-      summary: async (): Promise<ScopeSummary> => (await post('scope-summary')) as ScopeSummary,
-      /**
-       * One more level beneath `parent` — what a collapsed node opens. Authz re-derived server-side.
+       * One more level beneath this client's own page — a universe page's apps. The parent is the
+       * token's `aud`, never an argument, so a page lists its own scope's children whatever else its
+       * holder administers.
        *
        * Pass the previous call's `nextCursor` as `after` to continue past the budget; its absence
        * means the level is exhausted. Keyset, so each page costs the same as the first.
        */
-      expand: async (parent: string, after?: string): Promise<{ children: ScopeNode[]; nextCursor?: string }> =>
-        (await post('expand-scope', { parent, ...(after ? { after } : {}) })) as
-          { children: ScopeNode[]; nextCursor?: string },
-      /** Create a Galaxy `{universe}.{galaxySlug}` (admin over the universe). */
+      expand: (after?: string): Promise<{ children: ScopeNode[]; nextCursor?: string }> =>
+        call(facade().expandScope(after ? { after } : undefined)),
+      /** Create a Galaxy `{universe}.{galaxySlug}` and its `.dev` Star (dominion over the universe). */
       createGalaxy: (universe: string, galaxySlug: string): Promise<{ instanceName: string }> =>
-        post('create-galaxy', { universeGalaxyId: `${universe}.${galaxySlug}` }) as Promise<{ instanceName: string }>,
-      /**
-       * Create the user-developer's `.dev` authoring workspace under `{galaxy}` — in-session, no email.
-       *
-       * ⚠️ Takes a **galaxy** and hardcodes `{galaxy}.dev`; it cannot create a tenant Star. Named for
-       * what it does, not for the endpoint it calls: a tenant Star is founded by the end user through
-       * the open `claim-star` self-signup, never minted here.
-       */
-      createDevWorkspace: (galaxy: string): Promise<{ instanceName: string }> =>
-        post('create-star', { universeGalaxyStarId: `${galaxy}.dev` }) as Promise<{ instanceName: string }>,
+        call(facade().createGalaxy(`${universe}.${galaxySlug}`)),
       /** Read-only deletion plan for the confirm screen: the down-only cascade + a bounded
        *  `affectedUsers` warning. Attached users never refuse a delete (ADR-015). */
       deletePlan: (target: string): Promise<ScopeDeletionPlan> =>
-        post('delete-scope-plan', { target }) as Promise<ScopeDeletionPlan>,
-      /** Execute the cascade delete; returns the affected set for the platform-DO teardown fan-out. */
+        call(facade().planScopeDeletion(target)),
+      /** Execute the cascade delete; the facade wipes every affected scope's Durable Objects before
+       *  it answers, and returns the affected set. */
       delete: (target: string): Promise<{ affected: AffectedScope[] }> =>
-        post('delete-scope', { target }) as Promise<{ affected: AffectedScope[] }>,
+        call(facade().executeScopeDeletion(target)),
     };
   }
 
@@ -1123,8 +1116,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // One mesh `newETag` per batch (the server writes it as every resource's eTag — snapshots.ts
     // Step 4.5a); stable across reconnect replays, so a re-issued submission is replay-idempotent.
     const meshNewETag = subs[0]!.newETag;
-    const result = await this.lmz.callAsync(
-      this.#resourceHostBinding, this.#activeScope,
+    const result = await this.#hostCallAsync(
       this.ctn<Star>().resources.transaction(this.#requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
     );
     if (result instanceof Error) {
@@ -1228,7 +1220,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const version = this.#ontologyVersion;
     if (version) {
       for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
-        this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.#hostCall(
           this.ctn<Star>().resources.subscribe(version, resourceType, resourceId));
       }
     }
@@ -1242,13 +1234,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // the stored `dominionOverHostAtSubscribe` is cleared. The window subs ride the single-resource
     // re-subscribe loop above.
     for (const entry of this.#queryEntries.values()) {
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+      this.#hostCall(
         this.ctn<Star>().resources.subscribeQuery(entry.query));
     }
     // Re-fire every live STANDALONE subscriber-list watcher sub (the roster re-arrives via
     // handleQuerySubscribersUpdate; the server's INSERT OR REPLACE makes the re-register idempotent).
     for (const entry of this.#querySubscriberEntries.values()) {
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+      this.#hostCall(
         this.ctn<Star>().resources.subscribeQuerySubscribers(entry.query));
     }
   }
@@ -1427,7 +1419,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     },
 
     /**
-     * Subscribe to a QUERY across resources (Child 2) — v1: equality on one to-one
+     * Subscribe to a QUERY across resources — v1: equality on one to-one
      * relationship field. Returns a `using`-compatible {@link QuerySubscription}
      * synchronously; the client computes the canonical `queryHash` LOCALLY and keys
      * the handle before firing the (void) `subscribeQuery` (ADR-003). Membership
@@ -1454,7 +1446,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           listeners: new Set(),
         };
         this.#queryEntries.set(queryHash, entry);
-        this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeQuery(query));
+        this.#hostCall(this.ctn<Star>().resources.subscribeQuery(query));
       }
       entry.refcount++;
       const e = entry;
@@ -1490,7 +1482,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   async #inviteToNode(nodeId: string, invitees: NodeInvitee[], attempt = 0): Promise<NodeInviteAck> {
     try {
-      return await this.lmz.callAsync(this.#resourceHostBinding, this.#activeScope,
+      return await this.#hostCallAsync(
         this.ctn<Star>().resources.invite(nodeId, invitees));
     } catch (err) {
       if (isInstalling(err) && attempt < INSTALLING_RETRY_LIMIT) {
@@ -1597,7 +1589,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#subscribeRefcount.delete(key);
     this.#subscriptionRegistry.delete(key);
     this.#resourceAccess.delete(key);
-    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.unsubscribe(resourceType, resourceId));
+    this.#hostCall(this.ctn<Star>().resources.unsubscribe(resourceType, resourceId));
   }
 
   /**
@@ -1648,7 +1640,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       ws.sub[Symbol.dispose]();
     }
     entry.windowSubs.clear();
-    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.unsubscribeQuery(queryHash));
+    this.#hostCall(this.ctn<Star>().resources.unsubscribeQuery(queryHash));
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -1659,7 +1651,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#subscriptionRegistry.set(key, { resourceType, resourceId });
     return this.#subscribeVia(
       key,
-      () => this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+      () => this.#hostCall(
         this.ctn<Star>().resources.subscribe(version, resourceType, resourceId)),
       this.#pendingSubscribes,
       // Through the SAME door the host's own error push uses, so abandoning runs that branch's
@@ -1774,7 +1766,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
       entry = { query, refcount: 0, ready: { promise, resolve, reject, settled: false } };
       this.#querySubscriberEntries.set(queryHash, entry);
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+      this.#hostCall(
         this.ctn<Star>().resources.subscribeQuerySubscribers(query));
     }
     entry.refcount++;
@@ -1795,7 +1787,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (!entry) return;
     if (entry.refcount > 1) { entry.refcount--; return; } // other handles still hold it open
     this.#querySubscriberEntries.delete(queryHash);
-    this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+    this.#hostCall(
       this.ctn<Star>().resources.unsubscribeQuerySubscribers(queryHash));
   }
 
@@ -1884,7 +1876,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting —
     // except an `installing` stale (the host is mid-lazy-pull), which retries the idempotent read.
     const attempt = (options as { installingAttempt?: number } | undefined)?.installingAttempt ?? 0;
-    return this.lmz.callAsync<Snapshot | null>(this.#resourceHostBinding, this.#activeScope,
+    return this.#hostCallAsync<Snapshot | null>(
       this.ctn<Star>().resources.read(version, resourceId),
     ).catch(async (err) => {
       if (isOntologyStaleError(err)) {
@@ -1956,7 +1948,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * primitive owns correlation + dedup.
    */
   #orgTreeMutate(remote: any): Promise<any> {
-    return this.lmz.callAsync(this.#resourceHostBinding, this.#activeScope, remote);
+    return this.#hostCallAsync(remote);
   }
 
   /**
@@ -1991,7 +1983,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           const version = this.#ontologyVersion;
           const registered = this.#subscriptionRegistry.get(key);
           if (!version || !registered) return;
-          this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+          this.#hostCall(
             this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId));
         })) {
         return;
@@ -2028,7 +2020,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (result !== null) {
       this.#applyAccess(resourceType, resourceId, []);
       this.#engine.notifyFanout(resourceType, resourceId, result as unknown as EngineSnapshot);
-      // Reconcile-by-id (Child 3 option (b)): the durable Message superseded any
+      // Reconcile-by-id: the durable Message superseded any
       // ephemeral progress stream for the same id — drop it so the UI shows the
       // durable content, not a duplicate. Idempotent (no-op when nothing streamed).
       this.#streamingMessages.delete(resourceId);
@@ -2114,19 +2106,19 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         if (access.deniedNodes.length === 0) continue;
         const registered = this.#subscriptionRegistry.get(key);
         if (!registered) continue;
-        this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.#hostCall(
           this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId));
       }
     }
     for (const entry of this.#queryEntries.values()) {
       if (entry.deniedNodes.length === 0) continue;
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+      this.#hostCall(
         this.ctn<Star>().resources.subscribeQuery(entry.query));
     }
   }
 
   /**
-   * Receive a query-membership push from the host (Child 2) — the initial
+   * Receive a query-membership push from the host — the initial
    * `subscribeQuery` state or a Flow-3 rerun. Correlated by the **locally-computed**
    * `queryHash` (subscribeQuery is void). `result` is `{ resourceIds?, deniedNodes? }`
    * (the client REPLACES its set per push — idempotent, self-healing) or an Error
@@ -2145,7 +2137,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (result instanceof Error) {
       if (isInstalling(result) && this.#retryInstalling(`query:${queryHash}`, () => {
         const live = this.#queryEntries.get(queryHash);
-        if (live) this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeQuery(live.query));
+        if (live) this.#hostCall(this.ctn<Star>().resources.subscribeQuery(live.query));
       })) return;
       if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
@@ -2176,7 +2168,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (result instanceof Error) {
       if (isInstalling(result) && this.#retryInstalling(`roster:${queryHash}`, () => {
         const live = this.#querySubscriberEntries.get(queryHash);
-        if (live) this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().resources.subscribeQuerySubscribers(live.query));
+        if (live) this.#hostCall(this.ctn<Star>().resources.subscribeQuerySubscribers(live.query));
       })) return;
       if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
@@ -2188,7 +2180,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Receive a transient assistant-progress chunk for `messageId` (Child 3 option (b)).
+   * Receive a transient assistant-progress chunk for `messageId`.
    * Server→client direct delivery (`lmz.broadcast` from the Galaxy, addressed to this
    * client's stable `instanceName`) as the codegen loop makes progress. Accumulates
    * into the ephemeral {@link #streamingMessages} cache + fires the optional live hook.
@@ -2209,7 +2201,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     return this.#streamingMessages.get(messageId);
   }
 
-  /** Register the live-progress hook (the UI renders each accumulated chunk). Phase-5
+  /** Register the live-progress hook (the UI renders each accumulated chunk). The
    *  UI seam; headless clients (tests) read {@link streamingProgress} instead. */
   setOnStreamChunk(hook: (messageId: string, progress: string, replyTo?: string) => void): void {
     this.#onStreamChunk = hook;
@@ -2286,5 +2278,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   // No onBeforeCall override — NebulaClient inherits the base LumenizeClient default, which blocks
   // only a DIRECT client→client call (immediate caller is another client) and accepts DO/Worker-
   // mediated pushes (Star fanout, transaction/read result). Nebula does no direct client→client, and
-  // the real cross-scope boundary is NebulaClientGateway.onBeforeCallToClient (the same-aud fence).
+  // the cross-scope boundary is NebulaClientGateway.onBeforeCallToClient, the tab's passage into the
+  // sender.
 }

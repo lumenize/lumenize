@@ -96,11 +96,10 @@ export async function run(stack: DevStack): Promise<void> {
       assert.equal(summary.errors.length, 0, `invite failed: ${JSON.stringify(summary.errors)}`);
       victimSubHere = summary.results[0]?.sub as string;
       assert.ok(victimSubHere, 'the invite returned no sub for the invitee');
-      // `extractMagicLink` is magic-link-specific by design; an invite is `accept-invite?invite_token=`,
-      // and the `&amp;` in an email body must be unescaped or the link 404s.
+      // The `&amp;` in an email body must be unescaped or the link fails.
       const html = (await waiter.emailPromise).html ?? '';
-      const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
-      assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
+      const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(html)?.[1];
+      assert.ok(href, `invite email carried no magic link (starts: ${html.slice(0, 60)})`);
       inviteLink = href.replace(/&amp;/g, '&');
     } finally {
       waiter.cleanup();   // a leaked waiter's WebSocket hangs the process AFTER the verdict prints
@@ -116,11 +115,11 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── The same manufactured membership, at the MINT ────────────────────────────────────────
     // The attacker administers `evilUniverse` and this membership is IN `evilUniverse`, so dominion
-    // holds — which is what makes the refusal below mean *the membership was never taken up*. The
-    // 403 is the mint's COLLAPSED refusal and says none of the three reasons out loud, deliberately.
+    // holds — which is what makes the refusal below mean *the membership was never taken up*. It is
+    // the mint's COLLAPSED refusal and says none of the three reasons out loud, deliberately.
     // Each conjunct below buys something different: `ImpersonationMintError` excludes the client
     // pre-flight (which throws `ImpersonationChainError`) and a transport failure (a TypeError); the
-    // message regex tells the collapsed refusal apart from the route's OTHER 403s, the aud
+    // message regex tells the collapsed refusal apart from the mint's OTHER refusals, the aud
     // validation and the root-identity gate; and the FIXTURE picks which of the collapse's three
     // readings applies. The accept-then-permit half below excludes the dominion reading outright,
     // by showing the same call succeed unchanged.
@@ -129,9 +128,8 @@ export async function run(stack: DevStack): Promise<void> {
     // limb alone greens. ⚠️ Mutation-check it that way — the profile limbs above red under a
     // DIFFERENT mutation, so a whole-scenario red proves nothing about this one.
     await assert.rejects(
-      () => attacker.client.impersonate(victimSubHere, evilUniverse),
-      (e: unknown) => e instanceof ImpersonationMintError
-        && e.status === 403 && /does not administer this subject/.test(e.message),
+      () => attacker.client.impersonate(victimSubHere),
+      (e: unknown) => e instanceof ImpersonationMintError && /does not administer this subject/.test(e.message),
       'an UNACCEPTED membership let a stranger MINT a token carrying the victim profileId',
     );
 
@@ -150,7 +148,7 @@ export async function run(stack: DevStack): Promise<void> {
     // The mint's own positive control — same caller, same subject, same scope, only acceptance
     // changed. Without it the refusal above would stay green against a mint that refuses everyone,
     // and it is what a message match could never have established.
-    const impersonated = await attacker.client.impersonate(victimSubHere, evilUniverse);
+    const impersonated = await attacker.client.impersonate(victimSubHere);
     assert.equal(impersonated.claims?.sub, victimSubHere, 'the minted token does not name the subject');
     impersonated.disconnect();
   } finally {

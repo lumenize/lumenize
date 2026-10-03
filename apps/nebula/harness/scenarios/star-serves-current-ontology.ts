@@ -29,7 +29,7 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = true;
@@ -123,18 +123,17 @@ export async function run(stack: DevStack): Promise<void> {
     Ctor: new (config: ConstructorParameters<typeof NebulaClient>[0]) => C,
   ): Promise<Tab<C>> => {
     const browser = new Browser();
-    const ctx = browser.context(origin);
+    const ctx = browser.context(scopeUrlOf(stack, scope));
     const client = new Ctor({
-      baseUrl: origin,
-      authScope: scope,
-      activeScope: scope,
+      baseUrl: scopeUrlOf(stack, scope),
+      platformOrigin: origin,
       ontologyVersion: version,
       resourceHostBinding: 'STAR',
       chatHostBinding: 'GALAXY',
       chatScope: galaxy,
       accessToken: session.accessToken,
       instanceName: `${session.sub}.${crypto.randomUUID().slice(0, 8)}`,
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -176,16 +175,22 @@ export async function run(stack: DevStack): Promise<void> {
 
   const admin = await step('admin connects', 45_000, () => connectDriver(stack, { scope: tenant, session: tenantSession }));
   disposers.push(() => admin.dispose());
+  // The galaxy's source and Apply are asked from Studio, its own page, where the universe admin
+  // holds dominion over it (the host rule); the tenant page's driver stays for the Stars.
+  const studio = await step('studio connects', 45_000, async () => connectDriver(stack, {
+    scope: galaxy, session: await refreshAccessToken(origin, provisioned.session, galaxy, loginBrowser.fetch),
+  }));
+  disposers.push(() => studio.dispose());
   const galaxyCall = <T>(chain: unknown, timeoutMs = 30_000): Promise<T> =>
-    admin.client.lmz.callAsync('GALAXY', galaxy, chain as any, { timeoutMs }) as Promise<T>;
+    studio.client.lmz.callAsync('GALAXY', galaxy, chain as any, { timeoutMs }) as Promise<T>;
 
   try {
     // ── v1: the seed ontology, applied, and installed on both Stars ─────────────────────────
     const seed = await step('read the seed ontology', 30_000,
-      () => galaxyCall<string>(admin.client.ctn<Galaxy>().readSource('src/ontology.d.ts')));
+      () => galaxyCall<string>(studio.client.ctn<Galaxy>().readSource('src/ontology.d.ts')));
     assert.match(seed, /interface Item\b/, 'the seed ontology has no Item type — every write below assumes one');
     const { version: v1 } = await step('apply v1', 240_000,
-      () => galaxyCall<{ version: string }>(admin.client.ctn<Galaxy>().applyOntology(), 240_000));
+      () => galaxyCall<{ version: string }>(studio.client.ctn<Galaxy>().applyOntology(), 240_000));
 
     const tenantOld = await step('v1 tab on the tenant', 45_000,
       () => openTab(tenant, tenantSession, v1, NebulaClient));
@@ -199,9 +204,9 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── v2: adds a type, applied, and installed on both Stars ──────────────────────────────
     await step('write v2', 30_000,
-      () => galaxyCall(admin.client.ctn<Galaxy>().writeSource('src/ontology.d.ts', seed + TAG_TYPE)));
+      () => galaxyCall(studio.client.ctn<Galaxy>().writeSource('src/ontology.d.ts', seed + TAG_TYPE)));
     const { version: v2 } = await step('apply v2', 240_000,
-      () => galaxyCall<{ version: string }>(admin.client.ctn<Galaxy>().applyOntology(), 240_000));
+      () => galaxyCall<{ version: string }>(studio.client.ctn<Galaxy>().applyOntology(), 240_000));
     assert.notEqual(v2, v1, 'the edit to the ontology did not produce a new version');
 
     const writer = await step('v2 writer on the tenant', 45_000,
@@ -268,9 +273,9 @@ export async function run(stack: DevStack): Promise<void> {
     //    Setup control: writing v1's exact bytes back must make v1 current again, or this limb
     //    measures something other than a revert.
     await step('revert the file to v1', 30_000,
-      () => galaxyCall(admin.client.ctn<Galaxy>().writeSource('src/ontology.d.ts', seed)));
+      () => galaxyCall(studio.client.ctn<Galaxy>().writeSource('src/ontology.d.ts', seed)));
     const current = await step('read current', 30_000,
-      () => galaxyCall<{ version: string } | null>(admin.client.ctn<Galaxy>().getCurrentOntology()));
+      () => galaxyCall<{ version: string } | null>(studio.client.ctn<Galaxy>().getCurrentOntology()));
     assert.equal(current?.version, v1, 'writing v1 back did not make v1 current — nothing below measures a revert');
     const devBack = await step('v1 tab on .dev, after the revert', 45_000,
       () => openTab(dev, devSession, v1, NebulaClient));

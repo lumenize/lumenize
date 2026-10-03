@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
-import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
+import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 
 /**
  * Craft a JWT with specific authScope and aud for unit testing.
@@ -24,7 +24,7 @@ async function craftJwt(options: {
 
   const now = Math.floor(Date.now() / 1000);
   const payload = {
-    iss: NEBULA_AUTH_ISSUER,
+    iss: platformOrigin(deploymentOrigin(env)),
     aud: options.aud,
     sub: options.sub ?? crypto.randomUUID(),
     exp: now + 900,

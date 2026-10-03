@@ -13,8 +13,12 @@
  * actually is — `:8787` when driven directly, `:5174` through the Studio vite proxy (whose
  * `changeOrigin: false` forwards that Host untouched). `wrangler dev`'s own knobs cannot express
  * "use the inbound Host": `dev.host` / `--local-upstream` each pin ONE fixed value, and there are
- * two callers. `scripts/deploy-test.sh` strips `routes` for its own reason (custom domains are
- * exclusive to one Worker); this is the local twin.
+ * two callers. `scripts/test-deploy-config.mjs` is the deployed twin, which swaps `routes` for the
+ * test domain's, since custom domains are exclusive to one Worker.
+ *
+ * Why `LUMENIZE_ORIGIN` is rewritten: the deployment names its origin once, and every host parses
+ * against it. A local stack answers on `*.lumenize.localhost`, which Chromium treats as a secure
+ * context and Node resolves to loopback, so its origin is {@link LOCAL_ORIGIN}.
  *
  * Why `containers` is optional: it is the ONLY thing in the stack that needs Docker. A scenario
  * that declares `needsContainer = false` boots without the image build (~13 s instead of ~110 s).
@@ -38,6 +42,21 @@ import { fileURLToPath } from 'node:url';
 
 const NEBULA_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula
 const SOURCE = 'wrangler.jsonc';
+
+/** A local stack's origin, with the port taken from each request. The harness imports it too. */
+export const LOCAL_ORIGIN = 'http://lumenize.localhost';
+
+/** Rewrite the one `"LUMENIZE_ORIGIN": "…"` line's value, in place. */
+function setOrigin(lines, origin) {
+  const at = lines.findIndex((l) => /^\s*"LUMENIZE_ORIGIN"\s*:\s*"[^"]*",?\s*$/.test(l));
+  if (at === -1) {
+    throw new Error(
+      `local-config: no \`"LUMENIZE_ORIGIN": "…"\` line in apps/nebula/${SOURCE}. The config shape changed — `
+      + 'update this derivation instead of letting it emit a config nobody reviewed.',
+    );
+  }
+  lines[at] = lines[at].replace(/"LUMENIZE_ORIGIN"\s*:\s*"[^"]*"/, `"LUMENIZE_ORIGIN": "${origin}"`);
+}
 
 /** Comment out one top-level `"key": [ … ]` array block, in place, tagged with `why`. */
 function commentOutArray(lines, key, why) {
@@ -63,6 +82,7 @@ function commentOutArray(lines, key, why) {
 export function deriveLocalConfig({ containers = true } = {}) {
   const lines = readFileSync(resolve(NEBULA_DIR, SOURCE), 'utf8').split('\n');
   commentOutArray(lines, 'routes', 'routes stripped so the Worker sees the real inbound Host');
+  setOrigin(lines, LOCAL_ORIGIN);
   if (!containers) commentOutArray(lines, 'containers', 'container build disabled');
   const out = containers ? 'wrangler.local.jsonc' : 'wrangler.local-no-container.jsonc';
   writeFileSync(resolve(NEBULA_DIR, out), lines.join('\n'));

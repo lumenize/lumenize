@@ -27,7 +27,7 @@ async function inVirginStorage<T>(fn: (storage: any) => T): Promise<T> {
   return out!;
 }
 
-const EXPECTED_TABLES = ['Scopes', 'Emails', 'Memberships', 'RefreshTokenIndex', 'MagicLinks', 'InviteTokens'];
+const EXPECTED_TABLES = ['Scopes', 'Emails', 'Memberships', 'RefreshTokenIndex', 'MagicLinks', 'SignupTickets'];
 
 describe('REGISTRY_MIGRATIONS (greenfield)', () => {
   it('creates all registry tables + the sub index on a virgin DB and sets the marker', async () => {
@@ -39,6 +39,8 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
       return { tables, indexes, scopeCols, marker: s.kv.get(MARKER_KEY) };
     });
     for (const t of EXPECTED_TABLES) expect(r.tables).toContain(t);
+    // An invite is a magic link, so its table went with migration 25.
+    expect(r.tables).not.toContain('InviteTokens');
     expect(r.indexes).toContain('idx_RefreshTokenIndex_sub');
     // INVERTED, not deleted: the profileId index moved from the join table to the address table when
     // profileId became a property of the ADDRESS. Asserting BOTH halves is what proves it moved rather
@@ -81,8 +83,8 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
       ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, purpose, expiresAt) VALUES ('m-old','a@x','acme','login',?)", past);
       ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, purpose, expiresAt) VALUES ('m-new','a@x','acme','login',?)", future);
-      ctx.storage.sql.exec("INSERT INTO InviteTokens (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('i-old','a@x','acme',?)", past);
-      ctx.storage.sql.exec("INSERT INTO InviteTokens (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('i-new','a@x','acme',?)", future);
+      ctx.storage.sql.exec("INSERT INTO SignupTickets (ticketHash, email, expiresAt) VALUES ('t-old','a@x',?)", past);
+      ctx.storage.sql.exec("INSERT INTO SignupTickets (ticketHash, email, expiresAt) VALUES ('t-new','a@x',?)", future);
       ctx.storage.sql.exec("INSERT INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES ('r-old','s1',?)", past);
       ctx.storage.sql.exec("INSERT INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES ('r-new','s1',?)", future);
     });
@@ -91,12 +93,12 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
 
     const rows = await (runInDurableObject as any)(stub, (_i: any, ctx: any) => ({
       magic: ctx.storage.sql.exec('SELECT tokenHash FROM MagicLinks ORDER BY tokenHash').toArray().map((r: any) => r.tokenHash),
-      invite: ctx.storage.sql.exec('SELECT tokenHash FROM InviteTokens ORDER BY tokenHash').toArray().map((r: any) => r.tokenHash),
+      ticket: ctx.storage.sql.exec('SELECT ticketHash FROM SignupTickets ORDER BY ticketHash').toArray().map((r: any) => r.ticketHash),
       refresh: ctx.storage.sql.exec('SELECT tokenHash FROM RefreshTokenIndex ORDER BY tokenHash').toArray().map((r: any) => r.tokenHash),
     }));
     // Per-table, so a broken arm names itself: delete any one DELETE and exactly its row survives.
     expect(rows.magic).toEqual(['m-new']);
-    expect(rows.invite).toEqual(['i-new']);
+    expect(rows.ticket).toEqual(['t-new']);
     expect(rows.refresh).toEqual(['r-new']);
   });
 
@@ -126,8 +128,8 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     // (`DELETE FROM Scopes WHERE universeGalaxyStarId NOT IN (SELECT … FROM Memberships)`) stayed
     // green while it would have wiped every admin-created scope within the hour.
     await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
-      // (a) An admin-created scope: a `Scopes` row and NOTHING else, ever. `createGalaxy`/`createStar`
-      // write exactly this and never mint a membership, because the creator's own scope
+      // (a) An admin-created scope: a `Scopes` row and NOTHING else, ever. `createGalaxy` writes
+      // exactly this and never mints a membership, because the creator's own scope
       // already reaches it — so "no members" is the normal steady state, not an abandoned one.
       ctx.storage.sql.exec("INSERT INTO Scopes (universeGalaxyStarId) VALUES ('memberless.app')");
       // (b) An un-taken-up claimer, on a DIFFERENT scope: the row `#resumeClaimIfOwner` is designed to
@@ -149,14 +151,15 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
 
     // And the scope is still ENUMERABLE — the reader a user-developer would notice, because a Galaxy
     // vanishing from their Home tree is what a wrongly-swept `Scopes` row looks like from outside.
-    // Read through `expandScope`, whose descent is the same `Scopes` walk the summary uses.
+    // Read through `expandScope`, whose descent is the same `Scopes` walk the summary uses. It takes
+    // the caller's claims, and lists the children of their page, `aud`.
     const seeded = await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
       // A minimal accepted admin at the parent, so the descent is authorized to look.
       ctx.storage.sql.exec("INSERT OR IGNORE INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES ('e-tree','tree@x','p-tree',1,'2020-01-01T00:00:00.000Z')");
       ctx.storage.sql.exec("INSERT OR IGNORE INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES ('s-tree','e-tree','memberless',1,'2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z')");
       return 'p-tree';
     });
-    const { children } = await stub.expandScope(seeded, 'memberless');
+    const { children } = await stub.expandScope({ sub: 's-tree', profileId: seeded, aud: 'memberless' });
     expect(children.map((c: any) => c.scope)).toContain('memberless.app');
   });
 

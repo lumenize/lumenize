@@ -8,11 +8,12 @@
  * the node that decided to push, at any N. Its tail latency grows with N; the recursive Worker
  * tier that once cut it was removed, and its measurements are in the 2026-06-06 blog post.
  *
- * **The chain is inherited by default.** Each target sees the caller's `callChain` with this node
- * appended, and the caller's `originAuth`. `newChain: true` starts a fresh chain at this node
- * instead, carrying no `originAuth`; `state` seeds or merges `callContext.state` as it does on
- * `call`. Which of the two is the default is decided in
- * `tasks/nebula-scope-moves-to-subdomain.md` § *A push speaks for the node, not the writer*.
+ * **The chain starts fresh by default.** Each target sees a chain that starts at this node and
+ * carries no `originAuth`, because a push speaks for the node that sends it, not for whoever's call
+ * caused it: a subscriber's page never receives the writer's claims. `newChain: false` makes each
+ * target inherit the caller's `callChain` with this node appended, and the caller's `originAuth`,
+ * for an app that wants the writer's claims to ride. `state` seeds or merges `callContext.state`
+ * as it does on `call`.
  *
  * **`onResult` hears only failures.** It is a partial continuation on this node that the framework
  * completes with each failing target's Error, via the standard last-argument convention; the loop
@@ -77,8 +78,8 @@ export function broadcastShared<T>(
   remote: Continuation<T>,
   options: BroadcastOptions = {},
 ): void {
-  const { onResult, ...passedThrough } = options;
-  const callOptions: CallOptions = { ...passedThrough };
+  const { onResult, newChain = true, ...passedThrough } = options;
+  const callOptions: CallOptions = { ...passedThrough, newChain };
   // A successful push has nothing to report, and skipping its fire-back spares this node one
   // handler dispatch per target.
   if (onResult) callOptions.onErrorOnly = true;

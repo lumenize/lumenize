@@ -7,7 +7,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { adminClientAt, universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import {
+  adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, createSubject, ownerOf,
+} from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 describe('guard enforcement', () => {
@@ -18,7 +20,7 @@ describe('guard enforcement', () => {
       const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       // Bootstrap admin
-      const { accessToken: adminToken } = await foundAndLogin(browser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(browser, star, ownerOf('admin@example.com'));
 
       // Create non-admin subject
       const userBrowser = new Browser();
@@ -74,14 +76,9 @@ describe('guard enforcement', () => {
       adminClient[Symbol.dispose]();
     });
 
-    // ⚠️ ONE admin per universe. `claim-universe` is the only admin-minting path and the slug is
-    // unique, so a universe cannot hold two distinct admins — the old fixture's separate
-    // `star-admin@` + `universe-admin@` identities are unmintable. There is likewise no "star-level
-    // admin" tier: an invite mints `scopeAdmin: false`, so every admin's scope is `{u}` (or the root).
-    // The property under test survives intact, and is now exercised more precisely: the second client
-    // holds aud = the UNIVERSE while calling a STAR DO, so admission comes from the *dominion* branch
-    // (pattern covers the callee node) rather than the tenant branch — which is exactly what
-    // "universe admin reaches star-level admin methods" means.
+    // The second client holds aud = the UNIVERSE while calling a STAR DO, so admission comes from
+    // the *dominion* branch (its host's scope sits above the callee) rather than the tenant branch,
+    // which is what "universe admin reaches star-level admin methods" means.
     it('universe admin (wildcard) can call star-level setStarConfig', async () => {
       const browser = new Browser();
       const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
@@ -98,9 +95,10 @@ describe('guard enforcement', () => {
       });
       starClient[Symbol.dispose]();
 
-      // Same identity, now with aud = the UNIVERSE, reaching down into the Star.
+      // The universe's own admin — who founded it above the star admin — with aud = the UNIVERSE,
+      // reaching down into the Star.
       const { client: universeAdmin, payload } = await universeAdminClient(
-        NebulaClientTest, browser, universe, universe, 'admin@example.com',
+        NebulaClientTest, browser, universe, universe, ownerOf('admin@example.com'),
       );
       // Guard the fixture: aud must be the universe, or this stops testing cross-tier dominion.
       expect(payload.aud).toBe(universe);
@@ -148,7 +146,7 @@ describe('guard enforcement', () => {
       // NOT by guard (whoAmI has no guard)
       clientB.callStarWhoAmI(starA);
       await vi.waitFor(() => {
-        expect(clientB.lastError).toContain('Active-scope mismatch');
+        expect(clientB.lastError).toContain('No passage from');
       });
 
       clientB[Symbol.dispose]();

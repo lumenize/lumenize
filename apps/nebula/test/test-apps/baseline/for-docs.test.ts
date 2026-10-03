@@ -24,7 +24,7 @@ import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { createNebulaClient, textMerge } from '@lumenize/nebula/frontend';
 import { computed } from '@vue/reactivity';
-import { browserLogin, foundAndLogin, adminClientAt, ORIGIN, universeOf } from '../../test-helpers';
+import { foundAndLogin, adminClientAt, ORIGIN, ownerOf, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -44,14 +44,13 @@ function uniqueStar(): string {
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(star));
   return createNebulaClient({
-    baseUrl: ORIGIN,
-    authScope: universeOf(star),
-    activeScope: star,
+    baseUrl: pageOf(star),
+    platformOrigin: ORIGIN,
     ontologyVersion: ONTOLOGY_VERSION,
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
+    fetch: ctx.fetch,
+    WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     onShouldRefreshUI: () => {},
@@ -66,7 +65,7 @@ describe('for-docs runtime examples (real Star)', () => {
     const star = uniqueStar();
 
     // ── Setup: the star-scoped admin installs the ontology, then connects via the factory ──
-    // The first subject to reach a fresh Star becomes the root admin (admin on ROOT).
+    // The Star's admin passes the DAG through the dominion bypass, holding no grant of its own.
     const admin = await adminClientAt(
       NebulaClientTest, new Browser(), star, star, 'scope-admin@example.com', ONTOLOGY_VERSION,
     );
@@ -75,7 +74,7 @@ describe('for-docs runtime examples (real Star)', () => {
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const browser = new Browser();
-    await foundAndLogin(browser, star, 'scope-admin@example.com', star);
+    await foundAndLogin(browser, star, ownerOf('scope-admin@example.com'), star);
     const bf = makeFactoryClient(star, browser);
     await bf.ready;
     // Alias to the names the doc snippets use.
@@ -505,9 +504,8 @@ describe('for-docs runtime examples (real Star)', () => {
     // fails in the background and is torn down immediately.
     // @doc api-reference.md § createNebulaClient (admin/scripting overrides)
     const { client, store } = createNebulaClient({
-      baseUrl: 'https://my-app.example.com',
-      authScope: 'acme.app.tenant-a',
-      activeScope: 'acme.app.tenant-a',
+      baseUrl: 'https://tenant-a.app.acme.lumenize.dev',   // the page whose scope the client works in
+      platformOrigin: 'https://platform.lumenize.dev',     // where its session lives
       ontologyVersion: 'v42',
       onShouldRefreshUI: () => {},    // opt out of auto-reload (null/undefined both KEEP the default reload)
     });

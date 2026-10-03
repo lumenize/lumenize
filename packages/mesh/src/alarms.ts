@@ -70,6 +70,14 @@ export class Alarms {
   #sql: ReturnType<typeof sqlType>;
   #storage: DurableObjectStorage;
   #log: DebugLogger;
+  /**
+   * The ids whose alarm is running now, each `true` once a `schedule` has re-armed it during the
+   * run: from the handler itself, as a poll re-arms under its own id, or from another call while
+   * the handler awaits. The run then keeps the row rather than deleting the re-arm with the alarm
+   * that fired. Coordination for one run, not data: an eviction loses the run, and the row is
+   * whichever was last written.
+   */
+  #firing = new Map<string, boolean>();
 
   constructor(doInstance: any) {
     this.#doInstance = doInstance;
@@ -185,6 +193,7 @@ export class Alarms {
     extra: { delayInSeconds?: number; cron?: string }
   ): void {
     const serialized = JSON.stringify(preprocess(operationChain));
+    if (this.#firing.has(id)) this.#firing.set(id, true);
 
     if (type === 'scheduled') {
       this.#sql`
@@ -301,6 +310,7 @@ export class Alarms {
       if (result.length === 0) break;
 
       const row = result[0];
+      this.#firing.set(row.id, false);
 
       try {
         // Use local chain executor that allows skipping @mesh decorator check
@@ -316,10 +326,13 @@ export class Alarms {
         });
       }
 
-      if (row.type === 'cron') {
+      // A row re-armed during the run is the re-arm's, not the alarm that fired, so it stays.
+      const rearmed = this.#firing.get(row.id);
+      this.#firing.delete(row.id);
+      if (!rearmed && row.type === 'cron') {
         const nextTimestamp = Math.floor(getNextCronTime(row.cron).getTime() / 1000);
         this.#sql`UPDATE __lmz_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}`;
-      } else {
+      } else if (!rearmed) {
         this.#sql`DELETE FROM __lmz_alarms WHERE id = ${row.id}`;
       }
     }

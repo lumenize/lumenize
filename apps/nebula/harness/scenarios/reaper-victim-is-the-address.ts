@@ -34,7 +34,7 @@ import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -133,19 +133,18 @@ export async function run(stack: DevStack): Promise<void> {
 
   const connect = async (): Promise<Tab> => {
     const browser = new Browser();
-    const ctx = browser.context(origin);
+    const ctx = browser.context(scopeUrlOf(stack, SCOPE));
     const clientId = `${sub}.${crypto.randomUUID().slice(0, 8)}`;
     const client = new ProbeClient({
-      baseUrl: origin,
-      authScope: SCOPE,
-      activeScope: SCOPE,
+      baseUrl: scopeUrlOf(stack, SCOPE),
+      platformOrigin: origin,
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       resourceHostBinding: 'GALAXY',
       chatHostBinding: 'GALAXY',
       chatScope: SCOPE,
       accessToken,
       instanceName: clientId,
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });

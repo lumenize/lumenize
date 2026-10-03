@@ -26,7 +26,7 @@ import { OrgTree, Subscriptions, Snapshots, ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_
 import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
-import { universeAdminClient, foundAndLogin, createSubject, createInvitedClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const CHAT_QUERY = {
@@ -36,9 +36,10 @@ const CHAT_QUERY = {
 const uniqueGalaxy = () => `cdp-${crypto.randomUUID().slice(0, 8)}.app`;
 
 /** A synthetic CallContext carrying exactly the claim shape under test — plus the `profileId`
- *  every token carries, which a resource or query row cannot be written without. */
+ *  every token carries, which a resource or query row cannot be written without. Each principal
+ *  is on its own membership's host, so `aud`, the scope the verdicts read, is its `authScope`. */
 function ctxFor(sub: string, access?: { admin?: boolean; authScope?: string }): CallContext {
-  return { callChain: [], state: {}, originAuth: { sub, claims: { aud: 'ignored', access, profileId: `p-${sub}` } } } as any;
+  return { callChain: [], state: {}, originAuth: { sub, claims: { aud: access?.authScope, access, profileId: `p-${sub}` } } } as any;
 }
 
 /**
@@ -183,7 +184,6 @@ describe('the DAG permission plane is confined to its host', () => {
       // The escalation principal, via the REAL mint: invite at the galaxy → the co-minted
       // `{scope}.dev` membership carries scopeAdmin — then log in AT that `.dev` scope.
       const adminBrowser = new Browser();
-      await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
       await createSubject(adminBrowser, scope, accessToken, 'devadmin@example.com');
       const { client: devAdmin, payload } = await createInvitedClient(
         NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',
@@ -227,7 +227,6 @@ describe('the DAG permission plane is confined to its host', () => {
       await vi.waitFor(() => expect(adminSub.resourceIds.length).toBeGreaterThanOrEqual(2), { timeout: 15000 });
 
       const adminBrowser = new Browser();
-      await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
       await createSubject(adminBrowser, scope, accessToken, 'devadmin@example.com');
       const { client: devAdmin, payload } = await createInvitedClient(
         NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',

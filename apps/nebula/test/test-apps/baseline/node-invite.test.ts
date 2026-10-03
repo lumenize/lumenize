@@ -22,10 +22,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Star, NodeInviteAck, NebulaClient } from '@lumenize/nebula';
-import {
-  adminClientAt, createPlatformAdminClient, createInvitedClient, createSubject, browserLogin,
-  uniqueStar,
-} from '../../test-helpers';
+import { adminClientAt, createPlatformAdminClient, createInvitedClient, createSubject, uniqueStar } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';

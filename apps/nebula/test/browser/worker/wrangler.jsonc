@@ -17,6 +17,7 @@
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "PROFILE", "class_name": "Profile" },
       { "name": "BenchAgent", "class_name": "BenchAgent" }
     ]
   },
@@ -41,6 +42,7 @@
     "Galaxy": { "type": "durable-object", "storage": "sqlite" },
     "StarTest": { "type": "durable-object", "storage": "sqlite" },
     "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "Profile": { "type": "durable-object", "storage": "sqlite" },
     "BenchAgent": { "type": "durable-object", "storage": "sqlite" },
     // Tombstones (2026-07-22): the previous deploy predated the migrations->exports switch and the
     // surrogate-sub NebulaAuth dissolution, so CF still holds these orphaned namespaces. Retire them
@@ -54,6 +56,19 @@
       "binding": "AUTH_EMAIL_SENDER",
       "service": "nebula-browser-test",
       "entrypoint": "TestNebulaEmailSender"
+    },
+    // What a session does — creating and deleting apps, among them — enters through the facade,
+    // which wipes the Durable Objects a deletion or creation touches.
+    {
+      "binding": "NEBULA_AUTH_FACADE",
+      "service": "nebula-browser-test",
+      "entrypoint": "NebulaAuthFacade"
+    },
+    // The platform host's own routes, reached for `/` and `/auth/*` on the platform host.
+    {
+      "binding": "PLATFORM_HOST",
+      "service": "nebula-browser-test",
+      "entrypoint": "PlatformHost"
     }
   ],
   // NO Cloudflare Email Sending binding — the magic-link login is incidental
@@ -64,26 +79,14 @@
   // `remote:true` binding would establish its proxy at pool-load and fail
   // there. The CF Email Sending path itself is covered by
   // packages/auth/test/e2e-email. (tasks/nebula-in-ci.md "Email everywhere = Resend".)
-  "ratelimits": [
-    {
-      "name": "NEBULA_AUTH_RATE_LIMITER",
-      "namespace_id": "3001",
-      "simple": {
-        "limit": 100,
-        "period": 60
-      }
-    }
-  ],
   "vars": {
+    // The deployment's origin, which every host and the JWT issuer derive from (nebula-auth `hosts.ts`).
+    // https, because this lane's `wrangler dev` serves `--local-protocol https`.
+    "LUMENIZE_ORIGIN": "https://lumenize.localhost",
     "PRIMARY_JWT_KEY": "BLUE",
     // Select Resend explicitly (no EMAIL binding above). Needs RESEND_API_KEY in
     // .dev.vars + `lumenize.io` verified as a Resend sending domain — same
     // setup as packages/auth/test/e2e-email-resend.
-    "EMAIL_PROVIDER": "resend",
-    // Allow Playwright + Vite dev/preview origins so the browser test page can
-    // call this deployed-via-miniflare worker cross-origin. Empty in production
-    // (single-origin deploy); per-test config provides whatever origins the
-    // test runner serves the page from.
-    "LUMENIZE_APPROVED_ORIGINS": "http://localhost:5173,http://localhost:4173"
+    "EMAIL_PROVIDER": "resend"
   }
 }

@@ -3,14 +3,11 @@
  * or the Galaxy speaking, never the writer, granter or poster. A probe tab records every push's
  * `originAuth` and call chain as it arrives (`NebulaClientTest.pushOrigins`).
  *
- * ⚠️ The every-kind limb is SKIPPED until `tasks/nebula-scope-moves-to-subdomain.md` lands. Every
- * update already leaves through the plane's one `lmz.broadcast`, which still inherits the caller's
- * chain, and the Gateway's `aud` fence refuses any Star or Galaxy push that carries no claims — so a
- * fresh chain here would refuse every push in the system. That build flips `lmz.broadcast`'s
- * default and deletes the fence in one phase, and its § *A push speaks for the node, not the
- * writer* carries the criterion that un-skips this limb.
+ * Every update leaves through the plane's one `lmz.broadcast`, which starts a fresh chain at the
+ * host by default, and the tab's Gateway checks the tab's passage into the sender rather than any
+ * claim the push carries.
  *
- * Two positive controls, and both run now:
+ * Two positive controls:
  *   - **the probe records `originAuth` when one arrives** — below. A plain `lmz.call` from a
  *     test-subclass method carries its caller's claims to the probe, so a "no originAuth" verdict
  *     means the push had none, never that the probe could not see one;
@@ -18,9 +15,9 @@
  *     grant at invite time*: the facade refuses a call with no origin claims, so the grant lands
  *     only because the plane's facade call carries the inviter's. A blanket fresh chain reds it.
  *
- * Mutations: record no `originAuth` in `#recordPush`, and the probe control reds while the skipped
- * limb could not tell; with the limb un-skipped, send any one kind with a plain `lmz.call`, and the
- * offender list names exactly that kind.
+ * Mutations: record no `originAuth` in `#recordPush`, and the probe control reds; pass
+ * `newChain: false` at the plane's one `#send`, and every kind is an offender; send any one kind with
+ * a plain `lmz.call`, and the offender list names exactly that kind.
  *
  * In-lane rather than `/live` because the probe reads each push's `callContext` as it arrives —
  * `NebulaClientTest.pushOrigins` — and the positive control needs `StarTest.callClient`; a running
@@ -30,9 +27,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, TransactionResult } from '@lumenize/nebula';
-import {
-  adminClientAt, universeAdminClient, createInvitedClient, createSubject, foundAndLogin, uniqueStar,
-} from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { StarTest } from './index';
 
@@ -75,9 +70,7 @@ describe('no subscription update carries the identity of the caller whose call c
     expect(arrived.originSub).not.toBe(probeP.sub); // …not the probe's own
   });
 
-  // Blocked on tasks/nebula-scope-moves-to-subdomain.md: lmz.broadcast inherits the caller's chain
-  // and the Gateway's aud fence refuses a claim-less push until that build flips and deletes both.
-  it.skip('every kind of update reaches the probe with no originAuth and a chain naming only the host', async () => {
+  it('every kind of update reaches the probe with no originAuth and a chain naming only the host', async () => {
     // ── Star kinds ────────────────────────────────────────────────────────────────────────────
     const star = uniqueStar();
     const { client: admin, accessToken } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
@@ -154,7 +147,6 @@ describe('no subscription update carries the identity of the caller whose call c
     const { client: gAdmin, accessToken: gToken } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, gToken, 'probe@example.com');
     const { client: gProbe, payload: gProbeP } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'probe@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);

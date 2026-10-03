@@ -27,6 +27,7 @@
  * ```typescript
  * const refresh = createNebulaTestToken({
  *   privateKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),   // the .dev.vars signing key
+ *   issuer: platformOrigin(LOCAL_ORIGIN),              // the verifying Worker's own issuer
  *   activeScope: 'claude.sandbox.dev',                 // own sandbox star scope
  *   profileId: crypto.randomUUID(),                    // every token carries one
  * });
@@ -49,6 +50,11 @@ export interface CreateNebulaTestTokenOptions {
    * BLUE for a Worker whose `PRIMARY_JWT_KEY` is GREEN — sign with the matching key.
    */
   activeKey?: 'BLUE' | 'GREEN';
+  /**
+   * The verifying deployment's issuer, `platformOrigin` of its `LUMENIZE_ORIGIN` — a token signed
+   * for any other deployment fails verification there, whatever key signed it.
+   */
+  issuer: string;
   /** JWT `aud` — the active scope this token is bound to. Must sit at or below `access.authScope`. */
   activeScope: string;
   /**
@@ -62,12 +68,11 @@ export interface CreateNebulaTestTokenOptions {
    * Mint an admin token (sets `access.scopeAdmin`). Default `true`.
    *
    * ⚠️ **The bit alone no longer enables the scope-admin bypass** — the guards confine it to the
-   * callee node via `hasDominionOver`, so what actually decides is whether `authScope`
-   * — which this factory always takes from `instanceName`, exposing no override — is at or above the
-   * node being called. A token minted with
-   * `scopeAdmin: true` at a STAR `instanceName` carries that star as its `authScope` and is therefore
-   * NOT an admin on that star's Galaxy or Universe. Set `instanceName` to the scope whose dominion you
-   * actually want. See tasks/archive/nebula-confine-admin-bypass.md.
+   * callee node via `hasDominionOver`, which reads the token's `aud`, its `activeScope` here: what
+   * decides is whether `activeScope` is at or above the node being called (the host rule). A token
+   * minted with `scopeAdmin: true` and a STAR `activeScope` is therefore NOT an admin on that star's
+   * Galaxy or Universe. Set `activeScope` to the scope whose dominion you actually want, and
+   * `instanceName`, the membership's scope, at or above it; a plain token needs the two equal.
    */
   scopeAdmin?: boolean;
   /**
@@ -79,7 +84,7 @@ export interface CreateNebulaTestTokenOptions {
   profileId: string;
   /**
    * RFC 8693 delegation **actor pair** → the `act` claim. Mirrors the claim shape the production
-   * `/mint-narrower-token` emits: `{ sub, profileId }`, where `profileId` is the ACTOR's.
+   * impersonation mint emits: `{ sub, profileId }`, where `profileId` is the ACTOR's.
    */
   actor?: { sub: string; profileId: string };
   /** Token TTL in seconds. Default: nebula-auth's `ACCESS_TOKEN_TTL`. */
@@ -98,6 +103,7 @@ export function createNebulaTestToken(
   const {
     privateKey: privateKeyPem,
     activeKey = 'BLUE',
+    issuer,
     activeScope,
     instanceName = activeScope,
     sub = crypto.randomUUID(),
@@ -110,6 +116,7 @@ export function createNebulaTestToken(
   return async () => {
     const privateKey = await importPrivateKey(privateKeyPem);
     const payload = buildNebulaJwtPayload({
+      issuer,
       sub,
       instanceName,
       activeScope,

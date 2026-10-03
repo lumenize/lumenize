@@ -21,11 +21,11 @@
  *  2. **One level up** (the galaxy): rejected, and the MESSAGE is the facade's dominion refusal.
  *  3. **Two levels up** (the universe): same.
  *
- * ⚠️ Limbs 2–3 match the MESSAGE (`does not administer`), never a bare rejection: a claims-less
+ * ⚠️ Limbs 2–3 match the MESSAGE (`needs dominion over it`), never a bare rejection: a claims-less
  * refusal, a membership refusal, and a dominion refusal are indistinguishable as booleans, and the
- * collapse of those is exactly what this scenario exists to catch. The `does not administer` form
- * is likewise load-bearing: the caller HOLDS `scopeAdmin`, so the rule that fails is dominion over
- * the addressed scope — the non-admin wording (`is not a membership at …`) would misname it.
+ * collapse of those is exactly what this scenario exists to catch. The dominion form is likewise
+ * load-bearing: the caller HOLDS `scopeAdmin`, so the rule that fails is dominion over the addressed
+ * scope — the non-admin wording (`needs a membership there or dominion over it`) would misname it.
  *
  * `needsContainer = false` — auth only, never a build, so the boot skips Docker.
  */
@@ -82,7 +82,7 @@ export async function run(stack: DevStack): Promise<void> {
         message = err instanceof Error ? err.message : String(err);
       }
       assert.equal(
-        message, `Token scope "${star}" does not administer "${target}"`,
+        message, `Inviting into "${target}" needs dominion over it, and the calling host's scope is "${star}"`,
         `the refusal at "${target}" was not the DOMINION message — a claims-less or membership ` +
         'refusal satisfies a bare rejection, which is the collapse this limb catches',
       );

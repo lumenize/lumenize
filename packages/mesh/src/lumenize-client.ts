@@ -343,7 +343,8 @@ export interface LmzApiClient {
    * Send one continuation to many targets — one `call` per target, each over this client's socket
    * and stamped at its Gateway, so it grants nothing that many calls would not.
    *
-   * `options.onResult` hears only failures; `newChain` and `state` pass through to each call.
+   * `options.onResult` hears only failures. Each call starts a fresh chain unless `newChain: false`,
+   * and `state` passes through to each call.
    *
    * ⚠️ On a client, `onResult` cannot tell WHICH target failed. The handler runs in the call site's
    * context, where `callee` is never the failed target, and outside a mesh call reading `callContext`

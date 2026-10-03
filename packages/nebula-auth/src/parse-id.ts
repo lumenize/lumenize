@@ -16,9 +16,9 @@
  * next one show up in a grep rather than in a review:
  *
  * ```sh
- * grep -rn 'isAtOrAbove(\|isAtOrBelow(' apps/nebula/src packages --include='*.ts' \
+ * grep -rn 'isAtOrAbove(\|isAtOrBelow(' apps/nebula/src apps/nebula-studio-ui/src packages --include='*.ts' \
  *   --exclude-dir=test --exclude-dir=node_modules --exclude-dir=dist \
- *   | grep -vE ':[0-9]+: *(\*|//|/\*)' | grep -v 'parse-id.ts'
+ *   | grep -vE ':[0-9]+: *(\*|//|/\*)' | grep -v 'parse-id.ts' | grep -v 'platform-embed.ts'
  * ```
  *
  * ⚠️ **The paths are spelled to avoid a literal `*` followed by `/`, which would close this comment.**
@@ -32,28 +32,32 @@
  * unrelated edit; this fails loudly the moment a hit appears that is not on it. Every entry carries
  * its class and its reason, because "it looked fine" is how the wrong one gets added:
  *
+ * - **`home-logic.ts` `needsFreshLogin` (Studio's auth app) — a client mirror of the refresh's pick.**
+ *   Marks a Home row whose host this browser could not open: covered by the row's own cookie, or by
+ *   a cookie at or above it whose record carries the admin bit, read as the refresh reads it. It
+ *   decides how a row looks and never what anyone may do; the refresh decides that.
  * - **`verify.ts` — token-internal consistency · STRUCTURAL.** Asserts `aud` is at or below the
- *   token's own `authScope`. There is no principal question here and it takes **no `scopeAdmin`
- *   conjunction**; the Gateway's outbound `aud` fence assumes this holds.
+ *   token's own `authScope`. There is no principal question here and the containment takes **no
+ *   `scopeAdmin` conjunction**. Beside it, a plain membership's `aud` must EQUAL its `authScope`:
+ *   an equality rather than a containment, so it is not on this list, and it is what keeps reading
+ *   `aud` from widening a plain member below their own scope.
  * - **`access-claims.ts` `buildNebulaJwtPayload` — mint-side construction invariant · STRUCTURAL.**
- *   The same assertion on the way out, so an inconsistent token is impossible to *construct* rather
- *   than merely rejected downstream. Again no `scopeAdmin` operand.
- * - **`worker-token.ts` `handleRefreshToken` — the `activeScope` confine · STRUCTURAL.** Bounds a
- *   client-supplied scope inside the KV record's server-trusted one. The record *is* the authority,
- *   so no claim is consulted and no bit applies.
- * - **`worker-token.ts` `mintNarrowerToken` `aud` validation — STRUCTURAL.** Bounds the requested
- *   `activeScope` (the minted `aud`) inside the *subject's* own scope — a mirror of `verify.ts`'s
- *   unconditional `aud ⊆ authScope` read-side check, answered early as a 403 instead of late as a
- *   token that verifies nowhere. A validation, never an authorization (authorization is
- *   `canMintFor`, which calls `hasDominionOver`); not a question about any principal's authority,
- *   so it takes no bit.
+ *   The same assertions on the way out, so an inconsistent token is impossible to *construct* rather
+ *   than merely rejected downstream.
+ * - **`worker-token.ts` `handleRefreshToken` — the candidate selection · STRUCTURAL.** Reads only the
+ *   cookies whose scope is at or above the host's. The KV record behind each is the authority, so no
+ *   claim is consulted; the admin bit picks among the candidates afterwards, never which are read.
+ * - **`worker-token.ts` `mintImpersonationToken` `aud` validation — STRUCTURAL.** Bounds the caller's
+ *   host (the minted `aud`) inside the *subject's* own scope — a mirror of `verify.ts`'s checks, answered early as a 403 instead of late as a token that
+ *   verifies nowhere. A validation, never an authorization (authorization is `canMintFor`, which
+ *   calls `hasDominionOver`); not a question about any principal's authority.
  *
  * ⚠️ **A second class this grep is structurally blind to: containment computed BY VALUE.**
  * `b === a || b.startsWith(a + '.')` in TypeScript and `LIKE ${prefix + '.%'}` in SQL both compute
  * `isAtOrAbove` without spelling it. The licensed sites all live in `nebula-auth-registry.ts` and
  * share one reason, stated at each: **the query IS the bound.** Routing per row would mean fetching
  * every scope first, which is the work those arms exist to avoid — `#computeDeletionPlan`'s cascade,
- * and the scope-summary descent (`#childLevel`, `#directChildCount`, and `expandScope`'s own
+ * and `getScopeSummary`'s descent (`#childLevel`, `#directChildCount`, and `expandScope`'s own
  * coverage check). That is a property, not a tally: an arm that bounds a read by prefix inherits the
  * licence, and one that decides a principal's authority does not, whatever it is named.
  *
@@ -67,19 +71,28 @@
  * returns nothing here is far likelier to be broken than to be clean.
  */
 
-import type { AccessEntry, ParsedId, Tier } from './types';
+import type { AccessEntry, NebulaJwtPayload, ParsedId, Tier } from './types';
 import { PLATFORM_SCOPE } from './types';
 
 /** Regex for a single slug segment: lowercase alphanumeric + hyphens, at least 1 char */
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
+ * The longest slug, so a persona and its Star fit one 63-character host label as
+ * `{persona}--{star}`, 30 + 2 + 30 (ADR-021). `warehouse-management-system` is 27.
+ *
+ * It also keeps an id from parsing as a scope: a `profileId`, a persona's version-5 id and a
+ * Gateway's `{sub}.{tabId}` each carry a 36-character UUID, which the slug grammar alone accepts.
+ */
+export const MAX_SLUG_LENGTH = 30;
+
+/**
  * Validate a single slug segment.
- * Must be lowercase alphanumeric + hyphens, cannot start or end with a hyphen,
- * and cannot contain consecutive hyphens.
+ * Must be lowercase alphanumeric + hyphens, at most {@link MAX_SLUG_LENGTH} characters, cannot
+ * start or end with a hyphen, and cannot contain consecutive hyphens.
  */
 export function isValidSlug(slug: string): boolean {
-  if (!slug || !SLUG_RE.test(slug)) return false;
+  if (!slug || slug.length > MAX_SLUG_LENGTH || !SLUG_RE.test(slug)) return false;
   if (slug.endsWith('-')) return false;
   if (slug.includes('--')) return false;
   return true;
@@ -201,49 +214,68 @@ export function isAtOrBelow(myScope: string, targetScope: string): boolean {
 }
 
 /**
- * **The single dominion predicate**: is this access claim admin *over `targetScope`*?
+ * The verified claims a verdict reads: `aud`, the scope of the host the token was minted for, and
+ * `access`, the membership it rests on. A whole `NebulaJwtPayload` satisfies it.
+ */
+export type VerdictClaims = Pick<NebulaJwtPayload, 'aud'> & { access?: Partial<AccessEntry> };
+
+/**
+ * **The single dominion predicate**: do these claims hold dominion *over `targetScope`*?
  *
- * `scopeAdmin` alone is never dominion — it is dominion only over what the claim's `authScope`
- * actually covers. Every guard that consults `access.scopeAdmin` must ask this question about the
- * scope it is acting on, or an admin of a child scope acts as admin on its ancestors.
+ * Dominion runs downward from the host the token was minted for, its `aud`, and only for a
+ * membership carrying `scopeAdmin` (the host rule, ADR-015 and ADR-022). A universe admin's token
+ * minted on `tenant1.crm.acme.lumenize.dev` holds dominion over `acme.crm.tenant1` and nothing else:
+ * not its sibling `acme.crm.tenant2`, and not `acme.crm` or `acme` above it, though the membership
+ * covers all of them. The same membership on `acme.lumenize.dev` holds all of them. So the host a
+ * call came from bounds what its page's code can do, whoever's membership the token rests on.
  *
- * Fail-closed on an absent or empty claim: no principal, no dominion. A verified token always
- * carries `authScope`, so that arm guards hand-constructed and partially-populated claims rather
- * than a live path.
+ * `scopeAdmin` alone is never dominion; every guard that consults it must ask this question about
+ * the scope it is acting on. Reading `aud` only ever narrows: verification holds `aud` at or below
+ * `authScope`, and equal to it for a plain membership.
+ *
+ * Fail-closed on an absent claim: no host, no membership, or no bit, no dominion.
  *
  * One predicate, one place to audit (ADR-007) — do not re-inline this conjunction anywhere.
  */
-export function hasDominionOver(access: AccessEntry | undefined, targetScope: string): boolean {
-  if (!access?.scopeAdmin || !access.authScope) return false;
-  return isAtOrAbove(access.authScope, targetScope);
+export function hasDominionOver(claims: VerdictClaims | undefined, targetScope: string): boolean {
+  if (!claims?.aud || !claims.access?.authScope || !claims.access.scopeAdmin) return false;
+  return isAtOrAbove(claims.aud, targetScope);
 }
 
 /**
- * **The single passage predicate**: may this access claim reach `targetScope` at all?
+ * **The single passage predicate**: may these claims reach `targetScope` at all?
  *
- * The **union** of two arms, not the upward one alone (ADR-015 § *Terminology*):
- *  - the caller's own scope sits **at or below** the target — a member of a child reaching its
- *    parent, which confers no dominion whatsoever; OR
- *  - the caller holds **dominion** there, which is the whole downward rule.
+ * The **union** of two arms, both read from the host the token was minted for, its `aud`
+ * (ADR-015 § *Terminology*, the host rule):
+ *  - the host's scope sits **at or below** the target — a page on a tenant's host reaching its
+ *    app and account, which confers no dominion whatsoever; OR
+ *  - the claims hold **dominion** there, which is the whole downward rule.
  *
- * ⚠️ **Writing this as the upward arm alone refuses the entire downward rule** — an admin at `{u}`
- * calling `{u}.{g}.{s}` has passage *because* they hold dominion there. Writing it as dominion alone
- * refuses every non-admin their own scope. Both arms, always.
+ * So a token reaches its host's subtree and the host's ancestors, and nothing beside it: a token
+ * from `acme.crm.tenant1`'s host has no passage into `acme.crm.tenant2`, whatever its membership.
+ *
+ * ⚠️ **Writing this as the upward arm alone refuses the entire downward rule**, and writing it as
+ * dominion alone refuses every non-admin their own scope. Both arms, always.
  *
  * ⚠️ **Passage is NOT dominion, and lacking dominion is not a denial.** A caller with passage may
- * still be granted a great deal by the methods it reaches — that is the callee's own guards' call,
- * not this predicate's.
+ * still be granted a great deal by the methods it reaches — that is the callee's own guards' call.
  *
- * ⚠️ **Fail-closed on an absent or empty claim: no principal, no passage — and it returns `false`
- * rather than throwing.** Stated here because it cannot be inherited: {@link hasDominionOver} is
- * accidentally protected by its own `scopeAdmin` test, but the upward arm has **no `scopeAdmin`
- * operand** by construction and the mint omits the bit for every non-admin — so without this guard
- * an absent claim would reach an unguarded string op on the ordinary non-admin path. Deliberately
- * NOT pushed down onto {@link isAtOrAbove}, which is an unconditional two-string fact.
+ * ⚠️ **Fail-closed on an absent claim: no host or no membership, no passage — returning `false`
+ * rather than throwing.** Stated here because it cannot be inherited: the upward arm has no
+ * `scopeAdmin` operand, so {@link hasDominionOver}'s bit test does not cover it.
  *
  * One predicate, one place to audit (ADR-007) — do not re-inline this disjunction anywhere.
  */
-export function hasPassageInto(access: AccessEntry | undefined, targetScope: string): boolean {
-  if (!access?.authScope) return false;
-  return isAtOrBelow(access.authScope, targetScope) || hasDominionOver(access, targetScope);
+export function hasPassageInto(claims: VerdictClaims | undefined, targetScope: string): boolean {
+  if (!claims?.aud || !claims.access?.authScope) return false;
+  return isAtOrBelow(claims.aud, targetScope) || hasDominionOver(claims, targetScope);
+}
+
+/**
+ * What a refused passage says, naming both scopes: the one passage was computed from, then the one
+ * it was asked into. One wording for every passage refusal, so a test or a reader matches one
+ * message wherever passage is checked.
+ */
+export function noPassageMessage(fromScope: string | undefined, intoScope: string): string {
+  return `No passage from "${fromScope ?? '(no scope)'}" into "${intoScope}"`;
 }

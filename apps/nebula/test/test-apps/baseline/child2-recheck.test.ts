@@ -1,7 +1,6 @@
 /**
- * Child 2 Phase 2 — per-push read recheck (Flow 2 / D3) in the capability's
- * `#broadcast`. Closes the subscribe-time-only gap Child 1 carried into the
- * capability, so it protects Star AND Galaxy (tested here on Star; the
+ * Per-push read recheck in the capability's `#broadcast`. Closes the gap of
+ * checking a read only at subscribe time, so it protects Star AND Galaxy (tested here on Star; the
  * capability code is identical on both hosts — Galaxy composition is proven by
  * devstudio-resources-e2e).
  *
@@ -10,13 +9,15 @@
  *      `{ deniedNodes: [nodeId] }`, never the content — and its row REMAINS (no drop,
  *      ADR-008). Asserted on the RAW frame, since the client drops keys it does not read.
  *   2. A `claims.access.scopeAdmin` subscriber with NO DAG grant still receives pushes
- *      (the stored-dominionOverHostAtSubscribe bypass — D16).
+ *      (the stored-dominionOverHostAtSubscribe bypass).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { SubscriberRow } from '@lumenize/nebula';
-import { adminClientAt, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import {
+  adminClientAt, createInvitedClient, createPlatformAdminClient, foundAndLogin, createSubject, ownerOf,
+} from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -36,7 +37,7 @@ async function waitForUpdateCount(client: NebulaClientTest, n: number) {
   await vi.waitFor(() => expect(client.resourceUpdateCount).toBeGreaterThanOrEqual(n));
 }
 
-/** Star-scoped admin: connects (seeds ROOT admin), installs the ontology. */
+/** Star-scoped admin: connects, installs the ontology. */
 async function starAdmin(star: string) {
   const f = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   f.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
@@ -44,7 +45,7 @@ async function starAdmin(star: string) {
   return f;
 }
 
-describe('child2 per-push read recheck (Phase 2 / D3)', () => {
+describe('per-push read recheck', () => {
   it('revoked subscriber is told the node it lost, never the content; its row remains (never-drop)', async () => {
     const star = `${uniqueUniverse()}.app.tenant-a`;
     const { client: admin, payload: adminPayload } = await starAdmin(star);
@@ -62,7 +63,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
 
     // A non-admin user, granted read on the node, subscribes.
     const adminBrowser = new Browser();
-    const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
+    const { accessToken } = await foundAndLogin(adminBrowser, star, ownerOf('admin@example.com'), star);
     await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
     const { client: user, payload: userPayload } =
       await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
@@ -108,7 +109,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     await vi.waitFor(() => expect(user.resourceUpdateCount).toBeGreaterThan(userCountAfterGrant));
     expect(user.lastResourceResult).toEqual({ deniedNodes: [nodeId] });
 
-    // But the user's sub row REMAINS (never dropped — D5).
+    // But the user's sub row REMAINS (never dropped, ADR-008).
     admin.callStarInspectSubscribers(star);
     const rows = await waitForSuccess(admin) as SubscriberRow[];
     expect(rows.some((r) => r.clientId === user.lmz.instanceName && r.resourceId === rid)).toBe(true);
@@ -118,10 +119,10 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     anchor[Symbol.dispose]();
   });
 
-  it('a claims.access.scopeAdmin subscriber with NO DAG grant still receives pushes (D16)', async () => {
+  it('a claims.access.scopeAdmin subscriber with NO DAG grant still receives pushes', async () => {
     const universe = uniqueUniverse();
     const star = `${universe}.app.tenant-a`;
-    // Star-admin connects FIRST → becomes the root admin (the sole ROOT admin grant).
+    // The Star's admin connects and writes the resource.
     const { client: admin } = await starAdmin(star);
     const rid = crypto.randomUUID();
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -130,24 +131,18 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     const created = await waitForSuccess(admin) as { ok: true; eTags: Record<string, string> };
     const eTag = created.eTags[rid];
 
-    // A second admin connects after the root-admin latch is set → access.scopeAdmin: true but NO DAG
-    // grant of its own. Its resource row stores dominionOverHostAtSubscribe = 1.
-    // ⚠️ It must be the PLATFORM bootstrap admin (`*`), not a second universe admin: only one
-    // admin can exist per universe (`claim-universe` is the sole admin-minting path and the
-    // slug is unique), so the old `universe-admin@example.com` identity is unmintable. The
-    // bootstrap email is the one production path to a second `access.scopeAdmin` here, and it reaches
-    // this Star because `*` covers every scope.
+    // A second admin subscribes: access.scopeAdmin true, and no DAG grant, as no scope admin is
+    // given one by being an admin. Its resource row stores dominionOverHostAtSubscribe = 1. It is
+    // the platform bootstrap admin, on this Star's page.
     const { client: uni, payload: uniPayload } = await createPlatformAdminClient(
       NebulaClientTest, new Browser(), star);
     // Fixture guards — BOTH premises this test rests on, neither previously pinned:
     //   (1) it really is a scope-admin whose pattern covers this Star (else the stored verdict is
     //       0 and the push below would be explained by something other than the bypass);
-    //   (2) it really holds NO DAG grant — that rests entirely on the implicit ordering that
-    //       `starAdmin(star)` ran first and set the `__nebula_rootAdminSeeded` latch. If this
-    //       identity ever acquired a root grant, the test would stay green while the bypass it
-    //       exists to prove went untested.
+    //   (2) it really holds NO DAG grant. If this identity ever acquired a root grant, the test
+    //       would stay green while the bypass it exists to prove went untested.
     expect(uniPayload.access?.scopeAdmin).toBe(true);
-    expect(uniPayload.access?.authScope).toBe('nebula-platform');
+    expect(uniPayload.access?.authScope).toBe('_platform');
     admin.callStarGetEffectivePermission(star, ROOT_NODE_ID, uniPayload.sub);
     expect(await waitForSuccess(admin)).toBeNull(); // no DAG grant of its own
     uni.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);

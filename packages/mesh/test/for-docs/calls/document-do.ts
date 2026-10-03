@@ -294,9 +294,9 @@ export class DocumentDO extends LumenizeDO<Env> {
   /**
    * Like `update`, but fans out to subscribers WITHOUT `{ newChain: true }`, so the pushed
    * `handleContentUpdate` preserves the WRITER's origin: the receiver sees
-   * `callChain = [writerClient, DocumentDO]` (`callChain.at(-1)` = this DO). This is the production
-   * fanout shape (cf. Nebula `broadcast.ts`, which also does not `newChain` so pushes inherit the
-   * mutator's identity), and the fixture for the `LumenizeClient` default peer-guard: a DO-mediated
+   * `callChain = [writerClient, DocumentDO]` (`callChain.at(-1)` = this DO). It is what
+   * `lmz.broadcast` sends with `{ newChain: false }`, and the fixture for the `LumenizeClient`
+   * default peer-guard: a DO-mediated
    * cross-client push must be ACCEPTED by the receiver's default `onBeforeCall` (caller = the DO),
    * even though its ORIGIN is another client. (Contrast `#broadcast`, whose `newChain` makes the DO
    * the origin — a shape the origin-based guard bug never rejected, so it can't prove the fix.)

@@ -5,6 +5,8 @@
  * No storage, no CallContext dependency — operates entirely on the in-memory OrgTreeState.
  */
 
+import { isValidSlug, MAX_SLUG_LENGTH } from '@lumenize/nebula-auth/claims'
+
 /**
  * Reserved sentinel id for the root orgTree node. A v4-shaped UUID (matching
  * `DEFAULT_CHAT_ID`'s convention in `chat-constants.ts`) so it lives in the
@@ -73,8 +75,6 @@ export function buildOrgTreeView(state: OrgTreeState): OrgTreeView {
   return { state, parentsByChild, childrenByParent }
 }
 
-const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/
-
 /** v4 UUID shape (what `crypto.randomUUID()` produces). */
 const NODE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -89,11 +89,15 @@ export function validateNodeId(nodeId: string): void {
   }
 }
 
+/** An org-tree node's slug follows the scope grammar: it rides a URL segment or query parameter as a
+ *  scope's does, and two grammars would drift. */
 export function validateSlug(slug: string): void {
   if (!slug) throw new Error('Slug must not be empty')
-  if (slug.length > 100) throw new Error('Slug must be 100 characters or fewer')
-  if (!SLUG_REGEX.test(slug)) {
-    throw new Error('Slug must contain only lowercase letters, numbers, and hyphens, with no leading or trailing hyphens')
+  if (!isValidSlug(slug)) {
+    throw new Error(
+      `Slug must be ${MAX_SLUG_LENGTH} characters or fewer, using only lowercase letters, numbers, and ` +
+      'single hyphens, with no leading or trailing hyphen',
+    )
   }
 }
 

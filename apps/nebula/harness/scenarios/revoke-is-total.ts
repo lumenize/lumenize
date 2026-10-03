@@ -2,8 +2,8 @@
  * A revoke stops a REAL session — proved against a real server, a real cookie jar, and no fixture.
  *
  * Two real email logins for one person (ADR-009 rung 1 throughout), then a scope deletion revokes
- * every refresh record anchored to them, then both cookies are presented to
- * `POST /auth/{scope}/refresh-token` and must come back **401** from the running Worker.
+ * every refresh record anchored to them, then both cookies are presented to `POST /auth/refresh-token`
+ * from the universe's page and must come back **401** from the running Worker.
  *
  * ⚠️ **Fidelity is the reason, and the in-lane arm is not deficient — it is blind to a different
  * thing.** `packages/nebula-auth/test/identity-mint-point.test.ts` asserts what no client can see:
@@ -27,17 +27,14 @@ import assert from 'node:assert/strict';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { provisionAndLogin, refreshTokenForScope, setCookieHeaders } from '../../test/lib/email-login';
+import { provisionAndLogin, loginViaEmail, refreshFromPage, refreshCookie } from '../../test/lib/email-login';
 
 export const needsContainer = false;
 
-/** Present a refresh cookie to the running server and report the status it actually returns. */
+/** Present a refresh cookie from `scope`'s page and report the status the running server returns. */
 async function refreshStatus(origin: string, scope: string, refreshToken: string): Promise<number> {
-  const res = await fetch(`${origin}/auth/${scope}/refresh-token`, {
-    method: 'POST',
-    headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeScope: scope }),
-  });
+  const res = await refreshFromPage(origin, scope, refreshCookie(scope, refreshToken));
+  await res.text();
   return res.status;
 }
 
@@ -47,26 +44,17 @@ export async function run(stack: DevStack): Promise<void> {
   const universe = `revoke-${crypto.randomUUID().slice(0, 8)}`;
   const person = uniqueTestEmail();
 
-  // ── Two real sessions from ONE real email ────────────────────────────────────────────────────
-  // ⚠️ **The link is clicked TWICE, and that is the mechanism rather than a shortcut.** Magic links
-  // are deliberately MULTI-USE within their TTL — the scanner invariant depends on it, because
-  // corporate mail scanners fetch these links before the human does and a single-use link would burn
-  // itself on the scan. So a second click is a real second login: a fresh raw token, a fresh
-  // `RefreshTokenIndex` row, a fresh KV record. Two sessions, one letter.
-  //
-  // (This used to send a SECOND email for session 2. Same state, more moving parts — and it left the
-  // scenario depending on a same-address back-to-back delivery that was observed not to arrive.
-  // Exercising the multi-use property instead removes the dependency rather than working around it.)
+  // ── Two real sessions, from two real letters ─────────────────────────────────────────────────
+  // A link is spent by its page's button, so a second session is a second login: a fresh letter, a
+  // fresh raw token, a fresh `RefreshTokenIndex` row, a fresh KV record — as a person signing in on
+  // a second device does.
   const first = await provisionAndLogin({ baseUrl: origin, scope: universe, email: person, testToken });
   const firstCookie = first.session.refreshToken;
   assert.ok(firstCookie, 'the first login produced no refresh cookie');
 
-  const secondClick = await fetch(first.link, { redirect: 'manual' });
-  // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all.
-  const secondCookie = refreshTokenForScope(setCookieHeaders(secondClick), universe);
-  assert.ok(secondCookie,
-    `the second click set no cookie for "${universe}" (${secondClick.status}) — links must be multi-use`);
-  assert.notEqual(secondCookie, firstCookie, 'both clicks returned the same cookie — not two sessions');
+  const second = await loginViaEmail({ baseUrl: origin, authScope: universe, email: person, testToken });
+  const secondCookie = second.refreshToken;
+  assert.notEqual(secondCookie, firstCookie, 'both logins returned the same cookie — not two sessions');
 
   // Positive control: BOTH sessions are genuinely live before anything is revoked. Without this a
   // revoke that did nothing would be indistinguishable from a login that never worked.

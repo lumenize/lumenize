@@ -23,9 +23,10 @@
  *     visible to anyone with passage (checks happen where an action is taken, never at the view).
  *  2. **Downward is total for an admin.** The Galaxy admin's own `setGalaxyConfig` succeeds, so
  *     limb 1's refusal is about the CALLER's dominion rather than a method nobody can call.
- *  3. **A non-admin reaches its own scope and nothing beneath it.** The star-scoped member is
- *     refused at a SIBLING Star under the same Galaxy — the movement that existed until passage
- *     stopped reading the client-chosen `aud`, and the one with no consumer behind it.
+ *  3. **A non-admin reaches its own scope and nothing beneath it.** A galaxy-tier non-admin gets no
+ *     token on a tenant Star's host beneath their galaxy — the refresh mints a plain membership on
+ *     its own host only — and the token their galaxy's page does get is refused at the Star's
+ *     passage boundary. Both refusals are matched by message.
  *
  * ⚠️ **Real logins throughout (ADR-009 rung 1), and that is what makes limb 3 meaningful.**
  * `provisionStarAdmin` claims a Star through the open self-signup path, so the member's `authScope`
@@ -39,7 +40,8 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import {
-  provisionStarAdmin, provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
+  provisionStarAdmin, provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, refreshFromPage, refreshCookie,
+  requestStarClaim,
 } from '../../test/lib/email-login';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, ROOT_NODE_ID } from '@lumenize/nebula/client';
 
@@ -109,14 +111,13 @@ export async function run(stack: DevStack): Promise<void> {
     baseUrl: origin, scope: universe, email: `owner-${memberEmail}`, testToken,
   });
 
-  // A sibling Star under the same Galaxy — limb 3's target, created by the owner (`create-star`
-  // registers the scope and mints no identity, which is exactly right: nobody has passage into it).
-  const created = await fetch(`${origin}/auth/create-star`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${ownerSession.accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ universeGalaxyStarId: sibling }),
+  // A sibling Star under the same Galaxy — limb 3's target. A tenant Star comes to exist by its own
+  // claim, here by a throwaway claimer whose membership is never taken up, so neither driver below
+  // has passage into it: the member's scope is its own Star, and only the owner's dominion reaches.
+  const claimed = await requestStarClaim({
+    baseUrl: origin, universeGalaxyStarId: sibling, email: uniqueTestEmail(),
   });
-  assert.ok([201, 409].includes(created.status), `create-star ${created.status} for ${sibling}`);
+  assert.notEqual(claimed, null, `claim-star found ${sibling} already claimed`);
 
   // Both clients are built from tokens the SERVER issued (rung 1) — nothing here constructs a claim.
   const member = await connectDriver(stack, {
@@ -227,12 +228,11 @@ export async function run(stack: DevStack): Promise<void> {
     // sibling under BOTH the old rule and the new one (neither its `aud` nor its scope covers a
     // sibling), so asserting on it would be green either way — a test that cannot fail.
     //
-    // A galaxy-tier NON-admin is the one shape the two rules disagree about: their `authScope` is
-    // `{u}.{g}`, and the refresh confine happily mints them `aud = {u}.{g}.{s}` because the Star IS
-    // beneath their scope. Under the old `aud`-keyed tenant arm that token passed at the Star —
-    // reaching a tenant they hold no membership in. Under `authScope` it is refused, because the
-    // Star is beneath them and they hold no dominion. Restore the `aud` read and this goes GREEN
-    // on the wrong behaviour, which is exactly what it exists to catch.
+    // A galaxy-tier NON-admin is the one shape that could descend: their `authScope` is `{u}.{g}`,
+    // and the Star IS beneath it. Two boundaries stop them, asserted in turn: the refresh mints a
+    // plain membership a token on its own host only, so the Star's host gets nothing; and the token
+    // the galaxy's page does get is refused at the Star, because the Star is beneath them and they
+    // hold no dominion.
     const outsiderEmail = uniqueTestEmail();
     const waiter = waitForEmail({ testToken, instance: galaxy, to: outsiderEmail, timeout: 60_000 });
     let inviteLink: string;
@@ -241,27 +241,30 @@ export async function run(stack: DevStack): Promise<void> {
       const summary = await owner.client.invite(galaxy, [{ email: outsiderEmail }]);
       assert.equal(summary.errors.length, 0, `invite into ${galaxy} failed: ${JSON.stringify(summary.errors)}`);
       const html = (await waiter.emailPromise).html ?? '';
-      const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
-      assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);
+      const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(html)?.[1];
+      assert.ok(href, `invite email carried no magic link (starts: ${html.slice(0, 60)})`);
       inviteLink = href.replace(/&amp;/g, '&');
     } finally {
       waiter.cleanup();   // a leaked waiter's WebSocket hangs the process AFTER the verdict prints
     }
-    // A click is not consent — the cookie it sets is INERT until its holder accepts, so without the
-    // accept the refresh below 401s `membership_not_accepted` and the limb never reaches its own
-    // subject. This is what a real invitee does at the consent modal, not a shortcut around it.
+    // The invite's page is its consent screen: its Accept signs in and takes the membership up,
+    // which is what a real invitee does.
     const { refreshToken } = await acceptInviteAndLogin({
       baseUrl: origin, inviteLink, scope: galaxy,
     });
 
-    // The server WILL mint them a token whose `aud` is the Star beneath — that is not the bug, and
-    // asserting it here is what proves the refusal below comes from passage rather than the mint.
-    const intoStar = await refreshAccessToken(origin, { refreshToken, authScope: galaxy }, star);
-    assert.ok(intoStar.accessToken, 'a galaxy member could not even mint a token aimed at the Star');
+    // The Star's host gets no token: the refresh's own refusal, matched by its message.
+    const onStar = await refreshFromPage(origin, star, refreshCookie(galaxy, refreshToken));
+    assert.equal(onStar.status, 401, "a galaxy non-admin's cookie must mint nothing on a Star's host beneath it");
+    assert.match(await onStar.text(), /No refresh cookie covers this host/,
+      'the refusal must be the refresh\'s own, not an unrelated failure');
+    // Positive control: the same cookie mints on the galaxy's own host — which is also the token
+    // whose call into the Star the passage half below refuses.
+    const onGalaxy = await refreshAccessToken(origin, { refreshToken, authScope: galaxy }, galaxy);
 
     const outsider = await connectDriver(stack, {
-      scope: star,
-      session: { accessToken: intoStar.accessToken, sub: intoStar.sub },
+      scope: galaxy,
+      session: { accessToken: onGalaxy.accessToken, sub: onGalaxy.sub },
     });
     try {
       // ⚠️ **The positive control comes FIRST, and it is not optional.** `getStarConfig` is a bare
@@ -285,7 +288,7 @@ export async function run(stack: DevStack): Promise<void> {
       // which is a different (and weaker) property than the one being asserted.
       const descendRefusal = await refusal(descend);
       assert.match(
-        descendRefusal ?? '(succeeded)', /Active-scope mismatch/,
+        descendRefusal ?? '(succeeded)', /No passage from/,
         'a GALAXY-tier non-admin must be refused at the PASSAGE boundary of a tenant Star beneath ' +
         `it — downward passage without dominion is impossible by construction. Got: ${descendRefusal}`,
       );

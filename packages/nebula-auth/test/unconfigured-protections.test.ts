@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { UNCONFIGURED_PROTECTIONS, reportUnconfiguredProtections } from '../src/router';
-import { registryUrl } from './test-helpers';
+import { authUrl } from './test-helpers';
 
 let sink: any[] = [];
 beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });
@@ -28,14 +28,14 @@ describe('the Registry constructor runs the check', () => {
     // this only needs the DO entered, and every surviving open row mints or sends mail on success
     // (`discover`, which wrote nothing, is retired). An invalid slug reaches the DO and is refused by
     // its own grammar — construction still happens, which is the whole point.
-    const resp = await SELF.fetch(new Request(registryUrl('claim-universe'), {
+    const resp = await SELF.fetch(new Request(authUrl('claim-universe'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slug: 'Not A Valid Slug', email: 'construct-probe@example.com' }),
     }));
     expect(resp.status).toBe(400);
 
-    // Expectation COMPUTED from env, not hard-coded: both limiter bindings are declared in this
-    // lane's wrangler.jsonc (so no error is expected for them), while TURNSTILE_SECRET_KEY is
+    // Expectation COMPUTED from env, not hard-coded: the limiter binding is declared in this lane's
+    // wrangler.jsonc (so no error is expected for it), while TURNSTILE_SECRET_KEY is
     // machine-dependent (.dev.vars) — deriving keeps the assertion true on every checkout and in CI.
     // Vacuity guard: an emptied list would make every list-driven loop below run zero times.
     expect(UNCONFIGURED_PROTECTIONS.length).toBeGreaterThan(0);

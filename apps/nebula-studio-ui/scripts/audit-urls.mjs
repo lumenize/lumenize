@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ONLY = join(root, 'src', 'view-state.ts');
-const PATTERN = /\b(?:window\.)?(?:location|history)\.(?:pathname|search|hash|href|assign|replace|reload|pushState|replaceState|back|forward|go)\b|['"](?:popstate|hashchange)['"]/;
+const PATTERN = /\b(?:window\.)?(?:location|history)\.(?:pathname|search|hash|href|host|hostname|origin|protocol|port|assign|replace|reload|pushState|replaceState|back|forward|go)\b|['"](?:popstate|hashchange)['"]/;
 
 function* files(dir) {
   for (const e of readdirSync(dir)) {

@@ -17,7 +17,11 @@
  *
  * @see tasks/archive/claude-live-verification.md
  */
-import { bootDevStack, HAS_DOCKER, readDevVar } from './lib/harness';
+import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
+import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { cloudflareCertificateApi } from '../src/certificate';
+import { sweepStaleTestPacks } from './lib/test-scopes';
+import { installLocalhostLookup } from './lib/localhost-lookup';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as downwardDominion from './scenarios/downward-dominion';
 import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
@@ -52,6 +56,27 @@ import * as gatewayStampsTheChain from './scenarios/gateway-stamps-the-chain';
 import * as displayNamesReachSubscribers from './scenarios/display-names-reach-subscribers';
 import * as starServesCurrentOntology from './scenarios/star-serves-current-ontology';
 import * as grantRevealsDenied from './scenarios/grant-reveals-denied';
+import * as clientSenderPassage from './scenarios/client-sender-passage';
+import * as gatewayOneBinding from './scenarios/gateway-one-binding';
+import * as scopeTeardown from './scenarios/scope-teardown';
+import * as galaxyCap from './scenarios/galaxy-cap';
+import * as claimLifecycle from './scenarios/claim-lifecycle';
+import * as refreshReadsTheHost from './scenarios/refresh-reads-the-host';
+import * as linksSignNobodyIn from './scenarios/links-sign-nobody-in';
+import * as linksSignInOnce from './scenarios/links-sign-in-once';
+import * as invitesLandOnTheirHost from './scenarios/invites-land-on-their-host';
+import * as logoutEndsEveryHost from './scenarios/logout-ends-every-host';
+import * as hostsAndFrames from './scenarios/hosts-and-frames';
+import * as devTabFrame from './scenarios/dev-tab-frame';
+import * as sessionSurvivesTokenLapse from './scenarios/session-survives-token-lapse';
+import * as homeListsEveryProfile from './scenarios/home-lists-every-profile';
+import * as logoutEverywhere from './scenarios/logout-everywhere';
+import * as studioAppSettings from './scenarios/studio-app-settings';
+import * as hostRule from './scenarios/host-rule';
+import * as personaHost from './scenarios/persona-host';
+import * as certificateWake from './scenarios/certificate-wake';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
+import { TEST_ORIGIN } from '../scripts/test-deploy-config.mjs';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -108,7 +133,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'profile-takeover-refused': profileTakeoverRefused, // manufactured scope dominion buys nothing (no fixture)
   'studio-codegen-rest': { ...studioCodegenRest, needsContainer: false }, // one real codegen turn over the Workers-AI REST transport — container-TOLERANT: a container-failed build step is a reported outcome, not a scenario failure
   'upward-invite-refused': upwardInviteRefused, // a real star admin's upward invite rejected by the facade's dominion message (no Docker)
-  'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → founder stamp (no Docker)
+  'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → acts through the bypass (no Docker)
   'node-invite-roundtrip': nodeInviteRoundtrip, // Star.resources.invite → both planes → real email → invitee acts at the node (no Docker)
   'build-box': buildBox,                   // ephemeral build drive: per-step BuildReport, sequential + overlap + failed-bundle + serve readback (Docker)
   'four-party-chat': fourPartyChat,        // HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
@@ -134,6 +159,28 @@ const SCENARIOS: Record<string, Scenario> = {
   // ── a Star converges on its Galaxy's CURRENT ontology, never on the asking tab's ──────────
   'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — two real Applies)
   'grant-reveals-denied': grantRevealsDenied, // a grant with no write reveals what a real member was denied (Docker — one real Apply)
+  // ── a tab receives a call only from a sender its holder has passage into ───────────────────
+  'client-sender-passage': clientSenderPassage, // a tab on a sibling Star is refused at the receiving Gateway by passage (no Docker)
+  'gateway-one-binding': gatewayOneBinding, // /gateway/ refuses every binding but the client Gateway, before a Star exists (no Docker)
+  'scope-teardown': scopeTeardown, // the facade's creates and deletes wipe Durable Objects server-side; records name the page (no Docker)
+  'galaxy-cap': galaxyCap, // one owner cannot pass MAX_GALAXIES_PER_OWNER at create or acceptance; the root counts none (no Docker)
+  'claim-lifecycle': claimLifecycle, // nothing enters a pending claim; a first acceptance wipes its scopes; every acceptance, claim and consume records (no Docker)
+  'refresh-reads-the-host': refreshReadsTheHost, // which cookies the refresh reads, which membership it picks, and a dead cookie's expiry (no Docker)
+  'links-sign-nobody-in': linksSignNobodyIn, // an image, a navigation or a rendered page signs nobody in; an invite pre-fills only for an accepted someone (no Docker)
+  'links-sign-in-once': linksSignInOnce, // a link's button spends it, every replay finds it used, the cap refuses on the page (no Docker)
+  'invites-land-on-their-host': invitesLandOnTheirHost, // a re-invite lands on its host; a 401 with a pending membership offers consent (no Docker)
+  'logout-ends-every-host': logoutEndsEveryHost, // one logout ends every host, records each sub, and is bounded (no Docker)
+  'hosts-and-frames': hostsAndFrames, // each host gets its own page, token and framing; no scope page reads Home's data (no Docker)
+  'dev-tab-frame': devTabFrame, // Studio frames its dev tab; pushes, logout and a tokenless tab keep to their own sessions (Docker)
+  'session-survives-token-lapse': sessionSurvivesTokenLapse, // a real 15-minute lapse, renewed through the platform host (no Docker, ~16 min)
+  // ── every action lives on the page that owns it ─────────────────────────────────────────────
+  'home-lists-every-profile': homeListsEveryProfile, // Home groups by Profile, marks what needs a fresh login, acts on nothing, steps aside for one app (no Docker)
+  'logout-everywhere': logoutEverywhere, // the Profile page's link ends a session on a device this browser never saw, and records whose (no Docker)
+  'studio-app-settings': studioAppSettings, // Studio lists its tenants and deletes one; a caller without dominion is refused by the facade (no Docker)
+  // ── passage and dominion read the host's scope ──────────────────────────────────────────────
+  'host-rule': hostRule, // a token acts from its host: dominion down, passage up, the facade refuses below the parent (no Docker)
+  'persona-host': personaHost, // a persona's host mints the persona's token for a dev Star admin, and for nobody else (no Docker)
+  'certificate-wake': certificateWake, // a create or acceptance wakes its galaxy's certificate order by name; nothing else does (no Docker)
 };
 
 /**
@@ -162,6 +209,7 @@ const SCENARIOS: Record<string, Scenario> = {
  * result from that scenario on as belonging to no tree, and exits non-zero.
  */
 async function sweep(fast: boolean): Promise<void> {
+  await sweepStalePacks();
   const { spawnSync } = await import('node:child_process');
   const { mkdirSync, writeFileSync, readdirSync, statSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -222,7 +270,8 @@ async function sweep(fast: boolean): Promise<void> {
       'npx',
       ['tsx', process.argv[1]!, name],
       {
-        env: { ...process.env, ...SCENARIOS[name].sweepEnv },
+        // The parent swept stale packs once already, so each child skips it.
+        env: { ...process.env, ...SCENARIOS[name].sweepEnv, HARNESS_PACKS_SWEPT: '1' },
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
       },
@@ -248,6 +297,36 @@ async function sweep(fast: boolean): Promise<void> {
   }
   if (failed.length > 0 || taintedFrom !== undefined) process.exitCode = 1;
 }
+
+/**
+ * On a deployed target, delete the test zone's certificate packs older than the sweep's window
+ * (`lib/test-scopes.ts`), once per run. A local stack orders no packs, so it sweeps nothing. A run
+ * without the test zone's token and id in `.dev.vars` still runs, and says the packs went unswept.
+ */
+async function sweepStalePacks(): Promise<void> {
+  if (!process.env.HARNESS_TARGET_URL || process.env.HARNESS_PACKS_SWEPT) return;
+  let token: string;
+  let zoneId: string;
+  try {
+    token = readDevVar('TEST_CERTIFICATE_API_TOKEN');
+    zoneId = readDevVar('TEST_CERTIFICATE_ZONE_ID');
+  } catch {
+    console.error('[harness] ⚠️  no TEST_CERTIFICATE_API_TOKEN / TEST_CERTIFICATE_ZONE_ID in .dev.vars — '
+      + "stale test packs are not swept, and the test zone's pack count only grows");
+    return;
+  }
+  const zoneHost = new URL(TEST_ORIGIN).hostname;
+  try {
+    const deleted = await sweepStaleTestPacks(cloudflareCertificateApi(zoneId, token), zoneHost, new Date(),
+      (line) => console.error(`[harness] ${line}`));
+    console.error(`[harness] swept ${deleted.length} stale test pack(s) on ${zoneHost}`);
+  } catch (e) {
+    // A failed listing leaves the packs for the next run; it is no reason to skip this one.
+    console.error(`[harness] ⚠️  the stale-pack sweep failed: ${(e as Error).message}`);
+  }
+}
+
+installLocalhostLookup();
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -293,14 +372,18 @@ async function main(): Promise<void> {
 
   if (target) {
     console.error(`[harness] DEPLOYED target — no local boot: ${target}`);
+    await sweepStalePacks();
   } else {
     console.error(needsContainer
       ? '[harness] booting a fresh local wrangler dev (cold build-box image build can take a few minutes)…'
       : '[harness] booting a fresh local wrangler dev WITHOUT the build box (no Docker needed)…');
   }
-  const stack = target
+  const stack: DevStack = target
     ? {
-        baseUrl: target.replace(/\/$/, ''),
+        // The target's platform host, wherever HARNESS_TARGET_URL points on it: every session route
+        // answers there. The only deployed target is the test one, whose origin its config names.
+        baseUrl: hostOrigin({ kind: 'platform' }, TEST_ORIGIN, target),
+        origin: TEST_ORIGIN,
         signingKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),
         activeKey: 'BLUE' as const,
         // Nothing local was started, so there is nothing to tear down. ⚠️ State on a

@@ -51,7 +51,7 @@ import { GatewayMessageType, type NodeIdentity } from '@lumenize/mesh/client';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -208,19 +208,18 @@ export async function run(stack: DevStack): Promise<void> {
   /** One more tab of the same login. `tabId` fixes where its subscriber rows sort. */
   const connect = async (tabId: string, forge?: Forge): Promise<Tab> => {
     const browser = new Browser();
-    const ctx = browser.context(origin);
+    const ctx = browser.context(scopeUrlOf(stack, SCOPE));
     const clientId = `${sub}.${tabId}`;
     const client = new ProbeClient({
-      baseUrl: origin,
-      authScope: SCOPE,
-      activeScope: SCOPE,
+      baseUrl: scopeUrlOf(stack, SCOPE),
+      platformOrigin: origin,
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       resourceHostBinding: 'GALAXY',
       chatHostBinding: 'GALAXY',
       chatScope: SCOPE,
       accessToken,
       instanceName: clientId,
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       ...(forge ? { WebSocket: forgingWebSocket(forge) } : {}),

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# apps/nebula/scripts/deploy.sh — the SINGLE home for the Nebula APP deploy (Phase 3,
-# tasks/nebula-release-process.md). This is NOT the package publish: `scripts/release.sh` +
+# apps/nebula/scripts/deploy.sh — the SINGLE home for the Nebula APP deploy
+# (tasks/archive/nebula-release-process.md). This is NOT the package publish: `scripts/release.sh` +
 # Lerna publish the `@lumenize/*` packages and never touch Nebula (it's `private`). Nebula's
 # real release is `wrangler deploy` (which also builds + pushes the DevContainer image), and
 # this script is its single repeatable command. See RELEASING.md for which flow to run when.
@@ -18,10 +18,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$APP_DIR"
 
-# The public origin for the post-deploy self-check is derived from the deploy output below
-# (the URL wrangler actually reports) — or forced via NEBULA_PROD_URL. The hardcoded fallback
-# is the JWT-issuer domain (NEBULA_AUTH_ISSUER), used only if neither is available.
-PROD_URL_FALLBACK="https://nebula.lumenize.com"
+# The post-deploy self-check reads the platform host, the one host every deployment has — or a URL
+# forced via NEBULA_PROD_URL.
+PROD_URL_FALLBACK="https://platform.lumenize.dev"
 
 # 1. Compute the build stamp FIRST — before any build/bundle step mutates the tree, so a clean
 #    checkout never stamps `dirty`. Sets GIT_SHA / DIRTY / BUILD_TIME / WRANGLER_DEFINE_ARGS.
@@ -38,30 +37,33 @@ echo "▸ Preflight: required deployed secrets are set"
 # NAME-only check — `wrangler secret list` prints names, never values; never echo a secret. The JWT
 # signing keys are REQUIRED: without them, login + cookie succeed but minting the session token
 # throws "JWT private key not configured" and the SPA silently bounces to the login form (observed
-# 2026-06-26). BLUE is PRIMARY_JWT_KEY; GREEN is optional (rotation). Values come from your .dev.vars.
-# ⚠️ .dev.vars DOUBLE-QUOTES multi-line values (the PEM keys) so dotenv strips the quotes + expands the
-# \n escapes when wrangler loads them for `wrangler dev` — which is why LOCAL always works. A manual
-# restore MUST do the same: strip the surrounding quotes + expand \n (the sed + `printf %b` below). A
-# raw `printf %s` stores the literal `"...\n..."`, and the key's base64 decode (atob) then throws on the
-# quote chars → 500 on /refresh-token + a silent login-loop (root-caused 2026-07-02 after a wipe+restore).
+# 2026-06-26). BLUE is PRIMARY_JWT_KEY; GREEN is optional (rotation). ⚠️ Production signs with a key
+# pair of its OWN, generated for it and never written to .dev.vars: the local stacks and the test
+# target sign with .dev.vars' pair, so copying that pair here would let a token minted on either
+# verify in production.
+# ⚠️ Pipe each PEM in as the multi-line text it is. A value written with literal `\n` escapes or
+# surrounding quotes, as .dev.vars stores its own pair for dotenv, makes the key's base64 decode
+# (atob) throw → 500 on /refresh-token + a silent login-loop (root-caused 2026-07-02 after a
+# wipe+restore).
 SECRET_LIST="$(wrangler secret list 2>/dev/null)"
 # RESEND_API_KEY: prod SENDS via Resend (the --var below selects it), so a deploy without the key
 # would throw "provider 'resend' selected but RESEND_API_KEY is not set" on the first email.
-for s in NEBULA_AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE RESEND_API_KEY; do
-  if ! printf '%s' "$SECRET_LIST" | grep -q "\"$s\""; then
-    echo "❌ Required secret '$s' is not set on the deployed worker." >&2
-    echo "   Set it (value from the gitignored root .dev.vars), e.g.:" >&2
-    echo "     V=\$(grep \"^$s=\" .dev.vars | sed 's/^[^=]*=//; s/^\"//; s/\"\$//'); printf '%b' \"\$V\" | wrangler secret put $s" >&2
-    exit 1
-  fi
-done
+# CERTIFICATE_API_TOKEN: an https origin orders a certificate pack per galaxy (src/certificate.ts).
+# The list is scripts/required-secrets.mjs's, shared with deploy-test.sh.
+PROD_ORIGIN="$(node -e "import('$SCRIPT_DIR/test-deploy-config.mjs').then((m) => console.log(m.parseJsonc(require('fs').readFileSync('$APP_DIR/wrangler.jsonc', 'utf8')).vars.LUMENIZE_ORIGIN))")"
+# The CLI fails closed: it exits non-zero naming each missing secret, and on any error of its own.
+if ! node "$SCRIPT_DIR/required-secrets.mjs" "$PROD_ORIGIN" "$SECRET_LIST"; then
+  echo "   Set each with: wrangler secret put <NAME>. For JWT_*, generate production's own Ed25519" >&2
+  echo "   pair (the command is in .dev.vars.example) and pipe each PEM in — never the pair in .dev.vars." >&2
+  exit 1
+fi
 
 # 3. Build the Studio SPA so the `assets` upload sees it. `dist` is gitignored AND its presence is
 #    load-bearing: wrangler HARD-ERRORS if `assets.directory` is absent (an empty dir is fine, but a
 #    deploy needs the REAL build). MUST precede `wrangler deploy`. NOT a wrangler `[build]` hook —
 #    deploy.sh is the single deploy home.
 echo "▸ Building the Studio SPA (vite build → ../nebula-studio-ui/dist)"
-( cd ../nebula-studio-ui && npx vite build )
+( cd ../nebula-studio-ui && npm run build )
 
 # Eyeball the magic-link from-address before it ships. Prod sends through Resend (step 4), so it
 # must be a Resend-verified sender or every login email is rejected.
@@ -76,24 +78,17 @@ echo "▸ AUTH_EMAIL_FROM resolves to: ${EMAIL_FROM:-<UNSET — falls back to th
 echo "▸ R2: the platform blob bucket must exist before the binding does (create-if-missing)"
 wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs(\s|$)' || wrangler r2 bucket create nebula-blobs
 echo "▸ wrangler deploy (worker bundle + DevContainer image)"
-# tee → a log so we can self-check the URL wrangler ACTUALLY reports (no custom domain means the
-# worker lands on *.workers.dev, not the issuer domain). pipefail (set -o above) still aborts on a
-# wrangler failure even through the pipe.
-DEPLOY_LOG="$(mktemp)"
 # EMAIL_PROVIDER=resend is DEPLOY-SCOPED on purpose (decided 2026-08-09: prod sends via Resend over
 # CF Email Sending deliverability). It must NOT live in wrangler.jsonc `vars`: every local lane
 # (`npm run dev`, the /live harness, its derived no-container config) boots that file, and a blanket
 # var would flip them off the CF Routing catch-all that `waitForEmail` depends on. This script is
 # the single prod-deploy home, so a var passed here reaches exactly the deployed worker.
-wrangler deploy --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}" 2>&1 | tee "$DEPLOY_LOG"
+wrangler deploy --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}"
 
-# 5. Self-check the freshly-built worker is live AND serving the bytes we just built — the same
-#    public compare endpoint (Phase 1). It discloses nothing, needs no admin token; a reply at all
-#    = serving, and `match:true` = the bytes we just deployed (catches a stale cache / failed deploy).
-#    Prefer an explicit NEBULA_PROD_URL; else the URL wrangler just printed; else the issuer domain.
-PROD_URL="${NEBULA_PROD_URL:-$(grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' "$DEPLOY_LOG" | head -1)}"
-PROD_URL="${PROD_URL:-$PROD_URL_FALLBACK}"
-rm -f "$DEPLOY_LOG"
+# 5. Self-check the freshly-built worker is live AND serving the bytes we just built — the public
+#    compare endpoint `/_version`. It discloses nothing, needs no admin token; a reply at all =
+#    serving, and `match:true` = the bytes we just deployed (catches a stale cache / failed deploy).
+PROD_URL="${NEBULA_PROD_URL:-$PROD_URL_FALLBACK}"
 echo "▸ Self-check: GET ${PROD_URL}/_version?sha=${GIT_SHA}"
 VERSION_JSON="$(curl -fsS "${PROD_URL}/_version?sha=${GIT_SHA}" || true)"
 if [ -z "$VERSION_JSON" ]; then

@@ -4,10 +4,10 @@
  * gutting the guard reddens it.
  */
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
+import { SELF, env } from 'cloudflare:test';
+import { authUrl as url, refresh, refreshCookie, refreshCookiesSet } from './test-helpers';
 
 const u = () => `u${crypto.randomUUID().slice(0, 8)}`;
-const url = (path: string) => `http://localhost/auth/${path}`;
 const post = (path: string, body?: any, headers: Record<string, string> = {}) =>
   SELF.fetch(new Request(url(path), {
     method: 'POST',
@@ -32,112 +32,77 @@ describe('email-magic-link edge cases', () => {
   });
 });
 
-describe('magic-link / accept-invite click edge cases', () => {
-  it('magic-link with no one_time_token → 400', async () => {
-    const resp = await SELF.fetch(new Request(url(`${u()}/magic-link`), { redirect: 'manual' }));
+describe('the link page\'s routes refuse a missing or unknown token', () => {
+  it.each(['magic-link', 'magic-link/lookup'])('%s with no token → 400 invalid_request', async (path) => {
+    const resp = await post(path, {});
     expect(resp.status).toBe(400);
+    expect((await resp.json() as any).error).toBe('invalid_request');
   });
-  it('magic-link with a bogus token → 302 error (consume returns null)', async () => {
-    const resp = await SELF.fetch(new Request(url(`${u()}/magic-link?one_time_token=bogus`), { redirect: 'manual' }));
-    expect(resp.status).toBe(302);
-    expect(resp.headers.get('Location')).toContain('error=invalid_token');
-  });
-  it('accept-invite with no invite_token → 400', async () => {
-    const resp = await SELF.fetch(new Request(url(`${u()}/accept-invite`), { redirect: 'manual' }));
+  it.each(['magic-link', 'magic-link/lookup'])('%s with a bogus token → 400 invalid_token, no cookie', async (path) => {
+    const resp = await post(path, { token: 'bogus' });
     expect(resp.status).toBe(400);
+    expect((await resp.json() as any).error).toBe('invalid_token');
+    expect(resp.headers.getSetCookie()).toEqual([]);
+  });
+  it('the retired accept-invite route is gone → 404', async () => {
+    expect((await SELF.fetch(new Request(url(`${u()}/accept-invite`)))).status).toBe(404);
+    expect((await SELF.fetch(new Request(url('accept-invite')))).status).toBe(404);
   });
 });
 
 describe('refresh-token edge cases', () => {
-  it('no refresh cookie → 401; bogus cookie (no KV record) → 401', async () => {
+  it('no refresh cookie → 401; bogus cookie (no record anywhere) → 401, and that cookie is expired', async () => {
     const scope = u();
-    expect((await post(`${scope}/refresh-token`, { activeScope: scope })).status).toBe(401);
-    expect((await post(`${scope}/refresh-token`, { activeScope: scope }, { Cookie: 'refresh-token=bogus' })).status).toBe(401);
-  });
-
-  it('with a VALID cookie: missing Content-Type / invalid JSON / missing activeScope all → 400 (post-KV-read guards)', async () => {
-    const { foundUniverse } = await import('./test-helpers');
-    const scope = u();
-    const admin = await foundUniverse(SELF, scope, 'admin@example.com');
-    const cookie = `refresh-token=${admin.refreshToken}`;
-
-    const noCt = await SELF.fetch(new Request(url(`${scope}/refresh-token`), { method: 'POST', headers: { Cookie: cookie }, body: '{}' }));
-    expect(noCt.status).toBe(400);
-    const badJson = await post(`${scope}/refresh-token`, 'not json{', { Cookie: cookie });
-    expect(badJson.status).toBe(400);
-    const noScope = await post(`${scope}/refresh-token`, {}, { Cookie: cookie });
-    expect(noScope.status).toBe(400);
+    expect((await refresh(SELF, scope, '')).status).toBe(401);
+    const bogus = await refresh(SELF, scope, refreshCookie(scope, 'bogus'));
+    expect(bogus.status).toBe(401);
+    // A miss in KV and the index alike is a revoked or forged cookie, so it is expired, and the
+    // browser stops presenting a cookie that costs a Registry read every time.
+    expect(refreshCookiesSet(bogus).get(scope)).toBe('');
+    expect(bogus.headers.getSetCookie()[0]).toContain('Max-Age=0');
   });
 });
 
 describe('logout edge cases', () => {
-  it('logout with no cookie still returns 200 + clears the cookie', async () => {
-    const resp = await SELF.fetch(new Request(url(`${u()}/logout`), { method: 'POST' }));
+  it('logout with no cookie still returns 200 and ends nothing', async () => {
+    const resp = await SELF.fetch(new Request(url('logout'), { method: 'POST' }));
     expect(resp.status).toBe(200);
-    expect(resp.headers.get('Set-Cookie')).toContain('Max-Age=0');
+    expect(await resp.json()).toEqual({ ended: 0 });
   });
 });
 
-describe('mint-narrower-token edge cases (after the Bearer gate)', () => {
-  // These need a valid Bearer to pass the route pipeline's verifyJwtGuard; the route is scope-less.
-  it('missing subOfNarrowerToken → 400; missing activeScope → 400; invalid JSON → 400', async () => {
-    const { foundUniverse, mintNarrowerRequest } = await import('./test-helpers');
+describe('impersonation mint edge cases', () => {
+  // The mint takes the subject as an argument the wire does not type-check, so a missing one must be
+  // a refusal rather than a lookup of `undefined`.
+  it('a missing subject is refused before any lookup', async () => {
+    const { foundUniverse, verifiedClaims } = await import('./test-helpers');
+    const { mintImpersonationToken } = await import('../src/worker-token');
     const scope = u();
     const admin = await foundUniverse(SELF, scope, 'admin@example.com');
-
-    const noSubject = await mintNarrowerRequest(SELF, admin.access_token, { activeScope: scope });
-    expect(noSubject.status).toBe(400);
-
-    const noScope = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: 'x' });
-    expect(noScope.status).toBe(400);
-
-    const badJson = await SELF.fetch(new Request(url('mint-narrower-token'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-      body: 'not json{',
-    }));
-    expect(badJson.status).toBe(400);
+    expect(await mintImpersonationToken(env as Env, await verifiedClaims(admin.access_token), undefined))
+      .toEqual({ ok: false, message: 'Impersonation needs the subject\'s sub' });
   });
 });
 
-describe('registry dispatch edge cases (malformed body / missing JWT)', () => {
-  it('delete-scope with a non-JSON body (after a valid admin JWT) → 400', async () => {
-    const { foundUniverse } = await import('./test-helpers');
-    const scope = u();
-    const admin = await foundUniverse(SELF, scope, 'admin@example.com');
-    const resp = await post('delete-scope', 'not json{', { Authorization: `Bearer ${admin.access_token}` });
-    expect(resp.status).toBe(400);
+describe('Home\'s summary edge cases', () => {
+  it('home-summary without a cookie → 401', async () => {
+    expect((await post('home-summary', {})).status).toBe(401);
   });
-  it('create-star / scope-summary without a JWT → 401', async () => {
-    expect((await post('create-star', { universeGalaxyStarId: 'a.b.c' })).status).toBe(401);
-    expect((await post('scope-summary', {})).status).toBe(401);
-  });
-  it('delete-scope-plan through the Worker returns the read-only plan (200)', async () => {
-    const { foundUniverse } = await import('./test-helpers');
-    const scope = u();
-    const admin = await foundUniverse(SELF, scope, 'admin@example.com');
-    const resp = await post('delete-scope-plan', { target: scope }, { Authorization: `Bearer ${admin.access_token}` });
-    expect(resp.status).toBe(200);
-    const plan = await resp.json() as any;
-    expect(plan.affectedUsers).toEqual({ total: 0, sample: [] });
-    expect(plan.affected.map((a: any) => a.instanceName)).toContain(scope);
-  });
-  it("the superuser's scope-summary reaches the platform root and stays BUDGET-BOUNDED", async () => {
+  it("the superuser's summary reaches the platform root and stays BUDGET-BOUNDED", async () => {
     const { foundUniverse, platformLogin } = await import('./test-helpers');
-    const { SCOPE_TREE_NODE_BUDGET } = await import('../src/types');
+    const { SCOPE_TREE_NODE_BUDGET, PLATFORM_SCOPE } = await import('../src/types');
     const scope = u();
     await foundUniverse(SELF, scope, 'someone@example.com');
 
     // ⚠️ A REAL bootstrap login, not a synthetic mint: the summary answers for a PERSON, so it needs
-    // an accepted membership rather than a hand-built claim. This is also what the old assertion
-    // could not express — it drove a token with no membership behind it at all.
+    // an accepted membership behind the cookie rather than a hand-built claim.
     const platform = await platformLogin(SELF, 'bootstrap-admin@example.com');
-    const resp = await post('scope-summary', {}, { Authorization: `Bearer ${platform.access_token}` });
+    const resp = await post('home-summary', {}, { Cookie: refreshCookie(PLATFORM_SCOPE, platform.refreshToken) });
     expect(resp.status).toBe(200);
-    const { emails } = await resp.json() as any;
+    const { groups } = await resp.json() as any;
     const flat = (n: any): any[] => [n, ...(n.children ?? []).flatMap(flat)];
-    const nodes = emails.flatMap((e: any) => e.memberships.flatMap(flat));
-    expect(nodes.map((n: any) => n.scope)).toContain('nebula-platform');
+    const nodes = groups[0].summary.emails.flatMap((e: any) => e.memberships.flatMap(flat));
+    expect(nodes.map((n: any) => n.scope)).toContain('_platform');
     // ⚠️ **The bound is the point.** The retired `myScopeTree` answered a platform admin with
     // `SELECT … FROM Scopes` entire — every scope in the system, unbounded, on the one singleton.
     // Reds if the descent stops honouring the budget.

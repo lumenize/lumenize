@@ -1,8 +1,9 @@
 /**
  * THE URL — read in one place, written by one function (ADR-017; `.claude/rules/ui-routing.md`).
  *
- * What a person is LOOKING AT rides the URL: the scope in the path, and the overlays in the query
- * (`?profile`, `?manage`, `?transcript={messageId}`, `?create`). An overlay someone would send a
+ * What a person is LOOKING AT rides the URL: the scope in the HOST (`crm.acme.lumenize.dev` is
+ * `acme.crm`, ADR-021), and the overlays in the query (`?profile`, `?transcript={messageId}`,
+ * `?create`, `?app`). An overlay someone would send a
  * link to has the URL as its ONLY opener: a button navigates, Back closes, a reload keeps it, and
  * the page renders it from the URL — or declines it when the state does not allow. What a person
  * is DOING — a menu, a confirmation, a toast, work in flight — never touches the URL.
@@ -20,31 +21,35 @@
  * The decision of which overlays exist is `parseOverlay`, one pure function a test can flip.
  */
 import { readonly, shallowRef } from 'vue';
+import { deploymentOriginOfPage, hostOrigin, parseHost, type HostTarget } from '@lumenize/nebula/frontend';
 
 /** Every overlay the shell knows. `transcript` carries the message id whose stream it shows. */
 export interface Overlay {
   profile: boolean;
-  manage: boolean;
   transcript?: string;
   create: boolean;
+  /** An app's settings — its tenants, and the app's own delete. */
+  app: boolean;
 }
 
 /** The URL as view state. Derive from it with `computed`; never read `location` directly. */
 export interface ViewState {
   pathname: string;
+  /** The whole query, for a page that reads a parameter no overlay carries (`token`, `return_to`). */
+  search: string;
   overlay: Overlay;
 }
 
-const FLAGS = ['profile', 'manage', 'create'] as const;
+const FLAGS = ['profile', 'create', 'app'] as const;
 
 /** The overlays a URL's query names. Unknown parameters are ignored, not errors. */
 export function parseOverlay(search: string): Overlay {
   const q = new URLSearchParams(search);
   return {
     profile: q.has('profile'),
-    manage: q.has('manage'),
     transcript: q.get('transcript') ?? undefined,
     create: q.has('create'),
+    app: q.has('app'),
   };
 }
 
@@ -68,17 +73,38 @@ export function opensSomething(patch: Partial<Overlay>): boolean {
   return Object.values(patch).some((v) => v !== false && v !== undefined);
 }
 
-/** The Studio scope a path names — its first segment, decoded; `undefined` at bare `/`. */
-export function scopeOf(pathname: string): string | undefined {
-  const seg = pathname.match(/^\/([^/?#]+)/)?.[1];
-  return seg ? decodeURIComponent(seg) : undefined;
-}
-
 const hasWindow = typeof window !== 'undefined';
 const read = (): ViewState => ({
   pathname: hasWindow ? location.pathname : '/',
+  search: hasWindow ? location.search : '',
   overlay: parseOverlay(hasWindow ? location.search : ''),
 });
+
+// ── The host: which page this is, and how to spell another one ──────────────────────────────────
+// A page's host never changes under it, so these are read once. The deployment's origin comes from
+// the `lumenize-origin` meta the serving layer puts on every page; the port is this page's own.
+const deployment = deploymentOriginOfPage();
+
+/** What this page's host is — a scope's, the platform host, or neither. */
+export const pageHost: HostTarget | null = hasWindow && deployment ? parseHost(location.host, deployment) : null;
+
+/** The scope this page's host spells, or `undefined` off a scope host. */
+export const pageScope: string | undefined = pageHost?.kind === 'scope' ? pageHost.scope : undefined;
+
+/** A URL on `scope`'s own host. */
+export function scopeUrl(scope: string, path = '/'): string {
+  return `${hostOrigin({ kind: 'scope', scope }, deployment ?? '', hasWindow ? location.origin : undefined)}${path}`;
+}
+
+/** A URL on the platform host, where every session's routes and pages live. */
+export function platformUrl(path: string): string {
+  return `${hostOrigin({ kind: 'platform' }, deployment ?? '', hasWindow ? location.origin : undefined)}${path}`;
+}
+
+/** This page's whole URL, fragment included — what a login is asked to return to. */
+export function currentUrl(): string {
+  return hasWindow ? location.href : '';
+}
 
 const state = shallowRef<ViewState>(read());
 
@@ -112,57 +138,25 @@ export function navigate(patch: Partial<Overlay>, opts: { replace?: boolean } = 
   state.value = read();
 }
 
-/** Strip every overlay in place — for a state change the URL must not outlive (logout). */
-export function clearOverlays(): void {
-  navigate({ profile: false, manage: false, transcript: undefined, create: false }, { replace: true });
+/**
+ * Drop query parameters in place, with no history entry — for a value the URL must not keep once
+ * read, such as a link's token, so neither a replay nor browser history carries it.
+ */
+export function forgetQuery(names: string[]): void {
+  const q = new URLSearchParams(location.search);
+  for (const n of names) q.delete(n);
+  const s = q.toString();
+  history.replaceState(null, '', location.pathname + (s ? `?${s}` : '') + location.hash);
+  state.value = read();
 }
 
 /**
- * Go to ANOTHER document — the ONLY cross-document move. A full load, on purpose (see above).
- * `returnHere` remembers the current path and query first (below), for a leave the person did not
- * choose: a lapsed session, or a shared link opened signed out. Leaving on purpose remembers nothing.
+ * Go to ANOTHER document — the ONLY cross-document move. A full load, on purpose (see above). Where
+ * a person was when they left for a login rides the login's `return_to`, which the server checks and
+ * stores with the link, so nothing here remembers it.
  */
-export function leaveTo(url: string, opts: { returnHere?: boolean } = {}): void {
-  if (opts.returnHere) rememberReturnTo(location.pathname + location.search);
+export function leaveTo(url: string): void {
   location.assign(url);
-}
-
-// ── The module's ONE piece of storage: where a person was when they left for a login ──────────
-// Where you were is what you were DOING, so it never rides the URL (ADR-017) and cannot ride the
-// letter (a server-minted link to Home). localStorage, not sessionStorage: the letter opens in a
-// new tab, and nothing in that tab can name the tab that left, which is also why the key carries no
-// tab or scope discriminator — two lapsed tabs collide as last-write-wins, which lands you on the
-// other page you also own. Home consumes it (`returnTarget` in auth/home-logic.ts), honouring only
-// a relative path under an accepted membership, and clears it: one shot, one value, one hour.
-const RETURN_KEY = 'nebula.returnTo';
-export const RETURN_MAX_AGE_MS = 60 * 60 * 1000;
-
-interface StoredReturn { path: string; at: number }
-
-/** The remembered path if it is still usable — relative, same-origin, young — else `undefined`. */
-export function validReturnTo(stored: unknown, now: number): string | undefined {
-  const r = stored as Partial<StoredReturn> | null;
-  if (!r || typeof r.path !== 'string' || typeof r.at !== 'number') return undefined;
-  if (!r.path.startsWith('/') || r.path.startsWith('//')) return undefined; // an absolute URL is an open redirect
-  if (now - r.at > RETURN_MAX_AGE_MS || r.at > now) return undefined;
-  return r.path;
-}
-
-export function rememberReturnTo(path: string, now = Date.now()): void {
-  try { localStorage.setItem(RETURN_KEY, JSON.stringify({ path, at: now } satisfies StoredReturn)); } catch { /* no storage */ }
-}
-
-/** Read AND clear the remembered path — one shot, whether or not it turns out usable. */
-export function takeReturnTo(now = Date.now()): string | undefined {
-  try {
-    const raw = localStorage.getItem(RETURN_KEY);
-    localStorage.removeItem(RETURN_KEY);
-    return raw ? validReturnTo(JSON.parse(raw), now) : undefined;
-  } catch { return undefined; }
-}
-
-export function forgetReturnTo(): void {
-  try { localStorage.removeItem(RETURN_KEY); } catch { /* no storage */ }
 }
 
 if (hasWindow) {

@@ -25,8 +25,7 @@ import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import {
-  adminClientAt, universeAdminClient, browserLogin, foundAndLogin, createSubject, createInvitedClient, ORIGIN,
-} from '../../test-helpers';
+  adminClientAt, universeAdminClient, browserLogin, foundAndLogin, createSubject, createInvitedClient, ORIGIN, pageOf, ownerOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -71,15 +70,14 @@ async function starWithMember() {
   });
 
   const adminBrowser = new Browser();
-  await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
   await createSubject(adminBrowser, star, accessToken, 'member@example.com');
   const browser = new Browser();
   const { payload } = await browserLogin(browser, star, 'member@example.com', star);
   await admin.orgTree.setPermission(pub, payload.sub, 'read');
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(star));
   const member = createNebulaClient({
-    baseUrl: ORIGIN, authScope: star, activeScope: star, ontologyVersion: VERSION,
-    fetch: browser.fetch, WebSocket: browser.WebSocket,
+    baseUrl: pageOf(star), platformOrigin: ORIGIN, ontologyVersion: VERSION,
+    fetch: ctx.fetch, WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
     onShouldRefreshUI: () => {},
   });
@@ -192,7 +190,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
         closed, clientId).toArray()[0].n as number);
 
     const adminBrowser = new Browser();
-    const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
+    const { accessToken } = await foundAndLogin(adminBrowser, star, ownerOf('admin@example.com'), star);
     await createSubject(adminBrowser, star, accessToken, 'doomed@example.com');
     const { client: doomed } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'doomed@example.com');
     expect(await doomed.resources.subscribe('TestResource', closed).snapshot).toBeNull();
@@ -222,7 +220,6 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
         m, clientId).toArray()[0].n as number);
 
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'doomed@example.com');
     const { client: doomed } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'doomed@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);

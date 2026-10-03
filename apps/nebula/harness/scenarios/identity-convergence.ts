@@ -4,7 +4,8 @@
  * Two genuinely different mint paths see the same address: an open Universe claim, and an admin's
  * invite into a different Universe. Both complete a **real email round trip** (ADR-009 rung 1 —
  * `waitForEmail` against the deployed email-test Worker, the link pulled from the message that
- * actually arrived, then click it), and we compare the `profileId` claim on the two resulting JWTs.
+ * actually arrived, then its page's button pressed), and we compare the `profileId` claim on the two
+ * resulting JWTs.
  *
  * ⚠️ **Why this belongs at the live tier even though an in-lane version now exists.** The in-lane
  * test (`packages/nebula-auth/test/identity-mint-point.test.ts`) asserts the same property and is
@@ -29,7 +30,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
 import {
-  provisionAndLogin, acceptMembership, refreshTokenForScope, setCookieHeaders,
+  provisionAndLogin, refreshTokenForScope, setCookieHeaders, consumeLink, refreshFromPage, refreshCookie,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -75,31 +76,20 @@ export async function run(stack: DevStack): Promise<void> {
     inviteWaiter.cleanup();
   }
 
-  // ⚠️ `extractMagicLink` CANNOT extract this — its regex requires both `magic-link` and
-  // `one_time_token` in the href, and an invite is a different route (`accept-invite?invite_token=`).
-  // That is deliberate: `impersonation-lifecycle.ts` hit the same wall and pulled the href locally
-  // rather than widen a shared helper other callers rely on to be magic-link-specific. Following that
-  // precedent, including the `&amp;` unescape — the HTML entity is what an email body actually
-  // carries, and a link fetched with it intact silently 404s.
-  const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(inviteHtml)?.[1];
-  assert.ok(href, `invite email carried no accept-invite link (subject start: ${inviteHtml.slice(0, 60)})`);
+  // The `&amp;` unescape matters: the HTML entity is what an email body actually carries, and a link
+  // fetched with it intact silently fails.
+  const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(inviteHtml)?.[1];
+  assert.ok(href, `invite email carried no magic link (subject start: ${inviteHtml.slice(0, 60)})`);
   const inviteLink = href.replace(/&amp;/g, '&');
-  const clicked = await fetch(inviteLink, { redirect: 'manual' });
+  // The invite's page is its consent screen: its Accept proves the mailbox and takes the membership
+  // up in one click, so the cookie it sets mints at once.
+  const clicked = await consumeLink(inviteLink);
   // ⚠️ `headers.get('set-cookie')` returns only the FIRST of N under mint-all — read them all, and
   // take the one for the scope this invite was into.
   const refreshToken = refreshTokenForScope(setCookieHeaders(clicked), otherUniverse);
-  assert.ok(refreshToken, `clicking the real invite set no cookie for "${otherUniverse}" (${clicked.status})`);
+  assert.ok(refreshToken, `accepting the real invite set no cookie for "${otherUniverse}" (${clicked.status})`);
 
-  // ⚠️ **The click proves the mailbox; it does NOT take the membership up.** The cookie it places is
-  // INERT until its holder consents, so the refresh below 401s without this — which is the design
-  // working, not a failure. (This scenario predates that change and was not re-run when it landed.)
-  await acceptMembership(origin, refreshToken, otherUniverse);
-
-  const refreshed = await fetch(`${origin}/auth/${otherUniverse}/refresh-token`, {
-    method: 'POST',
-    headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeScope: otherUniverse }),
-  });
+  const refreshed = await refreshFromPage(origin, otherUniverse, refreshCookie(otherUniverse, refreshToken!));
   assert.equal(refreshed.status, 200, 'the invited identity could not refresh');
   const invitePayload = parseJwtUnsafe((await refreshed.json() as any).access_token)!.payload as any;
 

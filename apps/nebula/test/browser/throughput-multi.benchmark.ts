@@ -51,6 +51,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { withCommitStamp } from './bench-commit-stamp';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import { ThroughputHarnessClient } from './throughput-harness-client';
@@ -359,15 +360,9 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
     // client type is overkill for this single use).
     const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
-    const refreshResponse = await browser.fetch(
-      `${baseUrl}/auth/${universeScope}/refresh-token`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: galaxyScope }),
-      },
-    );
+    const refreshResponse = await browser.context(scopeOriginFrom(baseUrl, galaxyScope)).fetch(`${baseUrl}/auth/refresh-token`, {
+    method: 'POST', credentials: 'include',
+  });
     if (!refreshResponse.ok) {
       throw new Error(`refresh-token failed ${refreshResponse.status} ${await refreshResponse.text()}`);
     }
@@ -376,14 +371,13 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
     const allClients: ThroughputHarnessClient[] = [];
     const allContexts: ReturnType<Browser['context']>[] = [];
     for (let i = 0; i < M_MAX; i++) {
-      const ctx = browser.context(baseUrl);
+      const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
       const tabId = crypto.randomUUID().slice(0, 8);
       const client = new ThroughputHarnessClient({
-        baseUrl,
-        authScope: universeScope,
-        activeScope: galaxyScope,
+        baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+        platformOrigin: baseUrl,
         ontologyVersion: 'v1',
-        fetch: browser.fetch,
+        fetch: ctx.fetch,
         sessionStorage: ctx.sessionStorage,
         BroadcastChannel: ctx.BroadcastChannel,
         accessToken,

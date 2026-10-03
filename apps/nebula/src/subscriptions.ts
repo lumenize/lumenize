@@ -89,10 +89,11 @@ export type SubscriberRow = {
   /** The subscriber's public `profileId` claim at subscribe time. */
   profileId: string;
   /**
-   * The **confined** scope-admin verdict at subscribe time (0/1) — `hasDominionOver(access,
-   * <host instance name>)`, NOT the raw `claims.access.scopeAdmin` bit. It replicates the
-   * Galaxy/Universe scope-admin bypass for the per-update recheck, since the update path holds no
-   * token; a Star DAG `admin` grant resolves through `resolvePermission` normally.
+   * The **confined** scope-admin verdict at subscribe time (0/1) — `hasDominionOver(claims,
+   * <host instance name>)`, read from the subscribing tab's host scope (the host rule), NOT the raw
+   * `claims.access.scopeAdmin` bit. It replicates the Galaxy/Universe scope-admin bypass for the
+   * per-update recheck, since the update path holds no token; a Star DAG `admin` grant resolves
+   * through `resolvePermission` normally.
    *
    * Storing a verdict rather than the claim is what closes the push-path back door: the update
    * path never re-reads the JWT, so confining only the live claim would leave this bypass
@@ -178,7 +179,7 @@ export class Subscriptions {
     return {
       sub,
       profileId: claims.profileId,
-      dominion: hostName && hasDominionOver(claims.access, hostName) ? 1 : 0,
+      dominion: hostName && hasDominionOver(claims, hostName) ? 1 : 0,
     };
   }
 

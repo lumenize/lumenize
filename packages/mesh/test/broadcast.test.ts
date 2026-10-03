@@ -119,29 +119,32 @@ describe('lmz.broadcast', () => {
   });
 
   describe('the chain each target sees', () => {
-    it('by default, inherits the caller\'s chain and originAuth', async () => {
-      const sub = crypto.randomUUID();
-      using client = await connectClient(sub);
+    // A push speaks for the node that sends it, so the default carries nothing of the caller's. A
+    // client origin makes the difference visible: an inherited chain would name its tab first and
+    // carry its `originAuth`.
+    it('by default, starts a one-element chain at the broadcaster, carrying no originAuth', async () => {
+      using client = await connectClient();
 
       client.lmz.call('TEST_DO', 'bcast-chain-origin-1',
         client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-1'], {}));
 
       const observed = await observedAt('bcast-chain-target-1');
       expect(observed.callChain.map((n: { instanceName?: string }) => n.instanceName))
-        .toEqual([`${sub}.tab1`, 'bcast-chain-origin-1']);
-      expect(observed.originAuth?.sub).toBe(sub);
+        .toEqual(['bcast-chain-origin-1']);
+      expect(observed.originAuth).toBeUndefined();
     });
 
-    it('with newChain: true, starts a one-element chain at the broadcaster, carrying no originAuth', async () => {
-      using client = await connectClient();
+    it('with newChain: false, inherits the caller\'s chain and originAuth', async () => {
+      const sub = crypto.randomUUID();
+      using client = await connectClient(sub);
 
       client.lmz.call('TEST_DO', 'bcast-chain-origin-2',
-        client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-2'], { newChain: true }));
+        client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-2'], { newChain: false }));
 
       const observed = await observedAt('bcast-chain-target-2');
       expect(observed.callChain.map((n: { instanceName?: string }) => n.instanceName))
-        .toEqual(['bcast-chain-origin-2']);
-      expect(observed.originAuth).toBeUndefined();
+        .toEqual([`${sub}.tab1`, 'bcast-chain-origin-2']);
+      expect(observed.originAuth?.sub).toBe(sub);
     });
 
     it('with state, delivers it to each target', async () => {

@@ -17,13 +17,7 @@ import { ROOT_NODE_ID, Star, requireDominionHere } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { meshEntries } from '../mesh-surface';
-import {
-  universeAdminClient,
-  createInvitedClient,
-  browserLogin, foundAndLogin,
-  createSubject,
-  uniqueGalaxyScope,
-} from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, foundAndLogin, createSubject, uniqueGalaxyScope } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
@@ -298,55 +292,6 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     user[Symbol.dispose]();
   });
 
-  it('a COVERING admin never becomes the DataPlane root admin — the seed is exact-star only', async () => {
-    const { galaxy, dev } = uniqueGalaxyScope();
-    const { client, payload } = await devAdminClient(galaxy, dev);
-    await installOntology(client, dev, 'v1', TODO_V1);
-
-    // This client is a UNIVERSE scopeAdmin: its `authScope` COVERS this `.dev` Star but is
-    // not EQUAL to it. Warm the Star so `onBeforeCall`'s seed gate runs.
-    client.callStarWhoAmI(dev);
-    await waitForSuccess(client);
-
-    // No grant. Reds if star.ts's gate is relaxed back to `hasDominionOver`, which a
-    // covering admin satisfies — the arrival-order bug this rule exists to prevent
-    // (the seed latch is one-shot, so a wrong winner would hold root forever).
-    client.callStarInspectRootAdmin(dev, payload.sub);
-    expect(await waitForSuccess(client)).toBe(false);
-
-    client[Symbol.dispose]();
-  });
-
-  // Skipped, and deleted with the seed by the subdomain build (tasks/nebula-scope-moves-to-subdomain.md).
-  // `devAdminClient` is a universe admin, which the exact-star seed rule (2026-08-02) never seeds.
-  // A `.dev` admin does exist: since 2026-08-27 a galaxy invite from someone with dominion co-mints
-  // the invitee's `.dev` membership with `scopeAdmin`. With that fixture the reseed half fails,
-  // because the plane's wipe drops the root grant but not the Star's one-shot seed latch, which the
-  // plane does not own. No capability rides on it: `requirePermission`'s bypass admits a `.dev`
-  // admin on equality, grant or no grant.
-  it.skip('DataPlane root admin: absent immediately after reset, reseeded on the next admin call (honest test)', async () => {
-    const { galaxy, dev } = uniqueGalaxyScope();
-    const { client, payload } = await devAdminClient(galaxy, dev);
-    const rootAdminSub = payload.sub;
-    await installOntology(client, dev, 'v1', TODO_V1);
-
-    // Warm the dev Star so the root-admin grant + latch are seeded before reset.
-    client.callStarWhoAmI(dev);
-    await waitForSuccess(client);
-
-    // Reset + probe in ONE call: the grant is ABSENT immediately after reset (the reset
-    // call's own onBeforeCall ran with the latch set → no reseed; the direct
-    // resetDevData call has no onBeforeCall to reseed either).
-    client.callStarResetAndProbeRootAdmin(dev, rootAdminSub);
-    expect(await waitForSuccess(client)).toBe(false);
-
-    // The NEXT admin call reseeds (latch wiped) → grant present.
-    client.callStarInspectRootAdmin(dev, rootAdminSub);
-    expect(await waitForSuccess(client)).toBe(true);
-
-    client[Symbol.dispose]();
-  });
-
   // A transaction suspended at the validator while `resetDevData` wipes answers stale and writes
   // nothing: `plane-wipe.test.ts` holds one there, on this path and the install's.
 
@@ -401,8 +346,9 @@ describe('resetDevData capability surface (Star.prototype)', () => {
   });
 
   it('the Star\'s whole @mesh surface, by guard tier, equals the frozen allow-list', () => {
-    // Every entry reachable on the Star's prototype chain — the inherited `NebulaDO.teardown`
-    // included — read as the entry rule looks for `@mesh()`. A new entry, a dropped guard, or
+    // Every entry reachable on the Star's prototype chain, read as the entry rule looks for
+    // `@mesh()`. `NebulaDO.teardown` carries `@rawRpc()` instead, so it is absent: restoring its
+    // `@mesh()` reds this. A new entry, a dropped guard, or
     // `@mesh()` on the undecorated `resourcesResults` changes a list here. Installs arrive only by
     // lazy-pull from the Galaxy registry, landing at `resourcesResults.onOntologyPulled` behind that
     // undecorated gate; the eager push's remote `installOntology` / `setOntology` are gone.
@@ -411,7 +357,7 @@ describe('resetDevData capability surface (Star.prototype)', () => {
     for (const { name, guard } of meshEntries(Star)) (byTier[tier(guard)] ??= []).push(name);
     expect(byTier).toEqual({
       bare: ['getStarConfig', 'resources'],
-      dominion: ['resetDevData', 'setStarConfig', 'teardown'],
+      dominion: ['resetDevData', 'setStarConfig'],
     });
   });
 });

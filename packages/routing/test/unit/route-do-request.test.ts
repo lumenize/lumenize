@@ -1339,4 +1339,51 @@ describe('routeDORequest', () => {
       });
     });
   });
+
+  // The allow-list is the door: an unlisted binding answers `undefined`, exactly as a binding the
+  // Worker does not hold, before the missing-instance throw, CORS and any hook.
+  describe('bindings allow-list', () => {
+    const env = () => ({ ALPHA_GATEWAY: createMockNamespace(), BETA: createMockNamespace() });
+    const opts: RouteOptions = { prefix: 'gateway', bindings: ['ALPHA_GATEWAY'] };
+
+    it('refuses an unlisted binding, with or without an instance', async () => {
+      const e = env();
+      expect(await routeDORequest(createRequest('http://localhost/gateway/BETA/inst'), e, opts)).toBeUndefined();
+      expect(await routeDORequest(createRequest('http://localhost/gateway//BETA/inst'), e, opts)).toBeUndefined();
+      // No instance: refused before the missing-instance throw, so it answers rather than throws.
+      expect(await routeDORequest(createRequest('http://localhost/gateway/BETA'), e, opts)).toBeUndefined();
+      expect(e.BETA.getByName).not.toHaveBeenCalled();
+    });
+
+    it('routes a listed binding by the name the router resolved, not the raw segment', async () => {
+      const e = env();
+      const response = await routeDORequest(createRequest('http://localhost/gateway/alpha-gateway/inst'), e, opts);
+      expect(response).toBeInstanceOf(Response);
+      expect(e.ALPHA_GATEWAY.getByName).toHaveBeenCalledWith('inst');
+    });
+
+    it('gives an unlisted binding\'s preflight no CORS answer', async () => {
+      const preflight = createRequest('http://localhost/gateway/BETA/inst', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://other.example', 'Access-Control-Request-Method': 'GET' },
+      });
+      expect(await routeDORequest(preflight, env(), { ...opts, cors: true })).toBeUndefined();
+    });
+
+    it('runs no hook for an unlisted binding', async () => {
+      const onBeforeConnect = vi.fn();
+      const onBeforeRequest = vi.fn();
+      await routeDORequest(createWebSocketRequest('http://localhost/gateway/BETA/inst'), env(), { ...opts, onBeforeConnect });
+      await routeDORequest(createRequest('http://localhost/gateway/BETA/inst'), env(), { ...opts, onBeforeRequest });
+      expect(onBeforeConnect).not.toHaveBeenCalled();
+      expect(onBeforeRequest).not.toHaveBeenCalled();
+    });
+
+    it('without the option, every binding routes as today', async () => {
+      const e = env();
+      const response = await routeDORequest(createRequest('http://localhost/gateway/BETA/inst'), e, { prefix: 'gateway' });
+      expect(response).toBeInstanceOf(Response);
+      expect(e.BETA.getByName).toHaveBeenCalledWith('inst');
+    });
+  });
 });

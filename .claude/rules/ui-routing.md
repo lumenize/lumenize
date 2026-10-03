@@ -9,7 +9,7 @@ paths:
 so that there is one way.
 
 **`apps/nebula-studio-ui/src/view-state.ts` is the ONLY file that touches `location`, `history`, or
-`popstate`.** It exposes three things, and a component MUST use them and nothing else:
+`popstate`.** A component MUST reach the URL through what it exports and nothing else:
 
 - **`viewState`** — the URL as a reactive view-state object; read it with `computed`. It is the only
   reader, so every screen in both SPAs (Studio and the auth screens) agrees on what the URL says.
@@ -17,20 +17,22 @@ so that there is one way.
   reload; opening pushes an entry so Back closes; closing goes back over an entry this page pushed.
   Our own `pushState` fires no event, which is why this writer updates `viewState` itself and one
   `popstate` listener covers the browser's own moves — two paths in, one reactive source out.
+- **`forgetQuery(names)`** — drops a parameter the URL must not keep once read, such as a link's
+  `token`, in place and with no history entry.
 - **`leaveTo(url)`** — the only cross-document move (into an app, to login, to Home). A full load on
   purpose: a different scope is a different socket and token, and the auth screens are a different
   bundle. It exists so those moves stay visible and countable.
+- **`scopeUrl(scope, path)` and `platformUrl(path)`** — spell another page's URL. The host is the
+  scope (ADR-021), so on `lumenize.dev`, `scopeUrl('acme.crm')` is `https://crm.acme.lumenize.dev/`;
+  `pageScope` is the scope this page's own host spells.
 
-The module's ONE piece of storage is the return-to: `leaveTo(url, { returnHere: true })` remembers the
-current path and query in localStorage (`nebula.returnTo` — one value, one hour, cleared on logout), and
-Home's router consumes it through `returnTarget` in `auth/home-logic.ts`, honouring only a relative path
-under an accepted membership. It MUST NOT ride the URL or the letter: where a person was is what they
-were doing, not what they are looking at. localStorage, never sessionStorage — the letter opens in a
-new tab.
+**The module stores nothing.** Where a person was when they left for a login rides the login's
+`return_to`: the page names itself, the login page hands it to `email-magic-link`, which checks it and
+stores it with the link, and the link's page sends the person back.
 
 `npm run audit:urls` (in `apps/nebula-studio-ui`) is the proof, and MUST run after touching routing: it
-fails on any `location` / `history` / `popstate` use outside that file.
+fails on any read of a `location` part, the host and origin included, any `location` or `history` move, and any `popstate` listener, outside that file.
 
-Vue Router is held until routes multiply — a dependency for one path segment and a few query flags
-(`workflow.md` § *Dependencies*). The module is the pattern until then, and a generated app is the
+Vue Router is held until routes multiply — a dependency for a few `/auth/` pages and a few query
+flags (`workflow.md` § *Dependencies*). The module is the pattern until then, and a generated app is the
 likelier first adopter, since the codegen model knows the router cold.

@@ -38,13 +38,14 @@ const NO_BUILD = [
 async function waitForResult(client: NebulaClientTest) {
   await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
 }
-async function devAdminClient(galaxy: string, dev: string, extraConfig?: Record<string, unknown>) {
-  return universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1', extraConfig);
+/** An admin on Studio's page, the galaxy's own, where a chat turn is asked for. */
+async function studioAdminClient(galaxy: string, extraConfig?: Record<string, unknown>) {
+  return universeAdminClient(NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', 'v1', extraConfig);
 }
 describe('The build reply', () => {
   it('T1: a successful build REPLIES to the requester, and a turn with no build replies nothing', async () => {
-    const { galaxy, dev } = uniqueGalaxyScope();
-    const { client } = await devAdminClient(galaxy, dev);
+    const { galaxy } = uniqueGalaxyScope();
+    const { client } = await studioAdminClient(galaxy);
 
     // A chat turn whose build succeeds replies exactly once, to the client that asked. No
     // subscription is involved — this client never enrolled anywhere for it, which is the
@@ -70,11 +71,11 @@ describe('The build reply', () => {
     // ontology leaves old code data-correct. ⚠️ This is what a fan-out would blur: with
     // a broadcast BOTH clients tick, so this test is the one that distinguishes the two
     // designs and it reds if a fan-out is ever restored.
-    const { galaxy, dev } = uniqueGalaxyScope();
-    const { client: requester } = await devAdminClient(galaxy, dev, {
+    const { galaxy } = uniqueGalaxyScope();
+    const { client: requester } = await studioAdminClient(galaxy, {
       chatHostBinding: 'GALAXY', chatScope: galaxy,
     });
-    const { client: bystander } = await devAdminClient(galaxy, dev, {
+    const { client: bystander } = await studioAdminClient(galaxy, {
       chatHostBinding: 'GALAXY', chatScope: galaxy,
     });
 

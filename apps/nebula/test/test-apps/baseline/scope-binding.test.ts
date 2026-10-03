@@ -65,7 +65,7 @@ describe('structural tier-DO scope binding', () => {
       );
       clientB.callStarGetConfig(starA);
       await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
-      expect(clientB.lastError).toContain('Active-scope mismatch');
+      expect(clientB.lastError).toContain('No passage from');
 
       clientA[Symbol.dispose]();
       clientB[Symbol.dispose]();
@@ -137,7 +137,7 @@ describe('structural tier-DO scope binding', () => {
       );
       clientOther.callGalaxyGetConfig(galaxy);
       await vi.waitFor(() => { expect(clientOther.callCompleted).toBe(true); });
-      expect(clientOther.lastError).toContain('Active-scope mismatch');
+      expect(clientOther.lastError).toContain('No passage from');
       clientOther[Symbol.dispose]();
     });
   });
@@ -200,7 +200,7 @@ describe('structural tier-DO scope binding', () => {
       );
       clientB.callUniverseGetConfig(universe);
       await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
-      expect(clientB.lastError).toContain('Active-scope mismatch');
+      expect(clientB.lastError).toContain('No passage from');
       clientB[Symbol.dispose]();
     });
   });

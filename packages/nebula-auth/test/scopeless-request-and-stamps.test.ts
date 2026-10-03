@@ -1,5 +1,5 @@
 /**
- * Phase 1 of "Move active scope choice until after authentication": the scope-less link request, the
+ * From `tasks/archive/nebula-login-prove-then-choose.md`: the scope-less link request, the
  * bootstrap membership moving behind mailbox proof, and the `invitedBy*` stamps.
  *
  * Three properties, each with its own arm below:
@@ -18,7 +18,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
-import { requestMagicLink, foundUniverse, issueInvitesAs, createGalaxy } from './test-helpers';
+import { requestMagicLink, foundUniverse, issueInvitesAs, createGalaxy, consumeLink } from './test-helpers';
 // ⚠️ From `types`, never `nebula-auth-facade` — the facade carries `@mesh()` decorators and this
 // lane has no decorator-aware transform, so importing its source is a parse error (facade-subpath.test.ts).
 import { PLATFORM_SCOPE, INVITER_NAME_MAX, sanitizeInviterName } from '../src/types';
@@ -49,7 +49,7 @@ async function requestScopelessLink(email: string): Promise<Response> {
   }));
 }
 
-describe('Phase 1 — the scope-less request answers the same to everyone', () => {
+describe('the scope-less request answers the same to everyone', () => {
   it('member, stranger and bootstrap address get IDENTICAL bodies (no enumeration oracle)', async () => {
     const member = addr();
     await foundUniverse(SELF, uni(), member); // gives `member` a real membership
@@ -79,7 +79,7 @@ describe('Phase 1 — the scope-less request answers the same to everyone', () =
   });
 });
 
-describe('Phase 1 — the platform membership waits for mailbox proof', () => {
+describe('the platform membership waits for mailbox proof', () => {
   it('a platform-scoped REQUEST writes no membership', async () => {
     const resp = await requestMagicLink(SELF, BOOTSTRAP);
     expect(resp.status).toBe(200);
@@ -90,7 +90,7 @@ describe('Phase 1 — the platform membership waits for mailbox proof', () => {
   it('a scope-less CONSUME for a bootstrap address ensures the platform membership, UNACCEPTED', async () => {
     const resp = await requestScopelessLink(BOOTSTRAP);
     const { magicLinkUrl } = await resp.json() as { magicLinkUrl: string };
-    await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
+    await consumeLink(SELF, magicLinkUrl);
 
     const rows = await membershipsFor(BOOTSTRAP);
     const platform = rows.find((r) => r.scope === PLATFORM_SCOPE);
@@ -111,20 +111,20 @@ describe('Phase 1 — the platform membership waits for mailbox proof', () => {
     const stranger = addr();
     const resp = await requestScopelessLink(stranger);
     const { magicLinkUrl } = await resp.json() as { magicLinkUrl: string };
-    await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
+    await consumeLink(SELF, magicLinkUrl);
     // The `#bootstrapEmails` conjunct is the whole gate between a stranger and platform scopeAdmin.
     // Reds if it is dropped.
     expect(await membershipsFor(stranger)).toEqual([]);
   });
 });
 
-describe('Phase 1 — an invite stamps who sent it, on every membership it mints', () => {
+describe('an invite stamps who sent it, on every membership it mints', () => {
   it('the primary membership AND the co-minted `.dev` sibling both carry all three stamps', async () => {
     const universe = uni();
     const inviter = addr();
     const { access_token: token } = await foundUniverse(SELF, universe, inviter);
     const galaxy = `${universe}.app1`;
-    await createGalaxy(SELF, galaxy, token);
+    await createGalaxy(galaxy, token);
 
     const invitee = addr();
     await issueInvitesAs(token, galaxy, [{ email: invitee }], 'Dana Inviter');

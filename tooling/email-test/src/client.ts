@@ -200,7 +200,9 @@ export function extractMagicLink(email: StoredEmail): string {
     throw new Error('Email has no HTML content');
   }
 
-  const hrefMatch = html.match(/href="([^"]*magic-link[^"]*one_time_token[^"]*)"/);
+  // `@lumenize/auth`'s links carry `one_time_token`; Nebula's carry `token`, every one of them —
+  // invites included — opening the platform host's link page.
+  const hrefMatch = html.match(/href="([^"]*magic-link[^"]*(?:one_time_token|[?&]token)=[^"]*)"/);
   if (!hrefMatch) {
     throw new Error(`No magic link found in email HTML. Subject: "${email.subject}"`);
   }

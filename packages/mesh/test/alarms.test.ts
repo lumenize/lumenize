@@ -38,6 +38,27 @@ describe('Alarms', () => {
       expect(executed[0].payload).toEqual({ task: 'execute-me' });
     });
 
+    test('an alarm its own handler re-arms under its own id survives the run', async () => {
+      const stub = env.ALARM_TEST_DO.getByName('rearm-self-test');
+      await stub.scheduleRearmingAlarm('poll');
+      expect(await stub.triggerAlarms(1)).toEqual(['poll']);
+      const after = await stub.getSchedule('poll');
+      expect(after?.type).toBe('delayed');
+      // The row is the re-arm's: firing it runs the handler the re-arm named.
+      await stub.triggerAlarms(1);
+      expect((await stub.getExecutedAlarms() as Array<{ payload: any }>).map((a) => a.payload)).toEqual(['rearming', 'rearmed']);
+    });
+
+    test('an alarm another call re-arms while the handler runs survives the run', async () => {
+      const stub = env.ALARM_TEST_DO.getByName('rearm-concurrent-test');
+      await stub.scheduleSlowAlarm('poll', 200);
+      const firing = stub.triggerAlarms(1);
+      await new Promise((r) => setTimeout(r, 50)); // the handler is now awaiting
+      await stub.scheduleAlarmWithId('poll', 60, 'armed meanwhile');
+      expect(await firing).toEqual(['poll']);
+      expect((await stub.getSchedule('poll'))?.type).toBe('delayed');
+    });
+
     test('removes one-time alarm after execution', async () => {
       const stub = env.ALARM_TEST_DO.getByName('scheduled-remove-test');
 

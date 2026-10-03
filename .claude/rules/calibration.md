@@ -83,9 +83,9 @@ Four failure modes, same root — treating the suite as an oracle rather than as
 
 **Where it bit (2026-07-27):** `actFor` *was* the minted token's `sub`, so every reader had to hold a mapping. Larry proposed the rename, it was talked down on call-site grounds, and the same conversation recurred at his expense until he insisted (`tasks/archive/nebula-mint-narrower-token.md`).
 
-**The PARAMETERS are the model here, not the endpoint name.** `{ sub, activeScope }` — each is literally the token field the caller wants, and `act.sub` is derived from the Bearer token, so it is not a parameter and cannot be misnamed at all.
+**The PARAMETERS are the model here, not the method name.** `impersonate(sub)` takes the one thing the caller asks for, literally the token field it wants. The child's `aud` is the caller's own page and `act.sub` comes from the caller's verified token, so neither is a parameter and neither can be misnamed.
 
-**A good name is also a falsifiable claim.** Asserting the minted token is *narrower* gave the code something it had to satisfy, and checking it exposed two real violations; `delegated` asserted nothing, so nothing could be checked against it. Assert that invariant in a predicate or a JSDoc, though — `/mint-narrower-token` names what the implementation produces, while the caller is asking to impersonate someone, which is what the rest of the system calls it (`admin.impersonate()`, `assertCanImpersonate`, two `/live` scenarios). Whether the endpoint should be renamed is open in `tasks/backlog.md` § *Nebula Auth*.
+**A good name is also a falsifiable claim.** Asserting the minted token is *narrower* gave the code something it had to satisfy, and checking it exposed two real violations; `delegated` asserted nothing, so nothing could be checked against it. Assert that invariant in a predicate or a JSDoc, though, and name the entry for the caller: the mint is `NebulaAuthFacade.impersonate`, because the caller is asking to impersonate someone, which is what the rest of the system already called it (`admin.impersonate()`, `assertCanImpersonate`, two `/live` scenarios). `/mint-narrower-token` named what the implementation produced.
 
 **How to catch yourself:** you are writing a glossary entry, a mapping table, or a sentence of the form *"X is really Y"* — in a task file, a comment, or a reply. That is the rename signal, not a documentation task.
 
@@ -221,10 +221,18 @@ it; read it there.
 **Where it bit (2026-09-14 to 2026-09-18):** ADR-022 narrowed every access token's `authScope` to
 the host of the page that asked for it, and a later edit picked the *nearest* scopeAdmin membership
 when several qualified. Both took a universe admin's dominion away on any page below the universe,
-so they could no longer act as the Universe's admin from a galaxy's page — which today's code, where
-`authScope` is the membership and `aud` only an annotation, allows. Three Stage 1 panels on the task
-file built on it, and a rewrite of the ADR, let it through. Larry: *"If we make the coarse-grained
-one too restrictive, we don't allow the system to work as designed."*
+so they could no longer act as the Universe's admin from a galaxy's page, which the code then
+allowed. Three Stage 1 panels on the task file built on it, and a rewrite of the ADR, let it through.
+Larry: *"If we make the coarse-grained one too restrictive, we don't allow the system to work as
+designed."*
+
+**The host rule (Larry, 2026-09-19) narrows that same way, for a reason this entry does not
+weigh: whose CODE runs on the page.** Passage and dominion read `aud`, so a universe admin on a
+galaxy's page holds no dominion over the Universe. On a Star's host the page's code is the
+user-developer's, and it acts with its visitor's token, so the narrowing stops that code, not the
+person: they reach every scope they administer by opening its page. Narrowing a token because the
+PERSON needs less is still the mistake of 2026-09-14; argue a narrowing from what runs on the page,
+or not at all.
 
 **How to catch yourself:** you are choosing the narrowest of several scopes, or confining a token to
 where its page runs, and the justification is that it can then do less. If the move it stops is

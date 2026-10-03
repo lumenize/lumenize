@@ -26,7 +26,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { deriveKind } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
 
@@ -90,7 +90,6 @@ describe('child3 — transient progress stream + durable Message', () => {
     // A non-admin with NO grant on CHAT_NODE_ID (ROOT). It subscribes the query, so
     // it WOULD receive chunks if the transient push skipped the permission recheck.
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
     const { client: denied } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });

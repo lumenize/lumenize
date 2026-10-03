@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { deploymentOrigin, platformOrigin, NEBULA_SUB } from '@lumenize/nebula-auth/claims';
 import { LumenizeClient, mesh } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
@@ -63,6 +64,7 @@ async function makeClient(opts: {
     baseUrl: ORIGIN,
     gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
     refresh: createNebulaTestToken({
+      issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope,
       instanceName: opts.instanceName ?? activeScope, // drives access.authScope
@@ -228,10 +230,25 @@ describe('Profile DO', () => {
       expect(registryReads()).toBe(0);
     });
 
-    it('SUPER-ADMIN (platform root scope) writes pass with ZERO reads — though NOT the owner', async () => {
+    // A superuser's token is minted on some scope's host like anyone's, and acts on that host's
+    // subtree alone (the host rule): the membership is the platform root, the page bounds it. The
+    // `/live` witness is `superuser-end-to-end`'s last two limbs, through a real bootstrap login;
+    // this keeps the branch beside the Profile's other authz cases.
+    it("a SUPER-ADMIN's private access to a profile is bounded by the page, not the platform membership", async () => {
       const pid = uuid();
-      using su = await makeClient({ instanceName: 'nebula-platform', activeScope: 'nebula-platform', scopeAdmin: true, profileId: uuid() });
-      await expect(write(su, pid, { name: 'X' })).resolves.toBeUndefined();
+      await seedIdentity(pid, 'other.app.tenant');
+      using fromAcme = await makeClient({ instanceName: '_platform', activeScope: 'acme.app.tenant', scopeAdmin: true, profileId: uuid() });
+      await expect(write(fromAcme, pid, { name: 'X' })).rejects.toThrow(/does not cover/i);
+      await expect(readNotes(fromAcme, pid)).rejects.toThrow(/does not cover/i);
+      using fromOther = await makeClient({ instanceName: '_platform', activeScope: 'other', scopeAdmin: true, profileId: uuid() });
+      await expect(write(fromOther, pid, { name: 'X' })).resolves.toBeUndefined();
+    });
+
+    // The one profile no scope finds: the system's own, ownerless and in no Registry. Its shortcut
+    // is all that lets anyone edit it, so it answers before the read.
+    it("a SUPER-ADMIN edits the system's own profile with ZERO reads — the one shortcut left", async () => {
+      using su = await makeClient({ instanceName: '_platform', activeScope: 'acme', scopeAdmin: true, profileId: uuid() });
+      await expect(write(su, NEBULA_SUB, { nickname: 'Lumenize' })).resolves.toBeUndefined();
       expect(registryReads()).toBe(0);
     });
 
@@ -313,9 +330,9 @@ describe('Profile DO', () => {
 
   // ── A NARROWER token IS the OWNER (tasks/archive/nebula-mint-narrower-token.md) ─────────────────
   // ⚠️ **This test is ADR-009 RUNG 2 and does NOT inherit this file's rung-3 header.** The whole
-  // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
-  // are a real star-scoped admin and a real invited member, and the token under test comes from the endpoint
-  // via the production client capability, `admin.impersonate()`. (It was labelled rung 1 before
+  // point is the token minted by the production impersonation mint, so the principals are a real
+  // star-scoped admin and a real invited member, and the token under test comes from the facade via
+  // the production client capability, `admin.impersonate()`. (It was labelled rung 1 before
   // tasks/archive/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
   // transport, which the `baseline` lane does not use.)
   //
@@ -345,7 +362,7 @@ describe('Profile DO', () => {
     const pid = member.profileId!;
     expect(pid).toBeDefined();
 
-    using impersonating = await admin.impersonate(member.sub, star);
+    using impersonating = await admin.impersonate(member.sub);
     await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
     // Fixture guards. The token carries the SUBJECT's `profileId`, so the owner branch's zero-read
     // equality is what matches; it really does carry an actor chain, so this is not an ordinary login

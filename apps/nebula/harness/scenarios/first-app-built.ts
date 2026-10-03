@@ -32,13 +32,13 @@
  *  4. **No failure banner survives the completed turn.** *Reds on a `failed` that outlives its turn
  *     — the frozen-partial-reply hang.* A banner seen mid-turn is fine and expected: the idle window
  *     is deliberately short and self-heals, which is why this is asserted at the END only.
- *  5. **The preview serves the BUILT app.** Asserted on the server-injected `<base href>` rather
- *     than on "the iframe has a body" — a 404 and the SPA shell both have bodies, and only a dist
- *     served out of the Galaxy's own VFS carries that tag. And the build REPLY refreshed the
- *     iframe (`?t=`), the positive control for limb 6.
+ *  5. **The preview serves the BUILT app, on the dev Star's own host.** Asserted on the
+ *     server-injected scope meta rather than on "the iframe has a body" — a 404 and the SPA shell
+ *     both have bodies, and only a dist served out of the Galaxy's own VFS carries that tag. And
+ *     the Reload control refreshes the iframe (`?t=`), the positive control for limb 6.
  *  6. **A reloaded client renders the built app with NO preview-ready push.** The initial-load
- *     cue is deleted; the frame's `<base href>` proves the dist served cold, and the bare src
- *     proves nothing pushed. *Reds if the cue comes back, or if a cold load stops serving.*
+ *     cue is deleted; the frame's scope meta proves the dist served cold, and the bare src proves
+ *     nothing pushed. *Reds if the cue comes back, or if a cold load stops serving.*
  *  7. **A fresh Galaxy carries its own guidance layer.** The seeded `AGENTS.md` and the one-line
  *     `CLAUDE.md`, read through the chat-floor `readSource` entry BEFORE the model's first turn.
  *     *Reds if the seed leaves the scaffold, or the entry stops answering a chat-`write` caller.*
@@ -57,13 +57,13 @@
  */
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
-import { uniqueTestEmail } from '@lumenize/email-test/client';
+import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import type { Galaxy, Snapshot } from '@lumenize/nebula';
 import { DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, connectDriver } from '../lib/harness';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
-import { provisionAndLogin } from '../../test/lib/email-login';
+import { provisionAndLogin, requestMagicLink } from '../../test/lib/email-login';
 
 /** The build box is the subject — this one genuinely needs Docker. */
 export const needsContainer = true;
@@ -146,23 +146,28 @@ export async function run(stack: DevStack): Promise<void> {
     const inst = await instrumentedPage(browser);
     const { page } = inst;
 
-    // ── LIMB 1: the same letter, clicked in the browser → Universe page → click into the app ───
-    assert.ok(provisioned.link.startsWith(vite.viteBaseUrl),
-      `the emailed link must name the browsing origin as sent (got ${new URL(provisioned.link).origin})`);
-    // ⚠️ ONE navigation: the link lands on Home by itself, and a second `goto` would cancel this
-    // page's in-flight bootstrap. The membership was accepted during provisioning, so Home has a
-    // decision-free lone membership and fast-forwards to the Universe page — waited on below, which
-    // is an auto-waiting assertion rather than a delay.
-    await page.goto(provisioned.link, { waitUntil: 'domcontentloaded' });
-    await page.waitForURL(new RegExp(`//[^/]+/${universe}(?:[/?#]|$)`), { timeout: 30_000 });
+    // ── LIMB 1: a letter of the browser's own → Home → Universe page → click into the app ──────
+    // Provisioning spent its link, which signs in once, so the browser signs in with its own.
+    const waiter = waitForEmail({ testToken, to: person, timeout: 120_000 });
+    let link: string;
+    try {
+      await requestMagicLink({ baseUrl: vite.viteBaseUrl, email: person });
+      link = extractMagicLink(await waiter.emailPromise);
+    } finally {
+      waiter.cleanup();
+    }
+    assert.ok(link.startsWith(vite.viteBaseUrl),
+      `the emailed link must name the browsing origin as sent (got ${new URL(link).origin})`);
+    // Continue lands on Home. The membership was accepted during provisioning and its account holds
+    // one app, so Home has nothing to choose and fast-forwards into that app's Studio — waited on
+    // below, which is an auto-waiting assertion rather than a delay.
+    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    await page.getByTestId('link-continue').click();
     // ⚠️ Nothing to dismiss on the way in. The nickname is taken at the consent modal, so no
     // completion gate stands between arriving and working — this identity accepted programmatically
     // (`provisionAndLogin`), so it simply has none and its byline falls back to "Someone".
     // `signup-to-first-app` limb 7 is where the consent nickname's journey to a byline is asserted.
-    const appRow = page.getByRole('button', { name: appSlug, exact: true });
-    await appRow.waitFor({ state: 'visible', timeout: 30_000 });
-    await appRow.click();
-    await page.waitForURL(new RegExp(`//[^/]+/${universe}\\.${appSlug}(?:[/?#]|$)`), { timeout: 30_000 });
+    await page.waitForURL((u) => u.origin === vite.scopeUrl(galaxy), { timeout: 30_000 });
 
     const composer = page.getByPlaceholder(COMPOSER);
     try {
@@ -172,7 +177,7 @@ export async function run(stack: DevStack): Promise<void> {
       throw e;
     }
     const refusals = inst.failedRequests.filter(
-      (r) => r.url.includes(`/auth/${galaxy}/refresh-token`) && (r.status === 401 || r.status === 'failed'),
+      (r) => r.url.endsWith('/auth/refresh-token') && (r.status === 401 || r.status === 'failed'),
     );
     assert.deepEqual(refusals, [], `Studio's refresh at the galaxy was refused: ${JSON.stringify(refusals)}`);
     console.error(`  ✓ limb 1 — clicked into ${galaxy}; Studio connected on a live session`);
@@ -209,7 +214,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 2 — the hint showed on an empty thread and cleared on the first post');
 
     // ── LIMB 3: a real turn completes and renders durably — and stays HEALTHY while it runs ────
-    // ⚠️ The THOUGHT DISCLOSURE, not a "Nebula" byline: the transient streaming bubble also carries
+    // ⚠️ The THOUGHT DISCLOSURE, not a "Lumenize" byline: the transient streaming bubble also carries
     // that byline, so waiting on it would pass on a stream that never committed.
     //
     // ⚠️ WATCH THE WHOLE TURN, not the settled end. Two defects are TRANSIENTS that a post-turn
@@ -314,17 +319,17 @@ export async function run(stack: DevStack): Promise<void> {
     // The agent's reply wears TWO faces: Nebula (the actor) in front, the person it ran for behind —
     // `deriveParticipants` order, actor first. A single face here would mean the act chain was
     // flattened away, which is the attribution ADR-016 exists to keep.
-    const agentChat = page.locator('div.chat', { has: page.locator('[data-testid="byline"]', { hasText: /^Nebula/ }) }).first();
+    const agentChat = page.locator('div.chat', { has: page.locator('[data-testid="byline"]', { hasText: /^Lumenize/ }) }).first();
     await agentChat.waitFor({ state: 'visible', timeout: 20_000 });
     assert.equal(await agentChat.locator('[data-testid="party-avatar"]').count(), 2,
       'an act-bearing message must stack two faces: the actor and the subject');
-    assert.equal(await agentChat.locator('[data-testid="party-avatar"].z-10').getAttribute('data-name'), 'Nebula',
-      'the ACTOR (Nebula) must be the face in front');
-    console.error('  ✓ limb 4 — no failure banner survived the turn; Nebula\'s reply stacks actor over subject');
+    assert.equal(await agentChat.locator('[data-testid="party-avatar"].z-10').getAttribute('data-name'), 'Lumenize',
+      'the ACTOR (the agent) must be the face in front');
+    console.error('  ✓ limb 4 — no failure banner survived the turn; the agent\'s reply stacks actor over subject');
 
     // ── LIMB 5: the preview serves the BUILT app ──────────────────────────────────────────────
-    const previewUrl = `${vite.viteBaseUrl}/app/${galaxy}.dev/`;
-    const expectedBase = `<base href="/app/${galaxy}.dev/">`;
+    const previewUrl = `${vite.scopeUrl(`${galaxy}.dev`)}/`;
+    const expectedBase = '<meta name="nebula-scope"';
     let served: { status: number; body: string } | undefined;
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
@@ -348,8 +353,8 @@ export async function run(stack: DevStack): Promise<void> {
     }
     // The iframe is what the person actually looks at — assert it is pointed at the same place.
     const src = await page.locator('iframe[title="Preview"]').getAttribute('src');
-    assert.ok(src?.startsWith(`/app/${galaxy}.dev/`),
-      `the preview iframe must point at the app's dev star, got ${src}`);
+    assert.ok(src?.startsWith(previewUrl),
+      `the preview iframe must point at the app's dev Star, got ${src}`);
     // POSITIVE CONTROL for limb 6: a refresh bumps the src with a `?t=` cache-buster. Driven by
     // the Studio's own Reload control rather than by the build reply — the reply refreshes only a
     // findings-free build (the model may or may not override), so waiting on it made this limb
@@ -368,21 +373,21 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 6: a fresh client renders the built app with NO preview-ready push ──────────────
     // The initial-load cue (`warmPreview`) is deleted: `dist/` serves from the Galaxy's VFS, so
     // a reload's iframe carries the built app on its own. Asserted on the RENDERED document —
-    // the server-injected `<base href>` inside the frame, which only a served dist carries — and
+    // the server-injected scope meta inside the frame, which only a served dist carries — and
     // on the src staying the bare path: a push would have re-bumped it with `?t=` (limb 5 is the
     // positive control for that shape), and the deleted cue was the one thing that ever pushed
     // on a fresh client. *Reds if the cue comes back (the src gains `?t=` with no build), or if
     // the preview stops serving on a cold load.*
     await page.reload({ waitUntil: 'domcontentloaded' });
     await composer.waitFor({ state: 'visible', timeout: 30_000 });
-    const frameBase = page.frameLocator('iframe[title="Preview"]').locator('base').first();
-    await frameBase.waitFor({ state: 'attached', timeout: 30_000 });
-    assert.equal(await frameBase.getAttribute('href'), `/app/${galaxy}.dev/`,
-      'the reloaded preview frame must render the built app (the injected <base href>)');
+    const frameMeta = page.frameLocator('iframe[title="Preview"]').locator('meta[name="nebula-scope"]').first();
+    await frameMeta.waitFor({ state: 'attached', timeout: 30_000 });
+    assert.match(await frameMeta.getAttribute('content') ?? '', /"dev":true/,
+      'the reloaded preview frame must render the built app (the injected scope meta)');
     // Settle long enough for any push to have landed (a build reply is sub-second on delivery),
     // then read the src the frame rendered from.
     await new Promise((r) => setTimeout(r, 2_000));
-    assert.equal(await page.locator('iframe[title="Preview"]').getAttribute('src'), `/app/${galaxy}.dev/`,
+    assert.equal(await page.locator('iframe[title="Preview"]').getAttribute('src'), previewUrl,
       'a fresh client gets NO preview-ready push — the iframe src stays the bare dev path');
     console.error('  ✓ limb 6 — a reloaded client renders the built app with no preview-ready push');
 

@@ -6,15 +6,16 @@
  *      config with the GALAXY `containers` build-box + the `AI` binding
  *      (NOT `test/browser/worker/wrangler.jsonc`, which is StarTest/BenchAgent and
  *      can't drive the preview or codegen). Needs Docker Desktop for the build box.
- *   2. `vite` serving the **real** Studio SPA (`apps/nebula-studio-ui`), proxying
- *      `/auth /gateway /app` → the Worker. The Studio's own vite proxy is
- *      the same-origin bridge (no `dynamic-env-proxy`); everything is plain
- *      `http://localhost` (localhost is a secure context, so the `Secure;SameSite=Strict`
- *      refresh cookie flows without TLS).
+ *   2. `vite` serving the **real** Studio SPA and auth app (`apps/nebula-studio-ui`), through
+ *      `bootStudioVite` — the same boot the `/live` harness uses. Every host is a
+ *      `*.lumenize.localhost` name on vite's port: the platform host serves login, Home and a
+ *      link's page, and a scope's host serves its page, with the Worker's paths proxied behind
+ *      them. Plain `http`: Chromium treats `*.localhost` as a secure context, so the `Secure`
+ *      `__Host-` refresh cookies land without TLS.
  *
- * Auth POSTs from the browser pass with NO Origin-rewrite because apps/nebula runs
- * `LUMENIZE_APPROVED_ORIGINS=""` → CORS disabled → no server-side Origin check. Do NOT
- * add the vite port to an allow-list or bypass the proxy.
+ * Every auth `POST` the browser makes comes from a page on the platform host, so it is
+ * same-origin; the refresh, the one route a scope host's page calls, answers CORS for that
+ * page's origin. Nothing here rewrites an `Origin`.
  *
  * Skips booting entirely when Docker/creds are absent (the test file's `describe.runIf`
  * skips the tests; this avoids spawning wrangler/Docker for a run that will skip anyway).
@@ -25,7 +26,8 @@ import { mkdirSync, readFileSync, copyFileSync, rmSync, existsSync } from 'node:
 import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
-import { createServer as createViteServer, type ViteDevServer } from 'vite';
+import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { bootStudioVite } from '../../harness/lib/browser';
 import { HAS_DOCKER } from './gates';
 
 // ⚠️ NEVER `./wrangler.jsonc` directly: its `routes` entry makes `wrangler dev` present the
@@ -34,7 +36,7 @@ import { HAS_DOCKER } from './gates';
 // prod. The derived config strips `routes` (keeps `containers`; this lane drives the preview).
 // vitest cwd is the apps/nebula package dir, and the derived file sits beside the original.
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
-import { deriveLocalConfig } from '../../scripts/local-config.mjs';
+import { deriveLocalConfig, LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
 const STUDIO_UI_DIR = resolvePath(process.cwd(), '../nebula-studio-ui');
 
 /** DevContainer build-context root (the dir wrangler builds `./container/Dockerfile` from). */
@@ -66,7 +68,7 @@ function readTestToken(): string {
 }
 
 let wranglerCleanup: (() => Promise<void>) | null = null;
-let vite: ViteDevServer | null = null;
+let viteClose: (() => Promise<void>) | null = null;
 
 export default async function setup(project: TestProject) {
   // Boot on DOCKER alone. The stack itself (wrangler dev + vite + DevContainer) needs no model —
@@ -138,27 +140,19 @@ export default async function setup(project: TestProject) {
   });
   wranglerCleanup = cleanup;
 
-  // 2. vite serving the real Studio. NEBULA_WORKER_URL is read by
-  //    nebula-studio-ui/vite.config.ts at config load → proxies to this worker.
-  //    strictPort:false so a manually-running `dev:studio` on :5174 isn't a hard
-  //    collision (vite auto-increments); Playwright navigates the resolved URL.
-  process.env.NEBULA_WORKER_URL = workerBaseUrl;
-  vite = await createViteServer({
-    root: STUDIO_UI_DIR,
-    configFile: resolvePath(STUDIO_UI_DIR, 'vite.config.ts'),
-    server: { port: 5174, strictPort: false },
-    logLevel: 'warn',
-  });
-  await vite.listen();
-  const viteBaseUrl = (vite.resolvedUrls?.local?.[0] ?? 'http://localhost:5174/').replace(/\/$/, '');
+  // 2. vite serving the real Studio and auth app in front of this worker, as the `/live` harness
+  //    boots it. `viteBaseUrl` is the platform host on vite's port; a scope's host is spelled from
+  //    it (`scopeOriginFrom` in test/lib/email-login.ts).
+  const vite = await bootStudioVite(workerBaseUrl);
+  viteClose = vite.close;
 
   project.provide('uiSmokeSkipped', false);
-  project.provide('viteBaseUrl', viteBaseUrl);
-  project.provide('workerBaseUrl', workerBaseUrl);
+  project.provide('viteBaseUrl', vite.viteBaseUrl);
+  project.provide('workerBaseUrl', hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, workerBaseUrl));
   project.provide('emailTestToken', testToken);
 
   return async () => {
-    await vite?.close();
+    await viteClose?.();
     await wranglerCleanup?.();
     unstageCa();
   };

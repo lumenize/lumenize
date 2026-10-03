@@ -36,6 +36,7 @@
 
 import { describe, it, inject, expect } from 'vitest';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { HarnessNebulaClient } from './harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
@@ -116,13 +117,12 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
 
     // Step 4: construct a single client. The Gateway DO it spawns will be in
     // the user's colo (= workerColo).
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: universeScope,
-      activeScope: galaxyScope,
+      baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+      platformOrigin: baseUrl,
       ontologyVersion: 'v1',
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });

@@ -22,6 +22,7 @@
  */
 
 import { Browser, type Context } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { HarnessNebulaClient } from './harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
@@ -71,15 +72,9 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
   // Step 2: Mint one access JWT via the same refresh endpoint NebulaClient
   // uses internally. We extract `sub` from the JWT payload so we can build
   // explicit instanceNames for each client.
-  const refreshResponse = await browser.fetch(
-    `${baseUrl}/auth/${universeScope}/refresh-token`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope }),
-    },
-  );
+  const refreshResponse = await browser.context(scopeOriginFrom(baseUrl, activeScope)).fetch(`${baseUrl}/auth/refresh-token`, {
+    method: 'POST', credentials: 'include',
+  });
   if (!refreshResponse.ok) {
     throw new Error(`setupMultiClient: refresh-token failed ${refreshResponse.status} ${await refreshResponse.text()}`);
   }
@@ -95,14 +90,13 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
   const contexts: Context[] = [];
   const clients: HarnessNebulaClient[] = [];
   for (let i = 0; i < M; i++) {
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, activeScope));
     const tabId = crypto.randomUUID().slice(0, 8);
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: universeScope,
-      activeScope,
+      baseUrl: scopeOriginFrom(baseUrl, activeScope),
+      platformOrigin: baseUrl,
       ontologyVersion: 'v1',
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       accessToken,

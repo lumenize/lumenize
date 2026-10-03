@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
-import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -181,7 +181,6 @@ describe('child2 query subscriptions (Phase 3)', () => {
 
     // A non-admin user granted read on pubNode only.
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
     const { client: user, payload } =
       await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
@@ -209,7 +208,6 @@ describe('child2 query subscriptions (Phase 3)', () => {
     });
 
     const adminBrowser = new Browser();
-    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'nope@example.com');
     const { client: user } =
       await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'nope@example.com');

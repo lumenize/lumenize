@@ -13,18 +13,19 @@
  * the § *One Registry primitive* verify-anyway: a client `lmz` call reaches a WORKER binding
  * through the Gateway — nothing in this file talks HTTP to `/invite`.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { hasDominionOver, type InviteSummary, type NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import type { NebulaClient } from '@lumenize/nebula';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, type StarTest } from './index';
 import {
   universeAdminClient, adminClientAt, createInvitedClient, createSubject, createPlatformAdminClient,
   browserLogin, refreshToken, uniqueStar, universeOf, acceptMembershipVia,
 } from '../../test-helpers';
+import { consumeLink } from '../../lib/email-login';
 
 function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0, 8)}@example.com`; }
 
@@ -38,16 +39,18 @@ function facadeInvite(
   );
 }
 
-/** Accept a facade-minted invite link (re-pointed at this lane's origin), consent, and refresh at
- *  `scope` — the real-login path every persisted-bit assertion rides (ADR-009). ⚠️ **The consent
- *  step is the invitation being taken up**: the click mints a cookie that is inert until then, so
- *  a refresh without it answers 401 by design. Both halves are assertions — no cookie, or no
- *  consent, and the refresh below fails. */
-async function acceptInvite(link: string, scope: string): Promise<NebulaJwtPayload> {
+/** Accept a facade-minted invite on its link's page, followed as sent, and refresh on `page` —
+ *  the real-login path every persisted-bit assertion rides (ADR-009). The page's Accept consumes
+ *  the link and takes the invitation up in one click, so the cookie it sets mints at once; Home's
+ *  Accept after it is a no-op that also proves the cookie names the scope. `page` defaults to the
+ *  scope; the platform root has no page, so its token is minted on a scope's. */
+async function acceptInvite(link: string, scope: string, page = scope): Promise<NebulaJwtPayload> {
   const browser = new Browser();
-  await browser.fetch(link); // AS SENT: the facade mints against the origin the inviter connected on
+  // AS SENT: the facade mints against the origin the inviter connected on, and the invite's page
+  // is its consent screen, whose Accept consumes and accepts.
+  await consumeLink(link, browser.fetch);
   await acceptMembershipVia(browser, scope);
-  const { payload } = await refreshToken(browser, scope, scope);
+  const { payload } = await refreshToken(browser, page);
   return payload;
 }
 
@@ -101,7 +104,8 @@ describe('invite facade — eligibility and the cap', () => {
       // Test mode's `links` map is the ONE carrier of the URL; the per-invitee results are the
       // projected summary rows exactly — no `inviteUrl`, no `accepted`. Reds against passing the
       // mint result through unfiltered (which would add both keys to every row).
-      expect(summary.links![invitee]).toContain('accept-invite');
+      // An invite is a magic link, on the page its letter opens.
+      expect(summary.links![invitee]).toContain('/auth/magic-link?token=');
       expect(Object.keys(summary.results[0]).sort()).toEqual(['email', 'outcome', 'sub']);
       const wrongTypedPayload = await acceptInvite(summary.links![wrongTyped]!, star);
       expect(wrongTypedPayload.access.scopeAdmin).toBeUndefined();
@@ -154,28 +158,51 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
       // this caller has neither exact membership there nor dominion — the forbidden shape is
       // unrepresentable. Message names the membership rule.
       await expect(facadeInvite(member, universe, [{ email: em('x') }]))
-        .rejects.toThrow(`Token scope "${star}" is not a membership at "${universe}" and holds no scopeAdmin over it`);
+        .rejects.toThrow(`Inviting into "${universe}" needs a membership there or dominion over it, and the calling host's scope is "${star}"`);
 
       // (b) An ADMIN whose scope does not cover the target (a sibling galaxy): the dominion rule
       // fails, and the message says so — distinguishable from (a) (mutation: collapse the two
       // refusals into one message → both limbs red).
       const siblingGalaxy = `${universeOf(adminStar)}.other`;
       await expect(facadeInvite(starAdmin, siblingGalaxy, [{ email: em('x') }]))
-        .rejects.toThrow(`Token scope "${adminStar}" does not administer "${siblingGalaxy}"`);
+        .rejects.toThrow(`Inviting into "${siblingGalaxy}" needs dominion over it, and the calling host's scope is "${adminStar}"`);
     } finally {
       member.disconnect();
       starAdmin.disconnect();
     }
   });
 
-  it('absent claims fail closed with their own message, distinguishable from the wrong-scope refusals', async () => {
-    // A direct entrypoint RPC carries no mesh envelope, so the facade sees exactly the
-    // claims-less callContext a `newChain` continuation produces (the Gateway always stamps
-    // originAuth on CLIENT calls, so a client cannot construct this shape — a server-side fresh
-    // origin can). Mutation: default absent claims to an empty-but-truthy access object → reds.
+  // A node's FRESH chain carries no client's claims — the live producer of a claims-less call, and
+  // one no page can produce, since the Gateway stamps `originAuth` on every client call. In-lane for
+  // that reason. Every facade method meets the one gate.
+  // Mutation: drop the facade's `onBeforeCall` gate → the call reaches the method, whose first read
+  // of `originAuth!.claims` throws a TypeError rather than this message → reds.
+  it.each([
+    ['invite', [uniqueStar(), [{ email: 'x@example.com' }]]],
+    ['expandScope', []],
+    ['createGalaxy', ['fresh.chain']],
+    ['planScopeDeletion', ['fresh']],
+    ['executeScopeDeletion', ['fresh']],
+    ['impersonate', ['some-sub']],
+  ] as const)('a node\'s fresh-chain call to %s is refused for want of a verified identity', async (method, args) => {
+    const star = uniqueStar();
+    const browser = new Browser();
+    const { client: admin } = await universeAdminClient(NebulaClientTest, browser, star, star, em('adm'));
+    try {
+      admin.lmz.call('STAR', star, admin.ctn<StarTest>().callFacadeFreshChain(method, ...args));
+      await vi.waitFor(async () => {
+        expect(await admin.lmz.callAsync('STAR', star, admin.ctn<StarTest>().facadeCallOutcome()))
+          .toBe('error: NebulaAuthFacade requires a verified identity: this call carried no origin claims');
+      });
+    } finally { admin.disconnect(); }
+  });
+
+  it('a direct RPC on the binding, which skips the mesh gate, still fails closed', async () => {
+    // A direct entrypoint RPC carries no mesh envelope, so no claims and no `onBeforeCall`; the
+    // method's first read of `callContext` is what refuses it. Only our own code holds the binding.
     await expect(
       (env as any).NEBULA_AUTH_FACADE.invite(uniqueStar(), [{ email: em('x') }]),
-    ).rejects.toThrow('Invite requires a verified identity');
+    ).rejects.toThrow('Cannot access callContext outside of a mesh call');
   });
 
   it('a malformed entry is a per-invitee error in a RESOLVED summary — the batch never fails whole', async () => {
@@ -202,12 +229,14 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
 });
 
 describe('invite facade — tier coverage (membership at the named scope + the observed verdict)', () => {
-  it('star-, galaxy-, universe-, and platform-tier invites each land, with exactly the dominion the rule says', async () => {
+  it('star-, galaxy- and universe-tier invites each land with exactly the dominion the rule says, and a platform-tier one is refused', async () => {
     const star = uniqueStar();
     const universe = universeOf(star);
     const galaxy = star.split('.').slice(0, 2).join('.');
     const browser = new Browser();
-    const { client: admin } = await universeAdminClient(NebulaClientTest, browser, star, star, em('adm'));
+    // On the universe's page: the invites below reach the star, the galaxy and the universe, and
+    // dominion runs down from the page (the host rule).
+    const { client: admin } = await universeAdminClient(NebulaClientTest, browser, star, universe, em('adm'));
 
     try {
       // ── STAR tier, with the bit under dominion ────────────────────────────────────────────────
@@ -216,8 +245,8 @@ describe('invite facade — tier coverage (membership at the named scope + the o
       const starPayload = await acceptInvite(starSummary.links![starAdminEmail]!, star);
       expect(starPayload.access.authScope).toBe(star);
       // The observed verdict, never a pattern string: dominion at their own star, none above.
-      expect(hasDominionOver(starPayload.access, star)).toBe(true);
-      expect(hasDominionOver(starPayload.access, galaxy)).toBe(false);
+      expect(hasDominionOver(starPayload, star)).toBe(true);
+      expect(hasDominionOver(starPayload, galaxy)).toBe(false);
 
       // ── GALAXY tier — load-bearing twice: no claim path can authenticate at a 2-segment scope,
       // so this invite is the sole production mint there, AND the accept-invite login happens AT
@@ -226,33 +255,29 @@ describe('invite facade — tier coverage (membership at the named scope + the o
       const galaxySummary = await facadeInvite(admin, galaxy, [{ email: galaxyAdminEmail, scopeAdmin: true }]);
       const galaxyPayload = await acceptInvite(galaxySummary.links![galaxyAdminEmail]!, galaxy);
       expect(galaxyPayload.access.authScope).toBe(galaxy);
-      expect(hasDominionOver(galaxyPayload.access, galaxy)).toBe(true);
-      expect(hasDominionOver(galaxyPayload.access, star)).toBe(true);      // downward, whole rule
-      expect(hasDominionOver(galaxyPayload.access, universe)).toBe(false); // upward is nil
+      expect(hasDominionOver(galaxyPayload, galaxy)).toBe(true);
+      expect(hasDominionOver(galaxyPayload, star)).toBe(true);      // downward, whole rule
+      expect(hasDominionOver(galaxyPayload, universe)).toBe(false); // upward is nil
 
       // ── UNIVERSE tier ────────────────────────────────────────────────────────────────────────
       const uniAdminEmail = em('tier-universe');
       const uniSummary = await facadeInvite(admin, universe, [{ email: uniAdminEmail, scopeAdmin: true }]);
       const uniPayload = await acceptInvite(uniSummary.links![uniAdminEmail]!, universe);
       expect(uniPayload.access.authScope).toBe(universe);
-      expect(hasDominionOver(uniPayload.access, galaxy)).toBe(true);
-      expect(hasDominionOver(uniPayload.access, 'nebula-platform')).toBe(false);
+      expect(hasDominionOver(uniPayload, galaxy)).toBe(true);
+      expect(hasDominionOver(uniPayload, '_platform')).toBe(false);
 
-      // ── PLATFORM tier — a platform-dominion holder invites into the root scope ───────────────
+      // ── PLATFORM tier — refused, since no token carries dominion over the root ──────────────
+      // Dominion reads the calling host's scope, and the platform root is no host's, so even a
+      // superuser's token reaches only the subtree of the host it was minted for (the host rule).
+      // A new superuser comes from the bootstrap address, never from an invite.
       const platformBrowser = new Browser();
-      // activeScope = the universe (the established caller shape); the TARGET rides the facade
-      // argument, so inviting into the root scope needs no session AT it — only dominion.
       const { client: platformAdmin } = await createPlatformAdminClient(
         NebulaClientTest, platformBrowser, universe,
       );
       try {
-        const platformInvitee = em('tier-platform');
-        const pSummary = await facadeInvite(platformAdmin, 'nebula-platform', [{ email: platformInvitee, scopeAdmin: true }]);
-        const pPayload = await acceptInvite(pSummary.links![platformInvitee]!, 'nebula-platform');
-        expect(pPayload.access.authScope).toBe('nebula-platform');
-        // The reserved platform scope is the ROOT of the tree: dominion over everything.
-        expect(hasDominionOver(pPayload.access, universe)).toBe(true);
-        expect(hasDominionOver(pPayload.access, star)).toBe(true);
+        await expect(facadeInvite(platformAdmin, '_platform', [{ email: em('tier-platform'), scopeAdmin: true }]))
+          .rejects.toThrow('Invalid invite target "_platform"');
       } finally {
         platformAdmin.disconnect();
       }
@@ -281,7 +306,7 @@ describe('invite facade — ADR-016 records survive the reshape', () => {
     // The admin impersonates the member; the CHILD (a plain member at exactly `star`, carrying a
     // real `act` chain) peer-invites. On a root-identity fixture the act-chain assertion is
     // vacuously green under any projection mutation — this is the limb that isn't.
-    const child = await admin.impersonate(memberSub, star, { ttlSeconds: 300 });
+    const child = await admin.impersonate(memberSub, { ttlSeconds: 300 });
     try {
       sink.length = 0;
       const invitee = em('acted');

@@ -1,60 +1,43 @@
 /**
  * Worker router — routing correctness + gating through the full Worker (SELF.fetch) over the registry
- * + KV (the dissolved-DO model, tasks/nebula-auth-surrogate-sub.md). The one surviving authenticated
- * route is the scope-less `mint-narrower-token` (invites moved to the mesh facade — POST
- * `/auth/{scope}/invite` is a 404, asserted below); the router NO LONGER runs an `adminApproved`
- * edge gate (M5 — enforced at mint), so a valid token is forwarded and admin-ness is checked at the
- * endpoint/registry.
+ * + KV (the dissolved-DO model, tasks/nebula-auth-surrogate-sub.md). Every route is a step in a
+ * session's lifecycle on the platform host, and none reads an access token: what a session does
+ * moved to the mesh facade (POST `/auth/{scope}/invite` is a 404, asserted below), and Home reads by
+ * cookie.
  */
 import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
-import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME } from '../src/types';
-import { landingBase } from '../src/landing';
-import type { AccessEntry } from '../src/types';
+import { REGISTRY_INSTANCE_NAME } from '../src/types';
+import { buildAuthRouteTable } from '../src/router';
+import { recordingHooks } from './test-worker-and-dos';
 import {
-  foundUniverse, requestMagicLink, clickLink, claimStar, createGalaxy, refreshAndParse, claimUniverse,
-  acceptMembership,
+  foundUniverse, requestMagicLink, clickLink, claimStar, createGalaxy, claimUniverse, consumeLink,
+  authUrl, scopeOrigin, refresh, refreshCookie, logoutRequest, PLATFORM,
 } from './test-helpers';
 
-const PREFIX = NEBULA_AUTH_PREFIX;
-const workerUrl = (path: string) => `http://localhost${PREFIX}/${path}`;
-const registryUrl = (endpoint: string) => `http://localhost${PREFIX}/${endpoint}`;
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
-
-/** Sign a raw Nebula-shaped JWT (email/adminApproved are no longer claims). */
-async function signRaw(extra: Record<string, any>): Promise<string> {
-  const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-  const now = Math.floor(Date.now() / 1000);
-  return signJwt({ iss: NEBULA_AUTH_ISSUER, sub: crypto.randomUUID(), exp: now + 900, iat: now, jti: crypto.randomUUID(), ...extra } as any, privateKey, 'BLUE');
-}
-
-/** A synthetic non-admin token for a scope (drives the router without a real login). */
-async function nonAdminToken(scope: string): Promise<string> {
-  const access: AccessEntry = { authScope: scope };
-  return signRaw({ aud: scope, access });
-}
 
 describe('@lumenize/nebula-auth — Worker Router', () => {
   describe('basic routing', () => {
     it('404 outside /auth prefix; 404 for /auth with no subpath', async () => {
-      expect((await SELF.fetch(new Request('http://localhost/other/path'))).status).toBe(404);
-      expect((await SELF.fetch(new Request('http://localhost/auth/'))).status).toBe(404);
+      expect((await SELF.fetch(new Request(`${PLATFORM}/other/path`))).status).toBe(404);
+      expect((await SELF.fetch(new Request(`${PLATFORM}/auth/`))).status).toBe(404);
     });
   });
 
   describe('registry dispatch', () => {
     it('POST /auth/claim-universe creates; duplicate → 409', async () => {
       const u = uni();
-      const first = await SELF.fetch(new Request(registryUrl('claim-universe'), {
+      const first = await SELF.fetch(new Request(authUrl('claim-universe'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: u, email: 'a@example.com' }),
+        body: JSON.stringify({ slug: u, appSlug: 'first', email: 'a@example.com' }),
       }));
       expect(first.status).toBe(200);
       expect((await first.json() as any).magicLinkUrl).toBeDefined();
-      const dup = await SELF.fetch(new Request(registryUrl('claim-universe'), {
+      const dup = await SELF.fetch(new Request(authUrl('claim-universe'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: u, email: 'other@example.com' }),
+        body: JSON.stringify({ slug: u, appSlug: 'first', email: 'other@example.com' }),
       }));
       expect(dup.status).toBe(409);
       expect((await dup.json() as any).error).toBe('slug_taken');
@@ -71,7 +54,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         const u = uni();
         const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
         const galaxy = `${u}.app`;
-        expect((await createGalaxy(SELF, galaxy, access_token)).status).toBe(201);
+        await createGalaxy(galaxy, access_token);
         return { universe: u, galaxy, adminToken: access_token };
       }
       /** Rows the registry singleton holds for a scope — the observable "nothing was written" check. */
@@ -95,10 +78,10 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         // Through the real claim link → login → inspect the MINTED token. This is the assertion that
         // makes open signup safe: a star-scoped `authScope` is inert at every ancestor (ADR-015), so
         // a squatter gains a slug and nothing else. Widen the mint to `{u}` and this reds.
-        const { tokenFor } = await clickLink(SELF, magicLinkUrl!);
-        const refreshToken = tokenFor(star);
-        await acceptMembership(SELF, star, refreshToken); // the claimer consents at their own modal
-        const { parsed } = await refreshAndParse(SELF, star, refreshToken);
+        const { tokenFor } = await clickLink(SELF, magicLinkUrl!); // the claim page's Accept
+        const minted = await refresh(SELF, star, refreshCookie(star, tokenFor(star)));
+        const { access_token } = await minted.json() as { access_token: string };
+        const parsed = JSON.parse(atob(access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
         expect(parsed.access.authScope).toBe(star);
         expect(parsed.access.scopeAdmin).toBe(true);
       });
@@ -228,7 +211,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         // registry never saw one. Now `await request.json()` would throw a SyntaxError — not a
         // RegistryError — and fall to the 500 fallback.
         for (const endpoint of ['claim-star', 'claim-universe']) {
-          const resp = await SELF.fetch(new Request(registryUrl(endpoint), {
+          const resp = await SELF.fetch(new Request(authUrl(endpoint), {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'not json{',
           }));
           expect(resp.status, `${endpoint} must 400 on a malformed body`).toBe(400);
@@ -237,106 +220,65 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       });
     });
 
-    // ── Login redirect: the TIER SPLIT ───────────────────────────────────────────────────────────
+    // ── Where a link sends the person: its record's `returnTo`, else Home ─────────────────────────
     //
-    // 🔒 This is a wire-level decision: it bakes into every emailed link, so it cannot be fixed after
-    // the fact. A **star-scoped** admin is an end user and lands on the built-app surface (`/app`, which is
-    // hardcoded because the routing scheme fixes it). Every other tier is a user-developer landing on
-    // their own control plane, which is SCOPE-FIRST (`/{scope}`) — so its landing PREFIX is empty and
-    // callers build `${prefix}/${scope}` = `/{scope}`. The star prefix (`/app`) stays a real path
-    // because a star is served by the Worker (the built app), not the SPA.
-    describe('login redirect tier split', () => {
-      // ⚠️ **The success path no longer tier-splits — it lands on Home**, where the scope is chosen
-      // and consent given. The tier rule did not die with it: it decides the ERROR redirect (below)
-      // and the POST-ACCEPT navigation, so it is asserted here as the unit `landingBase` rather than
-      // through a consume that no longer expresses it.
-      const locationOf = async (linkUrl: string) =>
-        (await SELF.fetch(new Request(linkUrl, { redirect: 'manual' }))).headers.get('Location');
+    // The server writes `returnTo` when it mints the link — a claim's first Studio host, a star
+    // claim's own host, an invite's scope host, or a login page's checked `return_to` — and the
+    // consume answers it. Nothing the page posts can change it.
+    describe('where a consume sends the person', () => {
+      const redirectOf = async (linkUrl: string, body: Record<string, unknown> = {}) => {
+        const resp = await consumeLink(SELF, linkUrl, body);
+        expect(resp.status).toBe(200);
+        return (await resp.json() as { redirect: string }).redirect;
+      };
 
-      it('landingBase splits by TIER — a star to /app, everything else the EMPTY control-plane prefix', () => {
-        // The empty prefix is what makes the control plane scope-first: `${''}/${scope}` = `/{scope}`.
-        // Reds against re-introducing a `/studio` literal (the retired pre-scope-first prefix).
-        expect(landingBase('u.g.s')).toBe('/app');
-        expect(landingBase('u.g')).toBe('');
-        expect(landingBase('u')).toBe('');
-        expect(landingBase(undefined)).toBe(''); // no scope to parse → the control plane
+      it('a universe claim lands in its first app\'s Studio', async () => {
+        const u = uni();
+        expect(await redirectOf(await claimUniverse(SELF, u, `owner-${u}@example.com`, 'crm')))
+          .toBe(`${scopeOrigin(`${u}.crm`)}/`);
       });
 
-      it('a STAR-scoped admin lands on HOME, not straight into the app', async () => {
+      it('a star claim lands on the star\'s own host', async () => {
         const u = uni();
         const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
         const galaxy = `${u}.app`;
-        await createGalaxy(SELF, galaxy, access_token);
+        await createGalaxy(galaxy, access_token);
         const star = `${galaxy}.tenant`;
         const { magicLinkUrl } = await (await claimStar(SELF, star, 'scope-admin@example.com')).json() as any;
-        // Reds against a direct-landing consume — the consent modal stands on Home, so an arrival
-        // that skipped it would take up a membership nobody agreed to.
-        expect(await locationOf(magicLinkUrl)).toBe(`/auth/${encodeURIComponent(star)}/home`);
+        expect(await redirectOf(magicLinkUrl)).toBe(`${scopeOrigin(star)}/`);
       });
 
-      it('a UNIVERSE-scoped admin lands on HOME too', async () => {
+      it('a plain login lands on Home', async () => {
         const u = uni();
-        const magicLinkUrl = await claimUniverse(SELF, u, `owner-${u}@example.com`);
-        expect(await locationOf(magicLinkUrl)).toBe(`/auth/${u}/home`);
+        const email = `owner-${u}@example.com`;
+        await foundUniverse(SELF, u, email);
+        const { magicLinkUrl } = await (await requestMagicLink(SELF, email)).json() as { magicLinkUrl: string };
+        expect(await redirectOf(magicLinkUrl)).toBe('/');
       });
 
-      it('an EXPIRED/invalid star link errors to /app, not into the control plane', async () => {
-        // ⚠️ The case the split matters most for. MAGIC_LINK_TTL is 30 min and the resumable claim
-        // exists precisely because these expire — an unsplit error branch would drop a star-scoped admin
-        // into the user-developer's Studio.
+      // The page passes only the token, but a client that is not the page can post anything.
+      it('a return_to in the consume\'s body is ignored for the record\'s', async () => {
         const u = uni();
-        const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
-        const galaxy = `${u}.app`;
-        await createGalaxy(SELF, galaxy, access_token);
-        const star = `${galaxy}.tenant`;
-
-        const bad = `http://localhost${PREFIX}/${star}/magic-link?one_time_token=never-issued`;
-        expect(await locationOf(bad)).toBe('/app?error=invalid_token');
-        // The non-star tier errors to the control-plane ROOT — the empty prefix falls back to `/`
-        // (a bare `?error=` would resolve against the current URL). Reds against dropping that `|| '/'`.
-        const badUni = `http://localhost${PREFIX}/${u}/magic-link?one_time_token=never-issued`;
-        expect(await locationOf(badUni)).toBe('/?error=invalid_token');
+        const link = await claimUniverse(SELF, u, `owner-${u}@example.com`, 'crm');
+        expect(await redirectOf(link, { return_to: 'https://evil.example/', returnTo: 'https://evil.example/' }))
+          .toBe(`${scopeOrigin(`${u}.crm`)}/`);
       });
 
-      it('the TOKEN decides the landing scope, not the URL path', async () => {
-        // A universe-scope token consumed through a STAR-shaped URL must still land where the TOKEN
-        // says. `parseScopeGuard` only format-validates that path segment and never cross-checks it
-        // against the token (the registry keys on tokenHash alone), so keying the redirect off the URL
-        // would let a caller pick another tier's landing surface.
-        const u = uni();
-        const magicLinkUrl = await claimUniverse(SELF, u, `owner-${u}@example.com`);
-        const token = new URL(magicLinkUrl).searchParams.get('one_time_token')!;
-        const starShapedUrl = `http://localhost${PREFIX}/${u}.fake.star/magic-link?one_time_token=${token}`;
-
-        expect(await locationOf(starShapedUrl)).toBe(`/auth/${u}/home`);
+      it('an unknown token is refused with 400 invalid_token and no cookie', async () => {
+        const resp = await consumeLink(SELF, `${PLATFORM}/auth/magic-link?token=never-issued`);
+        expect(resp.status).toBe(400);
+        expect((await resp.json() as { error: string }).error).toBe('invalid_token');
+        expect(resp.headers.getSetCookie()).toEqual([]);
       });
-    });
-
-    it('create-galaxy: requires a JWT (401); succeeds (201) with an admin JWT', async () => {
-      const noJwt = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ universeGalaxyId: 'x.galaxy' }),
-      }));
-      expect(noJwt.status).toBe(401);
-
-      const u = uni();
-      const admin = await foundUniverse(SELF, u, 'gal-admin@example.com');
-      const ok = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.access_token}` },
-        body: JSON.stringify({ universeGalaxyId: `${u}.my-galaxy` }),
-      }));
-      expect(ok.status).toBe(201);
-      expect((await ok.json() as any).instanceName).toBe(`${u}.my-galaxy`);
     });
 
     it('GET to a registry endpoint → 405', async () => {
-      expect((await SELF.fetch(new Request(registryUrl('claim-universe'), { method: 'GET' }))).status).toBe(405);
+      expect((await SELF.fetch(new Request(authUrl('claim-universe'), { method: 'GET' }))).status).toBe(405);
     });
   });
 
-  describe('instance dispatch — auth flow (no JWT)', () => {
-    it('email-magic-link → 200 (magicLinkUrl in test mode); magic-link click for an existing identity → 302 + cookie; refresh → 200; logout → 200', async () => {
+  describe('the session lifecycle, end to end through the routes', () => {
+    it('email-magic-link → 200 (magicLinkUrl in test mode); the page\'s Continue → 200 + cookie; refresh → 200; logout → 200', async () => {
       const u = uni();
       await foundUniverse(SELF, u, 'flow@example.com'); // admin identity now exists
 
@@ -346,132 +288,99 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       expect(magicLinkUrl).toBeDefined();
 
       const { refreshToken } = await clickLink(SELF, magicLinkUrl);
-      const refresh = await SELF.fetch(new Request(workerUrl(`${u}/refresh-token`), {
-        method: 'POST',
-        headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: u }),
-      }));
-      expect(refresh.status).toBe(200);
-      expect((await refresh.json() as any).access_token).toBeDefined();
+      const minted = await refresh(SELF, u, refreshCookie(u, refreshToken));
+      expect(minted.status).toBe(200);
+      expect((await minted.json() as any).access_token).toBeDefined();
 
-      const logout = await SELF.fetch(new Request(workerUrl(`${u}/logout`), {
-        method: 'POST', headers: { Cookie: `refresh-token=${refreshToken}` },
-      }));
+      const logout = await SELF.fetch(logoutRequest([refreshCookie(u, refreshToken)]));
       expect(logout.status).toBe(200);
     });
   });
 
-  describe('authenticated dispatch (JWT required — vehicle: mint-narrower-token, the surviving authed route)', () => {
-    // The `/auth/{scope}/invite` vehicle these used to ride is deleted — every invite enters
-    // mesh-side through the NebulaAuthFacade (guard coverage: apps/nebula baseline
-    // `invite-facade.test.ts`). The route-layer properties keep their coverage on the mint route.
-    it('401 without JWT / 401 invalid JWT', async () => {
-      expect((await SELF.fetch(new Request(registryUrl('mint-narrower-token'), { method: 'POST' }))).status).toBe(401);
-      expect((await SELF.fetch(new Request(registryUrl('mint-narrower-token'), {
-        method: 'POST', headers: { Authorization: 'Bearer invalid.jwt.here', 'Content-Type': 'application/json' }, body: '{}',
-      }))).status).toBe(401);
+  describe('no route reads an access token', () => {
+    // Every session-lifecycle route authenticates by a link, a cookie or nothing; what a session
+    // does is a facade method over the socket. So a valid token buys nothing at any route, and no
+    // route answers a person's summary to one. The walk reads the table, so a route added later is
+    // walked too.
+    it('a valid Bearer token and no cookie get no summary from any route', async () => {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, `walk-${u}@example.com`);
+      const routes = buildAuthRouteTable(env as Env, recordingHooks);
+      expect(routes.length).toBeGreaterThan(10);
+      let guarded = 0;
+      for (const { path, method } of routes) {
+        // Sent as a page on the platform host sends it, so `sameOriginGuard` passes and every row's
+        // handler is what answers: a handler that read the token would be reached.
+        const resp = await SELF.fetch(new Request(`${PLATFORM}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json',
+            Origin: PLATFORM, 'Sec-Fetch-Site': 'same-origin',
+          },
+          body: method === 'POST' ? '{}' : undefined,
+        }));
+        const text = await resp.text();
+        if (text.includes('cross_origin')) guarded++;
+        expect(text, `${method} ${path}`).not.toContain(admin.parsed.profileId);
+        expect(text, `${method} ${path}`).not.toContain(u);
+      }
+      expect(guarded, 'the walk must reach each handler, never the same-origin refusal').toBe(0);
     });
 
-    it('M5: a non-admin token is FORWARDED (no retired adminApproved gate) — the endpoint refuses forbidden, not access_denied', async () => {
-      const scope = 'gate-test.app.tenant';
-      const token = await nonAdminToken(scope);
-      const resp = await SELF.fetch(new Request(registryUrl('mint-narrower-token'), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subOfNarrowerToken: crypto.randomUUID(), activeScope: scope }),
+    it('POST /auth/scope-summary → 404, at the Worker and at the Registry', async () => {
+      expect((await SELF.fetch(new Request(authUrl('scope-summary'), { method: 'POST' }))).status).toBe(404);
+      // In-lane, since nothing reaches the Registry's `fetch` but the Worker's forward: a request
+      // straight to it, carrying a forged subject, is not answered with that subject's summary.
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, `forged-${u}@example.com`);
+      const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+      const resp = await stub.fetch(new Request(authUrl('scope-summary'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verifiedProfileId: admin.parsed.profileId, verifiedSub: admin.parsed.sub }),
       }));
-      expect(resp.status).toBe(403);
-      const body = await resp.json() as any;
-      expect(body.error).toBe('forbidden');        // the endpoint's own refusal
-      expect(body.error).not.toBe('access_denied'); // the retired router:541 gate is gone
+      expect(resp.status).toBe(404);
     });
 
     it('POST /auth/{scope}/invite → 404 (no HTTP invite surface; issuance is mesh-side)', async () => {
-      const resp = await SELF.fetch(new Request(workerUrl('some-instance/invite'), {
+      const resp = await SELF.fetch(new Request(authUrl('some-instance/invite'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
       }));
       expect(resp.status).toBe(404);
     });
 
     it('bare instance path with no endpoint → 404', async () => {
-      // A bare instance name is neither an auth-flow nor an authenticated suffix.
-      expect((await SELF.fetch(new Request(workerUrl('some-bare-instance')))).status).toBe(404);
+      expect((await SELF.fetch(new Request(authUrl('some-bare-instance')))).status).toBe(404);
     });
   });
 
   describe('registry fetch handler errors', () => {
     it('invalid slug → 400 invalid_slug; reserved slug → 400 reserved_slug', async () => {
-      const bad = await SELF.fetch(new Request(registryUrl('claim-universe'), {
+      const bad = await SELF.fetch(new Request(authUrl('claim-universe'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug: 'INVALID_UPPERCASE', email: 'a@b.com' }),
       }));
       expect(bad.status).toBe(400);
       expect((await bad.json() as any).error).toBe('invalid_slug');
 
-      const reserved = await SELF.fetch(new Request(registryUrl('claim-universe'), {
+      const reserved = await SELF.fetch(new Request(authUrl('claim-universe'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: 'nebula-platform', email: 'a@b.com' }),
+        body: JSON.stringify({ slug: 'platform', email: 'a@b.com' }),
       }));
       expect(reserved.status).toBe(400);
       expect((await reserved.json() as any).error).toBe('reserved_slug');
 
-      // A universe slug that collides with a top-level ROUTE is refused — scope-first URLs make the
-      // slug a first path segment, so `app`/`auth`/`gateway`/`assets`/`studio` would shadow a route.
-      // Reds against dropping the RESERVED_UNIVERSE_SLUGS check. `app` is a valid slug shape (passes
-      // isValidSlug), so only the reservation stops it — this cannot false-pass on the format guard.
-      for (const slug of ['app', 'auth', 'gateway', 'assets', 'studio']) {
-        const collide = await SELF.fetch(new Request(registryUrl('claim-universe'), {
+      // A universe slug that a platform host label already spells is refused, since a universe's host
+      // is its slug under `lumenize.dev` (ADR-021). Reds against dropping the RESERVED_UNIVERSE_SLUGS
+      // check. Each is a valid slug shape (passes isValidSlug), so only the reservation stops it —
+      // this cannot false-pass on the format guard.
+      for (const slug of ['platform', 'email', 'www', 'app', 'auth', 'gateway', 'assets', 'studio', 'pictures']) {
+        const collide = await SELF.fetch(new Request(authUrl('claim-universe'), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slug, email: 'a@b.com' }),
+          body: JSON.stringify({ slug, appSlug: 'first', email: 'a@b.com' }),
         }));
         expect(collide.status, `slug "${slug}" must be reserved`).toBe(400);
         expect((await collide.json() as any).error, `slug "${slug}"`).toBe('reserved_slug');
       }
-    });
-  });
-
-  describe('Worker JWT validation branches (vehicle: mint-narrower-token)', () => {
-    // These exercise `verifyJwtGuard`/`verifyNebulaAccessToken`'s per-claim rejections, which are
-    // route-independent — the mint route is simply the authed row that survived the invite route's
-    // move to the mesh facade. (The old fifth branch — a consistent token refused 403 by the URL
-    // scope's passage/dominion guards — died with that route; scope-verdict refusals are the
-    // facade's, asserted with distinguishable messages in apps/nebula's `invite-facade.test.ts`.)
-    async function post(token: string): Promise<Response> {
-      return SELF.fetch(new Request(registryUrl('mint-narrower-token'), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
-      }));
-    }
-
-    it('missing aud → 401', async () => {
-      expect((await post(await signRaw({ access: { authScope: 'some-instance', scopeAdmin: true } }))).status).toBe(401);
-    });
-    it('wrong issuer → 401', async () => {
-      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-      const now = Math.floor(Date.now() / 1000);
-      const token = await signJwt({ iss: 'wrong-issuer', aud: 'some-instance', sub: crypto.randomUUID(), exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScope: 'some-instance', scopeAdmin: true } } as any, privateKey, 'BLUE');
-      expect((await post(token)).status).toBe(401);
-    });
-    it('missing sub → 401', async () => {
-      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-      const now = Math.floor(Date.now() / 1000);
-      const token = await signJwt({ iss: NEBULA_AUTH_ISSUER, aud: 'some-instance', exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScope: 'some-instance', scopeAdmin: true } } as any, privateKey, 'BLUE');
-      expect((await post(token)).status).toBe(401);
-    });
-    it('missing access → 401', async () => {
-      expect((await post(await signRaw({ aud: 'some-instance' }))).status).toBe(401);
-    });
-  });
-
-  describe('Registry JWT validation (create-galaxy)', () => {
-    it('missing audience on create-galaxy → 401', async () => {
-      const token = await signRaw({ access: { authScope: 'some-universe', scopeAdmin: true } });
-      const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ universeGalaxyId: 'some-universe.g' }),
-      }));
-      expect(resp.status).toBe(401);
     });
   });
 });

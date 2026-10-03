@@ -1,23 +1,25 @@
 /**
  * The names a person gives at consent reach everyone watching their profile.
  *
- * `POST /auth/{scope}/accept-membership` takes the nickname (and optional full name) along with the
- * acceptance, and the auth Worker writes them through `Profile.setDisplayNames` — a raw RPC, the one
- * Nebula caller of the Profile's fan-out that brings no mesh call context. The fan-out then pushes the
- * new snapshot to every subscriber through `lmz.broadcast`. Two limbs, one real person throughout:
+ * The consent screen's Accept — the claim link's page, `POST /auth/magic-link` — takes the nickname
+ * (and optional full name) along with the acceptance, and the auth Worker writes them through
+ * `Profile.setDisplayNames` — over the `@rawRpc()`
+ * bridge (ADR-023), the one Nebula caller of the Profile's fan-out that brings no mesh call context.
+ * The fan-out then pushes the new snapshot to every subscriber through `lmz.broadcast`. Two limbs, one
+ * real person throughout:
  *
  *  1. **A first acceptance lands the names without a failure.** No mesh call has reached a brand-new
- *     person's Profile yet, and nobody is subscribed to it. The names must be there when they then
- *     subscribe, and — where the local stack's stdio is captured — the Worker must not have logged a
- *     failed display-name write, which is what a Profile reading an identity the mesh never stamped
- *     produces. *Reds against `Profile.#profileId()` reading `lmz.instanceName`.*
+ *     person's Profile yet, and nobody is subscribed to it: its first touch is the `@rawRpc()` entry,
+ *     which stamps the identity a mesh entry would. The names must be there when they then subscribe,
+ *     and — where the local stack's stdio is captured — the Worker must not have logged a failed
+ *     display-name write. *Reds against dropping `@rawRpc()` from `setDisplayNames`, which the entry
+ *     then refuses.*
  *  2. **A later acceptance reaches a live subscriber.** The same person, now signed in with a tab
  *     subscribed to their own profile, claims a second Universe and accepts it under a new nickname.
  *     That tab must hear the new nickname. *Reds against a `broadcast` that needs a call context.*
  *
  * ⚠️ **Nothing is constructed.** Both memberships come from real claims, real letters and real
- * clicks (ADR-009 rung 1), and the accept is the POST the consent modal sends, with a nickname —
- * which the shared `acceptMembership` helper deliberately omits, so this file sends it itself.
+ * clicks (ADR-009 rung 1), and the accept is the POST the consent screen sends, with a nickname.
  *
  * ⚠️ **Every limb runs and the verdict comes at the end** (`.claude/rules/live.md`), and limb 1's
  * log half is reported as not observable on a deployed target, which captures no stdio.
@@ -27,9 +29,9 @@ import { Browser } from '@lumenize/testing';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, scopeUrlOf } from '../lib/harness';
 import {
-  requestUniverseClaim, refreshTokenForScope, setCookieHeaders, refreshAccessToken,
+  requestUniverseClaim, refreshTokenForScope, setCookieHeaders, refreshAccessToken, consumeLink,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -71,26 +73,21 @@ export async function run(stack: DevStack): Promise<void> {
     console.log(`${ok ? '✅' : '❌'} ${name.padEnd(58)} ${detail}`);
   };
 
-  /** Claim `universe` for `person` and accept it under `nickname`, as the consent modal does. */
+  /** Claim `universe` for `person` and accept it under `nickname`, as the consent screen does. */
   const claimAndAccept = async (universe: string, nickname: string): Promise<string> => {
     const waiter = waitForEmail({ testToken, instance: universe, to: person, timeout: 60_000 });
     let link: string;
     try {
-      const claimed = await requestUniverseClaim({ baseUrl: origin, universe, email: person, fetchImpl: browser.fetch });
+      const claimed = await requestUniverseClaim({ baseUrl: origin, universe, appSlug: 'first', email: person, fetchImpl: browser.fetch });
       assert.notEqual(claimed, null, `the Universe "${universe}" was already claimed`);
       link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup(); // a leaked waiter's WebSocket keeps Node's event loop alive past the verdict
     }
-    const clicked = await browser.fetch(link, { redirect: 'manual' });
-    const refreshToken = refreshTokenForScope(setCookieHeaders(clicked), universe);
-    assert.ok(refreshToken, `the claim link (${clicked.status}) set no refresh-token cookie for "${universe}"`);
-    const accepted = await browser.fetch(`${origin}/auth/${universe}/accept-membership`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${refreshToken}` },
-      body: JSON.stringify({ nickname }),
-    });
-    assert.equal(accepted.status, 200, `accept-membership for "${universe}" answered ${accepted.status}`);
+    const accepted = await consumeLink(link, browser.fetch, { nickname });
+    assert.equal(accepted.status, 200, `the Accept for "${universe}" answered ${accepted.status}`);
+    const refreshToken = refreshTokenForScope(setCookieHeaders(accepted), universe);
+    assert.ok(refreshToken, `the Accept set no refresh cookie for "${universe}"`);
     return refreshToken;
   };
 
@@ -99,15 +96,14 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 1: a first acceptance, on a Profile the mesh has never reached ────────────────────
     const refreshToken = await claimAndAccept(first, 'First');
     const { accessToken, sub } = await refreshAccessToken(origin, { refreshToken, authScope: first }, first, browser.fetch);
-    const ctx = browser.context(origin);
+    const ctx = browser.context(scopeUrlOf(stack, first));
     watcher = new ProfileWatcher({
-      baseUrl: origin,
-      authScope: first,
-      activeScope: first,
+      baseUrl: scopeUrlOf(stack, first),
+      platformOrigin: origin,
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       accessToken,
       instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
-      fetch: browser.fetch,
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -126,7 +122,8 @@ export async function run(stack: DevStack): Promise<void> {
     // the write failed — measured, one run in two. The Worker logs the warning before it answers,
     // and wrangler logs the request after, so once that line is here the warning would be too; its
     // presence is also what shows the capture works at all.
-    const acceptLine = `POST /auth/${first}/accept-membership`;
+    // The trailing space keeps `POST /auth/magic-link/lookup` from matching.
+    const acceptLine = 'POST /auth/magic-link ';
     let stdio = stack.logs?.();
     const captureDeadline = Date.now() + PUSH_TIMEOUT_MS;
     while (stdio !== undefined && !stdio.includes(acceptLine) && Date.now() < captureDeadline) {

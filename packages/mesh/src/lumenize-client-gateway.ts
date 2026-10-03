@@ -734,7 +734,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
     // State is native from Workers RPC - preprocess for WebSocket
     // The context goes down field by field, never spread, so nothing reaches a client unless it is
     // named here. `originRequest` is left behind: it is the ORIGIN's IP, location and browser, and a
-    // push that inherits a writer's chain (`lmz.broadcast`, by default) would hand them to every
+    // push that inherits a writer's chain (`lmz.broadcast` with `{ newChain: false }`) would hand them to every
     // subscriber.
     // `originAuth` goes down, because a client's `onBeforeCall` authorizes the call from it.
     const message: IncomingCallMessage = {

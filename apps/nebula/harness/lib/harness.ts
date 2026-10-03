@@ -25,10 +25,11 @@ import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
+import { hostOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lumenize/crypto';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
-import { deriveLocalConfig } from '../../scripts/local-config.mjs';
+import { deriveLocalConfig, LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
@@ -71,9 +72,16 @@ export function readDevVar(name: string): string {
   return value.replace(/\\n/g, '\n');
 }
 
-/** A booted local dev stack: the worker URL + the signing material + teardown. */
+/** A booted local dev stack: the platform host's URL + the signing material + teardown. */
 export interface DevStack {
+  /**
+   * The platform host's origin on this stack — `http://platform.lumenize.localhost:<port>` locally,
+   * `https://platform.lumenize-test.dev` deployed — where every session route answers. A page on a
+   * scope lives on that scope's own host instead ({@link scopeUrlOf}).
+   */
   baseUrl: string;
+  /** The deployment's origin, its `LUMENIZE_ORIGIN`: every host and the JWT issuer derive from it. */
+  origin: string;
   /** The Ed25519 private key PEM read from `.dev.vars` (never logged). */
   signingKey: string;
   /** The BLUE/GREEN selector this key belongs to (the JWT `kid`). */
@@ -83,6 +91,12 @@ export interface DevStack {
   /** The dev stack's stdio so far (the last few MB) — the Worker's own debug markers, for a
    *  scenario that enabled them with `bootVars: { DEBUG: '…' }`. Absent on a deployed target. */
   logs?: () => string;
+}
+
+/** A scope's own host on `stack`, at its port — where a page on that scope lives and its client
+ *  connects. */
+export function scopeUrlOf(stack: Pick<DevStack, 'baseUrl' | 'origin'>, scope: string): string {
+  return hostOrigin({ kind: 'scope', scope }, stack.origin, stack.baseUrl);
 }
 
 /**
@@ -141,7 +155,7 @@ export async function bootDevStack(
   // `DEBUG` is opt-in (HARNESS_WORKER_DEBUG) — flooding every DO onStart slows startup.
   const localMode = process.env.HARNESS_LOCAL === '1';
   const configPath = deriveLocalConfig({ containers: withContainer });
-  const { baseUrl, cleanup } = await spawnWranglerDev({
+  const { baseUrl: workerUrl, cleanup } = await spawnWranglerDev({
     configPath,
     cwd: NEBULA_DIR,
     // A cold container image build can be slow; give generous headroom.
@@ -156,6 +170,12 @@ export async function bootDevStack(
       ...(process.env.HARNESS_TURNSTILE_SECRET
         ? ['--var', `TURNSTILE_SECRET_KEY:${process.env.HARNESS_TURNSTILE_SECRET}`]
         : []),
+      // The local lane sends through the `EMAIL` binding (Cloudflare), whose account-wide daily
+      // sending quota a day of sweeps can exhaust. `HARNESS_EMAIL_PROVIDER=resend` boots on Resend
+      // instead — the provider production and the deployed test target already send through.
+      ...(process.env.HARNESS_EMAIL_PROVIDER
+        ? ['--var', `EMAIL_PROVIDER:${process.env.HARNESS_EMAIL_PROVIDER}`]
+        : []),
       ...Object.entries(opts.vars ?? {}).flatMap(([k, v]) => ['--var', `${k}:${v}`]),
       '--log-level', 'info',
     ],
@@ -169,7 +189,9 @@ export async function bootDevStack(
     },
   });
 
-  return { baseUrl, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
+  // Every host answers on the one port wrangler bound; the platform host is the one sessions use.
+  const baseUrl = hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, workerUrl);
+  return { baseUrl, origin: LOCAL_ORIGIN, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
 }
 
 /** How much of the dev stack's stdio a scenario can read back — the last ~4 MB. */
@@ -189,8 +211,13 @@ export interface Driver {
   client: NebulaClient;
   /** The subject UUID the mint assigned this identity. */
   sub: string;
-  /** The active (== auth) scope this driver drives. */
+  /** The scope whose host this driver's client connects from, and so its token's `aud`. */
   scope: string;
+  /**
+   * The browser whose cookies this driver's login set. A second client on a context of it is a
+   * second tab of the same signed-in person.
+   */
+  browser: Browser;
   /**
    * Fire the `.dev` sandbox wipe (`Star.resetDevData`, one-way — mirrors the Studio's Wipe
    * button). Best-effort; the deterministic local reset is {@link bootDevStack}'s fresh boot.
@@ -206,7 +233,7 @@ export interface Driver {
  * loudly rather than misrouting, by design. A scenario exercising a different plane overrides
  * per-driver: each driver sets the pair for the plane it exercises.
  */
-function constructionPairs(scope: string): {
+export function constructionPairs(scope: string): {
   resourceHostBinding: string;
   chatHostBinding?: string;
   chatScope?: string;
@@ -280,8 +307,8 @@ export async function connectDriver(
   const scope = opts.scope;
   const browser = new Browser();
 
-  // NebulaClient omits the base `refresh` fn (two-scope cookie model), so obtain the token upfront
-  // and pass `accessToken` + `instanceName`; the constructor then skips its own refresh.
+  // Obtain the first token upfront and pass `accessToken` + `instanceName`, so the client connects at
+  // once; its later refreshes go to the platform host from this scope's page, as a browser's do.
   let access_token: string;
   let sub: string;
   if (opts.session) {
@@ -303,16 +330,16 @@ export async function connectDriver(
     sub = result.sub;
   }
 
-  const ctx = browser.context(stack.baseUrl);
+  // A page on the scope's own host: its socket connects there, and its refresh names it in `Origin`.
+  const ctx = browser.context(scopeUrlOf(stack, scope));
   const client = new NebulaClient({
-    baseUrl: stack.baseUrl,
-    authScope: scope,
-    activeScope: scope,
+    baseUrl: scopeUrlOf(stack, scope),
+    platformOrigin: stack.baseUrl,
     ontologyVersion: opts.ontologyVersion ?? CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...constructionPairs(scope),
     accessToken: access_token,
     instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
-    fetch: browser.fetch,
+    fetch: ctx.fetch,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
   });
@@ -323,6 +350,7 @@ export async function connectDriver(
     client,
     sub,
     scope,
+    browser,
     wipe: () => {
       // `resetDevData` lives on the `.dev` Star and throws off it, so only a star-tier driver
       // has a wipe target; elsewhere the deterministic reset is the fresh boot.
@@ -353,27 +381,32 @@ export async function connectDriver(
  *
  * For a scenario that already holds a connected {@link Driver}, prefer `driver.client.invite(...)`
  * directly; this exists for the sites whose inviter is an `EmailSession` with no client.
+ *
+ * The invite's links name the port of the page the inviter's client is on. By default that is the
+ * Worker's own; a browser scenario passes vite's, through `page`, so the links open the pages vite
+ * serves, as they would for a person inviting from Studio.
  */
 export async function inviteViaMesh(
-  stack: DevStack,
+  stack: Pick<DevStack, 'baseUrl' | 'origin'>,
   session: { accessToken: string; sub: string },
   targetScope: string,
   invitees: Array<{ email: string; scopeAdmin?: boolean }>,
   /** Sender-supplied display name — what the invitee's consent modal attributes to them. */
   inviterName?: string,
+  page: { scopeUrl: (scope: string) => string; platformOrigin: string } =
+    { scopeUrl: (scope) => scopeUrlOf(stack, scope), platformOrigin: stack.baseUrl },
 ): Promise<InviteSummary> {
   const claims = parseJwtUnsafe(session.accessToken)!.payload as unknown as NebulaJwtPayload;
   const browser = new Browser();
-  const ctx = browser.context(stack.baseUrl);
+  const ctx = browser.context(page.scopeUrl(claims.aud));
   const client = new NebulaClient({
-    baseUrl: stack.baseUrl,
-    authScope: claims.access.authScope,
-    activeScope: claims.aud,
+    baseUrl: page.scopeUrl(claims.aud),
+    platformOrigin: page.platformOrigin,
     // Inert here — this client lives for one `invite()` call and never touches resources.
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     accessToken: session.accessToken,
     instanceName: `${session.sub}.${crypto.randomUUID().slice(0, 8)}`,
-    fetch: browser.fetch,
+    fetch: ctx.fetch,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
   });
@@ -417,10 +450,11 @@ export async function mintDegradedToken(
     });
     return signJwt(payload as any, privateKey, stack.activeKey);
   }
-  // 'no-access': nebula-shaped EXCEPT the access claim is absent.
+  // 'no-access': nebula-shaped EXCEPT the access claim is absent — the stack's own issuer, so the
+  // missing claim is the one thing wrong with it.
   const now = Math.floor(Date.now() / 1000);
   const payload = {
-    iss: 'https://nebula.lumenize.com',
+    iss: platformOrigin(stack.origin),
     aud: opts.scope,
     sub,
     exp: now + 900,
@@ -444,17 +478,16 @@ export async function assertTokenRejected(
 ): Promise<void> {
   const windowMs = opts.windowMs ?? 8000;
   const browser = new Browser();
-  const ctx = browser.context(stack.baseUrl);
+  const ctx = browser.context(scopeUrlOf(stack, opts.scope));
   let loginRequired = false;
   const client = new NebulaClient({
-    baseUrl: stack.baseUrl,
-    authScope: opts.scope,
-    activeScope: opts.scope,
+    baseUrl: scopeUrlOf(stack, opts.scope),
+    platformOrigin: stack.baseUrl,
     // Inert here — the whole point is that this client never connects, let alone reads.
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     accessToken: opts.token,
     instanceName: `neg-control.${crypto.randomUUID().slice(0, 8)}`,
-    fetch: browser.fetch,
+    fetch: ctx.fetch,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     onLoginRequired: () => {

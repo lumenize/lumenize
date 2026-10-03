@@ -32,7 +32,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { adminClientAt, ORIGIN } from '../../test-helpers';
+import { adminClientAt, ORIGIN, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -145,9 +145,7 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     const aInstanceName = a.client.lmz.instanceName;
     const browserB = new Browser();
     const b = new NebulaClientTest({
-      baseUrl: ORIGIN,
-      authScope: star,
-      activeScope: star,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
       ontologyVersion: ONTOLOGY_VERSION,
       instanceName: aInstanceName,
       accessToken: a.accessToken,

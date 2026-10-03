@@ -29,7 +29,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import { LoginRequiredError } from '@lumenize/mesh/client';
-import { browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
+import { foundAndLogin, ORIGIN, pageOf } from '../../test-helpers';
 
 function uniqueStar(): string {
   return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
@@ -40,15 +40,13 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
     const star = uniqueStar();
     const browser = new Browser();
     await foundAndLogin(browser, star, 'admin@example.com', star);
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
 
     const { client, store, ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: universeOf(star),
-      activeScope: star,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
       ontologyVersion: 'v1',
-      fetch: browser.fetch,
-      WebSocket: browser.WebSocket,
+      fetch: ctx.fetch,
+      WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},
@@ -68,16 +66,14 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
   it('REJECTS with LoginRequiredError on a first-connect terminal auth failure (logged-out → real 401)', async () => {
     const star = uniqueStar();
     const browser = new Browser(); // NOT logged in → no refresh cookie → real endpoint 401
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
     let loginErr: unknown = null;
 
     const { store, ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: universeOf(star),
-      activeScope: star,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
       ontologyVersion: 'v1',
-      fetch: browser.fetch,
-      WebSocket: browser.WebSocket,
+      fetch: ctx.fetch,
+      WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},
@@ -102,7 +98,7 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
     // NebulaClient's embedded-refresh classification at this layer.
     const star = uniqueStar();
     const browser = new Browser();
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
     let loginErr: unknown = null;
 
     const forbiddenFetch = ((input: any, init?: any) => {
@@ -114,9 +110,7 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
     }) as typeof fetch;
 
     const { ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: universeOf(star),
-      activeScope: star,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
       ontologyVersion: 'v1',
       fetch: forbiddenFetch,
       WebSocket: browser.WebSocket,
@@ -136,10 +130,10 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
     const star = uniqueStar();
     const browser = new Browser();
     await foundAndLogin(browser, star, 'admin@example.com', star);
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
 
-    // Fail the FIRST refresh with a 503 (transient), then delegate to the real
-    // browser fetch so the reconnect-backoff retry succeeds.
+    // Fail the FIRST refresh with a 503 (transient), then delegate to the page's real fetch —
+    // which names the page in `Origin` — so the reconnect-backoff retry succeeds.
     let refreshCalls = 0;
     const faultyFetch = ((input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.url;
@@ -149,17 +143,15 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
           return Promise.resolve(new Response('upstream error', { status: 503 }));
         }
       }
-      return browser.fetch(input, init);
+      return ctx.fetch(input, init);
     }) as typeof fetch;
 
     let rejected = false;
     const { store, ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: universeOf(star),
-      activeScope: star,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
       ontologyVersion: 'v1',
       fetch: faultyFetch,
-      WebSocket: browser.WebSocket,
+      WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},

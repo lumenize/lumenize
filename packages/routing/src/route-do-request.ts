@@ -76,6 +76,14 @@ export interface RouteOptions {
   prefix?: string;
 
   /**
+   * The only bindings this route may reach, by the binding name the router resolves (so the
+   * segment `my-gateway` matches `MY_GATEWAY`). An unlisted binding answers `undefined`, exactly as
+   * a binding the Worker does not hold, before the missing-instance throw, CORS and any hook, so the
+   * request constructs no Durable Object. Omit it and every binding routes.
+   */
+  bindings?: string[];
+
+  /**
    * CORS configuration for cross-origin requests.
    * 
    * - `false` (default): No CORS headers
@@ -291,6 +299,11 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   }
 
   const { bindingName, namespace: doNamespace } = result;
+
+  // An unlisted binding is treated as one the Worker does not hold, ahead of everything below.
+  if (options.bindings && !options.bindings.includes(bindingName)) {
+    return undefined;
+  }
 
   // Throw error if we have a matching binding but missing instance name
   if (doInstanceNameOrId === undefined) {

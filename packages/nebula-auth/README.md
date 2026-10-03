@@ -8,13 +8,13 @@ Multi-tenant authentication for Nebula — magic link login, JWT access tokens, 
 
 | Component | Instances | Purpose |
 |-----------|-----------|---------|
-| `routeNebulaAuthRequest` (`router.ts` + `worker-token.ts`) | Edge (Cloudflare Workers) | Path parsing, Turnstile, JWT verification, per-`sub` rate limiting, and the token/session flows themselves (JWT minting, cookies, redirects) |
-| `NebulaAuthFacade` (`@lumenize/nebula-auth/facade`) | `LumenizeWorker` (service binding, mesh-reachable) | The mesh entry for what an authenticated SESSION does with the Registry — invites today. Owns the claims-only eligibility verdicts, the per-invitee `scopeAdmin` cap, the ADR-016 projection, and the post-return mail dispatch |
+| `routeNebulaAuthRequest` (`router.ts` + `worker-token.ts`) | Edge (Cloudflare Workers), on the platform host | The same-origin rule, Turnstile, the connection-keyed rate limit, and the session flows themselves (the link page's lookup and consume, cookies, the refresh's JWT mint, Home's summary, logout) |
+| `NebulaAuthFacade` (`@lumenize/nebula-auth/facade`) | `LumenizeWorker` (service binding, mesh-reachable) | The mesh entry for what an authenticated SESSION does with the Registry — invites, listing an account's apps, creating an app, deleting a scope, and impersonation. Each method refuses on the verified claims before its one raw Registry hop; it owns the invite verdicts and bit cap, the impersonation mint, the ADR-016 projection, and the consumer-supplied lifecycle hooks that wipe Durable Objects only the consumer can name |
 | `NebulaAuthRegistry` (R) | Singleton (`registry`) | The single writer of all durable auth state: `Scopes`, `Identities`, the magic-link/invite login channel, and `RefreshTokenIndex` |
 | Workers KV (`REFRESH_TOKEN_KV`) | Edge | The one hot record — `refresh:{tokenHash}`, read at the edge on every refresh, never touching the DO |
 | `NebulaEmailSender` | `WorkerEntrypoint` (service binding) | Nebula-branded magic-link/invite email |
 
-**HTTP carries the session lifecycle; the mesh carries what a session does** (accepted `docs/vision/auth.md` § *The Registry*). So there is **no HTTP invite route**: issuance enters through the facade (`lmz.call('NEBULA_AUTH_FACADE', undefined, …)`), while the accept-invite CLICK — unauthenticated by nature — stays on the router below.
+**HTTP carries the session lifecycle; the mesh carries what a session does** (accepted `docs/vision/auth.md` § *The Registry*). So there is **no HTTP invite route**: issuance enters through the facade (`lmz.call('NEBULA_AUTH_FACADE', undefined, …)`), while an invite's link is a magic link like any other, opened by the link page on the router below.
 
 The per-scope `NebulaAuth` DO **no longer exists** — it was dissolved by [`tasks/archive/nebula-auth-surrogate-sub.md`](../../tasks/archive/nebula-auth-surrogate-sub.md), which is the design of record for everything below. Its hot token state moved to Workers KV, its cold identity state moved into the registry, and its HTTP handling moved into the Worker.
 
@@ -36,16 +36,14 @@ Slugs are lowercase letters, digits, and hyphens (`[a-z0-9][a-z0-9-]*`), no lead
 
 Every route takes one of exactly two shapes — the rule is in [`.claude/rules/raw-comm.md`](../../.claude/rules/raw-comm.md) § "Edge Worker fronting a DO":
 
-- **Forwarded to the registry's `fetch()`** when the endpoint's job *is* the DO's data operation (claim / create / query / delete on registry storage). The Worker does only the cross-cutting pre-checks that need env + secrets and produce **trusted claims** — Turnstile, JWT verify — then injects `verifiedAccess` (and `callerSub` for deletes) into the body and forwards. Because `request.url` is preserved, the DO reads `url.origin` itself, and it converts its own `RegistryError` to a `Response` in-process, so `status`/`errorCode` survive.
-- **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a `302`, reading a token from the query string, or a pure-KV read. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `resolveConsume`, `recordSessions`, …). (`issueInvites` is not on this list: its caller is the mesh facade, never the router.)
+- **Forwarded to the registry's `fetch()`** when the endpoint's job *is* the DO's data operation — the two claims. The Worker does only the cross-cutting pre-checks that need env + secrets — the same-origin rule, the rate limiter, Turnstile — then forwards the original request. Because `request.url` is preserved, the DO reads `url.origin` itself, and it converts its own `RegistryError` to a `Response` in-process, so `status`/`errorCode` survive.
+- **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a link's token, a read that starts in Workers KV. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `lookupLink`, `consumeLink`, `recordSessions`, …). (`issueInvites` is not on this list: its caller is the mesh facade, never the router.)
 
 **Every route is registered in the route-pipeline table** (`buildAuthRouteTable` in `router.ts`) —
 each entry is `{ path, method, steps }`, and the ordered step list IS the route's complete
 requirement, readable without opening a handler. There is no enumeration beside the table: a route
-cannot exist without a guard list. The three registry-bound terminals encode what the edge injects —
-`forwardRaw` (nothing — the original request, every header intact), `forwardWithAccess`
-(`verifiedAccess`), `forwardWithClaims` (`verifiedAccess` + `callerSub` + `callerClaims`, ADR-016's
-fail-closed input).
+cannot exist without a guard list. The one registry-bound terminal is `forwardRaw`, which injects
+nothing — the original request, every header intact.
 
 An unknown path is a `404` **at the edge**, and a known path under a wrong verb is a `405 Allow:`
 **at the edge** — the singleton never sees either. (The DO keeps its own POST-only check as defense
@@ -61,22 +59,23 @@ Identity is keyed by a registry-minted opaque `sub` (UUID), **one per `(email, s
 |---|---|
 | `claimUniverse` (open self-signup) | `Scopes` row **+** the claiming admin `Identity` (`isAdmin=1`, `emailVerified=0`) |
 | `issueInvites` | invitee `Identity` (`emailVerified=0`), pre-created — per-invitee `scopeAdmin`, honored only under the inviter's dominion (a re-invite of an existing non-admin member with the bit **promotes** them) |
-| `requestMagicLink` at `nebula-platform` for a configured bootstrap email | platform-admin `Identity` (idempotent, scope-gated) |
-| `createGalaxy` / `createStar` (admin) | `Scopes` row **only** — no identity, no email; the parent admin manages via wildcard reach |
+| `requestMagicLink` at `_platform` for a configured bootstrap email | platform-admin `Identity` (idempotent, scope-gated) |
+| `createGalaxy` (the facade, admin) | the galaxy's and its `.dev` Star's `Scopes` rows **only** — no identity, no email; the parent admin manages them by dominion |
 
-**Login never mints, and a consume never enrols.** `resolveConsume` *finds* every membership on the address and flips `emailVerified` — proof of the MAILBOX, set once and globally — resolving to an empty set when the address holds none. It does **not** write `acceptedAt`: proving an address and agreeing to hold a membership are different acts, and the only writer of the second is `accept-membership`, reached from behind a consent modal. So the cookies a click places are INERT until their holder consents; `refresh-token` answers `401 membership_not_accepted` until then. A stranger who requests a link for a scope they were never minted into proves their mailbox and gets nowhere to go.
+**Login never mints, and a consume never enrols.** `resolveConsume` *finds* every membership on the address and flips `emailVerified` — proof of the MAILBOX, set once and globally — resolving to an empty set when the address holds none. It does **not** write `acceptedAt`: proving an address and agreeing to hold a membership are different acts, and the second is written only by the registry's `acceptMembership`, which two Worker routes reach from behind a consent card — the link page's Accept (`POST /auth/magic-link`) and Home's (`accept-membership`). So a cookie for a membership nobody accepted is INERT; `refresh-token` answers `401 membership_not_accepted` for it. A stranger who requests a link for a scope they were never minted into proves their mailbox and gets nowhere to go.
 
 ### The refresh path is a pure KV read
 
-Refresh is the highest-frequency operation and it **never touches the singleton**:
+Refresh is the highest-frequency operation, and on the hit path it **never touches the singleton**. A page on any scope's host calls it on the platform host, with `credentials: 'include'` and no body:
 
-1. Hash the `refresh-token` cookie, `GET refresh:{tokenHash}` from KV.
-2. Derive `authScope` from the **record's** `universeGalaxyStarId` — never the request path or body. Deriving it from client input would let a caller mint a token for any scope they name.
-3. Check the requested `activeScope` is covered, then mint the JWT with `isAdmin` and `profileId` **from the KV record**.
+1. Read the page's host from `Origin` and parse its scope; a platform host or a host the parse refuses answers `403 invalid_origin`. That scope becomes the token's `aud`.
+2. Take the `__Host-refresh-token.{scope}` cookies whose name sits at or above the host's scope, broadest first. A cookie's name only nominates it; for each, hash the value and `GET refresh:{tokenHash}` from KV.
+3. Keep a record only if its own `universeGalaxyStarId` sits at or above the host's scope and its membership is ACCEPTED. Pick the first `scopeAdmin` record, else the one at the host's scope exactly, and mint the JWT with `authScope`, `scopeAdmin` and `profileId` **from that record** — never from the request.
+4. Answer with CORS for the page's origin alone.
 
 **No rotation, no slide.** The refresh token gets a fixed 30-day TTL at login and refresh re-issues nothing — zero writes on the hot path. A 30-day re-login (a fresh magic link) is the accepted UX cost. See [`.claude/rules/security.md`](../../.claude/rules/security.md) for why rotation was dropped and what would be required to reintroduce it (rotation *with* a grace window plus family-revoke — never the no-grace form).
 
-**KV-miss fallback.** KV is eventually consistent, so the login→first-refresh hop can miss across colos. On a miss the Worker falls back once to `registry.getRefreshRecord(tokenHash)`, which rebuilds the record from the strongly-consistent `RefreshTokenIndex` plus the current `Identities` row and **re-puts it to KV** (self-healing, so it fires at most once per token). A genuinely invalid token isn't in the index → still `401`.
+**KV-miss fallback.** KV is eventually consistent, so the consume→first-refresh hop can miss across colos. On a miss the Worker falls back once to `registry.getRefreshRecord(tokenHash)`, which rebuilds the record from the strongly-consistent `RefreshTokenIndex` and the current membership, and the Worker **re-puts it to KV** (self-healing, so it fires at most once per token). A cookie that misses both — revoked, or never valid — is answered expired, so the browser stops presenting it.
 
 ⚠️ **Revocation is KV-eventually-consistent.** Logout deletes the KV record and its index entry (KV-delete-first, so an interruption never strands a live-but-unindexed token), but a revoked or demoted token keeps working for the KV propagation window (~edge `cacheTtl`) **plus** the full access-token TTL, repeatably within that window. The short `ACCESS_TOKEN_TTL` is the mitigation.
 
@@ -87,20 +86,19 @@ Refresh is the highest-frequency operation and it **never touches the singleton*
 The gate lands in three places depending on the surface:
 
 - **The invite facade** (`NebulaAuthFacade.invite`, mesh-side): eligibility = exact-scope membership ∨ `hasDominionOver(claims.access, targetScope)`, computed from `callContext.originAuth` — every member may invite non-admin peers into exactly their own scope; dominion additionally permits inviting downward and is the only thing that licenses a requested `scopeAdmin` (a peer's request caps to false). The registry re-asserts the cap in-method as an invariant (a `scopeAdmin: true` entry without dominion in `callerClaims` throws — a breach, never an expected client error).
-- **`/auth/mint-narrower-token`** (scope-less): the pipeline proves identity (`verifyJwtGuard` + `subRateLimitGuard`); authorization is the handler's single `canMintFor(callerClaims, subject)` call — dominion over the **subject's** scope, which no URL carries. Refusal and an absent subject answer identically (no `sub`-existence oracle), and the one containment check besides it is the `aud` validation, run after.
-- **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `getScopeSummary` is `profileId`-keyed and descends only under ACCEPTED admin memberships, and each level is read with `LIMIT budget+1` — so the READ is bounded, not merely the response.
+- **The impersonation mint** (`NebulaAuthFacade.impersonate`): authorization is `mintImpersonationToken`'s single `canMintFor(callerClaims, subject)` call — dominion over the **subject's** scope. Refusal and an absent subject answer identically (no `sub`-existence oracle), and the one containment check besides it is the `aud` validation, run after: the child's `aud` is the caller's, so the caller's page must sit inside the subject's scope.
+- **The facade's scope methods** (`createGalaxy`, `planScopeDeletion`, `executeScopeDeletion`): the facade refuses on `hasDominionOver` before its hop, and the registry re-asserts it (`createGalaxy`, `#computeDeletionPlan`). `getScopeSummary` is `profileId`-keyed and descends only under ACCEPTED admin memberships, and each level is read with `LIMIT budget+1` — so the READ is bounded, not merely the response.
 
 ### Worker gating pipeline
 
 | Stage | Applies to |
 |---|---|
-| Path parse + `parseId` validation | All (invalid scope id → `400 invalid_instance`); on pipeline routes this is the `parseScopeGuard` step |
-| CORS policy (`@lumenize/routing`) | All, per `RouteNebulaAuthOptions.cors` |
-| Turnstile | Derived from the CREDENTIAL a route presents, not from a list: every route presenting none — no Bearer, no path-scoped cookie, no one-time token — carries `turnstileGuard`. Today that is `email-magic-link` (both forms), `claim-universe` and `claim-star`. Two deliberate exemptions present nothing and are un-gated: the GETs that serve the auth SPA's static HTML, and `coming-soon`. `test/turnstile-by-credential.test.ts` derives the set from the route table, so a new row must state which side it falls on |
-| JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated endpoints (`verifyJwtGuard`, Bearer-only) |
-| Per-`sub` rate limit (`subRateLimitGuard`) | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
+| Host | All: `/auth/*` answers on the platform host alone, and the consumer's Worker answers 404 to it anywhere else |
+| Same-origin rule (`sameOriginGuard`) | Every `POST` but the refresh: refused unless `Sec-Fetch-Site: same-origin`; a request with neither that header nor an `Origin` passes |
+| Connection-keyed rate limit (`connectionRateLimitGuard`) | Every `POST` |
+| Turnstile | Derived from the CREDENTIAL a route presents, not from a list: every route presenting none — no cookie, no link token, no signup ticket — carries `turnstileGuard`. Today that is `email-magic-link`, `claim-universe` and `claim-star`. Two deliberate exemptions present nothing and are un-gated: the GETs that serve the auth SPA's static HTML, and `coming-soon`. `test/turnstile-by-credential.test.ts` derives the set from the route table, so a new row must state which side it falls on |
 
-(The passage/dominion guard pair left the pipeline with the `/invite` route — those verdicts are the mesh facade's now, and the scoped registry routes re-introduce the pair when their scope moves onto the URL.)
+No route reads an access token: a credential under `/auth/` is a link, a cookie or a ticket, and a token authenticates a mesh call ("Cookie or token, never both"). The passage and dominion verdicts are the facade's.
 
 Turnstile is skipped in exactly two cases: no `TURNSTILE_SECRET_KEY` is configured (development and every vitest lane, which bind it `''` explicitly), or the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
 
@@ -108,46 +106,47 @@ Turnstile is skipped in exactly two cases: no `TURNSTILE_SECRET_KEY` is configur
 
 ## URL Format
 
-All auth routes share a single prefix (`/auth`):
+Every auth route lives on the platform host, under one prefix (`/auth`), and no path names a scope:
 
 ```
-https://host/auth/{universeGalaxyStarId}/[endpoint]   -> Worker token layer
-https://host/auth/scope-summary                       -> forwarded to the registry
-https://host/auth/claim-universe                      -> forwarded to the registry
-https://host/auth/create-galaxy                       -> forwarded to the registry
-https://host/auth/create-star                         -> forwarded to the registry
-https://host/auth/scope-summary                       -> forwarded to the registry
-https://host/auth/delete-scope-plan                   -> forwarded to the registry
-https://host/auth/delete-scope                        -> forwarded to the registry
+https://platform.lumenize.dev/auth/[endpoint]     -> Worker session layer
+https://platform.lumenize.dev/auth/claim-universe -> forwarded to the registry
+https://platform.lumenize.dev/auth/claim-star     -> forwarded to the registry
+https://platform.lumenize.dev/                    -> Home
 ```
 
-Every path is matched against the route table's `URLPattern`s — the scope-less registry paths are exact-match entries, and the scope paths carry the scope as a `:scope` segment that `parseScopeGuard` validates before any step reads it.
+Every path is matched against the route table's `URLPattern`s. A page names its scope by its host, and the one route that reads a scope from the request — the refresh — reads it from `Origin`.
 
 ---
 
 ## Endpoint Reference
 
-**Handled by** is either `Worker` (the Worker owns the `Response`, calling the registry by narrow RPC as needed) or `→ registry fetch()` (forwarded after gating, with verified claims injected into the body).
+**Handled by** is either `Worker` (the Worker owns the `Response`, calling the registry by narrow RPC as needed) or `→ registry fetch()` (the original request, forwarded after gating).
 
 ### Auth flow endpoints
 
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
-| `/auth/{scope}/email-magic-link` | POST | Turnstile | Worker | Request a login magic link. Validates email format at the edge, then `requestMagicLink` inserts a hashed `MagicLinks` row and sends the mail. **Mints no identity.** |
-| `/auth/magic-link?one_time_token=…` | GET | none | Worker | The scope-less click. `resolveConsume` validates the link, proves the mailbox once and globally, and returns EVERY membership the address holds; the Worker mints a session per membership and sets one path-scoped cookie each. `302`s to `/auth/{scope}/home` — or `/auth/signup` when the address holds nothing yet, carrying a short-lived signup ticket |
-| `/auth/{scope}/magic-link?one_time_token=…` | GET | none | Worker | The same consume, reached by a link that named a scope (a claim). Identical behaviour; the named scope is minted first |
-| `/auth/{scope}/pending-membership` | POST | path-scoped cookie | Worker | The consent modal's inputs for the membership that cookie names — acceptance state and the sender-supplied name. Exists because a refresh REFUSES an unaccepted membership, which is exactly the one the modal is for |
-| `/auth/{scope}/accept-membership` | POST | path-scoped cookie | Worker | **The one writer of `acceptedAt`.** Reached from behind the consent modal; converges the KV record and any co-minted `.dev` sibling |
-| `/auth/{scope}/accept-invite?invite_token=…` | GET | none | Worker | Same, via `consumeInvite` — the invite row is reusable within its TTL (scanner-safe, like magic links; swept at expiry, never deleted on consume) |
-| `/auth/{scope}/refresh-token` | POST | none (cookie) | Worker | Pure KV read → mint the access token. Requires `{ activeScope }` JSON body. Re-sets no cookie |
-| `/auth/{scope}/logout` | POST | none (cookie) | Worker | `revokeRefreshToken` deletes the KV record + index entry; clears the cookie |
+| `/auth/email-magic-link` | POST | Turnstile | Worker | Request a login magic link. Validates email format at the edge and `return_to` through the host parse (refusing anything off the site with a 400), then `requestMagicLink` inserts a hashed `MagicLinks` row carrying it and sends the mail. **Mints no identity**, and answers the same for every address |
+| `/auth/magic-link?token=…` | GET | none | the auth app's page | Every emailed link that carries a token opens this page, which **changes nothing**: it drops the token from its URL, then asks the lookup what to show |
+| `/auth/magic-link/lookup` | POST | link token | Worker | Pure: the address, the pending membership at the link's scope (with `invitedByName`, and display names only for an address already holding an accepted membership), and whether the link is spent. Writes no registry state |
+| `/auth/magic-link` | POST | link token | Worker | The page's Accept or "Continue as {address}". `consumeLink` proves the mailbox once and globally and returns EVERY membership the address holds; the Worker places one `__Host-refresh-token.{scope}` cookie each on the platform host, accepts the link scope's pending membership (with the nickname and name from the body), and spends the link once the sessions are recorded. Answers `{ redirect }` — the record's `returnTo` or Home — or the signup page with a short-lived ticket when the address holds nothing; a spent link answers `409 link_used` and sets no cookie |
+| `/auth/home-summary` | POST | cookies | Worker | Home's read: the memberships the browser's cookies name, grouped by Profile, at most `2 × MINT_ALL_COOKIE_CAP` cookies resolved |
+| `/auth/pending-membership` | POST | cookie | Worker | Home's consent card for the membership the body names, read from that membership's own cookie |
+| `/auth/accept-membership` | POST | cookie | Worker | Home's Accept, the second acceptance writer beside the link page's; both call the registry's one `acceptMembership` |
+| `/auth/refresh-token` | POST | cookies | Worker | The KV read → mint the access token for the page's host, read from `Origin`; no body. The one route a page on another host calls, so it alone answers CORS, and it alone accepts `Sec-Fetch-Site: same-site`. Re-sets no cookie but expires one that misses both KV and the index |
+| `/auth/logout` | POST | cookies | Worker | Ends the session behind every refresh cookie the browser presents, recording each `sub` whose sessions ended, and expires every one; `{ everywhere: true }` ends every session of each address those cookies name |
 
 ### Authenticated endpoints
 
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
-| `NebulaAuthFacade.invite(targetScope, invitees)` | mesh (`lmz.call`/`callAsync` on the `NEBULA_AUTH_FACADE` service binding, `instanceName: undefined`) | eligibility (exact-scope membership ∨ dominion) + the per-invitee bit cap, from `callContext.originAuth` | Facade | `invitees: [{ email, scopeAdmin? }]`. The registry mints per invitee (identity + reusable-within-TTL invite token, promoting an existing non-admin member when the bit is requested under dominion) and answers per-invitee outcomes (`invited \| already-member \| promoted`); the facade dispatches the mail post-return under `ctx.waitUntil` (template by acceptance). **There is no HTTP invite route** — `POST /auth/{scope}/invite` is a 404 |
-| `/auth/mint-narrower-token` | POST | pipeline: JWT + `sub` rate limit; authz = the handler's `canMintFor` (dominion over the SUBJECT's scope) | Worker | Mint a narrower token wearing another person's identity: `sub`/`authScope`/`scopeAdmin` = the subject's, `aud` = the requested `activeScope`, `act.sub` = the caller. Requires `{ subOfNarrowerToken, activeScope }`. Scope-less — the old `/auth/{scope}/…` path is a 404 |
+| `NebulaAuthFacade.invite(targetScope, invitees)` | mesh (`lmz.call`/`callAsync` on the `NEBULA_AUTH_FACADE` service binding, `instanceName: undefined`) | eligibility (exact-scope membership ∨ dominion) + the per-invitee bit cap, from `callContext.originAuth` | Facade | `invitees: [{ email, scopeAdmin? }]`. The registry mints per invitee (identity + a magic link that lives 7 days, promoting an existing non-admin member when the bit is requested under dominion) and answers per-invitee outcomes (`invited \| already-member \| promoted`); the facade dispatches the mail post-return under `ctx.waitUntil` (template by acceptance). **There is no HTTP invite route** — `POST /auth/{scope}/invite` is a 404 |
+| `NebulaAuthFacade.expandScope({ after? })` | mesh | dominion over the caller's `aud`, else an empty level without a hop | Facade → registry RPC | One more level beneath the page's own scope, keyset-paged past the budget. No argument names the parent |
+| `NebulaAuthFacade.createGalaxy(universeGalaxyId)` | mesh | dominion over the parent universe, then the registry's own check | Facade → registry RPC | Writes the galaxy and its `.dev` Star, then tears both down through the consumer's hook before answering, so a re-used slug starts empty. A refusal such as `slug_taken` tears nothing down |
+| `NebulaAuthFacade.planScopeDeletion(target)` | mesh | dominion over `target`, then the registry's own check | Facade → registry RPC | Read-only cascade plan for the confirm screen |
+| `NebulaAuthFacade.executeScopeDeletion(target)` | mesh | dominion over `target`, then the registry's own check | Facade → registry RPC | Execute the cascade, then tear down every affected scope's Durable Objects through the consumer's hook; returns the affected set |
+| `NebulaAuthFacade.impersonate(sub, { ttlSeconds? })` | mesh | `canMintFor` (dominion over the SUBJECT's scope) + the subject's acceptance | Facade | Mint a token wearing another person's identity: `sub`/`authScope`/`scopeAdmin` = the subject's, `aud` = the caller's own, `act` = the caller. Every refusal is an `ImpersonationRefusedError` with `terminal: true` |
 
 ### Registry endpoints
 
@@ -155,12 +154,6 @@ Every path is matched against the route table's `URLPattern`s — the scope-less
 |----------|--------|--------|-----------|-------------|
 | `/auth/claim-universe` | POST | Turnstile | → registry `fetch()` (raw) | Open self-signup: register the `Scopes` row, mint the claiming admin identity, send a magic link |
 | `/auth/claim-star` | POST | Turnstile | → registry `fetch()` (raw) | **Open Star self-signup.** Body `{ universeGalaxyStarId, email }`. Registers the `Scopes` row, mints the star-scoped admin at the **3-segment star id** (`isAdmin`, `emailVerified: 0` → an **exact-star** pattern), and sends a claim link — all in one `transactionSync`. No admin in the loop |
-| `/auth/create-galaxy` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a galaxy — `Scopes` row only |
-| `/auth/create-star` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a star — `Scopes` row only |
-| `/auth/scope-summary` | POST | JWT (+ verified `sub`/`profileId` injected; refuses an `act`-bearing token) + rate limit | → registry `fetch()` | Every address on the caller's identity and the tree beneath each accepted admin membership, budget-bounded |
-| `/auth/expand-scope` | POST | same as `scope-summary` | → registry `fetch()` | One more level beneath a node, keyset-paged past the budget |
-| `/auth/delete-scope-plan` | POST | JWT (+`verifiedAccess` + `callerSub` injected) + rate limit | → registry `fetch()` | Read-only cascade plan for the confirm screen |
-| `/auth/delete-scope` | POST | JWT (+`verifiedAccess` + `callerSub` injected) + rate limit | → registry `fetch()` | Execute the cascade; returns the affected set for the caller's platform-DO teardown fan-out |
 
 #### `claim-star` responses — first failure wins
 
@@ -171,7 +164,7 @@ Validation is a fail-fast prologue in this exact order, so a request failing sev
 | 1 | 400 | `invalid_email` | `email` fails `isValidEmail` |
 | 2 | 400 | `invalid_id` | `universeGalaxyStarId` is not 1–3 valid dot-separated slugs |
 | 3 | 400 | `invalid_tier` | parses, but is not 3 segments |
-| 4 | 400 | `reserved_slug` | the star slug is a reserved **environment** name (`dev`) — see `RESERVED_STAR_SLUGS` |
+| 4 | 400 | `reserved_slug` | the star slug is a reserved **environment** name (`dev`, `staging`, `prod` and five more) — see `RESERVED_STAR_SLUGS` |
 | 5 | 400 | `parent_not_found` | the parent galaxy `{u}.{g}` has no `Scopes` row |
 | 6 | 409 | `slug_taken` | the full `{u}.{g}.{s}` is already claimed |
 | — | 400 | `invalid_request` | the body is not a JSON object |
@@ -179,7 +172,7 @@ Validation is a fail-fast prologue in this exact order, so a request failing sev
 
 ⚠️ **`slug_taken` is deliberately ambiguous.** When the slug is held by a claimer who never verified their email, that claimer is re-sent their claim link — but the response is **byte-identical** to an ordinary rejection, and the send is fired without being awaited. Answering a resume with a success (or awaiting only on that branch) would make this endpoint an email-confirmation oracle: probe a slug with `victim@corp.com` and a distinguishable answer proves the victim is that slug's unverified claimer. The resume adds a `MagicLinks` row and nothing else — never an `UPDATE Identities`, which would promote a pending invitee to star admin through an unauthenticated endpoint.
 
-⚠️ **`claim-star`'s row must carry `turnstileGuard`.** `subRateLimitGuard` keys on a verified `sub`, so the Turnstile step (behind the connection limiter) is the only human-presence bound on this open mutation endpoint. The regression is caught behaviourally: `checkTurnstile` no longer short-circuits under `NEBULA_AUTH_TEST_MODE`, so `turnstile-bypass.test.ts`'s gating sweep binds a non-empty secret per test and asserts each open row answers `403 turnstile_required` — a row that silently lost the step reds it.
+⚠️ **`claim-star`'s row must carry `turnstileGuard`.** It presents no token, so the Turnstile step (behind the connection limiter) is the only human-presence bound on this open mutation endpoint. The regression is caught behaviourally: `checkTurnstile` no longer short-circuits under `NEBULA_AUTH_TEST_MODE`, so `turnstile-bypass.test.ts`'s gating sweep binds a non-empty secret per test and asserts each open row answers `403 turnstile_required` — a row that silently lost the step reds it.
 
 ---
 
@@ -191,62 +184,70 @@ The most frequent operation, roughly every 15 minutes per active session. No DO 
 
 ```mermaid
 sequenceDiagram
-    participant C as Client
-    participant W as Worker
+    participant C as Page on a scope host
+    participant W as Worker (platform host)
     participant KV as Workers KV
     participant R as Registry DO
 
-    C->>W: POST /auth/{scope}/refresh-token [cookie + { activeScope }]
-    W->>W: hash the cookie token
-    W->>KV: GET refresh:{tokenHash}
-    KV-->>W: { sub, universeGalaxyStarId, isAdmin, profileId, expiresAt }
-    W->>W: derive the pattern from the RECORD scope, cover-check activeScope
-    W->>W: sign the access token (aud = activeScope)
-    W-->>C: 200 { access_token, token_type, expires_in, sub }
+    C->>W: POST /auth/refresh-token, no body [Origin + cookies]
+    W->>W: parse the host from Origin - its scope is the token's aud
+    W->>W: keep the cookies named at or above that scope, broadest first
+    W->>KV: GET refresh:{tokenHash} per candidate
+    KV-->>W: { sub, universeGalaxyStarId, scopeAdmin, accepted, profileId, expiresAt }
+    W->>W: pick the first accepted scopeAdmin record, else the one at the host
+    W->>W: sign the access token (aud = the host's scope, access from the record)
+    W-->>C: 200 { access_token, token_type, expires_in, sub } + CORS for that origin
 
     Note over W,R: Only on a KV miss (cross-colo propagation gap)
     W->>R: getRefreshRecord(tokenHash)
-    R->>R: RefreshTokenIndex + current Identities row
-    R->>KV: re-put the record (self-heal)
-    R-->>W: the record, or null which the Worker maps to 401
+    R-->>W: the record from RefreshTokenIndex, or null
+    W->>KV: re-put the record (self-heal)
+    Note over W: a miss on both expires the cookie
 ```
 
 ### Magic link login
 
 ```mermaid
 sequenceDiagram
-    participant C as Client
+    participant C as Platform host page
     participant W as Worker
     participant R as Registry DO
     participant KV as Workers KV
 
     Note over C,KV: Step 1 - request the link
-    C->>W: POST /auth/{scope}/email-magic-link { email }
-    W->>W: Turnstile, then email-format gate
-    W->>R: requestMagicLink(email, scope, origin)
-    R->>R: INSERT MagicLinks (token stored HASHED)
+    C->>W: POST /auth/email-magic-link { email, return_to? }
+    W->>W: same-origin rule, Turnstile, email-format gate, return_to through the host parse
+    W->>R: requestMagicLink(email, origin, returnTo)
+    R->>R: INSERT MagicLinks (token stored HASHED, with returnTo)
     R->>R: send the email, or return the URL in test mode
-    R-->>W: { message }
-    W-->>C: 200 { message, expires_in }
+    W-->>C: 200 { message, expires_in }, identical for every address
 
-    Note over C,KV: Step 2 - click the link
-    C->>W: GET /auth/{scope}/magic-link?one_time_token=...
-    W->>W: generate the raw refresh token, hash both tokens
-    W->>R: resolveConsume(kind, linkHash)
-    R->>R: validate the MagicLinks row, prove the mailbox (emailVerified)
+    Note over C,KV: Step 2 - open the link - a page, which changes nothing
+    C->>W: GET /auth/magic-link?token=...
+    C->>W: POST /auth/magic-link/lookup { token }
+    W->>R: lookupLink(linkHash)
+    R-->>W: the address, any pending membership at the link's scope, whether it is spent
+    W-->>C: Continue as the address, or the consent card
+
+    Note over C,KV: Step 3 - Continue or Accept
+    C->>W: POST /auth/magic-link { token, nickname?, name? }
+    W->>R: consumeLink(linkHash)
+    R->>R: validate the unspent row, prove the mailbox (emailVerified)
     R-->>W: every membership this address holds, or null
     W->>W: choose which get a cookie, mint a raw token each
     W->>R: recordSessions(hashes, expiresAt)
     R->>R: INSERT RefreshTokenIndex (index FIRST)
-    R->>KV: put refresh:{tokenHash} with a fixed 30-day TTL
-    W-->>C: 302 to /auth/{scope}/home + one Set-Cookie per membership
+    W->>KV: put refresh:{tokenHash} with a fixed 30-day TTL
+    W->>R: acceptMembership at the link's scope, if one is pending
+    R->>R: spend the link
+    W-->>C: { redirect } + one Set-Cookie __Host-refresh-token.{scope} per membership
 ```
 
-Index-first is a seam invariant: an eviction at the awaited KV put leaves at worst a revocable index-entry-without-record, never a live-but-unindexed token that nothing can revoke. Magic links stay reusable within their TTL (scanner-safe) and are swept on DO wake rather than deleted on consume.
+Index-first is a seam invariant: an eviction at the awaited KV put leaves at worst a revocable index-entry-without-record, never a live-but-unindexed token that nothing can revoke. A link is spent once its sessions are recorded, so a click that fails before that can be retried, and a replay — from history or a forwarded mail — signs nobody in. Expired rows are swept on DO wake.
 
 ### Admin invite
 
-The invitee identity is pre-created at issuance, so the click only flips flags — no conditional mint at consume, and no Turnstile (the invite token is the proof of legitimacy). Promotion happens at ISSUANCE (re-inviting an existing non-admin member with the bit, under dominion), never at the click. The registry is mint-only: the facade dispatches the mail post-return under `ctx.waitUntil`, picking the template by acceptance (`invite-existing` for an accepted member, `invite-new` with the fresh link otherwise). The diagram's caller is whichever mesh node holds the verified claims — a client directly, or a platform node forwarding its own caller's — the facade neither knows nor cares.
+The invitee identity is pre-created at issuance, so the Accept only flips flags — no conditional mint at consume, and no Turnstile (the link's token is the proof of legitimacy). Promotion happens at ISSUANCE (re-inviting an existing non-admin member with the bit, under dominion), never at the click. The registry is mint-only: the facade dispatches the mail post-return under `ctx.waitUntil`, picking the template by acceptance (`invite-existing` for an accepted member, `invite-new` with the fresh link otherwise). The diagram's caller is whichever mesh node holds the verified claims — a client directly, or a platform node forwarding its own caller's — the facade neither knows nor cares.
 
 ```mermaid
 sequenceDiagram
@@ -261,18 +262,17 @@ sequenceDiagram
     F->>R: issueInvites(targetScope, cappedInvitees, origin, callerClaims)
     R->>R: mint each invitee Identity (per-invitee scopeAdmin, emailVerified=0)
     R->>R: promote an existing non-admin member when the bit is requested
-    R->>R: INSERT InviteTokens (HASHED, reusable within TTL)
+    R->>R: INSERT MagicLinks (HASHED, purpose invite, 7-day TTL)
     R-->>F: per-invitee { email, sub, outcome } + what the sender needs
     F-->>C: summary (carries no URL)
     F->>F: dispatch the invite emails under ctx.waitUntil (template by acceptance)
 
-    Note over C,W: Step 2 - the invitee clicks (session lifecycle stays HTTP)
-    C->>W: GET /auth/{scope}/accept-invite?invite_token=...
-    W->>R: consumeInvite(inviteHash, refreshHash, refreshExpiresAt)
-    R->>R: validate the row (kept - swept only at expiry), find-and-flip the Identity
-    R->>R: RefreshTokenIndex, then the KV record
-    R-->>W: { sub, universeGalaxyStarId }
-    W-->>C: 302 + Set-Cookie
+    Note over C,W: Step 2 - the invitee opens the link (session lifecycle stays HTTP)
+    C->>W: GET /auth/magic-link?token=... on the platform host
+    W-->>C: the consent card, naming the inviter
+    C->>W: POST /auth/magic-link { token, nickname, name }
+    W->>R: consumeLink, recordSessions, then acceptMembership
+    W-->>C: { redirect: the invited scope's host } + Set-Cookie per membership
 ```
 
 ### Universe self-signup
@@ -285,65 +285,68 @@ sequenceDiagram
     participant W as Worker
     participant R as Registry DO
 
-    C->>W: POST /auth/claim-universe { slug, email, turnstile }
+    C->>W: POST /auth/claim-universe { slug, appSlug, email, turnstile }
     W->>W: Turnstile gate
     W->>R: forward the request to the DO fetch()
-    R->>R: validate the email + slug, reject the reserved nebula-platform
+    R->>R: validate the email + slug, reject a reserved platform label
     R->>R: checkSlugAvailable against Scopes
-    R->>R: INSERT the Scopes row
-    R->>R: mint the claiming admin Identity (isAdmin=1, emailVerified=0)
-    R->>R: INSERT MagicLinks, send the email
+    R->>R: INSERT the universe's, its first app's and that app's .dev Star's Scopes rows
+    R->>R: mint the claiming admin membership (scopeAdmin, NOT yet accepted)
+    R->>R: INSERT MagicLinks returning to the app's Studio host, send the email
     R-->>W: 200 { message }
     W-->>C: 200
 
-    Note over C,R: The click proves the address (emailVerified) and places an INERT session<br/>Accepting on Home is what takes the membership up
+    Note over C,R: The link page's Accept proves the address, places the sessions<br/>and takes the membership up, then lands in Studio
 ```
 
-### Galaxy / Star creation (admin only)
+### App creation (admin only)
 
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant W as Worker
+    participant F as NebulaAuthFacade
     participant R as Registry DO
+    participant H as Consumer hook
 
-    C->>W: POST /auth/create-galaxy { universeGalaxyId } [admin JWT]
-    W->>W: verify the JWT, rate limit
-    W->>R: forward with verifiedAccess injected into the body
-    R->>R: hasDominionOver(verifiedAccess, parent universe)
-    R->>R: parent exists, and the slug is available
-    R->>R: INSERT the Scopes row (no Identity, no email)
-    R-->>W: 201 { instanceName }
-    W-->>C: 201
+    C->>F: callAsync createGalaxy(universeGalaxyId) [verified claims]
+    F->>F: hasDominionOver(claims.access, parent universe)
+    F->>R: createGalaxy(universeGalaxyId, claims)
+    R->>R: re-check dominion, the parent exists, the slug is available
+    R->>R: INSERT the galaxy's and its .dev Star's Scopes rows (no identity, no email)
+    R-->>F: { instanceName }
+    F->>H: teardown(the galaxy and its .dev Star, creation)
+    H-->>F: done, each target attempted on its own
+    F-->>C: { instanceName }
 ```
 
-`create-star` is the same shape one tier down, gated on the parent **galaxy**. Neither mints an identity — the creating admin already reaches the new scope through their wildcard pattern.
+No identity is minted — the creating admin already reaches the new scope by dominion. A Star is created by `claim-star`, never by an admin route.
 
 ### Discovery — after the proof, never before
 
 `POST /auth/discover` is **retired**. It answered, to anyone who asked and with no proof of the
 address, which scopes an address belonged to and which it administered — and at galaxy and universe
-tiers a membership generally IS administration, while at `nebula-platform` it is superuser-ship, so
+tiers a membership generally IS administration, while at `_platform` it is superuser-ship, so
 narrowing the response could never have closed it. The whole login order changed instead: one
-scope-less link, the click proves the mailbox, and only then is the person shown what they reach.
+scope-less link, the link page's Continue proves the mailbox, and only then is the person shown
+what they reach.
 
 ```mermaid
 sequenceDiagram
-    participant C as Client
+    participant C as Platform host page
     participant W as Worker
     participant R as Registry DO
 
-    Note over C,W: No scope is named — nothing is known about the address yet
+    Note over C,W: No scope is named - nothing is known about the address yet
     C->>W: POST /auth/email-magic-link { email }
     W-->>C: 200, identical whatever address was named
 
-    Note over C,W: ... the person clicks the link in their mail ...
+    Note over C,W: ... the person opens the link and Continues ...
 
-    C->>W: POST /auth/scope-summary (Bearer, from the session the click placed)
-    W->>R: getScopeSummary(profileId, sub)
+    C->>W: POST /auth/home-summary [the cookies the Continue placed]
+    W->>R: getScopeSummary(profileId, sub) per Profile the cookies name
     R->>R: every address on this identity, and the tree beneath each ACCEPTED admin membership
     R-->>W: budget-bounded nested summary
-    W-->>C: 200
+    W-->>C: 200 { groups, pending }
 ```
 
 ### Scope deletion
@@ -355,47 +358,43 @@ sequenceDiagram
     participant R as Registry DO
     participant KV as Workers KV
 
-    C->>W: POST /auth/delete-scope { target } [admin JWT]
-    W->>W: verify the JWT, rate limit
-    W->>R: forward with BOTH verifiedAccess and callerSub injected
-    R->>R: re-verify admin over the target, resolve callerSub to an email
+    C->>W: callAsync executeScopeDeletion(target) [verified claims]
+    W->>W: the facade - hasDominionOver(claims.access, target)
+    W->>R: executeScopeDeletion(target, claims)
+    R->>R: re-verify dominion over the target, resolve the caller's sub to an email
     R->>R: compute the cascade - target and descendants ONLY, never an ancestor
     R->>KV: delete every refresh record for the affected identities
-    R->>R: DELETE Identities, MagicLinks, InviteTokens, Scopes
-    R-->>W: 200 { affected }
-    W-->>C: 200 { affected }
-
-    Note over C,KV: The CLIENT then fans out platform-DO teardown over the mesh
+    R->>R: DELETE Memberships, MagicLinks, Scopes
+    R-->>W: { affected }
+    W->>W: the consumer's hook tears down each affected scope's Durable Objects
+    W-->>C: { affected }
 ```
 
-`callerSub` is the caller's **verified** surrogate sub from the JWT, never client-supplied — the registry resolves it to an email internally to exclude the caller from the "other users attached" count, and **fails closed** if that resolution comes back empty. That count is a **warning, not a gate** — `delete-scope` never returns `409 scope_in_use`; an admin over the target can always delete it (ADR-015: downward dominion is non-vetoable, so a descendant's members can never block an admin above them). `planScopeDeletion` returns `affectedUsers: { total, sample }` — an exact `COUNT(DISTINCT email)` plus up to 25 sample rows — so the confirm screen can warn with real numbers on a Star with thousands of users. The registry cannot reach platform DOs (dependency direction), so it returns the affected set and the caller tears them down.
+The caller's `sub` comes from the **verified** claims, never from an argument — the registry resolves it to an email internally to exclude the caller from the "other users attached" count, and **fails closed** if that resolution comes back empty. That count is a **warning, not a gate** — a deletion never refuses as `scope_in_use`; an admin over the target can always delete it (ADR-015: downward dominion is non-vetoable, so a descendant's members can never block an admin above them). `planScopeDeletion` returns `affectedUsers: { total, sample }` — an exact `COUNT(DISTINCT email)` plus up to 25 sample rows — so the confirm screen can warn with real numbers on a Star with thousands of users. The registry cannot reach platform DOs (dependency direction), so it returns the affected set and the facade hands it to the consumer's `teardown` hook.
 
 ### Multi-scope sessions
 
-Each login sets its refresh cookie with `Path` scoped to that scope id, so the browser sends exactly the right cookie to the right scope with no client-side bookkeeping.
+Every membership has its own cookie, `__Host-refresh-token.{scope}`, at `Path=/` on the platform host, so every refresh receives all of them. The refresh picks by the page's host: only cookies whose scope sits at or above it are read.
 
 ```mermaid
 sequenceDiagram
     participant C as Carol's Browser
-    participant W as Worker
+    participant W as Worker (platform host)
     participant KV as Workers KV
 
-    Note over C,KV: Tab 1 - login to acme.crm.acme-corp
-    C->>W: magic-link flow for carol@acme.com
-    W-->>C: Set-Cookie refresh-token=A, Path=/auth/acme.crm.acme-corp
+    Note over C,KV: carol@acme.com and carol@bigco.com each log in once
+    W-->>C: Set-Cookie __Host-refresh-token.acme.crm.acme-corp=A, Path=/
+    W-->>C: Set-Cookie __Host-refresh-token.bigco.hr.bigco-hq=B, Path=/
 
-    Note over C,KV: Tab 2 - login to bigco.hr.bigco-hq
-    C->>W: magic-link flow for carol@bigco.com
-    W-->>C: Set-Cookie refresh-token=B, Path=/auth/bigco.hr.bigco-hq
-
-    Note over C,KV: Each refresh sends only its own path-scoped cookie
-    C->>W: POST /auth/acme.crm.acme-corp/refresh-token [cookie A]
+    Note over C,KV: A tab on https://acme-corp.crm.acme.lumenize.dev/ refreshes
+    C->>W: POST /auth/refresh-token [Origin + cookies A and B]
+    W->>W: only A's name sits at or above acme.crm.acme-corp
     W->>KV: GET refresh:{hash of A}
     KV-->>W: the record scoped to acme.crm.acme-corp
-    W-->>C: 200 { access_token }
+    W-->>C: 200 { access_token } (aud acme.crm.acme-corp)
 ```
 
-Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs in at `/auth/george-solopreneur`, so their KV record's scope is the universe and refresh derives `authScope = "george-solopreneur.*"`. That one cookie, scoped to `Path=/auth/george-solopreneur`, refreshes at universe level only — and the `activeScope` in the refresh body picks the `aud` of the minted token, so the admin can target any covered child scope.
+An admin's one cookie covers their subtree. A universe admin's `__Host-refresh-token.george-solopreneur` mints on every page beneath the universe, with `authScope: "george-solopreneur"` and `aud` the page's own scope, so the admin works in any covered child by opening its host.
 
 ---
 
@@ -403,13 +402,13 @@ Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs 
 
 ```typescript
 interface AccessEntry {
-  authScope: string  // scope id or wildcard (e.g. "george-solopreneur.*")
-  admin?: boolean           // omitted when false
+  authScope: string     // the membership's scope, verbatim
+  scopeAdmin?: boolean  // omitted when false
 }
 
 interface NebulaJwtPayload {
-  iss: string        // https://nebula.lumenize.com
-  aud: string        // the active scope this token is bound to
+  iss: string        // the deployment's platform origin, e.g. https://platform.lumenize.dev
+  aud: string        // the scope of the page's host
   sub: string        // the registry-minted surrogate sub
   exp: number        // Unix seconds (JWT NumericDate — the ADR-011 carve-out)
   iat: number        // Unix seconds
@@ -428,10 +427,10 @@ Both mint paths (the Worker's `mintAccessToken` and the Node test-util `createNe
 
 ```json
 { "access": { "authScope": "george-solopreneur.georges-first-app.acme-corp" } }
-{ "access": { "authScope": "george-solopreneur.georges-first-app.acme-corp", "admin": true } }
-{ "access": { "authScope": "george-solopreneur.georges-first-app", "admin": true } }
-{ "access": { "authScope": "george-solopreneur", "admin": true } }
-{ "access": { "authScope": "nebula-platform", "admin": true } }
+{ "access": { "authScope": "george-solopreneur.georges-first-app.acme-corp", "scopeAdmin": true } }
+{ "access": { "authScope": "george-solopreneur.georges-first-app", "scopeAdmin": true } }
+{ "access": { "authScope": "george-solopreneur", "scopeAdmin": true } }
+{ "access": { "authScope": "_platform", "scopeAdmin": true } }
 ```
 
 Read top to bottom: star user, star admin, galaxy admin, universe admin, platform admin. The claim is the member's scope **verbatim** — the same string their `Memberships` row holds. Nothing derives a second form of it.
@@ -439,8 +438,8 @@ Read top to bottom: star user, star admin, galaxy admin, universe admin, platfor
 ### Scope containment (`isAtOrAbove` / `isAtOrBelow`)
 
 ```
-isAtOrAbove("nebula-platform", "george-solopreneur")                    -> true  (the platform scope is the ROOT)
-isAtOrAbove("nebula-platform", "george-solopreneur.app.tenant")         -> true
+isAtOrAbove("_platform", "george-solopreneur")                    -> true  (the platform scope is the ROOT)
+isAtOrAbove("_platform", "george-solopreneur.app.tenant")         -> true
 isAtOrAbove("george-solopreneur", "george-solopreneur")                 -> true  (own scope)
 isAtOrAbove("george-solopreneur", "george-solopreneur.app")             -> true  (galaxy beneath)
 isAtOrAbove("george-solopreneur", "george-solopreneur.app.tenant")      -> true  (star beneath)
@@ -502,23 +501,19 @@ The live-token index that makes KV invalidation reliable: looked up by `tokenHas
 
 ```sql
 CREATE TABLE IF NOT EXISTS MagicLinks (
-  tokenHash TEXT PRIMARY KEY,
-  email TEXT NOT NULL,
-  universeGalaxyStarId TEXT NOT NULL,
-  expiresAt TEXT NOT NULL
-) WITHOUT ROWID;
-
-CREATE TABLE IF NOT EXISTS InviteTokens (
-  tokenHash TEXT PRIMARY KEY,
-  email TEXT NOT NULL,
-  universeGalaxyStarId TEXT NOT NULL,
-  expiresAt TEXT NOT NULL
+  tokenHash            TEXT PRIMARY KEY,
+  email                TEXT NOT NULL,
+  universeGalaxyStarId TEXT,
+  purpose              TEXT NOT NULL CHECK (purpose IN ('login', 'claim', 'invite')),
+  returnTo             TEXT,
+  spentAt              TEXT,
+  expiresAt            TEXT NOT NULL
 ) WITHOUT ROWID;
 ```
 
-The login channel. Both live in the registry rather than KV because their verify always calls the registry anyway. Both token kinds are reusable within their TTL (scanner-safe) — nothing deletes on consume. They have no KV TTL, so the DO constructor sweeps expired rows on every wake — cheap on small, short-TTL tables, and cheaper than paying an index write on `expiresAt` for every insert.
+The login channel, for every emailed link — a sign-in and a claim live 30 minutes, an invite 7 days, and `purpose` tells them apart for the activity log only. It lives in the registry rather than KV because the lookup and the consume call the registry anyway. A link is spent once: the consume sets `spentAt` after recording the sessions, and the lookup reports it so the page can say so. There is no KV TTL, so the DO constructor sweeps expired rows on every wake — cheap on a small, short-TTL table, and cheaper than paying an index write on `expiresAt` for every insert.
 
-**All bearer tokens are stored hashed.** Magic-link, invite, and refresh tokens are persisted only as a one-way `tokenHash`; the raw value exists solely in the URL or cookie. A store leak yields no usable credential. Timestamps are ISO 8601 Zulu `TEXT` (ADR-011), string-compared.
+**All bearer tokens are stored hashed.** Link and refresh tokens are persisted only as a one-way `tokenHash`; the raw value exists solely in the URL or cookie. A store leak yields no usable credential. Timestamps are ISO 8601 Zulu `TEXT` (ADR-011), string-compared.
 
 ### Workers KV — the one hot record
 
@@ -539,15 +534,15 @@ Three writers, all in the registry: the login funnel (`#recordRefreshToken`), th
 
 ## Platform Admin (bootstrap)
 
-`NEBULA_AUTH_BOOTSTRAP_EMAIL` holds a comma-separated list of platform super-admin emails (split, trimmed, lowercased, deduped — compared by array membership, never a substring match). Such an email authenticates through the normal magic-link flow at the reserved `nebula-platform` scope.
+`NEBULA_AUTH_BOOTSTRAP_EMAIL` holds a comma-separated list of platform super-admin emails (split, trimmed, lowercased, deduped — compared by array membership, never a substring match). Such an email authenticates through the normal magic-link flow at the reserved `_platform` scope.
 
-That pairing is the **one** mint on the `email-magic-link` path, and it is gated on both factors: a configured bootstrap email **and** the reserved scope. A non-bootstrap email requesting a link for `nebula-platform` gets no mint, so stranger-self-join stays closed. Because `nebula-platform` is the ROOT of the scope tree, the resulting token holds dominion over every scope.
+That pairing is the **one** mint on the `email-magic-link` path, and it is gated on both factors: a configured bootstrap email **and** the reserved scope. A non-bootstrap email requesting a link for `_platform` gets no mint, so stranger-self-join stays closed. Because `_platform` is the ROOT of the scope tree, the resulting token holds dominion over every scope.
 
-`nebula-platform` cannot be claimed as a universe slug and cannot be deleted.
+`_platform` cannot be claimed as a universe slug, since the slug grammar refuses its leading underscore, and it cannot be deleted.
 
 ### Admin creation chain
 
-- **Platform admin** (`nebula-platform`, the scope-tree root) reaches everything
+- **Platform admin** (`_platform`, the scope-tree root) reaches everything
 - **Universe admins** create galaxies beneath their universe and invite into any scope they cover
 - **Galaxy admins** create stars beneath their galaxy
 - **Star admins** manage their star's users
@@ -565,7 +560,6 @@ Admin-created child scopes stamp **no local admin** — the creating admin manag
 | `NEBULA_AUTH_REGISTRY` | Durable Object (`NebulaAuthRegistry`) | Required. Register the class in the `exports` map as `storage: "sqlite"` — it uses the synchronous storage API, which throws under `legacy-kv` |
 | `REFRESH_TOKEN_KV` | KV namespace | Required — the refresh hot path |
 | `AUTH_EMAIL_SENDER` | Service binding to the `NebulaEmailSender` entrypoint | Optional; absent means email is logged, not sent |
-| `NEBULA_AUTH_RATE_LIMITER` | Rate limiter | Optional; absent disables per-`sub` rate limiting |
 | `PROFILE` | Durable Object (`Profile`) | Required only if you mount the `/profile` subpath |
 
 ### Environment variables
@@ -589,14 +583,15 @@ Email provider selection is delegated to `@lumenize/email` (the `EMAIL` binding 
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `PLATFORM_SCOPE` | `'nebula-platform'` | Reserved scope for platform admin |
+| `PLATFORM_SCOPE` | `'_platform'` | Reserved scope for platform admin |
 | `REGISTRY_INSTANCE_NAME` | `'registry'` | DO instance name of the singleton |
 | `NEBULA_AUTH_PREFIX` | `'/auth'` | URL prefix for all auth routes |
-| `NEBULA_AUTH_ISSUER` | `'https://nebula.lumenize.com'` | JWT `iss` claim |
 | `ACCESS_TOKEN_TTL` | `900` (15 min) | Access token lifetime |
 | `REFRESH_TOKEN_TTL` | `2592000` (30 days) | Refresh token lifetime — fixed, never slid |
 | `MAGIC_LINK_TTL` | `1800` (30 min) | Magic link lifetime |
-| `INVITE_TTL` | `604800` (7 days) | Invite token lifetime |
+| `INVITE_TTL` | `604800` (7 days) | An invite's magic-link lifetime |
+
+Each deployment names its origin once, in the `LUMENIZE_ORIGIN` var (`https://lumenize.dev` in production). The JWT `iss` is its platform host, `platformOrigin(origin)`, so a deployment accepts only its own tokens, and `parseHost(host, origin)` reads every host against it. Both are on the Node-safe `/claims` subpath.
 
 ---
 
@@ -620,20 +615,21 @@ export { parseId, isValidSlug, isPlatformScope, getParentId,
 // Types:     Tier, ParsedId, AccessEntry, NebulaJwtPayload, DiscoveryEntry,
 //            AffectedScope, ScopeDeletionBlocker, ScopeDeletionAffectedUsers, ScopeDeletionPlan
 // Constants: PLATFORM_SCOPE, REGISTRY_INSTANCE_NAME, NEBULA_AUTH_PREFIX,
-//            ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER
+//            ACCESS_TOKEN_TTL
 ```
 
-Composing the router into a Worker:
+Composing the router into a Worker. `hooks` is required, the same `ScopeLifecycleHooks` the facade
+subclass supplies: the router calls it to wipe the scopes a claim's first acceptance names.
 
 ```typescript
-const authResponse = await routeNebulaAuthRequest(request, env, { cors: corsOptions });
+const authResponse = await routeNebulaAuthRequest(request, env, { hooks: scopeLifecycleHooks });
 if (authResponse) return authResponse;
 ```
 
 ### Subpaths
 
 - **`@lumenize/nebula-auth/profile`** — the `Profile` DO. Deliberately *not* re-exported from the main index: it composes `@lumenize/mesh`, and pulling that chain through this widely-imported barrel breaks the transform of pure-unit consumers that import only light utilities.
-- **`@lumenize/nebula-auth/facade`** — `NebulaAuthFacade`, the mesh-speaking invite entry (a `LumenizeWorker`). Kept off the main index for the same transform reason as `Profile`. Consumers wire it as a self-referencing service binding (`NEBULA_AUTH_FACADE`) and re-export the class from their worker entry.
+- **`@lumenize/nebula-auth/facade`** — `NebulaAuthFacade`, the mesh-speaking session entry (a `LumenizeWorker`). Kept off the main index for the same transform reason as `Profile`. It is abstract: a consumer subclasses it under the same name, supplies `hooks` (a `ScopeLifecycleHooks`), wires it as a self-referencing service binding (`NEBULA_AUTH_FACADE`) and exports the subclass from their worker entry.
 - **`@lumenize/nebula-auth/testing`** — the Node-safe surface (`createNebulaTestToken`, `buildNebulaJwtPayload`, the scope helpers, the invite wire types, types and constants). Free of `cloudflare:workers`, so a standalone `tsx` harness can import it. Per ADR-009, a client-side mint is the **last resort** — prefer the real email login path.
 
 ## License

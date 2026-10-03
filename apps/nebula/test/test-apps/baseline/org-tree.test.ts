@@ -8,8 +8,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { OrgTreeState, Star } from '@lumenize/nebula';
-import { adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
+import {
+  adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, createSubject, uniqueGalaxyScope, ownerOf,
+} from '../../test-helpers';
 import { NebulaClientTest } from './index';
+
+/** Each universe's founder has its own address: one address may own at most MAX_GALAXIES_PER_OWNER
+ *  galaxies, and every founding's claim writes one, so a shared address hits the cap mid-file. */
+const adminOf = (scope: string) => `admin-${scope.split('.')[0]}@example.com`;
 
 // Helper: create a unique star scope per test to avoid cross-test interference
 function uniqueStar(): string {
@@ -19,14 +25,14 @@ function uniqueStar(): string {
 // Helper: create admin client connected to a star
 async function adminClient(star: string) {
   const browser = new Browser();
-  return adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
+  return adminClientAt(NebulaClientTest, browser, star, star, adminOf(star));
 }
 
 // Helper: create a non-admin user client
 async function userClient(star: string, adminToken: string, email = 'user@example.com') {
   const adminBrowser = new Browser();
   // Need a browser with the admin's cookies for createSubject
-  const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+  const { accessToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
   const userBrowser = new Browser();
   await createSubject(adminBrowser, star, accessToken, email);
   return createInvitedClient(NebulaClientTest, userBrowser, star, star, email);
@@ -59,11 +65,10 @@ describe('org-tree', () => {
       expect(state.edges).toBeInstanceOf(Set);
       expect(state.edges.size).toBe(0);
 
-      // The connecting admin is the scope admin, auto-seeded as `admin`
-      // on root at first provision (see § root-admin seeding).
+      // The connecting admin acts through the scope-admin bypass and holds no grant in the tree.
       expect(state.permissions).toBeInstanceOf(Map);
-      expect(state.permissions.size).toBe(1);
-      expect(state.permissions.get(ROOT_NODE_ID)?.get(payload.sub)).toBe('admin');
+      expect(state.permissions.size).toBe(0);
+      expect(state.permissions.get(ROOT_NODE_ID)?.get(payload.sub)).toBeUndefined();
 
       client[Symbol.dispose]();
     });
@@ -112,31 +117,32 @@ describe('org-tree', () => {
     });
   });
 
-  // ─── Root-admin seeding (nebula-star-root-admin.md Part 1) ──
+  // ─── A star-level scopeAdmin acts through the bypass ──
 
-  describe('DataPlane root-admin seeding', () => {
-    it('seeds the star-scoped admin as DataPlane root admin at first provision', async () => {
-      const star = uniqueStar();
-      const { client, payload } = await adminClient(star);
-      const starAdminSub = payload.sub;
+  describe('a star-level scopeAdmin acts on its own tree with no DAG grant', () => {
+    // The admin is the `.dev` one a galaxy invite co-mints with `scopeAdmin`, so their dominion is
+    // exactly this Star: the bypass in `requirePermission` admits them on equality with the host.
+    it('the co-minted .dev admin creates a node on its own Star, holding no grant there', async () => {
+      const { galaxy, dev } = uniqueGalaxyScope();
+      const adminBrowser = new Browser();
+      const { accessToken } = await foundAndLogin(adminBrowser, galaxy, ownerOf(adminOf(galaxy)), galaxy);
+      await createSubject(adminBrowser, galaxy, accessToken, 'devadmin@example.com');
+      const { client: devAdmin, payload } = await createInvitedClient(
+        NebulaClientTest, new Browser(), dev, dev, 'devadmin@example.com');
+      // Fixture guard: the bit at exactly this Star, so only the equality arm can admit them.
+      expect(payload.access).toEqual({ authScope: dev, scopeAdmin: true });
 
-      // checkPermission resolves the grant via the permission climb (NOT the
-      // scope-admin bypass — that lives only in requirePermission). So a true
-      // result proves a real DAG grant exists, and gutting the seed flips it.
-      client.callStarCheckPermission(star, ROOT_NODE_ID, 'admin', starAdminSub);
-      await vi.waitFor(() => {
-        expect(client.lastResult).toBe(true);
-      });
+      devAdmin.callStarOrgTreeGetState(dev);
+      await vi.waitFor(() => expect((devAdmin.lastResult as OrgTreeState).permissions.size).toBe(0));
 
-      // ...and the grant is in the permissions map, so the request-access climb
-      // can discover the root admin as the admin to ask.
-      client.callStarOrgTreeGetState(star);
-      await vi.waitFor(() => {
-        const state = client.lastResult as OrgTreeState;
-        expect(state.permissions.get(ROOT_NODE_ID)?.get(starAdminSub)).toBe('admin');
-      });
+      // Mutation: confine the bypass to an admin strictly above the host, and this is refused by
+      // the DAG's message.
+      devAdmin.callStarCreateNode(dev, ROOT_NODE_ID, 'own-tree', 'Own Tree');
+      await vi.waitFor(() => expect(devAdmin.callCompleted).toBe(true));
+      expect(devAdmin.lastError).toBeUndefined(); // a refusal shows its message here
+      expect(devAdmin.lastResult).toBeDefined();
 
-      client[Symbol.dispose]();
+      devAdmin[Symbol.dispose]();
     });
   });
 
@@ -253,7 +259,7 @@ describe('org-tree', () => {
 
       // A non-admin writer, granted 'write' on P.
       const adminBrowser = new Browser();
-      const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+      const { accessToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
       const writerBrowser = new Browser();
       await createSubject(adminBrowser, star, accessToken, 'writer@example.com');
       const { client: writer, payload: writerPayload } =
@@ -342,9 +348,9 @@ describe('org-tree', () => {
       client.callStarCreateNode(star, ROOT_NODE_ID, '', 'Empty');
       await vi.waitFor(() => expect(client.lastError).toContain('empty'));
 
-      // too long (101 chars)
-      client.callStarCreateNode(star, ROOT_NODE_ID, 'a'.repeat(101), 'Long');
-      await vi.waitFor(() => expect(client.lastError).toContain('100'));
+      // too long (31 chars)
+      client.callStarCreateNode(star, ROOT_NODE_ID, 'northwind-traders-international', 'Long');
+      await vi.waitFor(() => expect(client.lastError).toContain('30 characters or fewer'));
 
       // uppercase
       client.callStarCreateNode(star, ROOT_NODE_ID, 'MyNode', 'Upper');
@@ -376,8 +382,8 @@ describe('org-tree', () => {
         expect(client.lastError).toBeUndefined();
       });
 
-      // Max length (100 chars)
-      const maxSlug = 'a' + 'b'.repeat(98) + 'c';
+      // Max length (30 chars)
+      const maxSlug = 'a' + 'b'.repeat(28) + 'c';
       client.callStarCreateNode(star, ROOT_NODE_ID, maxSlug, 'Max');
       await vi.waitFor(() => {
         expect(client.lastResult).toBeDefined();
@@ -386,6 +392,24 @@ describe('org-tree', () => {
 
       // Hyphens in middle
       client.callStarCreateNode(star, ROOT_NODE_ID, 'my-cool-node', 'Cool');
+      await vi.waitFor(() => {
+        expect(client.lastResult).toBeDefined();
+        expect(client.lastError).toBeUndefined();
+      });
+
+      client[Symbol.dispose]();
+    });
+
+    it('caps a node slug at 30 characters, the scope grammar', async () => {
+      // In-lane: the cap is the shared slug predicate, run before the tree is touched.
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+
+      client.callStarCreateNode(star, ROOT_NODE_ID, 'northwind-traders-international', 'Northwind'); // 31
+      await vi.waitFor(() => expect(client.lastError).toContain('30 characters or fewer'));
+
+      // Positive control. The initiator clears the previous error, so this cannot pass on it.
+      client.callStarCreateNode(star, ROOT_NODE_ID, 'warehouse-management-system', 'Warehouse'); // 27
       await vi.waitFor(() => {
         expect(client.lastResult).toBeDefined();
         expect(client.lastError).toBeUndefined();
@@ -739,9 +763,9 @@ describe('org-tree', () => {
     it('setPermission, checkPermission, getEffectivePermission, revokePermission', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Resolve for a distinct, non-admin subject so the root admin's seeded
-      // root-admin grant (which rolls down to every node) doesn't shadow the
-      // tier under test. The root admin (caller) still performs the grants.
+      // Resolve for a distinct, non-admin subject, so the tier under test is the grant this test
+      // sets and nothing else. The Star's admin (caller) performs the grants, passing the DAG
+      // through the dominion bypass rather than a grant of its own.
       const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'secured', 'Secured');
@@ -776,8 +800,7 @@ describe('org-tree', () => {
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
       // No grant → checkPermission resolves false (it delegates to
-      // resolvePermission and does NOT use the scope-admin bypass; the
-      // root-admin seeding test proves that direction capable-of-failing).
+      // resolvePermission and does NOT use the scope-admin bypass).
       client.callStarCheckPermission(star, nodeId, 'admin', testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe(false));
 
@@ -805,7 +828,7 @@ describe('org-tree', () => {
     it('setPermission replaces existing tier (upsert)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Distinct subject — see the CRUD test above (the root admin rolls down admin).
+      // Distinct subject — see the CRUD test above.
       const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'upsert-test', 'Upsert');
@@ -832,8 +855,7 @@ describe('org-tree', () => {
     it('grant on root → all descendants, highest from any path wins', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Resolve for a distinct subject — the root admin's seeded root-admin grant
-      // would otherwise roll down and shadow the rolldown under test.
+      // Resolve for a distinct subject, holding only the grants this test writes.
       const sub = crypto.randomUUID();
 
       // Build: root → A → C, root → B → C (diamond), C → D
@@ -884,7 +906,7 @@ describe('org-tree', () => {
     it('no grant on any ancestor → denied', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Distinct subject — the root admin has a seeded grant.
+      // Distinct subject — see the CRUD test above.
       const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'isolated', 'Isolated');
@@ -1049,7 +1071,7 @@ describe('org-tree', () => {
 
       // Create non-admin user
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
       const userBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'writer@example.com');
       const { client: writer, payload: writerPayload } = await createInvitedClient(
@@ -1081,7 +1103,7 @@ describe('org-tree', () => {
 
       // Create non-admin user with write access
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
       const userBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'writer2@example.com');
       const { client: writer, payload: writerPayload } = await createInvitedClient(
@@ -1117,7 +1139,7 @@ describe('org-tree', () => {
       // Mallory: non-admin, admin on her own node, write (Approach-1
       // collaborator tier) on victim
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
       const malloryBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'mallory@example.com');
       const { client: mallory, payload: malloryPayload } = await createInvitedClient(
@@ -1168,7 +1190,7 @@ describe('org-tree', () => {
       const childId = admin.lastResult as string;
 
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
       const malloryBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'mallory@example.com');
       const { client: mallory, payload: malloryPayload } = await createInvitedClient(
@@ -1299,7 +1321,7 @@ describe('org-tree', () => {
 
       // Create a user and delegate admin on team subtree
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, ownerOf(adminOf(star)));
       const userBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'lead@example.com');
       const { client: lead, payload: leadPayload } = await createInvitedClient(
@@ -1339,30 +1361,27 @@ describe('org-tree', () => {
   // ─── Universe Admin Cross-Access ──────────────────────────────────
 
   describe('universe admin (wildcard JWT) has full DAG access', () => {
-    // ⚠️ ONE admin per universe — `claim-universe` is the only admin-minting path and the slug is
-    // unique, so the old fixture's separate `star-admin@` + `universe-admin@` identities are
-    // unmintable (an invite mints `scopeAdmin: false`, so there is no "star-level admin" tier either).
-    // Both clients are therefore the same admin; the property under test is unchanged and is now
-    // exercised more precisely, because the second client holds aud = the UNIVERSE while acting on a
-    // STAR DO — admission via the *dominion* branch (pattern covers the callee), which is what
-    // "universe admin has full DAG access to a descendant Star" actually means.
+    // Two admins: the Star's own, then the universe's owner, whose client holds aud = the UNIVERSE
+    // while acting on a STAR DO — admission via the *dominion* branch (its host's scope sits above
+    // the callee), which is what "universe admin has full DAG access to a descendant Star" means.
     it('universe admin bypasses all DAG checks via the scope-admin claim', async () => {
       const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
-      // Admin at the star aud — creates the Star DO and seeds root admin.
+      // Admin at the star aud — creates the Star DO.
       const starBrowser = new Browser();
       const { client: starAdmin } = await adminClientAt(
-        NebulaClientTest, starBrowser, star, star, 'admin@example.com',
+        NebulaClientTest, starBrowser, star, star, adminOf(star),
       );
       starAdmin.callStarCreateNode(star, ROOT_NODE_ID, 'star-node', 'Star Node');
       await vi.waitFor(() => expect(starAdmin.lastResult).toBeDefined());
       starAdmin[Symbol.dispose]();
 
-      // Same identity with aud = the UNIVERSE, reaching down into the Star.
+      // The universe's own admin — who founded it above the star admin — with aud = the UNIVERSE,
+      // reaching down into the Star.
       const uniBrowser = new Browser();
       const { client: uniAdmin, payload } = await universeAdminClient(
-        NebulaClientTest, uniBrowser, universe, universe, 'admin@example.com',
+        NebulaClientTest, uniBrowser, universe, universe, ownerOf(adminOf(universe)),
       );
       // Guard the fixture: a star aud here would test the tenant branch, not cross-tier dominion.
       expect(payload.aud).toBe(universe);
@@ -1383,8 +1402,7 @@ describe('org-tree', () => {
   describe('evaluatePermissions', () => {
     it('complete denied set; grant flips one; dominionOverHostAtSubscribe bypasses; Star DAG admin resolves allow-all', async () => {
       const star = uniqueStar();
-      const { client: admin, payload: adminPayload } = await adminClient(star);
-      const starAdminSub = adminPayload.sub; // admin on ROOT (starAdmin seed)
+      const { client: admin } = await adminClient(star);
 
       // Two sibling nodes under root.
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'n-a', 'A');
@@ -1429,9 +1447,11 @@ describe('org-tree', () => {
       expect(res.allowed.has(nB)).toBe(true);
       expect(res.denied.size).toBe(0);
 
-      // A Star DAG `admin` grant (the seeded root admin) resolves allow-all
-      // through resolvePermission with dominionOverHostAtSubscribe:false (no JWT bypass needed).
-      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', starAdminSub, false);
+      // A DAG `admin` grant on root resolves allow-all through resolvePermission with
+      // dominionOverHostAtSubscribe:false (no JWT bypass needed).
+      admin.callStarSetPermission(star, ROOT_NODE_ID, userSub, 'admin');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', userSub, false);
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
       res = admin.lastResult as Eval;
       expect(res.allowed.has(nA)).toBe(true);

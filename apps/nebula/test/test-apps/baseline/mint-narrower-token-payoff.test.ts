@@ -1,20 +1,20 @@
 /**
- * `/mint-narrower-token` — **the payoff**, asserted as a DAG VERDICT rather than a claim.
+ * The impersonation mint — **the payoff**, asserted as a DAG VERDICT rather than a claim.
  *
- * Every other criterion for this endpoint reads claims off the mint response. This one asserts what
+ * Every other criterion for this mint reads claims off its answer. This one asserts what
  * the feature is actually *for*: mirroring the subject's `admin` bit puts `resolvePermission` back in
  * the decision, so an admin can observe the denial they came to debug. With the caller's bit instead,
  * `org-tree.ts`'s scope-admin bypass fires and the denial never happens — the token wears the
  * subject's name while acting with admin-derived authority they do not have.
  *
- * **Vehicle: `admin.impersonate(subjectSub, scope)`** — the production client capability, driven
- * through the REAL `NebulaClientGateway`. It mints through the same `/mint-narrower-token` endpoint
- * and hands the result to a full `NebulaClient`, so this exercises the path the Studio actually
+ * **Vehicle: `admin.impersonate(subjectSub)`** — the production client capability, driven
+ * through the REAL `NebulaClientGateway`. It mints through `NebulaAuthFacade.impersonate` and hands
+ * the result to a full `NebulaClient`, so this exercises the path the Studio actually
  * takes rather than a hand-rolled `LumenizeClient` no product code can reach.
  *
  * ADR-009 **rung 2**, like the whole `baseline` lane: real founding, real invite, real
  * server-issued login (test-mode issuance — the magic link is read from the response, gated by the
- * `NEBULA_AUTH_TEST_MODE` binding), and the token under test comes from the production endpoint.
+ * `NEBULA_AUTH_TEST_MODE` binding), and the token under test comes from the production mint.
  * The earlier "rung 1" label here was wrong: rung 1 is the real email transport, which this lane
  * does not use.
  *
@@ -23,16 +23,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Star, TransactionResult, Snapshot } from '@lumenize/nebula';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
-import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject, ORIGIN, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
 const TYPES = 'interface Note { label: string }';
 
-describe('/mint-narrower-token — the DAG verdict', () => {
+describe('the impersonation mint — the DAG verdict', () => {
   it('a narrower token for a NON-admin member is DENIED a write the caller is allowed', async () => {
     const universe = `mnt-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
@@ -58,7 +59,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     expect(member.access.scopeAdmin).toBeUndefined(); // fixture guard: the subject really is non-admin
 
     // The mint, through the production endpoint — via the production client capability.
-    using impersonating = await admin.impersonate(member.sub, star);
+    using impersonating = await admin.impersonate(member.sub);
     await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
     expect(impersonating.claims.sub).toBe(member.sub);
     expect(impersonating.claims.act?.sub).toBe(adminPayload.sub);
@@ -116,7 +117,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     admin.callStarSetPermission(star, node, member.sub, 'write');
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
 
-    using impersonating = await admin.impersonate(member.sub, star);
+    using impersonating = await admin.impersonate(member.sub);
     await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
     // Fixture guard first: an ABSENT admin profileId would make the actor-profileId operand below
     // vacuous (toEqual treats `profileId: undefined` as a missing key).
@@ -146,6 +147,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
       act: { sub: adminPayload.sub, profileId: adminPayload.profileId },
       profileId: member.profileId,
       access: { authScope: star },
+      aud: star, // the page the write came from (ADR-016)
     });
 
     // The WIRE copy carries the chain for display — actor `sub` + actor `profileId` ride; the
@@ -155,6 +157,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
       impersonating.ctn<Star>().resources.read(VERSION, rid)) as Snapshot;
     expect(wire.meta.actingToken.act).toEqual({ sub: adminPayload.sub, profileId: adminPayload.profileId });
     expect('access' in wire.meta.actingToken).toBe(false);
+    expect('aud' in wire.meta.actingToken).toBe(false);
 
     // ...two same-actor writes inside the window still coalesce to ONE row...
     const second = await impersonating.lmz.callAsync('STAR', star,
@@ -192,16 +195,17 @@ describe('/mint-narrower-token — the DAG verdict', () => {
 
     const clientAt = async (instanceName: string, profileId: string) => {
       const browser = new Browser();
-      const ctx = browser.context('http://localhost');
+      const ctx = browser.context(pageOf(star));
       const client = new NebulaClientTest({
-        baseUrl: 'http://localhost', authScope: instanceName, activeScope: star, ontologyVersion: 'v1',
+        baseUrl: pageOf(star), platformOrigin: ORIGIN, ontologyVersion: 'v1',
         resourceHostBinding: 'STAR',
         accessToken: (await createNebulaTestToken({
+          issuer: platformOrigin(deploymentOrigin(env)),
           privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
           activeScope: star, instanceName, scopeAdmin: true, profileId, sub, ttlSeconds: 3600,
         })()).access_token,
         instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
-        fetch: browser.fetch, WebSocket: browser.WebSocket,
+        fetch: ctx.fetch, WebSocket: ctx.WebSocket,
         sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
       });
       await vi.waitFor(() => expect(client.connectionState).toBe('connected'));

@@ -29,18 +29,18 @@ Look at the file you're editing:
 | DO-driving tooling | ✅ (its DO fixtures) | — | ✅ |
 | Mesh framework (`mesh`) | ✅ | ✅ | ✅ (raw internals) |
 | Mesh library (`fetch`) | ✅ | ✅ | — |
-| **Nebula platform** | ✅ | ✅ | **❌ never** |
+| **Nebula platform** | ✅ | ✅ | **❌ never** for its nodes; its Worker's forwards follow § *What reaches a Durable Object's `fetch`* |
 
 ## Snapshot — derive from the rule above if unlisted
 Convenience only, not authoritative, and may lag the code:
 
 | Package | Layer |
 |---|---|
-| `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources) — Galaxy is a plain `NebulaDO` that drives a container via raw `ctx.container` → also [containers.md](containers.md) |
+| `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources) — its business logic reaches a node only over the mesh or through a `@rawRpc()`-decorated method, and its Worker reaches a Durable Object's `fetch` only through the forwards `npm run audit:do-http` lists ([raw-comm.md](raw-comm.md)). Galaxy is a plain `NebulaDO` that drives a container via raw `ctx.container` → also [containers.md](containers.md) |
 | `mesh` | Mesh framework — defines the Mesh surface (`LumenizeDO`) *and* raw internals (the Gateway). Driving a container is raw `ctx.container` on any DO — no base class → [containers.md](containers.md) |
 | `fetch` | Mesh library — uses `this.lmz`, defines no DO |
 | `auth`, `ts-runtime-parser-validator` | raw-DO infrastructure — `extends DurableObject` |
-| `nebula-auth` | dual-layer, derived per-file: the Registry/router core is raw-DO infrastructure, while two subpath exports compose mesh — `/profile` (a `ComposedMeshDO`) and `/facade` (`NebulaAuthFacade`, a `LumenizeWorker`) → those files also follow [mesh.md](mesh.md) |
+| `nebula-auth` | dual-layer, derived per-file: the Registry/router core is raw-DO infrastructure, while two subpath exports compose mesh — `/profile` (a `ComposedMeshDO`) and `/facade` (`NebulaAuthFacade`, a `LumenizeWorker`) — and `worker-token.ts` reaches the `Profile` through `rawRpcStub` → those files also follow [mesh.md](mesh.md) |
 | `testing` | DO-driving tooling — wraps user DOs, defines none in `src` (`raw-comm.md` applies) |
 | `rpc`, `routing` | utility / Worker — DO-adjacent (call DO stubs but define no DO) |
 | `debug`, `structured-clone` | utility — no DO involvement |
