@@ -3,16 +3,17 @@
  *
  * The local stack serves every scope's host under `lumenize.localhost` — `platform.lumenize.localhost`,
  * `crm.acme.lumenize.localhost` — the way production serves them under a wildcard DNS record. macOS
- * resolves any `*.localhost` name to loopback, and Linux resolves none of them: in a `node:24-slim`
- * container on 2026-10-03, `fetch` and `WebSocket` to such a host both failed with `ENOTFOUND`, and
- * both connected once this was installed. So the local stack states its wildcard for Node the way
+ * resolves any `*.localhost` name to loopback, and so does a Linux running systemd-resolved, such as
+ * GitHub's `ubuntu-latest`. A Linux without such a resolver resolves none of them: in a
+ * `node:24-slim` container on 2026-10-03, `fetch` and `WebSocket` to such a host both failed with
+ * `ENOTFOUND`, and both connected once this was installed. So the local stack states its wildcard for Node the way
  * production's DNS states it: `dns.lookup`, which Node's `fetch` and `WebSocket` dial through,
  * answers loopback for that one suffix and passes every other name to the real resolver. It stands
  * in for a DNS record, not for any behaviour of ours. Chromium takes the same mapping as
  * `--host-resolver-rules`.
  *
- * Installed once per process, by the harness's entry and the vitest config; a second install does
- * nothing.
+ * Installed once per process, by the harness's entry, the vitest config, and the setup file of each
+ * vitest project whose tests dial these hosts; a second install does nothing.
  */
 import dns from 'node:dns';
 

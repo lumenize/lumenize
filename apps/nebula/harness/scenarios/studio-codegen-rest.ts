@@ -32,12 +32,13 @@ import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
 import type { Snapshot } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 
 /** A galaxy scope of this scenario's own (never shared — codegen writes source).
  *  Per-run unique for the same reason as `build-box.ts`: a deployed target's state is
  *  durable, so a fixed scope replays an already-claimed universe and a stale magic-link
  *  email on the second run. */
-const SCOPE = `claude-${crypto.randomUUID().slice(0, 8)}.codegen`;
+const SCOPE = `${testSlug('codegen')}.codegen`;
 
 /** A cold model turn lives inside this budget. */
 const TURN_TIMEOUT_MS = 900_000; // tracks the server's 14 min generation deadline plus margin (32-round cap)

@@ -517,7 +517,9 @@ export function selectSessionsToMint(plan: ConsumePlan): ConsumeMembership[] {
  * wake would leave a fresh Galaxy, its tearing-down flag lost with the abort, ordering a pack for a
  * galaxy with no row, outside the owner cap and past every later teardown. It is the write-then-reap
  * shape the refresh records use, at one indexed Registry read per wake. The create and both
- * acceptance writers call it.
+ * acceptance writers call it. Never rejects, like the hooks it calls: by the time it runs the create
+ * or acceptance has landed, so a re-read that fails is logged at error, naming the galaxy, and the
+ * caller answers as it would have.
  */
 export async function wakeCertificates(
   registryStub: { checkSlugAvailable(id: string): unknown },
@@ -525,7 +527,14 @@ export async function wakeCertificates(
 ): Promise<void> {
   for (const galaxy of galaxies) {
     await hooks.orderCertificate(galaxy, operationId);
-    if (await registryStub.checkSlugAvailable(galaxy)) {
+    let deleted: unknown;
+    try {
+      deleted = await registryStub.checkSlugAvailable(galaxy);
+    } catch (e) {
+      debug('nebula-auth.certificate').error('could not re-read a woken galaxy; not reaped', { galaxy, operationId, error: (e as Error).message });
+      continue;
+    }
+    if (deleted) {
       debug('nebula-auth.certificate').warn('woken galaxy was deleted meanwhile; tearing it down again', { galaxy, operationId });
       await hooks.teardown([{ instanceName: galaxy, tier: 'galaxy' }, { instanceName: `${galaxy}.dev`, tier: 'star' }], 'deletion', operationId);
     }

@@ -32,6 +32,7 @@ import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   provisionAndLogin, refreshTokenForScope, setCookieHeaders, consumeLink, refreshCookie, refreshFromPage, homeSummary,
 } from '../../test/lib/email-login';
@@ -43,9 +44,8 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
   const person = uniqueTestEmail();
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const first = `two-a-${suffix}`;
-  const second = `two-b-${suffix}`;
+  const first = testSlug('two-a');
+  const second = testSlug('two-b');
 
   // ── LIMB 1: two real memberships for ONE address ───────────────────────────────────────────────
   // Each is a full claim → real email → click → accept. Nothing is seeded.

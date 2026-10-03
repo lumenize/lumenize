@@ -34,7 +34,8 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import { MINT_ALL_COOKIE_CAP } from '@lumenize/nebula-auth/claims';
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
-import { inviteViaMesh, readDevVar } from '../lib/harness';
+import { inviteViaMesh, readDevVar, waitForHost, NEW_HOST_TIMEOUT_MS, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite } from '../lib/browser';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
@@ -42,7 +43,7 @@ import {
   setCookieHeaders,
 } from '../../test/lib/email-login';
 
-const SUPERUSER = 'logout-superuser@lumenize-test.dev';
+const SUPERUSER = superuserEmail('logout-superuser@lumenize-test.dev');
 
 export const needsContainer = false;
 export const bootVars = {
@@ -54,8 +55,8 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const observable = stack.logs !== undefined;
   const suffix = crypto.randomUUID().slice(0, 8);
-  const one = `lo1${suffix}`;
-  const two = `lo2${suffix}`;
+  const one = testSlug('lo1');
+  const two = testSlug('lo2');
 
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
@@ -79,7 +80,7 @@ export async function run(stack: DevStack): Promise<void> {
       await page.getByTestId('consent-checkbox').check();
       await page.getByTestId('consent-nickname').fill('Lou');
       await page.getByTestId('consent-accept').click();
-      await page.waitForURL((u) => u.origin === host, { timeout: 30_000 });
+      await page.waitForURL((u) => u.origin === host, { timeout: NEW_HOST_TIMEOUT_MS });
     };
     /** Log out on the platform host's page, as the account menu sends a person there. */
     const logOut = async (page: Page) => {
@@ -97,6 +98,9 @@ export async function run(stack: DevStack): Promise<void> {
       vite.scopeUrl(`${one}.crm`));
     const owner = await provisionAndLogin({ baseUrl: origin, scope: `${two}.web`, testToken });
     const atTwo = await refreshAccessToken(origin, owner.session, `${two}.web`);
+    // Before the waiter is armed: on a deployed target this app's host answers only once its certificate
+    // is issued, which can outlast the waiter, and the invite dials it.
+    await waitForHost(vite.scopeUrl(`${two}.web`));
     const second = await context.newPage();
     await acceptLink(second, await letterTo(l, () => inviteViaMesh(stack, atTwo, `${two}.web`, [{ email: l }], undefined, { scopeUrl: vite.scopeUrl, platformOrigin: origin })),
       vite.scopeUrl(`${two}.web`));
@@ -135,17 +139,23 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 3: the platform membership is ended too ───────────────────────────────────────────
     const sContext = await browser.newContext();
     const sPage = await sContext.newPage();
-    const own = `lo3${suffix}`;
+    const own = testSlug('lo3');
     await acceptLink(sPage, await letterTo(SUPERUSER, () => requestUniverseClaim({ baseUrl: origin, universe: own, appSlug: 'crm', email: SUPERUSER })),
       vite.scopeUrl(`${own}.crm`));
     // The claim's consume placed the platform membership's cookie too, pending; Home lists it under
     // S's address with a Confirm badge, and its Accept takes it up.
+    // Pending on every local boot; a deployed target keeps its superuser, so after the first run the
+    // membership is accepted already and its row has nothing to open.
     await sPage.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
-    await sPage.getByRole('button', { name: /_platform/ }).click();
-    await sPage.getByTestId('consent-checkbox').check();
-    await sPage.getByTestId('consent-nickname').fill('Sue');
-    await sPage.getByTestId('consent-accept').click();
-    await sPage.getByTestId('consent-checkbox').waitFor({ state: 'detached', timeout: 30_000 });
+    const platformRow = sPage.getByRole('button', { name: /_platform/ });
+    await platformRow.waitFor({ state: 'visible', timeout: 30_000 });
+    if (await platformRow.isEnabled()) {
+      await platformRow.click();
+      await sPage.getByTestId('consent-checkbox').check();
+      await sPage.getByTestId('consent-nickname').fill('Sue');
+      await sPage.getByTestId('consent-accept').click();
+      await sPage.getByTestId('consent-checkbox').waitFor({ state: 'detached', timeout: 30_000 });
+    }
     // Read through the context's own request client, which carries its cookies and no page's origin.
     const listed = await (await sContext.request.post(`${origin}/auth/home-summary`, { data: {} })).text();
     assert.match(listed, /"scope":"_platform"/, "Home's summary must list S's platform row before the logout");
@@ -174,7 +184,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(expired.length, 101, 'the logout must expire every refresh cookie it was sent, unparseable ones included');
     // The unparseable name on its own, beside one forged cookie and far under the bound, where only
     // dropping it keeps it from being read: in the hundred it sorts last, past the bound either way.
-    const lone = `lone${suffix}`;
+    const lone = testSlug('lone');
     const small = await fetch(`${stack.baseUrl}/auth/home-summary`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', Cookie: [refreshCookie(lone, crypto.randomUUID()), unparseable].join('; ') },

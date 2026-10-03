@@ -28,6 +28,8 @@ import { createNebulaClient } from '@lumenize/nebula/frontend';
 import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 import { refreshAccessToken } from '../../test/lib/email-login';
 import { provisionAndLogin, acceptInviteAndLogin } from '../../test/lib/email-login';
 
@@ -52,10 +54,12 @@ async function whileInstalling<T>(op: () => Promise<T>): Promise<T> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const star = `grd-${crypto.randomUUID().slice(0, 8)}.app.tenant`;
+  // A tenant Star of this scenario's own, beneath the run's shared app, founded by its owner.
+  const app = await sharedApp(stack, testToken);
+  const star = `${app.galaxy}.${testSlug('grd')}`;
   const memberEmail = uniqueTestEmail();
 
-  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, testToken });
+  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, email: app.ownerEmail, testToken });
   let admin: Driver | undefined;
   let member: ReturnType<typeof createNebulaClient> | undefined;
   const memberBrowser = new Browser();

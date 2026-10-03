@@ -36,9 +36,11 @@ import { SIGNUP_TICKET_COOKIE } from '@lumenize/nebula-auth/claims';
 import type { Galaxy } from '../../src/galaxy';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, refreshAccessToken, consumeLink, setCookieHeaders, refreshTokenForScope, refreshCookie,
+  claimedUniverses,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -77,14 +79,13 @@ async function wakesOf(stack: DevStack, op: string): Promise<DebugLine[]> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
   const observable = stack.logs !== undefined;
   const drivers: Driver[] = [];
   if (!observable) console.error('  ⓘ every limb reads the stack\'s stdio, which a deployed target does not expose');
 
   try {
     // ── 1. The link page's acceptance wakes the claim's galaxy, by name ─────────────────────────
-    const universe = `cw${suffix}`;
+    const universe = testSlug('cw');
     const owner = uniqueTestEmail();
     const provisioned = await provisionAndLogin({ baseUrl: origin, scope: `${universe}.crm`, email: owner, testToken });
     if (observable) {
@@ -95,7 +96,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error(`  ✓ limb 1 — the link page's acceptance woke ${universe}.crm by name${observable ? '' : ' (not observable deployed)'}`);
 
     // ── 2. A ticket-backed claim accepted on Home wakes its galaxy ──────────────────────────────
-    const ticketUniverse = `cwt${suffix}`;
+    const ticketUniverse = testSlug('cwt');
     const newcomer = uniqueTestEmail();
     const waiter = waitForEmail({ testToken, instance: '_scopeless', to: newcomer, timeout: 60_000 });
     let link: string;
@@ -118,6 +119,7 @@ export async function run(stack: DevStack): Promise<void> {
       body: JSON.stringify({ slug: ticketUniverse, appSlug: 'notes' }),
     });
     assert.equal(claimed.status, 200, `the ticket claim failed (${claimed.status})`);
+    claimedUniverses.push({ universe: ticketUniverse, email: newcomer }); // accepted below, so the harness deletes it
     const ticketCookie = refreshTokenForScope(setCookieHeaders(claimed), ticketUniverse);
     assert.ok(ticketCookie, 'the ticket claim must set the new account\'s cookie');
     const onHome = await fetch(`${origin}/auth/accept-membership`, {
@@ -164,7 +166,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error(`  ✓ limb 4 — a mesh call reached ${never} and woke nothing${observable ? '' : ' (not observable deployed)'}`);
 
     // ── 5. A re-accept wakes a standing galaxy, and nothing once it is deleted ──────────────────
-    const lone = `cwl${suffix}`;
+    const lone = testSlug('cwl');
     const loner = await provisionAndLogin({ baseUrl: origin, scope: `${lone}.crm`, email: uniqueTestEmail(), testToken });
     // `provisionAndLogin` accepts on the link's page and then again on Home, so the re-accepts here
     // are read after that second acceptance's line.

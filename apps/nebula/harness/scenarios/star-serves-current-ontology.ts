@@ -29,7 +29,8 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
+import { connectDriver, readDevVar, scopeUrlOf, waitForHost, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { provisionAndLogin, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = true;
@@ -94,8 +95,7 @@ interface Tab<C extends NebulaClient> {
 
 export async function run(stack: DevStack): Promise<void> {
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const galaxy = `cur-${suffix}.app`;
+  const galaxy = `${testSlug('cur')}.app`;
   const tenant = `${galaxy}.tenant`;
   const dev = `${galaxy}.dev`; // every Galaxy is born with its `.dev` Star
 
@@ -173,6 +173,9 @@ export async function run(stack: DevStack): Promise<void> {
     return last;
   };
 
+  // The app is new, so on a deployed target its host answers once its certificate is issued; its
+  // wildcard covers the tenant and `.dev` hosts every connection below dials.
+  await step("the app's host answers", NEW_HOST_TIMEOUT_MS, () => waitForHost(scopeUrlOf(stack, galaxy)));
   const admin = await step('admin connects', 45_000, () => connectDriver(stack, { scope: tenant, session: tenantSession }));
   disposers.push(() => admin.dispose());
   // The galaxy's source and Apply are asked from Studio, its own page, where the universe admin

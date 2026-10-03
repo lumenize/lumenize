@@ -34,22 +34,25 @@ import { uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { provisionStarAdmin } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 
 export const needsContainer = false;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `uir-${suffix}`;
-  const galaxy = `${universe}.app`;
-  const star = `${galaxy}.tenant`;
+  // The run's shared app, with a Star of this scenario's own beneath it; the upward invites below
+  // are refused, so they leave nothing on the shared app.
+  const app = await sharedApp(stack, testToken);
+  const universe = app.universe;
+  const galaxy = app.galaxy;
+  const star = `${galaxy}.${testSlug('uir')}`;
 
   // A real Star founder: `claim-star` self-signup mints them admin AT the Star, so the server puts
-  // exactly that Star in their `authScope` (`provisionStarAdmin` founds the universe + galaxy above
-  // as a different `owner-…` identity).
+  // exactly that Star in their `authScope`; the shared app's owner holds the universe + galaxy above.
   const starAdmin = await provisionStarAdmin({
-    baseUrl: origin, scope: star, email: uniqueTestEmail(), testToken,
+    baseUrl: origin, scope: star, email: uniqueTestEmail(), ownerEmail: app.ownerEmail, testToken,
   });
   let driver: Driver | undefined;
   try {

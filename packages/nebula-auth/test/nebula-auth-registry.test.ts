@@ -231,14 +231,14 @@ describe('NebulaAuthRegistry', () => {
       expect(bare.children).toBeUndefined();
     });
 
-    // 🔒 The SQL half of the whole-segment contract. `myScopeTree`'s containment is a `LIKE`, not a
-    // call to `isAtOrAbove`, and it is allow-listed off the predicate deliberately — the query IS
-    // the bound, and routing per row would mean fetching every scope first. So the boundary has to
-    // be asserted HERE, separately: nothing else in the suite registers prefix-colliding names, and
-    // the enumeration test above passes under either spelling because `cs-tree` has no such sibling.
+    // 🔒 The SQL half of the whole-segment contract. The summary's containment is a
+    // `descendantRange`, not a call to `isAtOrAbove`, and it is allow-listed off the predicate
+    // deliberately — the query IS the bound, and routing per row would mean fetching every scope
+    // first. So the boundary has to be asserted HERE, separately: the enumeration test above passes
+    // under either spelling because `cs-tree` has no prefix sibling.
     //
-    // Mutation: drop the dot from `LIKE ${parent + '.%'}` → `${parent + '%'}` and a `bnd` admin
-    // enumerates all of `bnd-2`, while every other tree assertion stays green.
+    // Mutation: drop the dot from `descendantRange`'s `lo` and a `bnd` admin enumerates all of
+    // `bnd-2`, while every other tree assertion stays green.
     it('enumeration honours WHOLE segment boundaries — a universe does not cover a prefix sibling', async () => {
       const r = freshRegistry();
       await galaxy(r, 'bnd');
@@ -253,6 +253,41 @@ describe('NebulaAuthRegistry', () => {
       expect(flatten(again)).toContain('bnd.app.s1');
       expect(flatten(again)).toContain('bnd.app.s10');
       expect(flatten(again).filter((s: string) => s.startsWith('bnd-2'))).toEqual([]);
+    });
+
+    // 🔒 A galaxy whose children's prefix passes 50 bytes. The SQLite inside a Durable Object refuses
+    // a longer `LIKE` pattern, so a level read built as `LIKE ${parent + '.%'}` threw for any galaxy
+    // named near the slug limit, and Home failed for its owner — found 2026-10-03 by `/live`'s
+    // `impersonation-lifecycle`, whose run-named test scopes are that long. A universe's prefix stays
+    // under 50 bytes at any legal length, so the galaxy is the case. In this lane rather than live
+    // because the cap is the runtime's SQLite, which this lane runs, and each read needs a limb.
+    describe('a galaxy named at the slug limit', () => {
+      const u = 'u'.repeat(30);
+      const g = `${u}.${'g'.repeat(30)}`;
+      async function longGalaxy(r: any) {
+        const founder = await founded(r, u, 'owner@example.com');
+        await r.createGalaxy(g, ACTING(founder, u));
+      }
+
+      // The summary counts each galaxy's children before it descends into them, so either read
+      // reds it. Mutation: build `#directChildCount`'s clause as `LIKE ${parent + '.%'}` → reds.
+      it('summarizes, down to the galaxy\'s Stars', async () => {
+        const r = freshRegistry();
+        await longGalaxy(r);
+        const galaxyNode = (await summaryFor(r, u)).children.find((c: any) => c.scope === g);
+        expect(galaxyNode.children.map((c: any) => c.scope)).toEqual([`${g}.dev`]);
+      });
+
+      // Mutation: build `#childLevel`'s clause as `LIKE ${parent + '.%'}` → reds.
+      it('expands to the galaxy\'s Stars from the galaxy\'s page', async () => {
+        const r = freshRegistry();
+        await longGalaxy(r);
+        const [{ profileId }] = await (runInDurableObject as any)(r, (_i: any, c: any) => [...c.storage.sql.exec(
+          `SELECT e.profileId AS profileId FROM Emails e WHERE e.email = 'owner@example.com'`)]);
+        const claims = { ...ACTING(crypto.randomUUID(), u), profileId, aud: g };
+        const { children } = await r.expandScope(claims);
+        expect(children.map((c: any) => c.scope)).toEqual([`${g}.dev`]);
+      });
     });
   });
 
@@ -314,6 +349,20 @@ describe('NebulaAuthRegistry', () => {
       expect(executed.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
     });
 
+    // 🔒 The cascade is built from a `descendantRange`, not `LIKE ${target + '.%'}`: the SQLite inside
+    // a Durable Object refuses a `LIKE` pattern past 50 bytes, so deleting a galaxy named near the
+    // slug limit threw (found 2026-10-03 by `/live`'s `impersonation-lifecycle`).
+    // Mutation: build `#scopesAtOrBeneath` as `LIKE ${scope + '.%'}` → reds.
+    it('plan: a galaxy named at the slug limit cascades to its Stars', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      const u = 'u'.repeat(30);
+      const g = `${u}.${'g'.repeat(30)}`;
+      await seed(r, [u, g, `${g}.dev`], [{ sub: owner, scope: u, email: 'o@x.com', scopeAdmin: true }]);
+      const plan = await r.planScopeDeletion(g, CLAIMS(ADMIN_OVER(u), owner));
+      expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual([g, `${g}.dev`]);
+    });
+
     it('plan: deleting a higher node cascades DOWN to descendants', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
@@ -368,16 +417,18 @@ describe('NebulaAuthRegistry', () => {
     });
 
     // 🔒 The same whole-segment contract on the DESTRUCTIVE side, where a dropped dot widens what
-    // gets deleted rather than what gets listed. `#computeDeletionPlan`'s `LIKE` is the second SQL
-    // site allow-listed off the predicate, and it is the one whose slip costs data.
+    // gets deleted rather than what gets listed. `#scopesAtOrBeneath` is the SQL site allow-listed
+    // off the predicate whose slip costs data.
     //
-    // Mutation: `LIKE ${target + '.%'}` → `${target + '%'}` and `del-1`'s plan swallows `del-1x`.
+    // Mutation: drop the dot from `descendantRange`'s `lo` and `del-1`'s plan swallows `del-1-2`.
+    // The sibling goes on with `-` because `-` is the one slug character sorting between `del-1.`
+    // and `del-1/`; a `del-1x` sorts past both and stays out under the mutation.
     it('a deletion plan honours WHOLE segment boundaries — it never lists a prefix sibling', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(
         r,
-        ['del-1', 'del-1.app', 'del-1.app.dev', 'del-1x', 'del-1x.app', 'del-1x.app.dev'],
+        ['del-1', 'del-1.app', 'del-1.app.dev', 'del-1-2', 'del-1-2.app', 'del-1-2.app.dev'],
         [{ sub: owner, scope: 'del-1', email: 'o@x.com', scopeAdmin: true }],
       );
       const plan = await r.planScopeDeletion('del-1', CLAIMS(ADMIN_OVER('del-1'), owner));

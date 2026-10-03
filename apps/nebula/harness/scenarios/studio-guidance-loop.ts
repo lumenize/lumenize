@@ -31,10 +31,11 @@ import type { Galaxy, Snapshot } from '@lumenize/nebula';
 import { deriveKind } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 
 export const needsContainer = false;
 
-const SCOPE = `claude-${crypto.randomUUID().slice(0, 8)}.guidance`;
+const SCOPE = `${testSlug('guidance')}.guidance`;
 /** A cold real turn — generation plus a few failed-build rounds at most — lives inside this. */
 const TURN_TIMEOUT_MS = 900_000; // tracks the server's 14 min generation deadline plus margin (32-round cap)
 const FURTHER_TURNS = Number(process.env.HARNESS_GUIDANCE_TURNS ?? '10');

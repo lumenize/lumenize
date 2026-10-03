@@ -21,10 +21,10 @@
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { provisionAndLogin } from '../../test/lib/email-login';
+import { asSharedOwner, sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 
 export const needsContainer = false;
 export const bootVars = { DEBUG: 'nebula.Star.onStart' };
@@ -67,11 +67,11 @@ const startedMarker = (stdio: string, name: string): boolean =>
 
 export async function run(stack: DevStack): Promise<void> {
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const universe = `gob-${crypto.randomUUID().slice(0, 8)}`;
-  const starName = `${universe}.app.door`;
-  const session = await provisionAndLogin({
-    baseUrl: origin, scope: universe, email: uniqueTestEmail(), testToken: readDevVar('TEST_TOKEN'),
-  });
+  // The run's shared account; the Star named here is never claimed, since its upgrade is refused.
+  const app = await sharedApp(stack, readDevVar('TEST_TOKEN'));
+  const universe = app.universe;
+  const { session } = await asSharedOwner(stack, readDevVar('TEST_TOKEN'), universe);
+  const starName = `${app.galaxy}.${testSlug('door')}`;
 
   // ── LIMB: another binding is refused at the door, and no Star of that name starts ─────────────
   const status = await upgradeStatus(`${origin}/gateway/STAR/${starName}`, session.accessToken);

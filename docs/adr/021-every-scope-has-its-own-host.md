@@ -19,7 +19,7 @@ Two things push against one host:
 
 The rest of this ADR says what each domain is for, how a host spells a scope, and what that spelling costs in certificates.
 
-> **Today's code differs.** None of this is built. `lumenize.dev` has no DNS records, and every scope is served from `nebula.lumenize.com` with the scope in the path. The preview runs generated code on Studio's own origin, and the platform scope is named `nebula-platform`. `isValidSlug` has no length cap, no persona slug check exists, and the reserved slug sets still assume a scope is a path segment. [The domain-allocation record](../../tasks/archive/decision-domain-allocation.md) § *What changes in today's code* lists the sites.
+> **Today's code differs.** `lumenize.dev` has no DNS records until the wipe deploys the hosts, and no persona slug check exists. [The domain-allocation record](../../tasks/archive/decision-domain-allocation.md) § *What changes in today's code* lists the sites.
 
 ## Decision
 
@@ -77,7 +77,7 @@ Every `lumenize.dev` host is a sibling under one registrable domain, so a browse
 - **An environment as its own label,** such as `crm.acme.dev.lumenize.dev`. A Star slug already carries the environment for nothing, and a label would stop the host being a direct spelling of the scope.
 - **A universe wildcard as well as each galaxy's**, which this ADR first described. On 2026-09-16 a galaxy's own pack served its host, a Star under it and a persona, while the universe host answered on Universal SSL, so a universe certificate buys nothing ([the run](../../experiments/wildcard-host-routing/RESULTS.md) § *One pack per galaxy*).
 - **Cloudflare for SaaS for every host from the start.** Rejected for the reason § *What certificates may cost* gives: below Enterprise, the certificate set would grow with tenants and personas.
-- **Studio on a registrable domain of its own,** as `nebula.lumenize.com` is today — a trusted control plane kept apart from the apps. It pairs with any of the grammars above. Rejected because the galaxy's host is where the app lives, so it serves Studio to the people building the app (Larry, 2026-09-11), and because Studio shows the app in frames: with Studio on another site, every frame's request to `platform.lumenize.dev` is third-party and Safari withholds its cookies, so no tab could get a token. `__Host-` cookie names answer the cookie threat a separate domain answered. The frame problem also keeps Studio off a customer's own domain.
+- **Studio on a registrable domain of its own,** as `nebula.lumenize.com` was — a trusted control plane kept apart from the apps. It pairs with any of the grammars above. Rejected because the galaxy's host is where the app lives, so it serves Studio to the people building the app (Larry, 2026-09-11), and because Studio shows the app in frames: with Studio on another site, every frame's request to `platform.lumenize.dev` is third-party and Safari withholds its cookies, so no tab could get a token. `__Host-` cookie names answer the cookie threat a separate domain answered. The frame problem also keeps Studio off a customer's own domain.
 
 ## Consequences
 

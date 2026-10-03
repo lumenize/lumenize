@@ -41,8 +41,8 @@ what the tests run. The script, in order:
   `wrangler secret put NEBULA_AUTH_BOOTSTRAP_EMAIL` (enter `larry@lumenize.com`). The preflight is a
   name-only check that the secret exists; `wrangler secret put` works against a not-yet-deployed
   worker, so set it first and the preflight passes.
-- Override the self-check origin with `NEBULA_PROD_URL` if the deploy target isn't
-  `https://nebula.lumenize.com` (e.g. a `*.workers.dev` subdomain).
+- The self-check reads `/_version` on the platform host, `https://platform.lumenize.dev`; override it
+  with `NEBULA_PROD_URL` to check a different deployment.
 
 ### Bench test worker
 

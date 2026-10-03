@@ -351,13 +351,21 @@ export class Alarms {
     }
   };
 
+  /**
+   * Point the Durable Object's one alarm at the earliest stored job, overdue ones included. A job
+   * due now — `schedule(0, …)`, or a `Date` already past — stores the current second, and an overdue
+   * row a restart left behind must fire too. The time is clamped to just after now, as the `agents`
+   * SDK's scheduler clamps it, rather than handing `setAlarm` a time already past, whose handling
+   * Cloudflare does not document.
+   *
+   * ⚠️ Never filter to rows later than now. The `cloudflare/actors` code this file was adapted from
+   * does, and here it left every zero-delay job unarmed until a later schedule happened to arm the
+   * alarm: a Galaxy's certificate order waited for its own deletion.
+   */
   #scheduleNextAlarm(): void {
-    const result = this.#sql`
-      SELECT time FROM __lmz_alarms WHERE time > ${Math.floor(Date.now() / 1000)}
-      ORDER BY time ASC, id ASC LIMIT 1
-    `;
+    const result = this.#sql`SELECT time FROM __lmz_alarms ORDER BY time ASC, id ASC LIMIT 1`;
     if (result.length > 0) {
-      this.#storage.setAlarm((result[0].time as number) * 1000);
+      this.#storage.setAlarm(Math.max((result[0].time as number) * 1000, Date.now() + 1));
     }
   }
 }

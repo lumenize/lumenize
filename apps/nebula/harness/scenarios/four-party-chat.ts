@@ -23,7 +23,8 @@ import { deriveKind, deriveParticipants } from '@lumenize/nebula/client';
 import { NEBULA_SUB } from '@lumenize/nebula-auth/claims';
 import { waitForEmail } from '@lumenize/email-test/client';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   refreshAccessToken, acceptMembership, refreshTokenForScope, setCookieHeaders, consumeLink,
 } from '../../test/lib/email-login';
@@ -34,10 +35,10 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 export const needsContainer = false;
 
 /** The bootstrap (coach) email, re-pointed at the catch-all so the login is a REAL loop. */
-const COACH_EMAIL = 'coach-four@lumenize-test.dev';
+const COACH_EMAIL = superuserEmail('coach-four@lumenize-test.dev');
 export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: COACH_EMAIL };
 
-const SCOPE = 'claude-four.app';
+const SCOPE = `${testSlug('four')}.app`;
 const PLATFORM_SCOPE = '_platform';
 /** A real (REST-lane) generation fits well inside this; silence past it is the failure. */
 const REPLY_TIMEOUT_MS = 240_000;

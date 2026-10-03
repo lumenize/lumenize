@@ -39,20 +39,21 @@ import {
   provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership, consumeLink,
   refreshCookie, refreshFromPage, homeSummary, requestMagicLink,
 } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
 
 export const needsContainer = false;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `inv-c-${suffix}`;
-  const galaxy = `${universe}.app`;
+  // The run's shared app; the invitee is this scenario's own.
+  const app = await sharedApp(stack, testToken);
+  const galaxy = app.galaxy;
   const invitee = uniqueTestEmail();
 
-  // The inviter is a REAL admin: claimed, mailed, clicked, accepted. Nothing seeded.
+  // The inviter is a REAL admin, the shared app's owner, signed in by email. Nothing seeded.
   const admin = await provisionAndLogin({
-    baseUrl: origin, scope: galaxy, email: uniqueTestEmail(), testToken,
+    baseUrl: origin, scope: galaxy, email: app.ownerEmail, testToken,
   });
 
   // The invite rides the ONE production surface — the mesh facade. There is no HTTP invite route.

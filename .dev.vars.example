@@ -111,8 +111,12 @@ JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY--
 # TEST_CERTIFICATE_ZONE_ID=
 # TEST_CERTIFICATE_API_TOKEN=
 
+# A deployed `https` Worker's own certificate token, set as its secret, never here: an `http` local
+# stack orders no certificate, so leave it empty. Named so the generated `Env` types it.
+CERTIFICATE_API_TOKEN=
+
 # A token with Account → Workers Scripts → Read, with which the deployed pass lists a test app's
-# Durable Objects to confirm a deletion wiped them (tasks/nebula-scope-moves-to-subdomain.md Phase 16).
+# Durable Objects to confirm a deletion wiped them (the `deleted-on-cloudflare` scenario).
 # CLOUDFLARE_WORKERS_READ_TOKEN=
 
 # Optional — only needed if you use ResendEmailSender (see https://lumenize.com/docs/auth/using-resend-instead).

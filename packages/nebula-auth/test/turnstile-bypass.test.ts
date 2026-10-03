@@ -12,12 +12,13 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { isTurnstileBypassed, routeNebulaAuthRequest, TURNSTILE_BYPASS_HEADER } from '../src/router';
 import { recordingHooks } from './test-worker-and-dos';
+import { PLATFORM } from './test-helpers';
 
 const TOKEN = 'bypass-secret-3f9a2c8e1b7d4056a1c2e3f40506a7b8';
 // The URL is inert for these — `isTurnstileBypassed` reads the HEADER — but it names a live route so
 // a reader is not sent looking for one that no longer exists.
 const req = (headers: Record<string, string> = {}) =>
-  new Request('https://nebula.lumenize.com/auth/email-magic-link', { method: 'POST', headers });
+  new Request(`${PLATFORM}/auth/email-magic-link`, { method: 'POST', headers });
 
 describe('Turnstile bypass token (isTurnstileBypassed)', () => {
   it('allows the bypass ONLY with the exact token in the header', () => {
@@ -58,7 +59,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
   /** A non-empty secret, no bypass knob — the gate is ON; no request here carries a token. */
   const gatedEnv = { ...env, TURNSTILE_SECRET_KEY: 'gate-on-not-a-real-secret' } as any;
   const post = (path: string, body: unknown = {}) =>
-    routeNebulaAuthRequest(new Request(`https://nebula.lumenize.com/auth/${path}`, {
+    routeNebulaAuthRequest(new Request(`${PLATFORM}/auth/${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }), gatedEnv, { hooks: recordingHooks });
 
@@ -102,7 +103,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
     // no gate ran ahead of it.
     for (const path of ['magic-link', 'login', 'logout']) {
       const resp = await routeNebulaAuthRequest(
-        new Request(`https://nebula.lumenize.com/auth/${path}`), gatedEnv, { hooks: recordingHooks });
+        new Request(`${PLATFORM}/auth/${path}`), gatedEnv, { hooks: recordingHooks });
       expect((await resp!.json() as any).error, path).toBe('assets_unavailable');
     }
   });
@@ -111,7 +112,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
   // Cloudflare's always-fail dummy secret — this is what catches a route silently LOSING
   // `turnstileGuard` while the sweep above stays green on `turnstile_required` alone.
   it('refuses a bad token via a real siteverify (always-fail dummy secret)', { timeout: 10_000 }, async () => {
-    const resp = await routeNebulaAuthRequest(new Request('https://nebula.lumenize.com/auth/claim-universe', {
+    const resp = await routeNebulaAuthRequest(new Request(`${PLATFORM}/auth/claim-universe`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slug: 'x', email: 'x@example.com', turnstileToken: 'dummy-token' }),
     }), { ...env, TURNSTILE_SECRET_KEY: '2x0000000000000000000000000000000AA' } as any, { hooks: recordingHooks });
@@ -123,7 +124,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
   it('passes through on an ABSENT/empty secret (the dev + test-lane path)', async () => {
     // The lane's own env — TURNSTILE_SECRET_KEY bound '' — so this reaches the DO and 400s on the
     // missing slug rather than on Turnstile.
-    const resp = await routeNebulaAuthRequest(new Request('https://nebula.lumenize.com/auth/claim-universe', {
+    const resp = await routeNebulaAuthRequest(new Request(`${PLATFORM}/auth/claim-universe`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'x@example.com' }),
     }), env as any, { hooks: recordingHooks });
@@ -131,7 +132,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
   });
 
   it('passes through on the authorized bypass header, with the gate otherwise ON', async () => {
-    const resp = await routeNebulaAuthRequest(new Request('https://nebula.lumenize.com/auth/claim-universe', {
+    const resp = await routeNebulaAuthRequest(new Request(`${PLATFORM}/auth/claim-universe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', [TURNSTILE_BYPASS_HEADER]: TOKEN },
       body: JSON.stringify({ email: 'x@example.com' }), // no slug → the DO's own 400, not Turnstile's

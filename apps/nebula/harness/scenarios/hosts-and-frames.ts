@@ -47,21 +47,21 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
-import { inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
+import { inviteViaMesh, readDevVar, scopeUrlOf, waitForHost, NEW_HOST_TIMEOUT_MS, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite } from '../lib/browser';
 import {
   provisionStarAdmin, refreshAccessToken, requestUniverseClaim, requestMagicLink, consumeLink,
 } from '../../test/lib/email-login';
 
-const SUPERUSER = 'hosts-superuser@lumenize-test.dev';
+const SUPERUSER = superuserEmail('hosts-superuser@lumenize-test.dev');
 
 export const needsContainer = false;
 export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `hf${suffix}`;
+  const universe = testSlug('hf');
   const galaxy = `${universe}.crm`;
 
   const browser = await launchChromium();
@@ -89,13 +89,19 @@ export async function run(stack: DevStack): Promise<void> {
     await page.getByTestId('consent-checkbox').check();
     await page.getByTestId('consent-nickname').fill('Sue');
     await page.getByTestId('consent-accept').click();
-    await page.waitForURL((u) => u.origin === vite.scopeUrl(galaxy), { timeout: 30_000 });
+    await page.waitForURL((u) => u.origin === vite.scopeUrl(galaxy), { timeout: NEW_HOST_TIMEOUT_MS });
     await page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: /_platform/ }).click();
-    await page.getByTestId('consent-checkbox').check();
-    await page.getByTestId('consent-nickname').fill('Sue');
-    await page.getByTestId('consent-accept').click();
-    await page.getByTestId('consent-checkbox').waitFor({ state: 'detached', timeout: 30_000 });
+    // Pending on every local boot. A deployed target keeps its superuser between runs, so after the
+    // first run the platform membership is accepted already and its row has nothing to open.
+    const platformRow = page.getByRole('button', { name: /_platform/ });
+    await platformRow.waitFor({ state: 'visible', timeout: 30_000 });
+    if (await platformRow.isEnabled()) {
+      await platformRow.click();
+      await page.getByTestId('consent-checkbox').check();
+      await page.getByTestId('consent-nickname').fill('Sue');
+      await page.getByTestId('consent-accept').click();
+      await page.getByTestId('consent-checkbox').waitFor({ state: 'detached', timeout: 30_000 });
+    }
 
     // ── LIMB 1: a page gets a token for its own host and no other ──────────────────────────────
     /** Load `host`'s page and read the refresh its client sends: the token's `aud`, and the CORS. */
@@ -127,9 +133,11 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(raw, "S's browser must hold the account's refresh cookie");
     const planter = await (await browser.newContext()).newPage();
     await planter.goto(`${vite.scopeUrl(`${galaxy}.dev`)}/`, { waitUntil: 'domcontentloaded' });
-    await planter.evaluate(([name, value]) => {
-      document.cookie = `${name}=${value}; Domain=lumenize.localhost; Path=/`;
-    }, [`refresh-token.${universe}`, raw.value]);
+    // The site's own domain, which every host shares: `lumenize.localhost` locally.
+    const site = new URL(origin).hostname.replace(/^platform\./, '');
+    await planter.evaluate(([name, value, domain]) => {
+      document.cookie = `${name}=${value}; Domain=${domain}; Path=/`;
+    }, [`refresh-token.${universe}`, raw.value, site]);
     assert.ok((await planter.context().cookies()).some((c) => c.name === `refresh-token.${universe}`),
       'the plant must be in the fresh browser\'s jar before the refresh — the positive control');
     const planted = planter.waitForResponse((r) => r.url() === `${origin}/auth/refresh-token`);
@@ -140,8 +148,9 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 3: every host's page load reaches the page it names ───────────────────────────────
     const load = (url: string) => fetch(url, { headers: { Accept: 'text/html' }, redirect: 'manual' });
-    const studio = '/src/main.ts';
-    const authApp = '/src/auth/main.ts';
+    // Each page by its title, which the build keeps: vite serves the source and a deployment the bundle.
+    const studio = '<title>Lumenize Studio</title>';
+    const authApp = '<title>Lumenize</title>';
     for (const [url, entry, what] of [
       [`${origin}/`, authApp, 'Home'], [`${origin}/auth/login`, authApp, 'the login'],
       [`${vite.scopeUrl(universe)}/`, studio, "a universe's page"], [`${vite.scopeUrl(galaxy)}/`, studio, 'Studio'],
@@ -226,6 +235,7 @@ export async function run(stack: DevStack): Promise<void> {
     // A tenant under an account of its own, founded by its own claim — any tenant's host will do.
     const tenant = `${universe}t.crm.t1`;
     const founder = await provisionStarAdmin({ baseUrl: stack.baseUrl, scope: tenant, testToken });
+    await waitForHost(scopeUrlOf(stack, tenant)); // its galaxy is new, so on a deployed target its certificate is too
     const shim = new Browser();
     const tenantCtx = shim.context(scopeUrlOf(stack, tenant));
     const tenantClient = new NebulaClient({

@@ -5,8 +5,9 @@ import swc from 'unplugin-swc';
 import { installLocalhostLookup } from './harness/lib/localhost-lookup';
 
 // Every `*.lumenize.localhost` host resolves to loopback for this Node process, as it does on macOS
-// and in Chromium: the lanes below reach the local stack's hosts by name, and the chromium lane's
-// own server listens on one (harness/lib/localhost-lookup.ts).
+// and in Chromium: global setup, the vite proxy and the chromium lane's server reach the local
+// stack's hosts by name (harness/lib/localhost-lookup.ts). Test files run in worker processes this
+// never reaches, so the Node projects that dial those hosts install it again from a setup file.
 installLocalhostLookup();
 
 // SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
@@ -204,6 +205,7 @@ export default defineConfig({
           name: 'browser',
           include: ['test/browser/**/*.test.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
+          setupFiles: ['./test/localhost-lookup-setup.ts'],
           // Above two email waiters back to back (`provisionStarAdmin` sends the owner's mail, then the
           // Star admin's, each waited on for 60 s), so a slow send reports as "No email received"
           // from its waiter rather than a bare test timeout. `testing.md` § E2E with external services.
@@ -269,7 +271,7 @@ export default defineConfig({
             // The signed-in browser's cookies, written by global-setup before any page opens.
             provider: playwright({
               // The same wildcard Node takes above, for the browser, as `launchChromium` passes it.
-              launchOptions: { args: ['--host-resolver-rules=MAP *.lumenize.localhost 127.0.0.1'] },
+              launchOptions: { args: ['--host-resolver-rules=MAP *.lumenize.localhost 127.0.0.1, MAP lumenize.localhost 127.0.0.1'] },
               contextOptions: { storageState: './test/chromium/.wrangler/storage-state.json' },
             }),
             headless: true,
@@ -292,6 +294,7 @@ export default defineConfig({
           name: 'ui-smoke',
           include: ['test/ui-smoke/**/*.test.ts'],
           globalSetup: ['./test/ui-smoke/global-setup.ts'],
+          setupFiles: ['./test/localhost-lookup-setup.ts'],
           testTimeout: 120000,
         },
       },
@@ -317,6 +320,7 @@ export default defineConfig({
           name: 'browser-bench',
           include: ['test/browser/**/*.benchmark.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
+          setupFiles: ['./test/localhost-lookup-setup.ts'],
           testTimeout: 60000,
           env: {
             NODE_TLS_REJECT_UNAUTHORIZED: '0',

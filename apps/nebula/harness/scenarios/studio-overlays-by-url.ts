@@ -37,7 +37,8 @@
 import assert from 'node:assert/strict';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { refreshAccessToken, refreshCookie } from '../../test/lib/email-login';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 
@@ -59,7 +60,7 @@ async function seeded(page: import('playwright').Page, message: string): Promise
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const universe = `overlay-${crypto.randomUUID().slice(0, 8)}`;
+  const universe = testSlug('overlay');
   const galaxy = `${universe}.wishlist`;
   const person = uniqueTestEmail();
 
@@ -70,11 +71,18 @@ export async function run(stack: DevStack): Promise<void> {
     const { page } = inst;
     const studio = vite.scopeUrl(galaxy);
     const onLogin = (u: URL) => u.origin === vite.viteBaseUrl && u.pathname === '/auth/login';
-    // ── LIMB 1: signed out, the URL is declined (before any sign-up — the app need not exist) ──────
+    // The claim writes the account's first app, `first`; limb 2 deletes it.
+    await signUpInBrowser(inst, vite.viteBaseUrl, {
+      universe, appSlug: 'first', email: person, nickname: NICKNAME, testToken,
+    });
+
+    // ── LIMB 1: signed out, the URL is declined ────────────────────────────────────────────────
+    // At the first app, which exists by now: on a deployed target a host answers only for an app
+    // that does, since its certificate comes with the app.
     const stranger = await browser.newContext();
     try {
       const p2 = await stranger.newPage();
-      await p2.goto(`${studio}/?profile`, { waitUntil: 'domcontentloaded' });
+      await p2.goto(`${vite.scopeUrl(`${universe}.first`)}/?profile`, { waitUntil: 'domcontentloaded' });
       await p2.waitForURL(onLogin, { timeout: 30_000 });
       await p2.getByPlaceholder('you@example.com').waitFor({ state: 'visible', timeout: 20_000 });
       assert.equal(await p2.getByTestId('profile-nickname').count(), 0, 'signed out, ?profile must not open an editor');
@@ -82,11 +90,6 @@ export async function run(stack: DevStack): Promise<void> {
       await stranger.close();
     }
     console.error('  ✓ limb 1 — signed out, ?profile goes to log in and opens no editor');
-
-    // The claim writes the account's first app, `first`; limb 2 deletes it.
-    await signUpInBrowser(inst, vite.viteBaseUrl, {
-      universe, appSlug: 'first', email: person, nickname: NICKNAME, testToken,
-    });
 
     // ── LIMB 2: an account with no apps arrives at ?create, the form open ─────────────────────
     // The person deletes the claim's first app with their own session — the cookie this browser
@@ -114,7 +117,14 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 3: create the app through the form ────────────────────────────────────────────────
     await slugField.fill('wishlist');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await page.waitForURL((u) => u.origin === studio, { timeout: 60_000 });
+    // On the deployed target the new app's host has no certificate yet, so the account's page holds
+    // behind the count-up first; locally the host answers at once and none renders.
+    if (process.env.HARNESS_TARGET_URL) {
+      const accountPage = new URL(page.url()).origin;
+      await page.getByTestId('host-wait').waitFor({ state: 'visible', timeout: 60_000 });
+      assert.equal(new URL(page.url()).origin, accountPage, "the count-up must hold on the account's page");
+    }
+    await page.waitForURL((u) => u.origin === studio, { timeout: NEW_HOST_TIMEOUT_MS });
     await page.getByPlaceholder(COMPOSER).waitFor({ state: 'visible', timeout: 60_000 });
     console.error('  ✓ limb 3 — the app exists and its workspace is open');
 

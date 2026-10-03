@@ -66,8 +66,17 @@ while IFS= read -r wrangler_file; do
   # Capture output so a success stays quiet but a REAL failure shows its reason.
   # Subshell cd: wrangler resolves its config relative to cwd, and this keeps the
   # loop's own cwd pinned to PROJECT_ROOT.
+  #
+  # ⚠️ `--env-file .dev.vars.example`, never the `.dev.vars` beside the config: `wrangler types`
+  # declares every key of the env file it reads on `Env`, so generating from a developer's own
+  # `.dev.vars` made the committed files a record of that one machine. CI writes a `.dev.vars` of
+  # seven keys and diffs against them (ci.yml's staleness check), so on its first run, 2026-10-03,
+  # no committed file could match. The example is committed, so every machine generates the same
+  # `Env`; a key code reads off `Env` belongs in it. The path is RELATIVE to the config's directory,
+  # because wrangler writes it into each file's header, and an absolute one names this checkout.
+  env_file="$(node -e 'console.log(require("path").relative(process.argv[1], process.argv[2]))' "$abs_dir" "$PROJECT_ROOT/.dev.vars.example")"
   out_file="$(mktemp)"
-  if (cd "$abs_dir" && "$wrangler_bin" types) > "$out_file" 2>&1; then
+  if (cd "$abs_dir" && "$wrangler_bin" types --env-file "$env_file") > "$out_file" 2>&1; then
     echo "   ✓ Types generated"
     generated=$((generated + 1))
   else

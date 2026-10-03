@@ -27,15 +27,18 @@ import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
 
 export const needsContainer = false;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const galaxy = `lapse${crypto.randomUUID().slice(0, 8)}.crm`;
+  // The run's shared app, whose owner signs in.
+  const app = await sharedApp(stack, testToken);
+  const galaxy = app.galaxy;
   const browser = new Browser();
   // A real login whose cookies land in the shim's jar, as a browser's do.
-  const login = await provisionAndLogin({ baseUrl: stack.baseUrl, scope: galaxy, testToken, fetchImpl: browser.fetch });
+  const login = await provisionAndLogin({ baseUrl: stack.baseUrl, scope: galaxy, email: app.ownerEmail, testToken, fetchImpl: browser.fetch });
 
   const page = scopeUrlOf(stack, galaxy);
   const ctx = browser.context(page);

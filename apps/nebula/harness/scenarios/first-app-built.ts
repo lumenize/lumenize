@@ -61,7 +61,8 @@ import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email
 import type { Galaxy, Snapshot } from '@lumenize/nebula';
 import { DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar, connectDriver } from '../lib/harness';
+import { readDevVar, connectDriver, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
 import { provisionAndLogin, requestMagicLink } from '../../test/lib/email-login';
 
@@ -129,7 +130,7 @@ const TURN_TIMEOUT_MS = 900_000;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const universe = `built-${crypto.randomUUID().slice(0, 8)}`;
+  const universe = testSlug('built');
   const appSlug = 'wishlist';
   const galaxy = `${universe}.${appSlug}`;
   const person = uniqueTestEmail();
@@ -167,7 +168,7 @@ export async function run(stack: DevStack): Promise<void> {
     // completion gate stands between arriving and working — this identity accepted programmatically
     // (`provisionAndLogin`), so it simply has none and its byline falls back to "Someone".
     // `signup-to-first-app` limb 7 is where the consent nickname's journey to a byline is asserted.
-    await page.waitForURL((u) => u.origin === vite.scopeUrl(galaxy), { timeout: 30_000 });
+    await page.waitForURL((u) => u.origin === vite.scopeUrl(galaxy), { timeout: NEW_HOST_TIMEOUT_MS });
 
     const composer = page.getByPlaceholder(COMPOSER);
     try {

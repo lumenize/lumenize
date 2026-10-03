@@ -198,7 +198,9 @@ a token actually lapse with a socket open. It found that any client idle past it
 call — sent on the stale socket, refused at the Gateway's door, never resent — a "thinking… forever"
 for anyone coming back after lunch. Every other test of that path started in the lapsed state and
 was green. The same day, the turn heartbeat's first cut wrapped only the loop's awaits; only a watch
-that ran through a real 90 s turn caught the banner painting before codegen had begun.
+that ran through a real 90 s turn caught the banner painting before codegen had begun. And on
+2026-10-03, every test of mesh's alarms fired its job by hand, so none saw that a job due at once
+never set Cloudflare's alarm: a Galaxy's certificate order waited for its own deletion.
 
 **How to catch yourself:** the fixture for a time-dependent mechanism constructs the *after* state
 directly, and you are about to write "cannot let time pass" or "too slow to wait for" in its

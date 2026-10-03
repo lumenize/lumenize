@@ -74,6 +74,12 @@ export async function run(stack: DevStack): Promise<void> {
 
   // ── 1. Gate ON: a plain request (what the current SPA sends — no token, no bypass) is BLOCKED ──
   const plain = await post('/auth/claim-universe', POST_GATE_FAILING(email));
+  // A deployed target carries the Turnstile secret production does, and production has none until
+  // public signup (`tasks/backlog.md`'s Turnstile row), so its gate is off and nothing here shows.
+  if (process.env.HARNESS_TARGET_URL && !isTurnstileBlock(plain)) {
+    console.error('[turnstile-canary] not observable on this deployed target: it has no Turnstile secret, so the gate is off');
+    return;
+  }
   assert.ok(
     isTurnstileBlock(plain),
     `Probe 1 (gate ON): an open row with no token/bypass should 403-turnstile, got ${plain.status} ` +

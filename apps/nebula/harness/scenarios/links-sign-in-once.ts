@@ -37,7 +37,8 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import { GALAXY_CAP_MESSAGE, MAX_GALAXIES_PER_OWNER, SIGNUP_TICKET_COOKIE } from '@lumenize/nebula-auth/claims';
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
+import { connectDriver, inviteViaMesh, readDevVar, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite } from '../lib/browser';
 import {
   provisionAndLogin, refreshAccessToken, requestUniverseClaim, requestMagicLink, consumeLink, setCookieHeaders,
@@ -47,8 +48,7 @@ export const needsContainer = false;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `once${suffix}`;
+  const universe = testSlug('once');
   const galaxy = `${universe}.crm`;
   const ownerEmail = uniqueTestEmail();
 
@@ -94,7 +94,7 @@ export async function run(stack: DevStack): Promise<void> {
     await first.getByTestId('consent-checkbox').check();
     await first.getByTestId('consent-nickname').fill('Ivy');
     await first.getByTestId('consent-accept').click();
-    await first.waitForURL((u) => u.origin === vite.scopeUrl(galaxy), { timeout: 30_000 });
+    await first.waitForURL((u) => u.origin === vite.scopeUrl(galaxy), { timeout: NEW_HOST_TIMEOUT_MS });
     assert.ok((await jar(first)).length > 0, "the invite's Accept must sign the browser in — the positive control");
     await first.context().close();
     await replayIsRefused(inviteLink, 'the invite');
@@ -118,7 +118,7 @@ export async function run(stack: DevStack): Promise<void> {
     } finally {
       driver.dispose();
     }
-    const another = `once${suffix}b`;
+    const another = `${universe}b`;
     const claimLink = await letterTo(ownerEmail, () =>
       requestUniverseClaim({ baseUrl: origin, universe: another, appSlug: 'web', email: ownerEmail }));
     const capped = await freshPage();

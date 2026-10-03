@@ -25,7 +25,8 @@ import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/cl
 import type { Star } from '@lumenize/nebula';
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { provisionAndLogin, refreshAccessToken, requestStarClaim } from '../../test/lib/email-login';
 
@@ -49,9 +50,8 @@ const chatQuery = (chatId: string) =>
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `st${suffix}`;
-  const otherUniverse = `st${suffix}x`;
+  const universe = testSlug('st');
+  const otherUniverse = `${universe}x`;
   const galaxy = `${universe}.crm`;
   const tenant = `${galaxy}.t1`;
   const email = uniqueTestEmail();
@@ -77,7 +77,7 @@ export async function run(stack: DevStack): Promise<void> {
     // A stranger's token holds no dominion over `universe`, so the facade refuses before its hop,
     // with its own message — worded apart from the Registry's *Caller does not have admin access to
     // the parent universe*. Mutation: drop the facade's pre-check → the Registry's message → reds.
-    const strangerUniverse = `st${suffix}y`;
+    const strangerUniverse = `${universe}y`;
     const stranger = await provisionAndLogin({ baseUrl: origin, scope: strangerUniverse, testToken });
     const atStranger = await driver(strangerUniverse, stranger);
     assert.equal(await refusal(atStranger.client.scopes.createGalaxy(universe, 'crm')),
@@ -194,14 +194,19 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── 5. A new owner starts empty ─────────────────────────────────────────────────────────────
     // The watcher reconnects and re-subscribes, which writes its subscriber row into the wiped
-    // galaxy; the re-create's own teardown must clear it.
+    // galaxy; the re-create's own teardown must clear it. On a deployed target the deletion took the
+    // app's certificate with it, so no client reaches the wiped Galaxy to write that row, and only
+    // the re-created app's empty start is checked.
+    const deployed = process.env.HARNESS_TARGET_URL !== undefined;
     watching[Symbol.dispose]();
-    watcher.client.disconnect();
-    watcher.client.connect();
-    await (async () => { const t = Date.now(); while (watcher.client.connectionState !== 'connected') {
-      if (Date.now() - t > 20_000) throw new Error('the watcher did not reconnect'); await new Promise((r) => setTimeout(r, 100)); } })();
-    const rewatching = watcher.client.resources.subscribeQuery(chatQuery(chatId));
-    await rewatching.ready;
+    if (!deployed) {
+      watcher.client.disconnect();
+      watcher.client.connect();
+      await (async () => { const t = Date.now(); while (watcher.client.connectionState !== 'connected') {
+        if (Date.now() - t > 20_000) throw new Error('the watcher did not reconnect'); await new Promise((r) => setTimeout(r, 100)); } })();
+      const rewatching = watcher.client.resources.subscribeQuery(chatQuery(chatId));
+      await rewatching.ready;
+    }
     const roster = async (d: Driver): Promise<unknown[]> => {
       let latest: unknown[] | undefined;
       d.client.onQuerySubscribersUpdate((delivery) => { latest = delivery.roster as unknown[]; });
@@ -210,10 +215,16 @@ export async function run(stack: DevStack): Promise<void> {
       return latest ?? [];
     };
     // Positive control: the re-subscribe really wrote a row before the re-create.
-    await (async () => { const t = Date.now(); while ((await roster(atGalaxy)).length === 0) {
-      if (Date.now() - t > 20_000) throw new Error("the watcher's re-subscribe never reached the galaxy"); } })();
+    if (!deployed) {
+      await (async () => { const t = Date.now(); while ((await roster(atGalaxy)).length === 0) {
+        if (Date.now() - t > 20_000) throw new Error("the watcher's re-subscribe never reached the galaxy"); } })();
+    } else {
+      console.error("[scope-teardown] limb 5's stale row: not observable on a deployed target, where a deleted app's host has no certificate");
+    }
 
     assert.deepEqual(await atUniverse.client.scopes.createGalaxy(universe, 'crm'), { instanceName: galaxy });
+    // The re-created app orders a new certificate, which the rest of the scenario's calls need.
+    await waitForHost(scopeUrlOf(stack, galaxy));
     // Mutation: skip the teardown at creation → the watcher's re-created row survives → reds.
     assert.deepEqual(await roster(atGalaxy), [], "a re-created app's subscriber list must start empty");
     {

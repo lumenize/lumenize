@@ -29,8 +29,6 @@ But the node types are **heterogeneous by necessity**: each extends a different 
 - **`callContext` propagation is core, not a per-type detail.** Each node makes the propagated identity/provenance/state available during a call and carries it across outgoing continuations — including the node's own persistent identity, which the framework stamps on **every** first-contact entry, not just the mesh path. *(How the context is bound differs on the client — the one documented divergence, below; identity-stamping mechanics live in `mesh.md`.)*
 - **Divergence must be documented and defensible.** The lone current divergence is the client's separate path (browser/Node compat). It is a documented parallel path — to keep documented or consolidate — not a license to reimplement the core freely. Unjustified divergence is a defect.
 
-> **Today's code differs.** The Galaxy's `fetch` receives page traffic at `/app/{star}/…`, the path `serveAppForward` forwards unchanged, rather than under a prefix the forward writes, and the `@rawRpc()` entry does not exist yet, so a deletion's teardown still reaches each node from the browser, over the mesh. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) puts page traffic under `/_public/` and lands the entry.
-
 ## Alternatives considered
 
 | Approach | Why rejected |

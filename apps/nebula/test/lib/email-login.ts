@@ -236,6 +236,14 @@ export function setCookieHeaders(res: Response): string[] {
 
 
 /**
+ * Every universe a claim through {@link requestUniverseClaim} wrote in this process, with the address
+ * that claimed it. The `/live` harness deletes the accepted ones when a scenario ends, which hands
+ * back the certificate pack each claim's first app ordered (`harness/lib/shared-app.ts`); nothing
+ * else reads it.
+ */
+export const claimedUniverses: Array<{ universe: string; email: string }> = [];
+
+/**
  * POST `claim-universe` — the one open, admin-minting entry point, which writes the account and its
  * first app, `{universe}.{appSlug}` with its `.dev` Star. Returns the magic-link URL in test mode,
  * `undefined` in email mode (the link arrives by email instead), or `null` when the slug is
@@ -260,6 +268,7 @@ export async function requestUniverseClaim(options: {
   if (!res.ok) {
     throw new Error(`claim-universe ${res.status}: ${(await res.text()).slice(0, 200)}`);
   }
+  claimedUniverses.push({ universe, email });
   return ((await res.json()) as { magicLinkUrl?: string }).magicLinkUrl;
 }
 
@@ -340,9 +349,14 @@ export async function requestStarClaim(options: {
  * ⚠️ `star` must NOT be a reserved environment slug (`dev`) — see {@link requestStarClaim}.
  */
 export async function provisionStarAdmin(
-  options: Omit<EmailLoginOptions, 'authScope'> & { scope: string },
+  options: Omit<EmailLoginOptions, 'authScope'> & {
+    scope: string;
+    /** Who owns the account above, when it exists already, such as a `/live` run's shared app;
+     *  otherwise a stranger, `owner-{email}`, claims it. */
+    ownerEmail?: string;
+  },
 ): Promise<{ accessToken: string; sub: string; session: EmailSession }> {
-  const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout } = options;
+  const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout, ownerEmail, ...rest } = options;
   const email = options.email ?? uniqueTestEmail();
   const origin = baseUrl.replace(/\/$/, '');
   const parts = scope.split('.');
@@ -357,7 +371,10 @@ export async function provisionStarAdmin(
   //      ⚠️ On a fetch of its own, never the caller's: a different person is a different browser, and
   //      a browser holding the owner's cookie gets the owner's token on every page beneath, since
   //      the refresh picks the broadest admin membership the cookies reach.
-  await provisionAndLogin({ ...options, fetchImpl: fetch, scope: `${universe}.${galaxy}`, email: `owner-${email}` });
+  await provisionAndLogin({
+    ...rest, baseUrl, testToken, bypassToken, timeout, fetchImpl: fetch,
+    scope: `${universe}.${galaxy}`, email: ownerEmail ?? `owner-${email}`,
+  });
 
   // 3. Claim the star as the tenant. Open — no admin in the loop, no token needed.
   // ⚠️ **No `instance` filter, because the branch below decides the tag and it has not run yet.**

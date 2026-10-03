@@ -30,7 +30,8 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { Profile } from '@lumenize/nebula-auth/profile';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   requestMagicLink, refreshAccessToken, provisionAndLogin, acceptMembership, refreshTokenForScope,
   setCookieHeaders, consumeLink, refreshCookie, refreshFromPage, homeSummary, scopeOriginFrom,
@@ -45,7 +46,7 @@ const PLATFORM_SCOPE = '_platform';
  * Computed at MODULE scope, not inside `run` — `drive.ts` reads `bootVars` to boot the stack, which
  * happens before `run` is ever called. One address per process, so concurrent runs cannot collide.
  */
-const SUPERUSER_EMAIL = uniqueTestEmail('superuser');
+const SUPERUSER_EMAIL = superuserEmail(uniqueTestEmail('superuser'));
 
 /** Re-point the bootstrap allow-list at an address on the test catch-all, for this boot only. */
 export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER_EMAIL };
@@ -53,8 +54,7 @@ export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER_EMAIL };
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const someUniverse = `superuser-probe-${suffix}`;
+  const someUniverse = testSlug('su-probe');
 
   // ── A scope the superuser has NOTHING to do with, founded by somebody else ───────────────────
   // Enumeration and dominion are only meaningful against a tree that exists, and one the superuser
@@ -154,9 +154,14 @@ export async function run(stack: DevStack): Promise<void> {
   // could talk the refresh into minting an ungrammatical scope it is them — which makes this the
   // strongest place to prove the refusal is about the GRAMMAR and not about authority.
   const ungrammaticalHost = scopeOriginFrom(origin, `${someUniverse}.app.tenant.extra`);
-  const page = await fetch(`${ungrammaticalHost}/`);
-  assert.equal(page.status, 404, `a page load on a four-deep host answered ${page.status}, not 404`);
-  await page.text();
+  // The page load is the local half: on a deployed target no certificate covers a four-deep host,
+  // so its handshake fails before the Worker sees it, which refuses it as surely. The refresh below
+  // names the host in `Origin` on the platform host, so it runs in both venues.
+  if (!process.env.HARNESS_TARGET_URL) {
+    const page = await fetch(`${ungrammaticalHost}/`);
+    assert.equal(page.status, 404, `a page load on a four-deep host answered ${page.status}, not 404`);
+    await page.text();
+  }
   const badRes = await fetch(`${origin}/auth/refresh-token`, {
     method: 'POST', headers: { Origin: ungrammaticalHost, Cookie: refreshCookie(PLATFORM_SCOPE, refreshToken) },
   });
@@ -195,7 +200,7 @@ export async function run(stack: DevStack): Promise<void> {
   // The membership is the platform root, and the page bounds it (the host rule): another universe's
   // host holds dominion over nothing the stranger holds. Reds if the Profile reads `authScope`, or
   // short-circuits a superuser on every profile.
-  const beside = `superuser-beside-${suffix}`;
+  const beside = testSlug('su-beside');
   const fromBeside = await refreshAccessToken(origin, session, beside);
   const besideDriver = await connectDriver(stack, {
     scope: beside,

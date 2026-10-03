@@ -28,13 +28,13 @@ The platform host, `https://platform.lumenize.dev/`, is where login, Home and a 
 Login **never mints** a membership. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and finds nothing to sign in to if none exists — this is what closes stranger-self-join. Memberships are minted only at mint points:
 
 - **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`scopeAdmin=true`), the universe, and its first app with that app's `.dev` Star.
-- **Galaxy** — a universe admin creates it through the facade's `createGalaxy`, which writes it together with its `.dev` Star; both are **parent-managed** (no local admin stamped — the parent admin's own scope is at or above them, so their token reaches them).
+- **Galaxy** — a universe admin creates it through the facade's `createGalaxy`, which writes it together with its `.dev` Star; both are **parent-managed** (no local admin stamped — the parent admin's own scope is at or above them, so their token reaches them). The new Galaxy orders its host's certificate, and the host answers only once that is issued, two and a half to four minutes later, so the universe page counts the seconds up and enters Studio when the host answers.
 - **Star** — a tenant Star is claimed by its own open self-signup, `claim-star`, which mints its claimer's admin membership at the Star.
 - **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee's membership (`scopeAdmin=false`, not yet taken up) and emails a magic link that lives 7 days, and Accept on its page records the take-up. Proving the mailbox is a property of the **address**, so someone who already proved it in another scope does not re-prove it here — only the new membership's take-up is recorded.
 
 ## First-time login (self-signup — founding a Universe)
 
-A new user arrives with no refresh cookie and no identity yet. They name an account and its first app (`claim-universe`), which mints the claiming admin identity and emails a magic link. The link opens a page that changes nothing; its Accept proves the mailbox, sets the cookies, and lands the person in Studio.
+A new user arrives with no refresh cookie and no identity yet. They name an account and its first app (`claim-universe`), which mints the claiming admin identity and emails a magic link. The link opens a page that changes nothing; its Accept proves the mailbox, sets the cookies, orders the first app's certificate, and lands the person in Studio once the app's host answers.
 
 ```mermaid
 sequenceDiagram
@@ -70,6 +70,7 @@ sequenceDiagram
         W->>R: consumeLink(tokenHash)
         Note over R: prove the mailbox once, globally<br/>return EVERY membership this address holds
         W->>R: recordSessions, then acceptMembership
+        Note over W: the acceptance wakes the claim's Galaxy, which orders its certificate
         W->>KV: put refresh:{tokenHash} per membership
         Note over R: spend the link, so a replay signs nobody in
         W-->>P: one Set-Cookie per membership + { redirect: the Studio host }
@@ -77,6 +78,7 @@ sequenceDiagram
 
     rect rgba(200, 240, 200, 0.3)
         Note over S,GW: 4. Studio gets its access token and connects
+        Note over P: count the seconds up until the Studio host answers, then go there
         P->>S: navigate to https://crm.acme.lumenize.dev/
         S->>W: POST https://platform.lumenize.dev/auth/refresh-token<br/>Origin: the Studio host, with the cookies
         W->>KV: get refresh:{tokenHash} for each cookie at or above acme.crm
@@ -129,7 +131,7 @@ sequenceDiagram
     end
 ```
 
-Home, at `https://platform.lumenize.dev/`, lists every membership the browser's cookies hold. It reads them by cookie through `POST /auth/home-summary`, never by token, and each row links to the host that can act on it.
+Home, at `https://platform.lumenize.dev/`, lists every membership the browser's cookies hold. It reads them by cookie through `POST /auth/home-summary`, never by token, and each row links to the host that can act on it. An account claimed from the signup page with a ticket is accepted here, and Home's move into its new app waits on the same count-up as the link page.
 
 :::tip[Bookmarked URLs]
 

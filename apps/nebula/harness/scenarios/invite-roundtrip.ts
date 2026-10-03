@@ -38,6 +38,8 @@ import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
 import {
   provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
 export const needsContainer = false;
@@ -45,15 +47,16 @@ export const needsContainer = false;
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `inv-${suffix}`;
-  const star = `${universe}.app.tenant`;
+  // The run's shared app, with a Star of this scenario's own beneath it.
+  const app = await sharedApp(stack, testToken);
+  const universe = app.universe;
+  const star = `${app.galaxy}.${testSlug('inv')}`;
   const inviteeEmail = uniqueTestEmail();
 
-  // The inviter: a real universe admin (claim → real email → login), with the galaxy + star scopes
-  // created beneath — the Star by a throwaway claimer whose membership is never taken up, so the
+  // The inviter: a real universe admin, the shared app's owner signed in by email, with this
+  // scenario's Star founded beneath by a throwaway claimer whose membership is never taken up, so the
   // invitee below is the one accepted star-scoped admin limb 4 drives.
-  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, testToken });
+  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, email: app.ownerEmail, testToken });
   let admin: Driver | undefined;
   let invitee: NebulaClient | undefined;
   const inviteeBrowser = new Browser();

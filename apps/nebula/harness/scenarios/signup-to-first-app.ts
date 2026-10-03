@@ -24,7 +24,9 @@
  *  3. **Consent on the letter's page needs the box AND a nickname, and Accept lands in the first
  *     app's Studio.** *Reds if the claim's link stops naming that Studio as where to land — the
  *     person would stop on Home or the Universe page and have to learn both first — and, via the
- *     disabled-Accept half, against the nickname silently becoming optional.*
+ *     disabled-Accept half, against the nickname silently becoming optional.* On the deployed
+ *     target the app's host has no certificate yet, so the page first holds on the platform host
+ *     behind the count-up. *Reds there if the page navigates as soon as consent returns.*
  *  4. **The Universe page lists the app the claim wrote, unblocked.** *Reds if the claim stops
  *     writing its first app (no row), and, by the dialog count, if a blocking gate returns to this
  *     screen.*
@@ -56,6 +58,10 @@
  *     submits, and Home offers the new account's consent; the ticket claim's record names three
  *     scopes. `signup-one-email` posts its ticket claim from Node, so nothing else renders
  *     `SignupScreen.vue`. *Reds if that page drops the field.*
+ * 13. **A ticket-backed signup accepted on Home enters its app.** In a browser holding only the new
+ *     address's session, Home opens the lone account's consent and, once given, fast-forwards into
+ *     the account's app; on the deployed target it holds behind the count-up first. *Reds there if
+ *     Home fast-forwards at once.*
  *
  * `needsContainer = false` — signup, routing and auth only. Nothing here builds an app; that is
  * `first-app-built`, which picks up where limb 6 leaves off.
@@ -63,10 +69,11 @@
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
-import { requestMagicLink } from '../../test/lib/email-login';
+import { claimedUniverses, requestMagicLink } from '../../test/lib/email-login';
 
 export const needsContainer = false;
 export const bootVars = {
@@ -80,11 +87,12 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   // Fresh slug + fresh address per run: a deployed target's state is durable, so a fixed pair
   // replays an already-claimed universe (409) down a branch this scenario is not covering.
-  const universe = `signup-${crypto.randomUUID().slice(0, 8)}`;
+  const universe = testSlug('signup');
   const appSlug = 'wishlist';
   const galaxy = `${universe}.${appSlug}`;
   const person = uniqueTestEmail();
   const NICKNAME = 'Robin Newcomer';
+  const deployed = process.env.HARNESS_TARGET_URL !== undefined;
 
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
@@ -109,6 +117,7 @@ export async function run(stack: DevStack): Promise<void> {
     try {
       await page.getByRole('button', { name: 'Create account', exact: true }).click();
       await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
+      claimedUniverses.push({ universe, email: person }); // the harness deletes it
       link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
@@ -140,8 +149,12 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(await accept.isEnabled(), true,
       'Accept must enable once the box is ticked AND a nickname is present');
     await accept.click();
+    if (deployed) {
+      await page.getByTestId('host-wait').waitFor({ state: 'visible', timeout: 60_000 });
+      assert.equal(new URL(page.url()).origin, vite.viteBaseUrl, 'the count-up must hold on the platform host');
+    }
     const studioHost = new URL(vite.scopeUrl(galaxy)).host;
-    await page.waitForURL((u) => u.host === studioHost, { timeout: 30_000 });
+    await page.waitForURL((u) => u.host === studioHost, { timeout: NEW_HOST_TIMEOUT_MS });
     console.error(`  ✓ limb 3 — the box alone did not suffice; consent + nickname lands in ${galaxy}'s Studio`);
 
     // ── LIMB 5: Studio connects on a LIVE session ──────────────────────────────────────────────
@@ -272,7 +285,7 @@ export async function run(stack: DevStack): Promise<void> {
     const recordNames = (ns: string, u: string, app: string) => (all: DebugLine[]) =>
       all.some((l) => l.namespace === ns && l.data.universe === u && l.data.galaxy === `${u}.${app}`
         && l.data.devStar === `${u}.${app}.dev`);
-    const bare = `bare-${crypto.randomUUID().slice(0, 8)}`;
+    const bare = testSlug('bare');
     const post = (body: Record<string, unknown>) => fetch(`${vite.viteBaseUrl}/auth/claim-universe`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
@@ -291,7 +304,7 @@ export async function run(stack: DevStack): Promise<void> {
     // A new address with no memberships, in the same browser: its link's Continue lands on
     // `/auth/signup` holding a ticket, and the page's two fields are the claim.
     const newcomer = uniqueTestEmail();
-    const ticketUniverse = `ticket-${crypto.randomUUID().slice(0, 8)}`;
+    const ticketUniverse = testSlug('ticket');
     const ticketWaiter = waitForEmail({ testToken, to: newcomer, timeout: 120_000 });
     let ticketLink: string;
     try {
@@ -318,6 +331,43 @@ export async function run(stack: DevStack): Promise<void> {
         `${ticketNs} naming ${ticketUniverse}'s three scopes`);
     }
     console.error(`  ✓ limb 12 — the rendered signup page claimed ${ticketUniverse} with its first app${observable ? '' : ' (record not observable on a deployed target)'}`);
+
+    // ── LIMB 13: a ticket-backed signup accepted on Home enters its app ─────────────────────────
+    const solo = await instrumentedPage(browser);
+    try {
+      const loner = uniqueTestEmail();
+      const lonerUniverse = testSlug('solo');
+      const lonerWaiter = waitForEmail({ testToken, to: loner, timeout: 120_000 });
+      let lonerLink: string;
+      try {
+        await requestMagicLink({ baseUrl: vite.viteBaseUrl, email: loner });
+        lonerLink = extractMagicLink(await lonerWaiter.emailPromise);
+      } finally {
+        lonerWaiter.cleanup();
+      }
+      const p = solo.page;
+      await p.goto(lonerLink, { waitUntil: 'domcontentloaded' });
+      await p.getByTestId('link-continue').click();
+      await p.waitForURL(/\/auth\/signup(?:[?#]|$)/, { timeout: 30_000 });
+      await p.getByPlaceholder('acme').fill(lonerUniverse);
+      await p.getByPlaceholder('crm').fill('notes');
+      await p.getByRole('button', { name: 'Create account', exact: true }).click();
+      claimedUniverses.push({ universe: lonerUniverse, email: loner }); // accepted below, so the harness deletes it
+      // Home opens a lone pending account's consent by itself.
+      await p.getByTestId('consent-checkbox').waitFor({ state: 'visible', timeout: 30_000 });
+      await p.getByTestId('consent-checkbox').check();
+      await p.getByTestId('consent-nickname').fill('Solo');
+      await p.getByTestId('consent-accept').click();
+      if (deployed) {
+        await p.getByTestId('host-wait').waitFor({ state: 'visible', timeout: 60_000 });
+        assert.equal(new URL(p.url()).origin, vite.viteBaseUrl, "Home's count-up must hold on the platform host");
+      }
+      const notesHost = new URL(vite.scopeUrl(`${lonerUniverse}.notes`)).host;
+      await p.waitForURL((u) => u.host === notesHost, { timeout: NEW_HOST_TIMEOUT_MS });
+    } finally {
+      await solo.page.context().close();
+    }
+    console.error(`  ✓ limb 13 — a ticket-backed signup accepted on Home entered its app${deployed ? ', after the count-up' : ''}`);
 
     const { existsSync, statSync } = await import('node:fs');
     for (const cap of [created, revisit]) {

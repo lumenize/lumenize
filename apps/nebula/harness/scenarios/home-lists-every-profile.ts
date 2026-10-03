@@ -32,6 +32,7 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 
 export const needsContainer = false;
@@ -41,8 +42,7 @@ const HOME_ROUTES = new Set(['POST /auth/home-summary', 'POST /auth/pending-memb
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const [ua, ub, uc, ud] = ['ha', 'hb', 'hc', 'hd'].map((p) => `${p}${suffix}`);
+  const [ua, ub, uc, ud] = ['ha', 'hb', 'hc', 'hd'].map((p) => testSlug(p));
   const [a, b, c, d] = [uniqueTestEmail(), uniqueTestEmail(), uniqueTestEmail(), uniqueTestEmail()];
 
   const browser = await launchChromium();
@@ -67,6 +67,8 @@ export async function run(stack: DevStack): Promise<void> {
     });
     home.on('request', (r) => {
       const u = new URL(r.url());
+      // `/cdn-cgi/` is Cloudflare's own path, such as the analytics beacon it injects on a deployed zone.
+      if (u.pathname.startsWith('/cdn-cgi/')) return;
       if (r.method() !== 'GET' || u.pathname.startsWith('/auth/')) sent.push(`${r.method()} ${u.pathname}`);
     });
     const loadHome = async (page: Page) => {

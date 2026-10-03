@@ -31,6 +31,8 @@ import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
 import { launchChromium, bootStudioVite } from '../lib/browser';
 import { provisionAndLogin, refreshAccessToken, requestMagicLink } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 
 export const needsContainer = false;
 
@@ -38,16 +40,17 @@ const COMPOSER = 'Describe a change…';
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `land${suffix}`;
-  const galaxy = `${universe}.crm`;
-  const other = `${universe}.web`;
+  // The run's shared app; `other` names an app this scenario never creates, for a tampered return.
+  const app = await sharedApp(stack, testToken);
+  const universe = app.universe;
+  const galaxy = app.galaxy;
+  const other = `${universe}.${testSlug('web')}`;
 
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
   const origin = vite.viteBaseUrl;
   try {
-    const owner = await provisionAndLogin({ baseUrl: origin, scope: galaxy, testToken });
+    const owner = await provisionAndLogin({ baseUrl: origin, scope: galaxy, email: app.ownerEmail, testToken });
     const atGalaxy = await refreshAccessToken(origin, owner.session, galaxy);
 
     /** O's invite, sent from the galaxy's page on vite's port, and the letter's one link. */

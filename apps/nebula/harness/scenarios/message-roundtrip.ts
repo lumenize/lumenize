@@ -22,20 +22,21 @@ import { ROOT_NODE_ID, NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lume
 import type { Snapshot } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import {
-  connectDriver, mintDegradedToken, assertTokenRejected, scopeUrlOf, constructionPairs,
+  connectDriver, mintDegradedToken, assertTokenRejected, scopeUrlOf, constructionPairs, readDevVar,
 } from '../lib/harness';
-
-/** Galaxy-tier sandbox under the `claude` Universe — the collapse's chat/resource host. */
-export const SCOPE = 'claude.sandbox';
+import { sharedApp } from '../lib/shared-app';
 
 export async function run(stack: DevStack): Promise<void> {
   const marker = `harness-marker-${crypto.randomUUID()}`;
-  const driver = await connectDriver(stack, { scope: SCOPE });
+  // The run's shared app, galaxy-tier, which hosts the chat and resource planes. Its owner signs in
+  // through the driver's own cookie jar, which the last limb's second tab refreshes from.
+  const app = await sharedApp(stack, readDevVar('TEST_TOKEN'));
+  const SCOPE = app.galaxy;
+  const driver = await connectDriver(stack, { scope: SCOPE, email: app.ownerEmail });
 
   try {
     // ── POSITIVE: create Chat + Message (ADR-006 by-id FK, client UUIDs) atomically ──
-    // (Phase-4 of the collapse rewrites this drive path onto `postUserMessage`; until then the
-    // raw transaction surface is the mechanism under test.)
+    // The raw transaction surface, rather than `postUserMessage`, is the mechanism under test.
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const out = await driver.client.resources.transaction({

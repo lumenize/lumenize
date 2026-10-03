@@ -121,22 +121,33 @@ const certificateAlarmOf = (name: string) =>
   inGalaxy(name, (inst: any) => inst.svc.alarms.getSchedule('galaxy-certificate')) as Promise<{ time: number } | undefined>;
 /** Fire the Galaxy's next alarm through mesh's own trigger, the path production's `alarm()` takes. */
 const fireNextAlarm = (name: string) => inGalaxy(name, (inst: any) => inst.svc.alarms.triggerAlarms(1));
+/**
+ * Wait for the runtime to deliver the alarm a wake armed, whose delay is zero, until the stored state
+ * shows `done`. Every later re-arm is ten seconds out at least, so a test steps those by hand.
+ */
+const delivered = (name: string, done: (state: any) => boolean) => vi.waitFor(async () => {
+  expect(done(await inGalaxy(name, (_i, ctx) => ctx.storage.kv.get('galaxy:certificate')))).toBe(true);
+}, { timeout: 15_000, interval: 100 });
 
 describe('the alarm is the one caller of the API', () => {
   it('two wakes arm one alarm and call nothing; the alarm then orders once', async () => {
     const { name, fake } = await setUp();
-    await inGalaxy(name, async (inst: any) => { await inst.orderCertificate('op-a'); await inst.orderCertificate('op-b'); });
-    expect(fake.calls).toEqual([]);
-    expect(await certificateAlarmOf(name)).toBeDefined();
-    await fireNextAlarm(name);
+    // Read inside the wakes' own invocation, before the runtime can deliver the alarm they armed.
+    const atTheWakes = await inGalaxy(name, async (inst: any) => {
+      await inst.orderCertificate('op-a');
+      await inst.orderCertificate('op-b');
+      return { calls: [...fake.calls], armed: inst.svc.alarms.getSchedule('galaxy-certificate') !== undefined };
+    });
+    expect(atTheWakes).toEqual({ calls: [], armed: true });
+    await delivered(name, (s) => s?.packId !== undefined);
     expect(fake.calls).toEqual(['order', 'order-returned']);
-  });
+  }, 20_000);
 
   it('a pending pack re-arms the alarm and is polled, and an active one stops it', async () => {
     const answers = ['pending_validation', 'active'];
     const { name, fake } = await setUp({ get: async (packId) => ({ ok: true, packId, status: answers.shift()! }) });
     await inGalaxy(name, async (inst: any) => { await inst.orderCertificate('op-a'); });
-    await fireNextAlarm(name); // orders: pending
+    await delivered(name, (s) => s?.packId !== undefined); // orders: pending
     expect(await certificateAlarmOf(name)).toBeDefined();
     await fireNextAlarm(name); // polls: still pending
     expect(await certificateAlarmOf(name)).toBeDefined();
@@ -144,17 +155,17 @@ describe('the alarm is the one caller of the API', () => {
     expect(await certificateAlarmOf(name)).toBeUndefined();
     expect(fake.calls).toEqual(['order', 'order-returned', 'get:p-ordered', 'get:p-ordered']);
     expect(await inGalaxy(name, (_i, ctx) => ctx.storage.kv.get('galaxy:certificate'))).toMatchObject({ status: 'active' });
-  });
+  }, 20_000);
 
   it('a transient failure re-arms the alarm, and the retry orders', async () => {
     const results: CertificateResult[] = [{ ok: false, transient: true }, { ok: true, packId: 'p2', status: 'pending_validation' }];
     const { name, fake } = await setUp({ order: async () => results.shift()! });
     await inGalaxy(name, async (inst: any) => { await inst.orderCertificate('op-a'); });
-    await fireNextAlarm(name);
+    await delivered(name, (s) => (s?.failures ?? 0) >= 1);
     expect(await certificateAlarmOf(name)).toBeDefined();
     await fireNextAlarm(name);
     expect(fake.calls).toEqual(['order', 'order-returned', 'order', 'order-returned']);
-  });
+  }, 20_000);
 });
 
 describe('a wake a deletion overtakes is torn down again', () => {

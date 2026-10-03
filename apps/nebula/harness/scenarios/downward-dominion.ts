@@ -33,19 +33,19 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { acceptInviteAndLogin, refreshAccessToken } from '../../test/lib/email-login';
+import { asSharedOwner } from '../lib/shared-app';
 
 /** Resource ops on the Galaxy chat host only — never a build, so the boot skips Docker. */
 export const needsContainer = false;
 
-/** A galaxy neither identity founded or holds a grant on (the collapse's chat/resource host). */
-const TARGET = 'claude-reach.sandbox';
-
 export async function run(stack: DevStack): Promise<void> {
-  // REAL LOGIN (rung 1) — `provisionAndLogin` claims the universe, logs in there for real, then
-  // creates the galaxy beneath with that admin's own token and re-issues at TARGET. The
-  // resulting claim is the server's: `authScope` = the universe, `aud` = TARGET, `scopeAdmin` set.
-  // No mint, no `reason`, nothing hand-built for the assertion to be wrong about.
-  const admin = await connectDriver(stack, { scope: TARGET });
+  // REAL LOGIN (rung 1) — the run's shared app, a galaxy whose owner holds no DAG grant on it,
+  // signed in for real at TARGET (the chat/resource host). The resulting claim is the server's:
+  // `authScope` = the universe, `aud` = TARGET, `scopeAdmin` set. No mint, no `reason`, nothing
+  // hand-built for the assertion to be wrong about.
+  const { app, session } = await asSharedOwner(stack, readDevVar('TEST_TOKEN'));
+  const TARGET = app.galaxy;
+  const admin = await connectDriver(stack, { scope: TARGET, session });
 
   // The control — a NON-admin at TARGET, enrolled the only way production enrols one: the admin
   // invites them through the ONE production surface, the real email arrives, the click is a real

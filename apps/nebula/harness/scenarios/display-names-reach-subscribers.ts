@@ -30,6 +30,7 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   requestUniverseClaim, refreshTokenForScope, setCookieHeaders, refreshAccessToken, consumeLink,
 } from '../../test/lib/email-login';
@@ -63,9 +64,8 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
   const person = uniqueTestEmail();
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const first = `names-a-${suffix}`;
-  const second = `names-b-${suffix}`;
+  const first = testSlug('names-a');
+  const second = testSlug('names-b');
   const browser = new Browser();
   const results: Array<{ name: string; ok: boolean; detail: string }> = [];
   const record = (name: string, ok: boolean, detail: string) => {

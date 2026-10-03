@@ -39,7 +39,8 @@ import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
+import { connectDriver, inviteViaMesh, readDevVar, waitForHost } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite } from '../lib/browser';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
@@ -52,8 +53,7 @@ export const bootVars = { DEBUG: 'nebula-auth.worker.lookup,nebula-auth.Registry
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const observable = stack.logs !== undefined;
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `links${suffix}`;
+  const universe = testSlug('links');
   const galaxy = `${universe}.crm`;
 
   const browser = await launchChromium();
@@ -82,17 +82,21 @@ export async function run(stack: DevStack): Promise<void> {
     // ── The cast ────────────────────────────────────────────────────────────────────────────────
     const owner = await provisionAndLogin({ baseUrl: origin, scope: galaxy, testToken });
     const atGalaxy = await refreshAccessToken(origin, owner.session, galaxy);
+    // Before the waiter is armed: on a deployed target this app's host answers only once its certificate
+    // is issued, which can outlast the waiter, and the invite dials it.
+    await waitForHost(vite.scopeUrl(galaxy));
     const invite = (email: string) => letterTo(email, () => inviteViaMesh(stack, atGalaxy, galaxy, [{ email }], 'Olive', { scopeUrl: vite.scopeUrl, platformOrigin: origin }));
 
     const a = uniqueTestEmail();
     const b = uniqueTestEmail();
     const c = uniqueTestEmail();
-    await ownAccount(b, `bee${suffix}`, 'Bee');
-    await ownAccount(c, `cee${suffix}`, 'Cee');
-    const cSession = await provisionAndLogin({ baseUrl: origin, scope: `cee${suffix}`, email: c, testToken });
-    const cDriver = await connectDriver(stack, { scope: `cee${suffix}`, session: cSession });
+    const cee = testSlug('cee');
+    await ownAccount(b, testSlug('bee'), 'Bee');
+    await ownAccount(c, cee, 'Cee');
+    const cSession = await provisionAndLogin({ baseUrl: origin, scope: cee, email: c, testToken });
+    const cDriver = await connectDriver(stack, { scope: cee, session: cSession });
     try {
-      await cDriver.client.scopes.delete(`cee${suffix}`);
+      await cDriver.client.scopes.delete(cee);
     } finally {
       cDriver.dispose();
     }
@@ -129,6 +133,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 2: loading a link as an image signs nobody in ─────────────────────────────────────
     const page = await freshPage();
+    await waitForHost(vite.scopeUrl(`${galaxy}.dev`)); // its galaxy is new, so on a deployed target its certificate is too
     await page.goto(`${vite.scopeUrl(`${galaxy}.dev`)}/`, { waitUntil: 'domcontentloaded' });
     // Each image request's own end, finished or failed: Chromium blocks an HTML answer to an <img>
     // from another origin (ORB) after it arrives, which is still the request completing.

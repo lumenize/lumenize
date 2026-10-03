@@ -45,6 +45,8 @@ import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/cl
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionStarAdmin, loginViaEmail, refreshAccessToken } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 import type { Star } from '@lumenize/nebula';
 
 /** This scenario never drives a build, so it does not need the container — or Docker. */
@@ -70,22 +72,23 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const browser = new Browser();
   const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `imp${suffix}`;
-  const star = `${universe}.app.tenant`;
+  // The run's shared app, with a Star of this scenario's own beneath it.
+  const app = await sharedApp(stack, testToken);
+  const universe = app.universe;
+  const star = `${app.galaxy}.${testSlug('imp')}`;
   const subjectEmail = `subject-${suffix}@lumenize-test.dev`;
 
-  // The SUBJECT: a real star-scoped admin, reached through the open claim-star path. As a side effect this
-  // provisions the universe + galaxy above, owned by a DIFFERENT identity — `owner-<email>` — which
-  // is precisely the admin we need, and why the two are created in this order.
+  // The SUBJECT: a real star-scoped admin, reached through the open claim-star path, beneath the
+  // shared app, whose owner is precisely the admin we need.
   const subject = await provisionStarAdmin({
-    baseUrl: stack.baseUrl, scope: star, email: subjectEmail, testToken, fetchImpl: browser.fetch,
+    baseUrl: stack.baseUrl, scope: star, email: subjectEmail, ownerEmail: app.ownerEmail, testToken, fetchImpl: browser.fetch,
   });
 
   // The ADMIN: log that universe owner in. A plain login, NOT provisionAndLogin — the universe is
   // already claimed, and claiming is the one open admin-minting entry, so re-provisioning would
   // fail rather than re-authenticate.
   const adminSession = await loginViaEmail({
-    baseUrl: stack.baseUrl, authScope: universe, email: `owner-${subjectEmail}`,
+    baseUrl: stack.baseUrl, authScope: universe, email: app.ownerEmail,
     testToken, fetchImpl: browser.fetch,
   });
   // At the subject's own scope: an impersonation's child acts on its parent's page.

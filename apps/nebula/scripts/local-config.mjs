@@ -4,9 +4,9 @@
  * that are only true of a deployed Worker.
  *
  * Why `routes` must go (the reason this file exists, found by hand-driving on 2026-09-02):
- * `wrangler dev` infers the local upstream host from the FIRST `routes` entry, so with the branded
- * custom domain declared the Worker sees `Host: nebula.lumenize.com` no matter what the browser
- * addressed — and magic-link URLs follow the request origin (`worker-token.ts`), so every login link
+ * `wrangler dev` infers the local upstream host from the FIRST `routes` entry, so with a custom
+ * domain declared the Worker sees that domain as its `Host`, `lumenize.dev` today, no matter what
+ * the browser addressed — and magic-link URLs follow the request origin (`worker-token.ts`), so every login link
  * a local stack emailed pointed at PRODUCTION. Clicking one hit a two-month-old deploy, and the
  * test lanes never noticed because a helper re-pointed the host before following it. Stripping
  * `routes` makes wrangler use the real inbound `Host`, which lands the link wherever the caller

@@ -13,14 +13,17 @@
  *  2. **Positive control: a second tab on Star A calling the first passes the Gateway** and meets
  *     that client refusal, so the Gateway does reach a client, and limb 1's refusal is passage.
  *
- * Real logins throughout (ADR-009 rung 1): the owner claims the universe, and each member arrives by
- * a real invite email, accepts, and refreshes onto their Star. `needsContainer = false`.
+ * Real logins throughout (ADR-009 rung 1): the owner is the run's shared app's, signed in by email,
+ * and each member arrives by a real invite email, accepts, and refreshes onto their Star.
+ * `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, foundTenantStar } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 
 export const needsContainer = false;
 
@@ -32,12 +35,13 @@ async function refusal(op: Promise<unknown>): Promise<string | null> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const universe = `csp-${crypto.randomUUID().slice(0, 8)}`;
-  const galaxy = `${universe}.app`;
-  const starA = `${galaxy}.a`;
-  const starB = `${galaxy}.b`;
+  // The run's shared app, with two sibling Stars of this scenario's own beneath it.
+  const app = await sharedApp(stack, testToken);
+  const galaxy = app.galaxy;
+  const starA = `${galaxy}.${testSlug('a')}`;
+  const starB = `${galaxy}.${testSlug('b')}`;
 
-  const ownerSession = await provisionAndLogin({ baseUrl: origin, scope: galaxy, email: uniqueTestEmail(), testToken });
+  const ownerSession = await provisionAndLogin({ baseUrl: origin, scope: galaxy, email: app.ownerEmail, testToken });
   // Each Star founded as a tenant founds one: its own claim, accepted by its claimer. Nothing is
   // invited into a Star whose founder is pending; the owner's dominion is what reaches them.
   for (const star of [starA, starB]) {

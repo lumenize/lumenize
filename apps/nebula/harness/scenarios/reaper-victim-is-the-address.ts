@@ -36,11 +36,13 @@ import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID } from '@lume
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
 
 export const needsContainer = false;
 
-/** A galaxy-tier scope: two segments, so the GALAXY owns resources and runs the reapers. */
-const SCOPE = 'claude-reaper.app';
+/** A galaxy-tier scope: two segments, so the GALAXY owns resources and runs the reapers. The run's
+ *  shared app, set as the scenario starts. */
+let SCOPE = '';
 
 /** A push crosses one process boundary. Past this it is a failure, not slowness. */
 const PUSH_TIMEOUT_MS = 8_000;
@@ -119,8 +121,10 @@ export async function run(stack: DevStack): Promise<void> {
   const origin = stack.baseUrl.replace(/\/$/, '');
   // The login rides a cookie jar, exactly as a browser does — `connectDriver` passes the same thing.
   const loginBrowser = new Browser();
+  const app = await sharedApp(stack, readDevVar('TEST_TOKEN'));
+  SCOPE = app.galaxy;
   const { accessToken, sub } = await step('login', 90_000, () => provisionAndLogin({
-    baseUrl: origin, scope: SCOPE, testToken: readDevVar('TEST_TOKEN'), fetchImpl: loginBrowser.fetch,
+    baseUrl: origin, scope: SCOPE, email: app.ownerEmail, testToken: readDevVar('TEST_TOKEN'), fetchImpl: loginBrowser.fetch,
   }));
 
   const tabs: Tab[] = [];

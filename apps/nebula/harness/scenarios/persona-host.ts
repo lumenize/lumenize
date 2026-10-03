@@ -38,7 +38,8 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { Star } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
+import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { waitForDebugLines } from '../lib/stdio';
 import {
   provisionAndLogin, consumeLink, setCookieHeaders, refreshTokenForScope, refreshCookie, refreshAccessToken,
@@ -55,8 +56,7 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
   const observable = stack.logs !== undefined;
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `ph${suffix}`;
+  const universe = testSlug('ph');
   const galaxy = `${universe}.crm`;
   const dev = `${galaxy}.dev`;
   const devOrigin = scopeOriginFrom(origin, dev);
@@ -84,6 +84,9 @@ export async function run(stack: DevStack): Promise<void> {
   };
   /** The link an invite mails, armed before the send and filtered by its unique recipient. */
   const inviteLink = async (admin: { accessToken: string; sub: string }, scope: string, email: string, scopeAdmin: boolean) => {
+    // Before the waiter is armed: on a deployed target this app's host answers only once its certificate
+    // is issued, which can outlast the waiter, and the invite dials it.
+    await waitForHost(scopeUrlOf(stack, (parseJwtUnsafe(admin.accessToken)!.payload as { aud: string }).aud));
     const waiter = waitForEmail({ testToken, to: email, timeout: 120_000 });
     try {
       const summary = await inviteViaMesh(stack, admin, scope, [{ email, scopeAdmin }]);
@@ -162,7 +165,7 @@ export async function run(stack: DevStack): Promise<void> {
   }
 
   // ── LIMB 4: the cookie's record decides, not its name ───────────────────────────────────
-  const evil = await provisionAndLogin({ baseUrl: origin, scope: `phe${suffix}`, testToken });
+  const evil = await provisionAndLogin({ baseUrl: origin, scope: testSlug('phe'), testToken });
   await refusedOn(manny, refreshCookie(universe, evil.session.refreshToken), "E's value under O's cookie name");
   console.error("  ✓ limb 4 — E's refresh value under O's universe cookie name minted nothing");
 

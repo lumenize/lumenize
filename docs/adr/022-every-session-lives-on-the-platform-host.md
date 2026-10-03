@@ -21,8 +21,6 @@ Three browser facts shape the answer:
 
 The rest of this ADR covers where sessions live, how a page gets and uses an access token, the cookie rules, and persona and customer hosts.
 
-> **Today's code differs.** One host, `nebula.lumenize.com`, serves every scope, with one `refresh-token` cookie per membership at `Path=/auth/{scope}`, and the client names both scopes on every refresh. The Gateway still delivers a push to a page only when the change came from a page with the same `aud`, and passage and dominion still read `authScope`. `.claude/rules/security.md` still describes today's cookie. An emailed link's `GET` still consumes it.
-
 ## Decision
 
 ### All sessions live on the platform host

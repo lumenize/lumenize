@@ -28,10 +28,12 @@
  */
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import type { Galaxy } from '@lumenize/nebula';
 import type { BuildReport } from '../../src/build-report';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, scopeUrlOf } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 
 /** The build box is the whole subject. */
 export const needsContainer = true;
@@ -40,7 +42,7 @@ export const needsContainer = true;
 // fresh scopes per run), a second run at a fixed scope dies at the already-claimed
 // universe, and the ontology limb needs a FRESH Galaxy — cycle 1 must find the seed
 // ontology pending.
-const SCOPE = `claude-${crypto.randomUUID().slice(0, 8)}.buildbox`;
+const SCOPE = `${testSlug('box')}.buildbox`;
 /** A container cold start + the build job fits well inside this; a hang reds the scenario. */
 const BUILD_CALL_TIMEOUT_MS = 240_000;
 
@@ -150,7 +152,8 @@ export async function run(stack: DevStack): Promise<void> {
     // (b) An upgrade to `/api` is refused by the page helper itself. Node's fetch refuses an
     //     `Upgrade` header, so the request is a raw one.
     const upgrade = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-      const req = httpRequest(`${starPage}/api`, {
+      const send = new URL(starPage).protocol === 'https:' ? httpsRequest : httpRequest;
+      const req = send(`${starPage}/api`, {
         headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==' },
       });
       req.on('response', (res) => {
@@ -167,13 +170,17 @@ export async function run(stack: DevStack): Promise<void> {
     // (c) A page load planting the instance-name header on a galaxy NEVER created — the load is
     //     that Galaxy's first contact — is not a name-mismatch 500, and leaves it named for itself:
     //     a second, plain load is no 500 either.
-    const neverMade = scopeUrlOf(stack, `${SCOPE.split('.')[0]}.nevermade.dev`);
-    const planted = await fetch(`${neverMade}/`, { headers: { 'x-lumenize-do-instance-name-or-id': 'evil.x' } });
-    assert.notEqual(planted.status, 500, 'a planted instance name must not reach the Galaxy as its identity');
-    await planted.text();
-    const plain = await fetch(`${neverMade}/`);
-    assert.notEqual(plain.status, 500, 'the Galaxy must stay named for itself after a planted first contact');
-    await plain.text();
+    //     Not observable deployed: a host there answers only for an app that exists, since its
+    //     certificate comes with the app, and every create reaches its Galaxy before any page can.
+    if (!process.env.HARNESS_TARGET_URL) {
+      const neverMade = scopeUrlOf(stack, `${SCOPE.split('.')[0]}.nevermade.dev`);
+      const planted = await fetch(`${neverMade}/`, { headers: { 'x-lumenize-do-instance-name-or-id': 'evil.x' } });
+      assert.notEqual(planted.status, 500, 'a planted instance name must not reach the Galaxy as its identity');
+      await planted.text();
+      const plain = await fetch(`${neverMade}/`);
+      assert.notEqual(plain.status, 500, 'the Galaxy must stay named for itself after a planted first contact');
+      await plain.text();
+    }
 
     // ── `/auth/` answers only on the platform host ──────────────────────────────────────────────
     // The dev Star's host has a built app, whose single-page fallback would answer 200 for any

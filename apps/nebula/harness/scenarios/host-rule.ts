@@ -26,6 +26,7 @@ import assert from 'node:assert/strict';
 import type { Galaxy, Star, Universe } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { provisionAndLogin, foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -33,7 +34,7 @@ export const needsContainer = false;
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl;
-  const universe = `hr${crypto.randomUUID().slice(0, 8)}`;
+  const universe = testSlug('hr');
   const galaxy = `${universe}.crm`;
   const [t1, t2, dev] = [`${galaxy}.t1`, `${galaxy}.t2`, `${galaxy}.dev`];
 

@@ -27,6 +27,7 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 
@@ -36,7 +37,7 @@ export const bootVars = { DEBUG: 'nebula-auth.worker.logout,nebula-auth.Registry
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const observable = stack.logs !== undefined;
-  const universe = `le${crypto.randomUUID().slice(0, 8)}`;
+  const universe = testSlug('le');
   const studioScope = `${universe}.crm`;
   const e = uniqueTestEmail();
 

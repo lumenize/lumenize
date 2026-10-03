@@ -43,6 +43,7 @@ import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   requestUniverseClaim, refreshTokenForScope, setCookieHeaders, consumeLink, refreshFromPage, refreshCookie,
   scopeOriginFrom,
@@ -71,12 +72,11 @@ async function assertNoSecondLetter(testToken: string, to: string, label: string
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
 
   // ══ THE AFFORDANCE ARM ═════════════════════════════════════════════════════════════════════════
   {
     const person = uniqueTestEmail();
-    const universe = `aff-${suffix}`;
+    const universe = testSlug('aff');
 
     // ── LIMB 1: one letter, landing on Home ────────────────────────────────────────────────────
     const waiter = waitForEmail({ testToken, instance: universe, to: person, timeout: 60_000 });
@@ -136,7 +136,7 @@ export async function run(stack: DevStack): Promise<void> {
   // ══ THE FALLBACK ARM ═══════════════════════════════════════════════════════════════════════════
   {
     const person = uniqueTestEmail();
-    const universe = `fbk-${suffix}`;
+    const universe = testSlug('fbk');
 
     // ── LIMB 4: a proved address with nothing to enter gets a ticket and the slug screen ────────
     const waiter = waitForEmail({ testToken, instance: '_scopeless', to: person, timeout: 60_000 });

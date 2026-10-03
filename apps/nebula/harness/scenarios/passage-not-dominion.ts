@@ -39,6 +39,7 @@ import assert from 'node:assert/strict';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   provisionStarAdmin, provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, refreshFromPage, refreshCookie,
   requestStarClaim,
@@ -88,8 +89,7 @@ async function refusal(op: Promise<unknown>): Promise<string | null> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `pnd-${suffix}`;
+  const universe = testSlug('pnd');
   const galaxy = `${universe}.app`;
   const star = `${galaxy}.tenant`;
   const sibling = `${galaxy}.other`;

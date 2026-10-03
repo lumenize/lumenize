@@ -29,11 +29,10 @@ import type { QuerySubscription } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
 
 export const needsContainer = false;
 
-/** A galaxy-tier scope: two segments, so resources host on the GALAXY (`constructionPairs`). */
-const SCOPE = 'claude-bcast.app';
 
 /**
  * Above the hundred a rebuilt tier's cutoff would sit near (the header says why), with margin for
@@ -56,8 +55,11 @@ export async function run(stack: DevStack): Promise<void> {
   const handles: QuerySubscription[] = [];
 
   // ── ONE real email login; every connection below rides the token the server minted ──
+  // The run's shared app: galaxy-tier, so resources host on the GALAXY (`constructionPairs`).
+  const app = await sharedApp(stack, testToken);
+  const SCOPE = app.galaxy;
   const { accessToken, sub } = await provisionAndLogin({
-    baseUrl: origin, scope: SCOPE, testToken,
+    baseUrl: origin, scope: SCOPE, email: app.ownerEmail, testToken,
   });
   const session = { accessToken, sub };
 

@@ -30,7 +30,8 @@ import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import { GALAXY_CAP_MESSAGE, MAX_GALAXIES_PER_OWNER } from '@lumenize/nebula-auth/claims';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, refreshAccessToken, requestUniverseClaim, requestMagicLink, refreshTokenForScope,
@@ -40,7 +41,7 @@ import {
 export const needsContainer = false;
 
 /** A stable address for this boot, pinned as the bootstrap identity below. */
-const SUPERUSER = 'cap-superuser@lumenize-test.dev';
+const SUPERUSER = superuserEmail('cap-superuser@lumenize-test.dev');
 const PLATFORM = '_platform';
 
 export const bootVars = {
@@ -65,8 +66,7 @@ async function clickFor(link: string, scope: string): Promise<string> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `cap${suffix}`;
+  const universe = testSlug('cap');
   const owner = uniqueTestEmail();
   const observable = stack.logs !== undefined;
   const drivers: Driver[] = [];
@@ -95,7 +95,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 2 — at the cap the create is refused by message and writes nothing');
 
     // ── 3. Accepting a claim that would cross the cap is refused, and stays unaccepted ──────────
-    const second = `cap${suffix}b`;
+    const second = `${universe}b`;
     const waiter = waitForEmail({ testToken, to: owner, timeout: 120_000 });
     let link: string;
     try {
@@ -168,7 +168,7 @@ export async function run(stack: DevStack): Promise<void> {
       rootWaiter.cleanup();
     }
     await acceptMembership(origin, await clickFor(rootLink, PLATFORM), PLATFORM);
-    const own = `cap${suffix}s`;
+    const own = `${universe}s`;
     const ownSession = await provisionAndLogin({ baseUrl: origin, scope: own, email: SUPERUSER, testToken });
     const atOwn = await connectDriver(stack, { scope: own, session: ownSession });
     drivers.push(atOwn);

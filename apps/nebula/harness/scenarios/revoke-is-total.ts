@@ -27,6 +27,7 @@ import assert from 'node:assert/strict';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { provisionAndLogin, loginViaEmail, refreshFromPage, refreshCookie } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -41,7 +42,7 @@ async function refreshStatus(origin: string, scope: string, refreshToken: string
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const universe = `revoke-${crypto.randomUUID().slice(0, 8)}`;
+  const universe = testSlug('revoke');
   const person = uniqueTestEmail();
 
   // ── Two real sessions, from two real letters ─────────────────────────────────────────────────

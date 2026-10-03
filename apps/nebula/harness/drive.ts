@@ -19,9 +19,11 @@
  */
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
 import { hostOrigin } from '@lumenize/nebula-auth/claims';
-import { cloudflareCertificateApi } from '../src/certificate';
+import { cloudflareCertificateApi, packNamesGalaxy } from '../src/certificate';
 import { sweepStaleTestPacks } from './lib/test-scopes';
 import { installLocalhostLookup } from './lib/localhost-lookup';
+import { deleteClaimedUniverses } from './lib/shared-app';
+import { readSharedApp } from './lib/shared-app-record';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as downwardDominion from './scenarios/downward-dominion';
 import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
@@ -75,6 +77,7 @@ import * as studioAppSettings from './scenarios/studio-app-settings';
 import * as hostRule from './scenarios/host-rule';
 import * as personaHost from './scenarios/persona-host';
 import * as certificateWake from './scenarios/certificate-wake';
+import * as deletedOnCloudflare from './scenarios/deleted-on-cloudflare';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
 import { TEST_ORIGIN } from '../scripts/test-deploy-config.mjs';
 
@@ -181,6 +184,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'host-rule': hostRule, // a token acts from its host: dominion down, passage up, the facade refuses below the parent (no Docker)
   'persona-host': personaHost, // a persona's host mints the persona's token for a dev Star admin, and for nobody else (no Docker)
   'certificate-wake': certificateWake, // a create or acceptance wakes its galaxy's certificate order by name; nothing else does (no Docker)
+  'deleted-on-cloudflare': deletedOnCloudflare, // a deletion leaves no pack and no stored data, read from Cloudflare's API; deployed only (no Docker)
 };
 
 /**
@@ -210,6 +214,7 @@ const SCENARIOS: Record<string, Scenario> = {
  */
 async function sweep(fast: boolean): Promise<void> {
   await sweepStalePacks();
+  const runId = crypto.randomUUID();
   const { spawnSync } = await import('node:child_process');
   const { mkdirSync, writeFileSync, readdirSync, statSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -257,12 +262,17 @@ async function sweep(fast: boolean): Promise<void> {
   };
 
   const results: Array<{ name: string; ok: boolean; secs: string; detail: string; tainted: boolean }> = [];
+  const packs = appPacks();
+  const packsBefore = new Set(packs ? (await packs().catch(() => [])).map((p) => p.id) : []);
+  let peakPacks = 0;
   for (const name of names) {
     const t0 = Date.now();
     checkTree(name);
     // A stray workerd from a previous scenario starves the next one's boot and its alarms, which
-    // reads as a flaky scenario rather than as contention (`testing.md`).
-    spawnSync('pkill', ['-9', '-f', 'workerd'], { stdio: 'ignore' });
+    // reads as a flaky scenario rather than as contention (`testing.md`). Only a local sweep boots
+    // one: a deployed sweep has none to clear, and killing every workerd on the machine there only
+    // takes down whatever else is running, a vitest suite's included.
+    if (!process.env.HARNESS_TARGET_URL) spawnSync('pkill', ['-9', '-f', 'workerd'], { stdio: 'ignore' });
     // Re-exec the DOCUMENTED command rather than `node <this file>`: this is a `.ts` entry point,
     // so a bare node spawn exits instantly with a loader error — which the sweep would then report
     // as seventeen failing scenarios in 0.1 s each. (It did, on the first run.)
@@ -270,8 +280,9 @@ async function sweep(fast: boolean): Promise<void> {
       'npx',
       ['tsx', process.argv[1]!, name],
       {
-        // The parent swept stale packs once already, so each child skips it.
-        env: { ...process.env, ...SCENARIOS[name].sweepEnv, HARNESS_PACKS_SWEPT: '1' },
+        // The parent swept stale packs once already, so each child skips it; and every child is
+        // one run, so on a deployed target they share one app (lib/shared-app.ts).
+        env: { ...process.env, ...SCENARIOS[name].sweepEnv, HARNESS_PACKS_SWEPT: '1', HARNESS_RUN_ID: runId },
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
       },
@@ -285,6 +296,24 @@ async function sweep(fast: boolean): Promise<void> {
     results.push({ name, ok, secs: ((Date.now() - t0) / 1000).toFixed(1), detail, tainted });
     console.error(`${ok ? '✅' : '❌'} ${name.padEnd(26)} ${results.at(-1)!.secs}s ${detail}${tainted ? ' (source changed mid-sweep)' : ''}`);
     if (!ok && process.env.HARNESS_DEBUG) console.error(out);
+    if (packs) peakPacks = Math.max(peakPacks, (await packs().catch(() => [])).length);
+  }
+  // On a deployed target, what the run left. Its shared app keeps its pack until the stale-pack
+  // sweep takes it, three days on. Any other pack the run added was left by a scenario's cleanup,
+  // which reports and never throws, so a leak fails a sweep whose scenarios all passed.
+  const leaked: string[] = [];
+  if (packs) {
+    const left = await packs().catch((e: Error) => { console.error(`[harness] ⚠️  packs could not be listed: ${e.message}`); return []; });
+    const shared = readSharedApp(DEPLOYED_STACK_ID, runId);
+    const sharedHost = shared && new URL(hostOrigin({ kind: 'scope', scope: shared.galaxy }, TEST_ORIGIN)).hostname;
+    const added = left.filter((p) => !packsBefore.has(p.id));
+    console.log(`\n[harness] app packs on the zone: ${left.length}, ${added.length} added by this run (peak ${Math.max(peakPacks, left.length)})`);
+    for (const p of added) {
+      const name = p.hosts.filter((h) => !h.startsWith('*.')).join(', ');
+      const ours = sharedHost !== undefined && packNamesGalaxy(p.hosts, sharedHost);
+      console.log(`  📜 ${name}${ours ? " — the run's shared app" : ' — left behind'}`);
+      if (!ours) leaked.push(name);
+    }
   }
 
   const failed = results.filter((r) => !r.ok);
@@ -292,6 +321,10 @@ async function sweep(fast: boolean): Promise<void> {
   for (const n of parked) console.log(`  ⏭️  ${n} — PARKED, not run: ${SCENARIOS[n].skip}`);
   for (const f of failed) console.log(`  ❌ ${f.name} — ${f.detail}\n     output: ${join(logDir, `${f.name}.log`)}`);
   if (failed.length > 0) console.log(`  (every scenario's full output is under ${logDir})`);
+  if (leaked.length > 0 && failed.length === 0) {
+    console.log(`\n❌ every scenario passed, yet ${leaked.length} pack(s) were left behind: a cleanup failed`);
+    process.exitCode = 1;
+  }
   if (taintedFrom !== undefined) {
     console.log(`\n⚠️  the source changed during the sweep — results from "${taintedFrom}" on belong to no tree; re-run the sweep`);
   }
@@ -325,6 +358,29 @@ async function sweepStalePacks(): Promise<void> {
     console.error(`[harness] ⚠️  the stale-pack sweep failed: ${(e as Error).message}`);
   }
 }
+
+/**
+ * On a deployed target, the zone's packs that name an app's host — two labels or more beneath the
+ * zone, so the zone's own Universal pack is never counted — or `undefined` where packs cannot be
+ * read: a local stack orders none, and a run without the zone's token reads none.
+ */
+function appPacks(): (() => Promise<Array<{ id: string; hosts: string[] }>>) | undefined {
+  if (!process.env.HARNESS_TARGET_URL) return undefined;
+  let api: ReturnType<typeof cloudflareCertificateApi>;
+  try {
+    api = cloudflareCertificateApi(readDevVar('TEST_CERTIFICATE_ZONE_ID'), readDevVar('TEST_CERTIFICATE_API_TOKEN'));
+  } catch {
+    return undefined;
+  }
+  const zoneDepth = new URL(TEST_ORIGIN).hostname.split('.').length;
+  // A deleted active pack stays listed `pending_deletion` for ten minutes and more; it is gone.
+  return async () => (await api.list())
+    .filter((p) => p.status !== 'pending_deletion' && p.status !== 'deleted')
+    .filter((p) => p.hosts.some((h) => h.replace(/^\*\./, '').split('.').length >= zoneDepth + 2));
+}
+
+/** The deployed test target's stack id, which keys its run's shared app (`lib/shared-app-record.ts`). */
+const DEPLOYED_STACK_ID = `deployed:${TEST_ORIGIN}`;
 
 installLocalhostLookup();
 
@@ -382,6 +438,7 @@ async function main(): Promise<void> {
     ? {
         // The target's platform host, wherever HARNESS_TARGET_URL points on it: every session route
         // answers there. The only deployed target is the test one, whose origin its config names.
+        id: DEPLOYED_STACK_ID,
         baseUrl: hostOrigin({ kind: 'platform' }, TEST_ORIGIN, target),
         origin: TEST_ORIGIN,
         signingKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),
@@ -412,6 +469,12 @@ async function main(): Promise<void> {
     }
     process.exitCode = 1;
   } finally {
+    // Every account the scenario claimed, deleted as its owner, pass or fail, which hands back the
+    // certificate pack its app ordered on a deployed target (lib/shared-app.ts).
+    // Locally a stack's storage goes with the stack and it ordered no pack, so nothing is handed back.
+    if (process.env.HARNESS_TARGET_URL) {
+      await deleteClaimedUniverses(stack, readDevVar('TEST_TOKEN'), (line) => console.error(`[harness] cleanup: ${line}`));
+    }
     await stack.cleanup();
   }
 }

@@ -29,6 +29,7 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   provisionAndLogin, refreshTokenForScope, setCookieHeaders, consumeLink, refreshFromPage, refreshCookie,
 } from '../../test/lib/email-login';
@@ -38,12 +39,11 @@ export const needsContainer = false;
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
 
   // The person whose identity must converge. A real, catch-all-routed mailbox.
   const person = uniqueTestEmail();
-  const ownUniverse = `conv-own-${suffix}`;
-  const otherUniverse = `conv-other-${suffix}`;
+  const ownUniverse = testSlug('conv-own');
+  const otherUniverse = testSlug('conv-other');
 
   // ── Path 1: the open Universe claim, logged in for real ──────────────────────────────────────
   const viaClaim = await provisionAndLogin({

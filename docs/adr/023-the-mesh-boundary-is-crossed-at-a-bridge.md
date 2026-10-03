@@ -55,18 +55,18 @@ Three rules hold for both:
 
 `@mesh()` would open each to every caller its guard admits: any admin could wipe a live app without deleting it, or order certificate packs for galaxies that do not exist. Anything a caller may do on its own authority goes over the mesh, with its claims.
 
-**How:** `@lumenize/mesh` supplies both halves. The callee decorates the method, `@rawRpc() orderCertificate()`, which names the path it may be called by, as `@mesh()` does; a method carries one or the other. A call through it takes three steps:
+**How:** `@lumenize/mesh` supplies both halves. The callee decorates the method, `@rawRpc() orderCertificate(operationId)`, which names the path it may be called by, as `@mesh()` does; a method carries one or the other. A call through it takes three steps:
 
-1. The caller calls through a typed stub: `rawRpcStub('GALAXY', 'acme.crm').orderCertificate()`. TypeScript infers `Galaxy` from the generated `Env`, which types `GALAXY` as `DurableObjectNamespace<Galaxy>`, so a misspelled binding, method or argument fails to compile. The stub reads `env` from `cloudflare:workers`, so plain Worker code with no `lmz` can call it.
+1. The caller calls through a typed stub: `rawRpcStub('GALAXY', 'acme.crm').orderCertificate(operationId)`, the id of the create or acceptance that woke it. TypeScript infers `Galaxy` from the generated `Env`, which types `GALAXY` as `DurableObjectNamespace<Galaxy>`, so a misspelled binding, method or argument fails to compile. The stub reads `env` from `cloudflare:workers`, so plain Worker code with no `lmz` can call it.
 2. One entry on the node receives the call and stamps the node's identity from the binding and instance name the caller passes, exactly as the mesh path does.
 3. The entry refuses any name `@rawRpc()` did not decorate, and invokes the one it names.
 
-The stub defines no wire format. It turns `.orderCertificate()` into one ordinary Workers RPC call to the entry:
+The stub defines no wire format. It turns `.orderCertificate(operationId)` into one ordinary Workers RPC call to the entry:
 
 ```ts
-rawRpcStub('GALAXY', 'acme.crm').orderCertificate();
+rawRpcStub('GALAXY', 'acme.crm').orderCertificate(operationId);
 // sends, from the caller's side:
-env.GALAXY.getByName('acme.crm').__rawRpc('GALAXY', 'acme.crm', 'orderCertificate', []);
+env.GALAXY.getByName('acme.crm').__rawRpc('GALAXY', 'acme.crm', 'orderCertificate', [operationId]);
 ```
 
 The method name becomes a string only inside the stub, and the arguments and result cross in Workers RPC's structured clone, which `raw-comm.md` § *Errors over raw Workers RPC* measures. A continuation needs a format of its own because it is stored and forwarded hop to hop; this call is neither.
@@ -82,8 +82,6 @@ The method name becomes a string only inside the stub, and the arguments and res
 ### What this does not cover
 
 Mesh code reaching a raw object its own package owns needs no facade, since the facade exists to put the raw hop in that package, beside the rules it serves. The `Profile`, a mesh node in `nebula-auth`, already sits there and reads the Registry by raw RPC, mid-call, to learn who administers a profile. Nor does this cover mesh's own client Gateway, which builds envelopes by hand because it is part of what the mesh is built from.
-
-> **Today's code differs.** `rawRpcStub` and `@rawRpc()` do not exist yet. nebula-auth's consent path calls the `Profile` by raw RPC, with no stub or decorator, for the display-name pre-fill and write. A deletion's teardown reaches each node from the browser, over the mesh, and creating a galaxy, deleting a scope and impersonating are still HTTP routes rather than facade methods. [nebula-scope-moves-to-subdomain.md](../../tasks/nebula-scope-moves-to-subdomain.md) builds `@rawRpc`, moves those three operations onto the facade, and moves teardown, certificate ordering and the Profile calls onto `@rawRpc`.
 
 ## Alternatives considered
 
@@ -107,4 +105,4 @@ Mesh code reaching a raw object its own package owns needs no facade, since the 
 
 - **A `@rawRpc()` method trusts its caller completely**, because no claims arrive for it to check. Mitigation: keep each one small and idempotent, as `teardown()` and `orderCertificate()` are, and never give one a parameter naming whom to act for.
 - **A rule the facade checks lives in two places**, the facade and the Registry, so a change to it has to land in both. The cost buys rules 2 and 3 above, and a test of the Registry's own refusal keeps the second copy honest.
-- **The binding and instance name are passed, not derived.** If `env[binding].idFromName(instanceName)` equals `ctx.id` only for the right pair, the entry can verify both with one comparison; until that is measured, it trusts what our own code passes.
+- **The binding and instance name are passed, not derived, so the entry verifies them.** `env[binding].idFromName(instanceName)` equals `ctx.id` only for the pair that addresses the object, measured in `packages/mesh/test/raw-rpc.test.ts`, so one comparison refuses any other pair before the identity is stamped.

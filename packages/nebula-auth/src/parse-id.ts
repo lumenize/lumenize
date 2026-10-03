@@ -53,22 +53,23 @@
  *   calls `hasDominionOver`); not a question about any principal's authority.
  *
  * ⚠️ **A second class this grep is structurally blind to: containment computed BY VALUE.**
- * `b === a || b.startsWith(a + '.')` in TypeScript and `LIKE ${prefix + '.%'}` in SQL both compute
- * `isAtOrAbove` without spelling it. The licensed sites all live in `nebula-auth-registry.ts` and
+ * `b === a || b.startsWith(a + '.')` in TypeScript and a {@link descendantRange} bound in SQL both
+ * compute `isAtOrAbove` without spelling it. The licensed sites all live in `nebula-auth-registry.ts` and
  * share one reason, stated at each: **the query IS the bound.** Routing per row would mean fetching
- * every scope first, which is the work those arms exist to avoid — `#computeDeletionPlan`'s cascade,
- * and `getScopeSummary`'s descent (`#childLevel`, `#directChildCount`, and `expandScope`'s own
- * coverage check). That is a property, not a tally: an arm that bounds a read by prefix inherits the
+ * every scope first, which is the work those arms exist to avoid — `#scopesAtOrBeneath`, which a
+ * deletion's cascade, an acceptance's teardown and claim convergence share, and `getScopeSummary`'s
+ * descent (`#levelClause`, and `expandScope`'s own coverage check). That is a property, not a tally: an arm that bounds a read by prefix inherits the
  * licence, and one that decides a principal's authority does not, whatever it is named.
  *
- * ⚠️ **Sweep with `grep -rnE "startsWith\(|LIKE " packages/nebula-auth/src/*.ts`, and do NOT
- * narrow it back to a quoted `'.'`.** The earlier form here was `startsWith\(.*'\.'`, which returned
- * **zero** against `parent.startsWith(\`${s}.\`)` — the template-literal spelling is the one the
- * newest arm actually uses, so the instrument was blind to precisely what it existed to find. The
- * wider grep is noisier by design: it also returns `isAtOrAbove` itself (the definition, not a
- * bypass), two prefix tests on a header and a path, and `NOT LIKE '%.%'` in `#convergePendingClaims`
- * (a tier test — "has no dot, so it is a universe" — not containment). Eyeball those; a grep that
- * returns nothing here is far likelier to be broken than to be clean.
+ * ⚠️ **Sweep with `grep -rnE "startsWith\(|LIKE |descendantRange\(" packages/nebula-auth/src/*.ts`,
+ * and do NOT narrow it back to a quoted `'.'`.** The earlier form here was `startsWith\(.*'\.'`, which
+ * returned **zero** against `parent.startsWith(\`${s}.\`)` — the template-literal spelling is the one
+ * the newest arm actually uses, so the instrument was blind to precisely what it existed to find. The
+ * wider grep is noisier by design: it also returns this comment, `isAtOrAbove` and `descendantRange`
+ * themselves (definitions, not bypasses), three prefix tests on a cookie name or a path, and
+ * `NOT LIKE '%.%'` in `#convergePendingClaims` (a tier test — "has no dot, so it is a universe" — not
+ * containment). Eyeball those; a grep that returns nothing here is far likelier to be broken than to
+ * be clean.
  */
 
 import type { AccessEntry, NebulaJwtPayload, ParsedId, Tier } from './types';
@@ -211,6 +212,22 @@ export function isAtOrAbove(myScope: string, targetScope: string): boolean {
  */
 export function isAtOrBelow(myScope: string, targetScope: string): boolean {
   return isAtOrAbove(targetScope, myScope);
+}
+
+/**
+ * The SQL range holding exactly `scope`'s strict descendants, `id >= lo AND id < hi`:
+ * `acme.crm`'s are the strings from `acme.crm.` up to, not including, `acme.crm/`, because `/` is
+ * the byte after `.`. It is {@link isAtOrAbove}'s whole-segment test computed by value, so
+ * `acme.crm-2` falls outside it, and it compares any string exactly, so nothing needs escaping.
+ *
+ * ⚠️ **Use this, never `LIKE ${scope + '.%'}`.** The SQLite inside a Durable Object caps a `LIKE` or
+ * `GLOB` pattern at 50 bytes and refuses a longer one with `LIKE or GLOB pattern too complex`, so a
+ * pattern built from a scope works for `acme.crm` and fails for three long slugs. A run's test
+ * scopes reached that length on 2026-10-03 and took account deletion down with them. A pattern
+ * that names no scope, such as `'%.%'`, stays short and is fine.
+ */
+export function descendantRange(scope: string): { lo: string; hi: string } {
+  return { lo: `${scope}.`, hi: `${scope}/` };
 }
 
 /**

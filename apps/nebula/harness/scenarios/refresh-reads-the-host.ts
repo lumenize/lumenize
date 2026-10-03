@@ -47,6 +47,7 @@ import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email
 import type { Star } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { waitForDebugLines } from '../lib/stdio';
 import {
   provisionAndLogin, foundTenantStar, consumeLink, refreshTokenForScope, setCookieHeaders, refreshCookie,
@@ -63,12 +64,11 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
   const observable = stack.logs !== undefined;
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const acme = `rh${suffix}`;
+  const acme = testSlug('rh');
   const galaxy = `${acme}.crm`;
   const t1 = `${galaxy}.t1`;
   const t2 = `${galaxy}.t2`;
-  const evil = `rhe${suffix}`;
+  const evil = testSlug('rhe');
 
   /** The link an invite mails, armed before the send and filtered by its unique recipient. */
   const inviteLink = async (

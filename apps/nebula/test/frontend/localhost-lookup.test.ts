@@ -3,8 +3,9 @@
  * answers loopback without asking the real resolver, and every other name goes to it.
  *
  * In the Node lane, against a stub resolver, since macOS's real one already answers loopback for any
- * `*.localhost` name and so could not tell the hook from its absence. That Linux needs it was
- * measured in a `node:24-slim` container; the CI run on `ubuntu-latest` is its standing witness.
+ * `*.localhost` name and so could not tell the hook from its absence. That a Linux without such a
+ * resolver needs it was measured in a `node:24-slim` container; `ubuntu-latest` resolves the names
+ * itself, so no CI run can witness it.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import dns from 'node:dns';

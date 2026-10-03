@@ -27,6 +27,8 @@ import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/cl
 import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
 import { hostOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { provisionAndLogin } from '../../test/lib/email-login';
+import { waitForHost } from './wait-for-host';
+export { waitForHost, NEW_HOST_TIMEOUT_MS } from './wait-for-host';
 import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lumenize/crypto';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
 import { deriveLocalConfig, LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
@@ -51,6 +53,18 @@ export const HAS_DOCKER: boolean = (() => {
   }
 })();
 
+/** The harness's own superuser on a deployed target; its mail routes to the email-test Worker. */
+export const DEPLOYED_SUPERUSER = 'claude@lumenize.io';
+
+/**
+ * The superuser a scenario signs in as. Locally each scenario names its own and pins it with
+ * `bootVars`; a deployed target ignores `bootVars`, so there it is {@link DEPLOYED_SUPERUSER}, which
+ * the test target's `NEBULA_AUTH_BOOTSTRAP_EMAIL` lists.
+ */
+export function superuserEmail(local: string): string {
+  return process.env.HARNESS_TARGET_URL ? DEPLOYED_SUPERUSER : local;
+}
+
 /**
  * Read one variable's value from `apps/nebula/.dev.vars` (symlinked from the repo root).
  * Handles dotenv double-quoting + `\n` unescaping so a single-line quoted PEM
@@ -74,6 +88,12 @@ export function readDevVar(name: string): string {
 
 /** A booted local dev stack: the platform host's URL + the signing material + teardown. */
 export interface DevStack {
+  /**
+   * Which stack this is: a fresh value per local boot, whose storage starts empty, and one fixed
+   * value for a deployed target, whose state outlives every run. What a run shares is keyed on it
+   * (`lib/shared-app.ts`).
+   */
+  id: string;
   /**
    * The platform host's origin on this stack — `http://platform.lumenize.localhost:<port>` locally,
    * `https://platform.lumenize-test.dev` deployed — where every session route answers. A page on a
@@ -191,7 +211,7 @@ export async function bootDevStack(
 
   // Every host answers on the one port wrangler bound; the platform host is the one sessions use.
   const baseUrl = hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, workerUrl);
-  return { baseUrl, origin: LOCAL_ORIGIN, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
+  return { id: crypto.randomUUID(), baseUrl, origin: LOCAL_ORIGIN, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
 }
 
 /** How much of the dev stack's stdio a scenario can read back — the last ~4 MB. */
@@ -300,6 +320,10 @@ export async function connectDriver(
      * — the claim was minted by the running system, not constructed here — and it exists because
      * the default path (`provisionAndLogin`) always climbs from the universe, so it cannot produce
      * a member whose own scope is a Star, nor a non-admin (those arrive by invite).
+     *
+     * ⚠️ A driver connected this way cannot renew: its cookie jar holds no refresh cookie, so once
+     * the token's fifteen minutes pass, its next call waits out the call's timeout. A scenario that
+     * idles longer lets the driver sign in itself, by passing no `session`.
      */
     session?: { accessToken: string; sub: string };
   },
@@ -331,6 +355,8 @@ export async function connectDriver(
   }
 
   // A page on the scope's own host: its socket connects there, and its refresh names it in `Origin`.
+  // A deployed app's host fails its handshake until the app's certificate is issued.
+  await waitForHost(scopeUrlOf(stack, scope));
   const ctx = browser.context(scopeUrlOf(stack, scope));
   const client = new NebulaClient({
     baseUrl: scopeUrlOf(stack, scope),
@@ -397,6 +423,7 @@ export async function inviteViaMesh(
     { scopeUrl: (scope) => scopeUrlOf(stack, scope), platformOrigin: stack.baseUrl },
 ): Promise<InviteSummary> {
   const claims = parseJwtUnsafe(session.accessToken)!.payload as unknown as NebulaJwtPayload;
+  await waitForHost(page.scopeUrl(claims.aud));
   const browser = new Browser();
   const ctx = browser.context(page.scopeUrl(claims.aud));
   const client = new NebulaClient({

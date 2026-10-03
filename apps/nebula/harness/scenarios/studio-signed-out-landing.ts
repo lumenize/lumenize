@@ -28,11 +28,10 @@
  * `needsContainer = false` — the shell only, never a build.
  */
 import assert from 'node:assert/strict';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
 import type { DevStack } from '../lib/harness';
+import { readDevVar } from '../lib/harness';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
-// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
-import { LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
+import { sharedApp } from '../lib/shared-app';
 
 export const needsContainer = false;
 
@@ -47,7 +46,7 @@ export async function run(stack: DevStack): Promise<void> {
     const onLogin = (u: URL) => u.origin === vite.viteBaseUrl && u.pathname === '/auth/login';
 
     // ── LIMB 1: the apex reaches the login form ────────────────────────────────────────────────
-    const apex = hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, vite.viteBaseUrl).replace('//platform.', '//');
+    const apex = vite.viteBaseUrl.replace('//platform.', '//');
     await page.goto(`${apex}/`, { waitUntil: 'domcontentloaded' });
     await page.waitForURL(onLogin, { timeout: 20_000 });
     await page.getByPlaceholder('you@example.com').waitFor({ state: 'visible', timeout: 20_000 });
@@ -55,7 +54,9 @@ export async function run(stack: DevStack): Promise<void> {
     console.error(`  ✓ limb 1 — the apex, signed out, reached the platform host's login (${capture.screenshotPath})`);
 
     // ── LIMB 2: a workspace host reaches the login form, with return_to naming it ──────────────
-    const stranger = `nobody-${crypto.randomUUID().slice(0, 6)}.app`;
+    // The run's shared app, to this signed-out visitor a stranger's: a host on the deployed target
+    // answers only for an app that exists, since its certificate comes with the app.
+    const stranger = (await sharedApp(stack, readDevVar('TEST_TOKEN'))).galaxy;
     const workspace = `${vite.scopeUrl(stranger)}/`;
     await page.goto(workspace, { waitUntil: 'domcontentloaded' });
     await page.waitForURL(onLogin, { timeout: 20_000 });
@@ -77,8 +78,10 @@ export async function run(stack: DevStack): Promise<void> {
       ],
       `expected exactly the three session probes' 401s, got ${JSON.stringify(inst.failedRequests)}`,
     );
-    const line = 'Failed to load resource: the server responded with a status of 401 (Unauthorized)';
-    assert.deepEqual(inst.consoleErrors, [line, line, line],
+    // The status text is the protocol's: HTTP/1.1 locally sends "Unauthorized", and a deployed
+    // Worker answering over HTTP/2 sends none, so Chrome prints "401 ()".
+    const line = /^Failed to load resource: the server responded with a status of 401 \((Unauthorized)?\)$/;
+    assert.ok(inst.consoleErrors.length === 3 && inst.consoleErrors.every((l) => line.test(l)),
       `expected only the browser's line for each 401, got ${JSON.stringify(inst.consoleErrors)}`);
     console.error('  ✓ limb 3 — each page cost exactly its session probe');
   } finally {

@@ -4,7 +4,7 @@
  * Note: Alarms is now a built-in service in LumenizeDO - no separate import needed.
  * Uses triggerAlarms() instead of flaky testing package alarm simulation.
  */
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import type { DelayedAlarm, CronAlarm, Schedule } from '../src/alarms';
 
@@ -211,14 +211,11 @@ describe('Alarms', () => {
     test('executes multiple alarms in order', async () => {
       const stub = env.ALARM_TEST_DO.getByName('multiple-order-test');
 
-      // Schedule three alarms in the past (all overdue)
-      const past1 = new Date(Date.now() - 3000);
-      const past2 = new Date(Date.now() - 2000);
-      const past3 = new Date(Date.now() - 1000);
-
-      await stub.scheduleAlarm(past1, { order: 1 });
-      await stub.scheduleAlarm(past2, { order: 2 });
-      await stub.scheduleAlarm(past3, { order: 3 });
+      // A minute out, so the runtime does not deliver them first: `triggerAlarms` with a count runs
+      // the earliest jobs whatever their time.
+      await stub.scheduleAlarm(new Date(Date.now() + 61_000), { order: 1 });
+      await stub.scheduleAlarm(new Date(Date.now() + 62_000), { order: 2 });
+      await stub.scheduleAlarm(new Date(Date.now() + 63_000), { order: 3 });
 
       // Trigger all alarms
       const executedIds = await stub.triggerAlarms(3);
@@ -234,9 +231,10 @@ describe('Alarms', () => {
     test('triggerAlarms with explicit count respects limit', async () => {
       const stub = env.ALARM_TEST_DO.getByName('count-limit-test');
 
-      await stub.scheduleAlarm(new Date(Date.now() - 3000), { order: 1 });
-      await stub.scheduleAlarm(new Date(Date.now() - 2000), { order: 2 });
-      await stub.scheduleAlarm(new Date(Date.now() - 1000), { order: 3 });
+      // A minute out, as above, so the runtime does not deliver them first.
+      await stub.scheduleAlarm(new Date(Date.now() + 61_000), { order: 1 });
+      await stub.scheduleAlarm(new Date(Date.now() + 62_000), { order: 2 });
+      await stub.scheduleAlarm(new Date(Date.now() + 63_000), { order: 3 });
 
       // Trigger only 2 alarms
       const executedIds = await stub.triggerAlarms(2);
@@ -307,6 +305,24 @@ describe('Alarms', () => {
       expect(executedAlarms.length).toBe(1);
       expect(executedAlarms[0].payload.task).toBe('immediate');
     });
+
+    // The test above fires its job by hand, so it could not see that nothing set the Durable
+    // Object's alarm. Here the runtime delivers it, and `triggerAlarms` is never called.
+    test.each([
+      ['a zero delay', 0],
+      ['a Date already past', -5],
+    ])('%s is delivered by the runtime, with no trigger', async (label, seconds) => {
+      const stub = env.ALARM_TEST_DO.getByName(`delivered-${seconds}`);
+      await stub.clearExecutedAlarms();
+      if (seconds === 0) await stub.scheduleDelayedAlarm(0, { task: label });
+      else await stub.scheduleAlarm(new Date(Date.now() + seconds * 1000), { task: label });
+      // Delivery waits on the runtime's alarm, which contention slows (`testing.md`), so the test's
+      // own budget is past the project's two seconds.
+      await vi.waitFor(async () => {
+        const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
+        expect(executed.map((a) => a.payload.task)).toEqual([label]);
+      }, { timeout: 15_000, interval: 200 });
+    }, 20_000);
 
     test('handles very large delay', async () => {
       const stub = env.ALARM_TEST_DO.getByName('large-delay-test');

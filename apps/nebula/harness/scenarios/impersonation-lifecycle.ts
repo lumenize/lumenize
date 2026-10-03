@@ -28,6 +28,8 @@ import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/har
 import {
   provisionStarAdmin, loginViaEmail, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
@@ -118,19 +120,20 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const browser = new Browser();
   const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `impl${suffix}`;
-  const star = `${universe}.app.tenant`;
+  // The run's shared app, with a Star of this scenario's own beneath it; its owner is our ADMIN.
+  const app = await sharedApp(stack, testToken);
+  const universe = app.universe;
+  const star = `${app.galaxy}.${testSlug('impl')}`;
   const subjectEmail = `subject-${suffix}@lumenize-test.dev`;
 
   let loginRequiredFired = false;
 
-  // The SUBJECT (a real star-scoped admin, in a browser of their own) and, as a side effect, the
-  // universe owner above it — our ADMIN.
+  // The SUBJECT: a real star-scoped admin, in a browser of their own.
   const subject = await provisionStarAdmin({
-    baseUrl: stack.baseUrl, scope: star, email: subjectEmail, testToken, fetchImpl: new Browser().fetch,
+    baseUrl: stack.baseUrl, scope: star, email: subjectEmail, ownerEmail: app.ownerEmail, testToken, fetchImpl: new Browser().fetch,
   });
   const adminSession = await loginViaEmail({
-    baseUrl: stack.baseUrl, authScope: universe, email: `owner-${subjectEmail}`,
+    baseUrl: stack.baseUrl, authScope: universe, email: app.ownerEmail,
     testToken, fetchImpl: browser.fetch,
   });
 

@@ -43,7 +43,7 @@ import type {
   NebulaJwtPayload, RefreshTokenKV, SessionRecord,
   AcceptanceCredential, AcceptanceOutcome, RefreshPut, ScopeTarget,
 } from './types';
-import { parseId, isValidSlug, isPlatformScope, hasDominionOver } from './parse-id';
+import { parseId, isValidSlug, isPlatformScope, hasDominionOver, descendantRange } from './parse-id';
 import { deploymentOrigin, hostOrigin } from './hosts';
 import { projectActingToken } from './access-claims';
 import { reportUnconfiguredProtections } from './router';
@@ -74,11 +74,6 @@ function universeSlugRefusal(slug: string): 'invalid_slug' | 'reserved_slug' | u
  */
 function appSlugRefusal(appSlug: unknown): 'invalid_app_slug' | undefined {
   return typeof appSlug === 'string' && isValidSlug(appSlug) ? undefined : 'invalid_app_slug';
-}
-
-/** Escape a scope for a `LIKE` pattern, since SQLite reads `_` and `%` there as wildcards. */
-function likeEscape(scope: string): string {
-  return scope.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
@@ -933,19 +928,17 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * The galaxies at or beneath `scope`: itself for a galaxy, its galaxies for a universe, every
-   * galaxy for the platform root — the root takes `#childLevel`'s arm, `%`, since it is no textual
-   * prefix of anything. A star has none. The caller leaves the root out; this function does not.
+   * The galaxies at or beneath `scope`: itself for a galaxy, its level for a universe, and none for
+   * a star or the platform root. No caller counts the root's: `#ownedGalaxyCount` leaves it out, and
+   * accepting a membership there founds nothing.
    */
   #galaxiesAtOrBeneath(scope: string): string[] {
     const depth = isPlatformScope(scope) ? 0 : scope.split('.').length;
     if (depth === 2) return this.checkSlugAvailable(scope) ? [] : [scope];
-    if (depth !== 0 && depth !== 1) return [];
-    const base = isPlatformScope(scope) ? '%' : likeEscape(scope);
+    if (depth !== 1) return [];
+    const { where, params } = this.#levelClause(scope);
     return [...this.ctx.storage.sql.exec(
-      `SELECT universeGalaxyStarId AS scope FROM Scopes
-       WHERE universeGalaxyStarId LIKE ? ESCAPE '\\' AND universeGalaxyStarId NOT LIKE ? ESCAPE '\\'`,
-      `${base}.%`, `${base}.%.%`,
+      `SELECT universeGalaxyStarId AS scope FROM Scopes WHERE ${where}`, ...params,
     )].map((r) => r.scope as string);
   }
 
@@ -1100,13 +1093,10 @@ export class NebulaAuthRegistry extends DurableObject {
    * exists without reading past it. Trimming a full read after the fact would serve a small body
    * off an unbounded scan, which is the shape ADR-018 is about; here the singleton's work is
    * bounded too.
-   */
-  /**
-   * One level of children beneath `parent`, bounded.
    *
    * ⚠️ **The reserved platform scope needs its own arm, because containment there is NOT a string
-   * prefix.** Every other parent finds its children with `LIKE 'parent.%'`; `_platform` is a
-   * reserved SIBLING of every universe, not their textual ancestor, so that predicate matches
+   * prefix.** Every other parent finds its children in its {@link descendantRange}; `_platform` is a
+   * reserved SIBLING of every universe, not their textual ancestor, so that range holds
    * nothing and a superuser's tree renders as one bare row. `isPlatformScope` is what makes
    * `isAtOrAbove` true for it (ADR-015 — the platform scope is the ROOT of the tree), and this is
    * the read-side counterpart of that: the platform root's children are the universes.
@@ -1123,14 +1113,13 @@ export class NebulaAuthRegistry extends DurableObject {
     if (depth >= 3) return { children: [], spent: 0, truncated: false }; // a star has no descendants
     // Universes for the platform root; the prefixed level for everyone else. `after` is the keyset
     // cursor in both arms: resume strictly past the last scope the caller already has.
-    const { like, notLike } = this.#levelPattern(parent);
+    const { where, params } = this.#levelClause(parent);
     const rows = [...this.ctx.storage.sql.exec(
       `SELECT universeGalaxyStarId AS scope FROM Scopes
-       WHERE universeGalaxyStarId LIKE ? ESCAPE '\\' AND universeGalaxyStarId NOT LIKE ? ESCAPE '\\'
-         AND universeGalaxyStarId > ?
+       WHERE ${where} AND universeGalaxyStarId > ?
        ORDER BY universeGalaxyStarId
        LIMIT ?`,
-      like, notLike, after ?? '', budget + 1,
+      ...params, after ?? '', budget + 1,
     )];
     // ⚠️ The platform root is excluded from its own children: its level pattern matches it too.
     const direct = rows.map(r => r.scope as string).filter(s => !isPlatformScope(s));
@@ -1144,32 +1133,53 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * How many direct children a scope has — the frontier marker the client renders as "N more".
+   * Same platform arm as `#childLevel`.
    *
    * ⚠️ **Bounded like everything else, so it is a FLOOR rather than an exact count.** It reads at
    * most `budget + 1`, which is the whole point: an exact count of a superuser's descendants is the
    * unbounded scan this design removed. The client renders it as "at least N".
    */
-  /** The frontier marker's value. Same platform arm as {@link NebulaAuthRegistry.prototype} `#childLevel` — see its JSDoc. */
   #directChildCount(parent: string): number {
-    const { like, notLike } = this.#levelPattern(parent);
+    const { where, params } = this.#levelClause(parent);
     return [...this.ctx.storage.sql.exec(
-      `SELECT universeGalaxyStarId AS scope FROM Scopes
-       WHERE universeGalaxyStarId LIKE ? ESCAPE '\\' AND universeGalaxyStarId NOT LIKE ? ESCAPE '\\'
-       LIMIT ?`,
-      like, notLike, SCOPE_TREE_NODE_BUDGET + 1,
+      `SELECT universeGalaxyStarId AS scope FROM Scopes WHERE ${where} LIMIT ?`,
+      ...params, SCOPE_TREE_NODE_BUDGET + 1,
     )].map(r => r.scope as string).filter(s => !isPlatformScope(s)).length;
   }
 
   /**
-   * The `LIKE` pair matching exactly one level beneath `parent`: its direct children, never their
+   * The `WHERE` clause matching exactly one level beneath `parent`: its direct children, never their
    * descendants. The depth bound has to be in SQL rather than a filter on the read, since the read
    * is `LIMIT`ed — a level of galaxies with a `.dev` Star each would otherwise spend half the limit
-   * on Stars and report no frontier. The root's children are the universes, which have no dot.
+   * on Stars and report no frontier. The root's children are the universes, which have no dot;
+   * anyone else's are the scopes in its {@link descendantRange} with no dot past its own.
    */
-  #levelPattern(parent: string): { like: string; notLike: string } {
-    if (isPlatformScope(parent)) return { like: '%', notLike: '%.%' };
-    const base = likeEscape(parent);
-    return { like: `${base}.%`, notLike: `${base}.%.%` };
+  #levelClause(parent: string): { where: string; params: (string | number)[] } {
+    if (isPlatformScope(parent)) return { where: `instr(universeGalaxyStarId, '.') = 0`, params: [] };
+    const { lo, hi } = descendantRange(parent);
+    return {
+      where: `universeGalaxyStarId >= ? AND universeGalaxyStarId < ?
+         AND instr(substr(universeGalaxyStarId, ?), '.') = 0`,
+      params: [lo, hi, lo.length + 1],
+    };
+  }
+
+  /**
+   * `scope` and every scope `Scopes` holds beneath it, in key order: the set a deletion destroys
+   * and an acceptance or convergence tears down.
+   *
+   * ⚠️ **Containment computed in SQL, off the shared predicate**, because routing per row would mean
+   * fetching every scope first. {@link descendantRange} is whole-segment, which matters most here:
+   * a bare prefix would widen a DESTRUCTIVE operation to a sibling that shares one (`acme` deleting
+   * `acme-2`).
+   */
+  #scopesAtOrBeneath(scope: string): string[] {
+    const { lo, hi } = descendantRange(scope);
+    return this.#sql`
+      SELECT universeGalaxyStarId AS scope FROM Scopes
+      WHERE universeGalaxyStarId = ${scope}
+         OR (universeGalaxyStarId >= ${lo} AND universeGalaxyStarId < ${hi})
+      ORDER BY universeGalaxyStarId`.map((r) => r.scope as string);
   }
 
   #tierOf(scope: string): Tier {
@@ -1485,10 +1495,7 @@ export class NebulaAuthRegistry extends DurableObject {
     // `.dev` Star; for a claim-star, the Star.
     const teardown: ScopeTarget[] = !founding || !flipped.includes(sub) ? [] : tier === 'star'
       ? [{ instanceName: scope, tier: 'star' }]
-      : this.#sql`
-          SELECT universeGalaxyStarId AS scope FROM Scopes
-          WHERE universeGalaxyStarId = ${scope} OR universeGalaxyStarId LIKE ${`${likeEscape(scope)}.%`} ESCAPE '\\'`
-        .map((r) => ({ instanceName: r.scope as string, tier: this.#tierOf(r.scope as string) }));
+      : this.#scopesAtOrBeneath(scope).map((s) => ({ instanceName: s, tier: this.#tierOf(s) }));
 
     // ADR-016: acceptance moves authority — it is what `getScopesForProfile` counts. Written before
     // the Worker tears down, so it names what was ordered. There is no acting token: the credential
@@ -1569,13 +1576,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
     // Every scope each retired claim wrote: the universe and everything beneath it.
     const retired: string[] = [];
-    for (const s of siblings) {
-      const universe = s.scope as string;
-      retired.push(...this.#sql`
-        SELECT universeGalaxyStarId AS scope FROM Scopes
-        WHERE universeGalaxyStarId = ${universe} OR universeGalaxyStarId LIKE ${`${likeEscape(universe)}.%`} ESCAPE '\\'
-        ORDER BY universeGalaxyStarId`.map((r) => r.scope as string));
-    }
+    for (const s of siblings) retired.push(...this.#scopesAtOrBeneath(s.scope as string));
 
     // Revoke first, OUTSIDE any transaction — these await KV. A session minted from a superseded
     // claim must not outlive it: the slug is about to be free for someone else to take.
@@ -2199,14 +2200,7 @@ export class NebulaAuthRegistry extends DurableObject {
     }
 
     // Down: the target + all registered descendants.
-    // ⚠️ **ALLOW-LISTED off the shared predicate** — `isAtOrAbove` computed in SQL, for the same
-    // reason the scope-tree read's query is: routing per row would mean fetching every scope first. The
-    // `.%` matches the predicate's whole-segment contract, and here a dot-dropped `LIKE ${target}%`
-    // would widen a DESTRUCTIVE operation to a prefix-colliding sibling (`{u}` deleting `{u}-2`).
-    const down = this.#sql`
-      SELECT universeGalaxyStarId FROM Scopes
-      WHERE universeGalaxyStarId = ${target} OR universeGalaxyStarId LIKE ${target + '.%'}
-    `.map(r => r.universeGalaxyStarId as string);
+    const down = this.#scopesAtOrBeneath(target);
 
     if (!down.includes(target)) {
       return { affected: [], affectedUsers: { total: 0, sample: [] } };

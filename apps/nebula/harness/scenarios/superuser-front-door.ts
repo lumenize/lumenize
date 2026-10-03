@@ -37,7 +37,8 @@
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import {
   provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership, consumeLink, refreshCookie,
   refreshFromPage, homeSummary,
@@ -50,18 +51,17 @@ export const needsContainer = false;
 const PLATFORM = '_platform';
 
 /** A stable address for this boot, pinned as the bootstrap identity below. */
-const SUPERUSER = 'front-door-superuser@lumenize-test.dev';
+const SUPERUSER = superuserEmail('front-door-superuser@lumenize-test.dev');
 
 export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
 
   // Somebody else's tenancy, created by a REAL claim — the superuser holds no membership in it, and
   // limb 4 is about whether they can nonetheless see it.
-  const stranger = `stranger-${suffix}`;
+  const stranger = testSlug('stranger');
   await provisionAndLogin({
     baseUrl: origin, scope: `${stranger}.app`, email: uniqueTestEmail(), testToken,
   });
@@ -93,11 +93,18 @@ export async function run(stack: DevStack): Promise<void> {
   // host, and the platform host's own pages get no token at all.
   const cookieHeader = refreshCookie(PLATFORM, cookie!);
   const preAccept = await refreshFromPage(origin, stranger, cookieHeader);
-  assert.equal(preAccept.status, 401,
-    'an unaccepted platform membership must mint NOTHING — with the carve-out gone this is the only ' +
-    'thing between an unsolicited invite click and a live superuser session');
-  assert.match(await preAccept.text(), /membership_not_accepted/);
-  console.error('  ✓ limb 2 — the platform cookie is inert before consent');
+  // A deployed target keeps its superuser between runs, so once a run has accepted the platform
+  // membership there is no unaccepted one left to observe. Every local boot starts it unaccepted.
+  if (process.env.HARNESS_TARGET_URL && preAccept.status === 200) {
+    await preAccept.body?.cancel();
+    console.error('  ⓘ limb 2 — not observable: this deployed superuser accepted its platform membership on an earlier run');
+  } else {
+    assert.equal(preAccept.status, 401,
+      'an unaccepted platform membership must mint NOTHING — with the carve-out gone this is the only ' +
+      'thing between an unsolicited invite click and a live superuser session');
+    assert.match(await preAccept.text(), /membership_not_accepted/);
+    console.error('  ✓ limb 2 — the platform cookie is inert before consent');
+  }
 
   // ── LIMB 3: Accept enrols, the same cookie mints ───────────────────────────────────────────────
   await acceptMembership(origin, cookie!, PLATFORM);

@@ -21,12 +21,11 @@
  */
 import assert from 'node:assert/strict';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver } from '../lib/harness';
+import { connectDriver, readDevVar } from '../lib/harness';
+import { asSharedOwner } from '../lib/shared-app';
 
 export const needsContainer = false;
 
-/** A galaxy-tier scope: two segments, so `GALAXY` owns resources and carries the `resources` gate. */
-const SCOPE = 'claude-reach.app';
 
 /** A key nothing in the framework, Nebula or the tests reads. Never `scopeAdmin`. */
 const PROBE_KEY = '__lumenizeFenceProbe';
@@ -44,7 +43,10 @@ interface Limb {
 export async function run(stack: DevStack): Promise<void> {
   let driver: Driver | undefined;
   try {
-    driver = await connectDriver(stack, { scope: SCOPE });
+    // The run's shared app: galaxy-tier, so `GALAXY` owns resources and carries the `resources` gate.
+    const { app, session } = await asSharedOwner(stack, readDevVar('TEST_TOKEN'));
+    const SCOPE = app.galaxy;
+    driver = await connectDriver(stack, { scope: SCOPE, session });
     const client = driver.client;
     /** Build a chain rooted at the client's continuation proxy and await its outcome. */
     const call = (build: (c: any) => any): Promise<unknown> =>

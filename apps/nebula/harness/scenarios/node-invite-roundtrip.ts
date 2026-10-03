@@ -36,6 +36,8 @@ import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
+import { sharedApp } from '../lib/shared-app';
+import { testSlug } from '../lib/test-scopes';
 import {
   provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
@@ -46,11 +48,12 @@ export const needsContainer = true;
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const star = `ninv-${suffix}.app.tenant`;
+  // A tenant Star of this scenario's own, beneath the run's shared app, founded by its owner.
+  const app = await sharedApp(stack, testToken);
+  const star = `${app.galaxy}.${testSlug('ninv')}`;
   const inviteeEmail = uniqueTestEmail();
 
-  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, testToken });
+  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, email: app.ownerEmail, testToken });
   let admin: Driver | undefined;
   let invitee: NebulaClient | undefined;
   const inviteeBrowser = new Browser();

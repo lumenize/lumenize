@@ -45,6 +45,7 @@ import type { BrowserContext, Frame, Page } from 'playwright';
 import type { BuildReport } from '../../src/build-report';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite } from '../lib/browser';
 import { provisionAndLogin, refreshAccessToken, requestMagicLink } from '../../test/lib/email-login';
 
@@ -72,8 +73,7 @@ const tree = computed(() => {
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `devtab${suffix}`;
+  const universe = testSlug('devtab');
   const galaxy = `${universe}.crm`;
   const devStar = `${galaxy}.dev`;
   const ownerEmail = uniqueTestEmail();

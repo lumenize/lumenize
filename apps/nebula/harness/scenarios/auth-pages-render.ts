@@ -45,6 +45,7 @@ import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
 import { requestUniverseClaim } from '../../test/lib/email-login';
 
@@ -52,7 +53,7 @@ export const needsContainer = false;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const universe = `render-${crypto.randomUUID().slice(0, 8)}`;
+  const universe = testSlug('render');
   const person = uniqueTestEmail();
 
   const browser = await launchChromium();

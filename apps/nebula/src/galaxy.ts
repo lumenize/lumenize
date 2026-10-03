@@ -1113,11 +1113,10 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    *  or zone is configured, which the deploy preflight refuses for an `https` origin. A seam for
    *  tests. */
   protected certificateApi(): CertificateApi | undefined {
-    // The token is a deployed Worker's secret, which no local `.dev.vars` holds, so the generated
-    // `Env` cannot name it; the zone id is a `wrangler.jsonc` var, which it does.
-    const env = this.env as Env & { CERTIFICATE_API_TOKEN?: string };
-    if (!env.CERTIFICATE_API_TOKEN || !env.CERTIFICATE_ZONE_ID) return undefined;
-    return cloudflareCertificateApi(env.CERTIFICATE_ZONE_ID, env.CERTIFICATE_API_TOKEN);
+    // The token is a deployed Worker's secret, empty on a local stack; the zone id is a var.
+    const { CERTIFICATE_API_TOKEN, CERTIFICATE_ZONE_ID } = this.env;
+    if (!CERTIFICATE_API_TOKEN || !CERTIFICATE_ZONE_ID) return undefined;
+    return cloudflareCertificateApi(CERTIFICATE_ZONE_ID, CERTIFICATE_API_TOKEN);
   }
 
   /** This galaxy's own host, which its pack names beside its wildcard: `crm.acme.lumenize.dev`. */

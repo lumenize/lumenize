@@ -22,7 +22,8 @@
  */
 import assert from 'node:assert/strict';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } from '../lib/browser';
 // Reuse the ui-smoke email loop (Node-safe, filters by scope) rather than duplicating it.
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
@@ -33,7 +34,7 @@ import { provisionAndLogin } from '../../test/lib/email-login';
  *  opens — post-collapse Studio's working scope is `{u}.{g}`; the `.dev` star exists only
  *  inside the preview iframe. Provisioned by the API driver (`provisionAndLogin`) before the
  *  browser drives the SAME email through the rendered login form. */
-const UNIVERSE = 'claude-browser';
+const UNIVERSE = testSlug('browser');
 const SCOPE = `${UNIVERSE}.app`;
 /** Login email — MUST be an `@lumenize-test.dev` address CF Email Routing forwards to the email-test
  *  Worker (the catch-all). A fresh address per run keeps the claim path clean. */
@@ -80,7 +81,7 @@ export async function run(stack: DevStack): Promise<void> {
     //     fast-forwards into that app's Studio (`fastForwardTarget`).
     await page.goto(link, { waitUntil: 'domcontentloaded' });
     await page.getByTestId('link-continue').click();
-    await page.waitForURL((u) => u.origin === scopeUrl(SCOPE), { timeout: 30_000 });
+    await page.waitForURL((u) => u.origin === scopeUrl(SCOPE), { timeout: NEW_HOST_TIMEOUT_MS });
 
     // 3. Connected → the chat input renders. This is the harness's real gate (login worked).
     //    On failure, capture the page + console + network FIRST — "never connected" has many

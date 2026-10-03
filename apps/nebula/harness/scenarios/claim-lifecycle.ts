@@ -40,7 +40,8 @@ import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, refreshAccessToken, requestUniverseClaim, requestStarClaim, requestMagicLink,
@@ -51,7 +52,7 @@ import { SIGNUP_TICKET_COOKIE } from '@lumenize/nebula-auth/claims';
 export const needsContainer = false;
 
 /** A stable address for this boot, pinned as the bootstrap identity below. */
-const SUPERUSER = 'lifecycle-superuser@lumenize-test.dev';
+const SUPERUSER = superuserEmail('lifecycle-superuser@lumenize-test.dev');
 const PLATFORM = '_platform';
 
 export const bootVars = {
@@ -78,8 +79,7 @@ const chatQuery = (chatId: string) =>
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const universe = `cl${suffix}`;
+  const universe = testSlug('cl');
   const galaxy = `${universe}.crm`;
   const observable = stack.logs !== undefined;
   const drivers: Driver[] = [];

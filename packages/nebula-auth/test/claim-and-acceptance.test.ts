@@ -457,4 +457,18 @@ describe('a certificate wake a deletion overtakes is torn down again', () => {
     await wakeCertificates({ checkSlugAvailable: () => false }, recordingHooks, [kept], 'op-kept');
     expect(reapOf(kept)).toBeUndefined();
   });
+
+  it('a re-read that fails is logged and never rejects, since the create or acceptance has landed', async () => {
+    const g = `${uni()}.web`;
+    const logged: Array<{ namespace: string; level: string; data?: Record<string, unknown> }> = [];
+    setDebugSink((e) => logged.push(e as never));
+    try {
+      await wakeCertificates({ checkSlugAvailable: () => { throw new Error('registry unreachable'); } }, recordingHooks, [g], 'op-flaky');
+    } finally {
+      clearDebugSink();
+    }
+    expect(recordedOrders.some((o) => o.galaxy === g)).toBe(true);
+    expect(logged.find((e) => e.namespace === 'nebula-auth.certificate' && e.level === 'error')?.data)
+      .toMatchObject({ galaxy: g, operationId: 'op-flaky' });
+  });
 });

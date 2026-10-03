@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { claimedUniverses } from '../../test/lib/email-login';
+import { NEW_HOST_TIMEOUT_MS } from './wait-for-host';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
 import { LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
@@ -56,7 +58,7 @@ export function launchChromium(): Promise<Browser> {
     headless: process.env.HARNESS_HEADED !== '1',
     // Every host of a local stack is a `*.lumenize.localhost` name on loopback. Chromium resolves
     // `*.localhost` there itself; the rule makes that explicit, so no resolver is ever asked.
-    args: ['--host-resolver-rules=MAP *.lumenize.localhost 127.0.0.1'],
+    args: ['--host-resolver-rules=MAP *.lumenize.localhost 127.0.0.1, MAP lumenize.localhost 127.0.0.1'],
   });
 }
 
@@ -86,8 +88,13 @@ export async function bootStudioVite(workerBaseUrl: string): Promise<{
   // wrangler's `assets` block hard-errors without a dir; an empty one satisfies it (we serve via vite).
   mkdirSync(resolve(STUDIO_UI_DIR, 'dist'), { recursive: true });
   // The proxy target is the worker's port on loopback; the browser's own `Host` rides through.
+  // ⚠️ 127.0.0.1, never `localhost`, here and for vite's own socket below: on Linux Node resolves
+  // `localhost` to `::1` first, so a server bound to it listens on IPv6 alone, while
+  // `launchChromium` maps every `*.lumenize.localhost` host to 127.0.0.1. Measured in
+  // `node:24-slim` on 2026-10-03, where it refused every ui-smoke page; macOS lists 127.0.0.1 first
+  // and cannot show it.
   const worker = new URL(workerBaseUrl);
-  process.env.NEBULA_WORKER_URL = `${worker.protocol}//localhost:${worker.port}`;
+  process.env.NEBULA_WORKER_URL = `${worker.protocol}//127.0.0.1:${worker.port}`;
   process.env.LUMENIZE_ORIGIN = LOCAL_ORIGIN;
   const vite: ViteDevServer = await createViteServer({
     root: STUDIO_UI_DIR,
@@ -95,7 +102,7 @@ export async function bootStudioVite(workerBaseUrl: string): Promise<{
     // default bundling loader hands to Node unresolved; the runner loader transforms it.
     configLoader: 'runner',
     configFile: resolve(STUDIO_UI_DIR, 'vite.config.ts'),
-    server: { port: 5174, strictPort: false },
+    server: { host: '127.0.0.1', port: 5174, strictPort: false },
     logLevel: 'warn',
   });
   await vite.listen();
@@ -132,14 +139,18 @@ export async function instrumentedPage(browser: Browser): Promise<InstrumentedPa
     if (msg.type() === 'error') consoleErrors.push(msg.text());
   });
   page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message}`));
+  // `/cdn-cgi/` is Cloudflare's own path on a proxied zone, such as the Web Analytics beacon it
+  // injects into pages on `lumenize-test.dev`; what happens to those requests says nothing about ours.
+  const ours = (url: string) => !new URL(url).pathname.startsWith('/cdn-cgi/');
   page.on('requestfailed', (req) => {
+    if (!ours(req.url())) return;
     failedRequests.push({
       url: req.url(), status: 'failed', method: req.method(),
       errorText: req.failure()?.errorText ?? '(no reason reported)',
     });
   });
   page.on('response', (res) => {
-    if (res.status() >= 400) {
+    if (res.status() >= 400 && ours(res.url())) {
       failedRequests.push({ url: res.url(), status: res.status(), method: res.request().method() });
     }
   });
@@ -211,6 +222,7 @@ export async function signUpInBrowser(
   try {
     await page.getByRole('button', { name: 'Create account', exact: true }).click();
     await page.getByText(/Check your email/).waitFor({ state: 'visible', timeout: 30_000 });
+    claimedUniverses.push({ universe: opts.universe, email: opts.email }); // the harness deletes it
     link = extractMagicLink(await waiter.emailPromise);
   } finally {
     waiter.cleanup();
@@ -221,8 +233,8 @@ export async function signUpInBrowser(
   await page.getByTestId('consent-nickname').fill(opts.nickname);
   await page.getByTestId('consent-accept').click();
   // A deployed app's host answers once its certificate is issued, which the page waits out with a
-  // count-up; measured at two and a half to four minutes. A local host answers at once.
+  // count-up. A local host answers at once.
   const deployed = process.env.HARNESS_TARGET_URL !== undefined;
   const app = new URL(hostOrigin({ kind: 'scope', scope: `${opts.universe}.${opts.appSlug}` }, deployed ? TEST_ORIGIN : LOCAL_ORIGIN, viteBaseUrl)).hostname;
-  await page.waitForURL((u) => u.hostname === app, { timeout: deployed ? 300_000 : 30_000 });
+  await page.waitForURL((u) => u.hostname === app, { timeout: NEW_HOST_TIMEOUT_MS });
 }

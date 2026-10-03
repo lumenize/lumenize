@@ -46,6 +46,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { Profile } from '@lumenize/nebula-auth/profile';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
 import { provisionAndLogin, acceptInviteAndLogin } from '../../test/lib/email-login';
 import { ImpersonationMintError } from '../../src/impersonation';
 
@@ -59,11 +60,10 @@ async function refused(op: Promise<unknown>): Promise<boolean> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const suffix = crypto.randomUUID().slice(0, 8);
 
   const victimEmail = uniqueTestEmail();
-  const victimUniverse = `victim-${suffix}`;
-  const evilUniverse = `evil-${suffix}`;
+  const victimUniverse = testSlug('victim');
+  const evilUniverse = testSlug('evil');
 
   // ── The victim: a real person with a real profile, in their OWN universe ─────────────────────
   const victim = await provisionAndLogin({
