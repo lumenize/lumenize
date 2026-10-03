@@ -20,6 +20,7 @@
     "unplugin-swc": "^1.5.10",
     "vite": "^8.2.0"
   },
+  "//overrides": "Lets @vitejs/plugin-vue and lucide-vue-next, whose vue peer ranges admit no prerelease, accept the 3.6.0-rc.10 pinned above. $vue follows dependencies.vue, so a bump edits that entry and never this block. Delete this block when Vue 3.6.0 ships.",
   "overrides": {
     "vue": "$vue"
   }

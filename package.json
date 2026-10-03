@@ -56,6 +56,7 @@
     "typescript": "^5.9.2",
     "vue": "3.6.0-rc.10"
   },
+  "//overrides": "Lets @vitejs/plugin-vue and lucide-vue-next, whose vue peer ranges admit no prerelease, accept the 3.6.0-rc.10 pinned above. $vue follows the root's own vue devDependency, which exists only for it, so a bump edits that entry and never this block. When Vue 3.6.0 ships, delete this block and that devDependency, then confirm npm install re-resolves.",
   "overrides": {
     "vue": "$vue"
   },
