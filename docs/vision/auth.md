@@ -28,7 +28,11 @@ Nebula is made up of a highly distributed mesh of nodes. Communication between t
 
 Two things named throughout this document are not mesh nodes at all, so neither is an exception to that. The auth Registry sits outside the mesh, reached over HTTP and through one mesh-speaking facade. See § *The Registry*. The Gateway is mesh mechanics, not a mesh node. The Profile is a third case — it *is* a node, but it is best not thought of as a full one. See § *Profiles* for how it behaves differently and why.
 
-**A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary mesh call, not a separate delivery mechanism. Two things do differ: the last-mile **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, establishes a client's claims on the way in, and on the way out checks that the tab has passage into the scope of whatever node is sending to it (§ *How the claims travel*). That is why it appears throughout this document without ever being a node itself.
+**A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary mesh call, not a separate delivery mechanism. Two things do differ: the last-mile **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust.
+
+**The Gateway bridges both.** It terminates the socket, establishes a client's claims on the way in, and on the way out checks that the tab has passage into the scope of whatever node is sending to it (§ *How the claims travel*). A client's mesh address is its Gateway's, so a call to a client lands on the Gateway's Durable Object, which does for its client what a node's own framework does inside a node: it acks the call, keeps the call's result handler, and fires the answer back. That is why it appears throughout this document without ever being a node itself.
+
+> **Today's code differs.** On a call to a client, the Gateway holds the calling node's call open until the client answers, for up to 30 s, and returns the answer where an ack belongs. A client keeps its own result handler in the tab, keyed by a call id, rather than sending it with the call.
 
 ## The layers a call passes
 
@@ -38,7 +42,7 @@ You enter by authenticating, which sets a long-lived refresh cookie. That cookie
 
 One design decision runs underneath several of the layers below: **Nebula addresses Durable Objects (DOs) by name** (never using the 64-character hex id), and for a scoped node, **the name *is* its scope**. That is what turns an address from a routing fact into something authorization can base decisions upon.
 
-After authentication, a call passes a fixed sequence of layers. Two verdicts decide the coarse-grained access control: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?). Both are computed from the call's `activeScope`, the `scopeAdmin` bit, and the `targetScope` it addresses. `activeScope` is the scope of the page whose call started the chain, read from that page's host, not its path: a call from `https://tenant1.crm.acme.lumenize.dev/orders?page=2` carries the `activeScope` `acme.crm.tenant1`. § *Coarse-grained access control* defines both verdicts, and § *`activeScope`* says how the value is set.
+After authentication, a call passes a fixed sequence of layers. Two verdicts decide the coarse-grained access control: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?). Both are computed from the call's `activeScope`, the `scopeAdmin` bit, and the `targetScope` it addresses. `activeScope` is *where the call is acting from*: the scope its host spells, never its path, so a call from `https://tenant1.crm.acme.lumenize.dev/orders?page=2` carries the `activeScope` `acme.crm.tenant1`, and a chain a node started acts from that node's name. § *Coarse-grained access control* defines both verdicts, and § *`activeScope`* says how the value is set.
 
 **There are two sequences, because a call to a mesh node and a request to a Registry route arrive by different routes.** Only the mesh sequence computes the two verdicts. The Registry's HTTP routes are used for calls that don't have an access token — logging in, the refresh, acceptance, logging out. What a session does once it holds a token is a mesh call.
 
@@ -48,7 +52,7 @@ After authentication, a call passes a fixed sequence of layers. Two verdicts dec
 - **M2 — The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
 - **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassageInto(claims, targetScope)`. `targetScope` is this node's own name, pinned by M2. Our coarse-grained access control.
 - **M4 — `@mesh()` decorators.** Only methods and getters decorated with `@mesh()` (TC39 stage 3 decorators) are reachable over `lmz.call()`; nothing else on the node can be called or read by a caller, and a field or `accessor` fails to compile under it. A `@mesh()`-decorated method or getter may hand back an object whose members the caller can then use, which is how a node hands out a capability (below).
-  - **A result coming back is the one leg where `@mesh()` is not required.** That chain is one this node authored and sent out, so it runs against members this node chose, which are deliberately left without `@mesh()`: decorating one would also make a result handler callable as an ordinary request, with arguments of the caller's choosing. M3 still grants or refuses passage on the result leg, as on the request. And no client can name code for a node to run on this leg. Only a server-side node sends a result back as a chain, and when a node calls a client, whatever comes back reaches the node as a value for its own handler, which never left the node.
+  - **A result coming back is the one leg where `@mesh()` is not required.** That chain is one this node authored and sent out, so it runs against members this node chose, which are deliberately left without `@mesh()`: decorating one would also make a result handler callable as an ordinary request, with arguments of the caller's choosing. M3 still grants or refuses passage on the result leg, as on the request. And no client can name code for anyone else to run on this leg. A result handler goes out with its call and comes back filled to whoever wrote it, and when the call went to a client, that client's Gateway keeps the handler and fills it with the client's answer, so the client supplies only a value.
 - **M5 — The guard function.** `@mesh()` can have a guard function that runs before the method. Read-only operations often have none, because passage (§ *Coarse-grained access control*) is enough. Almost anything that changes state has one.
 - **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response. That explanation is often a thrown error, which travels back over the mesh whole — its type and custom properties included — and is thrown again at the caller.
 - **M7 — The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
@@ -91,7 +95,7 @@ The sections that follow expand on the model above.
 
 Scope is the driver for coarse-grained access control.
 
-A page's host spells one. `https://tenant1.crm.acme.lumenize.dev/` is the scope `acme.crm.tenant1`: the host lists the slugs innermost first and the scope outermost first, so the same three slugs appear in opposite orders, and a reader comparing the two should expect it ([ADR-021](../adr/021-every-scope-has-its-own-host.md)). A scope can also be a parameter of a mesh call.
+A host spells one. `https://tenant1.crm.acme.lumenize.dev/` is the scope `acme.crm.tenant1`: the host lists the slugs innermost first and the scope outermost first, so the same three slugs appear in opposite orders, and a reader comparing the two should expect it ([ADR-021](../adr/021-every-scope-has-its-own-host.md)). A scope can also be a parameter of a mesh call.
 
 Braces stand in for a value here and throughout: `{u}.{g}.{s}` names a Star.
 
@@ -114,12 +118,12 @@ The same kind of value appears in three distinct roles.
 | | Answers | Where it lives |
 |---|---|---|
 | **`authScope`** | *who you are* — the membership this session was established under | `access.authScope` in the token, and the refresh cookie's name |
-| **`activeScope`** | *where you are acting right now* — the scope of the page where you are working, within `authScope` | the token's `aud`, taken from the page's host |
+| **`activeScope`** | *where you are acting right now* — the scope your host spells, within `authScope` | the token's `aud`, taken from the host; for a call chain a node started, that node's name |
 | **`targetScope`** | *what you are acting on* | a mesh node's name, or a call parameter |
 
-**The first two are properties of the caller; the third is a property of the call.** `authScope` and `activeScope` ride the token and change only at login or refresh; `targetScope` differs for every call the same token makes. The two sections below cover the first two — `targetScope` needs no section of its own, because it is simply whatever is being addressed.
+**The first two are properties of the caller; the third is a property of the call.** `authScope` and `activeScope` ride the token and change only at login or refresh, and a call chain a node started carries the node's own scope instead (§ *`activeScope`*) [I don't follow this added wording? Why even mention call chain here?]; `targetScope` differs for every call the same token makes. The two sections below cover the first two — `targetScope` needs no section of its own, because it is simply whatever is being addressed.
 
-**The coarse-grained verdicts read `activeScope` and `targetScope`, with `scopeAdmin` from the membership** (§ *Coarse-grained access control*). The page's code is what makes a call, and on a Star's host that code is the user-developer's, so the page a call came from bounds what it may do. `authScope` says which membership the token rests on, and so whose `scopeAdmin` bit it carries.
+**The coarse-grained verdicts read `activeScope` and `targetScope`, with `scopeAdmin` from the membership** (§ *Coarse-grained access control*). The code a host serves is what makes a call, and on a Star's host that code is the user-developer's, so the host a call came from bounds what it may do. `authScope` says which membership the token rests on, and so whose `scopeAdmin` bit it carries.
 
 ## `authScope` (sessions)
 
@@ -131,23 +135,25 @@ A page on any `lumenize.dev` host but `platform` gets its access token from the 
 
 ## `activeScope`
 
-An access token is a signed JWT. It has one `activeScope` — the scope of the page where the person is working, carried as the `aud` claim. On a page at `https://tenant1.crm.acme.lumenize.dev` it is `acme.crm.tenant1`. One session can back many tokens at once, one per tab, on the same host or on different hosts, each carrying its own page's `activeScope`.
+An access token is a signed JWT. It has one `activeScope` — *where the person is acting right now*, the scope their host spells — carried as the `aud` claim. On `https://tenant1.crm.acme.lumenize.dev` it is `acme.crm.tenant1`. One session can back many tokens at once, one per tab, on the same host or on different hosts, each carrying its own host's `activeScope`.
 
-The refresh takes it from the page's `Origin`, which page script cannot set, and mints only where it sits at `authScope` for a plain membership, or at or below it for a `scopeAdmin` one, so it can only ever name somewhere `authScope` allows.
+The refresh takes it from the request's `Origin`, which no script can set, and mints only where it sits at `authScope` for a plain membership, or at or below it for a `scopeAdmin` one, so it can only ever name somewhere `authScope` allows.
 
 It is what the coarse-grained checks read, so a call acts within its `activeScope` and below ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*). Reading it only ever narrows what `authScope` alone would allow, because it already sits at or below `authScope`.
 
-Moving between active scopes is moving between hosts, which a person does from Home (§ *Home*). The page they land on gets a token of its own, and a connection carries for its life the one `aud` it presented.
+**A call chain a node started has an `activeScope` too, though it carries no token.** It is the name of the node that started the chain, when that name is a scope. An alarm on the Star `acme.crm.bigco`, or an update it broadcasts, acts from `acme.crm.bigco` with no `scopeAdmin`: passage into that Star and up through `acme.crm` and `acme`, and dominion over nothing. A node named by an id rather than a scope, such as a Profile, gives its chains no `activeScope`, so a scoped node refuses them.
+
+Moving between active scopes is moving between hosts, which a person does from Home (§ *Home*). A tab on the new host gets a token of its own, and a connection carries for its life the one `aud` it presented.
 
 The contrast, at a glance:
 
 | | `authScope` | `activeScope` |
 |---|---|---|
-| Belongs to | the session | each access token |
-| What it is | where you authenticated | the scope of the page where the person is working |
-| Where it lives | the refresh cookie's name, and the JWT's `access` claim | the JWT `aud` |
-| Who sets it | fixed at login; the refresh picks the session | the refresh, from the page's `Origin`, confined at or below `authScope` |
-| What it decides | whose `scopeAdmin` bit the token carries | what a call from this page may do, through passage and dominion |
+| Belongs to | the session | each access token, or a call chain a node started |
+| What it is | where you authenticated | where you are acting: the scope your host spells |
+| Where it lives | the refresh cookie's name, and the JWT's `access` claim | the JWT `aud`, or the starting node's name |
+| Who sets it | fixed at login; the refresh picks the session | the refresh, from the request's `Origin`, confined at or below `authScope` |
+| What it decides | whose `scopeAdmin` bit the token carries | what a call from this host may do, through passage and dominion |
 
 ## The access token
 
@@ -156,7 +162,7 @@ A whole token, annotated — a Galaxy admin on a page at one of their tenants' h
 ```jsonc
 {
   "sub": "8f3c…",              // the membership — see § Identity and membership
-  "aud": "acme.crm.bigco",     // activeScope — my page's host; passage and dominion read it
+  "aud": "acme.crm.bigco",     // activeScope — the scope my host spells; passage and dominion read it
   "access": {
     "authScope": "acme.crm",   // where I am a member — the membership this token rests on
     "scopeAdmin": true         // see § Coarse-grained access control
@@ -176,13 +182,15 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 So every node's M3 has to decide safely when the claims are absent, and each kind of node asks its own question there:
 
-- **A scoped node asks for passage, which needs claims**, so a call with none is refused at its boundary. Every scoped node gets that check from `NebulaDO`, the base class a new scoped node type extends.
+- **A scoped node asks for passage, which needs an `activeScope`**: the claims' `aud`, or on a fresh chain the name of the node that started it, when that name is a scope (§ *`activeScope`*). A call with neither is refused at its boundary. Every scoped node gets that check from `NebulaDO`, the base class a new scoped node type extends.
 - **A node with no scope of its own**, such as the facade or the Profile, checks the claims at the top of each method that needs them instead.
-- **A client asks who made the last hop.** It refuses a call from another client and admits one from a Durable Object or Worker, so a subscription update arrives with no claims and passes.
+- **A client asks at each method instead.** [I'm not happy with this section. I think this is a case where it makes more sense to talk about the Gateway and the Client together. Collectively, you get essentially the same behavior, it's just that the responsibility splits. Passage by the Gateway. Everything else by the Client (including the dominion override behvior).] Its boundary admits whatever its Gateway delivers, and a method only a server-side node should call, such as a subscription update's handler, composes `requireServerSideCaller`, which refuses a client caller. So an update arrives with no claims and passes, and another client reaches only the methods meant for peers, such as a cursor's.
 
-What never meets that boundary — an alarm handler, a result handler run locally — is the node's own code, not a call from outside. And no client can start a fresh chain or forge a result: the Gateway builds every call a client makes from the connection's verified token, and sends it only to a node's request door, where `@mesh()` is required.
+What never meets that boundary — an alarm handler [This seems like a detail that we could drop], a result handler run locally — is the node's own code, not a call from outside. And no client can start a fresh chain or forge a result. The Gateway builds every call a client makes from the connection's verified token, with nothing the client wrote in its `callContext`, and sends it only to a node's request door, where `@mesh()` is required. When a node calls a client, the client's Gateway keeps the node's result handler and fills it with the client's answer, so the client supplies a value, never code.
 
-**Before a call reaches a client, its Gateway checks the tab's passage into the sender's scope.** The tab's `activeScope` is its host's, and the sender's scope is the name of the node that made the last hop, when that name is a scope. A Galaxy `acme.crm` sending to a tab on `acme.crm.bigco`'s page passes, since upward is free, and a sibling Star `acme.crm.other` sending to that tab is refused as lateral. A sender whose name is no scope, such as the Profile, passes, so a node not named by a scope must hold no tenant's data. The check reads the sender's address rather than claims, so a fresh chain passes it. It is there because a subscriber row outlives the page it was made on, and the Gateway is the last place a row pointing at the wrong tab can be caught.
+**Before a call reaches a client, its Gateway checks the tab's passage into the sender's scope. [With my comment above, this would move closer to that other one.]** The tab's `activeScope` is its host's, and the sender's scope is the name of the node that made the last hop, when that name is a scope. A Galaxy `acme.crm` sending to a tab on `acme.crm.bigco`'s page passes, since upward is free, and a sibling Star `acme.crm.other` sending to that tab is refused as lateral. A sender whose name is no scope, such as the Profile, passes, so a node not named by a scope must hold no tenant's data. The check reads the sender's address rather than claims, so a fresh chain passes it. It is there because a subscriber row outlives the page it was made on, and the Gateway is the last place a row pointing at the wrong tab can be caught. An answer to a client's own call is not checked: it goes only to the client that asked, and its passage was decided on the request.
+
+> **Today's code differs.** A chain a node started carries no claims, and every scoped node refuses it. A client refuses every call whose last hop is another client, instead of guarding its update handlers. And a client writes `state` into its calls' context, which its Gateway passes on.
 
 ## Coarse-grained access control
 
@@ -196,7 +204,7 @@ The `onBeforeCall()` guard sits at the node's outer boundary, and the one questi
 
 **Vertical passage is allowed in only two specific forms** described below.
 
-It compares the call's `activeScope` (the token's `aud`) against the scope being acted on (`targetScope`), and there are two ways passage is granted:
+It compares the call's `activeScope` (the token's `aud`, or the name of the node that started a fresh chain) against the scope being acted on (`targetScope`), and there are two ways passage is granted:
 
 - **Passage upward is free.** `targetScope` can be your `activeScope`, or an ancestor of it. No `scopeAdmin` needed.
 - **Passage downward takes dominion.** `targetScope` is a descendant of your `activeScope` *and* `scopeAdmin` is set — the pair, never the bit on its own.
