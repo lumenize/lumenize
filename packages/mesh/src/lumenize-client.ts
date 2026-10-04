@@ -466,7 +466,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   // ============================================
 
   #debugFactory = debug;
-  #config: Required<Pick<LumenizeClientConfig, 'gatewayBindingName'>> & LumenizeClientConfig;
+  #config: Required<Pick<LumenizeClientConfig, 'gatewayBindingName' | 'refresh'>> & LumenizeClientConfig;
   #instanceName: string | null = null;
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
@@ -1078,7 +1078,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       // Custom refresh function — returns { access_token, sub }
       const result = await refresh();
       this.#accessToken = result.access_token;
-    } else if (typeof refresh === 'string') {
+    } else {
       // Endpoint URL - use custom fetch if provided (for cookie-aware requests)
       const fetchFn = this.#config.fetch ?? fetch;
       const response = await fetchFn(refresh, {
@@ -1109,8 +1109,6 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
       const data = await response.json() as { access_token?: string };
       this.#accessToken = data.access_token ?? null;
-    } else {
-      throw new Error('No refresh method configured');
     }
 
     if (!this.#accessToken) {
