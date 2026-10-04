@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [
     // SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
     swc.vite({
+      // Coverage loads a file no test imports under an id carrying a query
+      // (`?cache=…&vitest-uncovered-coverage=true`), which a bare extension filter misses: istanbul
+      // then parsed raw TypeScript and failed the coverage job. The second pattern admits that pass only.
+      include: [/\.[mc]?[jt]sx?$/, /\.[mc]?[jt]sx?\?.*\bvitest-uncovered-coverage\b/],
       jsc: {
         parser: { syntax: 'typescript', decorators: true },
         transform: { decoratorVersion: '2022-03' },

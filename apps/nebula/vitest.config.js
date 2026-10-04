@@ -12,7 +12,10 @@ installLocalhostLookup();
 
 // SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
 const swcPlugin = swc.vite({
-  include: [/\.tsx?$/],
+  // Coverage loads a file no test imports under an id carrying a query
+  // (`?cache=…&vitest-uncovered-coverage=true`), which a bare extension filter misses: istanbul
+  // then parsed raw TypeScript and failed the coverage job. The second pattern admits that pass only.
+  include: [/\.tsx?$/, /\.tsx?\?.*\bvitest-uncovered-coverage\b/],
   exclude: [/node_modules/],
   jsc: {
     parser: { syntax: 'typescript', decorators: true },
