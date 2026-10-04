@@ -2,7 +2,8 @@
 
 **Status:** Pass 1, with every decision Larry's, 2026-09-30. Stage 1 `/review-task` ran 2026-10-04,
 and this file was reshaped from it the same day. The items it raised that need Larry are being
-settled one at a time; then Stage 1 runs again on the reshaped file, then Pass 2's phases.
+settled one at a time. Then the vision doc, the ADRs and `security.md` change docs-first (→ D18),
+Stage 1 runs again, and Pass 2's phases follow.
 
 ## Goals
 
@@ -481,6 +482,24 @@ response: { kind: 'mesh', returnAddr: <this Client's identity>, handler, onError
 - **A wider door.** `NebulaDO` admits chains a node started, not only calls carrying a token's
   claims. That is a trust-boundary change for `/review-task`'s security lens to check.
 
+## What changes in standing guidance
+
+The vision doc, the ADRs and `security.md` change first, so a review panel reads them already
+agreeing with this file. Each gets a *Today's code differs* block where the code lags, and the build
+removes those blocks. `mesh.md`, the website and JSDoc change in the phase whose code makes them
+true, because an agent or a user acts on them as written (→ D18, D3).
+
+| File | Sections | For | Lands |
+|---|---|---|---|
+| `docs/vision/auth.md` | § *Lumenize Nebula mesh*; § *The layers a call passes*, M4's result-leg bullet; § *The three roles a scope plays*; § *`activeScope`*; § *The access token*; § *How the claims travel*; § *Coarse-grained access control* | D3, D10, D11, D13 | docs-first |
+| `docs/adr/015-passage-and-dominion.md` | § *Context*; the note under § *Predicate pair*'s formula | D10 | docs-first |
+| `docs/adr/003-continuation-messaging.md` | § *Decision*'s list of delivery forms; § *Consequences*, Negative | D11, D15 | docs-first |
+| `docs/adr/022-every-session-lives-on-the-platform-host.md` | § *What an access token carries*, which says every call carries a token; every definition of `aud` | D10 | docs-first |
+| `.claude/rules/security.md` | The bullet requiring every protected path to verify the JWT, which also defines `aud` | D10 | docs-first |
+| `.claude/rules/mesh.md` | § *`call()` + a continuation is the ONLY cross-node call surface*; § *Object-capability access: gate once, then chain*; § *`lmz.call` 4-arg — the result-handler mechanics*; § *`LumenizeClientGateway` is NOT a mesh participant* | D3, D11, D13, D15 | with the code |
+| `website/docs/mesh/` | `calls.mdx`, `lumenize-client.mdx`, `protocol.mdx`, `mesh-api.mdx`, `broadcast.mdx` | D11, D13, D15 | with the code |
+| JSDoc | `requirePassage`; the Client's and `broadcast.ts`'s broadcast warnings; the Gateway's class comment | D10, D11 | with the code |
+
 ## Decisions
 
 Every row is Larry's call. The D-numbers are append-only, and the prose above points at them with (→ Dn) where it describes the problem each one fixes. D1 and D2 were withdrawn; D11 replaced both.
@@ -502,3 +521,4 @@ Every row is Larry's call. The D-numbers are append-only, and the prose above po
 | D15 | **The three-argument `lmz.call` goes, for every node type: every call names a result handler, and fire-and-forget is a handler with `onErrorOnly`** (Larry, 2026-09-30). Every call that names no handler gains an error handler: `NebulaClient`'s subscribes and unsubscribes, which go through `#hostCall` or straight to the Profile, `Galaxy`'s preview-ready nudge, and the Profile's first snapshot to a new subscriber, which then reaps a subscriber whose tab is gone. A refused subscribe reaches the tab at once as its Error, and `#subscribeVia`'s timer stays for a host that never answers. The `discard` kind of fire-back, the no-handler branches in `dispatchEnvelope` and `fireResponse`, the Client's `expectsResult` flag and the Gateway's branch for a call without one all go, and `lmz.broadcast`'s `onResult` becomes required. `.claude/rules/mesh.md`'s three-argument bullet and `website/docs/mesh/` change with it. `packages/fetch`'s two source sites, in `fetch.ts` and `fetch-executor-entrypoint.ts`, get an error handler that logs, and any of its tests that break are skipped rather than fixed, since that package is headed for deprecation. | **Keeping it, and adding the Client's missing log line** — a refused subscribe would still be noticed only when a timer gives up, and the Profile's row would still leak. **Keeping it as shorthand whose errors go to one hook per node** — new API and vocabulary, and it takes the handling away from the call site that knows what the call was for. |
 | D16 | **`callAsync` stays public on `client.lmz`, built on D11's travelling handler: one message on the wire, two spellings in code** (Larry, 2026-09-30). Its handler names a local method, with no `@mesh()`, that settles a Promise kept in the tab, so it sends exactly what a result-handler call sends, and only the Promise and its timeout differ. `callAsync`'s JSDoc in `packages/mesh/src/lumenize-client.ts` states this, since it is already true today. The code Studio's model writes never calls it: the platform docs teach `await client.resources…` and mention `callAsync` nowhere, and every `callAsync` call sits inside `NebulaClient`. | **Only inside a Client subclass, for building an SDK** — it would narrow ADR-003's user-land awaiting to SDK methods, and third-party mesh users would lose the awaitable. **Removing it, so SDK methods take callbacks** — it fights the training in the 39 places the model's docs teach `await`, and amends ADR-003. |
 | D17 | **A tab keeps its `tabId` in `sessionStorage`, and a Web Lock on the id replaces the 50 ms `BroadcastChannel` probe for a duplicated tab, in a late phase** (Larry, 2026-09-30). A tab holds its id's lock until it closes, including while paused, so a duplicate finds the lock taken and mints a new id with no race. The phase's first criterion is a measurement: a reloaded page must get the lock its previous page held, or every reload would mint a new Gateway name, the leak `tab-id.ts` exists to prevent. If a reload can lose its lock, the phase is dropped rather than worked around. | **Reusing ids across tabs from `localStorage`, each claimed by a lock** — it saves Gateway names that cost nothing, and a new tab could land on a Gateway closed seconds earlier and receive updates for rows it never made. **A fixed pool of lock names with no storage** — the `tabId` becomes a small, guessable number, which undercuts D13. **Leaving the probe** — a paused original misses the 50 ms window, and the two tabs then close each other's connection with 4409 over and over. |
+| D18 | **`docs/vision/auth.md`, the ADRs and `.claude/rules/security.md` change docs-first, before Stage 1 runs again, each with a *Today's code differs* block where the code lags; the build removes the blocks. `mesh.md`, the website and JSDoc change in the phase whose code makes them true** (Larry, 2026-10-04). The docs-first edits wait for this file's last open decisions, so each passage is written once. | **Everything in the build's first phase** — until then every review pass reads accepted docs that contradict this file, and the security lens takes `auth.md` as the model wherever the two disagree. **Everything with the code** — the same, for the whole build. **`mesh.md` docs-first too** — D3's reason: every session reads it, and it would describe a Gateway that does not exist yet. |
