@@ -1,6 +1,10 @@
 ---
 paths:
   - "**/package.json"
+  - "package-lock.json"
+  - ".nvmrc"
+  - ".github/workflows/*.yml"
+  - "**/Dockerfile"
   - "**/wrangler.jsonc"
   - "**/tsconfig*.json"
   - "**/vitest.config.*"
@@ -88,3 +92,45 @@ This is a *runtime* guard only.
 }}
 ```
 Condition keys are runtime-matched tokens, not labels: Cloudflare presents `workerd`/`worker` (not `cloudflare`); Bun/Deno fall through to `node`. `default` MUST be omitted so an unmatched toolchain fails loudly rather than shipping a silently-wrong build. Canonical: `@lumenize/debug` (imported by browser-bundled client code, so it can't use the try/catch).
+
+## `package-lock.json`
+`workflow.md` § *Dependencies* states the rule: commit the lock with the `package.json` that caused it, never hand-edit it, and review the `package.json` rather than the lock. This is the mechanism.
+
+- **Churn is normal npm behaviour, not a symptom.** Adding one workspace or one dependency can re-resolve a few hundred lines of unrelated tree: on 2026-08-03, one experiment workspace and two deps produced **1054 insertions / 939 deletions**, including packages nobody asked for.
+- **It is generated output.** `.gitattributes` marks it `linguist-generated=true -diff`, so GitHub collapses it in PRs and `git diff` stays readable locally.
+- **`npm ci` MUST be used everywhere that isn't deliberately changing deps.** It installs *from* the lockfile and never writes it, so CI cannot drift the tree.
+- **A lockfile landing apart from its `package.json` is unbisectable**, and a `package.json` landing without its lockfile breaks the next `npm ci`.
+- **The one hand-edit is removing a workspace package.** Edit it surgically, JSON parse → stringify, rather than regenerating it from scratch ([[delete-workspace-package-lockfile]]).
+- **Root `overrides` are not the fix for churn** — § *Toolchain bumps* says why.
+
+## Startup cost is work at import, not bytes
+**A DO is not a separate deployment** — its class is exported from the Worker bundle, so every DO instance pays for the *whole* Worker's import graph, including code it never touches. Cost is **per-Worker-project**: a dep added anywhere in `apps/nebula`'s graph taxes every DO in it, and moving the heavy import behind a subpath **does not help** while its importers still share the Worker. So "is this dep worth it?" is never a question about one package.
+
+⚠️ **Size is a screening proxy, not the cause.** V8 pre-parses lazily and defers full compilation until a function is *called*, so a bundle that merely **defines** a lot is nearly free. What costs is code that **runs at module scope** — and it is almost always the dependency's, not ours: eager init tables (tsc's keyword/scanner/diagnostic catalogues), `new Map`/regex/`Object.freeze` of "constants", class field initializers and decorators, shim installation, wrangler's `keepNames` `__name()` wrapper per function definition, and the GC to collect it all.
+
+Measured 2026-07-31 on the `do-cold-start-bundle-ab` arms: 2.7 MB → 9.2 MB costs **16×** startup for **3.4×** the bytes, because the two bundles do different *amounts of work*, not proportional amounts — the heavy arm spends most of a 295 ms window on GC and top-level init (tsc + typia), plus ~15 ms in 18,298 `__name()` wrappers. ⇒ That is why `workflow.md` § *Dependencies* forbids gating on byte count: it would fire on `isomorphic-git` (684 KiB, 25 ms, harmless) and stay silent on a small package that builds a big table at import.
+
+**Measure it — two commands, no deploy** (use `--workerBundle`; the direct `check startup` path misdetects a Worker as Pages and exits 1 on 4.113):
+```sh
+npx wrangler deploy --dry-run --outfile /tmp/w.bundle    # prints Total Upload
+npx wrangler check startup --workerBundle /tmp/w.bundle  # → .cpuprofile
+```
+Read the `.cpuprofile` in `speedscope.app` (Left Heavy) or Chrome DevTools. **Self-time plateaus along the top edge are the cost**; tall narrow towers are deep call chains that cost nothing. A profile with single-digit samples means there is nothing to optimize. Local CPU ≠ Cloudflare's, so it MAY be trusted for *relative* comparison and MUST NOT be cited as a predicted production number — for that, `wrangler deploy` reports a server-side `Worker Startup Time`. The summary line (bundle KiB, active/idle/GC split) needs wrangler ≥ 4.116, which is a toolchain-**triple** bump — see § *Toolchain bumps*, never `wrangler` alone.
+
+⚠️ **Startup cost ≠ wake latency.** End-to-end DO `create` and `wake` also depend on eviction depth, which is **not predictable from any of this**: an identical 9.2 MB bundle measured 120 ms and 1,256 ms on repeat runs. Method and full tier data in `experiments/do-cold-start-bundle-ab/RESULTS.md` (2026-07-23, n=10).
+
+## Toolchain bumps
+`workflow.md` § *Toolchain bumps* states the rule: `wrangler` moves only together with `@cloudflare/vitest-pool-workers`, as one triple with `miniflare`, and the Node major moves on its own. This is the mechanism.
+
+**`@cloudflare/vitest-pool-workers` depends on `wrangler` EXACTLY, 1:1, and drags `miniflare` with it** (0.22.0→4.124.0; derive any pair with `npm view @cloudflare/vitest-pool-workers@X dependencies.wrangler`). Every workspace here that declares `wrangler` also declares pool-workers — never one alone — and the repo is uniform **because pool-workers hard-pinned it**. Bumping `wrangler` on its own splits the tree: our declared version resolves to the newer one while pool-workers' nested dep stays pinned to the old, and the root-hoist footgun in `durable-objects.md` § DO class registration is what that feels like.
+
+- **The declared `wrangler` version MUST be the EXACT pin (`"4.124.0"`), never a caret.** A `^` range re-resolves to the newest wrangler on the next full re-resolve, which is ahead of the pool-workers pin whenever wrangler has released since, and npm does not reliably dedupe a caret onto a nested exact pin. Measured 2026-08-29: 25 workspaces landed on 4.127.1 against the nested 4.124.0, and re-pinning exact collapsed the tree to one copy on the spot.
+- **Root `package.json` `overrides` MUST NOT be reached for to force uniformity, or to tame lockfile churn.** An override does pin one version everywhere, but a **changed** override is silently ignored by `npm install`, `npm update`, `npm dedupe`, `--force` and `--package-lock-only` alike; only deleting `package-lock.json` re-resolves it, so every bump becomes a full lockfile regeneration. Set-once is fine; maintaining one is worse than the problem (both behaviors verified in a scratch monorepo, 2026-07-27).
+- **You MUST enumerate over the `workspaces` list, never a `packages/*` glob.** `doc-test/*/*` is a workspaces entry and is easy to miss (`npm ls @cloudflare/vitest-pool-workers --all`). An experiment that declares `wrangler` *without* pool-workers has nothing pinning it forward, which is how stale experiments hoist an ancient wrangler to the repo root.
+
+### The Node major
+**Baseline: Node 24 LTS ("Krypton").** Six surfaces carry it and MUST move in one sweep, or the lanes silently disagree: root `engines` · `.nvmrc` · `@types/node` (root + `tooling/check-examples` + `tooling/doc-testing`) · every `node-version:` in `.github/workflows/` · `apps/nebula/container/Dockerfile` (`node:24-slim`) · `experiments/computer-vfs-build/Dockerfile` (nodesource `node_24.x`).
+
+- **A Node bump does not imply a toolchain-triple bump, and conflating them destroys your ability to read a failure.** wrangler and miniflare declare `node >=22.0.0`, so a Node major inside that floor costs the triple nothing: on 2026-08-03 the entire suite went green on Node 24 with pool-workers, wrangler and miniflare unchanged, before a single dependency moved.
+- **`@types/node` MUST track the RUNTIME major, never "latest".** Types ahead of the runtime typecheck code against APIs that don't exist at runtime — a green `type-check` that ships a `TypeError`. The root pin had drifted to `^25` while the runtime was 22; Node 24 + `@types/node@^24` closes it.
+- **npm 11 (bundled with Node 24) WARNS about lifecycle scripts but still RUNS them.** `npm warn allow-scripts … not yet covered by allowScripts` fires for `workerd`/`esbuild` on every install and reads exactly like a block — it is not (verified 2026-08-03). You MUST NOT "fix" this by adding an `allowScripts` allowlist or re-running installs; the warning MUST be treated as noise **until npm actually enforces it**, at which point `npm ci` in CI is what breaks (`calibration.md` §4 — re-derive then, don't pre-build the guard now).

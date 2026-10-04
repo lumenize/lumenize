@@ -429,7 +429,7 @@ export async function run(stack: DevStack): Promise<void> {
     // The Worker's stdio is captured on a LOCAL stack only (`DevStack.logs`); a deployed target
     // (`HARNESS_TARGET_URL`) shows neither the markers nor, through `docker ps`, its containers,
     // so there the pairing is reported as not observable and the reply half — the second
-    // disclosure above — is what the venue asserts (`live.md` § *Two venues, one registry*).
+    // disclosure above — is what the venue asserts (`live-scenarios.md` § *Reading the local stack's logs*).
     // Until the observability tail Worker exposes deployed logs — `tasks/backlog.md` § *Testing
     // & Quality* carries the re-merge — after which `DevStack.logs` gets a deployed reader.
     const stdio = stack.logs?.();

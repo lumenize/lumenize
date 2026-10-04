@@ -66,7 +66,7 @@ overclaim is the sentence most likely to be quoted back — short, quotable,
 load-bearing-sounding — so its error travels further than the accurate list beneath it. Three
 went into `docs/vision/auth.md` in one session on 2026-08-10/11, every one caught by Larry:
 *"Everything above is a mesh node"* was falsified by the Gateway, which that document's own
-third paragraph calls *"mesh mechanics, not a mesh node"*.
+third paragraph then said was not a mesh node.
 
 **Tell the reader where they are going.** ADR-015: *"The rest of this ADR is spent
 precisely specifying those calculations…"* `auth.md`: *"The sections that follow expand

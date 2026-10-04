@@ -60,7 +60,7 @@ second).
 ⚠️ **There is no `mint` entry, and there is not going to be one.** A rung-3 `mint: { reason, … }`
 option existed until 2026-09-02 and was deleted when its last two callers proved constructible by
 real paths — one of them under a `reason` that was simply stale. A synthetic identity in this harness
-is a fixture that happens to be a function (`live.md` § *A `/live` scenario MUST NOT compensate for
+is a fixture that happens to be a function (`live-scenarios.md` § *A `/live` scenario MUST NOT compensate for
 its environment*), and `/live` is the tier whose whole value is having no fixture to build wrong.
 
 **`bootVars`** (exported from a scenario, read by `drive.ts`) sets `--var NAME:VALUE` for that boot

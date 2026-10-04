@@ -3,7 +3,7 @@
  *
  * A stack started by the harness captures its `wrangler dev` stdio (`DevStack.logs`); a deployed
  * target has none, so every reader here takes the capture as optional and a scenario MUST report a
- * limb built on it as not observable there (`live.md` § *Two venues, one registry*).
+ * limb built on it as not observable there (`live-scenarios.md` § *Reading the local stack's logs*).
  */
 import type { DevStack } from './harness';
 

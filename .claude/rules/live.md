@@ -78,11 +78,11 @@ not. ⚠️ If a run seems to take minutes, **suspect your own scenario before t
 `waitForEmail` waiter keeps Node's event loop alive, so the process prints its verdict and then hangs,
 which is indistinguishable from a slow boot. That exact bug is what made this tier *look* expensive.
 
+
 ⚠️ **The sibling failure blames the mail instead — a waiter that cannot tell whose email it got
 reports as a slow or missing send, never as the filter bug it is.** `testing.md` § *An email waiter
 MUST name whose mail it is waiting for* owns it, along with the two shapes it takes and the audit
-that checks them; it moved there because it is not a `/live` property and this file loads only when
-you edit a scenario, which is the one place the rule was already followed.
+that checks them, because it is a property of every email waiter, not only of `/live`.
 
 ⚠️ **DO NOT ASSERT THAT YOU LACK THE ACCESS — CHECK.** The most insidious skip is not "this is slow",
 it is *"I can't run that here, it needs Docker / real email / a deployed Worker"* — because it reads as
@@ -103,29 +103,12 @@ three separate times in one session: the harness's default login path was alread
 and the wrangler session were both present, and `needsContainer = false` already existed — none of it
 discovered until someone asked why the tier had been skipped.
 
-## A `/live` scenario MUST NOT compensate for its environment (2026-09-02)
+## Writing a scenario — `live-scenarios.md`
 
-**A helper under `apps/nebula/harness/` MUST perform only steps production performs, and MUST NOT
-bridge a difference between the local stack and production.** The tier is worth its cost for one
-reason, stated above: a scenario built from real logins has no fixture to build wrong. A
-compensating helper puts the fixture back — it is a fixture that happens to be a function.
-`provisionAndLogin` is the allowed kind: every step it takes, a browser takes. `pointLinkAt` was the
-forbidden kind: it re-pointed an emailed link's host at the local stack before following it.
-
-**The tell is in the JSDoc.** A helper whose comment explains why the harness environment differs
-from production is compensating by definition. Such a helper MUST be treated as a defect in the
-environment or the code, never as harness plumbing: fix what differs, delete the helper, re-run the
-sweep. **The re-run is the point** — it surfaces whatever the helper was hiding before Larry meets
-it by hand (Larry, 2026-09-02: *"the vast majority of all bugs we find after a task file is finished
-are because of helpers we used to test during the task file build"*).
-
-**Where it bit (2026-09-02):** local `wrangler dev` inferred its host from `wrangler.jsonc`'s
-`routes`, so every login link a local stack emailed pointed at **production** — 22 green scenarios,
-found by one hand-driven click. Both fixes were to the environment and the code, never a helper:
-`apps/nebula/scripts/local-config.mjs` strips `routes`, and the Gateway stamps the upgrade's origin
-into `callContext.originRequest` so a mesh-borne facade mints from it rather than the issuer. ⇒
-**Every emailed link is now followed AS SENT in every lane**, which is the property to defend: a new
-host-rewriting helper is a regression of this rule, whatever its JSDoc says.
+**What a scenario and a harness helper must and must not do lives in `live-scenarios.md`, which
+loads when you touch `apps/nebula/harness/`:** no helper that makes up for a difference between the
+local stack and production, guarding and timing a read of the stack's logs, checking what the
+harness constructs, and a mutation check for each limb of a multi-limb scenario.
 
 ## Two venues, one registry — local is the default; deployed is a deliberate pass (2026-08-29)
 
@@ -137,21 +120,9 @@ materializes the synced `/workspace` subtree onto the container's real disk, whi
 equivalent for a build (`containers.md` § *There is NO source-push step* carries the subtree
 contract). Measured: a container-free scenario is ~13 s end to end; the full container `build-box`
 is ~110 s including the boot; a deployed iteration costs those same seconds PLUS a 4–8 minute
-deploy (docker build, push, rollout, propagation) on every code change.
-
-**A scenario that reads the local stack's stdio (`DevStack.logs`) MUST guard on its presence, and
-MUST report that half as not observable on a deployed target.** The capture does not exist under
-`HARNESS_TARGET_URL`. An unguarded read asserts over an empty string and reds every deployed run.
-Bit 2026-09-05 on `first-app-built`'s marker-pairing limb, caught by a verifier panel rather than a run.
-
-**A limb that COUNTS log lines MUST first wait for a line its own request logs after the thing it
-counts.** The stack's stdio reaches the harness late and in bursts, so a count read too soon passes on
-a tree where the failure it looks for happened. Bit 2026-09-27: `display-names-reach-subscribers`
-passed one run in two under the mutation it was written to catch, until it waited for the accept
-request's own access-log line, which wrangler prints after the Worker's warnings. That line arriving
-also shows the capture works. A facade call prints no access-log line, so its markers carry an
-`operationId` the call mints, and the limb waits for that call's completion line instead
-(`waitForDebugLines`, `harness/lib/stdio.ts`).
+deploy (docker build, push, rollout, propagation) on every code change. The belief that a real build needs
+the deployed mount was the root-level VFS seeding bug observed locally, and it held for a day as a
+"structural" fact (bisected 2026-08-29, `experiments/fuse-bisect/RESULTS.md`).
 
 **A deployed pass MUST still run — at the wipe gate/milestones, and after changes to the container
 image, `@cloudflare/computer`, or the toolchain triple** (`bash apps/nebula/scripts/deploy-test.sh`,
@@ -164,31 +135,6 @@ one stable name (deliberate — fresh names would strand a DO-namespace set per 
 header carries the reasoning). Do not delete it as clutter. A deployed sweep spends most of its time
 waiting on Cloudflare, so `drive.ts all --concurrency=N` overlaps the waits: at 2 it took 79.5 min
 against 142 one at a time (2026-10-04). A local sweep refuses it.
-
-⚠️ The old belief this section replaces — "a real build needs the deployed mount; local serves
-empty" — was the root-level VFS seeding bug observed locally (bisected 2026-08-29,
-`experiments/fuse-bisect/RESULTS.md`), and held for a day as a "structural" fact nobody re-probed.
-It is the § *DO NOT ASSERT THAT YOU LACK THE ACCESS* failure shape wearing a measurement's costume:
-the probe was real, the conclusion was wrong because the fixture underneath it was.
-
-**Check what the harness CONSTRUCTS, not only what a scenario asserts.** A helper that builds
-the credential is a mock wearing a helper's name, and every scenario riding it asserts over a
-shape production cannot mint — a `connectDriver` mint path that set the issuing instance from the
-scope made narrowing the scope narrow the claim in lockstep, so no scenario on it could produce a
-denial by narrowing, the exact denial the passage/dominion work existed to create. **`connectDriver`
-now has exactly two ways in: a real login, or a `session` the server minted.** A scenario needing a
-wrong-shaped token for a negative control uses `mintDegradedToken` (rung 4), which is not a login
-and never reaches `connectDriver`.
-
-⚠️ **A multi-limb scenario reddens on its FIRST failing limb, which hides every later limb's
-vacuity — so mutation-check PER LIMB, not per scenario.** Bit 2026-08-16: `passage-not-dominion`
-went red under the mutation it was written against, which looked like proof the whole scenario was
-capable of failing. It was not — its third limb called a Galaxy method on a Star, so it was refused
-for "no such method" rather than for lack of passage, and would have stayed green if that limb's own
-property broke. The scenario's redness came entirely from limb 1. ⇒ **Each limb needs a mutation
-that isolates IT, and a positive control proving the thing it calls is reachable at all.** And where
-a refusal is the assertion, **match the MESSAGE**: a boundary refusal and a dominion refusal are
-indistinguishable as booleans, which is exactly the collapse such a scenario usually exists to catch.
 
 ⚠️ **Exploration, distinct from automated testing.** `.claude/rules/testing.md` owns the vitest suites
 (the capable-of-failing, committed regression net); this is the *running-system* check. Both MUST be

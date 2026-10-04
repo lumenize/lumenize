@@ -26,38 +26,45 @@ Use `/task-management` to choose docs-first vs task-file-first when starting a p
 ⚠️ **A VERBATIM QUOTATION is the same defect in a more convincing costume, and MUST NOT be used as evidence.** A quote earns its force from being *real*, so when the source is reworded it silently becomes an invented example and a reader who greps for it finds nothing. **Cite the SYMBOL and characterise it in a clause** (`see X's JSDoc, which states the invariant as prose`) — that survives any rewording. When you sweep standing guidance, grep for quoted fragments of files you touched, not only for claims about them: "statement" reads as *a claim*, so a criterion about falsified statements will not catch a stale quotation.
 
 ## Design-first: diagrams before prose when the design is tangled
-When a multi-node/mesh design gets tangled — or when task files have drifted into mutual contradiction — **you SHOULD lead with sequence diagrams (a participant/cast model + per-flow diagrams), not prose.** Prose hides contradictions; a diagram's participants + ordering + gating force precision and make the drift visible (Larry: "my mind works better with sequence diagrams than prose"). Nail the cast + naming + flows *with the user* first, **then** rewrite the prose/task files to conform. Proactively offer this when you sense the design space is tangled. Mermaid traps: no `;` in `Note` text (statement separator → parse error); no `#` in ANY diagram text — participant label, message, or note (`#` starts an HTML-entity escape like `#35;`, so `participant D as #dispatchEnvelope` renders a **blank actor box**; bitten 2026-07-02 drawing methods-as-actors with `#`-private names — write `dispatchEnvelope (private)`; do NOT "escape" via `#35;`, which trips the `;` check); a long `Note over` anchored on the **leftmost** actor(s) overflows off-canvas and clips — span more actors (`Note over A,C`); solid `->>` = call/request, dashed `-->>` = response/return/push. **After every Mermaid write/edit, you MUST run the mechanical render-safety check before considering it done** — knowing the traps is NOT enough on its own (this guidance was already in place when the `;`-in-`Note` bug got *reintroduced right after being fixed*; you can't visually render from here, so verify with the grep, then have the human eyeball the actual render). Extract the fenced `mermaid` blocks and grep for the killer glyphs `;` `#` — it should print nothing:
+**When a multi-node design gets tangled, or task files drift into contradicting each other, you SHOULD lead with sequence diagrams, not prose:** a participant/cast model, then one diagram per flow. Prose hides contradictions; a diagram's participants, ordering and gating force precision and make the drift visible (Larry: "my mind works better with sequence diagrams than prose"). Nail the cast, naming and flows *with the user* first, **then** rewrite the prose or task files to conform, and offer this unprompted when you sense the design is tangled.
+
+**After every Mermaid write or edit, you MUST run the render-safety check before considering it done.** You cannot render from here, so the grep is the check, and the human eyeballs the real render after it. It extracts the fenced `mermaid` blocks and prints nothing but `clean` when they are safe:
 
 ```sh
 awk '/[`][`][`]mermaid/{m=1;next} /[`][`][`]/{m=0} m' <file> | grep -E '[;#]' || echo "clean"
 ```
 
-(Applies equally to Mermaid in `website/**` docs — see `documentation.md`.)
+Knowing the traps is not enough on its own: the `;`-in-`Note` bug came back right after being fixed, with this guidance already in place. The traps, which apply equally to Mermaid in `website/**` (`documentation.md`):
 
-**Stray invisible characters (U+00A0 non-breaking space, U+0000 NUL):** two vectors, same class of bug — a byte you can't see in the rendered diff. (1) Some WYSIWYG markdown editors (e.g. Typora) silently insert **NBSP** on edit; they break exact-match string edits (the `Edit` tool can't match an "identical" line) and can break rendering. (2) An **agent `Edit`/`Write` can inject a NUL** into a string literal that reads as a space in the diff — it compiles and runs (NUL is a valid string char), so it passes type-check *and* tests; the `/build-task` verifier panel caught one as the separator inside a `` `${a} ${b}` `` dedup key.
+- **No `;` in `Note` text.** It is a statement separator, so the diagram fails to parse.
+- **No `#` in any diagram text** — participant label, message or note. `#` starts an HTML-entity escape, so `participant D as #dispatchEnvelope` renders a blank actor box (bitten 2026-07-02). Write `dispatchEnvelope (private)`; do not "escape" it as `#35;`, which trips the `;` check.
+- **A long `Note over` anchored on the leftmost actors overflows the canvas and clips.** Span more actors (`Note over A,C`).
+- **Solid `->>` is a call or request; dashed `-->>` is a response, return or push.**
 
-⚠️ **`grep` CANNOT detect the NUL — it reports nothing for a file it considers binary, which is exactly what a NUL makes it.** The old check here (`grep -nP '[\xc2\xa0\x00]' <file>`) therefore *passes silently on a corrupt file*; bitten 2026-07-21, where the only symptom was an unrelated `grep` mysteriously returning empty on a file `Read` showed fine. You MUST use a **byte count**, which cannot be fooled:
+## Bytes you cannot see, and search strings you did not see whole
+**Two kinds of edit pass type-check, tests and review while being wrong in a way the diff cannot show: an invisible byte, and a replacement built from a truncated line.**
 
-```sh
-tr -cd '\000' < <file> | wc -c          # NUL count — must be 0
-grep -c $'\xc2\xa0' <file>              # NBSP count — must be 0 (grep IS fine for NBSP)
-file <file>                             # a source file reporting "data" instead of "text" = NUL
-```
+- **A stray NBSP (U+00A0) or NUL (U+0000).** WYSIWYG editors such as Typora insert NBSP on edit, which breaks exact-match `Edit`s and can break rendering. An agent `Edit` or `Write` can inject a NUL into a string literal that reads as a space in the diff; it compiles and runs, and the `/build-task` verifier panel caught one as the separator inside a `` `${a} ${b}` `` dedup key.
+- **You MUST check with a byte count, because `grep` CANNOT see a NUL.** It reports nothing for a file it considers binary, which is what a NUL makes it, so the old `grep -nP '[\xc2\xa0\x00]'` passed silently on a corrupt file (2026-07-21).
 
-Strip with `perl -i -pe 's/\xc2\xa0/ /g; s/\x00/ /g' <file>`.
+  ```sh
+  tr -cd '\000' < <file> | wc -c          # NUL count — must be 0
+  grep -c $'\xc2\xa0' <file>              # NBSP count — must be 0 (grep IS fine for NBSP)
+  file <file>                             # a source file reporting "data" instead of "text" = NUL
+  ```
 
-⚠️ **Same family, different cause: an edit whose SEARCH STRING was copied from TRUNCATED tool output.** A `grep … | cut -c1-N`, a `sed -n 'Np'` on a long line, or any tool result the harness elided gives you a prefix of the real line. Replacing that prefix deletes the middle of whatever followed — and the result compiles, renders, and reviews clean. Bit twice on 2026-08-17: one replacement silently removed the target from a markdown link (`](../nebula-foo.md)` → `](nebula-foo.md)`), caught only by resolving every link against the filesystem afterwards. ⇒ **You MUST read the full line before building a replacement from it**, and after a scripted doc edit, verify the property the edit could have broken (resolve links, re-run the example checker, re-parse the block) rather than eyeballing the diff.
+  Strip with `perl -i -pe 's/\xc2\xa0/ /g; s/\x00/ /g' <file>`.
+- **The character MUST NOT be put *literally* into the check command; it MUST be written as an escape** (`b'\x00'`, `$'\xc2\xa0'`). A pasted NBSP degrades to a plain space in transit, and the check then reports every file dirty (2026-07-21, in the very command written to catch the first bug). For a whole-tree sweep, count bytes in a script:
 
-⚠️ **The invisible character MUST NOT be put *literally* into the check command.** It MUST be written as an explicit escape (`b'\x00'`, `$'\xc2\xa0'`), never by pasting the character itself — a pasted NBSP silently degrades to a plain space in transit, so the check then matches every file with any space and reports the whole tree dirty (also bitten 2026-07-21, in the very command written to catch the first bug). For a whole-tree sweep, count bytes in a script rather than grepping:
-
-```sh
-python3 -c "import pathlib,subprocess as s
-for f in [l.split(maxsplit=1)[1] for l in s.run(['git','status','--short'],capture_output=True,text=True).stdout.splitlines()]:
-    p=pathlib.Path(f)
-    if p.is_file():
-        b=p.read_bytes()
-        if b.count(b'\x00') or b.count(b'\xc2\xa0'): print('DIRTY', f)"
-```
+  ```sh
+  python3 -c "import pathlib,subprocess as s
+  for f in [l.split(maxsplit=1)[1] for l in s.run(['git','status','--short'],capture_output=True,text=True).stdout.splitlines()]:
+      p=pathlib.Path(f)
+      if p.is_file():
+          b=p.read_bytes()
+          if b.count(b'\x00') or b.count(b'\xc2\xa0'): print('DIRTY', f)"
+  ```
+- **You MUST read the full line before building a replacement from it.** A `grep … | cut -c1-N`, a `sed -n 'Np'` on a long line, or a tool result the harness elided gives you a prefix, and replacing a prefix deletes the middle of whatever followed. On 2026-08-17 one such edit silently dropped the target from a markdown link (`](../nebula-foo.md)` → `](nebula-foo.md)`). After a scripted doc edit, verify the property it could have broken — resolve links, re-run the example checker, re-parse the block — rather than eyeballing the diff.
 
 ## Evaluating alternatives: weigh the unlearning tax, not just build cost
 When you compare options and **recommend** one (interim-vs-target, build order, scope cut, design choice), the **unlearning tax** MUST be an explicit criterion alongside build cost — and usually the deciding one. The bottleneck is **reviewer time**, not lines of code. A known-temporary artifact ("interim") that lands in a surface re-read every session — code, docs, task files, agent memory — gets re-anchored on as "the model" and must be **unlearned, repeatedly, at the reviewer's expense.** (Empirically the single largest drain on pre-alpha review time has been unlearning the `acme.app.dev` interim — see the `interim-unlearning-tax` memory.)
@@ -96,7 +103,7 @@ You MUST score each candidate on this, and MUST say so when you recommend:
 - **ADR-019 (Withdrawn 2026-08-26)** — was: derived artifacts record what they read, every later reader re-checked live. Withdrawn for the consent-loop model — Nebula reads AS the asking human, a refusal becomes a brokered ask to a permission holder, and a shared answer is that holder's disclosure decision. Under the model every read rides the asking human's token and a posted answer is a disclosure decision — nothing is left to capture.
 - **ADR-020 (Proposed)** — **the look goes through the theme: color from semantic classes, ONE theme per surface declared ONCE, markup carries none of it.** Nebula's own UI is one surface; a generated app never wears Nebula's. ⚠️ A class the installed daisyUI no longer defines emits nothing and fails no tier — `npm run audit:classes` is the proof.
 - **ADR-021 (Proposed)** — **everything user-facing lives on `lumenize.dev`, one host label per scope tier, and the host IS the scope** (`manny--dev.crm.acme.lumenize.dev`). ⚠️ The certificate set never grows with tenants or personas, so never give a Star or persona a label of its own; environments are reserved Star slugs; no Public Suffix List entry is planned (ADR-022 needs `lumenize.dev` to stay one site).
-- **ADR-022 (Proposed)** — **every session lives on `platform.lumenize.dev`: a page on any `lumenize.dev` host gets its access token by a credentialed `fetch` there.** ⚠️ `aud` is the page's host, from `Origin`, and passage and dominion read it, taking only the admin bit from the membership; `authScope` is the broadest-dominion membership there, never narrowed to the host; every cookie is `__Host-`-named, none on a scope host; the client names neither scope; a persona host's token has no `act`, by design.
+- **ADR-022 (Proposed)** — **every session lives on `platform.lumenize.dev`: a page on any `lumenize.dev` host gets its access token by a credentialed `fetch` there.** ⚠️ `aud` is the scope its host spells, from `Origin`, and passage and dominion read it, taking only the admin bit from the membership; `authScope` is the broadest-dominion membership there, never narrowed to the host; every cookie is `__Host-`-named, none on a scope host; the client names neither scope; a persona host's token has no `act`, by design.
 - **ADR-023 (Proposed)** — **code crosses the mesh boundary only at one of two bridges**: **a facade** the infrastructure package owns (the Registry facade, so far), through which mesh code reaches raw infrastructure, and **`@rawRpc`**, through which our own code reaches a mesh node, for an operation no client may call. ⚠️ Never an operation only our own code may invoke on a node's `fetch`, never a general channel free of claims.
 
 ## Related skills
@@ -117,34 +124,8 @@ You MUST score each candidate on this, and MUST say so when you recommend:
 ## Dependencies
 - **You MUST ask before installing any npm package.** Copy-paste-with-attribution SHOULD be favored over a dependency for <1000 SLOC (add an entry to `ATTRIBUTIONS.md` *and* a comment above the copied code).
 - Licenses MUST be permissive (MIT, Apache-2.0, BSD-3-Clause, ISC). **Fastest startup** SHOULD be preferred over fastest steady-state, as SHOULD strongest Cloudflare Workers compatibility. Nothing MAY be installed globally.
-
-### `package-lock.json` — commit it, never review it
-**The lockfile MUST be committed, always.** It is what makes `npm ci` reproducible, and it is already tracked. The friction is not *whether* to commit — it is that adding one workspace or one dep can re-resolve a few hundred lines of unrelated tree (measured 2026-08-03: adding one experiment workspace + 2 deps produced **1054 insertions / 939 deletions**, including packages nobody asked for). That churn is normal npm behaviour, not a symptom.
-
-Standard practice, and what this repo does:
-- **Treat it as generated output.** `.gitattributes` marks it `linguist-generated=true -diff`, so GitHub collapses it in PRs and `git diff` stays readable locally. **You MUST review the `package.json` change, and MUST NOT read the lock diff.**
-- **`npm ci` MUST be used everywhere that isn't deliberately changing deps** — it installs *from* the lockfile and never writes it, so CI can't drift the tree.
-- **The lock MUST be committed in the same commit as the `package.json` that caused it.** A lockfile landing separately is unbisectable, and a `package.json` landing without it breaks the next `npm ci`.
-- **It MUST NOT be hand-edited.** Sole exception, and it is a real one: **removing a workspace package** — surgically edit via JSON parse → stringify rather than a from-scratch regen ([[delete-workspace-package-lockfile]]).
-- ⚠️ **Root `overrides` MUST NOT be reached for to tame it** — see § *Toolchain bumps*: a *changed* override is silently ignored by every npm command, so maintaining one is worse than the problem.
-
-⇒ When an agent's install churns the lock, the answer is **commit it with the change**, not to hand-prune it or leave it dirty for the human.
-
-### Startup cost is the criterion — and it's WORK-AT-IMPORT, not size
-**A DO is not a separate deployment** — its class is exported from the Worker bundle, so every DO instance pays for the *whole* Worker's import graph, including code it never touches. Cost is **per-Worker-project**: a dep added anywhere in `apps/nebula`'s graph taxes every DO in it, and moving the heavy import behind a subpath **does not help** while its importers still share the Worker. So "is this dep worth it?" is never a question about one package.
-
-⚠️ **Size is a screening proxy, not the cause.** V8 pre-parses lazily and defers full compilation until a function is *called*, so a bundle that merely **defines** a lot is nearly free. What costs is code that **runs at module scope** — and it is almost always the dependency's, not ours: eager init tables (tsc's keyword/scanner/diagnostic catalogues), `new Map`/regex/`Object.freeze` of "constants", class field initializers and decorators, shim installation, wrangler's `keepNames` `__name()` wrapper per function definition, and the GC to collect it all.
-
-Measured 2026-07-31 on the `do-cold-start-bundle-ab` arms: 2.7 MB → 9.2 MB costs **16×** startup for **3.4×** the bytes, because the two bundles do different *amounts of work*, not proportional amounts — the heavy arm spends most of a 295 ms window on GC and top-level init (tsc + typia), plus ~15 ms in 18,298 `__name()` wrappers. ⇒ **You MUST NOT gate on byte count** — it would fire on `isomorphic-git` (684 KiB, 25 ms, harmless) and stay silent on a small package that builds a big table at import.
-
-**Measure it — two commands, no deploy** (use `--workerBundle`; the direct `check startup` path misdetects a Worker as Pages and exits 1 on 4.113):
-```sh
-npx wrangler deploy --dry-run --outfile /tmp/w.bundle    # prints Total Upload
-npx wrangler check startup --workerBundle /tmp/w.bundle  # → .cpuprofile
-```
-Read the `.cpuprofile` in `speedscope.app` (Left Heavy) or Chrome DevTools. **Self-time plateaus along the top edge are the cost**; tall narrow towers are deep call chains that cost nothing. A profile with single-digit samples means there is nothing to optimize. Local CPU ≠ Cloudflare's, so it MAY be trusted for *relative* comparison and MUST NOT be cited as a predicted production number — for that, `wrangler deploy` reports a server-side `Worker Startup Time`. The summary line (bundle KiB, active/idle/GC split) needs wrangler ≥ 4.116, which is a toolchain-**triple** bump — see § *Toolchain bumps*, never `wrangler` alone.
-
-⚠️ **Startup cost ≠ wake latency.** End-to-end DO `create` and `wake` also depend on eviction depth, which is **not predictable from any of this**: an identical 9.2 MB bundle measured 120 ms and 1,256 ms on repeat runs. Method and full tier data in `experiments/do-cold-start-bundle-ab/RESULTS.md` (2026-07-23, n=10).
+- **Startup cost is the work a dependency does at import, so you MUST NOT gate on byte count.** A Durable Object's class ships in its Worker's bundle, so a dep anywhere in that Worker's import graph taxes every Durable Object in it. `packaging.md` § *Startup cost is work at import, not bytes* has the evidence and the two commands that measure it.
+- **`package-lock.json` MUST be committed in the same commit as the `package.json` that caused it, and MUST NOT be hand-edited.** You MUST review the `package.json` change, and MUST NOT read the lock diff; when an install churns the lock, commit the churn with the change. `packaging.md` § *`package-lock.json`* has the one hand-edit exception and `npm ci`.
 
 ## Sequential implementation — no parallel worktrees
 One long-running branch, implemented sequentially. Code-writing MUST NOT be parallelized across worktrees, parallel PRs, or concurrent write-agents — in this solo workflow, merge/conflict cost exceeds any speedup. Parallel agents are for reading and verifying (review panels, verifiers), and MUST NOT write code concurrently. Worktree isolation MAY be used only for self-contained experiments whose code never merges back (next section); if a worktree's code would need to come back, a worktree MUST NOT be used.
@@ -167,22 +148,7 @@ Empirical confirmation, from the largest single-batch build: one hot file was th
 Source runs directly — **a build step MUST NOT be added to or run in the dev loop.** vitest transpiles Workers TypeScript on the fly; Node tooling is JS + JSDoc (no compile). A build happens **only at publish**. Reaching for a build during development is a recurring failure mode: it spawns doom loops chasing build caches, `dist/`-vs-`src/` confusion, and stale output. If something isn't working, the fix is never "build it."
 
 ## Toolchain bumps — `@cloudflare/vitest-pool-workers` is the knob, never `wrangler` alone
-**`@cloudflare/vitest-pool-workers` depends on `wrangler` EXACTLY, 1:1, and drags `miniflare` with it** (0.22.0→4.124.0; derive any pair with `npm view @cloudflare/vitest-pool-workers@X dependencies.wrangler`). Every workspace here that declares `wrangler` also declares pool-workers — never one alone — and the repo is uniform **because pool-workers hard-pinned it**. ⚠️ **The declared `wrangler` version MUST be the EXACT pin (`"4.124.0"`), never a caret** — measured 2026-08-29: a `^` range re-resolves to the newest wrangler on the next full re-resolve, which is ahead of the pool-workers pin whenever wrangler has released since (25 workspaces landed on 4.127.1 against the nested 4.124.0 — the exact split this section exists to prevent), and npm today does NOT reliably dedupe a caret onto a nested exact pin. Re-pinning exact collapsed the tree to one copy on the spot.
-
-⇒ **Bumping `wrangler` on its own splits the tree**: our caret resolves to the newer version while pool-workers' nested dep stays pinned to the old one — two copies, the exact hazard the version-uniformity work exists to prevent (and the root-hoist footgun in `durable-objects.md` § DO class registration is what it feels like). The pair MUST be bumped together, and treated as a **toolchain-triple** change: miniflare is the workerd runtime under every pool-workers test, so behavior can shift — you MUST budget a full-suite run and MUST treat an unexplained new failure as signal, not flake.
-
-⚠️ **Root `package.json` `overrides` MUST NOT be reached for to force uniformity.** It *does* pin one version everywhere, but a **changed** override is silently ignored by `npm install`, `npm update`, `npm dedupe`, `--force`, and `--package-lock-only` alike — only deleting `package-lock.json` re-resolves it, so every bump becomes a full lockfile regeneration. Set-once is fine; maintaining it is worse than the problem. (Both behaviors verified in a scratch monorepo, 2026-07-27.)
-
-**You MUST enumerate over the `workspaces` list, never a `packages/*` glob** — `doc-test/*/*` is a workspaces entry and is easy to miss (`npm ls @cloudflare/vitest-pool-workers --all`). An experiment that declares `wrangler` *without* pool-workers has nothing pinning it forward, which is how stale experiments hoist an ancient wrangler to the repo root.
-
-### The Node major and the CF triple are INDEPENDENT axes — bump them separately
-**Baseline: Node 24 LTS ("Krypton").** Six surfaces carry it and MUST move in one sweep, or the lanes silently disagree: root `engines` · `.nvmrc` · `@types/node` (root + `tooling/check-examples` + `tooling/doc-testing`) · every `node-version:` in `.github/workflows/` · `apps/nebula/container/Dockerfile` (`node:24-slim`) · `experiments/computer-vfs-build/Dockerfile` (nodesource `node_24.x`).
-
-⚠️ **A Node bump does NOT imply a toolchain-triple bump, and conflating them destroys your ability to read a failure.** wrangler/miniflare declare `node >=22.0.0`, so a Node major inside that floor costs the triple nothing — measured 2026-08-03: the entire suite went green on Node 24 with pool-workers/wrangler/miniflare **completely unchanged**, before a single dependency moved. **The new Node MUST be established on the pinned triple first, and the triple bumped afterward in its own commit.**
-
-⚠️ **`@types/node` MUST track the RUNTIME major, never "latest".** Types ahead of the runtime typecheck code against APIs that don't exist at runtime — a green `type-check` that ships a `TypeError`. The root pin had drifted to `^25` while the runtime was 22; Node 24 + `@types/node@^24` closes it.
-
-⚠️ **npm 11 (bundled with Node 24) WARNS about lifecycle scripts but still RUNS them.** `npm warn allow-scripts … not yet covered by allowScripts` fires for `workerd`/`esbuild` on every install and reads exactly like a block — it is not (verified 2026-08-03). You MUST NOT "fix" this by adding an `allowScripts` allowlist or re-running installs; the warning MUST be treated as noise **until npm actually enforces it**, at which point `npm ci` in CI is what breaks (`calibration.md` §4 — re-derive then, don't pre-build the guard now).
+**`@cloudflare/vitest-pool-workers` pins `wrangler` exactly and drags `miniflare` with it, so the pair MUST be bumped together, never `wrangler` alone.** Bumping `wrangler` by itself leaves two copies of the runtime in the tree. Treat it as a **toolchain-triple** change: miniflare is the workerd runtime under every pool-workers test, so you MUST budget a full-suite run and MUST treat an unexplained new failure as signal, not flake. **The Node major is a separate axis: the new Node MUST be established on the pinned triple first, and the triple bumped afterward in its own commit.** `packaging.md` § *Toolchain bumps* has the rest: the exact pin, why root `overrides` are refused, enumerating workspaces, and the six places the Node major lives.
 
 ## Releases
 All packages publish together with synchronized versions (Lerna); publish scripts repoint `package.json` from `src/` to `dist/`, then revert (the only time a build runs). Breaking changes SHOULD be favored over technical debt — they bump major semver and MUST have the next release flagged. Use `/release-workflow`.

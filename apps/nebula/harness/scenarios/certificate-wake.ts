@@ -26,7 +26,7 @@
  *     Galaxy orders, since it then finds no token to order with.*
  *
  * Every limb reads the stack's stdio, so on a deployed target each says it is not observable there
- * (`live.md` § *Two venues, one registry*).
+ * (`live-scenarios.md` § *Reading the local stack's logs*).
  *
  * `needsContainer = false` — auth, the Registry, the Galaxy's entry and the teardown hook only.
  */
