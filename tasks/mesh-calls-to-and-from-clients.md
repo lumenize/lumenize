@@ -1,9 +1,9 @@
 # Calls to and from a client
 
 **Status:** Pass 1, with every decision Larry's, 2026-09-30. Stage 1 `/review-task` ran 2026-10-04,
-and this file was reshaped from it the same day. The items it raised that need Larry are being
-settled one at a time. Then the vision doc, the ADRs and `security.md` change docs-first (→ D18),
-Stage 1 runs again, and Pass 2's phases follow.
+and this file was reshaped from it the same day. Every item it raised is settled, and the vision
+doc, the ADRs and `security.md` changed docs-first the same day (→ D18). Stage 1 runs again next,
+then Pass 2's phases.
 
 ## Goals
 
