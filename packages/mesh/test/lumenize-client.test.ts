@@ -231,25 +231,8 @@ describe('LumenizeClient', () => {
   });
 
   describe('Configuration', () => {
-    it('allows omitting instanceName when refresh is a URL string', () => {
-      // Should not throw — instanceName will be auto-generated on connect
-      const client = new TestClient({
-        baseUrl: 'wss://example.com',
-        WebSocket: createMockWebSocketClass(),
-        refresh: '/auth/refresh-token',
-      });
-      client.disconnect();
-    });
-
-    it('allows omitting instanceName when refresh is a function', () => {
-      // Should not throw — function returns { access_token, sub }
-      const client = new TestClient({
-        baseUrl: 'wss://example.com',
-        WebSocket: createMockWebSocketClass(),
-        refresh: async () => ({ access_token: 'token', sub: 'user-123' }),
-      });
-      client.disconnect();
-    });
+    // Omitting instanceName is covered by 'refreshes token via function / URL endpoint before
+    // connecting', which also assert the name generated from the refreshed token's `sub`.
 
     it('throws when accessing lmz.instanceName before connected (auto-generate mode)', () => {
       const client = new TestClient({
@@ -1912,21 +1895,22 @@ describe('Token refresh edge cases', () => {
     createdWebSockets = [];
   });
 
-  it('throws when no refresh method configured and token needed', async () => {
-    // Create client without accessToken or refresh — connect will fail
+  it('falls back to the default refresh endpoint when none is configured', async () => {
+    // No accessToken and no `refresh`: the constructor defaults `refresh` to the endpoint below,
+    // so connect asks it for a token before opening any socket.
+    const fetchFn = vi.fn(async () => new Response('Server error', { status: 500 }));
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
       WebSocket: createMockWebSocketClass(),
+      fetch: fetchFn,
     });
 
-    // connect() is called in constructor, but with instanceName + no accessToken,
-    // it calls #refreshToken() which should throw "No refresh method configured"
-    // Wait for async connect to settle
-    await new Promise(r => setTimeout(r, 50));
-
-    // Client should be in reconnecting state (failed connect triggers reconnect)
-    // or disconnected. The error is swallowed internally.
+    await vi.waitFor(() => {
+      expect(fetchFn).toHaveBeenCalled();
+    });
+    expect(fetchFn).toHaveBeenCalledWith('/auth/refresh-token', expect.objectContaining({ method: 'POST' }));
+    expect(createdWebSockets.length).toBe(0);
     client.disconnect();
   });
 
@@ -1988,16 +1972,20 @@ describe('Token refresh edge cases', () => {
     client.disconnect();
   });
 
-  it('throws when refresh returns no access_token', async () => {
+  it('retries without opening a socket when refresh returns no access_token', async () => {
+    const refresh = vi.fn(async () => ({ access_token: '', sub: 'user' } as any));
     const client = new TestClient({
       baseUrl: 'wss://example.com',
       WebSocket: createMockWebSocketClass(),
-      refresh: async () => ({ access_token: '', sub: 'user' } as any),
+      refresh,
     });
 
-    // Wait for async connect
-    await new Promise(r => setTimeout(r, 50));
-
+    // An empty token is a transient failure, like a 5xx: retry with backoff, never connect.
+    await vi.waitFor(() => {
+      expect(client.connectionState).toBe('reconnecting');
+    });
+    expect(refresh).toHaveBeenCalled();
+    expect(createdWebSockets.length).toBe(0);
     client.disconnect();
   });
 });

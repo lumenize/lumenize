@@ -348,14 +348,13 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Success criteria**: Remove `dangerouslyIgnoreUnhandledErrors: true` from every vitest config, full suite runs green with exit 0.
   - **Overlap**: Very related to the RPC-await audit above — both surface through "Unhandled Errors" counts. Probably worth doing together.
 
-- [ ] Audit RPC call sites for proper `await` and turn off SonarQube `no-return-await` rule
-  - **Why**: Cloudflare DO best practice says always `await` Workers RPC calls — unawaited calls become fire-and-forget, which (a) may rejection-leak (surfaces as vitest 4 "Unhandled Errors"), and (b) can end the request context before the RPC completes. SonarQube's `no-return-await` rule pushes you to remove `await` from `return await rpc()`, which changes try/catch semantics in a DO-hostile way: `return await foo()` catches errors *locally* in the current try/catch; `return foo()` passes them to the caller. The `no-return-await` rule was retracted by ESLint/typescript-eslint in 2023–2024 for this exact reason — SonarQube hasn't caught up.
+- [ ] Audit RPC call sites for proper `await`
+  - **Why**: Cloudflare DO best practice says always `await` Workers RPC calls — unawaited calls become fire-and-forget, which (a) may rejection-leak (surfaces as vitest 4 "Unhandled Errors"), and (b) can end the request context before the RPC completes. Inside a try/catch, keep the `await` in `return await rpc()`: `return await foo()` catches errors *locally* in the current try/catch; `return foo()` passes them to the caller. ESLint/typescript-eslint retracted their `no-return-await` rule in 2023–2024 for this exact reason, so a linter suggesting the removal is wrong here.
   - **Audit approach**:
     1. Grep for RPC call patterns: `grep -rn '^\s*\(env\|this\.\w\+\|stub\)\.\w\+(' src/ packages/*/src/`
     2. For each hit, classify: awaited / returned / fire-and-forget
     3. Fire-and-forget cases must be intentional (`ctx.waitUntil` / `lmz.call` with explicit callback per the fire-and-forget-error-delivery pattern in CLAUDE.md) — anything else gets an `await` or `return`
-    4. Inside try/catch that wants local error handling, prefer `return await` over `return` (SonarQube will complain — that's the point)
-  - **Config change**: Disable SonarQube rule `typescript:S7785` (or whichever `no-return-await` equivalent applies to this project) in the project's SonarQube config
+    4. Inside try/catch that wants local error handling, prefer `return await` over `return`
   - **Related**: the "Unhandled Errors" count in vitest 4 output is a proxy metric — if the audit drives it down, we can eventually remove the `dangerouslyIgnoreUnhandledErrors: true` flag from vitest configs. (Discovered during vitest 3→4 migration, 2026-04-20)
 
 - [ ] Add vitest-workers-pool tests for `@lumenize/debug`

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '@lumenize/crypto';
 import type { AuthJwtPayload } from '../src/types';
 import type { JwtPayload } from '@lumenize/crypto';
@@ -1796,6 +1797,18 @@ describe('@lumenize/auth - Approve endpoint', () => {
 // ============================================
 
 describe('@lumenize/auth - Admin notification on self-signup', () => {
+  // AUTH_EMAIL_SENDER is not bound in this project, so `#sendEmail` logs each message it would have
+  // sent instead of delivering it. The test and the DO share an isolate, so the debug sink sees
+  // that entry, and `notifications` is every admin notification the DO tried to send.
+  let notifications: { type: string; to: string }[];
+  beforeEach(() => {
+    notifications = [];
+    setDebugSink((entry) => {
+      if (entry.data?.type === 'admin-notification') notifications.push(entry.data);
+    });
+  });
+  afterEach(() => clearDebugSink());
+
   it('sends admin notification when non-approved user logs in', async () => {
     const stub = env.LUMENIZE_AUTH.getByName('notify-1');
 
@@ -1814,22 +1827,25 @@ describe('@lumenize/auth - Admin notification on self-signup', () => {
     // Click magic link — this triggers the notification
     await stub.fetch(new Request(magic_link, { redirect: 'manual' }));
 
-    // AUTH_EMAIL_SENDER is not configured in tests, so #sendEmail() logs at
-    // debug level and skips delivery. We verify the code path executes without
-    // error by checking login succeeds.
+    expect(notifications).toEqual([
+      expect.objectContaining({ type: 'admin-notification', to: 'bootstrap-admin@example.com' }),
+    ]);
   });
 
   it('does NOT send notification when bootstrap admin logs in', async () => {
     const stub = env.LUMENIZE_AUTH.getByName('notify-2');
     // Bootstrap admin login — isAdmin is true, so no notification should be sent
     await loginOnStub(stub, 'bootstrap-admin@example.com');
-    // No error = no notification attempted (bootstrap is admin, so !adminApproved && !isAdmin is false)
+    expect(notifications).toEqual([]);
   });
 
   it('does NOT send notification when already-approved user logs in', async () => {
     const stub = env.LUMENIZE_AUTH.getByName('notify-3');
     const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
     const user = await loginOnStub(stub, 'preapproved@example.com');
+    // Before approval the same user's first login DOES notify, which shows the capture works.
+    expect(notifications).toHaveLength(1);
+    notifications.length = 0;
 
     // Approve the user
     await stub.fetch(new Request(`http://localhost/auth/approve/${user.sub}`, {
@@ -1844,8 +1860,8 @@ describe('@lumenize/auth - Admin notification on self-signup', () => {
     }));
     const { magic_link } = await mlRes.json() as any;
 
-    // This should complete without sending admin notification
     await stub.fetch(new Request(magic_link, { redirect: 'manual' }));
+    expect(notifications).toEqual([]);
   });
 });
 

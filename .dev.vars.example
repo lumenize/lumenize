@@ -142,7 +142,3 @@ CLOUDFLARE_ACCOUNT_ID=your-account-id
 WORKERS_AI_TOKEN=your-workers-ai-rest-token
 # ANTHROPIC_API_KEY: declared secret binding (Anthropic model-provider path).
 ANTHROPIC_API_KEY=sk-ant-...
-
-# SonarCloud analysis token — CI-only (the reusable-on-success workflow's Sonar step reads it;
-# provisioning fails without it). Not used by local dev; include so a fork/self-host has the slot.
-SONAR_TOKEN=your-sonarcloud-token

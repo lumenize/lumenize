@@ -36,6 +36,7 @@
     "audit:ui-copy": "node scripts/check-ui-copy.mjs",
     "audit:email-isolation": "node scripts/check-email-isolation.mjs",
     "audit:do-http": "node scripts/audit-do-http.mjs",
+    "audit:test-assertions": "node scripts/audit-test-assertions.mjs",
     "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",

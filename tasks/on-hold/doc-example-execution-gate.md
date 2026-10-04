@@ -22,7 +22,7 @@ none.**
 - **233 `@check-example` annotations** across **62 unique targets** — 209 pointing into `packages/`,
   24 into `apps/nebula` (backing `website/docs/nebula/`).
 - **CI runs coverage** for all packages + apps (`ci.yml` § `run-packages-tests-with-coverage` →
-  `test-code.sh --coverage`), uploading `packages/*/coverage/lcov.info` to SonarCloud.
+  `test-code.sh --coverage`).
 - **Coverage over decorated for-docs fixtures now works** (`9fa9e54`) — `unplugin-swc`'s default
   filter `/\.m?[jt]sx?$/` is end-anchored and skipped the query-suffixed ids coverage's uncovered-file
   pass requests, so the `@mesh()` decorator reached istanbul's Babel instrumenter and killed the run.
