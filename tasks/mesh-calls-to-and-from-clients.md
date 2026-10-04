@@ -45,7 +45,7 @@ on one model: a Client and its Gateway together are the equivalent of a server-s
 - **Builds after [archive/nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md), built 2026-10-04.** Its 30-character slug cap is what lets D10 tell a scope's name from an id. Its fresh-chain default for `lmz.broadcast` keeps a writer's tab address off every update, the bonus D13 names. It also built D9 and D12.
 - **Builds after the toolchain row of [nebula-pre-alpha.md](nebula-pre-alpha.md)**, the move to `@cloudflare/vitest-plugin` and compatibility date 2026-10-01. D11 rewrites the transport between a Client and its Gateway, and a test runtime changing underneath it would give every new failure two suspects.
 - **Pass 2 waits on [nebula-pre-alpha.md](nebula-pre-alpha.md) § *A Client connects to its scope's node*, and this file says how each decision fares under it.** If a Client's socket moves from a Gateway of its own to its scope's node, the server-side half of D20's pair moves rather than changes. Pass 2 is written after it settles, so every phase knows where that half lives.
-  - **Unaffected:** D6, D8, D10, D14, D15, D16, D18 and D19, and D9 and D12, which are built.
+  - **Unaffected:** D6, D8, D10, D14, D15, D16, D18, D19 and D21, and D9 and D12, which are built.
   - **Moves with the server-side half:** D4, D5 and D11. D11's rule carries over; how the continuation is held while the Client answers is chosen with the open decision (→ D11).
   - **Tied to Gateway names, so parked until it settles:** D7 and D17, and the Gateway-specific wording in D3, D13 and D20.
 - **Lands before ⑥ the wipe.** D11 changes the wire between a Client and its Gateway, and every generated app bundles the Client, so apps built before it must be rebuilt, which the wipe does anyway.
@@ -397,8 +397,9 @@ fire-back, then the messages on the wire.
   `ClientResultEnvelope` and the `call_response` message go, and `fireResponse` loses its one
   branch that depends on who called.
 - **The continuation leaves the tab's memory.** Its handler runs under the fire-back's `callContext`, as a
-  node's does, so the Client's saved call-site context goes too. A result that lands after a reload
-  runs on the reloaded Client, the way a Durable Object's handler runs on a cold instance.
+  node's does, so the Client's saved call-site context goes too. A result that lands after the page
+  reloads is dropped: the fire-back echoes the call's `callId`, and the Client keeps only the ids it
+  minted during this page load (→ D21).
 - **`callAsync` keeps only its Promise in the tab** (§ *On the wire*, → D16).
 
 ### A node calls a Client
@@ -473,19 +474,19 @@ The messages between a Client and its Gateway, after D11 and D15:
 
 ```ts
 // Client → Gateway: a call. expectsResult goes, and every call names a handler (D15).
-// callId stays: the onSent option hands it to instrumentation, and callAsync keys on it
+// callId stays: onSent hands it to instrumentation, and the fire-back echoes it (D21)
 // It carries no callContext: the Gateway builds all of it, with state empty (D19)
 { type: 'call', callId: '5e0b…', binding: 'STAR', instance: 'acme.crm.bigco',
   chain, handler, onErrorOnly /* optional */ }
 
 // Gateway → node: the envelope's response, which the Gateway writes, never the Client
-response: { kind: 'mesh', returnAddr: <this Client's identity>, handler, onErrorOnly }
+response: { kind: 'mesh', returnAddr: <this Client's identity>, handler, onErrorOnly, callId }
 
 // Gateway → Client: a filled continuation, from a node's fire-back or a refusal at
 // the early ack. The Client runs it as a node runs __handleResponse: onBeforeCall
 // on, the @mesh() check off, and callee set from the chain's last hop (D6).
 // No state reaches a Client (D19)
-{ type: 'response', chain, callContext: { callChain, originAuth } }
+{ type: 'response', callId, chain, callContext: { callChain, originAuth } }
 
 // Gateway → Client and back: unchanged but for state. The Gateway keeps the node's
 // continuation under this callId
@@ -495,10 +496,10 @@ response: { kind: 'mesh', returnAddr: <this Client's identity>, handler, onError
 
 - **What goes:** `call_response`, `ClientResultEnvelope`, `kind: 'client'`, the `call` message's
   `expectsResult` and `callContext`, and `state` on every message down to a Client.
-- **`callAsync` keys its Promise by the call's `callId`.** It keeps the Promise under that id, and
-  sends as its continuation a call to a `LumenizeClient` method with no `@mesh()`, taking the id and the
-  result. A `response` that finds no Promise under its id, after a reload or a timeout, is
-  dropped.
+- **The Client drops a `response` whose `callId` it is not waiting on**, which covers one from a
+  previous page load (→ D21). `callAsync` keys its Promise by the same id: it sends as its
+  continuation a call to a `LumenizeClient` method with no `@mesh()`, taking the id and the result,
+  and a `response` arriving after its timeout finds nothing to settle.
 - **The protocol name becomes `lmz.2`.** A Client bundled before the change offers only `lmz`, so
   its upgrade fails and it retries with backoff until its page reloads. The wipe rebuilds every
   app, so no stale bundle survives this change.
@@ -571,3 +572,4 @@ Every row is Larry's call. The D-numbers are append-only, and the prose above po
 | D18 | **The vision doc, the ADRs and `.claude/rules/security.md` change docs-first, each with a *Today's code differs* block the build removes; `mesh.md`, the website and JSDoc change in the phase whose code makes them true** (Larry, 2026-10-04). § *What changes in standing guidance* lists both. | **Everything in the build's first phase** — until then every review pass reads accepted docs that contradict this file, and the security lens takes `auth.md` as the model wherever the two disagree. **Everything with the code** — the same, for the whole build. **`mesh.md` docs-first too** — D3's reason: every session reads it, and it would describe a Gateway that does not exist yet. |
 | D19 | **A Client writes nothing into a call's context and receives no `state`** (Larry, 2026-10-04). The `call` message loses its `callContext`, and the Gateway builds all of it with `state` empty. The Client's call and broadcast options lose `newChain` and `state`, so a caller passing either fails to compile. A Client's handler sees `callChain`, `originAuth` and the `callee` it stamps itself (D6). Server-side `state` between nodes is unchanged; whether mesh keeps it is a separate question. | **Keeping `newChain` on the Client and documenting it** — on a Client it can only drop inherited `state`, since the Gateway starts every chain at the Client and no Client may shed its token; nothing in Nebula passes it. **Dropping only `newChain`** — leaves client-written `state` landing in a node's `callContext`, where a node caching an authorization decision there could meet a value the Client chose. **Removing `state` from mesh altogether** — it is published MIT surface the mesh docs teach, and Nebula's not using it does not settle whether others need it. |
 | D20 | **A Client and its Gateway together are the equivalent of a server-side node, with its responsibilities split between two execution environments** (Larry, 2026-10-04). The Gateway decides passage and does the transport work a node's framework does inside a node; the Client does everything after passage, dominion's override included. Anything that must not depend on the browser's honesty lives in the Gateway half, which is why the Gateway builds a call's context (D19) and keeps a node's continuation (D11). `docs/vision/auth.md` § *Lumenize Nebula mesh* says so, and `mesh.md`'s Gateway section will (D3). | **Making the Gateway a node** — a hop between the Client and every node, which breaks every receiver reading `callChain[0]` as the verified Client and `callChain.at(-1)` as where to send updates. **Calling the Gateway "mesh mechanics, not a mesh node"** — true of what the mesh sees, but it read as an exemption from the transport rules, which is how the late-ack hop survived. |
+| D21 | **A fire-back echoes the call's `callId`, and a Client drops one it did not mint during this page load** (Larry, 2026-10-04). The Gateway copies the `call` message's `callId` into the envelope's `response` descriptor, and `fireResponse` echoes it on the fire-back, a generic field a node caller can use or ignore. The Client keeps the ids it has outstanding, ids rather than continuations, so a reload empties the set and every late answer meant for the old page is dropped, as `callAsync` already drops one it has no Promise for. | **Running it on the reloaded page** — a Durable Object's handler runs on a cold instance because its state is in storage, and a reloaded page has none of the old page's state and may run a newer bundle; an old page's late refusal could land on the new page's pending subscribe for the same resource. **Requiring every handler to be safe on a later page load** — a rule each author must remember, for a case rare enough to be forgotten. **A page-load id each handler checks by hand** — the same protection as this row, rebuilt in every handler. |
