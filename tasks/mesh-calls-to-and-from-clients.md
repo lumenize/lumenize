@@ -2,8 +2,8 @@
 
 **Status:** Pass 1, with every decision Larry's, 2026-09-30. Stage 1 `/review-task` ran 2026-10-04,
 and this file was reshaped from it the same day. Every item it raised is settled, and the vision
-doc, the ADRs and `security.md` changed docs-first the same day (→ D18). Stage 1 runs again next,
-then Pass 2's phases.
+doc, the ADRs and `security.md` changed docs-first the same day (→ D18). Stage 1 runs again next.
+Pass 2's phases follow once the master plan's Open decision 4 is settled (§ *Relationships*).
 
 ## Goals
 
@@ -431,7 +431,7 @@ own fire-back.
    `onQuerySubscriberListBroadcastResult` and `onTreeBroadcastResult`, and the Profile's
    `onProfileBroadcastResult`. D6 is the Client's half, and the change retires `broadcast.ts`'s
    warning that the two paths differ.
-2. **A chain a node started has an active scope, so its fire-back is admitted** (→ D10). Every
+2. **A chain a node started has an `activeScope`, so its fire-back is admitted** (→ D10). Every
    subscription update now starts a fresh chain, so its fire-back carries no claims, and
    `NebulaDO`'s `onBeforeCall` refuses a call with none. Passage reads one derived value, the
    call's `activeScope`, *where it is acting right now*:
@@ -500,11 +500,11 @@ true, because an agent or a user acts on them as written (→ D18, D3).
 
 | File | Sections | For | Lands |
 |---|---|---|---|
-| `docs/vision/auth.md` | § *Lumenize Nebula mesh*; § *The layers a call passes*, M4's result-leg bullet; § *The three roles a scope plays*; § *`activeScope`*; § *The access token*; § *How the claims travel*; § *Coarse-grained access control* | D3, D10, D11, D13 | docs-first |
-| `docs/adr/015-passage-and-dominion.md` | § *Context*; the note under § *Predicate pair*'s formula | D10 | docs-first |
-| `docs/adr/003-continuation-messaging.md` | § *Decision*'s list of delivery forms; § *Consequences*, Negative | D11, D15 | docs-first |
-| `docs/adr/022-every-session-lives-on-the-platform-host.md` | § *What an access token carries*, which says every call carries a token; every definition of `aud` | D10 | docs-first |
-| `.claude/rules/security.md` | The bullet requiring every protected path to verify the JWT, which also defines `aud` | D10 | docs-first |
+| `docs/vision/auth.md` | § *Lumenize Nebula mesh*; § *The layers a call passes*, M4's result-leg bullet; § *The three roles a scope plays*; § *`activeScope`*; § *The access token*; § *How the claims travel*; § *Coarse-grained access control* | D3, D10, D11, D13 | docs-first, landed 2026-10-04 |
+| `docs/adr/015-passage-and-dominion.md` | § *Context*; the note under § *Predicate pair*'s formula | D10 | docs-first, landed 2026-10-04 |
+| `docs/adr/003-continuation-messaging.md` | § *Decision*'s list of delivery forms; § *Consequences*, Negative | D11, D15 | docs-first, landed 2026-10-04 |
+| `docs/adr/022-every-session-lives-on-the-platform-host.md` | § *What an access token carries*, which says every call carries a token; every definition of `aud` | D10 | docs-first, landed 2026-10-04 |
+| `.claude/rules/security.md` | The bullet requiring every protected path to verify the JWT, which also defines `aud` | D10 | docs-first, landed 2026-10-04 |
 | `.claude/rules/mesh.md` | § *`call()` + a continuation is the ONLY cross-node call surface*; § *Passing data to the callee*; § *Object-capability access: gate once, then chain*; § *`lmz.call` 4-arg — the result-handler mechanics*; § *`LumenizeClientGateway` is NOT a mesh participant* | D3, D11, D13, D15, D19 | with the code |
 | `website/docs/mesh/` | `calls.mdx`, `lumenize-client.mdx`, `protocol.mdx`, `mesh-api.mdx`, `broadcast.mdx`, `managing-context.mdx` | D11, D13, D15, D19 | with the code |
 | JSDoc | `requirePassage`; the Client's and `broadcast.ts`'s broadcast warnings; the Gateway's class comment | D10, D11 | with the code |
