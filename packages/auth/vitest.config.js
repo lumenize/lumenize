@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { generateKeyPairSync } from "node:crypto";
 
 // Ephemeral Ed25519 JWT keypairs, generated fresh each run and injected as

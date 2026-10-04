@@ -16,7 +16,7 @@ For basic usage of `@lumenize/testing`, see the [usage documentation](/docs/test
 
 ```bash @skip-check-approved('conceptual')
 npm install --save-dev vitest@3.2
-npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @cloudflare/vitest-plugin
 npm install --save-dev @lumenize/testing
 ```
 
@@ -26,7 +26,7 @@ npm install --save-dev @lumenize/testing
 
 ```javascript @skip-check-approved('conceptual')
 import { defineConfig } from "vitest/config";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 export default defineConfig({
   plugins: [

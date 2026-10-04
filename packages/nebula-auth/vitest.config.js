@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import swc from 'unplugin-swc';
 
 // The test worker exports the `Profile` DO, whose `@mesh()` decorators esbuild leaves verbatim, so

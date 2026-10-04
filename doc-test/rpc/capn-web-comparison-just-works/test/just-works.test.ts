@@ -312,7 +312,7 @@ it('demonstrates function callback support', async () => {
 ```bash npm2yarn
 npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
-npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @cloudflare/vitest-plugin
 npm install --save-dev @lumenize/rpc
 npm install --save-dev @lumenize/routing
 npm install --save-dev capnweb

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { playwright } from '@vitest/browser-playwright';
 import swc from 'unplugin-swc';
 import { installLocalhostLookup } from './harness/lib/localhost-lookup';

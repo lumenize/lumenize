@@ -244,7 +244,7 @@ First let's install some tools.
 ```bash npm2yarn
 npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
-npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @cloudflare/vitest-plugin
 npm install --save-dev @lumenize/testing
 npm install --save-dev @lumenize/routing
 ```
@@ -462,7 +462,7 @@ Standard vitest configuration for Cloudflare Workers testing with:
 - Coverage configured with Istanbul provider
 
 ```javascript vitest.config.js
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 import { defineConfig } from "vitest/config";
 

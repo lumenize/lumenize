@@ -130,7 +130,7 @@ First let's install some tools
 ```bash npm2yarn
 npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
-npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @cloudflare/vitest-plugin
 npm install --save-dev @lumenize/testing
 npm install --save-dev @lumenize/routing
 ```
@@ -343,7 +343,7 @@ looks something like this:
 
 ```javascript vitest.config.js
 import { defineConfig } from "vitest/config";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 export default defineConfig({
   plugins: [

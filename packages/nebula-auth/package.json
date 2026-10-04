@@ -15,7 +15,7 @@
       "import": "./src/access-claims.ts",
       "types": "./src/access-claims.ts"
     },
-  "./testing": {
+    "./testing": {
       "import": "./src/testing.ts",
       "types": "./src/testing.ts"
     },
@@ -50,13 +50,13 @@
   "author": "Lumenize",
   "license": "UNLICENSED",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/vitest-plugin": "1.3.6",
     "@lumenize/testing": "*",
     "@vitest/coverage-istanbul": "4.1.10",
     "typescript": "^5.9.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.10",
-    "wrangler": "4.124.0"
+    "wrangler": "4.147.0"
   },
   "dependencies": {
     "@lumenize/crypto": "*",
@@ -68,7 +68,7 @@
     "ulid-workers": "^2.1.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/vitest-plugin": "^1.3.6",
     "vitest": "4.1.10"
   }
 }
