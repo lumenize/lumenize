@@ -55,6 +55,9 @@ LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
 NEBULA_AUTH_BOOTSTRAP_EMAIL=you@example.com,teammate@example.com
 # Relative (/app) or absolute (https://example.com/app)
 LUMENIZE_AUTH_REDIRECT=/app
+# Access-token lifetime in seconds, honoured only when SHORTER than nebula-auth's 900. Leave it
+# empty: the /live scenario that waits out a real token lapse sets it for its own boot.
+NEBULA_AUTH_ACCESS_TOKEN_TTL=
 # LUMENIZE_AUTH_ISSUER=https://lumenize.local
 # LUMENIZE_AUTH_AUDIENCE=https://lumenize.local
 # LUMENIZE_AUTH_ACCESS_TOKEN_TTL=900

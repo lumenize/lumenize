@@ -3,10 +3,11 @@
  *
  * A browser's session is its cookies on the platform host; its access token is a fifteen-minute
  * credential the page renews from them. This scenario holds a real login's cookies in the Browser
- * shim, connects a client on a galaxy's own host, makes a call, then waits out
- * `ACCESS_TOKEN_TTL` with the socket open, and makes another. Nothing short of a real lapse proves
- * a session survives one (`calibration.md` §13): a token born expired would prove only that the
- * renewal path runs.
+ * shim, connects a client on a galaxy's own host, makes a call, then waits out that token's
+ * lifetime with the socket open, and makes another. Nothing short of a real lapse proves a session
+ * survives one (`calibration.md` §13): a token born expired would prove only that the renewal path
+ * runs. A local boot shortens the lifetime to two minutes through `NEBULA_AUTH_ACCESS_TOKEN_TTL`,
+ * which may only shorten it; the lapse is just as real, and the mechanism the same as at fifteen.
  *
  * One limb, isolated (`live.md`):
  *
@@ -15,13 +16,14 @@
  *     host, the shim's cookies riding, no body — and the call succeeded. *Reds if the client reuses
  *     the lapsed token, which the Gateway refuses.*
  *
- * ⚠️ **Slow by design: about sixteen minutes.** The wait is the test.
+ * ⚠️ **Slow by design: about three minutes locally, sixteen against a deployed target**, which
+ * keeps the full lifetime because no boot sets the var there. The wait is the test.
  *
  * `needsContainer = false` — auth and one mesh call.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
-import { ACCESS_TOKEN_TTL } from '@lumenize/nebula-auth/claims';
+import { ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from '@lumenize/nebula-auth/claims';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
@@ -30,6 +32,10 @@ import { provisionAndLogin } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 
 export const needsContainer = false;
+
+/** The shortest lifetime the server mints without warning that a token is born nearly due. */
+const LOCAL_LIFETIME = RECOMMENDED_MIN_TTL_SECONDS;
+export const bootVars = { NEBULA_AUTH_ACCESS_TOKEN_TTL: String(LOCAL_LIFETIME) };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
@@ -60,11 +66,15 @@ export async function run(stack: DevStack): Promise<void> {
     // A call made before the first token waits for it, so the first read is also the first refresh.
     const read = () => client.lmz.callAsync('GALAXY', galaxy, client.ctn<Galaxy>().getCurrentOntology());
     await read();
-    const firstExp = (client.claims as unknown as { exp: number }).exp;
+    const { exp: firstExp, iat } = client.claims as unknown as { exp: number; iat: number };
     const before = refreshes.length;
     assert.ok(before >= 1, 'the client must have got its first token from the platform host — the positive control');
+    // Mutation: mint to the constant again, and the local token lives fifteen minutes → reds here.
+    const lifetime = firstExp - iat;
+    const expected = process.env.HARNESS_TARGET_URL ? ACCESS_TOKEN_TTL : LOCAL_LIFETIME;
+    assert.equal(lifetime, expected, `the first token must live ${expected}s, the lifetime this venue mints`);
 
-    const waitMs = (ACCESS_TOKEN_TTL + 30) * 1000;
+    const waitMs = (lifetime + 30) * 1000;
     console.error(`[session-survives-token-lapse] waiting ${waitMs / 1000}s for the token to lapse, socket open…`);
     await new Promise((r) => setTimeout(r, waitMs));
     assert.ok(firstExp < Math.floor(Date.now() / 1000), 'fixture guard: the first token must really be expired');

@@ -26,7 +26,7 @@ import { SELF, env } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { foundUniverse, inviteAndLogin, verifiedClaims, authUrl, refreshCookie, scopeOrigin } from './test-helpers';
-import { mintImpersonationToken } from '../src/worker-token';
+import { mintImpersonationToken, mintAccessToken, accessTokenCeiling } from '../src/worker-token';
 import { ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from '../src/types';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
@@ -213,5 +213,30 @@ describe('the refresh takes no ttlSeconds', () => {
     const { access_token, expires_in } = await resp.json() as { access_token: string; expires_in: number };
     expect(lifetimeOf(access_token)).toBe(ACCESS_TOKEN_TTL);
     expect(expires_in).toBe(ACCESS_TOKEN_TTL);
+  });
+});
+
+describe('NEBULA_AUTH_ACCESS_TOKEN_TTL — the env var may only SHORTEN the lifetime', () => {
+  // The parse is a pure function of one var, so it needs no running system;
+  // `session-survives-token-lapse` is where a shortened ceiling reaches a real login's refresh.
+  it.each([['120', 120], ['1', 1], [String(ACCESS_TOKEN_TTL - 1), ACCESS_TOKEN_TTL - 1]])(
+    'honours %s', (value, expected) => {
+      expect(accessTokenCeiling({ NEBULA_AUTH_ACCESS_TOKEN_TTL: value })).toBe(expected);
+    });
+  // Mutation: drop the `< ACCESS_TOKEN_TTL` bound, and the longer values lengthen the token.
+  it.each(['', '0', '-5', '90.5', 'abc', String(ACCESS_TOKEN_TTL), String(ACCESS_TOKEN_TTL * 4)])(
+    'ignores %j', (value) => {
+      expect(accessTokenCeiling({ NEBULA_AUTH_ACCESS_TOKEN_TTL: value })).toBe(ACCESS_TOKEN_TTL);
+    });
+
+  // Mutation: clamp to the constant in `mintAccessToken` again, and this mints 900.
+  it('the mint honours a shortened ceiling', async () => {
+    const scope = uni();
+    const { accessToken, effectiveTtlSeconds } = await mintAccessToken(
+      { ...env, NEBULA_AUTH_ACCESS_TOKEN_TTL: String(RECOMMENDED_MIN_TTL_SECONDS) },
+      { sub: crypto.randomUUID(), universeGalaxyStarId: scope, scopeAdmin: false, activeScope: scope, profileId: crypto.randomUUID() },
+    );
+    expect(effectiveTtlSeconds).toBe(RECOMMENDED_MIN_TTL_SECONDS);
+    expect(lifetimeOf(accessToken)).toBe(RECOMMENDED_MIN_TTL_SECONDS);
   });
 });

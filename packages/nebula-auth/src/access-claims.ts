@@ -48,7 +48,7 @@ export { MAX_GALAXIES_PER_OWNER, GALAXY_CAP_MESSAGE } from './types';
 
 // The signup ticket's cookie name, the cookie cap and the access token's lifetime, for the same
 // reason: the harness presents the ticket, bounds a forged jar by the cap, and waits out the TTL.
-export { SIGNUP_TICKET_COOKIE, MINT_ALL_COOKIE_CAP, ACCESS_TOKEN_TTL } from './types';
+export { SIGNUP_TICKET_COOKIE, MINT_ALL_COOKIE_CAP, ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from './types';
 
 // Which host is which, for the same reason: vite's config and the harness read a host against the
 // deployment's origin with the one parse the Worker uses.

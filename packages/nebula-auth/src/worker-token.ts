@@ -248,6 +248,19 @@ export function validateTtlSeconds(value: unknown): { error: string } | { ok: tr
 }
 
 /**
+ * The longest access token this deployment mints: {@link ACCESS_TOKEN_TTL}, or less when
+ * `NEBULA_AUTH_ACCESS_TOKEN_TTL` names a shorter whole number of seconds. The var can only SHORTEN —
+ * a longer, malformed or empty value leaves the constant — so it never widens the window a revoked
+ * token keeps working (`security.md`). A `/live` scenario that waits out a real lapse boots with it.
+ */
+export function accessTokenCeiling(env: Pick<Env, 'NEBULA_AUTH_ACCESS_TOKEN_TTL'>): number {
+  const configured = Number(env.NEBULA_AUTH_ACCESS_TOKEN_TTL || NaN);
+  return Number.isInteger(configured) && configured >= 1 && configured < ACCESS_TOKEN_TTL
+    ? configured
+    : ACCESS_TOKEN_TTL;
+}
+
+/**
  * The ONE clamp, so the two mint endpoints cannot diverge on the ceiling or on the advisory warn.
  * Returns the EFFECTIVE lifetime, which is what a caller reports as `expires_in` — a handler that
  * re-derived the clamp itself would be the divergence this exists to prevent.
@@ -259,10 +272,10 @@ export function validateTtlSeconds(value: unknown): { error: string } | { ok: tr
  * would surface as a 500 through the router's catch — but the value that reaches the payload builder
  * is now safe on every path.
  */
-function clampTtlSeconds(requested: number | undefined, context: Record<string, unknown>): number {
+function clampTtlSeconds(requested: number | undefined, ceiling: number, context: Record<string, unknown>): number {
   const effective = Number.isInteger(requested)
-    ? Math.min(requested as number, ACCESS_TOKEN_TTL)
-    : ACCESS_TOKEN_TTL;
+    ? Math.min(requested as number, ceiling)
+    : ceiling;
   if (effective < RECOMMENDED_MIN_TTL_SECONDS) {
     debug('nebula-auth.worker.ttl.short').warn(
       'Requested token TTL is below the recommended minimum — honoured, but read both hazards', {
@@ -299,7 +312,7 @@ export async function mintAccessToken(
     /** RFC 8693 delegation actor pair → the `act` claim (omitted when absent). */
     actor?: { sub: string; profileId: string };
     /**
-     * Requested token lifetime. Clamped to {@link ACCESS_TOKEN_TTL} (it can only ever SHORTEN) and
+     * Requested token lifetime. Clamped to {@link accessTokenCeiling} (it can only ever SHORTEN) and
      * warned about below {@link RECOMMENDED_MIN_TTL_SECONDS}. Validate with
      * {@link validateTtlSeconds} at the request boundary first — see its warning about `NaN`.
      */
@@ -313,7 +326,7 @@ export async function mintAccessToken(
   if (!privateKeyPem) throw new Error(`JWT private key not configured for ${activeKey}`);
 
   const privateKey = await importPrivateKey(privateKeyPem);
-  const effectiveTtlSeconds = clampTtlSeconds(opts.ttlSeconds, {
+  const effectiveTtlSeconds = clampTtlSeconds(opts.ttlSeconds, accessTokenCeiling(env), {
     sub: opts.sub, activeScope: opts.activeScope,
   });
   const payload = buildNebulaJwtPayload({
