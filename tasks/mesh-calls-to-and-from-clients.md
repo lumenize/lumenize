@@ -1,9 +1,10 @@
 # Calls to and from a Client behave like calls between nodes
 
-**Status:** Pass 1, with every decision Larry's, 2026-09-30. Stage 1 `/review-task` ran 2026-10-04,
-and this file was reshaped from it the same day. Every item it raised is settled, and the vision
-doc, the ADRs and `security.md` changed docs-first the same day (→ D18). Stage 1 runs again next.
-Pass 2's phases follow once the master plan's Open decision 4 is settled (§ *Relationships*).
+**Status:** Pass 1, with every decision Larry's. Stage 1 `/review-task` ran twice on 2026-10-04,
+and every item from both runs is settled; the vision doc, the ADRs and `security.md` changed
+docs-first the same day (→ D18). Stage 2 runs once the master plan's Open decision 4 settles,
+because it decides where the server-side half of a Client lives (§ *Relationships*); Pass 2's
+phases follow.
 
 ## Goals
 
@@ -38,24 +39,26 @@ on one model: a Client and its Gateway together are the equivalent of a server-s
 
 ### Accepted limitations
 
-- **A Client can start or end a chain, never sit in the middle, and its calls carry nothing of its own context** (→ D19). Its Gateway starts every call a Client makes with `callChain: [thatClient]`, the Client's claims and an empty `state`. So a call the Client makes while handling another carries over nothing of it, and a Client can neither start a chain without its token, as a node does with `newChain: true`, nor pass `state` along; its options offer neither.
+- **A Client can start or end a chain, never sit in the middle, and its calls carry nothing of its own context** (→ D19). Its Gateway starts every call a Client makes with `callChain: [thatClient]` and the Client's claims. So a call the Client makes while handling another carries over nothing of it, and a Client cannot start a chain without its token, as a node does with `newChain: true`; its options do not offer `newChain`.
 
 ## Relationships
 
 - **Builds after [archive/nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md), built 2026-10-04.** Its 30-character slug cap is what lets D10 tell a scope's name from an id. Its fresh-chain default for `lmz.broadcast` keeps a writer's tab address off every update, the bonus D13 names. It also built D9 and D12.
 - **Builds after the toolchain row of [nebula-pre-alpha.md](nebula-pre-alpha.md)**, the move to `@cloudflare/vitest-plugin` and compatibility date 2026-10-01. D11 rewrites the transport between a Client and its Gateway, and a test runtime changing underneath it would give every new failure two suspects.
 - **Pass 2 waits on [nebula-pre-alpha.md](nebula-pre-alpha.md) § *A Client connects to its scope's node*, and this file says how each decision fares under it.** If a Client's socket moves from a Gateway of its own to its scope's node, the server-side half of D20's pair moves rather than changes. Pass 2 is written after it settles, so every phase knows where that half lives.
-  - **Unaffected:** D6, D8, D10, D14, D15, D16, D18, D19 and D21, and D9 and D12, which are built.
+  - **Unaffected:** D6, D8, D10, D14, D15, D16, D18, D19, D21 and D22, and D9 and D12, which are built.
   - **Moves with the server-side half:** D4, D5 and D11. D11's rule carries over; how the continuation is held while the Client answers is chosen with the open decision (→ D11).
   - **Tied to Gateway names, so parked until it settles:** D7 and D17, and the Gateway-specific wording in D3, D13 and D20.
 - **Lands before ⑥ the wipe.** D11 changes the wire between a Client and its Gateway, and every generated app bundles the Client, so apps built before it must be rebuilt, which the wipe does anyway.
 - **Makes `subscriptionRequired` honest, which answers most of `tasks/backlog.md`'s row saying it is broken** (§ *Lumenize Mesh*). After D4 a row is dropped only when the Gateway gives up on a delivery, and the client is told every time. The build rewrites the row to what stays open: re-checking a subscriber's admin verdict on each push instead of pinning it at subscribe, which a client that ignores the flag would otherwise escape.
+- **Closes `tasks/backlog.md`'s row on whether mesh keeps `callContext.state`** (§ *Lumenize Mesh*): D22 removes it.
 - **Closes one row in `tasks/backlog.md` § *Lumenize Mesh* and narrows another.** D11 does what the row proposing that broadcast-to-client go fully async asks. D10 answers the row saying a chain a node starts carries no `originAuth` only for passage into that node and its ancestors, so a Galaxy's alarm calling one of its Stars stays refused, and the build narrows the row to that.
 - **Owes the next release its BREAKING notes, written into `tasks/backlog.md`'s unreleased BREAKING rows as a Pass 2 criterion,** because this file archives and those rows carry the obligation:
   - the Client↔Gateway wire, including the `lmz.2` protocol name and the exported `CallResponseMessage` going (D11);
   - the three-argument `lmz.call`, and `lmz.broadcast`'s `onResult` becoming required (D15);
   - a Client accepting calls from other Clients, naming `requireServerSideCaller` for push handlers (D13);
-  - the Client's options losing `newChain` and `state` (D19).
+  - the Client's options losing `newChain` (D19);
+  - `callContext.state` and `CallOptions.state` leaving mesh for every node type (D22).
 
   The same edit strikes what those rows will then get wrong: `ClientTokenExpiredError` listed as new, though D5 deletes it before any release; `lmz.broadcast`'s `newChain` and `state` called additive; the CALL frame keeping only `state`; and `ClientResultEnvelope.clientInstanceName` staying.
 - **`tasks/on-hold/mesh-resilience-testing.md` drives the grace period and reconnect paths D4 and D5 change**, so its phases need re-reading against this file's Gateway when it resumes.
@@ -156,7 +159,7 @@ travel* describes how it moves. Below is an example of what a Star sees when cal
   So the fix is on the client rather than in the Gateway (→ D6).
 - **The one field a Client writes is `state`.** Its call WS message has no place for the others, so
   the Gateway builds them. A node that caches an authorization decision in `state`, as
-  `.claude/rules/mesh.md` recommends, can therefore meet a value a Client chose (→ D19).
+  `.claude/rules/mesh.md` recommends, can therefore meet a value a Client chose (→ D19, D22).
 
 ### Gateway
 
@@ -475,7 +478,7 @@ The messages between a Client and its Gateway, after D11 and D15:
 ```ts
 // Client → Gateway: a call. expectsResult goes, and every call names a handler (D15).
 // callId stays: onSent hands it to instrumentation, and the fire-back echoes it (D21)
-// It carries no callContext: the Gateway builds all of it, with state empty (D19)
+// It carries no callContext: the Gateway builds all of it (D19), and it has no state (D22)
 { type: 'call', callId: '5e0b…', binding: 'STAR', instance: 'acme.crm.bigco',
   chain, handler, onErrorOnly /* optional */ }
 
@@ -485,7 +488,7 @@ response: { kind: 'mesh', returnAddr: <this Client's identity>, handler, onError
 // Gateway → Client: a filled continuation, from a node's fire-back or a refusal at
 // the early ack. The Client runs it as a node runs __handleResponse: onBeforeCall
 // on, the @mesh() check off, and callee set from the chain's last hop (D6).
-// No state reaches a Client (D19)
+// No state reaches a Client, since none exists (D22)
 { type: 'response', callId, chain, callContext: { callChain, originAuth } }
 
 // Gateway → Client and back: unchanged but for state. The Gateway keeps the node's
@@ -495,7 +498,7 @@ response: { kind: 'mesh', returnAddr: <this Client's identity>, handler, onError
 ```
 
 - **What goes:** `call_response`, `ClientResultEnvelope`, `kind: 'client'`, the `call` message's
-  `expectsResult` and `callContext`, and `state` on every message down to a Client.
+  `expectsResult` and `callContext`, and `state` everywhere (D22).
 - **The Client drops a `response` whose `callId` it is not waiting on**, which covers one from a
   previous page load (→ D21). `callAsync` keys its Promise by the same id: it sends as its
   continuation a call to a `LumenizeClient` method with no `@mesh()`, taking the id and the result,
@@ -539,12 +542,12 @@ because a different change closes them. ADR-022 carries none.
 phase's criterion is a grep across `.claude/rules/`, `website/docs/`, `packages/mesh/src`,
 `apps/nebula/src` and `packages/nebula-auth/src` that comes back clean for the terms its decision
 retires: a call with no handler or an `undefined` one (D15), `client-to-client` (D13), a client
-passing `state` or `newChain` (D19), the `lmz` protocol name and "answers inside its ack" (D11),
+passing `newChain` (D19), `state` in a call context or call options (D22), the `lmz` protocol name and "answers inside its ack" (D11),
 `ClientTokenExpiredError` (D5), and the 30 s wait and `subscriptionRequired` (D4, D5). At the time
 of writing those greps would find:
 
 - **`.claude/rules/mesh.md`:** § *`call()` + a continuation is the ONLY cross-node call surface*, § *Passing data to the callee*, § *Object-capability access: gate once, then chain*, § *`lmz.call` 4-arg — the result-handler mechanics*, § *Fire-and-forget error delivery*, and § *`LumenizeClientGateway` is NOT a mesh participant* (D3).
-- **`website/docs/mesh/`:** `calls.mdx`, `lumenize-client.mdx`, `protocol.mdx`, `mesh-api.mdx`, `broadcast.mdx`, `managing-context.mdx`, `gateway.mdx` (its "simply forwards", and its timeout, token-expiry, resubscribing and connection-state sections), `index.mdx` and `lumenize-worker.mdx` (three-argument calls inside `@skip-check-approved` blocks, which the example checker never reads), `getting-started.mdx`, and `security.mdx` (the protocol name).
+- **`website/docs/mesh/`:** `calls.mdx`, `lumenize-client.mdx`, `protocol.mdx`, `mesh-api.mdx`, `broadcast.mdx`, `managing-context.mdx` (§ *Using `state`*, D22), `gateway.mdx` (its "simply forwards", and its timeout, token-expiry, resubscribing and connection-state sections), `index.mdx` and `lumenize-worker.mdx` (three-argument calls inside `@skip-check-approved` blocks, which the example checker never reads), `getting-started.mdx`, and `security.mdx` (the protocol name, and § *Call Context State* with its source, `packages/mesh/test/for-docs/security/team-doc-do.ts`, D22).
 - **`website/docs/nebula/nebula-client.md`**, which Studio's model reads as `.platform/docs/nebula-client.md`. Its override paragraph tells the model a subclass override needs its own `@mesh()`; it must say instead that an override of a push handler calls `super`, which carries D14's check.
 - **JSDoc:** `requirePassage`; the Client's and `broadcast.ts`'s broadcast warnings; the Gateway's class comment; and the reaper comments in `apps/nebula/src/resources.ts` and `packages/nebula-auth/src/profile.ts` that say a Gateway answers inside its ack.
 
@@ -570,6 +573,7 @@ Every row is Larry's call. The D-numbers are append-only, and the prose above po
 | D16 | **`callAsync` stays public on `client.lmz`, built on D11's travelling continuation: one message on the wire, two spellings in code** (Larry, 2026-09-30). Only the Promise and its timeout differ from a result-handler call (§ *On the wire*). `callAsync`'s JSDoc in `packages/mesh/src/lumenize-client.ts` states this, since it is already true today. The code Studio's model writes never calls it: the platform docs teach `await client.resources…` and mention `callAsync` nowhere, and every `callAsync` call sits inside `NebulaClient`. | **Only inside a Client subclass, for building an SDK** — it would narrow ADR-003's user-land awaiting to SDK methods, and third-party mesh users would lose the awaitable. **Removing it, so SDK methods take callbacks** — it fights the training wherever the platform docs teach `await client.…`, and amends ADR-003. |
 | D17 | **A tab keeps its `tabId` in `sessionStorage`, and a Web Lock on the id replaces the 50 ms `BroadcastChannel` probe for a duplicated tab, in a late phase** (Larry, 2026-09-30). A tab holds its id's lock until it closes, including while paused, so a duplicate finds the lock taken and mints a new id with no race. The phase's first criterion is a measurement: a reloaded page must get the lock its previous page held, or every reload would mint a new Gateway name, the leak `tab-id.ts` exists to prevent. If a reload can lose its lock, the phase is dropped rather than worked around. **Parked until the master plan's Open decision 4 settles**, since it is about Gateway names. | **Reusing ids across tabs from `localStorage`, each claimed by a lock** — it saves Gateway names that cost nothing, and a new tab could land on a Gateway closed seconds earlier and receive updates for rows it never made. **A fixed pool of lock names with no storage** — the `tabId` becomes a small, guessable number, which gives up the bonus D13 names. **Leaving the probe** — a paused original misses the 50 ms window, and the two tabs then close each other's connection with 4409 over and over. |
 | D18 | **The vision doc, the ADRs and `.claude/rules/security.md` change docs-first, each with a *Today's code differs* block the build removes; `mesh.md`, the website and JSDoc change in the phase whose code makes them true** (Larry, 2026-10-04). § *What changes in standing guidance* lists both. | **Everything in the build's first phase** — until then every review pass reads accepted docs that contradict this file, and the security lens takes `auth.md` as the model wherever the two disagree. **Everything with the code** — the same, for the whole build. **`mesh.md` docs-first too** — D3's reason: every session reads it, and it would describe a Gateway that does not exist yet. |
-| D19 | **A Client writes nothing into a call's context and receives no `state`** (Larry, 2026-10-04). The `call` message loses its `callContext`, and the Gateway builds all of it with `state` empty. The Client's call and broadcast options lose `newChain` and `state`, so a caller passing either fails to compile. A Client's handler sees `callChain`, `originAuth` and the `callee` it stamps itself (D6). Server-side `state` between nodes is unchanged; whether mesh keeps it is a separate question. | **Keeping `newChain` on the Client and documenting it** — on a Client it can only drop inherited `state`, since the Gateway starts every chain at the Client and no Client may shed its token; nothing in Nebula passes it. **Dropping only `newChain`** — leaves client-written `state` landing in a node's `callContext`, where a node caching an authorization decision there could meet a value the Client chose. **Removing `state` from mesh altogether** — it is published MIT surface the mesh docs teach, and Nebula's not using it does not settle whether others need it. |
+| D19 | **A Client writes nothing into a call's context and receives no `state`** (Larry, 2026-10-04). The `call` message loses its `callContext`, and the Gateway builds all of it with `state` empty. The Client's call and broadcast options lose `newChain`, so a caller passing it fails to compile, and D22 takes `state` out of every node's options. A Client's handler sees `callChain`, `originAuth` and the `callee` it stamps itself (D6). D22 then removed `state` between server-side nodes too. | **Keeping `newChain` on the Client and documenting it** — on a Client it can only drop inherited `state`, since the Gateway starts every chain at the Client and no Client may shed its token; nothing in Nebula passes it. **Dropping only `newChain`** — leaves client-written `state` landing in a node's `callContext`, where a node caching an authorization decision there could meet a value the Client chose. |
 | D20 | **A Client and its Gateway together are the equivalent of a server-side node, with its responsibilities split between two execution environments** (Larry, 2026-10-04). The Gateway decides passage and does the transport work a node's framework does inside a node; the Client does everything after passage, dominion's override included. Anything that must not depend on the browser's honesty lives in the Gateway half, which is why the Gateway builds a call's context (D19) and keeps a node's continuation (D11). `docs/vision/auth.md` § *Lumenize Nebula mesh* says so, and `mesh.md`'s Gateway section will (D3). | **Making the Gateway a node** — a hop between the Client and every node, which breaks every receiver reading `callChain[0]` as the verified Client and `callChain.at(-1)` as where to send updates. **Calling the Gateway "mesh mechanics, not a mesh node"** — true of what the mesh sees, but it read as an exemption from the transport rules, which is how the late-ack hop survived. |
 | D21 | **A fire-back echoes the call's `callId`, and a Client drops one it did not mint during this page load** (Larry, 2026-10-04). The Gateway copies the `call` message's `callId` into the envelope's `response` descriptor, and `fireResponse` echoes it on the fire-back, a generic field a node caller can use or ignore. The Client keeps the ids it has outstanding, ids rather than continuations, so a reload empties the set and every late answer meant for the old page is dropped, as `callAsync` already drops one it has no Promise for. | **Running it on the reloaded page** — a Durable Object's handler runs on a cold instance because its state is in storage, and a reloaded page has none of the old page's state and may run a newer bundle; an old page's late refusal could land on the new page's pending subscribe for the same resource. **Requiring every handler to be safe on a later page load** — a rule each author must remember, for a case rare enough to be forgotten. **A page-load id each handler checks by hand** — the same protection as this row, rebuilt in every handler. |
+| D22 | **`callContext.state` and `CallOptions.state` leave mesh, for every node type** (Larry, 2026-10-04). `state` began as what `callChain` became, and nothing in this repo's production code reads or writes it. Its one documented security use, an `onBeforeCall` caching `isEditor` for a guard, saves a single recomputation, since only the guard on a chain's first operation runs; carried across a hop, it hands the next node a verdict computed for a different one. The merge in `lmz-api.ts` goes with the two fields, in the phase where D19 touches the same code. The docs say instead: read `callChain` for tracing, pass a value a later hop needs as a continuation argument, and compute an authorization decision in the guard of the node it is about. | **Keeping it, with the backlog row's trigger rewritten** — a side channel `mesh.md` recommends for exactly the cross-hop authorization caching that misleads. **Deciding it after this release** — the next chance to break it costs a separate major. **A per-node, per-call scratch that does not cross hops** — new surface for the one recomputation it would save. |
