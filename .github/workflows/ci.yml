@@ -37,8 +37,9 @@ jobs:
     env:
       # pool-workers' remote proxy (for the EMAIL / Cloudflare Email Sending
       # binding the auth e2e + hono suites use) authenticates to Cloudflare via
-      # these. Node-side process env, not worker bindings.
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # these. Node-side process env, not worker bindings. The secret is named for
+      # its one use; wrangler only reads it under the name CLOUDFLARE_API_TOKEN.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_REMOTE_BINDINGS_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout code
@@ -116,7 +117,7 @@ jobs:
     # much larger timeout — or leave them in the ui-smoke lane where that cost already lives.
     runs-on: ubuntu-latest
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_REMOTE_BINDINGS_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout code

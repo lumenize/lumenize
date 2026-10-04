@@ -130,7 +130,9 @@ RESEND_API_KEY="re_..."
 # Only needed where there's no `wrangler login` OAuth session (CI / cloud agents).
 # The remote-binding proxy (e2e-email / hono `send_email remote:true`) uses your
 # OAuth session locally, so these are NOT needed for local runs; in CI they come
-# from GitHub Secrets as job env. The secret-less Claude-hosted lane sets
+# from GitHub Secrets as job env, the token from the CLOUDFLARE_REMOTE_BINDINGS_TOKEN
+# secret (Workers Scripts Write + Account Settings Read on the account, User Details
+# Read + Memberships Read on the user). The secret-less Claude-hosted lane sets
 # LUMENIZE_NO_CF_REMOTE=1 instead (omits the CF-remote projects) and never gets the token.
 CLOUDFLARE_API_TOKEN=cfut_...
 CLOUDFLARE_ACCOUNT_ID=your-account-id
