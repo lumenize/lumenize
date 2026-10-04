@@ -2,7 +2,7 @@
 
 **Status:** Pass 1 — design intent only, phases NOT written. Drafted 2026-09-21 while auditing the
 Galaxy's `@mesh` surface, where deleting the config pair left the Universe with nothing at all.
-It follows [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md) and lands before
+It follows [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md), built 2026-10-04, and lands before
 the wipe (Larry, 2026-09-29). That build's claim takes slugs only, so this one adds the names to the
 claim in the same change that stores them, and no name is ever parked on `Scopes`.
 
@@ -38,12 +38,12 @@ collecting one.
     `passage-not-dominion` loses one in all three limbs, including the `getStarConfig` positive
     control whose own comment records that it is not optional. Name the replacement each limb
     re-points at, and make `drive.ts all` a phase criterion rather than a follow-up.
-- **Follows [nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md), and adds names
+- **Follows [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md), and adds names
   to the claim that build rewrites** (Larry, 2026-09-29). That build's claim writes a universe, its
   first galaxy and that galaxy's `.dev` Star, and takes two slugs. This build adds the account's and
   the first app's names to both claim paths, and writes each as a scope-metadata resource on its host,
   so no name is ever parked on `Scopes`. [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Scope full
-  names* still plans a `name` column there, and the subdomain build's Phase 8 corrects it.
+  names* says the same, since the subdomain build corrected its plan for a `name` column.
 - **No wipe dependency of its own**, though a name written before the wipe goes with everything else.
 
 ## Context and current state

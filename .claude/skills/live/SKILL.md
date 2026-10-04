@@ -112,4 +112,8 @@ scenario's own asserts passed against the live system.
 Add `apps/nebula/harness/scenarios/<name>.ts` exporting `async run(stack)`, register it in `drive.ts`'s
 `SCENARIOS` map, and drive via the `NebulaClient` public surface only (`resources.*`/`subscribe`/
 `callAsync`) — never raw RPC (`.claude/rules/mesh.md`). For a capture scenario, snapshot the transient
-state (before the reload/transition), not just the end. Full layout: `apps/nebula/harness/README.md`.
+state (before the reload/transition), not just the end. A scenario that only needs an app to work in
+takes the run's shared one (`sharedApp`, `harness/lib/shared-app.ts`), since on the deployed target every
+new app waits minutes for its certificate. One whose subject is a claim, a signup or a deletion claims
+an account of its own named with `testSlug`, which the harness deletes when it ends. Full layout:
+`apps/nebula/harness/README.md`.

@@ -11,6 +11,8 @@
  *     wake, which is the reap's case.
  *  3. **The account's first app keeps its pack, and the zone keeps its Universal pack, after each
  *     delete** — the positive control: a teardown matching any host in a pack would delete both.
+ *     ⚠️ So that mutation really deletes the zone's Universal pack, every host on the zone fails TLS,
+ *     and Cloudflare does not reissue it: toggle Universal SSL off and on through the zone's API.
  *  4. **A deleted app's Galaxy holds no stored data.** Node cannot compute `idFromName`, so the
  *     scenario tails the Worker while it creates the app and reads the Galaxy's id off the event that
  *     logs its own creation teardown. The `.dev` Star holds nothing after that teardown, so Cloudflare

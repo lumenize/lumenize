@@ -109,6 +109,9 @@ SQLite has no boolean type. A column declared `BOOLEAN` merely gets NUMERIC affi
 
 **`CHECK (col IN (0, 1))`** SHOULD be added — it documents boolean-ness exactly where a SQL-console reader looks and rejects a stray value, at **zero write cost** (no index, no extra row written). ⚠️ **Cheap only at creation:** SQLite has **no `ALTER TABLE ADD CONSTRAINT`**, so retrofitting a CHECK onto a live table requires the full 12-step rebuild (create shadow → copy → drop → rename). ⇒ add it **when you create the column**, or during a planned greenfield/wipe window; it MUST NOT be retrofitted onto live data. (For a nullable tri-state: `CHECK (col IS NULL OR col IN (0, 1))`.)
 
+## A LIKE or GLOB pattern caps at 50 bytes
+DO SQLite refuses a longer pattern with `LIKE or GLOB pattern too complex`, and one built from data passes the cap sooner than it looks: three `test-…` scope labels made 60 bytes (2026-10-03). A prefix match on data MUST use a key range instead, `id >= 'acme.crm.' AND id < 'acme.crm/'`, which is exact for any string and needs no escaping — `descendantRange` in `packages/nebula-auth/src/parse-id.ts`.
+
 ## SQLite write-cost optimization
 DO SQLite charges **$1.00/M rows written — 1,000× the cost of reads** ($0.001/M). INSERT cost = `1 (row) + 1 per index updated`. Design schemas to minimize index writes:
 

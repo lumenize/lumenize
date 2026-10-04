@@ -149,7 +149,9 @@ counts.** The stack's stdio reaches the harness late and in bursts, so a count r
 a tree where the failure it looks for happened. Bit 2026-09-27: `display-names-reach-subscribers`
 passed one run in two under the mutation it was written to catch, until it waited for the accept
 request's own access-log line, which wrangler prints after the Worker's warnings. That line arriving
-also shows the capture works.
+also shows the capture works. A facade call prints no access-log line, so its markers carry an
+`operationId` the call mints, and the limb waits for that call's completion line instead
+(`waitForDebugLines`, `harness/lib/stdio.ts`).
 
 **A deployed pass MUST still run — at the wipe gate/milestones, and after changes to the container
 image, `@cloudflare/computer`, or the toolchain triple** (`bash apps/nebula/scripts/deploy-test.sh`,

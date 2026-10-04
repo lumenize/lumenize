@@ -1,6 +1,6 @@
 # Nebula request-access workflow
 
-**Status**: not started; referenced across the docs as the access-acquisition flow but unspecced. Stub created 2026-06-15 to home the dead-admin design note below. On 2026-09-16 it took two more pieces from the removed `nebula-dataplane-root-admin.md`, because [nebula-scope-moves-to-subdomain.md](../nebula-scope-moves-to-subdomain.md) deletes the Star's root-admin seed: the question of where a climb ends when root holds no admin grant, and the last-admin guard, whose reason depends on the answer.
+**Status**: not started; referenced across the docs as the access-acquisition flow but unspecced. Stub created 2026-06-15 to home the dead-admin design note below. On 2026-09-16 it took two more pieces from the removed `nebula-dataplane-root-admin.md`, because [nebula-scope-moves-to-subdomain.md](../archive/nebula-scope-moves-to-subdomain.md) deleted the Star's root-admin seed: the question of where a climb ends when root holds no admin grant, and the last-admin guard, whose reason depends on the answer.
 
 ## What it is (from the docs)
 
@@ -10,7 +10,7 @@ The **notify/request transport** — how the ask actually reaches the admin (in-
 
 ## Open question — where a climb ends when root holds no admin grant
 
-**The Star's root-admin seed made sure one existed, and it is being deleted.** `Star.onBeforeCall` wrote an `admin` grant on `ROOT_NODE_ID` for the first star-scoped admin to touch a Star. [nebula-scope-moves-to-subdomain.md](../nebula-scope-moves-to-subdomain.md) deletes it: once a session's `authScope` is its host, every `scopeAdmin` session on a Star host satisfies the seed's gate, and the grant buys no capability, since `requirePermission`'s bypass already admits a star-level admin. A founder then acts through the bypass alone, which is not in the permissions map, so a member climbing from a denied node finds nobody at root unless someone wrote a grant there.
+**The Star's root-admin seed made sure one existed, and it was deleted on 2026-10-04.** `Star.onBeforeCall` wrote an `admin` grant on `ROOT_NODE_ID` for the first star-scoped admin to touch a Star. [nebula-scope-moves-to-subdomain.md](../archive/nebula-scope-moves-to-subdomain.md) deleted it: once passage and dominion read the host's scope (`aud`), every `scopeAdmin` session on a Star host satisfies the seed's gate, and the grant buys no capability, since `requirePermission`'s bypass already admits a star-level admin. A founder then acts through the bypass alone, which is not in the permissions map, so a member climbing from a denied node finds nobody at root unless someone wrote a grant there.
 
 Two candidates, neither chosen:
 

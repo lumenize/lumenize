@@ -676,7 +676,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // `reconnecting` across retry attempts and only flips to `connected`
         // when the WS is back up). The initial-connect transition is
         // `disconnected → connecting → connected`, which we don't treat as
-        // a reconnect (registry is empty anyway).
+        // a reconnect. On a first connect the registry is empty; after an explicit
+        // `disconnect()` it is not, and this path restores none of it — a gap, not a design.
         if (this.#prevConnectionState === 'reconnecting' && state === 'connected') {
           // The in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the
           // drop and its RESULT re-resolves to the new socket. A RESULT that is truly lost ends in a

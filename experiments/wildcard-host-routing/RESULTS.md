@@ -39,7 +39,7 @@
 
 ## Route precedence (2026-09-15)
 
-**Question.** Can a second deployment own every host under `test.lumenize.dev` through a route `*.test.lumenize.dev/*`, while another Worker holds `*.lumenize.dev/*` on the same zone? It was a candidate home for the deployed test target in `tasks/nebula-scope-moves-to-subdomain.md`, which chose `lumenize-test.dev` instead after this run (§ *Decisions*).
+**Question.** Can a second deployment own every host under `test.lumenize.dev` through a route `*.test.lumenize.dev/*`, while another Worker holds `*.lumenize.dev/*` on the same zone? It was a candidate home for the deployed test target in `tasks/archive/nebula-scope-moves-to-subdomain.md`, which chose `lumenize-test.dev` instead after this run (§ *Decisions*).
 
 **Setup.** The Worker above, deployed twice and told apart by an `ARM` var:
 
@@ -71,7 +71,7 @@
 
 ## Local wildcard hosts (2026-09-16)
 
-**Question.** Do `*.lumenize.localhost` hosts resolve to loopback with no configuration, on the systems the local stack and CI run on? [The subdomain build](../../tasks/nebula-scope-moves-to-subdomain.md) rests its local venue on it.
+**Question.** Do `*.lumenize.localhost` hosts resolve to loopback with no configuration, on the systems the local stack and CI run on? [The subdomain build](../../tasks/archive/nebula-scope-moves-to-subdomain.md) rests its local venue on it.
 
 **macOS: yes.** Measured 2026-09-15 by a scratch probe, Node 24.19 with Playwright's Chromium 145. Node's `fetch` and `WebSocket` and Chromium resolved every depth to loopback with no `/etc/hosts` entry; Chromium stored `Secure` and `__Host-` cookies over plain `http` there, kept them host-only, and treated every such host as one site. That script was not kept, and the task file carries the findings.
 

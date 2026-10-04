@@ -306,6 +306,9 @@ export interface ScopeLifecycleHooks {
    * orders it from its own alarm, so a second wake orders nothing. Called after a create, and after
    * any acceptance of a universe membership for each galaxy standing beneath it, a re-accept
    * included; never by a client. Never rejects; a failure is logged naming the galaxy.
+   *
+   * Acceptance, not the claim or the consume, because a pack is one of the zone's hundred: a claim
+   * proves no mailbox, and a consume proves a mailbox but not that anyone meant to open the account.
    */
   orderCertificate(galaxy: string, operationId: string): Promise<void>;
 }
@@ -369,7 +372,9 @@ export const REGISTRY_INSTANCE_NAME = 'registry';
  * customer holds is a migration.
  *
  * Reserved **per galaxy**, not globally: uniqueness is on the full `{u}.{g}.{s}`, so every galaxy has
- * its own `{u}.{g}.dev`, and later its own `{u}.{g}.staging`.
+ * its own `{u}.{g}.dev`, and later its own `{u}.{g}.staging`. Only `.dev` is ever created today, by a
+ * claim or `createGalaxy`, and `claimStar` refuses every slug here, so the feature that brings in
+ * other environments must add their create too.
  */
 export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set([
   'dev', 'staging', 'prod', 'test', 'preview', 'sandbox', 'qa', 'demo',
