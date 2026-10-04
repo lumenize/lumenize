@@ -17,7 +17,7 @@ Three browser facts shape the answer:
 
 1. **A browser picks the cookies for a request by the URL the request goes to, not by the page that sends it.** A `fetch` from `crm.acme.lumenize.dev` to `platform.lumenize.dev` carries the platform host's cookies.
 2. **Every `lumenize.dev` host is one site, so no such `fetch` is cross-site.** A site is a registrable domain, and `SameSite` and third-party cookie blocking compare sites, not hosts. They bite only across sites: from a page on a customer's own domain, that same `fetch` carries a third-party cookie, which Safari blocks and Firefox partitions.
-3. **Page JavaScript cannot set `Origin`.** A server can trust it to name the page that sent the request.
+3. **Page JavaScript cannot set `Origin`.** A server can trust it to name the host the request came from.
 
 The rest of this ADR covers where sessions live, how a page gets and uses an access token, the cookie rules, and persona and customer hosts.
 
@@ -56,10 +56,10 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 ### What an access token carries
 
 - **`authScope` is the chosen membership's scope, and `aud` is the host's, its `activeScope`.** A universe scopeAdmin on `tenant1.crm.acme.lumenize.dev` carries `authScope: acme` and `aud: acme.crm.tenant1`. The client names neither.
-- **Dominion and passage read `aud`, with `scopeAdmin` from the membership** ([ADR-015](015-passage-and-dominion.md)). A page's code acts with its visitor's token, and on a Star's host that code is the user-developer's, so the page bounds what a call may do: from a Star's page, that universe admin holds dominion over the Star and passage upward.
+- **Dominion and passage read `aud`, with `scopeAdmin` from the membership** ([ADR-015](015-passage-and-dominion.md)). The code a host serves acts with its visitor's token, and on a Star's host that code is the user-developer's, so the host bounds what a call may do: from a Star's host, that universe admin holds dominion over the Star and passage upward.
 - **Lateral movement stays refused.** `aud` must sit at or below `authScope`, and for a plain membership equal to it, so no page carries a membership from another branch of the scope tree.
 - **No token carries dominion over the whole platform.** A superuser's membership sits at the root, but no page does.
-- **Every call carries an access token, and passage upward comes from its `aud`.** A member of `acme.crm.tenant1` can call its galaxy and its universe from the Star's page.
+- **Every call from a browser carries an access token, and passage upward comes from its `aud`.** A member of `acme.crm.tenant1` can call its galaxy and its universe from the Star's host. A call chain a node started carries none, and [ADR-015](015-passage-and-dominion.md) says where it may go.
 - **Every access token rests on an accepted membership** ([ADR-012](012-global-profile-visibility.md)): the person's own, or for a persona, that of whoever opened its tab.
 
 ### A persona's host

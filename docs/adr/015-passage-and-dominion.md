@@ -11,7 +11,7 @@
 
 Scopes form a strict tree: platform → universe → galaxy → star. **That hierarchy is what identifies lateral movement** — holding a scope in one branch while calling into a scope that is neither linearly above nor linearly below your own. So, the prevention of lateral movement is achieved structurally by only permitting vertical movement.
 
-Every call presents its `activeScope` — the scope of the page that started it, read from that page's host — a `scopeAdmin` bit, and the `targetScope` it is acting on. These are used to calculate if the call qualifies as `dominion` or `passage` — the two kinds of vertical movement that are allowed. The rest of this ADR is spent precisely specifying those calculations, explaining what a call is (and is not granted) for each kind, and elaborating on the implications of those grants.
+Every call presents its `activeScope` — where it is acting from: the scope its host spells, carried as `aud`, or the name of the node that started its chain — a `scopeAdmin` bit, and the `targetScope` it is acting on. These are used to calculate if the call qualifies as `dominion` or `passage` — the two kinds of vertical movement that are allowed. The rest of this ADR is spent precisely specifying those calculations, explaining what a call is (and is not granted) for each kind, and elaborating on the implications of those grants.
 
 Previously, this model was assumed everywhere and in a precise written form nowhere. An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
 
@@ -21,7 +21,7 @@ Previously, this model was assumed everywhere and in a precise written form nowh
 
 ### Terminology
 
-- **Scope** is the driver for coarse-grained access control. A page's host spells one, read right to left: `https://tenant1.crm.acme.lumenize.dev/` is the scope `acme.crm.tenant1` ([ADR-021](021-every-scope-has-its-own-host.md)). A scope is also a mesh node's name, and a parameter of a mesh call.
+- **Scope** is the driver for coarse-grained access control. A host spells one, read right to left: `https://tenant1.crm.acme.lumenize.dev/` is the scope `acme.crm.tenant1` ([ADR-021](021-every-scope-has-its-own-host.md)). A scope is also a mesh node's name, and a parameter of a mesh call.
 - **Dominion** — an *unconditional* right to act within a scope. Where it applies, nothing decided inside that scope can stand against it. **Downward only.**
 - **Passage** — the right for a call to arrive at the target scope without being refused at the boundary. It confers nothing except that.
 
@@ -47,11 +47,15 @@ dominion(aud, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(aud, targetS
 passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
                                          ∨ dominion(aud, scopeAdmin, targetScope)
 
-   aud is the call's activeScope: the scope of the PAGE that started the chain, derived
-   server-side from that page's host and never named by the client. scopeAdmin still comes from the membership the token
-   rests on. A page therefore acts within its own scope and below, not within everything
-   its holder's broadest membership covers.
+   aud is the call's activeScope: the scope of the HOST the token was minted for, derived
+   server-side from Origin and never named by the client. scopeAdmin still comes from the
+   membership the token rests on. Code a host serves therefore acts within that host's scope
+   and below, not within everything its holder's broadest membership covers. A chain a node
+   started carries no token: its activeScope is that node's name when the name is a scope,
+   and its scopeAdmin is false, so it holds passage at most.
 ```
+
+> **Today's code differs.** A chain a node started carries no token, and `requirePassage` refuses it rather than reading the starting node's name.
 
 **One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(claims, targetScope)` and `hasPassageInto(claims, targetScope)`.
 

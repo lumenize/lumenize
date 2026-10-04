@@ -7,7 +7,7 @@
 
 ## Context
 
-A distributed flow touches many nodes: client → Gateway → Star → Worker → back to some node. The tempting model is to `await` each hop the way an in-process call returns a value — hold a Promise (or an open RPC stub) until the callee replies. But in this environment the thing that Promise is bound to routinely vanishes out from under it: **browser tabs sleep, WebSocket connections drop and reconnect, and Durable Objects hibernate or are evicted.** A Promise held across a hop for more than a moment is state bound to a transient channel — when the channel dies the result is stranded and the caller can hang forever. Holding one costs, too: the caller DO stays resident on wall-clock billing while it waits, and an open stub can prevent hibernation. And on the WebSocket legs there is nothing to await at all — every frame is a one-way message.
+A distributed flow touches many nodes: client → Gateway → Star → Worker → back to some node. The tempting model is to `await` each hop the way an in-process call returns a value — hold a Promise (or an open RPC stub) until the callee replies. But in this environment the thing that Promise is bound to routinely vanishes out from under it: **browser tabs sleep, WebSocket connections drop and reconnect, and Durable Objects hibernate or are evicted.** A Promise held across a hop for more than a moment is state bound to a transient channel. When the channel dies, the result is stranded and the caller can hang forever. Holding one costs, too: the caller DO stays resident on wall-clock billing while it waits, and an open stub can prevent hibernation. And on the WebSocket legs there is nothing to await at all — every frame is a one-way message.
 
 **Resiliency is the driver** — surviving sleep, reconnect, and hibernation — with the billing win a bonus. Mesh needs one messaging model that holds up under all of it and works as identically as possible from every node type.
 
@@ -18,8 +18,8 @@ A distributed flow touches many nodes: client → Gateway → Star → Worker �
 A **continuation** (`ctn()`) is a *serializable description of work to be done in another place or time* — the property everything here rests on. Because a continuation is **data, not a live handle**, it can be sent, delivered, and stored rather than awaited:
 
 - A call specifies the work it wants done **on the callee** as a continuation.
-- Request/response is *simulated without a held channel*: the work the caller wants done **with the result** (the value, or an Error) is *also* a continuation; the callee fills it with the result and sends it back with another `call()`. The outcome is **delivered** as a fresh one-way message, never **returned** up a channel the caller would otherwise hold open.
-- Those deliveries take a few concrete forms: the 4-arg `call` handler, `lmz.broadcast`'s `onResult`, and the client's RESULT fire-back — each a one-way delivery to wherever the result is needed.
+- Request/response is *simulated without a held channel*: the work the caller wants done **with the result** (the value, or an Error) is *also* a continuation. The callee fills it with the result and sends it back with another `call()`. The outcome is **delivered** as a fresh one-way message, never **returned** up a channel the caller would otherwise hold open.
+- Those deliveries take two concrete forms, each a one-way delivery to wherever the result is needed. One is the 4-arg `call` handler continuation, which travels with a client's call exactly as with a node's; the other is `lmz.broadcast`'s `onResult`.
 - Multi-hop flows hand off **forward** (client → Star → Worker → client), each hop naming only its own next node; they never unwind back through the intermediates (direct delivery).
 - `callContext` (identity, provenance, state) rides every hop automatically — that, not a held channel, is what makes flows composable.
 - Because a continuation is data, it can also be **persisted** — stashed in an alarm or in storage and re-executed later. That is a "Promise" that survives hibernation precisely because it stopped being one (`@lumenize/fetch` stringifies a continuation into an alarm as its delivery backstop).
@@ -35,28 +35,31 @@ sequenceDiagram
     participant E as callee-side framework
     participant U2 as callee user code
     U1->>C: call(work, handler) — both are continuations (data)
-    C->>E: one-way message across the network — work + handler + return address
+    C->>E: one-way message across the network — work + handler continuation + return address
     E-->>C: early ack — admitted, or rejected at admission (overload / guard / network glitch)
     Note over U1,U2: caller now holds nothing — free to hibernate, and its tab may sleep
     E->>U2: run the work
     U2-->>E: a value — the callee never sees the handler
-    E->>C: one-way message across the network — the handler, filled with the result
+    E->>C: one-way message across the network — the handler continuation, filled with the result
     C->>U1: run handler(result)
     Note over U1,U2: the result is DELIVERED as a fresh message, not RETURNED up a held channel — so nothing strands if the socket dropped or a node hibernated in between
 ```
 
 ## When awaiting is OK
 
-Awaiting a network result is not banned outright — what the decision forbids is holding a *reply channel* open **across a hop for more than an instant**. Two places await, deliberately, and neither does:
+Awaiting a network result is not banned outright. What the decision forbids is holding a *reply channel* open **across a hop for more than an instant**. Two places await, deliberately, and neither does:
 
-- **Under the covers: one very-short hop.** A `call` from a DO, Worker, or Container is dispatched by a single awaited Workers RPC (`#dispatchEnvelope` → `await stub.__executeOperation`) that **acks early**: it returns the instant the callee is *admitted* (binding resolved, guards passed), **before** the callee runs the work, so the caller holds the Promise for admission only, never for the operation. That short hop is also where **admission-time failures** surface — a guard/scope rejection, **overload** back-pressure, or a **network/transport glitch** on the hop itself — so the caller learns *"did it even get accepted?"* promptly, on the ack rather than on a fire-back that might never come. Everything *after* admission — the result, or an error the callee's own code throws — arrives later as the one-way fire-back. Early-ack applies whether or not a handler is attached, and is pure transport (invisible to user-developer code), not the held channel the decision forbids.
+- **Under the covers: one very-short hop.** A `call` from a DO, Worker, or Container is dispatched by a single awaited Workers RPC (`#dispatchEnvelope` → `await stub.__executeOperation`) that **acks early**. It returns the instant the callee is *admitted* (binding resolved, guards passed), **before** the callee runs the work. So the caller holds the Promise for admission only, never for the operation. That short hop is also where **admission-time failures** surface: a guard/scope rejection, **overload** back-pressure, or a **network/transport glitch** on the hop itself. So the caller learns *"did it even get accepted?"* promptly, on the ack rather than on a fire-back that might never come.
+- **Everything *after* admission arrives later as the one-way fire-back** — the result, or an error the callee's own code throws. Early-ack applies to every call, and a client's Gateway acks for its client the same way. It is pure transport (invisible to user-developer code), not the held channel the decision forbids.
+
+> **Today's code differs.** On a call to a client, the Gateway returns the client's answer where an early ack belongs. That is the late-ack transport § *Alternatives considered* rejects, and it holds the calling node for up to 30 s. A client keeps its own result handler continuation in the tab, keyed by a call id, rather than sending it with the call. And a three-argument `call` names no handler, so its error is lost.
 
 - **In user-land: only on the client — a browser tab or a longer-lived host like a Node process (`LumenizeClient` / `NebulaClient`), via `callAsync`.** The client alone may `await` a cross-node *result*, because its environment makes a held Promise safe where a DO's or Worker's does not:
   
   - **The heap is durable enough.** A browser tab's JS heap survives a freeze (sleep) *and* a WebSocket reconnect — only a full discard/reload clears it. A DO or Worker isolate loses its heap on hibernation/eviction, so a Promise parked there is bound to memory that routinely vanishes (the control-flow twin of the mutable instance field we forbid).
   - **Delivery re-resolves.** The result fires back addressed to the client's stable `instanceName`; the Gateway routes it to whatever socket the client is on *now*, not the socket the call left on. The awaited Promise is thus not bound to the transient socket — the exact coupling that made a socket-bound await strand on reconnect.
   
-  So `client.lmz.callAsync()` is a Promise **wrapper over that same one-way-fire + re-resolvable delivery** — sugar over send-plus-delivery, not a held cross-hop channel — and it is still bounded (a default timeout composed with an optional `AbortSignal`; abort cancels the *wait*, not the callee's *operation*). DOs and Workers get no awaitable; they use `call()` + a fire-back handler.
+  So `client.lmz.callAsync()` is a Promise **wrapper over that same one-way-fire + re-resolvable delivery** — sugar over send-plus-delivery, not a held cross-hop channel. It is still bounded: a default timeout composed with an optional `AbortSignal`, where abort cancels the *wait*, not the callee's *operation*. DOs and Workers get no awaitable; they use `call()` + a fire-back handler.
 
 ## Alternatives considered
 
@@ -74,9 +77,9 @@ Awaiting a network result is not banned outright — what the decision forbids i
 - Direct delivery: results go straight to their consumer (the canonical spell-check reports to the client, not back through the document DO).
 - DOs stay hibernation-friendly and avoid wall-clock billing across long flows; no node sits resident waiting on a deep call.
 - One model everywhere — client and DO code compose the same way, and `callAsync` restores an awaitable ergonomic on the client **without** the coupling.
-- Broadcast falls out of the same primitive: N one-way calls with optional result handlers. And because continuations are data, alarm-backed and store-and-forward flows use the identical shape.
+- Broadcast falls out of the same primitive: N one-way calls, each with a result handler. And because continuations are data, alarm-backed and store-and-forward flows use the identical shape.
 
 ### Negative
-- "Did it land?" needs explicit machinery (4-arg result handlers, `onErrorOnly`, or the client's `callAsync`) instead of an implicit return — a fire-and-forget error is silently lost unless a handler is attached.
+- "Did it land?" needs explicit machinery instead of an implicit return. Every call names a result handler, a fire-and-forget call one with `onErrorOnly`, and the client's `callAsync` wraps one in a Promise.
 - Flows are harder to trace than a call stack; `callContext.callChain` exists precisely to compensate.
 - Write retry/backpressure cannot lean on a transport response end-to-end; it must be designed at the outcome level (overload/backpressure design + ADR-005's replay idempotency).
