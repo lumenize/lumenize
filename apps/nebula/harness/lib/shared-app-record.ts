@@ -17,8 +17,8 @@ export interface SharedApp {
   ownerEmail: string;
 }
 
-/** This run's id: `drive.ts` sets one for a sweep's every scenario, and a lone process makes its own. */
-const RUN_ID = process.env.HARNESS_RUN_ID ?? crypto.randomUUID();
+/** This run's id: a sweep hands its own to every scenario it runs, and a lone process makes its own. */
+export const RUN_ID = process.env.HARNESS_RUN_ID ?? crypto.randomUUID();
 
 /** The share's key: the stack and the run, never the origin alone, which a later local boot can reuse. */
 export function sharedAppKey(stackId: string, runId: string = RUN_ID): string {

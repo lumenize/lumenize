@@ -161,7 +161,9 @@ either, because it alone catches the deploy-only failure class: the Worker start
 custom-domain claiming, image-rollout/propagation skew, real kernel FUSE, persist-before-`abort`,
 and the stuck-flag race. `test-nebula` is the standing deployed target, redeployed in place under
 one stable name (deliberate — fresh names would strand a DO-namespace set per run; the script
-header carries the reasoning). Do not delete it as clutter.
+header carries the reasoning). Do not delete it as clutter. A deployed sweep spends most of its time
+waiting on Cloudflare, so `drive.ts all --concurrency=N` overlaps the waits: at 2 it took 79.5 min
+against 142 one at a time (2026-10-04). A local sweep refuses it.
 
 ⚠️ The old belief this section replaces — "a real build needs the deployed mount; local serves
 empty" — was the root-level VFS seeding bug observed locally (bisected 2026-08-29,

@@ -22,8 +22,8 @@ import { hostOrigin } from '@lumenize/nebula-auth/claims';
 import { cloudflareCertificateApi, packNamesGalaxy } from '../src/certificate';
 import { sweepStaleTestPacks } from './lib/test-scopes';
 import { installLocalhostLookup } from './lib/localhost-lookup';
-import { deleteClaimedUniverses } from './lib/shared-app';
-import { readSharedApp } from './lib/shared-app-record';
+import { deleteClaimedUniverses, sharedApp } from './lib/shared-app';
+import { readSharedApp, RUN_ID } from './lib/shared-app-record';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as downwardDominion from './scenarios/downward-dominion';
 import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
@@ -211,12 +211,29 @@ const SCENARIOS: Record<string, Scenario> = {
  * hot-reloads every later child's Worker, and a reload mid-request answers 503 — five phantom
  * reds in a row on 2026-09-05 (`live.md`). When it trips the sweep says so once, tags every
  * result from that scenario on as belonging to no tree, and exits non-zero.
+ *
+ * `--concurrency=N` RUNS N SCENARIOS AT ONCE, AGAINST A DEPLOYED TARGET ONLY. A deployed scenario
+ * spends most of its time waiting on Cloudflare — a new app's certificate, a teardown's listing —
+ * so overlapping those waits is where a deployed sweep's two hours go. A local sweep refuses it: each
+ * scenario boots a `wrangler dev` and the sweep clears stray `workerd` processes between them, which
+ * a neighbour would lose. Three things keep concurrent scenarios apart. Each claims accounts of its
+ * own under `testSlug`. The run's shared app is claimed here before any scenario starts, since two
+ * first callers would each claim one. And a scenario whose `bootVars` name the bootstrap address
+ * signs in as the one deployed superuser, whose mail every such scenario waits on, so those run one
+ * at a time. A failure under concurrency that passes alone is contention: say so, never retry it away.
  */
-async function sweep(fast: boolean): Promise<void> {
+async function sweep(fast: boolean, concurrency: number): Promise<void> {
+  const deployed = Boolean(process.env.HARNESS_TARGET_URL);
+  if (concurrency > 1 && !deployed) {
+    console.error('[harness] --concurrency needs HARNESS_TARGET_URL: a local sweep boots a wrangler dev per scenario and clears workerd between them');
+    process.exitCode = 2;
+    return;
+  }
   await sweepStalePacks();
-  const runId = crypto.randomUUID();
-  const { spawnSync } = await import('node:child_process');
-  const { mkdirSync, writeFileSync, readdirSync, statSync } = await import('node:fs');
+  const runId = RUN_ID;
+  const sweepStarted = Date.now();
+  const { spawn, spawnSync } = await import('node:child_process');
+  const { mkdirSync, writeFileSync, readdirSync, readFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join, resolve, dirname } = await import('node:path');
   const { createHash } = await import('node:crypto');
@@ -233,7 +250,8 @@ async function sweep(fast: boolean): Promise<void> {
   console.error('');
 
   // The watched tree: the Worker's own source, the packages it bundles, and the container
-  // image's context. mtime + size per file, hashed; a scan of a few hundred stats is the cost.
+  // image's context, hashed by CONTENT. A modification time also moves when an editor or a tool
+  // saves a file unchanged, which tripped this once with nothing edited (2026-10-04).
   const repoRoot = resolve(dirname(process.argv[1]!), '..', '..', '..');
   const watched = ['apps/nebula/src', 'apps/nebula/container',
     ...readdirSync(join(repoRoot, 'packages')).map((p) => `packages/${p}/src`)];
@@ -246,7 +264,7 @@ async function sweep(fast: boolean): Promise<void> {
         if (e.name === 'node_modules' || e.name === '.wrangler' || e.name === 'dist') continue;
         const full = join(dir, e.name);
         if (e.isDirectory()) walk(full);
-        else if (e.isFile()) { const st = statSync(full); h.update(`${full}:${st.mtimeMs}:${st.size}\n`); }
+        else if (e.isFile()) { h.update(`${full}\n`); h.update(readFileSync(full)); }
       }
     };
     for (const w of watched) walk(join(repoRoot, w));
@@ -265,7 +283,22 @@ async function sweep(fast: boolean): Promise<void> {
   const packs = appPacks();
   const packsBefore = new Set(packs ? (await packs().catch(() => [])).map((p) => p.id) : []);
   let peakPacks = 0;
-  for (const name of names) {
+  if (concurrency > 1) {
+    const app = await sharedApp(deployedStack(process.env.HARNESS_TARGET_URL!), readDevVar('TEST_TOKEN'));
+    console.error(`[harness] ${concurrency} at a time; the run's shared app is ${app.galaxy}\n`);
+  }
+  // One superuser scenario at a time on a deployed target: they share one inbox (see above).
+  const signsInAsSuperuser = (name: string): boolean =>
+    deployed && SCENARIOS[name].bootVars?.NEBULA_AUTH_BOOTSTRAP_EMAIL !== undefined;
+  let superuserTurn: Promise<void> = Promise.resolve();
+  const inSuperuserTurn = async (run: () => Promise<void>): Promise<void> => {
+    const previous = superuserTurn;
+    let release!: () => void;
+    superuserTurn = new Promise((resolve) => { release = resolve; });
+    await previous;
+    try { await run(); } finally { release(); }
+  };
+  const runScenario = async (name: string): Promise<void> => {
     const t0 = Date.now();
     checkTree(name);
     // A stray workerd from a previous scenario starves the next one's boot and its alarms, which
@@ -276,20 +309,22 @@ async function sweep(fast: boolean): Promise<void> {
     // Re-exec the DOCUMENTED command rather than `node <this file>`: this is a `.ts` entry point,
     // so a bare node spawn exits instantly with a loader error — which the sweep would then report
     // as seventeen failing scenarios in 0.1 s each. (It did, on the first run.)
-    const child = spawnSync(
+    if (concurrency > 1) console.error(`▶  ${name}`);
+    const child = spawn(
       'npx',
       ['tsx', process.argv[1]!, name],
       {
         // The parent swept stale packs once already, so each child skips it; and every child is
         // one run, so on a deployed target they share one app (lib/shared-app.ts).
         env: { ...process.env, ...SCENARIOS[name].sweepEnv, HARNESS_PACKS_SWEPT: '1', HARNESS_RUN_ID: runId },
-        encoding: 'utf8',
-        maxBuffer: 64 * 1024 * 1024,
       },
     );
-    const out = `${child.stdout ?? ''}${child.stderr ?? ''}`;
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.stderr.on('data', (chunk) => { out += chunk; });
+    const status = await new Promise<number | null>((resolve) => child.on('close', resolve));
     writeFileSync(join(logDir, `${name}.log`), out);
-    const ok = child.status === 0;
+    const ok = status === 0;
     const detail = ok ? '' : (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
     checkTree(name); // an edit DURING this scenario taints it too
     const tainted = taintedFrom !== undefined;
@@ -297,7 +332,14 @@ async function sweep(fast: boolean): Promise<void> {
     console.error(`${ok ? '✅' : '❌'} ${name.padEnd(26)} ${results.at(-1)!.secs}s ${detail}${tainted ? ' (source changed mid-sweep)' : ''}`);
     if (!ok && process.env.HARNESS_DEBUG) console.error(out);
     if (packs) peakPacks = Math.max(peakPacks, (await packs().catch(() => [])).length);
-  }
+  };
+  const queue = [...names];
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
+      const next = name;
+      await (signsInAsSuperuser(next) ? inSuperuserTurn(() => runScenario(next)) : runScenario(next));
+    }
+  }));
   // On a deployed target, what the run left. Its shared app keeps its pack until the stale-pack
   // sweep takes it, three days on. Any other pack the run added was left by a scenario's cleanup,
   // which reports and never throws, so a leak fails a sweep whose scenarios all passed.
@@ -317,7 +359,8 @@ async function sweep(fast: boolean): Promise<void> {
   }
 
   const failed = results.filter((r) => !r.ok);
-  console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed${parked.length > 0 ? `, ${parked.length} parked` : ''}`);
+  const wall = ((Date.now() - sweepStarted) / 60_000).toFixed(1);
+  console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed${parked.length > 0 ? `, ${parked.length} parked` : ''} in ${wall} min, ${concurrency} at a time`);
   for (const n of parked) console.log(`  ⏭️  ${n} — PARKED, not run: ${SCENARIOS[n].skip}`);
   for (const f of failed) console.log(`  ❌ ${f.name} — ${f.detail}\n     output: ${join(logDir, `${f.name}.log`)}`);
   if (failed.length > 0) console.log(`  (every scenario's full output is under ${logDir})`);
@@ -382,12 +425,37 @@ function appPacks(): (() => Promise<Array<{ id: string; hosts: string[] }>>) | u
 /** The deployed test target's stack id, which keys its run's shared app (`lib/shared-app-record.ts`). */
 const DEPLOYED_STACK_ID = `deployed:${TEST_ORIGIN}`;
 
+/** The deployed target as a stack: nothing booted, so nothing to tear down. */
+function deployedStack(target: string): DevStack {
+  return {
+    // The target's platform host, wherever HARNESS_TARGET_URL points on it: every session route
+    // answers there. The only deployed target is the test one, whose origin its config names.
+    id: DEPLOYED_STACK_ID,
+    baseUrl: hostOrigin({ kind: 'platform' }, TEST_ORIGIN, target),
+    origin: TEST_ORIGIN,
+    signingKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),
+    activeKey: 'BLUE' as const,
+    // ⚠️ State on a deployed target SURVIVES the run — scenarios provision fresh scopes per run,
+    // which is what keeps repeat runs from colliding.
+    cleanup: async () => {},
+  };
+}
+
 installLocalhostLookup();
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const name = argv.find((a) => !a.startsWith('-')) ?? 'message-roundtrip';
-  if (name === 'all') return sweep(argv.includes('--fast'));
+  if (name === 'all') {
+    const flag = argv.find((a) => a.startsWith('--concurrency'));
+    const concurrency = flag === undefined ? 1 : Number(/^--concurrency=(\d+)$/.exec(flag)?.[1]);
+    if (!Number.isInteger(concurrency) || concurrency < 1) {
+      console.error(`[harness] "${flag}": write it --concurrency=N with N at least 1`);
+      process.exitCode = 2;
+      return;
+    }
+    return sweep(argv.includes('--fast'), concurrency);
+  }
 
   const scenario = SCENARIOS[name];
   if (!scenario) {
@@ -435,19 +503,7 @@ async function main(): Promise<void> {
       : '[harness] booting a fresh local wrangler dev WITHOUT the build box (no Docker needed)…');
   }
   const stack: DevStack = target
-    ? {
-        // The target's platform host, wherever HARNESS_TARGET_URL points on it: every session route
-        // answers there. The only deployed target is the test one, whose origin its config names.
-        id: DEPLOYED_STACK_ID,
-        baseUrl: hostOrigin({ kind: 'platform' }, TEST_ORIGIN, target),
-        origin: TEST_ORIGIN,
-        signingKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),
-        activeKey: 'BLUE' as const,
-        // Nothing local was started, so there is nothing to tear down. ⚠️ State on a
-        // deployed target SURVIVES the run — scenarios provision fresh scopes per run,
-        // which is what keeps repeat runs from colliding.
-        cleanup: async () => {},
-      }
+    ? deployedStack(target)
     : await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
   const t0 = Date.now();
   try {
