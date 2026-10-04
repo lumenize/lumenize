@@ -1,0 +1,124 @@
+{
+  "base": "https://experiment-gateway-vs-hosted.transformation.workers.dev",
+  "which": "throughput",
+  "rounds": 3,
+  "windowS": 15,
+  "latency": [],
+  "throughput": [
+    {
+      "round": 0,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-gateway-ee220fad",
+      "perSec": 29.7,
+      "errors": 0,
+      "errorKinds": {},
+      "socketDrops": 0,
+      "latency": {
+        "n": 445,
+        "p50": 546.8826249999984,
+        "p90": 588.3810420000009,
+        "p99": 642.3407090000001,
+        "max": 905.0252920000003
+      }
+    },
+    {
+      "round": 0,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-0f25bc92",
+      "perSec": 18.1,
+      "errors": 16,
+      "errorKinds": {
+        "TimeoutError: The operation was aborted due to timeout": 16
+      },
+      "socketDrops": 16,
+      "latency": {
+        "n": 271,
+        "p50": 582.5635840000032,
+        "p90": 626.917042000001,
+        "p99": 650.7676670000001,
+        "max": 1090.2846659999996
+      }
+    },
+    {
+      "round": 1,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-673b4381",
+      "perSec": 16,
+      "errors": 16,
+      "errorKinds": {
+        "TimeoutError: The operation was aborted due to timeout": 16
+      },
+      "socketDrops": 16,
+      "latency": {
+        "n": 240,
+        "p50": 585.0918749999983,
+        "p90": 617.3872919999994,
+        "p99": 633.1878750000033,
+        "max": 633.4644169999956
+      }
+    },
+    {
+      "round": 1,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-gateway-31d786a0",
+      "perSec": 169.9,
+      "errors": 0,
+      "errorKinds": {},
+      "socketDrops": 0,
+      "latency": {
+        "n": 2548,
+        "p50": 85.52579200000037,
+        "p90": 113.07054100002279,
+        "p99": 287.1189580000064,
+        "max": 421.50929200000246
+      }
+    },
+    {
+      "round": 2,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-gateway-d163bfa4",
+      "perSec": 146.9,
+      "errors": 0,
+      "errorKinds": {},
+      "socketDrops": 0,
+      "latency": {
+        "n": 2203,
+        "p50": 104.56070900001214,
+        "p90": 126.30483300000196,
+        "p99": 195.26975000000675,
+        "max": 537.4355839999916
+      }
+    },
+    {
+      "round": 2,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-d7dcae30",
+      "perSec": 19.2,
+      "errors": 16,
+      "errorKinds": {
+        "TimeoutError: The operation was aborted due to timeout": 16
+      },
+      "socketDrops": 16,
+      "latency": {
+        "n": 288,
+        "p50": 761.3731669999834,
+        "p90": 922.4555000000109,
+        "p99": 946.7469580000034,
+        "max": 984.8699999999953
+      }
+    }
+  ],
+  "broadcast": []
+}

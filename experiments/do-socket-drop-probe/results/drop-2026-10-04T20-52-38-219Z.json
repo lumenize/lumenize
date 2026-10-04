@@ -1,0 +1,153 @@
+{
+  "base": "https://experiment-do-socket-drop-probe.transformation.workers.dev",
+  "mode": "drop",
+  "out": [
+    {
+      "name": "ws1-js",
+      "instance": "drop-ws1-js-793e06c7",
+      "colo": "IAD",
+      "n": 2000000,
+      "durationS": 40,
+      "perSecTimeline": [
+        43,
+        44,
+        46,
+        47.5,
+        45,
+        44.5,
+        46,
+        46.5,
+        46.5,
+        47.5,
+        46.5,
+        46,
+        46.5,
+        47,
+        46,
+        45.5,
+        32,
+        42.5,
+        37.5,
+        42,
+        0.5
+      ],
+      "total": 1777,
+      "errors": 0,
+      "errorKinds": {},
+      "clientCloses": [],
+      "closeCodes": {},
+      "bootIdsSeen": 1,
+      "boots": 1,
+      "serverEvents": [
+        {
+          "at": "2026-10-04T20:50:59.302Z",
+          "boot": "68468328-865a-4141-a5c8-0298dc79c789",
+          "kind": "close",
+          "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+        },
+        {
+          "at": "2026-10-04T20:50:19.329Z",
+          "boot": "68468328-865a-4141-a5c8-0298dc79c789",
+          "kind": "boot",
+          "detail": "boot #1"
+        }
+      ]
+    },
+    {
+      "name": "rpc1-js",
+      "instance": "drop-rpc1-js-5e3096c2",
+      "colo": "IAD",
+      "n": 2000000,
+      "durationS": 40,
+      "perSecTimeline": [
+        21.5,
+        26,
+        25.5,
+        21,
+        27,
+        27,
+        27,
+        26,
+        27.5,
+        22,
+        25.5,
+        24.5,
+        26,
+        20,
+        25.5,
+        25.5,
+        24.5,
+        27.5,
+        27.5,
+        27,
+        0.5
+      ],
+      "total": 1009,
+      "errors": 0,
+      "errorKinds": {},
+      "clientCloses": [],
+      "closeCodes": {},
+      "bootIdsSeen": 1,
+      "boots": 1,
+      "serverEvents": [
+        {
+          "at": "2026-10-04T20:51:05.657Z",
+          "boot": "19c4eb76-1fd1-486b-8e9c-ea2728a99f93",
+          "kind": "boot",
+          "detail": "boot #1"
+        }
+      ]
+    },
+    {
+      "name": "ws1-sql100",
+      "instance": "drop-ws1-sql100-0c8f89e6",
+      "colo": "IAD",
+      "n": 430000,
+      "durationS": 40,
+      "perSecTimeline": [
+        8.5,
+        9,
+        9,
+        8.5,
+        8.5,
+        8,
+        8.5,
+        8.5,
+        8.5,
+        8.5,
+        8.5,
+        8.5,
+        8,
+        8.5,
+        8,
+        8.5,
+        8.5,
+        8.5,
+        8,
+        8.5,
+        0.5
+      ],
+      "total": 339,
+      "errors": 0,
+      "errorKinds": {},
+      "clientCloses": [],
+      "closeCodes": {},
+      "bootIdsSeen": 1,
+      "boots": 1,
+      "serverEvents": [
+        {
+          "at": "2026-10-04T20:52:30.228Z",
+          "boot": "a59f910d-326f-48c1-b40e-4505600f4584",
+          "kind": "close",
+          "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+        },
+        {
+          "at": "2026-10-04T20:51:51.996Z",
+          "boot": "a59f910d-326f-48c1-b40e-4505600f4584",
+          "kind": "boot",
+          "detail": "boot #1"
+        }
+      ]
+    }
+  ]
+}
