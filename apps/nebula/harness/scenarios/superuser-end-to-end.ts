@@ -133,8 +133,9 @@ export async function run(stack: DevStack): Promise<void> {
   // their apps in sorted order until the budget runs out, a node past it arriving as a `childCount`.
   // So the universe is asserted here; on a target holding many accounts its app sits past the budget,
   // which Home reaches as this limb does, with the facade's `expandScope` from the universe's page.
-  // ⚠️ The universe level fills too once the target holds about fifty accounts, and then this reds:
-  // delete the deployed target's leftover `test-*` accounts.
+  // ⚠️ The universe level fills too once the target holds about fifty accounts, and then this reds.
+  // A deployed sweep deletes `test-` accounts older than two days before any scenario runs
+  // (`drive.ts`'s account sweep), so it reds only if the last two days' runs left fifty.
   const scopesRes = await homeSummary(origin, refreshCookie(PLATFORM_SCOPE, refreshToken));
   assert.equal(scopesRes.status, 200, `Home's summary ${scopesRes.status} for a superuser`);
   type Node = { scope: string; children?: Node[] };

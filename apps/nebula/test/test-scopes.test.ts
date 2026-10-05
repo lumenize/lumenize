@@ -1,13 +1,16 @@
 /**
- * The deployed venue's test names and its certificate-pack sweep (`harness/lib/test-scopes.ts`).
+ * The deployed venue's test names and its certificate-pack and account sweeps (`harness/lib/test-scopes.ts`).
  *
  * In-lane on purpose (`live.md` § *`/live` is the DEFAULT tier*): the predicate is a pure function of
- * a pack's hosts and the date, and the local stack orders no packs, so no running system reaches it
- * before a deployment. The deployed pass runs the sweep against the test zone.
+ * a pack's hosts or an account's name and the date, and a local stack's storage goes with it, so no
+ * running system reaches either before a deployment. The deployed pass runs both sweeps against the
+ * test target.
  */
 import { describe, it, expect } from 'vitest';
 import { isValidSlug } from '@lumenize/nebula-auth';
-import { isStaleTestPack, sweepStaleTestPacks, testLabelDate, testSlug } from '../harness/lib/test-scopes';
+import {
+  isStaleTestAccount, isStaleTestPack, sweepStaleTestAccounts, sweepStaleTestPacks, testLabelDate, testSlug,
+} from '../harness/lib/test-scopes';
 
 const ZONE = 'lumenize-test.dev';
 const NOW = new Date('2026-10-03T12:00:00.000Z');
@@ -69,5 +72,36 @@ describe('the sweep deletes only test packs older than its window', () => {
     expect(calls).toEqual(['old', 'stuck', 'older']);
     expect(deleted).toEqual(['old', 'older']);
     expect(lines.some((l) => l.includes('stuck') && l.includes('answered 500'))).toBe(true);
+  });
+});
+
+describe('the account sweep deletes only test accounts older than its window', () => {
+  it("deletes an old run's account and keeps today's and yesterday's", () => {
+    expect(isStaleTestAccount('test-1001-runabc123', NOW)).toBe(true);
+    expect(isStaleTestAccount('test-1002-runabc123', NOW)).toBe(false);
+    expect(isStaleTestAccount('test-1003-runabc123', NOW)).toBe(false);
+  });
+
+  it('keeps every account whose name is not a test label', () => {
+    expect(isStaleTestAccount('claude', NOW)).toBe(false);
+    expect(isStaleTestAccount('acme', NOW)).toBe(false);
+    expect(isStaleTestAccount('claude-1981421a', NOW)).toBe(false);
+  });
+
+  // Home lists at most a budget's worth, alphabetically, so a stale account past the budget is
+  // reached only by listing again after the first pass.
+  it('lists again until no stale account it has not tried is left, past a budget of three', async () => {
+    const accounts = ['claude', 'test-0901-a', 'test-0901-b', 'test-0902-c', 'test-0902-d', 'test-1003-e'];
+    const lines: string[] = [];
+    const deleted = await sweepStaleTestAccounts({
+      list: async () => [...accounts].sort().slice(0, 3),
+      delete: async (universe) => {
+        if (universe === 'test-0901-b') throw new Error('answered 500');
+        accounts.splice(accounts.indexOf(universe), 1);
+      },
+    }, (universe) => isStaleTestAccount(universe, NOW), (l) => lines.push(l));
+    expect(deleted).toEqual(['test-0901-a', 'test-0902-c', 'test-0902-d']);
+    expect(accounts).toEqual(['claude', 'test-0901-b', 'test-1003-e']);
+    expect(lines.some((l) => l.includes('test-0901-b') && l.includes('answered 500'))).toBe(true);
   });
 });

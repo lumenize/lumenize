@@ -20,7 +20,8 @@
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
 import { hostOrigin } from '@lumenize/nebula-auth/claims';
 import { cloudflareCertificateApi, packNamesGalaxy } from '../src/certificate';
-import { sweepStaleTestPacks } from './lib/test-scopes';
+import { isStaleTestAccount, sweepStaleTestAccounts, sweepStaleTestPacks } from './lib/test-scopes';
+import { superuserAccounts } from './lib/superuser-accounts';
 import { installLocalhostLookup } from './lib/localhost-lookup';
 import { deleteClaimedUniverses, sharedApp } from './lib/shared-app';
 import { readSharedApp, RUN_ID } from './lib/shared-app-record';
@@ -230,6 +231,7 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     return;
   }
   await sweepStalePacks();
+  if (deployed) await sweepStaleAccounts(process.env.HARNESS_TARGET_URL!);
   const runId = RUN_ID;
   const sweepStarted = Date.now();
   const { spawn, spawnSync } = await import('node:child_process');
@@ -372,6 +374,26 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     console.log(`\n⚠️  the source changed during the sweep — results from "${taintedFrom}" on belong to no tree; re-run the sweep`);
   }
   if (failed.length > 0 || taintedFrom !== undefined) process.exitCode = 1;
+}
+
+/**
+ * On a deployed target, delete the `test-` accounts older than the account sweep's window
+ * (`lib/test-scopes.ts`), as the deployed superuser, once per sweep and before any scenario runs:
+ * the superuser scenarios read Home, which lists fifty accounts at most. A single scenario's run
+ * leaves this to the next sweep, since a sweep's superuser scenarios would race it for the
+ * superuser's mail.
+ */
+async function sweepStaleAccounts(target: string): Promise<void> {
+  try {
+    const api = await superuserAccounts(deployedStack(target), readDevVar('TEST_TOKEN'));
+    const now = new Date();
+    const deleted = await sweepStaleTestAccounts(api, (universe) => isStaleTestAccount(universe, now),
+      (line) => console.error(`[harness] ${line}`));
+    console.error(`[harness] swept ${deleted.length} stale test account(s)`);
+  } catch (e) {
+    // A failed sign-in or listing leaves the accounts for the next sweep; it is no reason to skip this one.
+    console.error(`[harness] ⚠️  the stale-account sweep failed: ${(e as Error).message}`);
+  }
 }
 
 /**

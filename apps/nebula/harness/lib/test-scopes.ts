@@ -1,21 +1,35 @@
 /**
- * What the deployed test venue names the scopes it creates, and which of their certificate packs a
- * run sweeps.
+ * What the deployed test venue names the scopes it creates, and which of its certificate packs and
+ * accounts a run sweeps.
  *
- * Every galaxy on `lumenize-test.dev` orders a certificate pack, and packs are the one scarce thing
- * a run spends: a zone holds a bounded number. So the venue names what it creates
- * `test-{MMDD}-{random}`, such as `test-0916-k3x9q2`, and at startup the harness deletes the packs
- * of `test-` hosts older than a few days. Sweeping by age rather than by last run keeps a concurrent
- * run's packs alive, and the scopes themselves are left to accumulate, since only packs are scarce.
+ * Every galaxy on `lumenize-test.dev` orders a certificate pack, and a zone holds a bounded number
+ * of packs. So the venue names what it creates `test-{MMDD}-{random}`, such as `test-0916-k3x9q2`,
+ * and at startup the harness deletes the packs of `test-` hosts older than a few days. Sweeping by
+ * age rather than by last run keeps a concurrent run's packs alive.
+ *
+ * Accounts are swept too, by the same label. Home lists at most fifty of them, and the superuser
+ * scenarios assert that a fresh account appears there, so leftovers from earlier runs crowd it out
+ * (both went red on 2026-10-04 with fifty listed). A run deletes most of what it claimed, as each
+ * account's owner (`lib/shared-app.ts`), but leaves its shared app, every claim nobody accepted, and
+ * whatever a crashed run never reached — ten accounts after one deployed sweep on 2026-10-05. The
+ * account sweep deletes those as the deployed superuser once they pass its window.
  * `test-` is also the marker the soft-delete reaper reserves (`tasks/backlog.md` § *Other Nebula
  * backlog*).
  *
- * Pure, so the unit lane checks the predicate without a zone; `drive.ts` runs the sweep.
+ * Pure, so the unit lane checks the predicates and the sweeps' loops without a zone; `drive.ts`
+ * runs them against the target.
  */
 
 /** How old a `test-` pack must be before a run deletes it. A run lasts minutes, so three days
  *  leaves every concurrent run's packs alone. */
 export const SWEEP_WINDOW_DAYS = 3;
+
+/**
+ * How old a `test-` account must be before a run deletes it. A label carries only its UTC day, so
+ * one day would also take a run that started before midnight and is still going; two leaves every
+ * run of the last day alone, and keeps what accumulates to two days of leftovers.
+ */
+export const ACCOUNT_SWEEP_WINDOW_DAYS = 2;
 
 /** A host label is 30 characters at most (`isValidSlug`). */
 const MAX_SLUG_LENGTH = 30;
@@ -98,4 +112,47 @@ export async function sweepStaleTestPacks(
     }
   }
   return deleted;
+}
+
+/**
+ * Whether a universe is a test run's account older than the window: its own name is a `test-` label
+ * minted more than `windowDays` ago. Any other name, such as a person's, is never stale.
+ */
+export function isStaleTestAccount(universe: string, now: Date, windowDays = ACCOUNT_SWEEP_WINDOW_DAYS): boolean {
+  const minted = testLabelDate(universe, now);
+  return minted !== undefined && now.getTime() - minted.getTime() > windowDays * DAY_MS;
+}
+
+/** What the account sweep asks of the target — `superuserAccounts`'s list and delete. */
+export interface AccountSweepApi {
+  /** The universes on the target, as Home lists them: alphabetically, at most a budget's worth. */
+  list(): Promise<string[]>;
+  delete(universe: string): Promise<void>;
+}
+
+/**
+ * Delete every universe `isStale` selects, returning their names. Home lists at most a budget's
+ * worth, so the sweep lists again after each pass and stops when one finds nothing it has not tried;
+ * the oldest labels sort first, so each pass uncovers the next. A failed delete is reported and not
+ * retried this run, and the sweep goes on.
+ */
+export async function sweepStaleTestAccounts(
+  api: AccountSweepApi, isStale: (universe: string) => boolean, report: (line: string) => void = () => {},
+): Promise<string[]> {
+  const deleted: string[] = [];
+  const tried = new Set<string>();
+  for (;;) {
+    const batch = (await api.list()).filter((universe) => isStale(universe) && !tried.has(universe));
+    if (batch.length === 0) return deleted;
+    for (const universe of batch) {
+      tried.add(universe);
+      try {
+        await api.delete(universe);
+        deleted.push(universe);
+        report(`deleted stale test account ${universe}`);
+      } catch (e) {
+        report(`could not delete stale test account ${universe}: ${(e as Error).message}`);
+      }
+    }
+  }
 }
