@@ -636,7 +636,8 @@ module reaches its host only through what it is handed: the host's `ctx`, its `e
 - Both suites pass with the same test files and the same tests, apart from the one below. The
   phase changes no other assertion, so the existing suites are its net.
 - `grep -nE "getAlarm|setAlarm|deleteAlarm|alarm\(|ctx\.storage"` finds nothing in the module or
-  the Gateway, which has 12 such lines today. *Mutation:* restore `setAlarm` in `webSocketClose`.
+  the Gateway, which has 13 such lines today, one of them its class comment. *Mutation:* restore
+  `setAlarm` in `webSocketClose`.
 - `lumenize-client-gateway.test.ts`'s test that fires the grace period with
   `runDurableObjectAlarm` instead lets a short test-mode grace period lapse with a call parked in
   the wait, and still asserts `ClientDisconnectedError` with its class. *Mutation:* never reject
