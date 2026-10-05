@@ -118,8 +118,10 @@ expect(restored.message).toBe('Expected string, got number');
 We use dynamic constructor lookup via `globalThis[error.name]`:
 1. Error is serialized with its `name` property (e.g., `"TypeError"`)
 2. During deserialization, we look up `globalThis["TypeError"]`
-3. If found, we create a new instance of that constructor
-4. If not found, we fall back to base `Error` (but preserve the `name` property)
+3. If found **and it is an Error class** (`Error` itself or a subclass), we create a new instance of that constructor
+4. Otherwise, we fall back to base `Error` (but preserve the `name` property)
+
+Step 3's check is what makes deserialization safe on untrusted input. A payload whose `name` is `"WebSocket"` or `"Image"` arrives as an `Error` with that `name`; the global it names is never constructed.
 
 **Custom Error Classes:**
 

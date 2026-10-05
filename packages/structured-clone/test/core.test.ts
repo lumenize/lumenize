@@ -121,6 +121,21 @@ describe('TypedArrays', () => {
     expect(result).toEqual(arr);
   });
 
+  it('handles BigInt64Array and BigUint64Array at their extremes', () => {
+    const signed = new BigInt64Array([-(2n ** 63n), 0n, 2n ** 63n - 1n]);
+    const unsigned = new BigUint64Array([0n, 2n ** 64n - 1n]);
+    expect(parse(stringify(signed))).toEqual(signed);
+    expect(parse(stringify(unsigned))).toEqual(unsigned);
+  });
+
+  it('handles NaN and ±Infinity in Float32Array and Float64Array', () => {
+    for (const Ctor of [Float32Array, Float64Array]) {
+      const result = parse(stringify(new Ctor([NaN, Infinity, -Infinity, 1.5])));
+      expect(Object.getPrototypeOf(result)).toBe(Ctor.prototype);
+      expect(Array.from(result)).toEqual([NaN, Infinity, -Infinity, 1.5]);
+    }
+  });
+
   it('handles ArrayBuffer', async () => {
     const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
     const result = parse(stringify(buffer));

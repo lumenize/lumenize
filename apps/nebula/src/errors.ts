@@ -3,11 +3,11 @@
  *
  * Errors are serialized via `@lumenize/structured-clone`'s preprocess/
  * postprocess pipeline. The pipeline preserves `name`, `message`, `stack`,
- * `cause`, and **all custom own properties** ([preprocess.ts:208-227]). On
- * the receiving side `instanceof` does NOT survive — the postprocess
- * pipeline reconstructs via `(globalThis as any)[name] || Error`, so
- * non-built-in subclasses arrive as plain `Error` with the correct `name`
- * and custom fields intact ([postprocess.ts:67-69]).
+ * `cause`, and **all custom own properties**. On the receiving side
+ * `instanceof` does NOT survive — postprocess rebuilds an error with the
+ * `globalThis` Error class its `name` names, and these classes are not
+ * registered there, so they arrive as plain `Error` with the correct `name`
+ * and custom fields intact.
  *
  * Detection contract for cross-side checks: use `err.name === 'OntologyStaleError'`
  * + property access, not `err instanceof OntologyStaleError`.

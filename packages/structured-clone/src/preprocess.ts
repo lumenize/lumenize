@@ -110,6 +110,18 @@ function escapeKey(k: string): string {
   return k.startsWith('$') ? '$' + k : k;
 }
 
+// Writes an own data property. Assigning `__proto__` calls Object.prototype's
+// setter, which replaces the target's prototype instead, so that one key is
+// defined: it travels as the own key native structuredClone() keeps, and a
+// payload naming it cannot hand the decoded object a prototype.
+export function setOwn(target: Record<string, any>, key: string, value: unknown): void {
+  if (key === '__proto__') {
+    Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
+  } else {
+    target[key] = value;
+  }
+}
+
 // Renders a path as `session.keys[0]` for error messages.
 function formatPath(path: PathElement[]): string {
   let out = '';
@@ -305,10 +317,10 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       for (const key of Object.getOwnPropertyNames(value)) {
         if (!['name', 'message', 'stack', 'cause'].includes(key)) {
           try {
-            errorData[escapeKey(key)] = encodeRoot(
+            setOwn(errorData, escapeKey(key), encodeRoot(
               (value as any)[key],
               [...path, { type: 'get', key }],
-            );
+            ));
           } catch {
             // skip un-encodable props
           }
@@ -382,10 +394,13 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
           byteLength: (value as DataView).byteLength,
         };
       }
+      // Each element takes the primitive encoding, so NaN, ±Infinity and a
+      // BigInt64Array's bigints carry their tags: JSON would write the first
+      // three as `null` and throw on the last.
       return {
         $type: 'arraybuffer',
         subtype,
-        data: Array.from(value as unknown as ArrayLike<number>),
+        data: Array.from(value as unknown as ArrayLike<number | bigint>, (el) => encodeBody(el, path)),
       };
     }
     // Copying own keys is right only for a plain object or a class instance.
@@ -405,10 +420,10 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
     // Plain object
     const out: Record<string, any> = {};
     for (const key of Object.keys(value)) {
-      out[escapeKey(key)] = encodeRoot(
+      setOwn(out, escapeKey(key), encodeRoot(
         (value as any)[key],
         [...path, { type: 'get', key }],
-      );
+      ));
     }
     return out;
   }

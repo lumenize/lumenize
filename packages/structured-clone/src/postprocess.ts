@@ -20,7 +20,7 @@ import {
   decodeRequestSync,
   decodeResponseSync,
 } from './web-api-encoding';
-import type { LmzIntermediate } from './preprocess';
+import { setOwn, type LmzIntermediate } from './preprocess';
 
 // User-key un-escape: any wire key starting with '$$' becomes the original
 // user key (one `$` removed). Wire-internal keys like `$type` / `$ref` never
@@ -28,6 +28,48 @@ import type { LmzIntermediate } from './preprocess';
 function unescapeKey(k: string): string {
   return k.startsWith('$$') ? k.slice(1) : k;
 }
+
+// The decoder constructs only what the encoder emits. A payload names a global
+// in an error's `name` and a typed array's `subtype`, and constructing that
+// global unchecked would let any sender build a DOM element in a browser, or
+// open an outbound WebSocket from a Durable Object, with arguments it chose.
+
+// The global an error's `name` names, but only when it is an Error class:
+// `Error`, a built-in subclass, or a custom one registered on `globalThis` to
+// keep `instanceof` across the wire. Otherwise the name stays data, on an Error.
+function errorClassNamed(name: unknown): ErrorConstructor {
+  const Ctor = (globalThis as any)[name as string];
+  return typeof Ctor === 'function' && (Ctor === Error || Ctor.prototype instanceof Error)
+    ? Ctor
+    : Error;
+}
+
+function newError(v: any): Error & Record<string, any> {
+  const err = new (errorClassNamed(v.name))(v.message ?? '');
+  // A class whose constructor takes something else first — AggregateError's
+  // errors, SuppressedError's error — leaves the message unset, so it is
+  // written here the way a native error holds it.
+  if (typeof v.message === 'string' && err.message !== v.message) {
+    Object.defineProperty(err, 'message', { value: v.message, writable: true, enumerable: false, configurable: true });
+  }
+  if (typeof v.name === 'string') err.name = v.name;
+  if (typeof v.stack === 'string') err.stack = v.stack;
+  else delete err.stack;
+  return err;
+}
+
+function fillError(err: Error & Record<string, any>, encoded: any, aliases: Map<number, any>): void {
+  if (encoded.cause !== undefined) err.cause = decodeValue(encoded.cause, aliases);
+  for (const k of Object.keys(encoded)) {
+    if (['$type', 'name', 'message', 'stack', 'cause'].includes(k)) continue;
+    setOwn(err, unescapeKey(k), decodeValue(encoded[k], aliases));
+  }
+}
+
+// Every built-in typed-array constructor has %TypedArray% as its prototype,
+// and a class extending %TypedArray% directly cannot be constructed, so this
+// admits exactly the built-ins — Float16Array included where the runtime has it.
+const TypedArray = Object.getPrototypeOf(Uint8Array);
 
 /**
  * Postprocesses a value from intermediate to fully reconstructed values.
@@ -41,7 +83,7 @@ export function postprocess(data: LmzIntermediate): any {
 
   // Pass 1 — create empty containers for every alias slot.
   for (const key of Object.keys(aliasesIn)) {
-    aliases.set(Number(key), allocContainer(aliasesIn[key]));
+    aliases.set(Number(key), allocContainer(aliasesIn[key], aliases));
   }
 
   // Pass 2 — rebuild request-sync/response-sync wrappers. Headers may
@@ -73,7 +115,7 @@ function isTagged(v: any, tag?: string): boolean {
   return tag === undefined || v.$type === tag;
 }
 
-function allocContainer(v: any): any {
+function allocContainer(v: any, aliases: Map<number, any>): any {
   if (Array.isArray(v)) return [];
   if (!v || typeof v !== 'object') return v;
   if ('$type' in v) {
@@ -90,14 +132,8 @@ function allocContainer(v: any): any {
         return new URL(v.href);
       case 'headers':
         return new Headers(v.entries);
-      case 'error': {
-        const Ctor = (globalThis as any)[v.name] || Error;
-        const err = new Ctor(v.message ?? '');
-        if (typeof v.name === 'string') err.name = v.name;
-        if (typeof v.stack === 'string') err.stack = v.stack;
-        else delete err.stack;
-        return err;
-      }
+      case 'error':
+        return newError(v);
       case 'boolean-object':
         return new Boolean(v.value);
       case 'number-object': {
@@ -112,7 +148,7 @@ function allocContainer(v: any): any {
       case 'bigint-object':
         return Object(BigInt(v.value));
       case 'arraybuffer':
-        return allocArrayBuffer(v);
+        return allocArrayBuffer(v, aliases);
       case 'function':
         return {};
       case 'request-sync':
@@ -125,7 +161,12 @@ function allocContainer(v: any): any {
   return {}; // plain object body
 }
 
-function allocArrayBuffer(v: any): any {
+function allocArrayBuffer(v: any, aliases: Map<number, any>): any {
+  // Built from the bytes the payload carries, never from a length it names:
+  // `new Float64Array(1e8)` would let a 30-byte message allocate 800 MB.
+  if (!Array.isArray(v.data)) {
+    throw new DOMException('Could not deserialize arraybuffer: data is not an array', 'DataCloneError');
+  }
   if (v.subtype === 'ArrayBuffer') {
     return new Uint8Array(v.data).buffer;
   }
@@ -134,7 +175,9 @@ function allocArrayBuffer(v: any): any {
     return new DataView(buffer, v.byteOffset, v.byteLength);
   }
   const Ctor = (globalThis as any)[v.subtype];
-  if (typeof Ctor === 'function') return new Ctor(v.data);
+  if (typeof Ctor === 'function' && Object.getPrototypeOf(Ctor) === TypedArray) {
+    return new Ctor(v.data.map((el: unknown) => decodeValue(el, aliases)));
+  }
   return new Uint8Array(v.data); // fallback
 }
 
@@ -158,20 +201,14 @@ function fillContainer(container: any, encoded: any, aliases: Map<number, any>):
         for (const v of encoded.values) s.add(decodeValue(v, aliases));
         return;
       }
-      case 'error': {
-        const err = container as Error & Record<string, any>;
-        if (encoded.cause !== undefined) err.cause = decodeValue(encoded.cause, aliases);
-        for (const k of Object.keys(encoded)) {
-          if (['$type', 'name', 'message', 'stack', 'cause'].includes(k)) continue;
-          err[unescapeKey(k)] = decodeValue((encoded as any)[k], aliases);
-        }
+      case 'error':
+        fillError(container, encoded, aliases);
         return;
-      }
       case 'function': {
         const marker = container as Record<string, any>;
         for (const k of Object.keys(encoded)) {
           if (k === '$type' || k === 'name') continue;
-          marker[unescapeKey(k)] = decodeValue((encoded as any)[k], aliases);
+          setOwn(marker, unescapeKey(k), decodeValue((encoded as any)[k], aliases));
         }
         marker.name = encoded.name;
         return;
@@ -193,7 +230,7 @@ function fillContainer(container: any, encoded: any, aliases: Map<number, any>):
         // Plain object with arbitrary $type — copy keys.
         for (const k of Object.keys(encoded)) {
           if (k === '$type') continue;
-          (container as any)[unescapeKey(k)] = decodeValue((encoded as any)[k], aliases);
+          setOwn(container, unescapeKey(k), decodeValue((encoded as any)[k], aliases));
         }
         (container as any).$type = encoded.$type;
         return;
@@ -201,7 +238,7 @@ function fillContainer(container: any, encoded: any, aliases: Map<number, any>):
   }
   // Plain object body
   for (const k of Object.keys(encoded)) {
-    (container as any)[unescapeKey(k)] = decodeValue((encoded as any)[k], aliases);
+    setOwn(container, unescapeKey(k), decodeValue((encoded as any)[k], aliases));
   }
 }
 
@@ -232,7 +269,7 @@ function decodeValue(value: any, aliases: Map<number, any>): any {
         const marker: Record<string, any> = { name: value.name };
         for (const k of Object.keys(value)) {
           if (k === '$type' || k === 'name') continue;
-          marker[unescapeKey(k)] = decodeValue((value as any)[k], aliases);
+          setOwn(marker, unescapeKey(k), decodeValue((value as any)[k], aliases));
         }
         return marker;
       }
@@ -255,16 +292,8 @@ function decodeValue(value: any, aliases: Map<number, any>): any {
         return s;
       }
       case 'error': {
-        const Ctor = (globalThis as any)[value.name] || Error;
-        const err = new Ctor(value.message ?? '');
-        if (typeof value.name === 'string') err.name = value.name;
-        if (typeof value.stack === 'string') err.stack = value.stack;
-        else delete err.stack;
-        if (value.cause !== undefined) err.cause = decodeValue(value.cause, aliases);
-        for (const k of Object.keys(value)) {
-          if (['$type', 'name', 'message', 'stack', 'cause'].includes(k)) continue;
-          (err as any)[unescapeKey(k)] = decodeValue((value as any)[k], aliases);
-        }
+        const err = newError(value);
+        fillError(err, value, aliases);
         return err;
       }
       case 'boolean-object':
@@ -281,7 +310,7 @@ function decodeValue(value: any, aliases: Map<number, any>): any {
       case 'bigint-object':
         return Object(BigInt(value.value));
       case 'arraybuffer':
-        return allocArrayBuffer(value);
+        return allocArrayBuffer(value, aliases);
       case 'request-sync':
         return decodeRequestSync(value.data, (h: any) => decodeValue(h, aliases));
       case 'response-sync':
@@ -290,7 +319,7 @@ function decodeValue(value: any, aliases: Map<number, any>): any {
         const out: Record<string, any> = { $type: tag };
         for (const k of Object.keys(value)) {
           if (k === '$type') continue;
-          out[unescapeKey(k)] = decodeValue((value as any)[k], aliases);
+          setOwn(out, unescapeKey(k), decodeValue((value as any)[k], aliases));
         }
         return out;
       }
@@ -299,7 +328,7 @@ function decodeValue(value: any, aliases: Map<number, any>): any {
 
   const out: Record<string, any> = {};
   for (const k of Object.keys(value)) {
-    out[unescapeKey(k)] = decodeValue((value as any)[k], aliases);
+    setOwn(out, unescapeKey(k), decodeValue((value as any)[k], aliases));
   }
   return out;
 }
