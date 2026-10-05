@@ -7,7 +7,7 @@
  * Star and every persona of `acme.crm`, and a universe orders none, since Universal SSL covers its one
  * label. The Galaxy's Durable Object drives the pack from its own alarm (`galaxy.ts`), and the
  * functions here decide each step from what it has stored and what the API last answered, so
- * pool-workers can test the machine without a deployment. Only an `https` deployment orders; the
+ * vitest-plugin can test the machine without a deployment. Only an `https` deployment orders; the
  * local stack's `http` origin needs no certificate.
  */
 

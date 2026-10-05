@@ -12,7 +12,7 @@
  *  - No Turnstile gating (Turnstile is documented as optional, Step 9).
  *
  * Why this exists: the `@lumenize/debug` regression slipped past
- * vitest-pool-workers because both pool-workers and `tsx` resolve dynamic
+ * vitest-plugin because both vitest-plugin and `tsx` resolve dynamic
  * imports at runtime. This test runs the actual end-user flow — Vite
  * bundles the client into a real browser, the browser drives a real
  * WebSocket through a real `wrangler dev`, and a real DO@`@mesh()` call

@@ -190,10 +190,10 @@ stuck verdict; the build drive logs any match and expects zero ([[cf-container-s
   networking can't sustain the workerd↔container(↔sidecar) connection.
 - **`wrangler dev` MUST run with NO `--local`** — `--local` + a container hangs after the image build
   (workerd listens, never becomes ready). Recovery: `pkill -9 -f workerd`, then `rm -rf .wrangler`.
-- **`extends Container` cannot be constructed under vitest-pool-workers** (`ctx.container` is undefined →
+- **`extends Container` cannot be constructed under vitest-plugin** (`ctx.container` is undefined →
   the *base ctor* throws). ✅ **The fix is to not extend it.** Any DO drives a container via **raw
   `ctx.container`**, and a plain DO that touches `ctx.container` only in methods (never the constructor)
-  **constructs + unit-tests fine** under pool-workers — `ctx.container` is simply `undefined` there, so
+  **constructs + unit-tests fine** under vitest-plugin — `ctx.container` is simply `undefined` there, so
   container methods MUST be guarded with `if (this.ctx.container)`. The raw path **restores** the unit-testability
   `extends Container` forfeits; the thin-shell discipline becomes a nicety, not a workaround.
   (`experiments/plain-do-container` Q1, which also measured `extends Container` failing to construct
@@ -205,7 +205,7 @@ stuck verdict; the build drive logs any match and expects zero ([[cf-container-s
 ## The `Container` base is optional — drive raw `ctx.container`, steal the base's homework
 
 You do **not** have to `extends Container`. Any DO drives a container through raw `ctx.container`, and
-that's the preferred path: it restores pool-workers testability (above) and frees the DO to compose the
+that's the preferred path: it restores vitest-plugin testability (above) and frees the DO to compose the
 mesh core normally. `@cloudflare/containers` is open source — **read it and copy its patterns** rather
 than inherit its lifecycle. A correct raw drive replicates:
 

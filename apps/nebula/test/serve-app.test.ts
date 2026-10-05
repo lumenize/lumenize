@@ -1,7 +1,7 @@
 /**
  * serve.ts — the pure `/app/*` static serve, against a fake `getFile` (the seam is
  * the point: these tests pin the whole serving contract before any Galaxy branch
- * exists). Pool-workers (the `unit` project) so the real workerd `HTMLRewriter`
+ * exists). The vitest-plugin lane (the `unit` project) so the real workerd `HTMLRewriter`
  * performs the `<base>` injection — jsdom has no HTMLRewriter, which is why this
  * cannot be a Node unit test.
  */

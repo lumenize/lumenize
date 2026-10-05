@@ -1,7 +1,7 @@
 /**
  * **The auth screens actually render — the half a green suite cannot see.**
  *
- * The pool-workers lane asserts the auth screens' server side: the routes exist, the ticket is spendable only
+ * The vitest-plugin lane asserts the auth screens' server side: the routes exist, the ticket is spendable only
  * at the claim, the coming-soon tag is a closed set. None of that says a person sees a form. The
  * capability that was fully present in code and never wired into the UI is this repo's own cautionary
  * tale (`live.md`), and these screens are where a repeat would be most expensive — they are every

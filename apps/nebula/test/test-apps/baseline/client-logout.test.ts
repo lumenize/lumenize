@@ -10,7 +10,7 @@
  *   - a top-level page goes to `/auth/logout` on the platform host, `?everywhere=1` when asked
  *   - the client itself sends no request: the browser's cookie still mints until that page posts
  *
- * Under pool-workers there is no `window`, so the navigation is observed through a stubbed one —
+ * Under vitest-plugin there is no `window`, so the navigation is observed through a stubbed one —
  * the only observable the client has, since the logout it sends a page to is the page's to post.
  *
  * Capable-of-failing, per assertion: `client.claims` is null (drop `clearAccessToken` → claims

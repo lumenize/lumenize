@@ -115,7 +115,7 @@ describe('one click, a session per membership', () => {
     // Asserted through the debug sink because the mechanism IS the activity log — ADR-016 § *What is
     // recorded is the commitment; where it goes is not* puts a `@lumenize/debug` line at the point of
     // action and imposes no schema obligation. The sink also sees DO-side entries under
-    // pool-workers, which is where this one is emitted (`testing.md`).
+    // vitest-plugin, which is where this one is emitted (`testing.md`).
     const person = addr();
     const a = uni(); const b = uni();
     for (const u of [a, b]) await foundUniverse(SELF, u, person);

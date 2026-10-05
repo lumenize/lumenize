@@ -1250,7 +1250,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * @internal Test-only — invokes the same resubscribe walk that fires on a
    * `reconnecting → connected` transition. Provided because forcing an
    * unsolicited WS close from outside the client is awkward in the
-   * vitest-pool-workers harness. The state-machine wiring that calls this
+   * vitest-plugin harness. The state-machine wiring that calls this
    * in production is covered by mesh-level tests + a smoke test that
    * exercises the real supersede path.
    */

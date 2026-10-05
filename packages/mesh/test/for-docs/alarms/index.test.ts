@@ -20,7 +20,7 @@ import type { ReminderDO } from './reminder-do.js';
 // timestamp, so it wins every subsequent pop and starves the scheduled alarm at ANY
 // count. Unpinned, this test reds every day from 23:00 to 00:00 UTC (bit 2026-08-29,
 // masquerading as a toolchain-bump failure). Fake timers move the clock the Worker and
-// the DO both see (testing.md § You CAN make time pass under pool-workers).
+// the DO both see (testing.md § You CAN make time pass under vitest-plugin).
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(new Date('2026-06-15T12:00:00Z'));

@@ -203,9 +203,9 @@ export default defineConfig({
       ...(includeCfRemote ? [{
         // Real-browser tests: bundles @lumenize/mesh/client through Vite +
         // Playwright (chromium). Catches client-side imports that work in
-        // vitest-pool-workers but fail in a real browser bundle — e.g., the
+        // vitest-plugin but fail in a real browser bundle — e.g., the
         // `@lumenize/debug` regression where `await import('cloudflare:workers')`
-        // bundled fine under vitest-pool-workers but vite refused to resolve
+        // bundled fine under vitest-plugin but vite refused to resolve
         // it. See tasks/playwright-test-template.md.
         extends: true,
         plugins: [swcPlugin],

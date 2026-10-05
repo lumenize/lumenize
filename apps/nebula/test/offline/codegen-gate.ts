@@ -12,7 +12,7 @@
  *    `cloudflare:workers`);
  *  - `codegen-gate.test.ts` pins the check behaviour (the `$setup` bindings
  *    threading, the ontology reserved-prefix guard reaching a compile, the
- *    sanitizer) at pool-workers speed.
+ *    sanitizer) at vitest-plugin speed.
  *
  * Given `(path, content)`, dispatch by extension: `*.d.ts` (the ontology) →
  * {@link compileOntologyVersion}; `*.vue` → the two-pass SFC check (Pass 1

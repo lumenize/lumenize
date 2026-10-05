@@ -9,7 +9,7 @@
  * findings or a failed step, as a user-layer fix prompt.
  *
  * **Standalone + dependency-injected** so the loop is testable with a synthetic (fake)
- * model and no AI binding (vitest-pool-workers), and so the offline prompt harness can
+ * model and no AI binding (vitest-plugin), and so the offline prompt harness can
  * drive it too. The driver imports nothing from the Galaxy: the entries a tool reaches
  * arrive as {@link CodegenLoopDeps.tools}, built by the Galaxy from its `LOOP_TOOL_ENTRIES`
  * table, and it holds **no reference** to the `.dev` Star binding or the install/wipe
@@ -317,7 +317,7 @@ export interface CodegenLoopDeps {
    * assistant progress stream fans to session subscribers (NOT model tokens; `callModel`
    * is non-streaming). Optional + synchronous fire-and-forget: a slow/throwing sink must
    * not perturb the loop, so callers keep it cheap (Galaxy buffers + broadcasts). Only
-   * exercised under `wrangler dev` (real `chat`); pool-workers tests drive the downstream
+   * exercised under `wrangler dev` (real `chat`); vitest-plugin tests drive the downstream
    * push directly via the test harness.
    */
   onProgress?: (step: string) => void;

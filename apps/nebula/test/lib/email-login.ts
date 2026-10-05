@@ -10,7 +10,7 @@
  *
  * Deliberately free of `node:` imports and of `cloudflare:*` imports, so the
  * SAME code path runs in Node (the `/live` harness, ui-smoke) and inside
- * workerd (vitest-pool-workers test-apps). Anything that needs the filesystem —
+ * workerd (vitest-plugin test-apps). Anything that needs the filesystem —
  * e.g. the harness's stored-session cache — layers on top rather than living
  * here.
  *
@@ -33,7 +33,7 @@ export interface EmailLoginOptions {
   /**
    * The platform host's origin, where every session route answers —
    * `http://platform.lumenize.localhost:<port>` for a local stack, the same host for an in-process
-   * pool-workers Worker, `https://platform.lumenize-test.dev` deployed. Trailing slash ok.
+   * vitest-plugin Worker, `https://platform.lumenize-test.dev` deployed. Trailing slash ok.
    */
   baseUrl: string;
   /** The membership whose cookie this login is for — its scope names the cookie. */

@@ -38,7 +38,7 @@ tainted sweep exits non-zero instead of reading as a real one.
 
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 
-**The `/live` scenario MUST be written first. You MAY drop to pool-workers when the behaviour is
+**The `/live` scenario MUST be written first. You MAY drop to the vitest-plugin lane when the behaviour is
 genuinely pure — a predicate, a parser, a classification table — and the test MUST then say why it
 needed no running system.**
 This inverts the older "calibrate, reach for it when runtime behaviour is uncertain" framing, on
@@ -61,11 +61,11 @@ evidence rather than taste:
 - **Mutation cannot substitute.** "Must go red" proves an assertion CAN fail; it is structurally
   blind to whether the thing asserted against resembles production, because mutating the code makes
   an unfaithful fixture red too. Both are required. (Measured 2026-07-30: a mutation-validated
-  pool-workers test "covered" `authedFetch`'s refresh-on-expiry using a token *born* already due —
+  vitest-plugin test "covered" `authedFetch`'s refresh-on-expiry using a token *born* already due —
   green, and it proved the re-mint path runs, not that a session survives a real lapse. Only the
   live run produced a real 401 from a real server.)
 - **It PREVENTS rather than detects.** `/live` has no test subclass to reach through, no `as any`, no
-  mocks — you can only assert on what the real system did. In the same build, seven pool-workers
+  mocks — you can only assert on what the real system did. In the same build, seven vitest-plugin
   tests could not fail; the one `/live` scenario had zero on first write.
 
 ⚠️ **The wall-clock objection is retired by a NUMBER, so stop arguing with it.** A full real-email

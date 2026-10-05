@@ -1,7 +1,7 @@
 /**
  * Phase 1 — Rung-1 compile gates (tasks/archive/nebula-codegen-loop.md). The container-free
  * self-correction signal: `compileSource(path, content)` dispatches by extension and
- * returns `{ ok, errorTail? }`. Runs under vitest-pool-workers — no container, no AI
+ * returns `{ ok, errorTail? }`. Runs under vitest-plugin — no container, no AI
  * binding (the `dev-studio` project carries `nodejs_compat` + the bundled `tsc`).
  *
  * Capable-of-failing proof for each gate: a known-good input returns `ok:true` and a

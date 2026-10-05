@@ -5,7 +5,7 @@ import { checkTypeScript } from '../src/virtual-ts-host';
  * Package-local guard for `checkTypeScript` — the in-Worker TS type-check engine
  * the SFC semantic gate (apps/nebula codegen loop) depends on. Keeps the engine's
  * contract from regressing without the Nebula consumer noticing. Runs the bundled
- * `typescript` + lib files under vitest-pool-workers (same as generateParseModule).
+ * `typescript` + lib files under vitest-plugin (same as generateParseModule).
  */
 describe('checkTypeScript', () => {
   it('valid TypeScript → { ok: true, messages: [] }', () => {

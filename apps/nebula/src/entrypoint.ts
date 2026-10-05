@@ -29,7 +29,7 @@ import { extractWebSocketToken } from '@lumenize/mesh/client';
 
 // --- Build stamp -----------------------------------------------------------------------
 // These globals are injected ONLY by a real `wrangler deploy` via Wrangler `--define`
-// (deploy.sh / deploy:test-worker). vitest-pool-workers, `wrangler dev`, and the bench
+// (deploy.sh / deploy:test-worker). vitest-plugin, `wrangler dev`, and the bench
 // worker's local-spawn inject NONE. entrypoint.ts is imported by the baseline app, the
 // bench worker, and every test app — so a handler reading a BARE `__GIT_SHA__` would fail
 // type-check (TS2304) and throw `ReferenceError` at request time, breaking the whole suite

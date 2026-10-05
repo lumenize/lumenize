@@ -202,7 +202,7 @@ describe('Identity authority — mint only at authority points', () => {
       const aged = uniqueUniverse();
       await claimUniverse(SELF, aged, email);
       // Age its link past MAGIC_LINK_TTL — the clock moves for the Worker AND the DO under
-      // pool-workers, so the row's own expiry check is what decides.
+      // vitest-plugin, so the row's own expiry check is what decides.
       await (runInDurableObject as any)(getRegistry(), (_i: any, c: any) => {
         c.storage.sql.exec("UPDATE MagicLinks SET expiresAt = '2020-01-01T00:00:00.000Z' WHERE universeGalaxyStarId = ?", aged);
       });

@@ -220,7 +220,7 @@ Part A (the eval) is buildable as soon as gate #1 is confirmed. Parts B/C wait o
 - **What exactly is the versioned scaffold unit?** System prompt / `SKILL.md` tier / exemplars / secure-default templates — all separately versioned? Shapes credit-assignment granularity.
 - **Shared engine vs. separate loop** — does the nightly-loop engine run this, or is it always-on and independent? (Different target, meter, safety → leaning separate.)
 - **Privacy-preserving aggregation** — trusted-scaffold-only is the floor; is there ever a case for cross-tenant pattern learning, and under what differential-privacy-grade guarantee?
-- *(From the eval origin)* Is GLM-5.2 reliable enough as a *judge* at our thresholds (Phase 2 answers)? Node-side REST vs. vitest-pool-workers binding (Node-side default)? Does `@vitest-evals/harness-ai-sdk` map onto our loop or need a thin custom adapter?
+- *(From the eval origin)* Is GLM-5.2 reliable enough as a *judge* at our thresholds (Phase 2 answers)? Node-side REST vs. vitest-plugin binding (Node-side default)? Does `@vitest-evals/harness-ai-sdk` map onto our loop or need a thin custom adapter?
 
 ## Related
 - [`docs/vision/self-improving-platform.md`](../../docs/vision/self-improving-platform.md) — governing vision (moat, bounded claim, timing gates).

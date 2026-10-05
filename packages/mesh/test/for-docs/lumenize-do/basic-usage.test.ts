@@ -115,7 +115,7 @@ describe('LumenizeDO - Basic Usage', () => {
 
     expect(user.email).toBe('test@example.com');
 
-    // @ts-expect-error - Type instantiation is excessively deep (vitest-pool-workers stub typing)
+    // @ts-expect-error - Type instantiation is excessively deep (vitest-plugin stub typing)
     const retrieved = await stub.getUser('user1');
     expect(retrieved.email).toBe('test@example.com');
   });

@@ -1,7 +1,7 @@
 /**
  * Galaxy codegen test harness (the `dev-studio` vitest project — its name predates the
  * collapse of DevStudio into Galaxy). Galaxy `extends NebulaDO` (a constructable SQLite
- * DO), so it runs under vitest-pool-workers — this project exercises the real node: the
+ * DO), so it runs under vitest-plugin — this project exercises the real node: the
  * `@cloudflare/computer` Workspace + host-side git (writeSource / commit / readSource)
  * and the compile-and-apply into the registry, which the derived `{u}.{g}.dev` star pulls on its
  * next op. Driven via `__executeOperation` envelopes (the
@@ -28,7 +28,7 @@ import type { ParseResult } from '@lumenize/ts-runtime-parser-validator/runtime'
 
 /**
  * The GALAXY class under test — a Galaxy whose `callModel` replays a **synthetic
- * script** (no AI binding) so the codegen loop is exercised under vitest-pool-workers.
+ * script** (no AI binding) so the codegen loop is exercised under vitest-plugin.
  * The script is one fake `env.AI.run` response per round; `seenMessages` snapshots the
  * transcript handed to the model each round so a test can assert the error-tail
  * round-trips into the next round's user layer.
@@ -51,7 +51,7 @@ export class GalaxyLoopProbe extends Galaxy {
   }
 
   /**
-   * The BUILD SEAM, faked faithfully: no container exists under pool-workers, so the
+   * The BUILD SEAM, faked faithfully: no container exists under vitest-plugin, so the
    * probe compiles IN PLACE (a test Worker may carry the compiler) and writes the row
    * exactly where the real job does — an fs write at ROW_PATH via `workspaceFs()`,
    * never `writeSource` (the mount does not git-commit). `applyOntology`'s

@@ -1,7 +1,7 @@
 /**
  * Which host is which (`src/hosts.ts`), and which tokens a deployment accepts.
  *
- * The host table is a parser's, so pool-workers is the right tier: nothing here needs a running
+ * The host table is a parser's, so vitest-plugin is the right tier: nothing here needs a running
  * system to mean something. The issuer limb uses the real payload builder and the real verify.
  */
 import { describe, it, expect } from 'vitest';

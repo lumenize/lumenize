@@ -47,7 +47,7 @@ import { getWebSocketShim } from './websocket-shim';
  * @param config - Optional configuration for downstream messaging and connection handling
  * @returns A proxy client that supports both RPC calls and lifecycle management
  * 
- * @throws {Error} Will fail to import if used outside vitest-pool-workers environment
+ * @throws {Error} Will fail to import if used outside vitest-plugin environment
  */
 export function createTestingClient<T>(
   doBindingName: string,

@@ -101,7 +101,7 @@ Measured 2026-09-18 on workerd 1.20260815.1, over a DO stub and a service bindin
 The `fetch()`-forwarded path (§ *Edge Worker fronting a DO*) is the alternative: there the DO converts its own `RegistryError` to a `Response` in-process, where `instanceof` works and the stack is whole.
 
 ## Hibernation WebSocket API
-DOs that accept and push to connected clients MUST use the Hibernation WebSocket API: accept in `fetch()` via `ctx.acceptWebSocket(server)` returning a `101` with the client socket; push with `for (const ws of this.ctx.getWebSockets()) ws.send(message)`; in `webSocketClose` echo the code, but `1005` ("no status present") MUST be mapped to `1000` since `1005` is invalid to send. vitest-pool-workers tests can open real `new WebSocket()` connections to deployed Workers for e2e patterns.
+DOs that accept and push to connected clients MUST use the Hibernation WebSocket API: accept in `fetch()` via `ctx.acceptWebSocket(server)` returning a `101` with the client socket; push with `for (const ws of this.ctx.getWebSockets()) ws.send(message)`; in `webSocketClose` echo the code, but `1005` ("no status present") MUST be mapped to `1000` since `1005` is invalid to send. vitest-plugin tests can open real `new WebSocket()` connections to deployed Workers for e2e patterns.
 
 (In the Mesh world, client WebSockets terminate at the Gateway — app/platform DOs never accept their own.)
 

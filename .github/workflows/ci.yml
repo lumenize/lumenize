@@ -35,7 +35,7 @@ jobs:
   run-packages-tests-with-coverage:
     runs-on: ubuntu-latest
     env:
-      # pool-workers' remote proxy (for the EMAIL / Cloudflare Email Sending
+      # vitest-plugin' remote proxy (for the EMAIL / Cloudflare Email Sending
       # binding the auth e2e + hono suites use) authenticates to Cloudflare via
       # these. Node-side process env, not worker bindings. The secret is named for
       # its one use; wrangler only reads it under the name CLOUDFLARE_API_TOKEN.
@@ -92,7 +92,7 @@ jobs:
         # not CF `send_email remote:true` (tasks/nebula-in-ci.md). ui-smoke (real
         # Docker container + AI) is NOT in `npm test` — it runs in the separate
         # ui-smoke.yml workflow (every push/PR, its own runner, isolated from these
-        # CPU-bound pool-workers lanes). tooling/ stays out (updated + run manually).
+        # CPU-bound vitest-plugin lanes). tooling/ stays out (updated + run manually).
         # --run-all: a flake in one package can't mask later ones; --retry 2
         # self-heals cold-start flakes on the over-the-web e2e suites (retry-safe via
         # unique per-run instance names). Real failures still fail all 3 attempts.

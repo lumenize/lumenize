@@ -423,7 +423,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    *
    * Raw Workers RPC to the raw registry (nebula-auth is raw-DO infra). NOT a `using` stub — a DO stub
    * is a local pointer with no `Symbol.dispose`, so `using` throws "Object is not disposable." in EVERY
-   * environment (pool-workers === wrangler dev === deployed, verified 2026-07-15; only a method-returned
+   * environment (vitest-plugin === wrangler dev === deployed, verified 2026-07-15; only a method-returned
    * RpcTarget is disposable — see the using-on-do-stub-not-disposable memory). A plain `const` + `await`
    * is correct everywhere; the `await` is load-bearing — returning the pending promise unawaited would
    * race the stub's release on method return.

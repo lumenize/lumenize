@@ -8,7 +8,7 @@
  * `ResourcesHost` makes a MISNAMED reaper fail to compile (the `@ts-expect-error` below); only a
  * row assertion per site catches a wrong one.
  *
- * Why pool-workers rather than `/live`: the rows are server-internal state no client can read, and
+ * Why vitest-plugin rather than `/live`: the rows are server-internal state no client can read, and
  * reading them takes `runInDurableObject`. The path under test — the real Gateway reporting a
  * closed socket, the plane's broadcast, the reaper on the host's `resourcesResults` — runs unchanged
  * in this lane.

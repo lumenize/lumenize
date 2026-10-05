@@ -9,7 +9,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
  * The load-bearing premise (D15 / criterion 10 / the ALS spike): a mesh node's
  * `__executeOperation` **acks early** (admission only), then runs the chain + fire-back as a
  * DETACHED task under `ctx.waitUntil`, re-bound to the envelope's callContext. This file
- * proves, DO→DO under pool-workers:
+ * proves, DO→DO under vitest-plugin:
  *  1. a 4-arg call's traveling handler is delivered via the fire-back (`__handleResponse`);
  *  2. `__executeOperation` returns `{$ack:true}` BEFORE the chain finishes (early-ack, not late);
  *  3. a callee that early-acks then does a REAL 2s post-ack gap STILL fires back

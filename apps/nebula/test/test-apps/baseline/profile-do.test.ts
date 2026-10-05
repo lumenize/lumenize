@@ -117,7 +117,7 @@ async function seedIdentity(profileId: string, scope: string, accepted = true): 
 
 // The Profile DO emits `nebula-auth.Profile.authz.registryRead` ONLY on the scoped-admin read path —
 // the read-counter the "zero reads" / "exactly one read" criteria assert on (debug-sink catches DO-side
-// markers in pool-workers).
+// markers in vitest-plugin).
 let sink: any[] = [];
 const registryReads = () => sink.filter((e) => e.namespace === 'nebula-auth.Profile.authz.registryRead').length;
 beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });

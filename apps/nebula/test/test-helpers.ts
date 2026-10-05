@@ -19,7 +19,7 @@ import {
 export const DEPLOYMENT = 'http://lumenize.localhost';
 /**
  * The platform host: every session's routes and the pages that sign a person in. Under
- * pool-workers `Browser` reaches the Worker through `SELF.fetch` whatever the host, so the lane uses
+ * vitest-plugin `Browser` reaches the Worker through `SELF.fetch` whatever the host, so the lane uses
  * the deployment's real hosts.
  */
 export const ORIGIN = hostOrigin({ kind: 'platform' }, DEPLOYMENT);

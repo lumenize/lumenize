@@ -69,7 +69,7 @@ A DO is billed for elapsed time whenever it is actively working: `await`ing I/O,
   ```typescript
   { using cap = await stub.getCapability(); const result = await cap.someMethod(); }
   ```
-  A **DO stub** (and a service/WorkerEntrypoint binding stub, and a facet stub) is a local pointer with **no `Symbol.dispose`** — `using` on it throws `"Object is not disposable."` in every environment (pool-workers ≡ wrangler dev ≡ deployed; verified 2026-07-15, `experiments/rpc-stub-disposability/FINDINGS.md`). You MUST use a plain `const` and `await` the call; the pointer needs no disposal:
+  A **DO stub** (and a service/WorkerEntrypoint binding stub, and a facet stub) is a local pointer with **no `Symbol.dispose`** — `using` on it throws `"Object is not disposable."` in every environment (vitest-plugin ≡ wrangler dev ≡ deployed; verified 2026-07-15, `experiments/rpc-stub-disposability/FINDINGS.md`). You MUST use a plain `const` and `await` the call; the pointer needs no disposal:
   ```typescript
   const stub = env.MY_DO.getByName(name); const result = await stub.someMethod();
   ```

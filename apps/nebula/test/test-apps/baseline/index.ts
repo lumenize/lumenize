@@ -443,7 +443,7 @@ export class GalaxyTest extends Galaxy {
   // trigger pipeline is drivable in-lane. A `{ __delayMs }`
   // entry sleeps then falls through — the lever for spanning a generation across
   // commits (the single-flight tests). The REAL container drive is the build-box /live
-  // scenario; nothing here reaches ctx.container (absent under pool-workers anyway).
+  // scenario; nothing here reaches ctx.container (absent under vitest-plugin anyway).
   #chatScript: unknown[] = [];
   /** Every `messages` array handed to the model, across turns — the prompt as assembled,
    *  so a test can read a turn's system layer (`messages[0]`) and its request. Cleared by

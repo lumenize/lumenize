@@ -147,7 +147,7 @@ describe('lifetime — child logout() is child-only teardown', () => {
     const child = await admin.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
-    // ⚠️ **THE discriminating observable: the navigation.** Under pool-workers there is no `window`,
+    // ⚠️ **THE discriminating observable: the navigation.** Under vitest-plugin there is no `window`,
     // so the child's `logout()` would return before navigating whatever its branch did; a stubbed
     // top-level window is what lets the defect show. Mutation: delete the `#mintedFrom` branch from
     // `logout()` → the child falls through to the top-level navigation → the spy sees it → reds.

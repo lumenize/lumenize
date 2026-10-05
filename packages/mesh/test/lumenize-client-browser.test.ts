@@ -3,7 +3,7 @@
  *
  * **Why this exists**: when `@lumenize/debug` started doing
  * `await import('cloudflare:workers')` (lazy import + try/catch), the regression
- * silently passed through every test tier — vitest-pool-workers and tsx both
+ * silently passed through every test tier — vitest-plugin and tsx both
  * resolve dynamic imports at runtime, so the broken specifier never tripped.
  * Real Vite (and the bundlers downstream users actually use) resolves
  * `'cloudflare:workers'` at bundle time and refuses; users couldn't bundle

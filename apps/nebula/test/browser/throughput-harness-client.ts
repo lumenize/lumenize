@@ -9,7 +9,7 @@
  * Each transaction is its OWN awaitable `callAsync` (correlated by callId, bounded by `timeoutMs`), so
  * concurrent calls fan out as independent Promises — no manual `Map<resourceId, {resolve,reject}>` +
  * `handleTransactionResult` dispatch (that was the uncorrelated-channel workaround D7 retires).
- * ⚠️ Bench needs a `wrangler dev` + chromium re-run to re-validate timings (out of the pool-workers gate).
+ * ⚠️ Bench needs a `wrangler dev` + chromium re-run to re-validate timings (out of the vitest-plugin gate).
  *
  * Single-slot (#singleSlot) is retained for non-concurrent flows: ping baseline, ontology registration.
  */
@@ -22,7 +22,7 @@ export class ThroughputHarnessClient extends NebulaClient {
   /** Concurrent in-flight count. `callAsync` correlates each transaction by its own `callId`, so the
    *  old `Map<resourceId, {resolve,reject}>` + `handleTransactionResult` dispatch — a workaround for
    *  the uncorrelated channel — is gone (exactly what D7 retires). ⚠️ Bench needs re-verification under
-   *  `wrangler dev` + chromium (out of the pool-workers gate). */
+   *  `wrangler dev` + chromium (out of the vitest-plugin gate). */
   #inFlight = 0;
   #singleSlot?: { resolve: (v: any) => void; reject: (e: Error) => void };
 

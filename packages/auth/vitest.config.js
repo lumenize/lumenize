@@ -26,7 +26,7 @@ const JWT_TEST_KEYS = {
 
 // --- Opt-out gating for the secret-less lane (tasks/lumenize-email.md Phase 1) ---
 // e2e-email declares a `send_email` binding with `remote: true`, which
-// vitest-pool-workers establishes at POOL LOAD — with no Cloudflare creds the
+// vitest-plugin establishes at POOL LOAD — with no Cloudflare creds the
 // whole project fails to load (0 tests run), so path-level it.skipIf can't help.
 // Omit them at the PROJECT level when the lane has no CF creds. Signal = the
 // OPT-OUT flag LUMENIZE_NO_CF_REMOTE, set ONLY by the secret-less Claude-hosted

@@ -11,7 +11,7 @@
  * merges cleanly and is git-tracked (subdir `**\/test/**\/*.d.ts` is
  * gitignored to prevent stale compiled artifacts).
  *
- * vitest-pool-workers at test runtime sees the right bindings via the
+ * vitest-plugin at test runtime sees the right bindings via the
  * local per-subdir `worker-configuration.d.ts`; this file is purely for
  * the package-level `tsc -p` check.
  */

@@ -8,7 +8,7 @@
   // with our compat_date it already gives v2 semantics, AND it actually resolves
   // `node:` builtins in real `wrangler dev` (4.x). The bare `nodejs_compat_v2` flag
   // does NOT — a `node:os`/etc. import crashes startup with `No such module`
-  // (vitest-pool-workers masks this with its own polyfills, but prod deploy + the
+  // (vitest-plugin masks this with its own polyfills, but prod deploy + the
   // real-browser harnesses run real workerd). Must match every other wrangler that
   // loads apps/nebula DOs (test/, baseline, browser) — a flag mismatch lets a green
   // test validate under a different runtime than prod.

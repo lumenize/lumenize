@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * Plain-Node vitest — deliberately NOT vitest-pool-workers.
+ * Plain-Node vitest — deliberately NOT vitest-plugin.
  *
  * Every symbol in this package is a `crypto`-global wrapper with no Cloudflare surface, so
  * the Workers runtime would add nothing. Running under plain Node instead makes the suite

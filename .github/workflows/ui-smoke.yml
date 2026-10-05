@@ -3,13 +3,13 @@ name: UI smoke (container + AI + login)
 # The `apps/nebula` ui-smoke lane: a REAL Cloudflare Container (DevContainer image)
 # under `wrangler dev` on ubuntu-latest + vite + Playwright, driving the full Studio
 # loop (magic-link login → connected → AI codegen turn → preview rendered in the
-# container). Pool-workers gives a Durable Object no `ctx.container`
+# container). The vitest-plugin lane gives a Durable Object no `ctx.container`
 # (experiments/plain-do-container), so this is the only lane that
 # exercises a real container in CI. Proven viable on a headless GHA runner 2026-06-28
 # (tasks/nebula-in-ci.md Phase 1).
 #
 # Kept as its OWN job/runner (not folded into ci.yml) so the heavy ~2.5-min Docker build
-# runs ISOLATED — never concurrently with the CPU-bound pool-workers lanes in the packages
+# runs ISOLATED — never concurrently with the CPU-bound vitest-plugin lanes in the packages
 # job. The runner is 4 vCPUs; running ui-smoke's WS/Playwright-timing-sensitive flow
 # alongside those starves it (the hosted lane serializes `fileParallelism` for the same
 # reason), so isolation is the point. Runs on every push/PR (NOT path-filtered) so it's

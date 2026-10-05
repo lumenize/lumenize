@@ -2,7 +2,7 @@
  * Bundle `@typia/transform` + its dependencies + `typescript` into a single
  * ESM file suitable for loading inside a Cloudflare Workers isolate —
  * including real `wrangler dev` and deployed Workers, not just
- * `vitest-pool-workers`.
+ * `vitest-plugin`.
  *
  * Why one bundle?
  *   - Typia's transformer does `instanceof` checks against `ts.Node`. Two
@@ -22,7 +22,7 @@
  *     a minimal `process` object
  *
  * Earlier versions used `platform: 'node'` with only `os` + `inspector`
- * aliased. That worked under `vitest-pool-workers` because vpw injects
+ * aliased. That worked under `vitest-plugin` because the plugin injects
  * extra Node shims, but failed under real `wrangler dev` with
  * "Dynamic require of 'fs' is not supported" — esbuild converts
  * `require('fs')` into runtime `__require('fs')` which workerd rejects.

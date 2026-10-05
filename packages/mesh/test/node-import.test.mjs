@@ -1,7 +1,7 @@
 /**
  * Node.js runtime smoke test for `@lumenize/mesh/client`.
  *
- * Runs under Node's built-in `node:test` runner (NOT vitest-pool-workers).
+ * Runs under Node's built-in `node:test` runner (NOT vitest-plugin).
  * This is specifically the test that would have caught the original
  * `cloudflare:workers` import failure — the whole mesh test suite runs
  * inside the Workers runtime, so it can never surface Node-side import

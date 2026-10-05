@@ -61,7 +61,7 @@ export class BareStorageDO extends DurableObject {}
  */
 /**
  * Every message the capturing sender received, in dispatch order — the REAL-mail assertion surface
- * (vitest-pool-workers runs the worker and the test in ONE isolate, so the test imports and reads
+ * (vitest-plugin runs the worker and the test in ONE isolate, so the test imports and reads
  * this directly). Template-selection tests read `type` and the typed link fields off the message
  * itself rather than test-mode `links` — asserting via the `links` map is the recorded 2026-08-04
  * defect (the email path never exercised). Tests clear it between cases.

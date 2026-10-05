@@ -32,7 +32,7 @@ export default defineConfig({
     // CPU-constrained-lane serialization. The `browser` project's real-WS e2e (an external
     // `wrangler dev` + WebSocket round-trips — magic-link auth, multi-client Gateway fan-out,
     // round-trip latency) is broadly wall-clock-sensitive: run concurrently with the CPU-bound
-    // pool-workers projects on the hosted sandbox's shared 4 vCPUs, *some* of them get starved
+    // vitest-plugin projects on the hosted sandbox's shared 4 vCPUs, *some* of them get starved
     // past their timeout every run (which one varies — the "isolation flips the result"
     // signature in testing.md). Empirically this is NOT localized to one test, so run files
     // serially when the hosted plaintext lane flag (LUMENIZE_NO_CF_REMOTE) is set, so no two
@@ -86,7 +86,7 @@ export default defineConfig({
       },
       // Frontend project — the @lumenize/nebula/frontend layer (factory + the
       // ported pure-helper/engine suites: text-merge, deep-equals, debounce,
-      // conflict-outcome). jsdom env (NOT vitest-pool-workers) so Vue can mount
+      // conflict-outcome). jsdom env (NOT vitest-plugin) so Vue can mount
       // components for the v3/v4 component probes; pure-logic tests run fine in
       // jsdom too. swc for the @mesh() decorators NebulaClient carries.
       {
@@ -174,7 +174,7 @@ export default defineConfig({
       },
       // DevStudio node (Phase 3.5b) — shell Workspace + isomorphic-git source-of-truth
       // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends NebulaDO
-      // (constructable under pool-workers, unlike DevContainer). Own wrangler
+      // (constructable under vitest-plugin, unlike DevContainer). Own wrangler
       // (DEV_STUDIO + STAR probe + LOADER). nodejs_compat for shell/isomorphic-git.
       {
         extends: true,

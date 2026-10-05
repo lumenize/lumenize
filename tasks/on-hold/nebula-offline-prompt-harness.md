@@ -39,9 +39,9 @@ pure function; `writeFile` is an in-memory Map.
 - **S1 [runtime, was BLOCKER]:** the "truly offline / plain-Node `scripts/` tool" premise is
   **verified-false** — `compileSource` → `./galaxy` → `@lumenize/mesh` → `cloudflare:workers`, and
   `codegen-loop.ts` imports `assertSafeRelPath` (a DO file). The gate is standalone *within
-  workerd/pool-workers*, NOT plain Node. **Resolution:** the harness is a **vitest-pool-workers project**
+  workerd/vitest-plugin*, NOT plain Node. **Resolution:** the harness is a **vitest-plugin project**
   that imports the gate unchanged; the model call is a **real external `fetch` to the Workers AI REST
-  API** (pool-workers supports real external fetch) — fully automated, no `wrangler dev`. ("Offline"
+  API** (vitest-plugin supports real external fetch) — fully automated, no `wrangler dev`. ("Offline"
   means *browser/Studio-independent*, not *workerd-independent*.)
 - **S2 [YAGNI]:** support **single-inference replay only** (one model call, gate once). **Drop full-loop
   replay** — re-running the loop's own already-shipped self-correction stacks non-determinism for no

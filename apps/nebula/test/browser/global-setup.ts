@@ -4,7 +4,7 @@
  * tests via `provide()`.
  *
  * Why this exists: browser tests need a real Worker isolate to talk to
- * (vitest-pool-workers' miniflare runs in-process, where Cloudflare's
+ * (vitest-plugin' miniflare runs in-process, where Cloudflare's
  * `performance.now()` pinning ruins timing). Spawning real wrangler dev
  * gives us a real Worker; timing happens client-side in Chromium where
  * the wall clock advances normally.

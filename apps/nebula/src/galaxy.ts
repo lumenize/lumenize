@@ -369,7 +369,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   #resources!: Resources;
   // The container transport — the backend object is cheap coordination state (no
   // container starts until a build's exec connects); the API wrapper is constructed
-  // LAZILY because its ctor throws where `ctx.container` is absent (pool-workers).
+  // LAZILY because its ctor throws where `ctx.container` is absent (vitest-plugin).
   #buildBackend!: CloudflareContainerBackend;
   #containerApi?: WorkspaceContainerAPI;
   // The promise-chain build latch — overlapping builds QUEUE on the one container
@@ -860,7 +860,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     // lost the empty-then-rewrite), and {@link #buildOnce} verifies arrival by digest
     // before its teardown. This gate is the
     // backstop that keeps the residual loss loud instead of a silent 404. Only where a
-    // container actually ran — pool-workers' faked builds have no dist.
+    // container actually ran — vitest-plugin' faked builds have no dist.
     if (preview.refreshed && this.ctx.container && !(await this.#distArrived(report.bundle.indexSha256))) {
       preview = {
         refreshed: false,
@@ -1060,7 +1060,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   #constructWorkspace(): void {
     this.#buildBackend = new CloudflareContainerBackend({
       // Lazy thunks all the way down: `WorkspaceContainerAPI`'s ctor throws where
-      // `ctx.container` is absent (pool-workers), so nothing constructs it until the
+      // `ctx.container` is absent (vitest-plugin), so nothing constructs it until the
       // backend actually connects for a build.
       container: () => ({
         getWorkspaceContainer: () => (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)),
@@ -1565,7 +1565,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    * turn, on the first write (the structural warm). The cold start + mount then hides
    * behind the generation and the build tool's exec finds the box up. Fire-and-forget: a warm
    * failure costs nothing (the exec's own connect starts it) and must never delay the
-   * model. A no-container environment (pool-workers) is a silent no-op. `protected` so
+   * model. A no-container environment (vitest-plugin) is a silent no-op. `protected` so
    * the drive log can be asserted — one warm per turn.
    */
   protected warmBuildBox(): void {
