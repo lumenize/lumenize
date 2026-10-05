@@ -21,7 +21,7 @@ A **continuation** (`ctn()`) is a *serializable description of work to be done i
 - Request/response is *simulated without a held channel*: the work the caller wants done **with the result** (the value, or an Error) is *also* a continuation. The callee fills it with the result and sends it back with another `call()`. The outcome is **delivered** as a fresh one-way message, never **returned** up a channel the caller would otherwise hold open.
 - Those deliveries take two concrete forms, each a one-way delivery to wherever the result is needed. One is the 4-arg `call` handler continuation, which travels with a client's call exactly as with a node's; the other is `lmz.broadcast`'s `onResult`.
 - Multi-hop flows hand off **forward** (client → Star → Worker → client), each hop naming only its own next node; they never unwind back through the intermediates (direct delivery).
-- `callContext` (identity, provenance, state) rides every hop automatically — that, not a held channel, is what makes flows composable.
+- `callContext` (identity and provenance) rides every hop automatically — that, not a held channel, is what makes flows composable.
 - Because a continuation is data, it can also be **persisted** — stashed in an alarm or in storage and re-executed later. That is a "Promise" that survives hibernation precisely because it stopped being one (`@lumenize/fetch` stringifies a continuation into an alarm as its delivery backstop).
 - Each cross-node call is an **independent, self-contained envelope** — no session, no live remote reference held across calls (the session-RPC approach we reject, below).
 

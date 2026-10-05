@@ -59,7 +59,7 @@ passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
 
 **One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(claims, targetScope)` and `hasPassageInto(claims, targetScope)`.
 
-**Those signatures take two arguments where the predicates take three**, because two of the three arrive together in the caller's verified claims: `aud` at the top level, and `scopeAdmin` inside `access`. `targetScope` is passed separately.
+**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: from a verified token, `aud` and `access.scopeAdmin`; for a chain a node started, the starting node's name and `false`. One function derives the pair from a call's context. `targetScope` is passed separately.
 
 **Scope comparisons are hierarchical by dot-separated segments**, so `u.g.s1` does not cover `u.g.s10`, and `acme` does not cover `acme-2` — the second is the one a naive `startsWith` gets wrong.
 
@@ -75,7 +75,7 @@ These things follow:
 - **Dominion over a scope is total and non-vetoable.** No finer-grained permission mechanism in that scope can veto, block, or attenuate a `scopeAdmin` above them. The Resource orgTree is the worked example: a covering scopeAdmin acts there with no grant ever written (`apps/nebula/src/org-tree.ts` `requirePermission`). Anything added later inherits this without being asked. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
 - **A scope's finer-grained mechanisms decide for callers *without* dominion.**
 - **Lacking dominion is not a denial.** A caller with passage but no dominion may still be granted a great deal by the methods it calls, as decided by the callee's own guards.
-- **A call to a client passes the same predicate, asked from the tab's side.** Its Gateway checks the tab's passage into the sender's scope: the tab's page as `aud`, the name of the node sending as `targetScope`. A Galaxy `acme.crm` sending to a tab on `acme.crm.bigco`'s page passes, since upward is free, and a sibling Star `acme.crm.other` is refused as lateral. A sender whose name is not a scope, such as the Profile, passes, so a node not named by a scope holds no tenant's data.
+- **A call to a client passes the same predicate, asked from the tab's side.** Its Gateway checks the tab's passage into the sender's scope: the tab's `aud`, the name of the node sending as `targetScope`. A client sender is not checked there; a tab offers no scope. A Galaxy `acme.crm` sending to a tab on `acme.crm.bigco`'s page passes, since upward is free, and a sibling Star `acme.crm.other` is refused as lateral. A sender whose name is not a scope, such as the Profile, passes, so a node not named by a scope holds no tenant's data.
 
 ## Alternatives considered
 
