@@ -31,10 +31,12 @@
   "workers_dev": false,
   "worker_loaders": [{ "binding": "LOADER" }],
   // Workers AI — Galaxy's codegen engine runs the model through this binding (the
-  // model id is a swappable constant in galaxy.ts; Studio is model-agnostic). In
-  // local `wrangler dev` this proxies to the account's Workers AI (needs network + the
-  // CLOUDFLARE_* creds already in .dev.vars).
-  "ai": { "binding": "AI" },
+  // model id is a swappable constant in galaxy.ts; Studio is model-agnostic). There is
+  // no local Workers AI, so `wrangler dev` always proxies this binding to the account's;
+  // `remote: true` says so, and silences the warning wrangler prints when it is left
+  // implicit. The proxy authenticates with the `wrangler login` session, or with
+  // CLOUDFLARE_API_TOKEN in the environment — not with anything in .dev.vars.
+  "ai": { "binding": "AI", "remote": true },
   // Magic-link / invite email. Registry/facade → AUTH_EMAIL_SENDER (self-ref service binding
   // → the NebulaEmailSender WorkerEntrypoint re-exported from src/worker.ts) → the provider
   // `@lumenize/email` selects from env: Resend, by EMAIL_PROVIDER in `vars` below, in every lane.
