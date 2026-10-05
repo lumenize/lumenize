@@ -1,0 +1,93 @@
+{
+  "local": [],
+  "anchors": [],
+  "replace": [
+    {
+      "hint": "apac",
+      "reset": true,
+      "firstColo": "HKG",
+      "bootBefore": "aaf7b9dc",
+      "wipe": {
+        "wiped": true,
+        "reset": true,
+        "error": "wiped"
+      },
+      "afterColo": "HKG",
+      "afterWorker": "IAD",
+      "bootAfter": "cf06e316",
+      "markAfter": null
+    },
+    {
+      "hint": "apac",
+      "reset": false,
+      "firstColo": "NRT",
+      "bootBefore": "8e8a10e9",
+      "wipe": {
+        "wiped": true,
+        "reset": false
+      },
+      "afterColo": "NRT",
+      "afterWorker": "IAD",
+      "bootAfter": "229c3b98",
+      "markAfter": null
+    },
+    {
+      "hint": "oc",
+      "reset": true,
+      "firstColo": "BNE",
+      "bootBefore": "c2b2c677",
+      "wipe": {
+        "wiped": true,
+        "reset": true,
+        "error": "wiped"
+      },
+      "afterColo": "BNE",
+      "afterWorker": "IAD",
+      "bootAfter": "b23f7e48",
+      "markAfter": null
+    },
+    {
+      "hint": "oc",
+      "reset": false,
+      "firstColo": "SYD",
+      "bootBefore": "dd78c8d2",
+      "wipe": {
+        "wiped": true,
+        "reset": false
+      },
+      "afterColo": "SYD",
+      "afterWorker": "EWR",
+      "bootAfter": "2861320a",
+      "markAfter": null
+    },
+    {
+      "hint": "weur",
+      "reset": true,
+      "firstColo": "AMS",
+      "bootBefore": "d797e90e",
+      "wipe": {
+        "wiped": true,
+        "reset": true,
+        "error": "wiped"
+      },
+      "afterColo": "AMS",
+      "afterWorker": "IAD",
+      "bootAfter": "56e48679",
+      "markAfter": null
+    },
+    {
+      "hint": "weur",
+      "reset": false,
+      "firstColo": "AMS",
+      "bootBefore": "08635898",
+      "wipe": {
+        "wiped": true,
+        "reset": false
+      },
+      "afterColo": "AMS",
+      "afterWorker": "IAD",
+      "bootAfter": "b8942b84",
+      "markAfter": null
+    }
+  ]
+}
