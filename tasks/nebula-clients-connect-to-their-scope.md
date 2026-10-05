@@ -31,10 +31,10 @@ here the Star `acme.crm.tenant1`.
 **A Client's address is its host node plus its id there.** Alice's Client on that page has the id
 `alice.9f2c41aa`, her `sub` and a `tabId` (a `sub` is a UUID, written `alice` in this file). Today
 its address is one name, its Gateway's: (`NEBULA_CLIENT_GATEWAY`, `alice.9f2c41aa`). After this task
-it is (`STAR`, `acme.crm.tenant1`, `alice.9f2c41aa`). Every place that stores or reads a Client's
+it is (`STAR`, `acme.crm.tenant1`, `alice.9f2c41aa`) [We'll need to encode that into a single string to use it as a WS tag and for convenient storage in a single column in a subscription table. Also, assuming the longest binding name we have in the system, 30 characters for each segement, the GUID (where we now show `alice`, the tabId, and delimiters), is that under the limit for a WS tag?]. Every place that stores or reads a Client's
 address carries the host node, which is what makes this change wide; it is also mechanical.
 
-Four goals, in the order they matter. Each says how today's design misses it.
+Each goal says how today's design misses it.
 
 1. **A Client's calls to its host node take one hop.** Today each one goes Client → Gateway →
    server-side node. Measured, the hop adds 7–18 ms per call at p50
@@ -89,10 +89,10 @@ behind** stays where it is, unused by Nebula.
   context from the socket's verified attachment, forwards a server-side node's call down and pairs
   the answer, and keeps each Client's grace period. It already tags each socket with its Client's
   id, `acceptWebSocket(server, [instanceName])`, and finds it again with
-  `getWebSockets(instanceName)`, so its JSDoc says one host node "can hold many Clients".
+  `getWebSockets(instanceName)`, [Using "instanceName" here in this example could be confusing for where we are going because it won't be instanceName after. Maybe say `{tag}` for these or give the future state only to keep it clear?] so its JSDoc says one host node "can hold many Clients". [I don't follow why this is in the JSDoc or why we need to quote it here? My preference would be to describe the mechanism of tagging and more than one but not reference the JSDoc.]
 - **Left behind by Nebula — `LumenizeClientGateway`**, which hosts one `ClientGateway` per Client
   in a DO named `{sub}.{tabId}`. Whether Mesh keeps it is § *Open questions*, item 1.
-- **Carried over: the check. Left behind: the class — `NebulaClientGateway`.** Before a server-side
+- **Carried over: the check. Left behind: the class — `NebulaClientGateway`.** [Why not two bullets for this?] Before a server-side
   node's call goes down to a Client, the class checks that the Client's token has passage into the
   sender's scope (mesh-calls D12, built). Alice's Client accepts a push from the Galaxy `acme.crm`,
   since upward is free, and refuses one from the Star `acme.crm.tenant2`, which is lateral. A
@@ -109,16 +109,16 @@ behind** stays where it is, unused by Nebula.
   Resources' `#caller()` takes the binding from `callChain.at(-1)` and the id from `callChain[0]`;
   `Profile.subscribe` takes both from `callChain[0]`; the Galaxy's preview-ready call names
   `NEBULA_CLIENT_GATEWAY` and a Client id. Each gains its host node.
-- **Carried over, its main reason gone — `packages/mesh/src/tab-id.ts`.** It keeps a tab's id across
+- **Carried over, its main reason gone — `packages/mesh/src/tab-id.ts`.** [I wouldn't say the main reason is gone. Maybe the reason shifts? Yes, we didn't want to create more Gatewy DOs than necessary before and that's gone, but now we still need a stable way to know which connection is active and so we can force close the old connection on reconnects.] It keeps a tab's id across
   reloads for two reasons: each `{sub}.{tabId}` reserves a Durable Object name for good, which goes,
   and a reload keeps its subscriptions within the grace period, which stays. Two tabs sharing an id
   would still replace each other's socket on one host node, so the duplicated-tab probe stays too.
   Its 50 ms `BroadcastChannel` wait is still the mechanism, since mesh-calls parked D17's Web Lock
-  on this decision. ⚠️ Design consideration: this task may take D17's lock; nothing requires it.
+  on this decision. ⚠️ Design consideration: this task may take D17's lock; nothing requires it. [It might read easier for a human if you said: (a) two reasons today, (b) reason in the hosted case.]
 - **Adapted — `NebulaDO`**, which `Universe`, `Galaxy` and `Star` extend. Its `onBeforeCall` checks
   passage through `requirePassage`, which fits a call addressed to the node itself and refuses
   most calls addressed to a Client it hosts (§ *How a host node checks a call*). It composes
-  `ClientGateway` (§ *A server-side node hosts Clients with no code of its own*).
+  `ClientGateway` (§ *A server-side node hosts Clients with no code of its own*). [I wonder if a factory pattern here makes sense. You pass into the factory the tag for the Client you want, and it returns an instance of a class (maybe even named Client) which encapsulates all of the functionality we currently have on the Gateway today that depends upon today's current requirement that there is only ever one active connection? I am pretty sure that tags are not exclusive to a single connection so for each incomming connection, we'll need to have logic that checks for a current connection at that id and closes it before accepting the new one at that id.]
 
 **Missing:**
 
@@ -166,7 +166,7 @@ Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's 
      chain carries no claims and no scope, so `requirePassage` would refuse it.
    - **A lateral push is refused.** If the Star `acme.crm.tenant2` sends to Alice's address, the
      call lands at her Star, and D12's check refuses it: `acme.crm.tenant1` has no passage into
-     `acme.crm.tenant2`.
+     `acme.crm.tenant2`. [We need to make sure this doesn't require a round trip to the singleton Registry to determine on every push. One on every subscribe, might be OK though.]
 5. **A persona.** Studio frames `manny--dev.crm.acme.lumenize.dev`. Manny's `sub` is a name-based
    UUID computed from that hostname (ADR-022), and his Client takes the id `manny.4d1e88b0` on the
    host node `STAR` `acme.crm.dev`. The Worker maps the persona's hostname to that Star for the
