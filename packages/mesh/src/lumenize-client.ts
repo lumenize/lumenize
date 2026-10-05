@@ -748,7 +748,20 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * (`callChain.at(-1)`) is another LumenizeClient. DO/Worker-mediated pushes
    * (fanout, direct-delivery, `lmz.broadcast`) have a DO/Worker as the caller and
    * are accepted — this is what every reactive app relies on, so no override is
-   * needed for them. Override (and skip `super`) to opt into peer communication.
+   * needed for them. Override (and skip `super`) to opt into peer communication;
+   * an app that does must then guard its own push handlers, which this refusal
+   * was protecting.
+   *
+   * ⛔ **This default refusal stays. Do not remove it to make peer calls the default.**
+   * Larry 2026-10-05: "If I ever try to remove this again, remind me that we've tried
+   * several times before and failed." The last attempt, a design review on
+   * 2026-10-05, opened peer calls and guarded each push handler instead. One review
+   * found seven separate defects that existed only because peers were open: a passage
+   * check asked in the wrong direction, a guard bypassed through the shared call
+   * context during an await, overrides that silently dropped the guard, a slow peer
+   * method costing its callee a reconnect, and the docs and tests each had to relearn
+   * all of it. A peer feature goes through a node instead: a two-person chat is a
+   * room on the server, with history and presence for free.
    *
    * Access context via `this.lmz.callContext`.
    */
