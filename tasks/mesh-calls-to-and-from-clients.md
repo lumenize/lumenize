@@ -784,13 +784,16 @@ with `onErrorOnly` (D15). `lmz.call`'s handler, `lmz.broadcast`'s `onResult` and
 
 **Success criteria:**
 
-- **`subscribe-refusal-arrives`, a new `/live` scenario.**
-  - Limb 1: a tab subscribing to a sibling Star's resource gets `No passage from "…" into "…"`
-    within 5 s, refused at the early ack. *Mutation:* drop the subscribe's handler, and the
-    refusal arrives only when `#subscribeVia`'s 30 s timer gives up.
-  - Limb 2: a query subscribe the Star admits and then refuses, naming a `queryType` it does not
-    support, arrives as `Unsupported queryType …` within 5 s. *Mutation:* drop the query
-    subscribe's handler.
+- **`subscribe-refusal-arrives`, a new `/live` scenario.** A client subscribes only at its own
+  token's `aud`, which passage always admits, and a host it reaches reports a stale or denied
+  resource as a push. So each limb drives the refusal a user-developer meets in practice: a
+  `NebulaClient` whose `resourceHostBinding` names the wrong binding.
+  - Limb 1: with `'PROFILE'`, the Profile refuses the Star-shaped name at the early ack (Phase 4),
+    and the subscribe gets that refusal within 5 s. *Mutation:* drop the subscribe's handler, and
+    the refusal arrives only when `#subscribeVia`'s 30 s timer gives up.
+  - Limb 2: with `'UNIVERSE'`, the Universe admits the call, then refuses it after the ack with
+    `No member named …`, since it has no `resources`, and the subscribe gets that within 5 s.
+    *Mutation:* the same, on the road after the ack.
 - A `// @ts-expect-error` three-argument `lmz.call` compiles for a DO, a Worker and a Client.
   *Mutation:* make the handler optional again.
 - A continuation that throws at the fire-back door is logged, asserted on the debug sink.
