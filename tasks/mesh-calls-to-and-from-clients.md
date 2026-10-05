@@ -1006,9 +1006,10 @@ D12's passage refusal, the 30 s timeout, and the Client's answer.
     `{ $ack: true }`, with a real node as `returnAddr` receiving the outcome.
 - `answers inside its ack` (5 hits in 5 files), `never from the reply` (2 hits in 2 files),
   `cannot name a victim` (1 hit) and `deliberately-awaited` (1 hit) find nothing.
-  `grep -n "replaceNestedOperationMarkers(" packages/mesh/src` lists only the shared fill helper,
-  its definition in `ocan/`, and `dispatchEnvelope`'s local path if that path does not call the
-  helper.
+  `grep -rn "replaceNestedOperationMarkers(" packages/mesh/src` lists only the shared fill helper,
+  its definition and JSDoc in `ocan/execute.ts`, and `dispatchEnvelope`'s local path if that path
+  does not call the helper. Today it lists 7 lines, among them `fireResponse`'s two and the
+  Client's in-heap handler's, which Phase 7 removes.
 - **`tasks/backlog.md`:** the row proposing that broadcast-to-client go fully async closes.
 
 ### Phase 9 — A Client re-subscribes exactly when the Gateway says it lost something
