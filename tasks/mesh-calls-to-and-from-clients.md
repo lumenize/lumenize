@@ -49,8 +49,7 @@ on one model: a Client and its Gateway together are the equivalent of a server-s
 - **Hands [nebula-pre-alpha.md](nebula-pre-alpha.md) § *A Client connects to its scope's node* a server-side half it can move.** That open decision gates a later hosting task, not this file (Larry, 2026-10-04). This build writes the server-side half as code a Durable Object composes, with the Gateway as its first host (→ D23), so if a Client's socket later moves to its scope's node, that code moves rather than being rewritten. The two experiments the decision rests on, `experiments/gateway-vs-hosted/RESULTS.md` and `experiments/do-socket-drop-probe/RESULTS.md`, belong to that task. How each decision fares under the move:
   - **Unaffected:** D6, D8, D10, D15, D16, D18, D19, D21, D22 and D24, and D9, which is built.
   - **Moves with the server-side half, as D23's code:** D4, D5, D11 and D12.
-  - **Built now and revisited if the hosting moves, since they name the Gateway:** D25's Gateway check, and the Gateway-specific wording in D3 and D20.
-  - **Parked until the hosting decision:** D7 and D17.
+  - **Tied to Gateway names, so parked until the hosting decision:** D7 and D17, D25's Gateway check, and the Gateway-specific wording in D3 and D20.
 - **Lands before ⑥ the wipe.** D11 changes the wire between a Client and its Gateway, and every generated app bundles the Client, so apps built before it must be rebuilt, which the wipe does anyway.
 - **Makes `subscriptionRequired` honest, which answers most of `tasks/backlog.md`'s row saying it is broken** (§ *Lumenize Mesh*). After D4 a row is dropped only when the Gateway gives up on a delivery, and the client is told every time. The build rewrites the row to what stays open: re-checking a subscriber's admin verdict on each push instead of pinning it at subscribe, which a client that ignores the flag would otherwise escape.
 - **Closes `tasks/backlog.md`'s row on whether mesh keeps `callContext.state`** (§ *Lumenize Mesh*): D22 removes it.
@@ -64,7 +63,7 @@ on one model: a Client and its Gateway together are the equivalent of a server-s
 
   The same edit strikes what those rows will then get wrong: `ClientTokenExpiredError` listed as new, though D5 deletes it before any release; `lmz.broadcast`'s `newChain` and `state` called additive; the CALL frame keeping only `state`; and `ClientResultEnvelope.clientInstanceName` staying.
 - **Takes over Phases 1, 2, 4 and 5 of `tasks/on-hold/mesh-resilience-testing.md`**, which drive the grace period and reconnect paths D4 and D5 change. Phase 9 re-derives them for this Gateway, `/live` first, and trims that file to Phases 3, 6 and 7.
-- **Hands D7 and D17 to [nebula-pre-alpha.md](nebula-pre-alpha.md) § *A Client connects to its scope's node***, since both are about Gateway names and wait on Open decision 4. Phase 9 writes the pointer.
+- **Hands D7, D17 and D25's Gateway check to [nebula-pre-alpha.md](nebula-pre-alpha.md) § *A Client connects to its scope's node***, since all three are about Gateway names and wait on Open decision 4. Phase 9 writes the pointer.
 
 ## Constraints
 
@@ -474,8 +473,10 @@ Gateway can work.
      refuses one with no claims today.
    - **A Client never starts a claimless chain.** Its Gateway puts the Client first and stamps its
      claims, so a Client cannot borrow a node's scope.
-   - **No object of a class named by an id runs under a scope-shaped name** (→ D25). So a
-     scope-shaped `callChain[0]` always names an object that checks passage into that scope.
+   - **A Profile never runs under a scope-shaped name, and a Gateway under one accepts no
+     socket** (→ D25). Its upgrade requires the token's `sub` first, so it has no Client and
+     starts no chain. So a scope-shaped `callChain[0]` always names an object that checks
+     passage into that scope.
 
 ### On the wire
 
@@ -593,7 +594,7 @@ Every row is Larry's call. The D-numbers are append-only, and the prose above po
 | D22 | **`callContext.state` and `CallOptions.state` leave mesh, for every node type** (Larry, 2026-10-04). `state` began as what `callChain` became, and nothing in this repo's production code reads or writes it. Its one documented security use, an `onBeforeCall` caching `isEditor` for a guard, saves a single recomputation, since only the guard on a chain's first operation runs; carried across a hop, it hands the next node a verdict computed for a different one. The merge in `lmz-api.ts` goes with the two fields, in the phase where D19 touches the same code. The docs say instead: read `callChain` for tracing, pass a value a later hop needs as a continuation argument, and compute an authorization decision in the guard of the node it is about. | **Keeping it, with the backlog row's trigger rewritten** — a side channel `mesh.md` recommends for exactly the cross-hop authorization caching that misleads. **Deciding it after this release** — the next chance to break it costs a separate major. **A per-node, per-call scratch that does not cross hops** — new surface for the one recomputation it would save. |
 | D23 | **A Client's server-side half is code a Durable Object composes, and `LumenizeClientGateway` is its first host** (Larry, 2026-10-04). That code keeps, fills and times out a continuation (D11), waits within the grace period (D5), closes with 4408 and decides when a Client must re-subscribe, tracking that per client (D4), and checks passage on what it sends down (D12). Extracting it changes no behaviour of its own. A later task may host it on a Client's scope node, the master plan's Open decision 4, which no longer gates this file. The composed code owns no `alarm()` and calls no `ctx.storage.*Alarm`, since a `LumenizeDO` host owns its alarm; each Client's grace period is an in-memory deadline of at most 5 s. Every wait it keeps in memory, a continuation awaiting its Client's answer or a push awaiting a reconnect, is handed to `ctx.waitUntil`, which from compatibility date 2026-10-01 holds the object resident; a timer only times it out (`durable-objects.md` § *Wall-clock billing*). Its fire-back entry is its own, apart from the host's `__handleResponse`, and nothing it receives runs on the host. Passage and expiry are checked immediately before each send, against the attachment of the socket actually sent on, after any wait or re-send. The extraction lands as its own first phase, before any behaviour changes. | **Building it into the Gateway class** — a later hosting switch would rewrite it, and D4's derivation from one Gateway's alarm would need a redesign for a host holding many Clients. **Settling the hosting decision first** — it would hold this file on two questions pre-alpha's scale does not need answered, the load a hosting node forwards and the concentration of a tenant's sockets on one object. |
 | D24 | **A Client keeps refusing every call whose immediate caller is another Client, in the MIT package and in Nebula, and the Gateway does not check passage for a Client sender** (Larry, 2026-10-05). The refusal lives in `LumenizeClient.onBeforeCall`, so it covers every method an override replaces and needs no per-handler guard; its JSDoc carries Larry's instruction not to remove it again. Passage has nothing to decide for a Client sender: a tab is named `{sub}.{tabId}`, not by a scope, so it offers no `targetScope`, and the receiving tab's `aud` says where its person is acting, not what the tab is. So the receiving Client decides, refusing by default; an MIT app that opts in keeps today's documented override and decides in its own guards from the caller's claims, which the Gateway has stamped. For a node sender the Gateway keeps checking the tab's passage into the sender's scope, which catches a subscriber row that outlived its page. | **Opening Client-to-Client calls and guarding each push handler (D13 and D14, withdrawn)** — one review found seven defects that existed only because peers were open, and every earlier attempt also ended in a restriction; a peer feature works through a node. **Checking the sender's passage into the receiving tab's `aud` (the first form of this row)** — it uses a tab's `aud` as if it were a scope the call targets, which it is not; it fixed the direction of today's check without a model that justifies checking at all. **Keeping today's Client-sender check** — it asks the receiving tab's passage into the sender's scope, which admits a plain `acme.crm` member reaching down into a tenant's tab and refuses a tenant reaching up. **Refusing Client senders at the Gateway as well** — a second refusal of what the Client already refuses, and it would take the decision away from an app that opts in. |
-| D25 | **A scope-shaped name belongs only to an object that checks passage into it** (Larry, 2026-10-05). `Profile.onBeforeCall` refuses to run under a name that is not a profile id, and the Gateway's `__executeOperation` refuses a name that does not start with a dotless UUID, as its upgrade path already does. With `packages/nebula-auth/test/parse-id.test.ts` pinning that no id parses as a scope, a scope-shaped `callChain[0]` always names a `NebulaDO`, so D10's admission of a claimless chain grants nothing a caller lacked. Today a tab can bring a Profile object into existence at `acme.crm.bigco`; nothing it does reaches a Star, which is why this was latent rather than live. | **Stating the invariant in JSDoc on `requirePassage`, `Profile` and the Gateway** — safe only while nobody adds a Profile feature that calls a scoped node on a fresh chain, and the reminder sits where that author would not look. **Keying D10 on the starter's binding** — rejected in D10: a list a new scoped node would fall off, and a binding's class cannot be read from a call. |
+| D25 | **A scope-shaped name belongs only to an object that checks passage into it** (Larry, 2026-10-05). `Profile.onBeforeCall` refuses to run under a name that is not a profile id. A Gateway at a scope-shaped name accepts no socket, since its upgrade requires the token's `sub`, a dotless UUID, before the first `.`; so it has no Client, and starts no chain. Its own check in `__executeOperation`, refusing a name that does not start with a dotless UUID, is parked with D7 and D17 until the master plan's Open decision 4 (Larry, 2026-10-05): hosting would move this code onto nodes whose names are scopes, so a check written now would be rewritten then. With `packages/nebula-auth/test/parse-id.test.ts` pinning that no id parses as a scope, a scope-shaped `callChain[0]` always names a `NebulaDO`, so D10's admission of a claimless chain grants nothing a caller lacked. Today a tab can bring a Profile object into existence at `acme.crm.bigco`; nothing it does reaches a Star, which is why this was latent rather than live. | **Stating the invariant in JSDoc on `requirePassage`, `Profile` and the Gateway** — safe only while nobody adds a Profile feature that calls a scoped node on a fresh chain, and the reminder sits where that author would not look. **Keying D10 on the starter's binding** — rejected in D10: a list a new scoped node would fall off, and a binding's class cannot be read from a call. |
 | D26 | **`onBeforeCallToMesh` stays as it is: a Gateway subclass may still return whatever context it likes** (Larry, 2026-10-05). Only server code the Gateway's author writes runs there, trusted as any node's code is, and no Client can reach it. It was added in February 2026 for Nebula's planned stamp of `universeGalaxyStarId`, a design that moved to the token's `aud` before it was built, so Nebula has never overridden it; an MIT app's subclass may still want it. A change to what it does is made safe when it is made. D22 takes `state`, so the hook's test in `packages/mesh/test/lumenize-client-gateway.test.ts` stamps a top-level field instead of `state._auth`, and the capability keeps a test. | **Deleting it (Stage 2)** — takes a capability from every other subclass to close a channel only that subclass's author can write. **Making it observe-only** — the same loss, for the same reason. **Documenting what a subclass must not change** — a rule against a risk we already control. |
 | D27 | **A Client's `response` door runs no `onBeforeCall`** (Larry, 2026-10-05). The Client runs a returned continuation through `executeFilledChain`, with the `@mesh()` check off and `callee` from the last hop, as today's in-heap handler already runs without the hook. On a node, `onBeforeCall` at `__handleResponse` is the passage check; on a Client, passage is its Gateway's job (D20), and D12 already decided that no check runs on answers. The chain at that door is always the Client's own continuation: its Gateway wrote the return address and validated the continuation on the way out, and the answer inside it is data. So `LumenizeClient.onBeforeCall`'s refusal of a Client sender (D24) stays a rule of the request door, and a peer's answer or refusal reaches the tab that called. Phase 8's rewrite of `mesh.md` § *`lmz.call` 4-arg — the result-handler mechanics* says so, because that section says a response is re-gated by `onBeforeCall`, which is right for a node. | **Running it at both doors, with the default skipping its peer refusal on a `response`** — the hook would need to know which door it is on, and so would every override of it. **Running it as the wire block first said** — a peer's answer and refusal never arrive, and a `callAsync` to a peer waits out its 30 s timeout (Stage 2, on the phases). |
 
@@ -751,15 +752,10 @@ always carries claims, so only a claimless chain is affected. `noPassageMessage`
 starting node's scope where it says `(no scope)` today. Nothing writes a synthetic `aud` into
 `originAuth`.
 
-D25 lands in the same phase, because D10 is sound only with it:
-
-- **`Profile.onBeforeCall` refuses to run under a name that parses as a scope.** Every profile id
-  passes, including `NEBULA_SUB`, `'agent:nebula'`, which is no UUID.
-- **`ClientGateway` checks the name it is addressed by first in `__executeOperation`**, before it
-  acks and before it looks for a socket, through a hook. Mesh's default requires a `.`, as
-  `onBeforeAccept`'s does. `NebulaClientGateway` overrides it to require a dotless UUID followed by
-  a `.`. The hook's name is agreed with Larry before the phase starts. `mesh.md` § *Nebula platform
-  code never drops to raw primitives* names it beside `onBeforeCallToClient`.
+D25's Profile half lands in the same phase, because D10 is sound only with it:
+**`Profile.onBeforeCall` refuses to run under a name that parses as a scope.** Every profile id
+passes, including `NEBULA_SUB`, `'agent:nebula'`, which is no UUID. D25's Gateway half is parked
+(§ *Non-goals*).
 
 **Success criteria:**
 
@@ -774,10 +770,9 @@ D25 lands in the same phase, because D10 is sound only with it:
   - A Galaxy's chain into one of its Stars is refused. *Mutation:* give the derived member
     `scopeAdmin`, and dominion admits it.
   - Positive controls: the Star calling itself, and calling its Galaxy, both pass.
-- **`node-chain-passage`, a new `/live` scenario.** A tab calls `PROFILE`, then
-  `NEBULA_CLIENT_GATEWAY`, at a sibling Star's name, and each is refused with its own message.
-  *Mutation:* drop each check in turn. A positive control subscribes to the `NEBULA_SUB` Profile
-  and receives its snapshot. *Mutation:* refuse every name that is not a UUID. Phase 8 makes every
+- **`node-chain-passage`, a new `/live` scenario.** A tab calls `PROFILE` at a sibling Star's name
+  and is refused with the Profile's own message. *Mutation:* drop the check. A positive control
+  subscribes to the `NEBULA_SUB` Profile and receives its snapshot. *Mutation:* refuse every name that is not a UUID. Phase 8 makes every
   subscription push's fire-back a chain its Star started, so from then on every subscription
   scenario covers D10's admission too.
 - **Standing guidance:** ADR-015 § *Predicate pair* and `security.md`'s ⏳ line under the JWT
@@ -945,7 +940,7 @@ Gateway writes the envelope's
 
 ### Phase 8 — A node's call to a Client acks early, and the Gateway keeps its continuation
 
-The Gateway acks once the envelope's version and name check out, before it looks for a socket
+The Gateway acks once the envelope's version checks out, before it looks for a socket
 (D11, § *A node calls a Client*). Every later outcome fires back to the node's
 `__handleResponse`: a missed reconnect, the expired-token answer until Phase 10 replaces it,
 D12's passage refusal, the 30 s timeout, and the Client's answer.
@@ -1096,8 +1091,8 @@ as limbs 3 to 5 below.
   re-checking a subscriber's admin verdict on each push.
 - **BREAKING note:** a Gateway closes a socket with 4408 when its Client misses an answer.
 - **Hand-offs:** `tasks/on-hold/mesh-resilience-testing.md` keeps Phases 3, 6 and 7 and says this
-  file took the rest. `nebula-pre-alpha.md` § *A Client connects to its scope's node* says D7 and
-  D17 resume from this file's archive if a Gateway per tab survives.
+  file took the rest. `nebula-pre-alpha.md` § *A Client connects to its scope's node* says D7, D17
+  and D25's Gateway check resume from this file's archive if a Gateway per tab survives.
 
 ### Phase 10 — A push that meets an expired token waits for the reconnect
 
@@ -1126,8 +1121,9 @@ reconnect re-subscribes everything, and the snapshot would hide a lost push.
 
 ## Non-goals
 
-- **D7 and D17**, parked until the master plan's Open decision 4 settles. Phase 9 hands them to
-  it.
+- **D7, D17 and D25's Gateway check**, parked until the master plan's Open decision 4 settles.
+  Phase 9 hands them to it. A Gateway at a scope-shaped name accepts no socket, so it starts no
+  chain D10 could admit.
 - **Hosting `ClientGateway` on a scope's node**, and persisting a held continuation on an alarm
   there: the later task that takes up Open decision 4.
 - **Re-checking a subscriber's admin verdict on each push**, which stays in `tasks/backlog.md`'s
