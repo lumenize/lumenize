@@ -39,7 +39,7 @@ One-time setup — `CREATE TABLE IF NOT EXISTS`, in-DO schema migration, config 
 - **Mesh DOs (`LumenizeDO`)**: setup MUST go in the **`onStart()` hook**, and MUST NOT be done by overloading the constructor. The base constructor already calls `onStart()` inside `ctx.blockConcurrencyWhile(...)`, so requests block until it finishes and `onStart` MAY be `async`. Overloading the `LumenizeDO` constructor fights that machinery.
 
 ## Avoid opening input gates or account for race condition risk
-`setTimeout`, `setInterval`, or `await` from inside a DO will open input gates, so they SHOULD be avoided unless you account for the race-condition risk. `waitUntil` is never needed in a DO but MAY be in a default Worker or `WorkerEntrypoint`
+`setTimeout`, `setInterval`, or `await` from inside a DO will open input gates, so they SHOULD be avoided unless you account for the race-condition risk. `waitUntil` is not needed for work a DO method awaits; for work it floats past its return, see the timer bullet in § *Wall-clock billing*. A default Worker or `WorkerEntrypoint` MAY use it as usual.
 
 ## Keep methods synchronous
 These entry points SHOULD be `async`: `fetch()`, `alarm()`, `webSocketMessage()`, `webSocketClose()`, `webSocketError()`. Every other method — business logic, route handlers, helpers — SHOULD be synchronous.
@@ -74,7 +74,7 @@ A DO is billed for elapsed time whenever it is actively working: `await`ing I/O,
   const stub = env.MY_DO.getByName(name); const result = await stub.someMethod();
   ```
 - Blocking external API calls SHOULD NOT be made from a DO. Mesh code uses the two-one-way-call pattern ([mesh.md](mesh.md))
-- `setTimeout`/`setInterval` MAY be used only to keep a DO from hibernating briefly — measured deployed at **~70 s** before eviction took a timer-held isolate (a re-arming 5 s heartbeat, `experiments/residency-hold/RESULTS.md`, 2026-08-28) — and MUST NOT be relied on to hold in-memory work through anything longer; use `alarm()` or two one-way calls, or ride an OPEN OUTBOUND CONNECTION, which is what actually holds a DO resident (≤15 min, [[cf-long-stream-limits]]).
+- A `setTimeout`/`setInterval` MUST NOT be what holds detached in-memory work. At compatibility date 2026-10-01 a pending timer mostly holds a DO — 13 of 14 held a 240 s await, one was evicted at 120 s for no reason found — and at the date before it held about 70 s (`experiments/residency-hold/RESULTS.md`). Detached work SHOULD hand its promise to `ctx.waitUntil` instead: from 2026-10-01 that holds the DO up to 15 minutes from the promise's start, as a pending binding call, RPC or `fetch()` also does ([[cf-long-stream-limits]]). Past 15 minutes, use `alarm()` or two one-way calls. Every one of these holds bills wall-clock while it lasts.
 
 ## Dynamic Worker Loader cache
 `env.LOADER.get(bundleId, ...)` caches by `bundleId` **per-Worker-project**, not per-DO. Multiple DO instances in the same Worker project share the cache, so identical `bundleId` values silently collide on the first cached entry. `bundleId` MUST be scoped by something globally unique (include a tenant identifier or equivalent). The DO's cross-tenant guards don't intervene — the loader binding is shared infrastructure.

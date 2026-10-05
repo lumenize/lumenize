@@ -1,7 +1,7 @@
 {
   "name": "proxy-fetch-live-integration-test",
   "main": "./test-harness.ts",
-  "compatibility_date": "2026-08-15",
+  "compatibility_date": "2026-10-01",
 
   "services": [
     {

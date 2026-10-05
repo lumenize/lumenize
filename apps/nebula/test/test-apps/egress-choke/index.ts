@@ -81,7 +81,7 @@ export class EgressProbeDO extends DurableObject {
     const bundleId = `egress-probe:${crypto.randomUUID()}`;
     const stub = this.ctx.facets.get(bundleId, () => {
       const worker = this.env.LOADER.get(bundleId, () => ({
-        compatibilityDate: '2026-08-15',
+        compatibilityDate: '2026-10-01',
         mainModule: 'probe.js',
         modules: { 'probe.js': FACET_MODULE },
         globalOutbound,

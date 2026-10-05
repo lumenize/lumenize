@@ -1336,11 +1336,12 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       }
       const content = (snap.value as { content?: string }).content ?? '';
       debug('nebula.Galaxy.trigger').debug('human Message committed — turn starts', { resourceId });
-      void this.runTriggeredTurn(resourceId, content).catch((e) => {
+      // `waitUntil` holds the Galaxy for the detached turn — see RESIDENCY in runTriggeredTurn.
+      this.ctx.waitUntil(this.runTriggeredTurn(resourceId, content).catch((e) => {
         debug('nebula.Galaxy.trigger').error('triggered turn threw', {
           resourceId, error: e instanceof Error ? e.message : String(e),
         });
-      });
+      }));
     }
   }
 
@@ -1358,20 +1359,21 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     if (this.#turnInFlight) return;
     this.#turnInFlight = true;
     // RESIDENCY: the turn runs DETACHED (a floating promise off the commit), so no
-    // in-flight request pins the Galaxy — what holds it is the turn's own OUTBOUND
-    // I/O: every long span is a network await (the `env.AI` fetch, the build's capnweb
-    // session), and an open outbound connection keeps a DO resident (measured, ≤15 min
-    // hazard-bounded). A `setTimeout` HEARTBEAT was designed here and REMOVED on
-    // deployed evidence (experiments/residency-hold, 2026-08-28): a detached timer
-    // await was evicted at ~70 s WITH the 5 s re-arming heartbeat running — a timer
-    // does not hold an isolate, so the heartbeat insured nothing and billed wall-clock.
-    // An eviction mid-turn is covered as designed: input is durable before the LLM
-    // runs, the in-memory latch dies with the isolate, and a fresh message starts a
-    // fresh generation.
+    // in-flight request pins the Galaxy. What holds it is `ctx.waitUntil`, which the
+    // commit trigger hands the turn: from compatibility date 2026-10-01 that keeps a DO
+    // in memory for up to 15 minutes from the promise's start, and the generation
+    // deadline below (14 min) keeps every turn under that. Before that date nothing
+    // held a production turn: it calls the model through the `env.AI` BINDING (neither
+    // deployed worker has a `WORKERS_AI_TOKEN`, so `modelLane()` never takes the REST
+    // lane), and a detached binding call was evicted as early as a timer, about 70 s
+    // (durable-objects.md § Wall-clock billing). A timer heartbeat is not the hold
+    // either: it held nothing at the old date, and `waitUntil` states the hold directly.
+    // An eviction mid-turn — a restart or a deploy — is covered as designed: input is
+    // durable before the LLM runs, the in-memory latch dies with the isolate, and a
+    // fresh message starts a fresh generation.
     // The GENERATION DEADLINE stays: past it the latch releases and the turn surfaces
     // as failed server-side (the client's idle timeout owns the UX), so a hung
-    // await (which its own socket may keep resident!) cannot wedge the loop until
-    // force-eviction.
+    // await cannot wedge the loop for the rest of the 15-minute hold.
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([

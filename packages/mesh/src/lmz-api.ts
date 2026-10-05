@@ -275,11 +275,11 @@ async function dispatchEnvelope(
  * early-acking transport hop. The **caller holds ZERO state** — the 4-arg handler travels
  * with the call and the callee fires it back; nothing is parked here.
  *
- * The only per-node-type divergence: a `LumenizeWorker` is ephemeral, so `ctx.waitUntil`
- * keeps its runtime alive across the short ack hop; on a DO/Container `ctx.waitUntil` is a
- * **no-op** (Worker-API parity only) and the node stays alive during its active outbound RPC on
- * its own. (The browser `LumenizeClient` does NOT use this — it keeps its handler in-heap,
- * via its own `#call`.)
+ * The only per-node-type divergence is what `ctx.waitUntil` does across the short ack hop: it
+ * keeps an ephemeral `LumenizeWorker` alive at any compatibility date, and a DO/Container only
+ * from 2026-10-01 (`durable_object_io_tasks_prevent_eviction`) — before that it is a **no-op**
+ * on a DO, which the hop's few milliseconds make harmless. (The browser `LumenizeClient` does
+ * NOT use this — it keeps its handler in-heap, via its own `#call`.)
  *
  * @internal
  */
@@ -337,11 +337,11 @@ function callShared(
   // 6. Dispatch the one early-acking transport hop.
   const dispatchPromise = dispatchEnvelope(env, nodeInstance, calleeBindingName, calleeInstanceName, envelope, handlerChain);
 
-  // Keep the runtime alive across the short ack hop so the outbound RPC completes even if the
-  // invocation that fired the call is about to return. ⚠️ `waitUntil` is load-bearing ONLY for the
-  // ephemeral `LumenizeWorker`; on a DO/Container it is a NO-OP (it exists for Worker-API parity —
-  // `DurableObjectState.waitUntil` is a documented no-op). Harmless here: the hop is short, and a DO
-  // stays resident during its active outbound RPC on its own (pending I/O), no waitUntil needed.
+  // Keep the node alive across the short ack hop so the outbound RPC completes even if the
+  // invocation that fired the call is about to return. An ephemeral `LumenizeWorker` needs this at
+  // any compatibility date. A DO/Container is held by it only from 2026-10-01
+  // (`durable_object_io_tasks_prevent_eviction`); before that it is a no-op on a DO, which is
+  // harmless here because the hop takes milliseconds, far inside the 70–140 s idle window.
   nodeInstance.ctx.waitUntil(dispatchPromise);
 }
 
@@ -1000,8 +1000,9 @@ async function fireResponse(
  * and returns `{ $ack: true }` the instant the callee is admitted — BEFORE the chain. The
  * chain + fire-back then run as a **detached task** (started eagerly, re-bound to the envelope's
  * `callContext` via `runWithCallContext` — a fresh scope, not a captured closure). `ctx.waitUntil`
- * holds an ephemeral `LumenizeWorker` alive for that tail; on a DO it is a **no-op** and residency
- * relies on pending I/O — reliable for short chains, NOT for a long idle one (see the ADMITTED block).
+ * holds the node for that tail: a `LumenizeWorker` at any compatibility date, a DO from 2026-10-01
+ * for up to 15 minutes. Before that date it is a **no-op** on a DO, and a long detached chain can
+ * be evicted mid-run (see the ADMITTED block).
  * An admission/guard failure returns `{ $error }` on the ack instead.
  *
  * @internal
@@ -1023,8 +1024,8 @@ export async function executeEnvelope(
      * used to reach the request door, where it is on.
      */
     filled?: boolean;
-    /** The node's `ctx.waitUntil`. Keeps an ephemeral `LumenizeWorker` alive for the detached
-     * post-ack tail; a **no-op on DOs** (Worker-API parity only — see the ADMITTED block). */
+    /** The node's `ctx.waitUntil`, which holds the node for the detached post-ack tail — a DO only
+     * from compatibility date 2026-10-01 (see the ADMITTED block). */
     waitUntil?: (promise: Promise<any>) => void;
     /** The node's bindings — used to resolve the fire-back return-address stub. */
     env?: any;
@@ -1088,8 +1089,8 @@ export async function executeEnvelope(
   }
 
   // --- ADMITTED. Run the chain + fire-back as a DETACHED, eagerly-started task, re-bound to
-  //     the envelope callContext. The node's waitUntil (below) holds an ephemeral LumenizeWorker
-  //     alive for it; on a DO/Container waitUntil is a NO-OP (Worker-API parity only). ---
+  //     the envelope callContext. The node's waitUntil (below) holds it — a DO/Container only
+  //     from compatibility date 2026-10-01. ---
   const postAck = runWithCallContext(callContext, async () => {
     let outcome: unknown;
     let isError = false;
@@ -1111,12 +1112,13 @@ export async function executeEnvelope(
       error: detachedError instanceof Error ? detachedError.message : String(detachedError),
     });
   });
-  // Hold an ephemeral LumenizeWorker alive for the detached tail. ⚠️ On a DO/Container this is a
-  // NO-OP (`DurableObjectState.waitUntil` is a documented no-op — Worker-API parity only). The
-  // postAck runs eagerly regardless, and a DO stays resident for the tail via PENDING I/O — reliable
-  // for short chains, but a LONG detached chain with idle gaps (e.g. an agentic loop awaiting a model)
-  // is NOT held on a DO and can be idle-evicted mid-run. A node needing that guarantee must run the
-  // work in-flight or its own setTimeout/alarm keep-alive (tracked in tasks/backlog.md § Lumenize Mesh).
+  // Hold the node for the detached tail; postAck runs eagerly either way. An ephemeral
+  // LumenizeWorker is held at any compatibility date. A DO/Container is held from 2026-10-01
+  // (`durable_object_io_tasks_prevent_eviction`), for up to 15 minutes from the tail's start.
+  // ⚠️ Before that date `waitUntil` is a no-op on a DO, and so, for a detached chain, is a pending
+  // binding call or RPC, so a long chain with idle gaps — an agentic loop awaiting a model — can be
+  // idle-evicted mid-run (durable-objects.md § Wall-clock billing). A chain that must outlive
+  // 15 minutes needs an alarm or two one-way calls at any date.
   options?.waitUntil?.(postAck);
 
   return { $ack: true };

@@ -90,7 +90,7 @@ export function getParserValidatorFacet(
     const worker = loader.get(bundleId, async () => {
       const moduleSource = await loadModuleSource();
       return {
-        compatibilityDate: '2026-08-15',
+        compatibilityDate: '2026-10-01',
         mainModule: 'parser.js',
         modules: { 'parser.js': moduleSource },
         globalOutbound: null,
