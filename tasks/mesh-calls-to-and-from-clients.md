@@ -1,10 +1,10 @@
 # Calls to and from a Client behave like calls between nodes
 
-**Status:** Pass 1, with every decision Larry's. Stage 1 `/review-task` ran twice on 2026-10-04,
-and every item from both runs is settled; the vision doc, the ADRs and `security.md` changed
-docs-first the same day (→ D18). Stage 2 is running, and Pass 2's phases follow it. The master
-plan's Open decision 4, where a Client's server-side half is hosted, no longer gates this file
-(→ D23).
+**Status:** Pass 2 written 2026-10-05, with every decision Larry's. Stage 1 `/review-task` ran
+twice on 2026-10-04 and Stage 2 once on the phase-less file, and every item from all three runs is
+settled; the vision doc, the ADRs and `security.md` changed docs-first (→ D18). Stage 2 runs again
+on the phases before `/build-task`. The master plan's Open decision 4, where a Client's
+server-side half is hosted, no longer gates this file (→ D23).
 
 ## Goals
 
@@ -62,7 +62,8 @@ on one model: a Client and its Gateway together are the equivalent of a server-s
   - `callContext.state` and `CallOptions.state` leaving mesh for every node type (D22).
 
   The same edit strikes what those rows will then get wrong: `ClientTokenExpiredError` listed as new, though D5 deletes it before any release; `lmz.broadcast`'s `newChain` and `state` called additive; the CALL frame keeping only `state`; and `ClientResultEnvelope.clientInstanceName` staying.
-- **`tasks/on-hold/mesh-resilience-testing.md` drives the grace period and reconnect paths D4 and D5 change**, so its phases need re-reading against this file's Gateway when it resumes.
+- **Takes over Phases 1, 2, 4 and 5 of `tasks/on-hold/mesh-resilience-testing.md`**, which drive the grace period and reconnect paths D4 and D5 change. Phase 10 re-derives them for this Gateway, `/live` first, and trims that file to Phases 3, 6 and 7.
+- **Hands D7 and D17 to [nebula-pre-alpha.md](nebula-pre-alpha.md) § *A Client connects to its scope's node***, since both are about Gateway names and wait on Open decision 4. Phase 10 writes the pointer.
 
 ## Constraints
 
@@ -482,7 +483,8 @@ The messages between a Client and its Gateway, after D11 and D15:
 // Client → Gateway: a call. expectsResult goes, and every call names a handler (D15).
 // loadId is minted once per Client, and the fire-back echoes it (D21). callId stays
 // for onSent, and so the Gateway can name a call in its logs
-// It carries no callContext: the Gateway builds all of it (D19), and it has no state (D22)
+// It carries no callContext: the Gateway builds all of it (D19), and there is no
+// state (D22)
 { type: 'call', callId: '5e0b…', loadId: '9c41…', binding: 'STAR',
   instance: 'acme.crm.bigco', chain, handler, onErrorOnly /* optional */ }
 
@@ -537,8 +539,9 @@ differs* block where the code lags (→ D18). The build does two things to stand
 **It removes these blocks, each in the phase that closes it:**
 
 - `docs/vision/auth.md` § *Lumenize Nebula mesh*, opening "On a call to a client, the Gateway holds" (D11).
-- `docs/vision/auth.md` § *How the claims travel*, opening "A chain a node started carries no claims", cut sentence by sentence as D10 and D19 land.
+- `docs/vision/auth.md` § *How the claims travel*, opening "A chain a node started carries no claims", cut sentence by sentence as D19, D24 and D10 land.
 - `docs/adr/003-continuation-messaging.md` § *When awaiting is OK*, opening "On a call to a client, the Gateway returns" (D11, D15).
+- `docs/adr/007-shared-node-security-core.md`, opening "The client keeps its result handler continuation in the tab" (D11).
 - `docs/adr/015-passage-and-dominion.md` § *Predicate pair*, opening "A chain a node started carries no token" (D10).
 - `.claude/rules/security.md`'s ⏳ line under the JWT bullet (D10).
 
@@ -561,44 +564,6 @@ passing `newChain` (D19), `state` in a call context or call options (D22), the `
 - **`website/docs/mesh/lumenize-client.mdx` § *Access Control*:** its opt-in example gains one sentence: an app that opens peer calls must guard its own push handlers, which the default refusal was protecting (D24).
 - **Elsewhere in the docs:** `website/docs/auth/index.mdx`, and `FetchExecutorEntrypoint.md` with its source comment in `packages/mesh/src/lumenize-worker.ts`.
 - **JSDoc and comments:** `requirePassage`; the Client's and `broadcast.ts`'s broadcast warnings; the Gateway's class comment; the reaper comments in `apps/nebula/src/resources.ts` and `packages/nebula-auth/src/profile.ts` that say a Gateway answers inside its ack; every comment stating where `callee` comes from (`CallContext.callee` in `packages/mesh/src/types.ts`, `executeEnvelope`, `fireResponse`, the reapers, and the `reaper-victim-is-the-address` scenario's header), restated as: the receiver's own identity at the request door, the address dispatched to on a local dispatch, and the last hop at the fire-back door (D11); `apps/nebula/src/subscriptions.ts`'s two blocks naming the blanket re-subscribe as the convergence mechanism (D4); and `packages/auth/src/hooks.ts` (D11).
-
-## What Pass 2 must prove
-
-Stage 2 named what each decision has to be shown to do. Pass 2 turns these into phase criteria.
-Each `/live` limb gets a mutation that isolates it (`live-scenarios.md`), and every refusal is
-matched by its message, since a boolean cannot tell one refusal from another.
-
-**Phase order.** The extraction D23 describes lands alone as the first phase, and the mesh suite
-and `drive.ts all --fast` are green before any behaviour changes. Every phase that changes the wire
-runs `drive.ts all --fast`, and D11's runs the full `drive.ts all`, container scenarios included.
-
-**`/live` scenarios, each red before its phase:**
-
-- **Goal 1 and D4.** A frozen tab whose frames are held past 30 s gets 4408, re-subscribes and receives the next write. A forced token rotation re-subscribes nothing, counted, and the next write arrives. A tab away past the grace period is told `true` and re-subscribes. A member promoted to admin while a tab is subscribed sees an admin-only resource once that tab's token is refreshed, with no reload. Accepting a broader membership in another tab mid-session reconnects this tab under its new `sub`, and it keeps receiving updates.
-- **D5.** After a real token lapse, a push arrives as a push on the new socket, and so does a later write; with a revocation before the lapse, the next write never arrives.
-- **Goal 3 and D15.** A subscribe to a sibling Star's resource gets `No passage from "…" into "…"` well under 30 s, both from a refusal at the early ack and from one after it.
-- **Goal 4.** A forging socket's `call` with forged `kind`, `returnAddr` and `callContext` runs no victim method, only the forger's own continuation. A hostile client's marker-shaped answer arrives as data at a node: a `.dev` Star's `onOntologyPulled` is never invoked.
-- **D10.** A chain started by the Star `acme.crm.bigco` calling its sibling is refused with `No passage from "acme.crm.bigco" into "acme.crm.other"`, where today it reads `(no scope)`. A Profile-started chain into a Star is refused with `(no scope)`, and a Galaxy's alarm calling one of its Stars stays refused. Positive controls: the node itself, and a Star's chain into its Galaxy. A tab calling `PROFILE` and `NEBULA_CLIENT_GATEWAY` at a sibling Star's name reaches nothing, each refused with its own message (D25).
-- **D24.** `client-sender-passage` drives a call from one tab to another and asserts it reaches the receiving Client and is refused there, matched on the Client's own refusal message, not a Gateway passage refusal.
-- **D21.** A disposed client's late `response` does not run on a new client with the same `tabId`.
-
-**Tests that need no running system, each saying why:**
-
-- A Client push handler returns, and a Client's 4-arg call binds, a Map, a Date, a cyclic object, an aliased reference and a custom Error subclass with its own properties; each arrives intact, and a bound function fails at the call site (D11).
-- A continuation that throws at the fire-back door is still logged (D15).
-- A push answered on one socket and re-sent on its successor runs its handler once (D4).
-- `onErrorOnly` calls leave the Client's retained state flat (D21).
-- A host with no record for a reconnecting Client reports `subscriptionRequired: true` (D4).
-- A new token whose `scopeAdmin` drops under the same `sub` makes `NebulaClient` re-subscribe (D4); no product path demotes yet, so this one runs in-lane.
-- `grep -n "UPDATE Memberships SET" packages/nebula-auth/src` lists only `acceptedAt` and `scopeAdmin`, so a membership never moves scope in place (D4).
-- Passage and expiry are checked against the socket actually sent on, with two sockets whose tokens differ in `scopeAdmin` (D23).
-- An `lmz`-only upgrade gets a 426, and the existing socket stays open.
-- A malformed Client-written continuation is refused with a message (D11).
-- `callee` names who answered on both refusal roads (D11).
-
-**Tests whose assertion a decision inverts:** `packages/mesh/test/broadcast.test.ts`'s `callee` assertion and the `@see` pointing at it (D11); `nebula-client-reconnect.test.ts`'s blanket re-subscribe on supersede (D4); `lumenize-client-gateway.test.ts`'s expired-token answer (D5) and its call-timeout test, extended to assert 4408 (D4). `packages/mesh/test/for-docs/calls/peer-guard.test.ts` keeps asserting the default refusal (D24). `packages/mesh/vitest.config.js`'s 500 ms call timeout moves to the projects that test it, or D4's 4408 turns every slow push into a reconnect. Kept green as witnesses: `reaper-victim-is-the-address`, `profile-subscribe.test.ts`, and the forged-reply test in `profile-do.test.ts`.
-
-**The on-hold resilience file.** Pass 2 takes over `tasks/on-hold/mesh-resilience-testing.md`'s Phases 1, 2, 4 and 5, re-derived for this Gateway and `/live` first, and trims that file to what remains.
 
 ## Decisions
 
@@ -628,3 +593,404 @@ Every row is Larry's call. The D-numbers are append-only, and the prose above po
 | D24 | **A Client keeps refusing every call whose immediate caller is another Client, in the MIT package and in Nebula, and the Gateway does not check passage for a Client sender** (Larry, 2026-10-05). The refusal lives in `LumenizeClient.onBeforeCall`, so it covers every method an override replaces and needs no per-handler guard; its JSDoc carries Larry's instruction not to remove it again. Passage has nothing to decide for a Client sender: a tab is named `{sub}.{tabId}`, not by a scope, so it offers no `targetScope`, and the receiving tab's `aud` says where its person is acting, not what the tab is. So the receiving Client decides, refusing by default; an MIT app that opts in keeps today's documented override and decides in its own guards from the caller's claims, which the Gateway has stamped. For a node sender the Gateway keeps checking the tab's passage into the sender's scope, which catches a subscriber row that outlived its page. | **Opening Client-to-Client calls and guarding each push handler (D13 and D14, withdrawn)** — one review found seven defects that existed only because peers were open, and every earlier attempt also ended in a restriction; a peer feature works through a node. **Checking the sender's passage into the receiving tab's `aud` (the first form of this row)** — it uses a tab's `aud` as if it were a scope the call targets, which it is not; it fixed the direction of today's check without a model that justifies checking at all. **Keeping today's Client-sender check** — it asks the receiving tab's passage into the sender's scope, which admits a plain `acme.crm` member reaching down into a tenant's tab and refuses a tenant reaching up. **Refusing Client senders at the Gateway as well** — a second refusal of what the Client already refuses, and it would take the decision away from an app that opts in. |
 | D25 | **A scope-shaped name belongs only to an object that checks passage into it** (Larry, 2026-10-05). `Profile.onBeforeCall` refuses to run under a name that is not a profile id, and the Gateway's `__executeOperation` refuses a name that does not start with a dotless UUID, as its upgrade path already does. With `packages/nebula-auth/test/parse-id.test.ts` pinning that no id parses as a scope, a scope-shaped `callChain[0]` always names a `NebulaDO`, so D10's admission of a claimless chain grants nothing a caller lacked. Today a tab can bring a Profile object into existence at `acme.crm.bigco`; nothing it does reaches a Star, which is why this was latent rather than live. | **Stating the invariant in JSDoc on `requirePassage`, `Profile` and the Gateway** — safe only while nobody adds a Profile feature that calls a scoped node on a fresh chain, and the reminder sits where that author would not look. **Keying D10 on the starter's binding** — rejected in D10: a list a new scoped node would fall off, and a binding's class cannot be read from a call. |
 | D26 | **`onBeforeCallToMesh` stays as it is: a Gateway subclass may still return whatever context it likes** (Larry, 2026-10-05). Only server code the Gateway's author writes runs there, trusted as any node's code is, and no Client can reach it. It was added in February 2026 for Nebula's planned stamp of `universeGalaxyStarId`, a design that moved to the token's `aud` before it was built, so Nebula has never overridden it; an MIT app's subclass may still want it. A change to what it does is made safe when it is made. D22 takes `state`, so the hook's test in `packages/mesh/test/lumenize-client-gateway.test.ts` stamps a top-level field instead of `state._auth`, and the capability keeps a test. | **Deleting it (Stage 2)** — takes a capability from every other subclass to close a channel only that subclass's author can write. **Making it observe-only** — the same loss, for the same reason. **Documenting what a subclass must not change** — a rule against a risk we already control. |
+
+## Phases
+
+**Every phase ends the same way.** `npm test` passes in `packages/mesh` and `apps/nebula`, and
+`npx tsx apps/nebula/harness/drive.ts all --fast` sweeps the registry green; Phases 7 and 8 run
+the full `drive.ts all`, container scenarios included, because they rewrite the transport every
+scenario rides. A new `/live` scenario is written first and is red before its phase's code;
+where today's code already has the property by another mechanism, its mutation is what shows it
+can fail. Each limb names the mutation that isolates it (`live-scenarios.md`), and a refusal is
+matched by its message, since a boolean cannot tell one refusal from another. A test that runs
+in-lane says why it needed no running system.
+
+**Standing guidance moves with the code that makes it false** (§ *What changes in standing
+guidance*). A phase that retires a term greps the trees named there and comes back clean outside
+`tasks/`; each count below is today's. The phase's BREAKING note goes into `tasks/backlog.md`
+§ *Lumenize Mesh* in the same commit. No task-file handle, `Dn` or `Phase N`, goes into source
+(`workflow.md`).
+
+### Phase 1 — The Client's server-side half becomes code the Gateway composes
+
+The code `LumenizeClientGateway` runs for its Client moves into a module in `packages/mesh/src`
+that a Durable Object composes, as `ComposedMeshDO` composes the comms core (D23). It covers
+accepting and superseding a socket, building a Client call's context and envelope, forwarding a
+node's call and pairing the Client's answer, the grace period, and `subscriptionRequired`. The
+Gateway keeps its entry points (`fetch`, `webSocketMessage`, `webSocketClose`,
+`__executeOperation`, `__handleResponse`) and its three hooks, and each entry delegates. The
+module reaches its host only through what it is handed: the host's `ctx`, its `env` and its hooks.
+
+- **The grace period becomes an in-memory deadline per Client**, so the module owns no `alarm()`
+  and calls no `ctx.storage.*Alarm`, and the Gateway's `alarm()` goes. One behaviour differs, and
+  only after an eviction. A Client reconnecting within 5 s to a Gateway evicted since its close is
+  told `subscriptionRequired: true`, where the alarm said `false`, which is the direction D4 wants.
+- **`#getInstanceName` is deleted** (D8).
+- **The test-mode overrides keep working**: `LUMENIZE_MESH_GRACE_PERIOD_MS`,
+  `LUMENIZE_MESH_TEST_MODE`'s 60 s grace period, and `LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS`.
+- **The module's name is new vocabulary**, so Larry agrees it before the phase starts
+  (`prose-voice.md` § *The moves that make the difference*).
+
+**Success criteria:**
+
+- Both suites pass with the same test files and the same tests, apart from the one below. The
+  phase changes no other assertion, so the existing suites are its net.
+- `grep -nE "alarm|ctx\.storage" <the module>` finds nothing, and the Gateway declares no
+  `alarm()`; today the Gateway has 12 such lines. *Mutation:* restore `setAlarm` in
+  `webSocketClose`.
+- `lumenize-client-gateway.test.ts`'s test that fires the grace period with
+  `runDurableObjectAlarm` instead lets a short test-mode grace period lapse with a call parked in
+  the wait, and still asserts `ClientDisconnectedError` with its class. *Mutation:* never reject
+  the waiters at the deadline, and the call hangs to the test timeout.
+- `website/docs/mesh/gateway.mdx` describes the grace period as an in-memory deadline in its three
+  places that name `getAlarm()` or "Alarm status", and so does the Gateway's class comment with its
+  connection-state table.
+
+### Phase 2 — A Client writes nothing into a call's context, and `state` leaves mesh
+
+`CallContext.state` and `CallOptions.state` leave mesh for every node type, with
+`buildOutgoingCallContext`'s merge and the Client's `outgoingClientState` (D22). The Client's
+`call` message loses `callContext`, and the Gateway builds the whole context from the socket's
+attachment (D19). `incoming_call` carries `callChain` and `originAuth` only.
+
+- **The Client's call and broadcast options lose `newChain`**, through an options type of the
+  Client's own, so a Client caller passing it fails to compile. A node's options keep it.
+- **`onBeforeCallToMesh`'s test stamps a top-level field** rather than `state._auth`, so the hook
+  keeps a test (D26).
+- **The docs teach the replacements** D22 names: `callChain` for tracing, a continuation argument
+  for a value a later hop needs, and an authorization decision computed in the guard of the node
+  it is about. That covers `managing-context.mdx` § *Using `state`*, `security.mdx` § *Call
+  Context State* with its source `packages/mesh/test/for-docs/security/team-doc-do.ts`, and
+  `mesh.md` § *Passing data to the callee*.
+- **`auth.md` § *How the claims travel* loses its *Today's code differs* sentence** about a Client
+  writing `state`.
+
+**Success criteria:**
+
+- A hand-built `call` frame carrying `callContext: { state: { isEditor: true } }` reaches its node
+  with no `state` key in `callContext`. In-lane in `packages/mesh`, which has no `/live` harness of
+  its own. *Mutation:* the Gateway copies the frame's `state` again.
+- A `// @ts-expect-error` line passing `{ newChain: true }` to a Client's `lmz.call` compiles.
+  *Mutation:* drop the Client's own options type, and the directive reports itself unused.
+- The `onBeforeCallToMesh` test's callee reads the field its hook stamped. *Mutation:* the
+  Gateway ignores the hook's return.
+- `callContext\.state` (36 hits in 19 files) and `CallOptions\.state` (3 hits in 2 files) find
+  nothing in the trees.
+- **BREAKING notes:** the Client's options lose `newChain`, and `callContext.state` and
+  `CallOptions.state` leave mesh. The 2026-09-27 row stops calling `lmz.broadcast`'s `state`
+  option additive and stops saying the CALL frame keeps `state`.
+
+### Phase 3 — The receiving Client decides a call from another Client
+
+`NebulaClientGateway.onBeforeCallToClient` checks nothing when the sender, `callChain.at(-1)`, is
+a `LumenizeClient`; the receiving Client's own `onBeforeCall` refuses it (D24). It keeps checking
+a node sender's passage. Its file comment's sentence on a Client sender's scope goes, and so does
+`auth.md` § *How the claims travel*'s *Today's code differs* sentence on the same check.
+
+**Success criteria:**
+
+- **`client-sender-passage`, limb 1, inverts.** A tab on Star B calling a tab on Star A reaches
+  A's Client and is refused there, matched on *Direct client-to-client calls are disabled by
+  default*, never a passage message. *Mutation:* restore the Gateway's Client branch, and the
+  passage refusal arrives instead. Limb 2, a second tab on Star A, stays as the positive control,
+  and the scenario's header says the Gateway no longer decides.
+- The tests `archive/nebula-scope-moves-to-subdomain.md` built for a node sender's passage stay
+  green, and `packages/mesh/test/for-docs/calls/peer-guard.test.ts` keeps asserting the Client's
+  default refusal.
+- `website/docs/mesh/lumenize-client.mdx` § *Access Control*'s opt-in example gains one sentence:
+  an app that opens peer calls must guard its own push handlers, which the default refusal was
+  protecting.
+
+### Phase 4 — A chain a node started has an `activeScope`
+
+Passage reads one derived value, the call's `activeScope` (D10). It is the claims' `aud` when the
+call carries claims. With no claims, it is `callChain[0]`'s name when that node's name parses as a
+scope, held as a plain member with no `scopeAdmin`; otherwise there is none. A Client's chain
+always carries claims, so only a claimless chain is affected. `noPassageMessage` names the
+starting node's scope where it says `(no scope)` today. Nothing writes a synthetic `aud` into
+`originAuth`.
+
+D25 lands in the same phase, because D10 is sound only with it:
+
+- **`Profile.onBeforeCall` refuses to run under a name that is not a UUID.** Every `profileId` and
+  every persona's id is one (`parse-id.test.ts`).
+- **The Gateway's `__executeOperation` refuses a name that does not start with a dotless UUID and
+  a `.`**, as its upgrade path already does.
+
+**Success criteria:**
+
+- **In-lane in `apps/nebula/test/test-apps/baseline/`, each starting a fresh chain on a real
+  node.** No product path makes a Star call its sibling or a Profile start a chain into a Star,
+  and a harness helper that made one would be a fixture (`live-scenarios.md`):
+  - The Star `acme.crm.bigco` calling `acme.crm.other` is refused with
+    `No passage from "acme.crm.bigco" into "acme.crm.other"`. *Mutation:* drop the derived value,
+    and the message reads `(no scope)`.
+  - A chain the Profile started is refused at a Star with `(no scope)`. *Mutation:* admit any
+    claimless chain, and it passes.
+  - A Galaxy's chain into one of its Stars is refused. *Mutation:* give the derived member
+    `scopeAdmin`, and dominion admits it.
+  - Positive controls: the Star calling itself, and calling its Galaxy, both pass.
+- **`node-chain-passage`, a new `/live` scenario.** A tab calls `PROFILE`, then
+  `NEBULA_CLIENT_GATEWAY`, at a sibling Star's name, and each is refused with its own message.
+  *Mutation:* drop each check in turn. Phase 8 makes every subscription push's fire-back a chain
+  its Star started, so from then on every subscription scenario covers D10's admission too.
+- **Standing guidance:** ADR-015 § *Predicate pair* and `security.md`'s ⏳ line under the JWT
+  bullet lose their *Today's code differs* text. So does `auth.md` § *How the claims travel*,
+  whose block is then empty and goes. `requirePassage`'s JSDoc describes the derived value.
+- **`tasks/backlog.md`:** the row saying a chain a node starts carries no `originAuth` narrows to
+  a Galaxy's alarm calling one of its Stars.
+
+### Phase 5 — At a fire-back door, `callee` names the node that answered
+
+At `__handleResponse`, `executeEnvelope` sets `callee` from the fire-back's last hop,
+`callChain.at(-1)`, which the answering node's `fireResponse` appended (§ *What changes where a
+node receives its own fire-back*). The request door still stamps the receiver's own identity, and
+a local dispatch still stamps the address dispatched to. `broadcast.ts`'s warning that the two
+paths differ goes, and so does the Client's matching warning on its own `lmz.broadcast`. Every
+comment saying where `callee` comes from says those three sources, in the places § *What changes
+in standing guidance* lists.
+
+**Success criteria:**
+
+- `broadcast.test.ts`'s *a DO target that throws after acking* asserts `callee` names the target
+  that threw, not the broadcaster, and the `@see` in `broadcast.ts` follows. *Mutation:* stamp the
+  receiver's own identity at the fire-back door again.
+- Kept green as witnesses: `reaper-victim-is-the-address`, `profile-subscribe.test.ts`, and the
+  forged-reply test in `profile-do.test.ts`.
+
+### Phase 6 — Every call names a result handler
+
+The three-argument `lmz.call` goes for every node type, and fire-and-forget becomes a handler
+with `onErrorOnly` (D15). `lmz.call`'s handler, `lmz.broadcast`'s `onResult` and `Resources`'
+`#send`'s `onResult` become required, so a site the build misses fails to compile.
+
+- **The sites D15 names gain a handler**: `NebulaClient`'s subscribes and unsubscribes, through
+  `#hostCall` or straight to the Profile, each `onErrorOnly`; `Galaxy`'s preview-ready nudge; the
+  Profile's first snapshot to a new subscriber; and the six `Resources` sends without one. A first
+  snapshot takes the reaper its broadcasts use, and a stream chunk a logging `onErrorOnly`.
+- **A refused subscribe reaches the tab at once as its Error**, and `#subscribeVia`'s timer stays
+  for a host that never answers.
+- **What goes:** the `discard` kind, `dispatchEnvelope`'s branch for a call with no handler, the
+  Client's `expectsResult` and the Gateway's branch for a call without one. `fireResponse`'s arm
+  for an envelope with no `response` stays, because it logs a continuation that throws at the
+  fire-back door.
+- **`packages/fetch`'s two sites**, in `fetch.ts` and `fetch-executor-entrypoint.ts`, get an error
+  handler that logs. A `packages/fetch` test this breaks is skipped with a reason, not fixed.
+- **ADR-003's *Today's code differs* block loses its last sentence**, on a three-argument call.
+  Phase 8 removes the rest.
+- **The docs lose their three-argument calls**, including those inside `@skip-check-approved`
+  blocks in `index.mdx` and `lumenize-worker.mdx`, which the example checker never reads, and
+  `FetchExecutorEntrypoint.md` with its source comment in `packages/mesh/src/lumenize-worker.ts`.
+
+**Success criteria:**
+
+- **`subscribe-refusal-arrives`, a new `/live` scenario.**
+  - Limb 1: a tab subscribing to a sibling Star's resource gets `No passage from "…" into "…"`
+    within 5 s, refused at the early ack. *Mutation:* drop the subscribe's handler, and the
+    refusal arrives only when `#subscribeVia`'s 30 s timer gives up.
+  - Limb 2: a query subscribe the Star admits and then refuses, naming a `queryType` it does not
+    support, arrives as `Unsupported queryType …` within 5 s. *Mutation:* drop the query
+    subscribe's handler.
+- A `// @ts-expect-error` three-argument `lmz.call` compiles for a DO, a Worker and a Client.
+  *Mutation:* make the handler optional again.
+- A continuation that throws at the fire-back door is logged, asserted on the debug sink.
+  *Mutation:* delete `fireResponse`'s arm for an envelope with no `response`.
+- `'discard'` (3 hits in 1 file) and `expectsResult` (32 hits in 5 files) find nothing.
+- **BREAKING note:** the three-argument `lmz.call` goes, and `lmz.broadcast`'s `onResult` is
+  required.
+
+### Phase 7 — A Client's result handler continuation travels with its call
+
+A Client sends its result handler continuation with its call, and it comes back filled (D11,
+§ *A Client calls a node*). The `call` message gains `handler`, `onErrorOnly` and `loadId`. The
+Gateway writes the envelope's
+`response: { kind: 'mesh', returnAddr: <this Client>, handler, onErrorOnly, callId, loadId }`.
+
+- **The Gateway refuses a Client-written continuation** that fails `validateOperationChain` or
+  does not end in an apply, with a message, before dispatch.
+- **The node fills it with `fireResponse`, unchanged, and fires it to the Gateway's
+  `__handleResponse`**, which hands it to the module's own fire-back entry (D23). The module sends
+  `{ type: 'response', callId, loadId, chain, callContext: { callChain, originAuth } }` down the
+  current socket.
+- **A refusal at the early ack takes the same road.** The module fills the Client's continuation
+  with the Error and appends the node it dispatched to as the last hop. It uses `fireResponse`'s
+  fill code, factored out so a class extending `DurableObject` can call it (ADR-007).
+- **The Client runs a `response` as a node runs `__handleResponse`**: through
+  `executeFilledChain`, with `onBeforeCall` on and the `@mesh()` check off, and with `callee` set
+  from the chain's last hop. On an incoming call it stamps its own identity (D6).
+- **The Client mints `loadId` once, when constructed, and drops a `response` whose `loadId` is not
+  its own** (D21). Its in-heap handlers and their captured call-site context go.
+- **`callAsync` keeps only its Promise**, keyed by `callId`. Its continuation is a call to a
+  `LumenizeClient` method with no `@mesh()`, taking the id and the result (D16).
+- **What goes:** `fireResponse`'s client branch, `kind: 'client'`, `ClientResultEnvelope`, the
+  `call_response` message and the exported `CallResponseMessage`.
+- **The protocol name becomes `lmz.2`.** The Gateway answers 426 to an upgrade offering only
+  `lmz`, before any side effect, and leaves an open socket alone. `packages/auth/src/hooks.ts`
+  accepts it too; it is the known second copy (`mesh.md` § *Package dependency direction*).
+- **ADR-007's *Today's code differs* block goes.**
+
+**Success criteria:**
+
+- **`forged-continuation`, a new `/live` scenario, limb 1.** A raw socket sends a `call` with a
+  forged `kind`, `returnAddr` and `callContext`. No other tab's method runs; the forger's own
+  continuation runs on the forger, with the forger as `callChain[0]`. *Mutation:* the Gateway
+  copies the frame's response fields into the envelope.
+- **`late-answer-dropped`, a new `/live` scenario.** A Client calls, then is disposed; the answer
+  waits out the gap in the Gateway's grace period; a new Client connects on the same `tabId` and
+  receives it. The new Client does not run it, read from a method the continuation names.
+  *Mutation:* skip the `loadId` check.
+- In-lane in `packages/mesh`:
+  - A Client's call binds a Map, a Date, a cyclic object, an aliased reference and a custom Error
+    subclass with its own properties into its continuation; each arrives intact, and binding a
+    function fails at the call site. *Mutation:* send the handler without `preprocess`.
+  - A malformed Client-written continuation is refused with a message. *Mutation:* skip
+    `validateOperationChain`.
+  - `callee` names who answered on both refusal roads. *Mutation:* the module does not append the
+    node it dispatched to.
+  - A thousand `onErrorOnly` calls that succeed leave nothing per call in the Client, read
+    through a test-only count. *Mutation:* keep an entry per call.
+  - An upgrade offering only `lmz` gets a 426, and the existing socket stays open. *Mutation:*
+    accept `lmz`.
+- `ClientResultEnvelope` (5 hits in 2 files), `CALL_RESPONSE|call_response` (68 hits in 10 files),
+  `kind: 'client'` (2 hits in 2 files) and `#inHeapHandlers` (11 hits in 2 files) find nothing.
+  No site offers or answers the bare `lmz` subprotocol, among them `website/docs/auth/index.mdx`.
+- **BREAKING notes:** the Client↔Gateway wire, including `lmz.2` and `CallResponseMessage`; and a
+  Client's bound continuation arguments crossing the wire, so a function cannot be bound and a
+  reactive object comes back as a copy. The rows stop saying
+  `ClientResultEnvelope.clientInstanceName` stays.
+
+### Phase 8 — A node's call to a Client acks early, and the Gateway keeps its continuation
+
+The Gateway acks once the envelope's version checks out, before it looks for a socket (D11,
+§ *A node calls a Client*). Every later outcome fires back to the node's `__handleResponse`: a
+missed reconnect, D12's passage refusal, the 30 s timeout, and the Client's answer.
+
+- **The module fills the node's continuation** with `fireResponse`'s fill code and honours
+  `onErrorOnly`. It appends its Client's identity as the last hop, from the socket's attachment,
+  or from the envelope's `metadata.callee` when there is no socket.
+- **A Client-authored Error named `ClientDisconnectedError` is renamed before filling**, so no
+  Client can get itself reaped. A returned Error now reaches the node's handler.
+- **Each wait the module keeps in memory is handed to `ctx.waitUntil`**, and its timer only times
+  it out (D23).
+- **Passage and expiry are checked immediately before each send**, against the attachment of the
+  socket actually sent on.
+- **`mesh.md` changes as D3 says.** § *`lmz.call` 4-arg — the result-handler mechanics* says a
+  Client's continuation travels as a node's does. The Gateway section becomes
+  *`LumenizeClientGateway` is the server-side half of a Client* and opens with D3's two
+  requirements.
+- **The last two *Today's code differs* blocks on this go**: `auth.md` § *Lumenize Nebula mesh*'s
+  and ADR-003 § *When awaiting is OK*'s. So do the reaper comments in `apps/nebula/src/resources.ts`
+  and `packages/nebula-auth/src/profile.ts` that say a Gateway answers inside its ack.
+
+**Success criteria:**
+
+- **`forged-continuation`, limb 2.** A hostile Client answers a push with an Error whose fields
+  are shaped like an operation marker naming `resourcesResults.onOntologyPulled`. The node's
+  reaper receives it as data, and the `.dev` Star's `onOntologyPulled` never runs, asserted on its
+  log marker. *Mutation:* fill the node's continuation through `executeOperationChain`.
+- `reaper-victim-is-the-address` and `broadcast-120-subscribers` stay green, now reaping at the
+  fire-back door. The first's header says so.
+- In-lane in `packages/mesh`:
+  - A Client push handler returns a Map, a Date, a cyclic object, an aliased reference and a
+    custom Error subclass, and each reaches the node's handler intact. Today the value is thrown
+    away. *Mutation:* the module reports the answer as an ack.
+  - `__executeOperation` on a Gateway with no socket returns `{ $ack: true }`, and the handler
+    later receives `ClientDisconnectedError` with `callee` naming the tab. *Mutation:* answer in
+    the ack.
+  - A Client answering with an Error named `ClientDisconnectedError` keeps its subscription row.
+    *Mutation:* skip the rename.
+- `answers inside its ack` (5 hits in 5 files), `never from the reply` (2 hits in 2 files),
+  `cannot name a victim` (1 hit) and `deliberately-awaited` (1 hit) find nothing.
+- **`tasks/backlog.md`:** the row proposing that broadcast-to-client go fully async closes.
+
+### Phase 9 — A push that meets an expired token waits for the reconnect
+
+On a call to a socket whose token has expired, the module closes it with 4401, starts the grace
+period at its own close, and delivers on the new socket once the Client reconnects with a fresh
+token (D5). A missed reconnect answers `ClientDisconnectedError`. `ClientTokenExpiredError` is
+deleted, since this path is its only source.
+
+**Success criteria:**
+
+- **`push-survives-token-lapse`, a new `/live` scenario**, across a real 15-minute lapse:
+  - Limb 1: with a subscription open, a write's push arrives as a push on the new socket, and a
+    later write arrives too. *Mutation:* answer at once, as today.
+  - Limb 2: with the session revoked before the lapse, the next write never arrives.
+    *Mutation:* drop the expiry check, and the push reaches the revoked socket.
+- In-lane: a push waiting for a reconnect is checked against the new socket, with two sockets
+  whose tokens differ in `scopeAdmin`. *Mutation:* check against the socket the call found.
+- `lumenize-client-gateway.test.ts`'s expired-token test inverts: the call waits and is delivered
+  after the reconnect.
+- `ClientTokenExpiredError` (10 hits in 5 files) finds nothing.
+- **`tasks/backlog.md`:** the BREAKING row stops listing `ClientTokenExpiredError` as new.
+
+### Phase 10 — A Client re-subscribes exactly when the Gateway says it lost something
+
+D4 in full. The module closes the socket with 4408 when its Client misses the 30 s wait, and on
+every branch that answers `ClientDisconnectedError`. It tracks each Client's grace period itself
+and reports `subscriptionRequired: true` when it has no record.
+
+- **The Client compares each new token with the previous one**, on every path a token arrives by.
+  A changed `sub` makes it reconnect as `{newSub}.{tabId}`; a changed `scopeAdmin` makes
+  `NebulaClient` re-subscribe.
+- **JSDoc on the Registry's `#mintIdentity` and the Memberships schema** says a membership never
+  changes scope, and names moving one in place as the change that would break this comparison.
+- **On any reconnect, a subscribe whose first snapshot has not arrived is re-sent.** A push in
+  flight on a closing socket is re-sent on its successor with its original `callId`.
+- **The Client keeps a small, bounded record of the `callId`s it recently answered**, with their
+  answers, and answers a repeat from it without running the handler.
+- **`NebulaClient` stops re-subscribing on every `reconnecting → connected` transition.** Its
+  org-tree subscribe is gated on the same signal and joins the re-subscribe walk.
+- **`packages/mesh/vitest.config.js`'s 500 ms call timeout moves** to the projects that test it,
+  or every slow push in the rest of the suite becomes a reconnect.
+
+This phase also takes over Phases 1, 2, 4 and 5 of `tasks/on-hold/mesh-resilience-testing.md`,
+as limbs 3 to 5 below.
+
+**Success criteria:**
+
+- **`resubscribe-when-lost`, a new `/live` scenario:**
+  1. A tab frozen through Playwright's CDP session past 30 s gets 4408, re-subscribes and
+     receives the next write. *Mutation:* no 4408 close.
+  2. A forced token rotation re-subscribes nothing, counted on the debug sink, and the next write
+     arrives. *Mutation:* restore the blanket re-subscribe on reconnect.
+  3. A tab back within the grace period receives the push sent during the gap, is told `false`,
+     and re-subscribes nothing. *Mutation:* answer at once instead of waiting.
+  4. A tab away past the grace period is told `true`, re-subscribes and receives the next write,
+     and the push sent while it was away reaped its row. *Mutation:* report `false`.
+  5. A second connection under the same name closes the first with 4409, is told `false`, and
+     the next push arrives on it. *Mutation:* report `true` on a supersede.
+  6. A member promoted to admin while subscribed sees an admin-only resource once the tab's token
+     refreshes, with no reload. *Mutation:* skip the `scopeAdmin` comparison.
+  7. Accepting a broader membership in another tab reconnects this tab under its new `sub`, and
+     it keeps receiving updates. *Mutation:* keep the first name, and the tab loops on 403.
+- In-lane:
+  - A push answered on one socket and re-sent on its successor runs its handler once.
+    *Mutation:* drop the record.
+  - A Gateway aborted inside the grace period reports `true` to the reconnect. *Mutation:*
+    default to `false`.
+  - A new token whose `scopeAdmin` drops under the same `sub` makes `NebulaClient` re-subscribe.
+    In-lane because no product path demotes yet.
+  - `grep -n "UPDATE Memberships SET" packages/nebula-auth/src` lists only `acceptedAt` and
+    `scopeAdmin`.
+  - `lumenize-client-gateway.test.ts`'s call-timeout test also asserts 4408, and
+    `nebula-client-reconnect.test.ts`'s blanket re-subscribe on supersede inverts.
+- `#resubscribeAll` (12 hits in 6 files) and `re-issues every subscription` (2 hits in 1 file)
+  find nothing. Every remaining `subscriptionRequired` hit (54 in 5 files) describes D4, among them
+  `apps/nebula/src/subscriptions.ts`'s two blocks.
+- **`tasks/backlog.md`:** the `subscriptionRequired` row is rewritten to what stays open,
+  re-checking a subscriber's admin verdict on each push.
+- **Hand-offs:** `tasks/on-hold/mesh-resilience-testing.md` keeps Phases 3, 6 and 7 and says this
+  file took the rest. `nebula-pre-alpha.md` § *A Client connects to its scope's node* says D7 and
+  D17 resume from this file's archive if a Gateway per tab survives.
+
+## Non-goals
+
+- **D7 and D17**, parked until the master plan's Open decision 4 settles. Phase 10 hands them to
+  it.
+- **Hosting the server-side half on a scope's node**, and persisting a held continuation on an
+  alarm there: the later task that takes up Open decision 4.
+- **Re-checking a subscriber's admin verdict on each push**, which stays in `tasks/backlog.md`'s
+  `subscriptionRequired` row.
+- **Calls between Clients**, which stay refused (D24).
+- **`tasks/on-hold/mesh-resilience-testing.md`'s Phases 3, 6 and 7**, which stay on hold.
