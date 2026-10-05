@@ -31,8 +31,9 @@ here the Star `acme.crm.tenant1`.
 **A Client's address is its host node plus its id there.** Alice's Client on that page has the id
 `alice.9f2c41aa`, her `sub` and a `tabId` (a `sub` is a UUID, written `alice` in this file). Today
 its address is one name, its Gateway's: (`NEBULA_CLIENT_GATEWAY`, `alice.9f2c41aa`). After this task
-it is (`STAR`, `acme.crm.tenant1`, `alice.9f2c41aa`) [We'll need to encode that into a single string to use it as a WS tag and for convenient storage in a single column in a subscription table. Also, assuming the longest binding name we have in the system, 30 characters for each segement, the GUID (where we now show `alice`, the tabId, and delimiters), is that under the limit for a WS tag?]. Every place that stores or reads a Client's
-address carries the host node, which is what makes this change wide; it is also mechanical.
+it is the Star `acme.crm.tenant1` plus that id, written as one string,
+`acme.crm.tenant1/alice.9f2c41aa` (§ *What the examples settle*) [Why no binding name encoded in the string?]. Every place that stores or reads a Client's address carries
+the host node, which is what makes this change wide; it is also mechanical.
 
 Each goal says how today's design misses it.
 
@@ -87,17 +88,21 @@ behind** stays where it is, unused by Nebula.
   mesh-calls' D23 factored it out of `LumenizeClientGateway` so that any Durable Object can compose
   a Client's server-side half. It accepts and supersedes a Client's socket, builds every call's
   context from the socket's verified attachment, forwards a server-side node's call down and pairs
-  the answer, and keeps each Client's grace period. It already tags each socket with its Client's
-  id, `acceptWebSocket(server, [instanceName])`, and finds it again with
-  `getWebSockets(instanceName)`, [Using "instanceName" here in this example could be confusing for where we are going because it won't be instanceName after. Maybe say `{tag}` for these or give the future state only to keep it clear?] so its JSDoc says one host node "can hold many Clients". [I don't follow why this is in the JSDoc or why we need to quote it here? My preference would be to describe the mechanism of tagging and more than one but not reference the JSDoc.]
+  the answer, and keeps each Client's grace period. It tags each socket with its Client's id, and
+  finds that Client's socket again by the tag, so one host node can hold the sockets of many
+  Clients. A tag does not have to be unique to one socket, so before it accepts a socket it closes
+  any socket already holding that tag, which is how a reconnect replaces the old connection. [We may need to do some testing to confirm that the socket disappears from the list immediately so a call to getSocket doesn't get two back.]
 - **Left behind by Nebula — `LumenizeClientGateway`**, which hosts one `ClientGateway` per Client
   in a DO named `{sub}.{tabId}`. Whether Mesh keeps it is § *Open questions*, item 1.
-- **Carried over: the check. Left behind: the class — `NebulaClientGateway`.** [Why not two bullets for this?] Before a server-side
-  node's call goes down to a Client, the class checks that the Client's token has passage into the
-  sender's scope (mesh-calls D12, built). Alice's Client accepts a push from the Galaxy `acme.crm`,
-  since upward is free, and refuses one from the Star `acme.crm.tenant2`, which is lateral. A
-  server-side node can address any Client it can name, so this check is what stops a lateral one.
-  Under hosting the same check runs in the host node (§ *How a host node checks a call*).
+- **Carried over — `NebulaClientGateway`'s passage check on what it sends down.** Before a
+  server-side node's call goes down to a Client, it checks that the Client's token has passage into
+  the sender's scope (mesh-calls D12, built). Alice's Client accepts a push from the Galaxy
+  `acme.crm`, since upward is free, and refuses one from the Star `acme.crm.tenant2`, which is
+  lateral. A server-side node can address any Client it can name, so this check is what stops a
+  lateral one. Under hosting the same check runs in the host node (§ *How a host node checks a
+  call*).
+- **Left behind — the `NebulaClientGateway` class**, a `LumenizeClientGateway` that adds that
+  check. Nebula stops binding it.
 - **Replaced — the `/gateway/*` route in `apps/nebula/src/entrypoint.ts`.** Today the Worker hands
   a Client's upgrade request to `NEBULA_CLIENT_GATEWAY` through `routeDORequest`, allow-listing
   that one binding. Instead it hands the upgrade to the host node its page's host spells.
@@ -109,16 +114,21 @@ behind** stays where it is, unused by Nebula.
   Resources' `#caller()` takes the binding from `callChain.at(-1)` and the id from `callChain[0]`;
   `Profile.subscribe` takes both from `callChain[0]`; the Galaxy's preview-ready call names
   `NEBULA_CLIENT_GATEWAY` and a Client id. Each gains its host node.
-- **Carried over, its main reason gone — `packages/mesh/src/tab-id.ts`.** [I wouldn't say the main reason is gone. Maybe the reason shifts? Yes, we didn't want to create more Gatewy DOs than necessary before and that's gone, but now we still need a stable way to know which connection is active and so we can force close the old connection on reconnects.] It keeps a tab's id across
-  reloads for two reasons: each `{sub}.{tabId}` reserves a Durable Object name for good, which goes,
-  and a reload keeps its subscriptions within the grace period, which stays. Two tabs sharing an id
-  would still replace each other's socket on one host node, so the duplicated-tab probe stays too.
-  Its 50 ms `BroadcastChannel` wait is still the mechanism, since mesh-calls parked D17's Web Lock
-  on this decision. ⚠️ Design consideration: this task may take D17's lock; nothing requires it. [It might read easier for a human if you said: (a) two reasons today, (b) reason in the hosted case.]
+- **Carried over, its reasons shifted — `packages/mesh/src/tab-id.ts`**, which keeps a tab's id
+  across reloads.
+  - **Today, for two reasons.** Each `{sub}.{tabId}` reserves a Gateway DO name for good, so a new
+    id per reload would leak names. And a reload that comes back within the grace period keeps its
+    subscriptions.
+  - **Hosted, for one.** No name is reserved, but the id is how the host node knows which socket a
+    Client already has: a reconnect under the same id closes the old socket, and within the grace
+    period keeps its subscriptions.
+  - **Two tabs sharing an id** would replace each other's socket, so the duplicated-tab probe stays.
+    Its 50 ms `BroadcastChannel` wait is still the mechanism, since mesh-calls parked D17's Web Lock
+    on this decision. ⚠️ Design consideration: this task may take D17's lock; nothing requires it.
 - **Adapted — `NebulaDO`**, which `Universe`, `Galaxy` and `Star` extend. Its `onBeforeCall` checks
   passage through `requirePassage`, which fits a call addressed to the node itself and refuses
   most calls addressed to a Client it hosts (§ *How a host node checks a call*). It composes
-  `ClientGateway` (§ *A server-side node hosts Clients with no code of its own*). [I wonder if a factory pattern here makes sense. You pass into the factory the tag for the Client you want, and it returns an instance of a class (maybe even named Client) which encapsulates all of the functionality we currently have on the Gateway today that depends upon today's current requirement that there is only ever one active connection? I am pretty sure that tags are not exclusive to a single connection so for each incomming connection, we'll need to have logic that checks for a current connection at that id and closes it before accepting the new one at that id.]
+  `ClientGateway` (§ *A server-side node hosts Clients with no code of its own*).
 
 **Missing:**
 
@@ -136,8 +146,8 @@ behind** stays where it is, unused by Nebula.
 ### Worked examples
 
 Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's address is
-(`STAR`, `acme.crm.tenant1`, `alice.9f2c41aa`). Bob's public profile lives in the Profile
-`bob-profile` (a UUID too).
+`acme.crm.tenant1/alice.9f2c41aa`. Bob's public profile lives in the Profile `bob-profile` (a UUID
+too), and Dana is another member on the same Star's page.
 
 1. **A call to the host node itself.** Alice saves an order: `resources.transaction(…)` on her
    Star.
@@ -155,9 +165,9 @@ Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's 
      of its own.
 3. **A subscription on the host node.** Alice subscribes to an order on her Star.
    - **The row stores** her address. Today that is (`NEBULA_CLIENT_GATEWAY`, `alice.9f2c41aa`);
-     hosted, it is (`STAR`, `acme.crm.tenant1`, `alice.9f2c41aa`), the Star's own address.
-   - **A push** is then a `ws.send` on the socket tagged `alice.9f2c41aa`, with no RPC, where today
-     it is an RPC to her Gateway.
+     hosted, it is `acme.crm.tenant1/alice.9f2c41aa`, which names the Star itself.
+   - **A push** is then a `ws.send` on the socket with that tag, with no RPC, where today it is an
+     RPC to her Gateway.
 4. **A subscription on a node with no scope.** Alice subscribes to `bob-profile`.
    - **The call** goes Client → Star → Profile, which stores her address in its row, as today.
    - **A push,** when Bob renames himself, goes Profile → Star → her socket.
@@ -166,7 +176,10 @@ Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's 
      chain carries no claims and no scope, so `requirePassage` would refuse it.
    - **A lateral push is refused.** If the Star `acme.crm.tenant2` sends to Alice's address, the
      call lands at her Star, and D12's check refuses it: `acme.crm.tenant1` has no passage into
-     `acme.crm.tenant2`. [We need to make sure this doesn't require a round trip to the singleton Registry to determine on every push. One on every subscribe, might be OK though.]
+     `acme.crm.tenant2`.
+   - **No push reads the Registry.** The check reads only Alice's claims, verified at the upgrade
+     and kept on her socket, and the sender's name. `hasPassageInto` computes the verdict from a
+     token and a scope, as it does today in `NebulaClientGateway`.
 5. **A persona.** Studio frames `manny--dev.crm.acme.lumenize.dev`. Manny's `sub` is a name-based
    UUID computed from that hostname (ADR-022), and his Client takes the id `manny.4d1e88b0` on the
    host node `STAR` `acme.crm.dev`. The Worker maps the persona's hostname to that Star for the
@@ -174,13 +187,26 @@ Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's 
 6. **An impersonation child.** Alice, an admin, impersonates Carol from the same page. The child is
    a second Client on the same host node, with Carol's token, its own socket and an id of the child
    shape. Two Clients, two tags, one Star.
+7. **A call from one Client to another.** Alice's Client calls Dana's.
+   - **The call** reaches Dana's address the way a call to any Client does: Alice's host node
+     delivers it, here to a socket it holds itself.
+   - **Checked by** Dana's Client, which refuses it, as every Client refuses a call whose immediate
+     caller is another Client (mesh-calls' D24). The host node runs no passage check for a Client
+     sender, as the Gateway runs none today.
 
 ### What the examples settle
 
-**The host node goes wherever an address goes.** It is a binding and a scope, such as `STAR` /
-`acme.crm.tenant1`, and it appears wherever an address is stored or read: subscriber
-rows (examples 3 and 4), the return address a fire-back follows (example 2), and the Galaxy's
-preview-ready call. It never goes in a socket's tag, since the socket is already on its host node.
+**A Client's address is one string, `{scope}/{id}`** (Larry, 2026-10-05), such as
+`acme.crm.tenant1/alice.9f2c41aa`. The same string is the socket's tag and a subscription row's one
+column, and it goes wherever an address is stored or read: subscriber rows (examples 3 and 4), the
+return address a fire-back follows (example 2), and the Galaxy's preview-ready call.
+- **The binding needs no room in it.** A scope's depth names its binding [That's true today, but we envision helper DOs sitting at the same scope but with a different binding name. If it fits, I'd rather include the binding name now also just in case.]: one segment is a
+  `UNIVERSE`, two a `GALAXY`, three a `STAR`.
+- **It fits a tag with room to spare.** A scope is at most three 30-character slugs, 92 characters
+  with its dots, so `{scope}/{sub}.{tabId}` is at most 138. An impersonation child under today's id
+  shape reaches 231, and spelling out the binding would add at most 5 more. Cloudflare allows each
+  tag 256 characters, and a socket 10 tags.
+- **`/` separates the two halves,** since a slug, a UUID and a `tabId` never contain one.
 
 **A Client's id has three jobs, and today's shape does all three.**
 - **It is unique within its host node**, because it is the socket's tag, and a tag that two
@@ -190,21 +216,22 @@ preview-ready call. It never goes in a socket's tag, since the socket is already
 - **It stays the same across a reload**, so a reconnect within the grace period finds its
   subscriptions.
 
-`{sub}.{tabId}` meets all three in 45 characters; Cloudflare allows at most 10 tags per socket, each
-up to 256 characters. An impersonation child's `{subjectSub}.{parentTabId}.{scope with dashes}`
-still fits, but its scope segment now repeats its host node. ⚠️ Design consideration: the child
+`{sub}.{tabId}` meets all three. An impersonation child's
+`{subjectSub}.{parentTabId}.{scope with dashes}` still fits, but its scope segment now repeats the
+address's first half. ⚠️ Design consideration: the child
 needs only a shape that differs from a tab's own, which D7 wants so the two cannot collide, and a
 short fixed marker in place of the scope gives that.
 
 ### How a host node checks a call
 
-**A host node checks each call by where it is going**, because three kinds of call arrive at it
+**A host node checks each call by where it is going**, because these kinds of call arrive at it
 and passage means something different for each:
 
 | The call | Example | Checked by |
 |---|---|---|
 | To the host node itself | 1 | its own `onBeforeCall`, as today |
-| To a Client it hosts | 4 | D12's check alone: the Client's passage into the sender's scope |
+| To a Client it hosts, from a server-side node | 4 | D12's check alone: the Client's passage into the sender's scope |
+| To a Client it hosts, from another Client | 7 | the receiving Client, which refuses it (mesh-calls' D24) |
 | From a Client it hosts, to another node | 2 | the destination's own checks; the host node only relays |
 
 So the host node decides where a call is going before any check runs, and `onBeforeCall` runs only
@@ -231,6 +258,16 @@ where each node's one `@mesh()` gate hands back a surface and every capability a
 composition (`.claude/rules/calibration.md` § 11). A Client's half has no `@mesh()` surface of its
 own to gate: everything it does starts from a socket event or a mesh door, never from a caller's
 chain.
+
+⚠️ Design consideration (Larry, 2026-10-05): `ClientGateway` could hand out one object per Client
+from a factory that takes the Client's tag. That object would gather what today rests on a Gateway
+having one connection: the socket, the grace period, and the calls waiting on that Client's answer.
+Two things shape it:
+- **It is rebuilt, never kept.** The host node can hibernate, so each event would rebuild the object
+  from the tagged socket and its attachment, which is where `ClientGateway` already finds a
+  Client's socket and claims. Its grace period and waiting calls live in memory only while the
+  node stays resident, which mesh-calls' D23 holds it to by handing each wait to `ctx.waitUntil`.
+- **It needs a name other than `Client`,** which this file uses for the browser-side instance.
 
 ### The boundaries that hold
 
@@ -294,7 +331,11 @@ the same as behind Gateways, so hosting neither raises nor lowers how many write
    Mesh keeps `LumenizeClientGateway` as it is and Nebula owns the hosted half. Larry, 2026-10-04:
    Mesh becoming legacy may count in this change's favor, since the separation has grown
    artificial. It gates where the code lands and which public docs change.
-2. **Is a Client's host node carried in its address, or derived from its `aud`?** The token
-   already names the page's scope, and a scope names its binding. Deriving it adds no field, but
-   every reader would need the claims, and a chain a node starts carries none (mesh-calls' D10). It
-   gates the shape of the address change.
+
+## Decisions
+
+Started during the Pass 1 gate, holding only what is settled. Each row is Larry's call.
+
+| # | Decision | Rejected alternative — why |
+|---|---|---|
+| D1 | **A Client's address is one string, `{scope}/{id}`, used as its socket's tag and stored in one column** (Larry, 2026-10-05). § *What the examples settle* carries the shape and its length. | **Deriving the host node from the Client's `aud` instead of storing it** — it saves a column, but every reader would need the call's claims, and a chain a node starts carries none (mesh-calls' D10). **Storing the binding, the scope and the id in separate columns** — three values to keep in step where one string does, and a tag can hold only one string anyway. |
