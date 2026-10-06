@@ -27,7 +27,9 @@ helper, an acceptance semantic, and a login form deleted from a screen three sce
 vitest suite could see any of it, and the sweep that found it takes about four minutes.
 ⚠️ The sweep `pkill -9 -f workerd`s between scenarios (a stray one starves the next boot), which
 takes down a co-running `npm run dev`'s workerd too, and `wrangler dev` does not reliably respawn
-it (bit twice 2026-09-02). If a hand-driven stack is up, expect to reboot it after a sweep.
+it (bit twice 2026-09-02). It then stops every `workerd-nebula-…` container, a co-running stack's
+included, since a `wrangler dev` killed that way leaves its containers up and they hang the next
+`apps/nebula` vitest run. If a hand-driven stack is up, expect to reboot it after a sweep.
 ⚠️ **A source edit during a sweep invalidates every scenario after it** — each scenario boots its
 own `wrangler dev`, which hot-reloads on a save under `apps/nebula/src/` and answers a mid-request
 `503`. Wait for the run, or start a fresh one, as `testing.md` says for a running vitest suite.

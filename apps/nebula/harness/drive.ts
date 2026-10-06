@@ -18,6 +18,7 @@
  * @see tasks/archive/claude-live-verification.md
  */
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
+import { stopOrphanedContainers } from './lib/containers';
 import { hostOrigin } from '@lumenize/nebula-auth/claims';
 import { cloudflareCertificateApi, packNamesGalaxy } from '../src/certificate';
 import { isStaleTestAccount, sweepStaleTestAccounts, sweepStaleTestPacks } from './lib/test-scopes';
@@ -319,7 +320,10 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     // reads as a flaky scenario rather than as contention (`testing.md`). Only a local sweep boots
     // one: a deployed sweep has none to clear, and killing every workerd on the machine there only
     // takes down whatever else is running, a vitest suite's included.
-    if (!process.env.HARNESS_TARGET_URL) spawnSync('pkill', ['-9', '-f', 'workerd'], { stdio: 'ignore' });
+    if (!process.env.HARNESS_TARGET_URL) {
+      spawnSync('pkill', ['-9', '-f', 'workerd'], { stdio: 'ignore' });
+      stopOrphanedContainers();
+    }
     // Re-exec the DOCUMENTED command rather than `node <this file>`: this is a `.ts` entry point,
     // so a bare node spawn exits instantly with a loader error — which the sweep would then report
     // as seventeen failing scenarios in 0.1 s each. (It did, on the first run.)
@@ -354,6 +358,8 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
       await (signsInAsSuperuser(next) ? inSuperuserTurn(() => runScenario(next)) : runScenario(next));
     }
   }));
+  // The last scenario's containers, which no later scenario's cleanup will stop.
+  if (!process.env.HARNESS_TARGET_URL) stopOrphanedContainers();
   // On a deployed target, what the run left. Its shared app keeps its pack until the stale-pack
   // sweep takes it, three days on. Any other pack the run added was left by a scenario's cleanup,
   // which reports and never throws, so a leak fails a sweep whose scenarios all passed.
