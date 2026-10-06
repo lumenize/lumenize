@@ -4,9 +4,30 @@
 
 **Objective — `@lumenize/mesh` 1.0-alpha is the one MIT package for everything Nebula layers on Mesh today except Resources: the scope tree, passage and dominion, sessions, the Registry, and the Client's session. Resources, and the Vue store built on it, ship beside it as UNLICENSED packages.**
 
-A Star today is `class Star extends NebulaDO`. `NebulaDO` lives in `apps/nebula` and adds passage to `LumenizeDO`, which lives in `@lumenize/mesh`, using predicates from a third package, `@lumenize/nebula-auth`. After this task a Star is `class Star extends LumenizeDO`, and one MIT package holds all three.
+A Star today is `class Star extends NebulaDO`. `NebulaDO` lives in `apps/nebula` and adds passage to `LumenizeDO`, which lives in `@lumenize/mesh`, using predicates from a third package, `@lumenize/nebula-auth`. After this task a Star is `class Star extends LumenizeDO`, and one MIT package holds all three. [Both this paragraph and the one before might be best illustrated with a table or even a diagram showing the new split for @lumenize/resources and the existing packages all merging into @lumenize/mesh^1.0.0-alpha. Thoughts?]
 
-**Three goals, in the order they matter.** Each says how today's design misses it.
+[This may all go in the Context section instead of here. Regardless of where we put it, I feel like we should say something about how the separation between mesh and Nebula as well as @lumenize/auth and @lumenize/nebula-auth were useful for a time, but the reasons for that separation has been erroding for some time. nebula-auth made a hard split a few months back. We haven't released a new version of mesh since we started focusing on Nebula. 
+
+Our theory that mesh would be useful on its own hasn't proven true looking at adoption. Maybe continuations and a richer/more-consistent types over the wire and all the way to the browser weren't enough of an addition to justify a layer on top of Workers RPC. Cloudflare came out with Cap'n Web since mesh launched which covered the last leg to the browser, although no where near as well or as consistently as mesh. Cloudflare fixed some problems with Errors not maintaining fiedelity over Workers RPC. Etc. The new theory is that a flexible robust built-in multi-tenant structure and an auth-n and coarse-grained auth-z will be enough to make some interested in adoption. Those were differentiators for our unlicensed and potentially money-making Nebula but we'll keep Resources as that differentiator.
+
+Maybe we should split Context out of the section below up to here. Maybe Objective is its own h2 section. Then Context as another. Then Goals as a third. Leaving Current state where it is.
+
+Heck, even the split between current state and future state doesn't feel right for this task file. Maybe we need to rethink the general outline for pass 1. Design intent can be it's own section. Constraints also.
+
+]
+
+**Goals**: Each goal below says how today's design misses it.
+
+[
+
+My reaction to these goals are, "meh". Here's what I would say are the goals:
+
+1. Eliminate a layer of indirection that wasn't serving any purpose. [This is mosly just a new headline for your front-door goal 1 so those sub-bullets move into here.]
+2. Take one more crack at finding a niche for offering an MIT licensed platform that is useful enough on its own to achieve adoption that will provide more lift to the success of the commercial product than it bleeds potential customers. Although Lumenize's commercial success centers around doing agentic app development securely, so even keeping Resources unlicensed might not be necessary.
+3. [I don't think your test run on the auth that production runs is a goal, but...] Consolidate test coverage into the one layer that is key to Lumenize commercial success.
+4. Serves as a forcing function to finally deprecate some things that are already basically deprecated including @lumenize/fetc
+
+]
 
 1. **Nebula reaches the framework through its front door.** Today it reaches around it.
    - `NebulaClient` cannot hand an impersonation child its own refresh through any public seam of `LumenizeClient`, so `impersonation.ts` passes it through two symbol keys, `INTERNAL_REFRESH` and `INTERNAL_PARENT`, which the constructor reads back with a cast.
