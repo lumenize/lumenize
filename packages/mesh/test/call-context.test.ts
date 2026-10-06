@@ -6,9 +6,9 @@ import { env } from 'cloudflare:test';
  *
  * `callRaw`'s awaited result is gone, so instead of reading the callee's observed context off a
  * return value, we drive the REAL `call()`+fire-back path and read it two ways:
- *  - callee-side capture: fire a 3-arg `call` to a method that stores `this.lmz.callContext` in
- *    its own KV (`captureContext`/`captureAndForward`/`setStateAndForward`); read the callee's KV.
- *  - fire-back outcome: fire a 4-arg `call` whose handler stores the delivered value OR Error
+ *  - callee-side capture: fire a `call` to a method that stores `this.lmz.callContext` in
+ *    its own KV (`captureContext`/`captureAndForward`); read the callee's KV.
+ *  - fire-back outcome: fire a `call` whose handler stores the delivered value OR Error
  *    (`callForOutcome` → `getLastCallResult`/`getLastCallError`); used for @mesh + guard gating,
  *    whose failures are post-ack chain throws that ride the fire-back.
  * Callers that receive a fire-back init to their REAL binding+instance (the fire-back routes to
@@ -144,24 +144,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
   });
 
-  describe('State propagation', () => {
-    it('state modifications propagate to downstream calls', async () => {
-      const doA = env.TEST_DO.getByName('state-prop-1');
-      const doC = env.TEST_DO.getByName('state-prop-3');
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'state-prop-1' });
-
-      // B sets state.traceId then forwards to C, which captures it.
-      doA.fireCall('TEST_DO', 'state-prop-2', 'setStateAndForward', ['TEST_DO', 'state-prop-3', 'traceId', 'trace-12345']);
-
-      const ctx = await vi.waitFor(async () => {
-        const c = await doC.getObservedContext();
-        expect(c).toBeDefined();
-        return c;
-      });
-      expect(ctx.state).toHaveProperty('traceId', 'trace-12345');
-    });
-
-    it('state starts empty for fresh call chains', async () => {
+  describe('No state in a call context', () => {
+    it('a node\'s call carries no state field in its context', async () => {
       const doA = env.TEST_DO.getByName('state-empty-1');
       const doB = env.TEST_DO.getByName('state-empty-2');
       await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'state-empty-1' });
@@ -173,7 +157,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         expect(c).toBeDefined();
         return c;
       });
-      expect(ctx.state).toEqual({});
+      // A value a later hop needs travels as a continuation argument; there is no side channel.
+      expect(ctx).not.toHaveProperty('state');
     });
   });
 
@@ -209,7 +194,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('guard-block-caller');
       await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-block-caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-block-callee', 'guardedAdminMethod'); // no role in state
+      caller.callForOutcome('TEST_DO', 'guard-block-callee', 'guardedAdminMethod'); // origin is no "admin-" node
 
       const err = await vi.waitFor(async () => {
         const e = await caller.getLastCallError();
@@ -220,21 +205,21 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('guard allows the call when the condition is met', async () => {
-      const caller = env.TEST_DO.getByName('guard-allow-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-allow-caller' });
+      const caller = env.TEST_DO.getByName('admin-guard-allow-caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'admin-guard-allow-caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-allow-callee', 'guardedAdminMethod', [], { role: 'admin' });
+      caller.callForOutcome('TEST_DO', 'guard-allow-callee', 'guardedAdminMethod');
 
       await vi.waitFor(async () => {
         expect(await caller.getLastCallResult()).toBe('admin-only-result');
       });
     });
 
-    it('guard checks authentication (userId in state)', async () => {
+    it('guard checks authentication (a sub in originAuth)', async () => {
       const caller = env.TEST_DO.getByName('guard-auth-caller');
       await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-auth-caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-auth-callee', 'guardedAuthMethod'); // no userId
+      caller.callForOutcome('TEST_DO', 'guard-auth-callee', 'guardedAuthMethod'); // a direct call carries no originAuth
 
       const err = await vi.waitFor(async () => {
         const e = await caller.getLastCallError();
@@ -248,7 +233,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('guard-async-caller');
       await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-async-caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-async-callee', 'guardedMethod'); // no valid token
+      caller.callForOutcome('TEST_DO', 'guard-async-callee', 'guardedMethod'); // no originAuth, so no token claim
 
       const err = await vi.waitFor(async () => {
         const e = await caller.getLastCallError();
@@ -272,7 +257,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       expect(err).toContain('Worker Guard: admin role required');
     });
 
-    it('Worker: guard checks authentication (userId in state)', async () => {
+    it('Worker: guard checks authentication (a sub in originAuth)', async () => {
       const caller = env.TEST_DO.getByName('worker-guard-auth-caller');
       await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker-guard-auth-caller' });
 
@@ -402,47 +387,6 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
       expect(result.callbackContext.callChain.at(-1)).toMatchObject({ instanceName: 'two-one-way-caller-target' });
       expect(result.callbackContext.callChain[0].instanceName).toBe('two-one-way-caller-origin');
-    });
-  });
-
-  describe('CallContext in continuation handlers', () => {
-    it('callContext.state is visible to the fire-back handler', async () => {
-      const origin = env.TEST_DO.getByName('context-capture-origin');
-      const caller = env.TEST_DO.getByName('context-capture-caller');
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'context-capture-origin' });
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'context-capture-caller' });
-
-      // origin → caller.testContextCaptureInHandler → (4-arg) callee → handler on caller.
-      origin.fireCall('TEST_DO', 'context-capture-caller', 'testContextCaptureInHandler',
-        ['TEST_DO', 'context-capture-callee', 'unique-marker-123']);
-
-      const verification = await vi.waitFor(async () => {
-        const v = await caller.getContextCaptureVerification();
-        expect(v).toBeDefined();
-        return v as any;
-      });
-      expect(verification.matches).toBe(true);
-      expect(verification.actualMarker).toBe('unique-marker-123');
-    });
-
-    it('interleaved fire-back handlers each see their own captured state', async () => {
-      const origin = env.TEST_DO.getByName('interleave-capture-origin');
-      const caller = env.TEST_DO.getByName('interleave-capture-caller');
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'interleave-capture-origin' });
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'interleave-capture-caller' });
-      await caller.clearInterleavedResults();
-
-      const markers = ['alpha', 'beta', 'gamma', 'delta'];
-      origin.fireCall('TEST_DO', 'interleave-capture-caller', 'testInterleavedContextCapture',
-        ['TEST_DO', 'interleave-capture-callee', markers]);
-
-      const results = await vi.waitFor(async () => {
-        const r = await caller.getInterleavedResults() as any[];
-        expect(r?.length).toBe(markers.length);
-        return r;
-      });
-      for (const result of results) expect(result.matches).toBe(true);
-      expect(results.map((r: any) => r.expectedMarker).sort()).toEqual([...markers].sort());
     });
   });
 });

@@ -32,7 +32,9 @@ export class DocumentDO extends LumenizeDO<Env> {
       this.lmz.call(
         'SPELLCHECK_WORKER',
         undefined,
-        this.ctn<SpellCheckWorker>().check(content, clientId, documentId)
+        this.ctn<SpellCheckWorker>().check(content, clientId, documentId),
+        this.ctn().handleCallFailed('spell check'),
+        { onErrorOnly: true }
       );
     }
   }
@@ -63,9 +65,15 @@ export class DocumentDO extends LumenizeDO<Env> {
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
         remote,
-        undefined,
-        { newChain: true }
+        this.ctn().handleCallFailed('content update'),
+        { newChain: true, onErrorOnly: true }
       );
     }
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }

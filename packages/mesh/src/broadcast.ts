@@ -2,7 +2,7 @@
  * Broadcast — send one continuation to many targets, one `lmz.call` per target, from the node that
  * decided to push.
  *
- * `this.lmz.broadcast(targets, remote, options?)` is a member of every node's `lmz` — a
+ * `this.lmz.broadcast(targets, remote, { onResult })` is a member of every node's `lmz` — a
  * `LumenizeDO`, a `LumenizeWorker`, a `LumenizeClient`, and a node composed with `ComposedMeshDO` —
  * because all it needs is that node's `lmz.call`. The sender a receiver sees is therefore always
  * the node that decided to push, at any N. Its tail latency grows with N; the recursive Worker
@@ -12,13 +12,13 @@
  * carries no `originAuth`, because a push speaks for the node that sends it, not for whoever's call
  * caused it: a subscriber's page never receives the writer's claims. `newChain: false` makes each
  * target inherit the caller's `callChain` with this node appended, and the caller's `originAuth`,
- * for an app that wants the writer's claims to ride. `state` seeds or merges `callContext.state`
- * as it does on `call`.
+ * for an app that wants the writer's claims to ride. On a client every call starts at the client,
+ * whose Gateway builds its context, so a client's broadcast takes no `newChain`.
  *
- * **`onResult` hears only failures.** It is a partial continuation on this node that the framework
- * completes with each failing target's Error, via the standard last-argument convention; the loop
- * adds `onErrorOnly: true` whenever one is given, so a successful push reports nothing. For
- * drop-on-failed-broadcast cleanup:
+ * **`onResult` is required, and hears only failures.** It is a partial continuation on this node
+ * that the framework completes with each failing target's Error, via the standard last-argument
+ * convention; every call the loop makes is `onErrorOnly`, so a successful push reports nothing. A
+ * push nobody reaps names a handler that logs. For drop-on-failed-broadcast cleanup:
  *
  *   ```ts
  *   onBroadcastResult(resourceId: string, result?: unknown): void {
@@ -32,12 +32,13 @@
  * passed as `onResult: this.ctn<this>().onBroadcastResult(resourceId)`. It needs no `@mesh()`:
  * the Error reaches it locally, or at this node's fire-back door, and neither checks for `@mesh()`.
  *
- * ⚠️ **`callContext.callee` names the failing target only where the handler runs on THIS node's
- * dispatch** — a Gateway target (the Gateway answers a push inside its ack, so a disconnected
- * client's `ClientDisconnectedError` arrives that way) and any target that refused at admission.
- * A DO or Worker that acks and then throws fires its Error back to this node's fire-back door,
- * where `callee` names this node, the broadcaster. Drop-a-dead-subscriber cleanup reads the first
- * case, which is why it works.
+ * **`callContext.callee` names the failing target wherever the handler runs.** A target that
+ * refuses at admission runs the handler on this node's own dispatch, and `callee` is the address
+ * the push went to. A DO or Worker that acks and then throws fires its Error back to this node's
+ * fire-back door, where `callee` is the fire-back's last hop: the target that threw. A Gateway
+ * acks a push to its client and fires a failure back the same way, with the client as last hop.
+ * A client's handler comes back through its Gateway and runs under the same last hop, or the
+ * target its Gateway dispatched to when that target refused at once.
  *
  * No per-target catch: on a DO or Worker, a target whose binding does not route throws synchronously
  * out of the loop, so a misconfigured address fails loudly at the first one. A client checks no
@@ -57,10 +58,10 @@ export interface BroadcastTarget {
   instanceName?: string;
 }
 
-/** Options for `lmz.broadcast(...)`: `newChain` and `state` pass through to each target's call. */
-export interface BroadcastOptions extends Pick<CallOptions, 'newChain' | 'state'> {
+/** Options for `lmz.broadcast(...)`: `newChain` passes through to each target's call. */
+export interface BroadcastOptions extends Pick<CallOptions, 'newChain'> {
   /** A partial continuation on this node, completed with each failing target's Error. */
-  onResult?: AnyContinuation;
+  onResult: AnyContinuation;
 }
 
 /** The type of `lmz.broadcast` on every node. */
@@ -76,13 +77,12 @@ export function broadcastShared<T>(
   lmz: Pick<LmzApi, 'call'>,
   targets: BroadcastTarget[],
   remote: Continuation<T>,
-  options: BroadcastOptions = {},
+  options: BroadcastOptions,
 ): void {
   const { onResult, newChain = true, ...passedThrough } = options;
-  const callOptions: CallOptions = { ...passedThrough, newChain };
   // A successful push has nothing to report, and skipping its fire-back spares this node one
   // handler dispatch per target.
-  if (onResult) callOptions.onErrorOnly = true;
+  const callOptions: CallOptions = { ...passedThrough, newChain, onErrorOnly: true };
   for (const t of targets) {
     lmz.call(t.bindingName, t.instanceName, remote, onResult, callOptions);
   }

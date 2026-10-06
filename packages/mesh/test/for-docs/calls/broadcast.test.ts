@@ -4,8 +4,8 @@
  * One document, two live editors, and one subscriber whose tab closed long ago. That tab's Gateway
  * has no socket and no grace period left, so it answers a push with `ClientDisconnectedError` at
  * once — the case drop-on-failed-fanout cleanup exists for. `publish` reaches both editors and
- * leaves the dead subscriber listed; `publishAndPrune` reaches them too, and its `onResult` handler
- * drops the dead one.
+ * only logs the dead subscriber's failure, leaving it listed; `publishAndPrune` reaches them too,
+ * and its `onResult` handler drops the dead one.
  */
 
 import { it, expect, vi } from 'vitest';
@@ -65,20 +65,22 @@ it('broadcasts to every subscriber, and onResult drops the one whose tab is gone
   // Basic usage: one continuation to every subscriber
   // ============================================
 
-  alice.lmz.call('DOCUMENT_DO', documentId, alice.ctn<DocumentDO>().publish('first'));
+  alice.lmz.call('DOCUMENT_DO', documentId, alice.ctn<DocumentDO>().publish('first'),
+    alice.ctn().handleCallFailed('publish'), { onErrorOnly: true });
   await vi.waitFor(() => {
     expect(aliceSaw).toEqual(['', 'first']);
     expect(bobSaw).toEqual(['', 'first']);
   });
 
-  // Nothing heard that the stale tab's push failed, so it is still listed.
+  // `publish`'s handler only logs the stale tab's failed push, so it is still listed.
   expect(await listed()).toContain(staleSubscriber);
 
   // ============================================
   // Result handling: onResult drops the subscriber whose Gateway reported it gone
   // ============================================
 
-  alice.lmz.call('DOCUMENT_DO', documentId, alice.ctn<DocumentDO>().publishAndPrune('second'));
+  alice.lmz.call('DOCUMENT_DO', documentId, alice.ctn<DocumentDO>().publishAndPrune('second'),
+    alice.ctn().handleCallFailed('publish'), { onErrorOnly: true });
   await vi.waitFor(async () => {
     expect(aliceSaw).toEqual(['', 'first', 'second']);
     expect(bobSaw).toEqual(['', 'first', 'second']);

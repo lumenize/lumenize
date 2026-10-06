@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
+import type { TestDO, TestWorker } from './test-worker-and-dos';
 
 describe('@lumenize/mesh - onRequest() Lifecycle Hook', () => {
   describe('Subclass without onRequest', () => {
@@ -482,7 +483,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       });
     });
 
-    describe('Request envelope structure (via 3-arg call, read on the callee)', () => {
+    describe('Request envelope structure (via a one-way call, read on the callee)', () => {
       it('propagates caller metadata to the callee', async () => {
         const caller = env.TEST_DO.getByName('callraw-caller-2');
         const callee = env.TEST_DO.getByName('callraw-callee-2');
@@ -607,7 +608,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const validEnvelope = {
           version: 1,
           chain: preprocess([{ type: 'get', key: 'remoteEcho' }, { type: 'apply', args: ['validated'] }]),
-          callContext: { callChain: [{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'validation-origin' }], state: {} },
+          callContext: { callChain: [{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'validation-origin' }] },
           metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'validation-callee-4' } },
         };
 
@@ -645,7 +646,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const callee = env.TEST_DO.getByName('call-callee-3');
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-3' });
 
-        // 3-arg — the callee's captured request envelope carries the caller metadata.
+        // The callee's captured request envelope carries the caller metadata.
         caller.fireCall('TEST_DO', 'call-callee-3', 'remoteEcho', ['metadata-test']);
 
         const envelope = await vi.waitFor(async () => {
@@ -739,6 +740,14 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
           /Invalid handlerContinuation/
         );
       });
+
+      it('throws if handlerContinuation does not end in a call', async () => {
+        const caller = env.TEST_DO.getByName('call-validation-4');
+        await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
+        await expect(caller.testLmzCallWithPropertyHandler()).rejects.toThrow(
+          /it must end in a call, which its answer is filled into/
+        );
+      });
     });
 
     describe('DO ID validation in __initFromHeaders', () => {
@@ -785,3 +794,19 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
 
 });
 
+
+describe('@lumenize/mesh - every call names a result handler', () => {
+  it('offers no call without a handler on a DO or a Worker, and no broadcast without onResult', () => {
+    // The assertions are the three directives, which `npm run type-check` enforces: each reports
+    // itself unused, failing the check, if the handler becomes optional again.
+    const typeChecksOnly = (node: TestDO, worker: TestWorker) => {
+      // @ts-expect-error a DO's call names a result handler
+      node.lmz.call('TEST_DO', 'i', node.ctn<TestDO>().ping());
+      // @ts-expect-error a Worker's call names a result handler
+      worker.lmz.call('TEST_DO', 'i', worker.ctn<TestDO>().ping());
+      // @ts-expect-error a broadcast names onResult
+      node.lmz.broadcast([], node.ctn<TestDO>().ping(), {});
+    };
+    expect(typeof typeChecksOnly).toBe('function');
+  });
+});

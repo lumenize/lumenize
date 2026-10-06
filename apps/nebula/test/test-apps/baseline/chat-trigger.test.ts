@@ -357,10 +357,10 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     client[Symbol.dispose]();
   });
 
-  it('T7: RECONNECT is a DISTINCT path from reload — the in-heap walk re-registers the thread query', async () => {
+  it('T7: RESTORE is a DISTINCT path from reload — the in-heap walk re-registers the thread query', async () => {
     // The RELOAD path (a fresh heap rebuilding from the durable thread) is child3-e2e's
-    // late-joiner test; THIS is the other path: the same heap's re-subscribe walk after a
-    // reconnect. The idempotent end-state would hide a broken walk (testing.md), so the
+    // late-joiner test; THIS is the other path: the same heap's re-subscribe walk, which runs
+    // when the Gateway reports a loss. The idempotent end-state would hide a broken walk (testing.md), so the
     // server is given AMNESIA first — only the walk can restore fanout.
     const scope = uniqueChatScope();
     const { client: a } = await devClient(scope);
@@ -377,11 +377,11 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     expect(out.kind).toBe('committed');
     await vi.waitFor(() => expect(subA.resourceIds).toContain(m1));
 
-    // SERVER AMNESIA, then the walk. Without the walk (mutation: gut #resubscribeAll's
+    // SERVER AMNESIA, then the walk. Without the walk (mutation: gut #restoreSubscriptions's
     // query loop) the next post never reaches A.
     a.callGalaxyClearQuerySubscribers(scope);
     await vi.waitFor(() => expect(a.callCompleted).toBe(true));
-    a._resubscribeAllForTest();
+    a._restoreSubscriptionsForTest();
 
     const m2 = crypto.randomUUID();
     out = await b.resources.transaction({

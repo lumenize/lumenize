@@ -52,7 +52,6 @@ describe('@lumenize/mesh — continuation-only calls (Phase 1a feasibility)', ()
       chain: preprocess(chainFor('slowEcho', ['ea', 1500])),
       callContext: {
         callChain: [{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'feasib-earlyack-origin' }],
-        state: {},
       },
       metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'feasib-earlyack-callee' } },
     };
@@ -117,10 +116,13 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
       caller.testCallThrowingHandler('TEST_DO', 'n8-callee');
 
       // The handler DID run (marker set), and its throw was surfaced to the debug sink — not
-      // silently swallowed, not a crash.
+      // silently swallowed, not a crash. A fire-back carries no `response` of its own, so
+      // `fireResponse`'s arm for an envelope without one is the only place this is logged.
       await vi.waitFor(async () => { expect(await caller.getSinkHandlerRan()).toBe(true); });
       await vi.waitFor(() => {
-        expect(entries.some((e) => typeof e.message === 'string' && e.message.includes('post-ack chain threw'))).toBe(true);
+        expect(entries.some((e) => e.namespace === 'lmz.mesh.lmzApi.fireResponse'
+          && typeof e.message === 'string'
+          && e.message.endsWith('post-ack chain threw with no handler to receive the error'))).toBe(true);
       });
       // The caller node is still responsive after the sink throw.
       expect(await caller.testLmzType()).toBe('LumenizeDO');
@@ -142,7 +144,6 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
           { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9-origin' },
           { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9-callee' },
         ],
-        state: {},
       },
       metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9-cold-caller' } },
     };
@@ -172,8 +173,8 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
     const caller = env.TEST_DO.getByName('disc-caller');
     await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'disc-caller' });
 
-    // No client ever connected as 'never-connected.tab1' → the Gateway returns
-    // ClientDisconnectedError on the awaited delivery hop → routed to the handler locally.
+    // No client ever connected as 'never-connected.tab1' → the Gateway acks, then fires
+    // ClientDisconnectedError back to the caller's fire-back door, with the Client as last hop.
     caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', 'never-connected.tab1');
 
     await vi.waitFor(async () => {

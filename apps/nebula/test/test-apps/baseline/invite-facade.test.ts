@@ -189,7 +189,8 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
     const browser = new Browser();
     const { client: admin } = await universeAdminClient(NebulaClientTest, browser, star, star, em('adm'));
     try {
-      admin.lmz.call('STAR', star, admin.ctn<StarTest>().callFacadeFreshChain(method, ...args));
+      admin.lmz.call('STAR', star, admin.ctn<StarTest>().callFacadeFreshChain(method, ...args),
+        admin.ctn<NebulaClientTest>().recordCallFailure(), { onErrorOnly: true });
       await vi.waitFor(async () => {
         expect(await admin.lmz.callAsync('STAR', star, admin.ctn<StarTest>().facadeCallOutcome()))
           .toBe('error: NebulaAuthFacade requires a verified identity: this call carried no origin claims');

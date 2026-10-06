@@ -54,6 +54,13 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
     // Return immediately - origin DO continues
   }
 
+  /** The result handler for a result delivery, sent `onErrorOnly`: logs a delivery that failed. */
+  logDeliveryFailed(reqId: string, result?: unknown): void {
+    if (result instanceof Error) {
+      debug('lmz.proxyFetch.worker').error('Result delivery failed', { reqId, error: result.message });
+    }
+  }
+
   /**
    * Internal implementation of fetch execution
    * Runs in background via ctx.waitUntil()
@@ -124,8 +131,8 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
     });
 
     try {
-      // Deliver the result to the origin DO's Fetch plugin as a fire-and-forget mesh call
-      // (continuation-only model — no awaited callRaw). The executor already holds `result`,
+      // Deliver the result to the origin DO's Fetch plugin as a one-way mesh call whose handler
+      // hears only a failed delivery, and logs it (continuation-only model — no awaited callRaw). The executor already holds `result`,
       // so it rides as a direct continuation argument (no $result marker / pre-filled chain:
       // call() takes a this.ctn()-built continuation, not a raw OperationChain). The origin DO
       // correlates by reqId in __handleProxyFetchResult and cancels the alarm backstop.
@@ -133,7 +140,9 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
       this.lmz.call(
         message.originBinding,
         message.originId,
-        (this.ctn() as any).svc.fetch.__handleProxyFetchResult(message.reqId, result)
+        (this.ctn() as any).svc.fetch.__handleProxyFetchResult(message.reqId, result),
+        this.ctn<FetchExecutorEntrypoint>().logDeliveryFailed(message.reqId),
+        { onErrorOnly: true },
       );
 
       log.debug('Result delivery dispatched', { reqId: message.reqId });

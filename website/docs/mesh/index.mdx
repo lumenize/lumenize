@@ -132,8 +132,9 @@ this.lmz.callContext    // Current request's context (during handler execution)
 ### Making Calls
 
 ```typescript @skip-check-approved('conceptual')
-// Fire-and-forget
-this.lmz.call('DOCUMENT_DO', 'draft-1', this.ctn<DocumentDO>().update(changes));
+// Only a failure needs an answer
+this.lmz.call('DOCUMENT_DO', 'draft-1', this.ctn<DocumentDO>().update(changes),
+  this.ctn().handleCallFailed('save'), { onErrorOnly: true });
 
 // With response handler
 this.lmz.call(

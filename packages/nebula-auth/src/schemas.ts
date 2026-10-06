@@ -68,7 +68,8 @@ CREATE INDEX IF NOT EXISTS idx_Emails_profileId ON Emails(profileId)
 
 /** One row per (address, scope) — the join table, keyed by the registry-minted surrogate `sub`.
  *  `sub` is the membership key AND the FK every resource/grant/snapshot records (ADR-013), so it must
- *  never be re-keyed. `UNIQUE (emailId, universeGalaxyStarId)` is one membership per address per scope
+ *  never be re-keyed. Nor does a row's `universeGalaxyStarId` ever change: a membership never moves
+ *  scope, which a tab's `sub` comparison relies on (`#mintIdentity`'s JSDoc says how). `UNIQUE (emailId, universeGalaxyStarId)` is one membership per address per scope
  *  AND serves the `WHERE emailId = ?` lookup by leftmost prefix — hence no separate index.
  *
  *  ⚠️ `emailVerified` (on `Emails`) and `acceptedAt` (here) answer DIFFERENT questions, and one column

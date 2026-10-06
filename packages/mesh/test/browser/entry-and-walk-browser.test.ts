@@ -46,7 +46,7 @@ describe('@lumenize/mesh entry + walk rules on the client executor (real chromiu
        * Send `chain` to THIS client through the Gateway and report what its own executor did.
        *
        * ⚠️ **This route relays REFUSALS and nothing else** — `#handleClientCall` sends a
-       * `CALL_RESPONSE` back only when the ack carries `$error`, so a chain that RUNS answers
+       * `response` back only when the ack carries `$error`, so a chain that RUNS answers
        * with silence. That makes silence a measurement rather than an absence, and the two
        * calibration limbs below are what turn it into one: they establish that a refusal really
        * does come back and that a successful chain really is silent, on this exact door.

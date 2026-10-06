@@ -4,7 +4,7 @@
  * From website/docs/mesh/security.mdx:
  * - Method-Level: `@mesh(guard)` with claims and instance state
  * - Reusable Guards
- * - State-Based Access
+ * - A guard that computes its own decision
  */
 
 import { LumenizeDO, mesh } from '../../../src/index.js';
@@ -48,22 +48,16 @@ export class TeamDocDO extends LumenizeDO<Env> {
   }
 
   // ============================================
-  // onBeforeCall with state population (Call Context State section)
+  // A guard that computes its own decision (Computing Access in the Guard section)
   // ============================================
 
-  onBeforeCall() {
-    super.onBeforeCall();
-    // Compute once, use in multiple guards
-    const sub = this.lmz.callContext.originAuth!.sub;
-    this.lmz.callContext.state.isEditor = this.allowedEditors.has(sub);
-  }
-
   @mesh((instance: TeamDocDO) => {
-    if (!instance.lmz.callContext.state.isEditor) {
+    const sub = instance.lmz.callContext.originAuth?.sub;
+    if (!sub || !instance.allowedEditors.has(sub)) {
       throw new Error('Editor access required');
     }
   })
-  editWithStateCheck(changes: DocumentChange): { edited: true; byUser: string } {
+  editAsEditor(changes: DocumentChange): { edited: true; byUser: string } {
     const sub = this.lmz.callContext.originAuth!.sub;
     this.ctx.storage.kv.put('content', changes.content);
     return { edited: true, byUser: sub };

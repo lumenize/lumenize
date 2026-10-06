@@ -99,7 +99,9 @@ export class DocumentDO extends LumenizeDO<Env> {
       this.lmz.call(
         'SPELLCHECK_WORKER',
         undefined,
-        this.ctn<SpellCheckWorker>().check(content, clientId, documentId)
+        this.ctn<SpellCheckWorker>().check(content, clientId, documentId),
+        this.ctn().handleCallFailed('spell check'),
+        { onErrorOnly: true }
       );
     }
   }
@@ -129,21 +131,23 @@ export class DocumentDO extends LumenizeDO<Env> {
    * Request analytics computation - two one-way calls pattern
    *
    * Demonstrates DO→Worker→DO to avoid wall-clock billing:
-   * 1. DO fires-and-forgets to Worker (returns immediately)
+   * 1. DO makes a one-way call to the Worker (returns immediately)
    * 2. Worker computes analytics (CPU-only billing)
-   * 3. Worker fires-and-forgets back to handleAnalyticsResult
+   * 3. Worker makes a one-way call back to handleAnalyticsResult
    */
   @mesh()
   requestAnalytics(): void {
     const content = this.ctx.storage.kv.get('content') ?? '';
     const documentId = this.lmz.instanceName!;
 
-    // Fire-and-forget to Worker - DO returns immediately, no wall-clock charges
+    // A one-way call to the Worker - DO returns immediately, no wall-clock charges
     this.lmz.call(
       'ANALYTICS_WORKER',
       undefined,
       // @ts-expect-error — content is untyped from kv.get; runtime type is string
-      this.ctn<AnalyticsWorker>().computeAnalytics(content, documentId)
+      this.ctn<AnalyticsWorker>().computeAnalytics(content, documentId),
+      this.ctn().handleCallFailed('analytics'),
+      { onErrorOnly: true }
     );
     // DO returns immediately — no wall-clock charges while waiting
   }
@@ -287,7 +291,8 @@ export class DocumentDO extends LumenizeDO<Env> {
   #broadcast(continuation: Continuation<any>) {
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
     for (const clientId of subscribers) {
-      this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation, undefined, { newChain: true });
+      this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation,
+        this.ctn().handleCallFailed('content update'), { newChain: true, onErrorOnly: true });
     }
   }
 
@@ -309,14 +314,15 @@ export class DocumentDO extends LumenizeDO<Env> {
     for (const clientId of subscribers) {
       // NO newChain → callChain stays [writerClient, this DO]; the receiver's at(-1) is this DO.
       this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId,
-        this.ctn<EditorClient>().handleContentUpdate(documentId, content));
+        this.ctn<EditorClient>().handleContentUpdate(documentId, content),
+        this.ctn().handleCallFailed('content update'), { onErrorOnly: true });
     }
   }
 
   /**
    * Push new content to every subscriber with one `lmz.broadcast` — broadcast.mdx § Basic Usage.
    * Driven by `broadcast.test.ts`, which also shows what this leaves behind: a subscriber whose tab
-   * is gone stays listed, since nothing here hears that its push failed.
+   * is gone stays listed, since the handler here only logs that its push failed.
    */
   @mesh()
   publish(content: string) {
@@ -329,7 +335,9 @@ export class DocumentDO extends LumenizeDO<Env> {
       bindingName: 'LUMENIZE_CLIENT_GATEWAY',
       instanceName: clientId,
     }));
-    this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content));
+    this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content), {
+      onResult: this.ctn().handleCallFailed('content update'),
+    });
   }
 
   /**
@@ -351,9 +359,9 @@ export class DocumentDO extends LumenizeDO<Env> {
     });
   }
 
-  // No `@mesh()` — a Gateway answers inside its ack, so this runs on this node's own dispatch,
-  // where the member-level check is off. Adding one would make this reaper callable as an ordinary
-  // request, with caller-chosen arguments; only the framework-supplied callee makes that harmless.
+  // No `@mesh()` — a Gateway fires a failed push back to this node's fire-back door, where the
+  // member-level check is off. Adding one would make this reaper callable as an ordinary request,
+  // with caller-chosen arguments; only the framework-supplied callee makes that harmless.
   onContentDelivered(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
       const clientId = this.lmz.callContext.callee?.instanceName;
@@ -369,5 +377,11 @@ export class DocumentDO extends LumenizeDO<Env> {
   #broadcastContent(content: string) {
     const documentId = this.lmz.instanceName!;
     this.#broadcast(this.ctn<EditorClient>().handleContentUpdate(documentId, content));
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }

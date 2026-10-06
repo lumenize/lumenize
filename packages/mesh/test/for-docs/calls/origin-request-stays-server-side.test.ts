@@ -6,8 +6,8 @@
  * timezone and colo. Server-side code reads it anywhere along the chain — an emailed link is built
  * from its `origin`. But a push that keeps the writer's chain, which `lmz.broadcast` sends with
  * `{ newChain: false }`, used to carry it into every subscriber's socket, so each subscriber received the WRITER's
- * location and browser on every write. `originAuth` still reaches the client on purpose:
- * `LumenizeClient.onBeforeCall` authorizes an incoming call from it.
+ * location and browser on every write. `originAuth` still reaches the client on purpose, so an
+ * app's own guards on the client can read the caller's claims.
  *
  * A subscriber could read the field in two places, so there are two limbs:
  * - **`this.lmz.callContext` in the subscriber's `@mesh()` handler** — what app code sees, decided
@@ -84,7 +84,8 @@ it("a subscriber receives the writer's originAuth, never its originRequest", asy
   // The push that keeps the WRITER's chain (no `newChain`) — the shape `lmz.broadcast` sends with
   // `{ newChain: false }`.
   writer.lmz.call('DOCUMENT_DO', documentId,
-    writer.ctn<DocumentDO>().updatePreservingOrigin('hello from writer'));
+    writer.ctn<DocumentDO>().updatePreservingOrigin('hello from writer'),
+    writer.ctn().handleCallFailed('update'), { onErrorOnly: true });
   await vi.waitFor(() => expect(contents).toContain('hello from writer'), { timeout: 10000 });
 
   // ── Handler limb: `this.lmz.callContext`, as the subscriber's @mesh() handler read it ──
@@ -133,7 +134,8 @@ it("a broadcast push carries no originAuth, at the handler and on the frame", as
   });
   await vi.waitFor(() => expect(contents[0]).toBe(''), { timeout: 10000 }); // subscribed
 
-  writer.lmz.call('DOCUMENT_DO', documentId, writer.ctn<DocumentDO>().publish('broadcast from writer'));
+  writer.lmz.call('DOCUMENT_DO', documentId, writer.ctn<DocumentDO>().publish('broadcast from writer'),
+    writer.ctn().handleCallFailed('publish'), { onErrorOnly: true });
   await vi.waitFor(() => expect(contents).toContain('broadcast from writer'), { timeout: 10000 });
 
   expect(contexts).toHaveLength(1);

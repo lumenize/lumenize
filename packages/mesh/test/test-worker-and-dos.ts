@@ -6,7 +6,7 @@ import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '../src/alarms';
 import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
 import { continuationFromChain } from './continuation-from-chain.js';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess, stringify } from '@lumenize/structured-clone';
 
 // Export LumenizeClientGateway for testing
 export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
@@ -19,8 +19,9 @@ import type { CallContext } from '../src/types';
  * Custom Gateway subclass for testing hook overrides.
  *
  * - onBeforeAccept: rejects if role is 'blocked'; no additional claims (JWT auto-included)
- * - onBeforeCallToMesh: injects claims into callContext.state under `_auth`
- * - onBeforeCallToClient: rejects calls from binding 'BLOCKED_BINDING'
+ * - onBeforeCallToMesh: stamps the connection's identity onto the context as a top-level `_auth`
+ * - onBeforeCallToClient: rejects calls from binding 'BLOCKED_BINDING', and calls from
+ *   'ADMINS_ONLY_BINDING' to a connection whose claims lack `admin: true`
  */
 export class CustomGateway extends LumenizeClientGateway {
   override onBeforeAccept(
@@ -50,23 +51,25 @@ export class CustomGateway extends LumenizeClientGateway {
     baseContext: CallContext,
     connectionInfo: GatewayConnectionInfo
   ): CallContext {
-    // Inject claims into state under `_auth` key
-    return {
+    // A top-level field rides every onward hop: buildOutgoingCallContext spreads the inbound context.
+    const enriched = {
       ...baseContext,
-      state: {
-        ...baseContext.state,
-        _auth: {
-          sub: connectionInfo.sub,
-          claims: connectionInfo.claims,
-        },
+      _auth: {
+        sub: connectionInfo.sub,
+        claims: connectionInfo.claims,
       },
     };
+    return enriched;
   }
 
-  override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+  override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined {
     // Reject calls from a blocked binding
     if (envelope.metadata?.caller?.bindingName === 'BLOCKED_BINDING') {
       throw new Error('Custom: calls from BLOCKED_BINDING are not allowed');
+    }
+    // A rule that reads the connection's claims, so a test can tell which socket's were checked.
+    if (envelope.metadata?.caller?.bindingName === 'ADMINS_ONLY_BINDING' && connectionInfo.claims.admin !== true) {
+      throw new Error('Custom: calls from ADMINS_ONLY_BINDING reach admins only');
     }
   }
 }
@@ -397,13 +400,13 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // ============================================
-  // Continuation-only migration helpers: callee-side capture (3-arg) + outcome capture (4-arg).
+  // Continuation-only migration helpers: callee-side capture + outcome capture.
   // Replaces the awaited-callRaw pattern for asserting callContext propagation, callChain,
-  // state, @mesh/guard gating, and multi-hop — all through the real call()+fire-back path.
+  // @mesh/guard gating, and multi-hop — all through the real call()+fire-back path.
   // ============================================
 
   // Callee-side capture: store the callContext + own identity THIS callee observed, so a test
-  // can read it after a fire-and-forget 3-arg call (no awaited result needed).
+  // can read it after a one-way call (no awaited result needed).
   @mesh()
   captureContext(): void {
     this.ctx.storage.kv.put('observed_context', this.lmz.callContext);
@@ -421,24 +424,53 @@ export class TestDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('observed_identity');
   }
 
-  // Multi-hop: capture MY context, then fire an onward 3-arg call so the next hop captures too.
+  // Multi-hop: capture MY context, then fire an onward call so the next hop captures too.
   @mesh()
   captureAndForward(nextBinding: string, nextInstance: string | undefined): void {
     this.ctx.storage.kv.put('observed_context', this.lmz.callContext);
-    this.lmz.call(nextBinding, nextInstance, this.ctn<TestDO>().captureContext());
+    this.lmz.call(nextBinding, nextInstance, this.ctn<TestDO>().captureContext(),
+      this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
   }
 
-  // State propagation: mutate callContext.state, then forward so downstream captures it.
-  @mesh()
-  setStateAndForward(nextBinding: string, nextInstance: string | undefined, key: string, value: unknown): void {
-    this.lmz.callContext.state[key] = value;
-    this.lmz.call(nextBinding, nextInstance, this.ctn<TestDO>().captureContext());
-  }
-
-  // Fire a 3-arg call to build `this.ctn()[method](...args)` on the target (fire-and-forget).
+  // Fire a call to build `this.ctn()[method](...args)` on the target, keeping only a refusal.
   fireCall(binding: string, instance: string | undefined, method: string, args: any[] = []): void {
     const remote = (this.ctn() as any)[method](...args);
-    this.lmz.call(binding, instance, remote);
+    this.lmz.call(binding, instance, remote, this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
+  }
+
+  /** The result handler for a one-way fixture call, sent `onErrorOnly`: keeps any refusal. */
+  recordCallFailure(result?: unknown): void {
+    if (!(result instanceof Error)) return;
+    const failures = (this.ctx.storage.kv.get('call_failures') as string[] | undefined) ?? [];
+    failures.push(result.message);
+    this.ctx.storage.kv.put('call_failures', failures);
+  }
+
+  async getCallFailures(): Promise<string[]> {
+    return (this.ctx.storage.kv.get('call_failures') as string[] | undefined) ?? [];
+  }
+
+  /**
+   * A result handler that keeps what it received under `tag`, with what the framework says about
+   * where it came from. Kept `stringify`-encoded, so a test reads back a Map, a cycle or an Error's
+   * own fields exactly as this handler saw them.
+   */
+  recordOutcome(tag: string, result?: unknown): void {
+    const { callee, callChain, originAuth } = this.lmz.callContext;
+    const key = `outcome:${tag}`;
+    const kept = (this.ctx.storage.kv.get(key) as string[] | undefined) ?? [];
+    kept.push(stringify({ result, callee, callChain, originAuth }));
+    this.ctx.storage.kv.put(key, kept);
+  }
+
+  async getOutcomes(tag: string): Promise<string[]> {
+    return (this.ctx.storage.kv.get(`outcome:${tag}`) as string[] | undefined) ?? [];
+  }
+
+  /** Call a Client's `method` through its Gateway, keeping the answer under `tag`. */
+  callClient(gatewayBinding: string, client: string, method: string, args: unknown[], tag: string, onErrorOnly = false): void {
+    const remote = (this.ctn() as any)[method](...args);
+    this.lmz.call(gatewayBinding, client, remote, this.ctn<TestDO>().recordOutcome(tag), { onErrorOnly });
   }
 
   // ALS stability across awaits WITHIN one post-ack @mesh invocation (the crux of the ALS spike):
@@ -460,23 +492,21 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // 4-arg call to an arbitrary @mesh method, capturing the delivered outcome (value OR Error).
-  // `state` seeds the outgoing callContext.state (used to satisfy @mesh guards).
   callForOutcome(
     binding: string,
     instance: string | undefined,
     method: string,
     args: any[] = [],
-    state?: Record<string, unknown>,
   ): void {
     const remote = (this.ctn() as any)[method](...args);
-    this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote), state ? { state } : undefined);
+    this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote));
   }
 
   // Combined result/error handler (runs at __handleResponse, requireMeshDecorator:false).
   // The handler always receives handler($result), where $result is the value OR the Error.
   // Captures the Error's name, and the per-hop `callee` the framework stamped — the two things
   // drop-on-failed-broadcast keys on. The error itself carries no identity: who failed comes from
-  // the address the push was sent to, which the far side cannot write.
+  // the framework, never from anything the far side's code writes.
   handleOutcome(resultOrError: any): void {
     if (resultOrError instanceof Error) {
       this.ctx.storage.kv.put('last_call_error', resultOrError.message);
@@ -522,9 +552,9 @@ export class TestDO extends LumenizeDO<Env> {
     this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote));
   }
 
-  // Initiator: 4-arg call to a DISCONNECTED client via the Gateway — the Gateway (not a mesh node)
-  // awaits client delivery and returns ClientDisconnectedError, which the framework routes to the
-  // handler LOCALLY (the mesh side of the broadcast-to-disconnected drop).
+  // Initiator: a call to a DISCONNECTED client via the Gateway, which acks and then fires
+  // ClientDisconnectedError back to this node's fire-back door, naming the Client as last hop (the
+  // mesh side of the broadcast-to-disconnected drop).
   testCallToDisconnectedClient(gatewayBinding: string, clientInstance: string): void {
     const remote = (this.ctn() as any).clientMethod();
     this.lmz.call(gatewayBinding, clientInstance, remote, this.ctn().handleOutcome(remote));
@@ -595,8 +625,8 @@ export class TestDO extends LumenizeDO<Env> {
     );
   }
 
-  // Broadcast to never-connected client Gateways. A Gateway answers a push inside its ack, so each
-  // outcome runs `recordBroadcastOutcome` here, on this node's own dispatch.
+  // Broadcast to never-connected client Gateways. Each Gateway acks, then fires its
+  // ClientDisconnectedError back, so each outcome runs `recordBroadcastOutcome` at this node's fire-back door.
   broadcastToGateways(clientInstances: string[]): void {
     this.lmz.broadcast(
       clientInstances.map((instanceName) => ({ bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName })),
@@ -624,11 +654,11 @@ export class TestDO extends LumenizeDO<Env> {
   // Broadcast `captureContext` with the given options. Reached from a client, so a chain inherited
   // with `newChain: false` has a client origin and that client's `originAuth`.
   @mesh()
-  broadcastCaptureContext(targets: string[], options: { newChain?: boolean; state?: Record<string, unknown> }): void {
+  broadcastCaptureContext(targets: string[], options: { newChain?: boolean }): void {
     this.lmz.broadcast(
       targets.map((instanceName) => ({ bindingName: 'TEST_DO', instanceName })),
       this.ctn<TestDO>().captureContext(),
-      options,
+      { ...options, onResult: this.ctn<TestDO>().recordCallFailure() },
     );
   }
 
@@ -705,103 +735,6 @@ export class TestDO extends LumenizeDO<Env> {
     );
   }
 
-  // ============================================
-  // CallContext capture in handlers test helpers
-  // ============================================
-
-  // Test that callContext.state is captured and restored in handlers
-  // Sets a unique marker in state before calling, then verifies handler sees it
-  @mesh()
-  testContextCaptureInHandler(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    stateMarker: string
-  ): void {
-    // Modify the current callContext.state with a unique marker
-    if (this.lmz.callContext) {
-      this.lmz.callContext.state['captureTest'] = stateMarker;
-    }
-
-    // Fire-and-forget call with a handler that will check the context
-    const remote = this.ctn<TestDO>().remoteEcho('capture-test');
-    this.lmz.call(
-      calleeBindingName,
-      calleeInstanceName,
-      remote,
-      // Pass the expected marker as a parameter so handler can compare
-      this.ctn().verifyCapturedContext(stateMarker, remote)
-    );
-  }
-
-  // Handler that verifies capturedContext.state matches expected marker
-  @mesh()
-  verifyCapturedContext(expectedMarker: string, _remoteResult: any): void {
-    const actualMarker = this.lmz.callContext?.state?.['captureTest'];
-    const matches = actualMarker === expectedMarker;
-
-    // Store verification result
-    this.ctx.storage.kv.put('context_capture_verification', {
-      expectedMarker,
-      actualMarker,
-      matches,
-      fullContext: this.lmz.callContext
-    });
-  }
-
-  // Get context capture verification result
-  async getContextCaptureVerification() {
-    return this.ctx.storage.kv.get('context_capture_verification');
-  }
-
-  // Test interleaved calls with different markers
-  @mesh()
-  testInterleavedContextCapture(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    markers: string[]
-  ): void {
-    // Make multiple calls with different markers
-    for (const marker of markers) {
-      // Each call gets its own marker in state
-      if (this.lmz.callContext) {
-        this.lmz.callContext.state['captureTest'] = marker;
-      }
-
-      const remote = this.ctn<TestDO>().remoteEcho(`interleaved-${marker}`);
-      this.lmz.call(
-        calleeBindingName,
-        calleeInstanceName,
-        remote,
-        this.ctn().recordInterleavedResult(marker, remote)
-      );
-    }
-  }
-
-  // Handler that records both expected marker and actual context marker
-  @mesh()
-  recordInterleavedResult(expectedMarker: string, _remoteResult: any): void {
-    const actualMarker = this.lmz.callContext?.state?.['captureTest'];
-
-    // Append to array of results
-    const existing = this.ctx.storage.kv.get('interleaved_results') as any[] || [];
-    existing.push({
-      expectedMarker,
-      actualMarker,
-      matches: actualMarker === expectedMarker
-    });
-    this.ctx.storage.kv.put('interleaved_results', existing);
-  }
-
-  // Get interleaved results
-  async getInterleavedResults() {
-    return this.ctx.storage.kv.get('interleaved_results');
-  }
-
-  // Clear interleaved results
-  async clearInterleavedResults() {
-    this.ctx.storage.kv.delete('interleaved_results');
-  }
-
   // Remote method that throws an error
   @mesh()
   throwError(): never {
@@ -836,6 +769,12 @@ export class TestDO extends LumenizeDO<Env> {
     );
   }
 
+  async testLmzCallWithPropertyHandler(): Promise<void> {
+    // A handler ending in a property access has no call to fill its answer into.
+    const remote = this.ctn<TestDO>().remoteEcho('test');
+    this.lmz.call('TEST_DO', 'callee', remote, (this.ctn() as any).lastResult);
+  }
+
   // ============================================
   // CallContext test helpers
   // ============================================
@@ -864,10 +803,11 @@ export class TestDO extends LumenizeDO<Env> {
   // @mesh(guard) test helpers
   // ============================================
 
-  // Method with guard that checks for 'admin' role in callContext.state
+  // Method with guard that admits only a chain an "admin-" node started — a stand-in role read
+  // from the caller's own address, which the mesh stamps and no caller writes.
   @mesh((instance: TestDO) => {
-    const role = instance.lmz.callContext?.state?.['role'];
-    if (role !== 'admin') {
+    const origin = instance.lmz.callContext?.callChain?.[0]?.instanceName;
+    if (!origin?.startsWith('admin-')) {
       throw new Error('Guard: admin role required');
     }
   })
@@ -877,7 +817,7 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Method with guard that checks for any authenticated user
   @mesh((instance: TestDO) => {
-    const userId = instance.lmz.callContext?.state?.['userId'];
+    const userId = instance.lmz.callContext?.originAuth?.sub;
     if (!userId) {
       throw new Error('Guard: authentication required');
     }
@@ -888,7 +828,7 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Method with synchronous guard
   @mesh((instance: TestDO) => {
-    const token = instance.lmz.callContext?.state?.['token'];
+    const token = instance.lmz.callContext?.originAuth?.claims?.['token'];
     if (token !== 'valid-token') {
       throw new Error('Guard: valid token required');
     }
@@ -925,7 +865,9 @@ export class TestDO extends LumenizeDO<Env> {
         this.lmz.bindingName!,
         this.lmz.instanceName!,
         marker
-      )
+      ),
+      this.ctn<TestDO>().recordCallFailure(),
+      { onErrorOnly: true },
     );
   }
 
@@ -950,7 +892,9 @@ export class TestDO extends LumenizeDO<Env> {
     this.lmz.call(
       callerBindingName,
       callerInstanceName,
-      this.ctn<TestDO>().receiveCallback(marker, myIncomingContext)
+      this.ctn<TestDO>().receiveCallback(marker, myIncomingContext),
+      this.ctn<TestDO>().recordCallFailure(),
+      { onErrorOnly: true },
     );
   }
 
@@ -1055,7 +999,7 @@ export class TestDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('cache');
   }
 
-  // ─── who the framework says this hop was addressed to ──────────────────────────────────
+  // ─── who the framework says the call was addressed to ──────────────────────────────────
 
   /** A 4-arg handler that records the per-hop `callee` rather than the result. */
   recordCallee(_result: unknown): void {
@@ -1450,7 +1394,7 @@ export class TestWorker extends LumenizeWorker<Env> {
   }
 
   // ============================================
-  // Test helpers for Worker call() fire-and-forget
+  // Test helpers for Worker call()
   // ============================================
 
   // Worker calls DO remoteEcho, result handler forwards result to a storage DO
@@ -1494,27 +1438,28 @@ export class TestWorker extends LumenizeWorker<Env> {
     this.lmz.call('TEST_WORKER', undefined, remote, this.ctn().forwardResultToDO(resultStoreDOInstance, remote));
   }
 
-  // Worker calls DO remoteEcho without handler (fire-and-forget)
-  testCallFireAndForget(
+  // Worker calls DO remoteEcho with a handler that hears only a failure
+  testCallErrorsOnly(
     doBindingName: string,
     doInstanceName: string,
     value: string
   ): void {
     this.lmz.__init({ bindingName: 'TEST_WORKER' });
     const remote = this.ctn<TestDO>().remoteEcho(value);
-    this.lmz.call(doBindingName, doInstanceName, remote);
+    this.lmz.call(doBindingName, doInstanceName, remote, this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
   }
 
   // Worker calls call() without setting bindingName (should throw)
   testCallWithoutBindingName(): void {
     const remote = this.ctn<TestDO>().remoteEcho('test');
-    this.lmz.call('TEST_DO', 'some-instance', remote);
+    this.lmz.call('TEST_DO', 'some-instance', remote, this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
   }
 
   // Result handler (runs on a fresh Worker instance via __handleResponse — the handler travels):
   // fire a one-way call to persist the result on a DO.
   forwardResultToDO(resultStoreDOInstance: string, result: any): void {
-    this.lmz.call('TEST_DO', resultStoreDOInstance, this.ctn<TestDO>().storeForwardedResult(result));
+    this.lmz.call('TEST_DO', resultStoreDOInstance, this.ctn<TestDO>().storeForwardedResult(result),
+      this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
   }
 
   // Error-path handler: fire a one-way call to persist the error message on a DO.
@@ -1523,11 +1468,13 @@ export class TestWorker extends LumenizeWorker<Env> {
       'TEST_DO',
       resultStoreDOInstance,
       this.ctn<TestDO>().storeForwardedError(error instanceof Error ? error.message : String(error)),
+      this.ctn<TestWorker>().logCallFailure(),
+      { onErrorOnly: true },
     );
   }
 
-  // lmz.broadcast from a Worker — driven by broadcast.test.ts. Never-connected client Gateways
-  // answer inside their acks, so each outcome runs `forwardBroadcastOutcome` here.
+  // lmz.broadcast from a Worker — driven by broadcast.test.ts. Each never-connected client's
+  // Gateway acks, then fires its outcome back, so each runs `forwardBroadcastOutcome` here.
   broadcastToGateways(clientInstances: string[], storeInstance: string): void {
     this.lmz.__init({ bindingName: 'TEST_WORKER' });
     this.lmz.broadcast(
@@ -1543,7 +1490,13 @@ export class TestWorker extends LumenizeWorker<Env> {
       name: result instanceof Error ? result.name : 'success',
       message: result instanceof Error ? result.message : String(result),
       callee: this.lmz.callContext.callee?.instanceName,
-    }));
+    }), this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
+  }
+
+  /** The result handler for a one-way fixture call, sent `onErrorOnly`. A Worker keeps nothing,
+   *  so it logs. */
+  logCallFailure(result?: unknown): void {
+    if (result instanceof Error) console.warn('TestWorker call failed:', result.message);
   }
 
   // Remote methods that can be called via RPC
@@ -1586,17 +1539,18 @@ export class TestWorker extends LumenizeWorker<Env> {
     doBindingName: string,
     doInstanceName: string
   ): void {
-    this.lmz.call(doBindingName, doInstanceName, this.ctn<TestDO>().captureContext());
+    this.lmz.call(doBindingName, doInstanceName, this.ctn<TestDO>().captureContext(),
+      this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
   }
 
   // ============================================
   // @mesh(guard) test helpers for Worker
   // ============================================
 
-  // Method with guard that checks for 'admin' role in callContext.state
+  // Method with guard that admits only a chain an "admin-" node started (see TestDO's)
   @mesh((instance: TestWorker) => {
-    const role = instance.lmz.callContext?.state?.['role'];
-    if (role !== 'admin') {
+    const origin = instance.lmz.callContext?.callChain?.[0]?.instanceName;
+    if (!origin?.startsWith('admin-')) {
       throw new Error('Worker Guard: admin role required');
     }
   })
@@ -1606,7 +1560,7 @@ export class TestWorker extends LumenizeWorker<Env> {
 
   // Method with guard that checks for any authenticated user
   @mesh((instance: TestWorker) => {
-    const userId = instance.lmz.callContext?.state?.['userId'];
+    const userId = instance.lmz.callContext?.originAuth?.sub;
     if (!userId) {
       throw new Error('Worker Guard: authentication required');
     }
@@ -1617,7 +1571,7 @@ export class TestWorker extends LumenizeWorker<Env> {
 
   // Method with synchronous guard
   @mesh((instance: TestWorker) => {
-    const token = instance.lmz.callContext?.state?.['token'];
+    const token = instance.lmz.callContext?.originAuth?.claims?.['token'];
     if (token !== 'valid-token') {
       throw new Error('Worker Guard: valid token required');
     }

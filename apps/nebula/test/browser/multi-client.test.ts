@@ -62,7 +62,7 @@ describe('multi-client harness', () => {
       expect(new Set(instanceNames).size).toBe(M);
 
       // Each client can dispatch a call. Star.delay(5) is a 5ms sleep on the
-      // Star side that returns the delay value via CALL_RESPONSE — exercises
+      // Star side that returns the delay value via the fire-back — exercises
       // the full path (WS → Gateway → Star → Gateway → WS) for every client.
       const results = await Promise.all(
         harness.clients.map((c) => c.callStarDelay(star, 5)),

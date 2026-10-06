@@ -86,7 +86,7 @@ using client = new EditorClient({
 |----------|-----------|
 | `onConnectionStateChange(state)` | State changes: `connecting`, `connected`, `reconnecting`, `disconnected` |
 | `onLoginRequired(error)` | Re-login required (not routine token refresh) |
-| `onSubscriptionRequired()` | Every connection except reconnects within 5s grace period |
+| `onSubscriptionRequired()` | Subscriptions may have been lost: a first connection, or a reconnect the Gateway reports as a loss: a delivery to the client failed, it was away past the 5s grace period, or the Gateway lost its record of it. Also an overridable method |
 | `onConnectionError(error)` | Low-level WebSocket errors (rarely actionable) |
 
 ## Client Identity (`client.claims`)
@@ -115,7 +115,7 @@ See [Making Calls](./calls) for `this.lmz.call()` patterns, continuations, and e
 
 ## Awaiting a result — `callAsync` (client-only)
 
-`this.lmz.call()` is fire-and-forget: it returns `void` and delivers any outcome to a handler. The **one** place you can `await` a cross-node call is the client's `callAsync` — a resilient, `Promise`-returning read/mutation:
+`this.lmz.call()` is one-way: it returns `void` and delivers the outcome to a handler. The **one** place you can `await` a cross-node call is the client's `callAsync` — a resilient, `Promise`-returning read/mutation:
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
 async fetchContent(documentId: string, signal?: AbortSignal): Promise<string> {
@@ -128,7 +128,9 @@ async fetchContent(documentId: string, signal?: AbortSignal): Promise<string> {
 }
 ```
 
-Unlike an ordinary awaited RPC, `callAsync` keeps its settler **in-heap keyed by callId**, so the Promise **survives a WebSocket reconnect and a tab freeze** — delivery re-resolves to whatever socket the client is on now, and a built-in default timeout (30 s; `0`/`Infinity` disables) means it never strands. The callee just **returns a value**; the framework fires it back.
+Unlike an ordinary awaited RPC, `callAsync` keeps its settler **in-heap keyed by callId**, so the Promise **survives a WebSocket reconnect and a tab freeze** — delivery re-resolves to whatever socket the client is on now, and a built-in default timeout (30 s; `0`/`Infinity` disables) means it never strands. The callee just **returns a value**; the framework fires it back. The Promise rejects whenever the outcome is an Error, whether the callee threw it or returned it, so a callee that means a soft refusal returns a value that is not an Error.
+
+A `call()`'s result handler is different: it travels with the call and comes back filled, so the values bound into it cross the wire twice. They round-trip as structured clones, so a reactive object comes back as a copy, and binding a function throws at the call site.
 
 :::warning[Abort cancels the wait, not the server operation]
 
@@ -179,7 +181,7 @@ class CollaborativeClient extends LumenizeClient {
 }
 ```
 
-For method-level guards, see [Security](./security#method-level-meshguard).
+An app that opens peer calls must then guard its own push handlers, which the default refusal was protecting. For method-level guards, see [Security](./security#method-level-meshguard).
 
 ## Reconnection & Subscription Loss
 
@@ -189,21 +191,44 @@ LumenizeClient handles flaky networks and tab hibernation automatically.
 
 When disconnected, the mesh maintains client state for at least a **5-second grace period**:
 
-- **Within 5 seconds**: Reconnection is seamless — all subscriptions remain active
+- **Within 5 seconds**: Reconnection is seamless. A push the client had not answered is sent again on the new socket, and the client answers a repeat from its record of recent answers without running the handler twice. All subscriptions remain active, unless a push to the client failed in between or the Gateway was evicted, and either way it asks the client to resubscribe.
 - **After 5 seconds**: Mesh nodes may clean up resources. Resubscribing is necessary.
+- **A client that does not answer a push within 30 seconds** — a tab the browser froze, say — is closed with code **4408**. The node that sent the push hears `ClientDisconnectedError` and may drop the client's subscription, so the Gateway tells the client's next connection to resubscribe, however quickly it comes back.
+
+A token rotation is a reconnect inside the grace period, so it resubscribes nothing.
 
 ### Setting Up Subscriptions
 
-`onSubscriptionRequired` fires on every connection except reconnects within the 5-second grace period. Use it as the single place to establish all subscriptions:
+`onSubscriptionRequired` fires when the client's subscriptions may have been lost. That is its first connection, and any reconnect the Gateway reports as a loss: a delivery to the client failed, it was away past the grace period, or the Gateway lost its record of it, as after an eviction. Override it, or pass it in the config. Use it as the single place to establish all subscriptions:
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
-  // Called on every connection (except reconnects within 5s grace period)
-  onSubscriptionRequired = () => {
+  // Called when subscriptions may have been lost; an ordinary reconnect skips it
+  override onSubscriptionRequired(): void {
     // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }
-  };
+  }
+```
+
+A subscribe sent just as a socket closes may never reach the Gateway, and a reconnect inside the grace period with nothing failed does not call `onSubscriptionRequired`. So keep the subscribes that have not answered yet, and send them again on any reconnect:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+  constructor(config: LumenizeClientConfig) {
+    super({
+      ...config,
+      onConnectionStateChange: (state) => {
+        if (this.#lastState === 'reconnecting' && state === 'connected') {
+          for (const documentId of this.#awaitingSnapshot) {
+            const callbacks = this.#documents.get(documentId);
+            if (callbacks) this.#subscribe(documentId, callbacks);
+          }
+        }
+        this.#lastState = state;
+        config.onConnectionStateChange?.(state);
+      },
+    });
+  }
 ```
 
 ## Handling Relogin
@@ -226,7 +251,7 @@ Tab ID management is built in. Each tab gets a unique ID stored in `sessionStora
 
 ### Hibernation and Backgrounding
 
-No manual handling needed. `LumenizeClient` automatically detects tab wake-up, reconnects, and triggers `onSubscriptionRequired` so your code can re-establish subscriptions.
+No manual handling needed. `LumenizeClient` automatically detects tab wake-up and reconnects. A tab paused past the Gateway's 30-second wait was closed with 4408, so it reconnects when it wakes, the Gateway reports the loss, and `onSubscriptionRequired` re-establishes subscriptions.
 
 ## Testing
 

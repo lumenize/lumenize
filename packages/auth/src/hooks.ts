@@ -287,10 +287,11 @@ export async function createRouteDORequestAuthHooks(
  * Extract access token from WebSocket subprotocol header.
  *
  * Expected format in Sec-WebSocket-Protocol:
- * `lmz, lmz.access-token.{base64url-encoded-jwt}`
+ * `lmz.2, lmz.access-token.{base64url-encoded-jwt}`
  *
- * The client should request both 'lmz' and 'lmz.access-token.{token}' as subprotocols.
- * We extract the token from the access-token protocol and accept 'lmz' as the actual protocol.
+ * The client should request both 'lmz.2' and 'lmz.access-token.{token}' as subprotocols.
+ * We extract the token from the access-token protocol; a mesh Gateway accepts 'lmz.2' as the
+ * actual protocol.
  *
  * @param request - WebSocket upgrade request
  * @returns Token string if found, null otherwise

@@ -37,8 +37,8 @@ describe('passage decides what reaches a tab', () => {
     expect(await admin.lmz.callAsync('GALAXY', galaxy, admin.ctn<GalaxyTest>().clientCallOutcome()))
       .toBeUndefined(); // no refusal came back
 
-    // A sibling Star: lateral, refused at the tab's Gateway with the passage message, which a
-    // Gateway hands back inside its ack.
+    // A sibling Star: lateral, refused at the tab's Gateway with the passage message, which the
+    // Gateway fires back to the Star's handler after its ack.
     await admin.lmz.callAsync('STAR', starB,
       admin.ctn<StarTest>().callClientReporting(tab, 'handleOrgTreeUpdate', { value: {} }));
     await vi.waitFor(async () => expect(await admin.lmz.callAsync('STAR', starB,

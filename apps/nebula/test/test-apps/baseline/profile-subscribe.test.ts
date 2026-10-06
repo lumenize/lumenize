@@ -18,6 +18,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { LumenizeClient, mesh, type CallEnvelope, type OriginAuth } from '@lumenize/mesh';
 import { preprocess } from '@lumenize/structured-clone';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { Browser } from '@lumenize/testing';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
@@ -185,7 +186,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     expect((client.lastProfileUpdate?.snapshot as ProfileSnapshot | null)?.value).toEqual({ name: 'Grace' });
   });
 
-  it('reconnect re-subscribes a Profile entry to PROFILE, not STAR — the binding-agnostic reconnect branch (#5)', async () => {
+  it('the re-subscribe walk sends a Profile entry to PROFILE, not STAR — the binding-agnostic branch (#5)', async () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     await writeProfile(owner, pid, { name: 'Ada' });
@@ -193,14 +194,14 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     await client.subscribeProfile(pid).snapshot;
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1));
 
-    // Drop the DO's subscriber row so ONLY a correct reconnect re-subscribe can restore it.
+    // Drop the DO's subscriber row so ONLY a correct re-subscribe can restore it.
     const stub: any = (env as any).PROFILE.getByName(pid);
     await (runInDurableObject as any)(stub, (_i: any, c: any) => c.storage.sql.exec('DELETE FROM Subscribers'));
     expect(await subscriberCount(pid)).toBe(0);
 
-    // The reconnect walk must re-fire the subscribe to PROFILE/pid. A regression routing it to
+    // The re-subscribe walk must re-fire the subscribe to PROFILE/pid. A regression routing it to
     // STAR/pid instead would throw (pid is not a parseId-valid scope) and never re-add the row.
-    (client as any)._resubscribeAllForTest();
+    (client as any)._restoreSubscriptionsForTest();
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1));
   });
 
@@ -291,22 +292,22 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
           { type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: clientId },
           { type: 'LumenizeDO', bindingName: 'STAR', instanceName: 'acme.app.tenant' },
         ],
-        state: {},
       },
       metadata: {
         caller: { type: 'LumenizeDO', bindingName: 'STAR', instanceName: 'acme.app.tenant' },
         callee: { type: 'LumenizeDO', bindingName: 'PROFILE', instanceName: pid },
       },
     };
-    expect(await stub.__executeOperation(envelope)).toEqual({ $ack: true });
-
-    // MUTATION: read `callChain.at(-1)` again and the row stores the relay's `STAR` instead.
-    const rows = await vi.waitFor(async () => {
-      const found = await (runInDurableObject as any)(stub, (_i: any, c: any) =>
-        c.storage.sql.exec('SELECT clientId, subscriberBinding FROM Subscribers').toArray());
-      expect(found).toHaveLength(1);
-      return found;
-    });
-    expect(rows[0]).toEqual({ clientId, subscriberBinding: 'NEBULA_CLIENT_GATEWAY' });
+    // The row is read off the marker its write logs, never off the table: this subscriber has no
+    // socket, so its first snapshot fails and the reaper deletes the row, sometimes before a read.
+    const stored: Array<Record<string, unknown>> = [];
+    setDebugSink((e) => { if (e.namespace === 'nebula-auth.Profile.subscribe') stored.push(e.data as Record<string, unknown>); });
+    try {
+      expect(await stub.__executeOperation(envelope)).toEqual({ $ack: true });
+      // MUTATION: read `callChain.at(-1)` again and the row stores the relay's `STAR` instead.
+      await vi.waitFor(() => expect(stored).toEqual([{ profileId: pid, clientId, subscriberBinding: 'NEBULA_CLIENT_GATEWAY' }]));
+    } finally {
+      clearDebugSink();
+    }
   });
 });

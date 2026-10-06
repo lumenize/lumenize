@@ -17,9 +17,11 @@ LumenizeClientGateway uses **no DO storage operations**:
 - No `ctx.storage.kv`
 
 Instead, state is derived from:
-- `this.ctx.getWebSockets()` — Active WebSocket connections
-- `this.ctx.getAlarm()` — Pending reconnection grace period
+- `this.ctx.getWebSockets(instanceName)` — the Client's WebSocket, tagged with its name when accepted
+- An in-memory grace period per Client — running from the moment its socket closes until it reconnects or the period ends
 - `ws.deserializeAttachment()` — Per-connection context
+
+A Gateway evicted during a grace period loses it, so a Client reconnecting to it is told to re-establish its subscriptions — the safe direction.
 
 This zero-storage design is foundational. Clients can use whatever identifiers make sense for their application, and when those identifiers become stale — a tab closes, a session ends, a user logs out — there's no cleanup required. Abandoned Gateway instances incur no ongoing costs and leave no orphaned data. 
 
@@ -37,7 +39,7 @@ The Gateway instance name matches the client's `instanceName` configuration.
 
 ### Transparent Proxying
 
-Gateway doesn't interpret the calls passing through it — it simply forwards them from the caller to the callee using Workers RPC and WebSocket messages. This keeps Gateway simple and allows clients to act as true peers by defining any methods they want just like `LumenizeDO` and `LumenizeWorker` mesh nodes.
+Gateway doesn't interpret the operation chains passing through it. It forwards them between its client and the mesh using Workers RPC and WebSocket messages, and checks only what must not depend on the browser's honesty: who connects, whether the token is live, and, in a subclass, whether the tab may receive a node's call. On its client's behalf it honors the transport rules a node's framework honors: a node's call to the client is acked at once, the node's result handler continuation stays in the Gateway while the client answers, and the Gateway fills it and fires it back, so the client never sees it. A client defines `@mesh()` methods a node can call, just like `LumenizeDO` and `LumenizeWorker`; a call from another client is refused by the receiving client by default (see [Access Control](./lumenize-client#access-control)).
 
 ### Implications
 
@@ -61,11 +63,13 @@ Gateway doesn't interpret the calls passing through it — it simply forwards th
 
 Gateway state is **derived**, not stored. On every message, it checks:
 
-| `getWebSockets()` | `getAlarm()` | State | Behavior |
-|-------------------|--------------|-------|----------|
-| Has connection | Any | **Connected** | Forward calls immediately |
-| Empty | Pending | **Grace Period** | Wait for reconnect (up to 5s) |
-| Empty | None | **Disconnected** | Reject calls with `ClientDisconnectedError` |
+| Client's socket | Grace period | State | Behavior |
+|-----------------|--------------|-------|----------|
+| Open | Any | **Connected** | Forward calls immediately, unless the client's token has expired: then close with `4401` and wait as below |
+| None | Running | **Grace Period** | Wait for reconnect (up to 5s) |
+| None | None | **Disconnected** | Answer calls with `ClientDisconnectedError` |
+
+Every answer reaches the calling node through its fire-back door, after the Gateway's early acknowledgement.
 
 ## WebSocket Attachments
 
@@ -83,7 +87,7 @@ LumenizeDO stores identity in `ctx.storage.kv`:
 
 For Gateway's zero-storage requirement, this is unacceptable. Gateway extends `DurableObject` directly and derives all state from:
 - WebSocket list
-- Alarm status
+- An in-memory grace period per Client
 - WebSocket attachments
 
 ## Error Handling
@@ -98,21 +102,32 @@ If the call arrives during the grace period, Gateway waits for the client to rec
 
 ### Client Call Timeout
 
-While other mesh nodes can take longer to respond to a call, the Gateway enforces a 30-second timeout for client responses. If the client doesn't respond in time, the connection is closed and a `ClientDisconnectedError` is returned to the caller.
+While other mesh nodes can take longer to respond to a call, the Gateway enforces a 30-second timeout for client responses. If the client doesn't respond in time — a tab the browser froze, say — the caller hears `ClientDisconnectedError` and the Gateway closes the client's socket with code **4408**, echoing HTTP 408 Request Timeout.
+
+A call still waiting for its answer when the client's socket is replaced, by a reconnect inside the grace period or a token rotation, is sent again on the new socket under the same call id. The client answers a repeat from its record of recent answers, so the handler runs once.
 
 ### Token Expiration
 
-Gateway verifies token expiration on each incoming message using `claims.exp` from the WebSocket attachment. If the token is expired, the connection is closed with a `4401` code and 'Token expired' message.
+The Gateway checks the client's token against `claims.exp` from the WebSocket attachment on each incoming message, and before each call it sends the client. Either way, an expired token closes the connection with a `4401` code and 'Token expired' message, and the client refreshes and reconnects.
+
+- **An incoming message** is dropped with the socket.
+- **A call to the client** waits, in the grace period the close starts, and goes down the new socket once the client is back with a fresh token. A client whose session was revoked cannot refresh, so it does not come back, and the caller receives `ClientDisconnectedError` when the grace period ends.
 
 ### Resubscribing
 
-When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates — see [Reconnection & Subscription Loss](./lumenize-client#reconnection--subscription-loss) for the client-side pattern.
+When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client learns it must restore them from `connection_status`, which reports `subscriptionRequired: true` when:
+
+- **A call to the client failed since its last connection.** The Gateway records the failure in memory and on the client's socket, never in storage, and closes a socket still open with 4408 so a paused tab reconnects when it wakes.
+- **The client was away past its grace period.**
+- **The Gateway has no record of the client**, as after an eviction.
+
+A reconnect inside the grace period, a supersede or a token rotation restores nothing. See [Reconnection & Subscription Loss](./lumenize-client#reconnection--subscription-loss) for the client-side pattern.
 
 ## Trust Demilitarized Zone (DMZ)
 
 The Gateway is the **trust DMZ** between less trusted clients and more trusted mesh. When forwarding a client's call to the mesh, the Gateway builds the call context from **verified sources only** (JWT claims and connection data). Even if a malicious client sends fake identity information in a call message, the Gateway ignores it and uses only the verified data from the WebSocket attachment.
 
-This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed. The same goes for `callContext.callChain`: a client's frame carries none, and the Gateway builds it as a single element, the calling client, ignoring any chain a hostile frame adds — so a callee reading `callChain.at(-1)` finds the client itself, never a node the client named.
+This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed. The same goes for `callContext.callChain`: a client's frame carries none, and the Gateway builds it as a single element, the calling client, ignoring any chain a hostile frame adds — so a callee reading `callChain.at(-1)` finds the client itself, never a node the client named. A client also sends its call's result handler continuation, and the Gateway writes where the answer goes: back to that client, so a client can aim its continuation only at itself.
 
 > **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
 
@@ -183,10 +198,10 @@ interface GatewayConnectionInfo {
 
 ### `onBeforeCallToClient(envelope, connectionInfo)`
 
-Called before forwarding a DO-initiated call to the connected client. `connectionInfo` carries the connected client's verified identity and claims — compare it against the sender, `envelope.callContext.callChain.at(-1)`, which the mesh stamps. Check the sender rather than `originAuth`: a [broadcast](./broadcast) starts a fresh chain by default and carries no `originAuth`. Throw to reject — the error is wrapped as `{ $error }` for Workers RPC compatibility.
+Called before forwarding a DO-initiated call to the connected client. `connectionInfo` carries the connected client's verified identity and claims — compare it against the sender, `envelope.callContext.callChain.at(-1)`, which the mesh stamps. Check the sender rather than `originAuth`: a [broadcast](./broadcast) starts a fresh chain by default and carries no `originAuth`. Throw to reject: the Error fills the calling node's result handler continuation, which fires back to it. The hook is synchronous, and its return type is `undefined` so that an `async` override does not compile — a rejected Promise would refuse nothing.
 
 ```typescript @skip-check
-onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void
+onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined
 ```
 
 ### Example: Custom Gateway
@@ -232,7 +247,7 @@ export class MyGateway extends LumenizeClientGateway {
   override onBeforeCallToClient(
     envelope: CallEnvelope,
     connectionInfo: GatewayConnectionInfo
-  ): void {
+  ): undefined {
     const sender = envelope.callContext.callChain.at(-1);
     if (sender?.instanceName?.split('.')[0] !== connectionInfo.claims?.tenantId) {
       throw new Error('Cross-tenant call rejected');

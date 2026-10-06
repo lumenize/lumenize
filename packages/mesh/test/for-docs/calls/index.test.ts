@@ -6,7 +6,7 @@
  * of mesh communication patterns.
  *
  * Patterns covered:
- * - Fire-and-forget calls (document updates)
+ * - One-way calls that hear only a failure (document updates)
  * - Response handler pattern with $result (subscribe → initial content)
  * - Worker responds directly to client (SpellCheckWorker → EditorClient)
  * - Storage verification via createTestingClient RPC tunneling
@@ -546,9 +546,9 @@ it('handler without @mesh: local handlers work without @mesh decorator', async (
  * Two One-Way Calls Test (DO→Worker→DO)
  *
  * Demonstrates the two one-way calls pattern from calls.mdx:
- * - DO fires-and-forgets to Worker (avoids wall-clock billing)
+ * - DO makes a one-way call to the Worker (avoids wall-clock billing)
  * - Worker does expensive computation (CPU-only billing)
- * - Worker fires-and-forgets back to DO with results
+ * - Worker makes a one-way call back to the DO with results
  *
  * This pattern is used when:
  * - You need to offload expensive work to avoid DO wall-clock billing
@@ -593,13 +593,15 @@ it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => 
   // Test: Request analytics (DO→Worker→DO)
   // ============================================
   // This triggers:
-  // 1. DO.requestAnalytics() fires-and-forgets to AnalyticsWorker
+  // 1. DO.requestAnalytics() makes a one-way call to AnalyticsWorker
   // 2. Worker.computeAnalytics() does computation
-  // 3. Worker fires-and-forgets to DO.handleAnalyticsResult()
+  // 3. Worker makes a one-way call to DO.handleAnalyticsResult()
   alice.lmz.call(
     'DOCUMENT_DO',
     documentId,
-    alice.ctn<DocumentDO>().requestAnalytics()
+    alice.ctn<DocumentDO>().requestAnalytics(),
+    alice.ctn().handleCallFailed('analytics'),
+    { onErrorOnly: true }
   );
 
   // Wait for analytics to be computed and stored

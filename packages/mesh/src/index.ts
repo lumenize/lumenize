@@ -57,12 +57,12 @@ export { rawRpc } from './raw-rpc-decorator';
 export type { MeshGuard } from './mesh-decorator';
 
 // LumenizeClientGateway - WebSocket bridge for mesh clients
-export { LumenizeClientGateway, ClientDisconnectedError, ClientTokenExpiredError, GatewayMessageType } from './lumenize-client-gateway';
+export { LumenizeClientGateway, ClientDisconnectedError, GatewayMessageType } from './lumenize-client-gateway';
 export type {
   GatewayConnectionInfo,
   GatewayMessage,
   CallMessage,
-  CallResponseMessage,
+  ResponseMessage,
   IncomingCallMessage,
   IncomingCallResponseMessage,
   ConnectionStatusMessage,
@@ -74,6 +74,8 @@ export type {
   LumenizeClientConfig,
   ConnectionState,
   LmzApiClient,
+  ClientCallOptions,
+  ClientBroadcastOptions,
   Continuation as ClientContinuation,  // Alias to avoid conflict with DO's Continuation
 } from './lumenize-client';
 

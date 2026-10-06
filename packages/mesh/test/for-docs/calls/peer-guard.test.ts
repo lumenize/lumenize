@@ -52,7 +52,8 @@ it('#1 default guard ACCEPTS a DO-mediated cross-client fanout push (caller = th
   // Writer (a DIFFERENT client) mutates via the origin-PRESERVING fanout (no newChain), so the
   // receiver sees callChain = [writerClient, DocumentDO] → at(-1) is the DO.
   writer.lmz.call('DOCUMENT_DO', documentId,
-    writer.ctn<DocumentDO>().updatePreservingOrigin('hello from writer'));
+    writer.ctn<DocumentDO>().updatePreservingOrigin('hello from writer'),
+    writer.ctn().handleCallFailed('update'), { onErrorOnly: true });
 
   await vi.waitFor(() => expect(contents).toContain('hello from writer'), { timeout: 10000 });
   // Accepted BECAUSE the immediate caller is the DO, even though the ORIGIN is another client.
@@ -74,12 +75,14 @@ it('#2 default guard BLOCKS a direct client→client call (caller = a client), v
   // bob sees callChain = [alice]; at(-1) = alice (a LumenizeClient, DISTINCT instanceName) → bob's
   // default guard REJECTS it before `handleContentUpdate` runs.
   alice.lmz.call('LUMENIZE_CLIENT_GATEWAY', bob.lmz.instanceName!,
-    alice.ctn<EditorClient>().handleContentUpdate(documentId, 'DIRECT-FROM-ALICE'));
+    alice.ctn<EditorClient>().handleContentUpdate(documentId, 'DIRECT-FROM-ALICE'),
+    alice.ctn().handleCallFailed('direct push'), { onErrorOnly: true });
 
   // Same-connection BARRIER (testing.md § never setTimeout): a legit DO-mediated push that IS
   // delivered. Once THIS lands on bob, the earlier direct call would have landed too if allowed.
   alice.lmz.call('DOCUMENT_DO', documentId,
-    alice.ctn<DocumentDO>().updatePreservingOrigin('VIA-DO'));
+    alice.ctn<DocumentDO>().updatePreservingOrigin('VIA-DO'),
+    alice.ctn().handleCallFailed('update'), { onErrorOnly: true });
   await vi.waitFor(() => expect(bobContents).toContain('VIA-DO'), { timeout: 10000 });
 
   // The direct client→client push was rejected by bob's default guard and never delivered.

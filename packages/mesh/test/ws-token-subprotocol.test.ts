@@ -31,7 +31,7 @@ describe('extractWebSocketToken', () => {
     const request = new Request('http://localhost/ws', {
       headers: {
         Upgrade: 'websocket',
-        'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.my-jwt-token-here',
+        'Sec-WebSocket-Protocol': 'lmz.2, lmz.access-token.my-jwt-token-here',
       },
     });
 
@@ -50,7 +50,7 @@ describe('extractWebSocketToken', () => {
     const request = new Request('http://localhost/ws', {
       headers: {
         Upgrade: 'websocket',
-        'Sec-WebSocket-Protocol': 'lmz, other-protocol',
+        'Sec-WebSocket-Protocol': 'lmz.2, other-protocol',
       },
     });
 

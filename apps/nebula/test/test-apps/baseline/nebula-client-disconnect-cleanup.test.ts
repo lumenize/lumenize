@@ -4,9 +4,9 @@
  * When a client closes its WebSocket and doesn't reconnect within the
  * Gateway's grace period, that client's resource rows leak. The
  * cleanup mechanism is **reactive**, not proactive: the next time the plane's broadcast
- * (`this.lmz.broadcast`) tries to push to that client, the Gateway returns
+ * (`this.lmz.broadcast`) tries to push to that client, the Gateway fires back
  * `ClientDisconnectedError`, and the Star's `resourcesResults.onBroadcastResult` — the `onResult`
- * partial `lmz.broadcast` completes per target — deletes the offending row inline.
+ * partial `lmz.broadcast` completes per target — deletes the offending row at the Star's fire-back door.
  *
  * For "quiet" resources that nobody mutates after the disconnect, the row
  * stays leaked until the next deploy's push-on-clear (5.3.4b) catches it.
@@ -80,8 +80,8 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     expect(rowsBefore).toHaveLength(2);
     const bClientId = b.client.lmz.instanceName;
 
-    // Disconnect b. b's WebSocket closes; b's Gateway sets the grace alarm
-    // for 100 ms (per vitest.config.js LUMENIZE_MESH_GRACE_PERIOD_MS).
+    // Disconnect b. b's WebSocket closes; b's Gateway starts its grace period,
+    // 100 ms here (per vitest.config.js LUMENIZE_MESH_GRACE_PERIOD_MS).
     b.client.disconnect();
 
     // Wait past the grace period so b's Gateway is fully "disconnected"
@@ -90,8 +90,8 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     await new Promise((r) => setTimeout(r, 500));
 
     // a triggers a mutation. The plane's broadcast fans out via lmz.broadcast; one of
-    // its targets is b (disconnected). The push to b's Gateway returns
-    // ClientDisconnectedError → resourcesResults.onBroadcastResult deletes b's row inline.
+    // its targets is b (disconnected). b's Gateway fires back
+    // ClientDisconnectedError → resourcesResults.onBroadcastResult deletes b's row.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
       [resourceId]: { op: 'put', eTag, value: { title: 'Updated by a' } },
     });

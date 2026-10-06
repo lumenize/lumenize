@@ -93,7 +93,7 @@ describe('Hono integration (real email delivery)', () => {
     const accessToken = tokenBody.access_token;
     const ws = new browser.WebSocket(
       'ws://localhost/ws/echo-test',
-      ['lmz', `lmz.access-token.${accessToken}`],
+      ['lmz.2', `lmz.access-token.${accessToken}`],
     );
 
     // Wait for connection to open
@@ -122,7 +122,7 @@ describe('Hono integration (real email delivery)', () => {
     const response = await SELF.fetch('http://localhost/ws/echo-test', {
       headers: {
         'Upgrade': 'websocket',
-        'Sec-WebSocket-Protocol': 'lmz',
+        'Sec-WebSocket-Protocol': 'lmz.2',
       },
     });
 

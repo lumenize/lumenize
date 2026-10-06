@@ -11,7 +11,7 @@
  * 4. @mesh(guard) with claims check (admin only)
  * 5. @mesh(guard) with instance state (allowed editors)
  * 6. Reusable guards (requireSubscriber pattern)
- * 7. State-based access control (permissions in callContext.state)
+ * 7. A guard that computes its own decision from the caller and the node's storage
  */
 
 import { it, expect, vi } from 'vitest';
@@ -54,7 +54,7 @@ async function drive(
   return results[before];
 }
 
-it('security patterns: auth, guards, and state-based access', async () => {
+it('security patterns: auth, guards, and a guard that computes its own decision', async () => {
   // ============================================
   // Phase 1: onLoginRequired callback
   // ============================================
@@ -322,21 +322,20 @@ it('security patterns: auth, guards, and state-based access', async () => {
   expect(commentResult).toEqual({ commented: true });
 
   // ============================================
-  // Phase 7: Call context state
+  // Phase 7: a guard computes its own decision
   // ============================================
-  // The editWithStateCheck guard checks callContext.state.isEditor.
-  // onBeforeCall computes isEditor once from allowedEditors Set — and only runs
-  // on the mesh path, so this phase is meaningless from a testing client.
+  // The editAsEditor guard checks the caller's sub against the node's allowedEditors. A guard runs
+  // only on the mesh path, so this phase is meaningless from a testing client.
 
-  // Bob is not an editor of this instance, so onBeforeCall sets isEditor false.
-  const refusedStateEdit = await drive(bobResults, () =>
-    bob.callEditWithStateCheck('state-doc-1', 'State-gated edit')
+  // Bob is not an editor of this instance, so the guard refuses.
+  const refusedEditorEdit = await drive(bobResults, () =>
+    bob.callEditAsEditor('editor-doc-1', 'Editor-gated edit')
   );
-  expect(refusedStateEdit).toBeInstanceOf(Error);
-  expect((refusedStateEdit as Error).message).toContain('Editor access required');
+  expect(refusedEditorEdit).toBeInstanceOf(Error);
+  expect((refusedEditorEdit as Error).message).toContain('Editor access required');
 
   {
-    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'state-doc-1');
+    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'editor-doc-1');
 
     // Initially Bob is not an editor
     const editorsBefore = await teamDocClient.allowedEditors;
@@ -350,11 +349,11 @@ it('security patterns: auth, guards, and state-based access', async () => {
     expect(editorsAfter.has(bobUserId)).toBe(true);
   }
 
-  // Now onBeforeCall computes isEditor true and the guard passes.
-  const stateEditResult = await drive(bobResults, () =>
-    bob.callEditWithStateCheck('state-doc-1', 'State-gated edit')
+  // Now Bob is an editor, and the guard passes.
+  const editorEditResult = await drive(bobResults, () =>
+    bob.callEditAsEditor('editor-doc-1', 'Editor-gated edit')
   );
-  expect(stateEditResult).toEqual({ edited: true, byUser: bobUserId });
+  expect(editorEditResult).toEqual({ edited: true, byUser: bobUserId });
 
   // ============================================
   // Cleanup
@@ -449,7 +448,7 @@ it('CORS allowlist rejects WebSocket upgrade from disallowed origin', async () =
     headers: {
       'Origin': 'https://evil.com',
       'Upgrade': 'websocket',
-      'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${accessToken}`,
+      'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${accessToken}`,
     },
   });
 
@@ -462,7 +461,7 @@ it('CORS allowlist rejects WebSocket upgrade from disallowed origin', async () =
     headers: {
       'Origin': 'https://localhost',
       'Upgrade': 'websocket',
-      'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${accessToken}`,
+      'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${accessToken}`,
     },
   });
 
@@ -486,7 +485,7 @@ it('Worker rejects forged JWT before it reaches the gateway DO', async () => {
   const response = await browser.fetch('https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/forged-user.tab1', {
     headers: {
       'Upgrade': 'websocket',
-      'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${forgedToken}`,
+      'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${forgedToken}`,
     },
   });
 
@@ -497,7 +496,7 @@ it('Worker rejects forged JWT before it reaches the gateway DO', async () => {
   const noTokenResponse = await browser.fetch('https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/no-token.tab1', {
     headers: {
       'Upgrade': 'websocket',
-      'Sec-WebSocket-Protocol': 'lmz',
+      'Sec-WebSocket-Protocol': 'lmz.2',
     },
   });
 

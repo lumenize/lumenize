@@ -27,9 +27,9 @@ readonly callContext: CallContext;
 | `'LumenizeWorker'` | Always `undefined` |
 | `'LumenizeClient'` | Client identifier (e.g., `'alice.tab1'`) |
 
-### `call()` — Fire-and-Forget Call
+### `call()` — One-Way Call with a Result Handler
 
-The primary method for mesh communication. Returns immediately while work executes asynchronously.
+The primary method for mesh communication. Returns immediately while work executes asynchronously, and the outcome — the value or the `Error` — reaches the result handler continuation every call names.
 
 ```typescript @check-example('packages/mesh/src/lmz-api.ts')
 // this.lmz.call()
@@ -37,12 +37,12 @@ call<T = any>(
   calleeBindingName: string,
   calleeInstanceName: string | undefined,
   remoteContinuation: Continuation<T>,
-  handlerContinuation?: AnyContinuation,
+  handlerContinuation: AnyContinuation,
   options?: CallOptions
 ): void;
 ```
 
-For `call()` patterns including fire-and-forget, response handlers, chaining, and error handling, see [Making Calls](./calls).
+For `call()` patterns including calls that hear only failures, response handlers, chaining, and error handling, see [Making Calls](./calls).
 
 ### `broadcast()` — One Continuation, Many Targets
 
@@ -53,7 +53,7 @@ Sends one continuation to every target — one `call()` per target, from this no
 broadcast<T = any>(
   targets: BroadcastTarget[],
   remoteContinuation: Continuation<T>,
-  options?: BroadcastOptions
+  options: BroadcastOptions
 ): void;
 ```
 
@@ -61,14 +61,13 @@ For its options, failure handling and limits, see [Broadcast](./broadcast).
 
 ### Awaiting a result
 
-`call()` never returns a value — it fires-and-forgets or delivers the outcome to a handler. The one place you can `await` a cross-node call is the **client-only** `callAsync` (a DO/Worker can't hold a Promise across hibernation, so it uses `call()` + a handler instead) — see [LumenizeClient § Awaiting a result](./lumenize-client#awaiting-a-result--callasync-client-only). The single awaited Workers-RPC hop that `call()` uses internally is private framework transport, not a public API.
+`call()` never returns a value — it delivers the outcome to a handler. The one place you can `await` a cross-node call is the **client-only** `callAsync` (a DO/Worker can't hold a Promise across hibernation, so it uses `call()` + a handler instead) — see [LumenizeClient § Awaiting a result](./lumenize-client#awaiting-a-result--callasync-client-only). The single awaited Workers-RPC hop that `call()` uses internally is private framework transport, not a public API.
 
 ### `CallOptions`
 
 ```typescript @check-example('packages/mesh/src/types.ts')
 interface CallOptions {
   newChain?: boolean; // Start fresh call chain (this node becomes origin)
-  state?: Record<string, unknown>; // Initial or merged state for the call
   // ...
   onSent?: (callId: string) => void;
   // ...
@@ -76,11 +75,11 @@ interface CallOptions {
 }
 ```
 
-When `newChain` is false (the default) and the `state` option is provided, it is merged with any inherited state from the current [call context](#interface-callcontext) (overlapping properties are overwritten). When `newChain` is true, the `state` option becomes the initial state for the new chain.
+When `newChain` is true, the call starts a fresh chain at this node, carrying no `originAuth`. A client's call takes no `newChain`: every call it makes starts at the client, whose Gateway builds the whole context.
 
 `onSent` is invoked synchronously with the generated `callId` immediately before the call message is sent — or queued, when disconnected, or refused, when the client already holds 1000 unsent calls. Useful for correlating an outbound call with later inbound frames — e.g. tracing markers or custom Gateway-emitted WebSocket frames — without exposing the client's internal pending-call map.
 
-`onErrorOnly` applies only to the 4-arg `this.lmz.call(callee, instance, remote, handler, opts)` form: when `true`, the handler chain is invoked only on remote rejection; successful results are dropped without dispatch. Useful for fire-and-forget paths that want structured error handling (retry, escalation, cleanup) without paying the per-call success-path dispatch cost — `broadcast()` adds it to every call whenever you pass an `onResult`.
+`onErrorOnly`: when `true`, the handler chain is invoked only on remote rejection; successful results are dropped without dispatch. It is how a call whose answer nobody needs still hears a failure (retry, escalation, cleanup, a log line) without paying the per-call success-path dispatch cost — `broadcast()` adds it to every call it makes.
 
 ## Interface: `CallContext`
 
@@ -95,20 +94,17 @@ interface CallContext {
   originAuth?: OriginAuth;
 
   // Immutable — HTTP facts of the originating upgrade, stamped by the Gateway (client-originated
-  // chains only). Tamper-evident like originAuth: NOT in callChain[0] (which the client partly
-  // authors) and NOT in state (which any hop may mutate). Server-side only: never sent to a client.
+  // chains only). Tamper-evident like originAuth: NOT in callChain[0], which names the client.
+  // Server-side only: never sent to a client.
   originRequest?: OriginRequest;
 
   // ...
 
   callee?: NodeIdentity;
-
-  // Mutable — can be modified by onBeforeCall or any handler along the way
-  state: Record<string, unknown>;
 }
 ```
 
-`callee` is the one field that does **not** ride through: it is PER-HOP, stamped by the framework with the node this hop was addressed to, and each hop overwrites it. A handler reads it to learn WHICH target answered — a fan-out gives every target the same handler chain, so the reply is the only thing that differs, and a reply is authored by the far side. ⚠️ On a mesh fire-back it is the callee's self-reported identity; on the request leg and at the receiving node it is the address used, which nobody else can write.
+`callee` is the one field that does **not** ride through: it is PER-HOP, and the framework stamps it on every hop, overwriting whatever arrived. A handler reads it to learn WHICH target answered — a fan-out gives every target the same handler chain, so the reply is the only thing that differs, and a reply is authored by the far side. The framework takes it from one of three sources, none of which the caller writes: at a receiving node, that node's own identity; on a local dispatch (a target that refused at admission), the address the caller dispatched to; and when a result handler runs on a fire-back, the fire-back's last hop, which the answering node's framework appended, or a client's Gateway for its client.
 
 ```typescript @check-example('packages/mesh/src/types.ts')
 interface NodeIdentity {
@@ -122,7 +118,8 @@ interface NodeIdentity {
 - `callChain` — Full call path from origin to immediate caller. **Immutable** — grows at each hop (managed by framework).
 - `originAuth` — Verified JWT claims from original caller. **Immutable**. Only set for authenticated LumenizeClient origins.
 - `originRequest` — HTTP facts of the WebSocket upgrade that started the chain: the origin's IP address, `User-Agent`, `Accept-Language`, and Cloudflare's `cf` location fields. **Immutable**. Only set for LumenizeClient origins, and **server-side only**: the Gateway never forwards it to a client, and a LumenizeClient types `this.lmz.callContext` as `Omit<CallContext, 'originRequest'>`, so reading it there fails to compile.
-- `state` — Hook data. **Mutable** — starts as `{}`, often populated in `onBeforeCall()` but can be set or modified anywhere in this call context.
+
+There is no field for your own data. A value a later hop needs travels as an argument of the continuation, and an authorization decision is computed in the guard of the node it is about — see [Managing Context](./managing-context#passing-what-a-later-hop-needs).
 
 **Accessing identity:**
 - Origin (who started the chain): `callChain[0]`
@@ -179,6 +176,8 @@ onBeforeCall(): void
 |-------|-----------|---------|
 | Class-wide | `onBeforeCall()` | WHO can call (authentication) |
 | Method-level | `@mesh(guard)` | Fine-grained permissions |
+
+It also runs when the answer to one of this node's calls comes back, at its fire-back door, except on a chain this node started: a broadcast or an alarm starts a fresh chain that carries no `originAuth`, and a guard that requires claims would refuse every answer on it.
 
 For the complete security model, see [Security](./security#access-control).
 

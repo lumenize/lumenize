@@ -104,12 +104,12 @@ export class SecurityClient extends LumenizeClient {
     );
   }
 
-  /** `editWithStateCheck` — guarded on `callContext.state.isEditor`. */
-  callEditWithStateCheck(instanceId: string, content: string): void {
+  /** `editAsEditor` — its guard checks the caller against the node's `allowedEditors`. */
+  callEditAsEditor(instanceId: string, content: string): void {
     this.lmz.call(
       'TEAM_DOC_DO',
       instanceId,
-      this.ctn<TeamDocDO>().editWithStateCheck({ content }),
+      this.ctn<TeamDocDO>().editAsEditor({ content }),
       this.ctn().handleTeamDocResponse(this.ctn().$result)
     );
   }

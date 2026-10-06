@@ -315,7 +315,7 @@ describe('structural scope isolation (Fix 1)', () => {
 // (which cannot produce a no-aud or no-callee call). The chain is never
 // executed — onBeforeCall throws first — so an empty preprocessed chain is fine.
 function makeEnvelope(opts: { instanceName?: string; aud?: string }) {
-  const callContext: any = { callChain: [], state: {} };
+  const callContext: any = { callChain: [] };
   if (opts.aud) callContext.originAuth = { sub: 'sys', claims: { aud: opts.aud } };
   const metadata: any = {};
   if (opts.instanceName) {
@@ -395,6 +395,7 @@ const UNDECORATED = 'unreachable from a request: `resourcesResults` has no `@mes
 const RESULTS_REASONS: Record<string, string> = {
   onBroadcastResult: UNDECORATED, onInviteResult: UNDECORATED, onOntologyPulled: UNDECORATED,
   onQueryBroadcastResult: UNDECORATED, onQuerySubscriberListBroadcastResult: UNDECORATED, onTreeBroadcastResult: UNDECORATED,
+  onPushUndelivered: UNDECORATED,
 };
 
 describe('Galaxy/Universe widening invariant (B5)', () => {
@@ -812,7 +813,7 @@ describe('access.scopeAdmin is confined to the node it covers', () => {
     (env as any).UNIVERSE.getByName(universe).__executeOperation({
       version: 1,
       chain: preprocess([{ type: 'get', key: method }, { type: 'apply', args }]),
-      callContext: { callChain: [], state: {}, originAuth: { sub: 'deleg', claims } },
+      callContext: { callChain: [], originAuth: { sub: 'deleg', claims } },
       metadata: { callee: { type: 'LumenizeDO', bindingName: 'UNIVERSE', instanceName: universe } },
     });
 

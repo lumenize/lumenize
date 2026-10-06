@@ -287,13 +287,12 @@ describe('a transaction or invite held at the validator across a wipe writes not
     const held = `held-${uuid().slice(0, 6)}`;
     await install(a, dev, { version: held, types: V1 }, HOLD_MS);
     const holder = await admin(galaxy, dev);
-    const pending = holder.lmz.callAsync('STAR', dev, door(holder).transaction(held, uuid(), {
+    const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).transaction(held, uuid(), {
       [uuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'held' } },
-    }), { timeoutMs: 30_000 });
+    }), { timeoutMs: 30_000 }));
     await vi.waitFor(() => expect(marks('nebula.Resources.ontology', 'facet cold load').some((e) => e.data?.version === held)).toBe(true));
     await wipe(a, dev);
-    const out = await pending;
-    expect((out as Error).name).toBe('OntologyStaleError');
+    expect((await pending)?.name).toBe('OntologyStaleError');
     expect((await planeRows('STAR', dev)).Snapshots).toBe(0);
     a[Symbol.dispose](); holder[Symbol.dispose]();
   }, 60_000);

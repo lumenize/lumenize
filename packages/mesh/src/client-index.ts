@@ -27,6 +27,8 @@ export type {
   LumenizeClientConfig,
   ConnectionState,
   LmzApiClient,
+  ClientCallOptions,
+  ClientBroadcastOptions,
   Continuation as ClientContinuation,
 } from './lumenize-client';
 // The parameter types of `lmz.broadcast`, which the client's `lmz` carries too
@@ -46,14 +48,15 @@ export type { MeshGuard } from './mesh-decorator';
 export {
   GatewayMessageType,
   ClientDisconnectedError,
-  ClientTokenExpiredError,
   WS_CLOSE_SUPERSEDED,
+  WS_CLOSE_TIMED_OUT,
   WS_TOKEN_PREFIX,
+  WS_PROTOCOL,
   extractWebSocketToken,
 } from './gateway-messages';
 export type {
   CallMessage,
-  CallResponseMessage,
+  ResponseMessage,
   IncomingCallMessage,
   IncomingCallResponseMessage,
   ConnectionStatusMessage,

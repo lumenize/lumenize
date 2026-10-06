@@ -39,7 +39,7 @@ const uniqueGalaxy = () => `cdp-${crypto.randomUUID().slice(0, 8)}.app`;
  *  every token carries, which a resource or query row cannot be written without. Each principal
  *  is on its own membership's host, so `aud`, the scope the verdicts read, is its `authScope`. */
 function ctxFor(sub: string, access?: { admin?: boolean; authScope?: string }): CallContext {
-  return { callChain: [], state: {}, originAuth: { sub, claims: { aud: access?.authScope, access, profileId: `p-${sub}` } } } as any;
+  return { callChain: [], originAuth: { sub, claims: { aud: access?.authScope, access, profileId: `p-${sub}` } } } as any;
 }
 
 /**

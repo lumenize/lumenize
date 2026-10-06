@@ -45,7 +45,9 @@ export class ThroughputHarnessClient extends NebulaClient {
   callStarPing(starName: string): Promise<number> {
     return new Promise((resolve, reject) => {
       this.#singleSlot = { resolve, reject };
-      this.lmz.call('STAR', starName, (this.ctn() as any).ping());
+      // A refused ping settles the slot with its Error; the answer itself arrives as a push.
+      this.lmz.call('STAR', starName, (this.ctn() as any).ping(),
+        (this.ctn() as any).handlePingResult(), { onErrorOnly: true });
     });
   }
 

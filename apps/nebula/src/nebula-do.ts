@@ -9,7 +9,7 @@ import { LumenizeDO, mesh, rawRpc } from '@lumenize/mesh';
 import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import type { NebulaJwtPayload, VerdictClaims } from '@lumenize/nebula-auth';
 
 /**
  * The minimal structural shape `requireDominionHere` reads (`lmz.callContext` +
@@ -81,7 +81,7 @@ export function requireDominionHere(instance: HasCallContext) {
 /**
  * The structural scope guard shared by every Nebula node type's `onBeforeCall`
  * (all extend NebulaDO) — composed, not reimplemented, per ADR-007 ("one
- * guard path, one place to audit"). Pure (instance name + verified claims in,
+ * guard path, one place to audit"). Pure (instance name + the call's claims in,
  * throw-or-return out) so its branches are unit-mutation-testable without a
  * DO harness.
  *
@@ -91,11 +91,12 @@ export function requireDominionHere(instance: HasCallContext) {
  * below this node (a member of a child reaching its parent, conferring no dominion),
  * OR the caller holds dominion here (the whole downward rule).
  *
- * **Passage is computed from the calling host's scope, the token's `aud`** (the host
- * rule, ADR-015 and ADR-022). The refresh derives `aud` from the page's `Origin`, which page
- * script cannot set, so it says which page, and so whose code, made the call. A plain member
- * cannot widen it: verification refuses a plain membership's token whose `aud` differs from
- * its `authScope`.
+ * **Passage is computed from the call's `activeScope`**: the token's `aud`, the calling host's
+ * scope (the host rule, ADR-015 and ADR-022), or, for a chain a node started with no claims, that
+ * node's scope as a plain member. `NebulaDO.onBeforeCall` derives which and hands it in as
+ * `claims`. The refresh derives `aud` from the page's `Origin`, which page script cannot set, so
+ * it says which page, and so whose code, made the call. A plain member cannot widen it:
+ * verification refuses a plain membership's token whose `aud` differs from its `authScope`.
  *
  * Branch ORDER is load-bearing: the missing-name fail-close, the platform-name
  * reject, and the name parse all run BEFORE the passage clause — otherwise a
@@ -107,7 +108,7 @@ export function requireDominionHere(instance: HasCallContext) {
  */
 export function requirePassage(
   name: string | undefined,
-  claims: NebulaJwtPayload | undefined,
+  claims: VerdictClaims | undefined,
 ): void {
   // (a) fail-closed — the envelope carried no callee instance name.
   if (!name) {
@@ -132,8 +133,8 @@ export function requirePassage(
   // name has passage from anywhere and an unparseable name would never reach this parse.
   parseId(name);
 
-  // (c) PASSAGE — the ONE shared predicate (ADR-007), both arms, computed from the calling host's
-  // scope. Not re-assembled here: a disjunction spelled at the call site is how one arm
+  // (c) PASSAGE — the ONE shared predicate (ADR-007), both arms, computed from the call's
+  // `activeScope`. Not re-assembled here: a disjunction spelled at the call site is how one arm
   // silently goes missing, and each omission breaks a different half of ADR-015 (drop the upward
   // arm and a Star member cannot reach its own Galaxy; drop dominion and an admin cannot act
   // downward at all).
@@ -152,8 +153,9 @@ export function requirePassage(
  * {@link requirePassage} helper (composed, not reimplemented — ADR-007). A
  * mesh call is accepted iff the caller is an `access.scopeAdmin` whose dominion
  * from its host covers this DO's **instance name** (downward dominion), OR the
- * calling host's scope, the token's `aud`, sits at or below the scope encoded in
- * that name (the non-admin path). Containment is by whole dot-separated segment —
+ * call's `activeScope` sits at or below the scope encoded in that name (the
+ * non-admin path). That is the token's `aud`, the calling host's scope, or, on a
+ * chain a scoped node started, that node's scope. Containment is by whole dot-separated segment —
  * a scope covers itself and every descendant, and nothing else — so no tier
  * grammar is involved. There is no trust-on-first-use lock and no stored `aud`;
  * the node's half is read off its name on every call, and the caller's half comes
@@ -211,9 +213,33 @@ export class NebulaDO extends LumenizeDO {
     // its absence on that path is asserted via this sink marker. See T-local-skip.
     debug('nebula.NebulaDO.onBeforeCall').debug('entry', { instanceName: name });
 
-    requirePassage(
-      name,
-      this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined,
-    );
+    requirePassage(name, claimsForPassage(this.lmz.callContext));
   }
+}
+
+/**
+ * What passage reads for a call — the call's `activeScope`, with the admin bit beside it.
+ *
+ * A call carrying claims gives them as they are: `aud` is the scope its host spells. A chain with
+ * no claims is one a node started, from an alarm or with `newChain`; it gives the scope of the
+ * node that started it, `callChain[0]`, held as a plain member with no `scopeAdmin`. So the Star
+ * `acme.crm.bigco` calling from an alarm has passage into itself, `acme.crm` and `acme`, and
+ * dominion over nothing. The answer it gets back on that chain runs no passage check at all: mesh
+ * skips `onBeforeCall` at a node's fire-back door on a chain the node started. A chain a node named by an id started, such as a Profile's, gives nothing, and passage
+ * refuses it. A client's chain always carries claims, because its Gateway stamps them, so no
+ * client can borrow a node's scope this way. Nothing is written into `originAuth`.
+ *
+ * This grants nothing a caller lacked: anyone with passage into a node has it into the node's
+ * ancestors. It is sound only because a scope-shaped name always names an object that checks
+ * passage into that scope — a `Profile` refuses to run under one, and a Gateway under one can
+ * accept no socket, so it starts no chain.
+ */
+function claimsForPassage(callContext: CallContext): VerdictClaims | undefined {
+  const claims = callContext.originAuth?.claims as NebulaJwtPayload | undefined;
+  if (claims) return claims;
+  const starter = callContext.callChain[0];
+  if (!starter?.instanceName) return undefined;
+  let scope: string;
+  try { scope = parseId(starter.instanceName).raw; } catch { return undefined; }
+  return { aud: scope, access: { authScope: scope } };
 }

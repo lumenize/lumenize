@@ -7,7 +7,7 @@
  * in production (React state updates, DOM manipulation, etc.).
  */
 
-import { LumenizeClient, mesh, type CallContext } from '../../../src/index.js';
+import { LumenizeClient, mesh, type CallContext, type ConnectionState, type LumenizeClientConfig } from '../../../src/index.js';
 import { AdminAccessError, type DocumentDO, type AdminInterface } from './document-do.js';
 import type { SpellCheckWorker, SpellFinding } from './spell-check-worker.js';
 
@@ -35,6 +35,26 @@ export interface DocumentHandle {
 export class EditorClient extends LumenizeClient {
   // Registry of open documents by documentId
   readonly #documents = new Map<string, DocumentCallbacks>();
+  // Documents whose subscribe has not answered yet. One sent just as a socket closed may never
+  // have arrived, so these are sent again on any reconnect.
+  readonly #awaitingSnapshot = new Set<string>();
+  #lastState: ConnectionState = 'connecting';
+
+  constructor(config: LumenizeClientConfig) {
+    super({
+      ...config,
+      onConnectionStateChange: (state) => {
+        if (this.#lastState === 'reconnecting' && state === 'connected') {
+          for (const documentId of this.#awaitingSnapshot) {
+            const callbacks = this.#documents.get(documentId);
+            if (callbacks) this.#subscribe(documentId, callbacks);
+          }
+        }
+        this.#lastState = state;
+        config.onConnectionStateChange?.(state);
+      },
+    });
+  }
 
   /**
    * Open a document for editing
@@ -55,7 +75,9 @@ export class EditorClient extends LumenizeClient {
         this.lmz.call(
           'DOCUMENT_DO',
           documentId,
-          this.ctn<DocumentDO>().update(content)
+          this.ctn<DocumentDO>().update(content),
+          this.ctn().handleCallFailed('save'),
+          { onErrorOnly: true }
         );
       },
       close: () => {
@@ -66,6 +88,7 @@ export class EditorClient extends LumenizeClient {
   }
 
   #subscribe(documentId: string, callbacks: DocumentCallbacks) {
+    this.#awaitingSnapshot.add(documentId);
     this.lmz.call(
       'DOCUMENT_DO',
       documentId,
@@ -74,17 +97,18 @@ export class EditorClient extends LumenizeClient {
     );
   }
 
-  // Called on every connection (except reconnects within 5s grace period)
-  onSubscriptionRequired = () => {
+  // Called when subscriptions may have been lost; an ordinary reconnect skips it
+  override onSubscriptionRequired(): void {
     // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }
-  };
+  }
 
   // Response handler for subscribe - receives initial content or Error
   handleSubscribeResult(documentId: string, result: string | Error, source: string) {
     console.log(`Subscribe from ${source}:`, result);
+    this.#awaitingSnapshot.delete(documentId);
     const callbacks = this.#documents.get(documentId);
     if (!callbacks) return; // Document was closed
 
@@ -125,7 +149,9 @@ export class EditorClient extends LumenizeClient {
     this.lmz.call(
       'SPELLCHECK_WORKER',
       undefined,
-      this.ctn<SpellCheckWorker>().check(content, this.lmz.instanceName, documentId)
+      this.ctn<SpellCheckWorker>().check(content, this.lmz.instanceName, documentId),
+      this.ctn().handleCallFailed('spell check'),
+      { onErrorOnly: true }
     );
   }
 
@@ -185,5 +211,11 @@ export class EditorClient extends LumenizeClient {
       console.error('Admin operation failed:', result.message);
     }
     this.adminResults.push(result);
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }

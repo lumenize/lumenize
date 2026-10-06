@@ -15,7 +15,7 @@ import { LumenizeClient } from '../src/lumenize-client';
 import { createTestRefreshFunction } from '../src/create-test-refresh-function';
 import type { TestDO } from './test-worker-and-dos';
 
-/** A client whose `onResult` handler records every result it receives. It runs in-heap, so no `@mesh()`. */
+/** A client whose `onResult` handler records every result it receives. It comes back filled, so no `@mesh()`. */
 class BroadcastClient extends LumenizeClient {
   outcomes: unknown[] = [];
 
@@ -104,17 +104,17 @@ describe('lmz.broadcast', () => {
     expect(await origin.getBroadcastOutcomes()).toEqual([]);
   });
 
-  it('a DO target that throws after acking: the handler gets the Error, and callee names the broadcaster', async () => {
+  it('a DO target that throws after acking: the handler gets the Error, and callee names that target', async () => {
     const origin = env.TEST_DO.getByName('bcast-throw-origin');
     await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'bcast-throw-origin' });
 
     await origin.broadcastCall(['bcast-throw-target'], 'throwError');
 
     await vi.waitFor(async () => expect(await origin.getBroadcastOutcomes()).toHaveLength(1));
-    // The Error came back to this node's fire-back door, where `callee` is the receiving node —
-    // the broadcaster, not the target that threw.
+    // The Error came back to this node's fire-back door, where `callee` is the fire-back's last
+    // hop: the target that threw, not the broadcaster.
     expect((await origin.getBroadcastOutcomes())[0]).toEqual({
-      name: 'Error', message: 'Remote error for testing', callee: 'bcast-throw-origin',
+      name: 'Error', message: 'Remote error for testing', callee: 'bcast-throw-target',
     });
   });
 
@@ -126,7 +126,8 @@ describe('lmz.broadcast', () => {
       using client = await connectClient();
 
       client.lmz.call('TEST_DO', 'bcast-chain-origin-1',
-        client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-1'], {}));
+        client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-1'], {}),
+        client.ctn<BroadcastClient>().recordOutcome(), { onErrorOnly: true });
 
       const observed = await observedAt('bcast-chain-target-1');
       expect(observed.callChain.map((n: { instanceName?: string }) => n.instanceName))
@@ -139,22 +140,13 @@ describe('lmz.broadcast', () => {
       using client = await connectClient(sub);
 
       client.lmz.call('TEST_DO', 'bcast-chain-origin-2',
-        client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-2'], { newChain: false }));
+        client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-2'], { newChain: false }),
+        client.ctn<BroadcastClient>().recordOutcome(), { onErrorOnly: true });
 
       const observed = await observedAt('bcast-chain-target-2');
       expect(observed.callChain.map((n: { instanceName?: string }) => n.instanceName))
         .toEqual([`${sub}.tab1`, 'bcast-chain-origin-2']);
       expect(observed.originAuth?.sub).toBe(sub);
-    });
-
-    it('with state, delivers it to each target', async () => {
-      using client = await connectClient();
-
-      client.lmz.call('TEST_DO', 'bcast-chain-origin-3',
-        client.ctn<TestDO>().broadcastCaptureContext(['bcast-chain-target-3'], { state: { probe: 'from-broadcast' } }));
-
-      const observed = await observedAt('bcast-chain-target-3');
-      expect(observed.state.probe).toBe('from-broadcast');
     });
   });
 });

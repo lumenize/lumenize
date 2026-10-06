@@ -161,8 +161,9 @@ export class HarnessNebulaClient extends NebulaClient {
         'STAR',
         starName,
         (this.ctn() as any).ping(),
-        undefined,
-        { onSent },
+        // A refused ping settles the slot with its Error; the answer itself arrives as a push.
+        (this.ctn() as any).handlePingResult(),
+        { onSent, onErrorOnly: true },
       );
     });
   }

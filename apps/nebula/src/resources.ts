@@ -138,9 +138,9 @@ const PLANE_KEYS = ['__sql_migrations_Subscriptions'] as const;
 /**
  * The response-leg surface — the whole of what a host's `get resourcesResults` hands the answers
  * the plane asked for: the reapers a failed update names, the node invite's facade answer, and a
- * Star's ontology pull. A reaper's result arrives locally, when a Gateway answers inside its ack;
- * the other two arrive at the host's fire-back door, where the member-level check is off. Neither
- * path checks for `@mesh()`, so the gate has none. `@mesh()` would open every member to any caller
+ * Star's ontology pull. Each arrives at the host's fire-back door, where the member-level check is
+ * off, or runs locally when a target refuses at admission. Neither path checks for `@mesh()`, so
+ * the gate has none. `@mesh()` would open every member to any caller
  * with passage, and `onOntologyPulled` is the one that matters: it checks no permission and installs
  * whatever row it is handed, so a caller could load a validator of their own — and on a `.dev`
  * Star, run the install's wipe. (`onInviteResult` is not the reason: a forged call runs under the
@@ -153,11 +153,16 @@ export interface ResourcesResults {
   /** A source's answer — a Star's `getCurrentOntology()` fire-back. Installs a row it has not. */
   onOntologyPulled(result?: unknown): void;
   /** The reapers: each drops the row of the tab its Gateway reports gone — the tab from
-   *  `callContext.callee`, the address the update was sent to, never from the reply. */
-  onBroadcastResult(resourceId: string, result?: unknown): void;
-  onQueryBroadcastResult(queryHash: string, result?: unknown): void;
-  onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void;
-  onTreeBroadcastResult(result?: unknown): void;
+   *  `callContext.callee`, the fire-back's last hop, which the Gateway writes — if the row is no
+   *  newer than `sentAt`, the time the failed push was sent. A re-subscribe that lands first keeps
+   *  its row. */
+  onBroadcastResult(resourceId: string, sentAt: string, result?: unknown): void;
+  onQueryBroadcastResult(queryHash: string, sentAt: string, result?: unknown): void;
+  onQuerySubscriberListBroadcastResult(queryHash: string, sentAt: string, result?: unknown): void;
+  onTreeBroadcastResult(sentAt: string, result?: unknown): void;
+  /** A push no subscriber row stands behind — a stale notice, a stream chunk, a refused
+   *  subscribe's Error. Nothing is reaped, so a failed delivery is logged. */
+  onPushUndelivered(what: string, result?: unknown): void;
 }
 
 /**
@@ -250,11 +255,12 @@ export class Resources {
 
   /**
    * Every subscription update leaves here: one `lmz.broadcast`, to one tab or to many. `onResult`
-   * is the reaper that drops a target the Gateway reports gone; an update with none reaps nothing.
+   * hears each failed delivery: a reaper that drops a target the Gateway reports gone, or, for a
+   * push no subscriber row stands behind, `onPushUndelivered`, which logs it.
    */
-  #send<T>(targets: BroadcastTarget[], remote: Continuation<T>, onResult?: AnyContinuation): void {
+  #send<T>(targets: BroadcastTarget[], remote: Continuation<T>, onResult: AnyContinuation): void {
     if (targets.length === 0) return;
-    this.#lmz().broadcast(targets, remote, onResult ? { onResult } : undefined);
+    this.#lmz().broadcast(targets, remote, { onResult });
   }
 
   // ─── The request-leg surface ─────────────────────────────────────────
@@ -297,7 +303,8 @@ export class Resources {
         const address = this.#caller();
         const stale = this.#gate(ontologyVersion);
         if (stale) {
-          this.#send(tab(address), this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, stale));
+          this.#send(tab(address), this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, stale),
+            this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stale notice'));
           return;
         }
         this.doSubscribe(resourceType, resourceId, address.clientId, address.subscriberBinding);
@@ -342,31 +349,41 @@ export class Resources {
 
   /**
    * Build {@link Resources.results}, the same way as `requests`. A reaper takes the dead tab from
-   * `callContext.callee` — the address the update went to — so a reply cannot name a victim.
+   * `callContext.callee`, which the tab's Gateway writes, and reaps only on the Gateway's own
+   * `ClientDisconnectedError`: the Gateway renames a tab's Error of that name.
    */
   #buildResults(): ResourcesResults {
-    const gone = (result: unknown): string | undefined =>
-      result instanceof Error && result.name === 'ClientDisconnectedError'
-        ? this.#lmz().callContext.callee?.instanceName
-        : undefined;
+    const gone = (result: unknown): string | undefined => {
+      if (!(result instanceof Error)) return undefined;
+      const clientId = this.#lmz().callContext.callee?.instanceName;
+      // Every reaper's receipt, so a run can see which tab an update failed to reach, and why.
+      debug('nebula.Resources.reap').info('update not delivered', { clientId, name: result.name });
+      return result.name === 'ClientDisconnectedError' ? clientId : undefined;
+    };
     return {
       onInviteResult: (nodeId, tiers, result) => this.#onInviteResult(nodeId, tiers, result),
       onOntologyPulled: (result) => this.#onOntologyPulled(result),
-      onBroadcastResult: (resourceId, result) => {
+      onBroadcastResult: (resourceId, sentAt, result) => {
         const clientId = gone(result);
-        if (clientId) this.removeSubscriber(resourceId, clientId);
+        if (clientId) this.removeSubscriber(resourceId, clientId, sentAt);
       },
-      onQueryBroadcastResult: (queryHash, result) => {
+      onQueryBroadcastResult: (queryHash, sentAt, result) => {
         const clientId = gone(result);
-        if (clientId) this.removeQuerySubscriber(queryHash, clientId);
+        if (clientId) this.removeQuerySubscriber(queryHash, clientId, sentAt);
       },
-      onQuerySubscriberListBroadcastResult: (queryHash, result) => {
+      onQuerySubscriberListBroadcastResult: (queryHash, sentAt, result) => {
         const clientId = gone(result);
-        if (clientId) this.removeQuerySubscriberListWatcher(queryHash, clientId);
+        if (clientId) this.removeQuerySubscriberListWatcher(queryHash, clientId, sentAt);
       },
-      onTreeBroadcastResult: (result) => {
+      onTreeBroadcastResult: (sentAt, result) => {
         const clientId = gone(result);
-        if (clientId) this.removeTreeSubscriber(clientId);
+        if (clientId) this.removeTreeSubscriber(clientId, sentAt);
+      },
+      onPushUndelivered: (what, result) => {
+        if (!(result instanceof Error)) return;
+        debug('nebula.Resources.push').warn(`${what} was not delivered`, {
+          clientId: this.#lmz().callContext.callee?.instanceName, error: result.message,
+        });
       },
     };
   }
@@ -542,6 +559,7 @@ export class Resources {
     this.#send(
       targets.map((d) => ({ bindingName: d.subscriberBinding, instanceName: d.clientId })),
       this.#ctn<NebulaClient>().handleResourceUpdate('', '', new OntologyStaleError('', currentVersion)),
+      this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stale notice'),
     );
   }
 
@@ -768,7 +786,8 @@ export class Resources {
     const targets = this.#targetsForQuery(query, nodeId);
     // Log identifiers/counts only — never the progress body.
     debug('nebula.Resources.stream').debug('chunk', { resourceId, targets: targets.length, len: progress.length });
-    this.#send(targets, this.#ctn<NebulaClient>().handleStreamChunk(resourceId, progress, replyTo));
+    this.#send(targets, this.#ctn<NebulaClient>().handleStreamChunk(resourceId, progress, replyTo),
+      this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stream chunk'));
   }
 
   /**
@@ -826,13 +845,13 @@ export class Resources {
    *  so a client that is also a data-subscriber of the query keeps that row. */
   #sendRoster(targets: BroadcastTarget[], queryHash: string, result: SubscriberEntry[] | Error): void {
     this.#send(targets, this.#ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, result),
-      this.#ctn<ResourcesHost>().resourcesResults.onQuerySubscriberListBroadcastResult(queryHash));
+      this.#ctn<ResourcesHost>().resourcesResults.onQuerySubscriberListBroadcastResult(queryHash, new Date().toISOString()));
   }
 
   /** Drop one resource subscription — `requests.unsubscribe` for the caller's own row, and the
-   *  `results.onBroadcastResult` for a tab the Gateway reports gone. */
-  removeSubscriber(resourceId: string, clientId: string): void {
-    this.#subscriptions.removeResource(resourceId, clientId);
+   *  `results.onBroadcastResult` for a tab the Gateway reports gone, which passes `sentAt`. */
+  removeSubscriber(resourceId: string, clientId: string, sentAt?: string): void {
+    this.#subscriptions.removeResource(resourceId, clientId, sentAt);
   }
 
   /**
@@ -864,16 +883,16 @@ export class Resources {
   /** Drop one roster watcher — `unsubscribeQuerySubscribers` + `results`' DEDICATED
    *  roster reaper call this (the latter on a `ClientDisconnectedError`). Drops ONLY
    *  the roster row (never the client's query row) and does NOT re-fire `#broadcastRoster`. */
-  removeQuerySubscriberListWatcher(queryHash: string, clientId: string): void {
-    this.#subscriptions.removeRoster(queryHash, clientId);
+  removeQuerySubscriberListWatcher(queryHash: string, clientId: string, sentAt?: string): void {
+    this.#subscriptions.removeRoster(queryHash, clientId, sentAt);
   }
 
   /** Drop one query-sub row — `unsubscribeQuery` + `results`' query reaper
    *  call this (the latter on a `ClientDisconnectedError`, m6). On an ACTUAL
    *  removal (`rowsWritten > 0`) re-push the shrunk roster to the query's WATCHERS; a no-op remove
    *  (duplicate/late fire-back) emits nothing — the mass-disconnect-storm guard. */
-  removeQuerySubscriber(queryHash: string, clientId: string): void {
-    const removed = this.#subscriptions.removeQuery(queryHash, clientId);
+  removeQuerySubscriber(queryHash: string, clientId: string, sentAt?: string): void {
+    const removed = this.#subscriptions.removeQuery(queryHash, clientId, sentAt);
     debug('nebula.Resources.subscribers').debug('remove', {
       event: 'remove', queryHash, clientId, mode: removed > 0 ? 'broadcast' : 'noop',
     });
@@ -888,18 +907,20 @@ export class Resources {
    * `getState()` is the value source and the auth gate: it requires an authenticated caller, and
    * there is deliberately NO node-level read check — the tree is visible to anyone with passage into
    * the host, a tenant reaching its Galaxy included, for the reason `subscriptions.ts` gives at the
-   * tree kind. The initial tree wires no reaper; the next change reaps a dead tab.
+   * tree kind. The initial tree takes the same reaper as every later change, so a tab gone by then
+   * loses its row at once.
    */
   doSubscribeTree(clientId: string, subscriberBinding: string): void {
     const state = this.#orgTree.getState();
     this.#subscriptions.registerTree(clientId, subscriberBinding);
     this.#send([{ bindingName: subscriberBinding, instanceName: clientId }],
-      this.#ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }));
+      this.#ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }),
+      this.#ctn<ResourcesHost>().resourcesResults.onTreeBroadcastResult(new Date().toISOString()));
   }
 
   /** Drop one tree subscriber — `results.onTreeBroadcastResult` calls this on a `ClientDisconnectedError`. */
-  removeTreeSubscriber(clientId: string): void {
-    this.#subscriptions.removeTree(clientId);
+  removeTreeSubscriber(clientId: string, sentAt?: string): void {
+    this.#subscriptions.removeTree(clientId, sentAt);
   }
 
   /**
@@ -914,7 +935,7 @@ export class Resources {
     const state = this.#orgTree.getState();
     const targets = subscribers.map((t) => ({ bindingName: t.subscriberBinding, instanceName: t.clientId }));
     this.#send(targets, this.#ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }),
-      this.#ctn<ResourcesHost>().resourcesResults.onTreeBroadcastResult());
+      this.#ctn<ResourcesHost>().resourcesResults.onTreeBroadcastResult(new Date().toISOString()));
   }
 
   /**
@@ -985,7 +1006,7 @@ export class Resources {
     try {
       const { version, facet } = this.installedOntology();
       // RETURN the result — the framework fires it back to the originating client's `callAsync`
-      // (the return-value pattern). The committed-mutation broadcasts to OTHER subscribers stay a fire-and-forget
+      // (the return-value pattern). The committed-mutation broadcasts to OTHER subscribers stay a one-way
       // side effect (originator excluded via `clientId`). An infra throw propagates → `callAsync` rejects.
       return await this.#snapshots.transaction(ops, version, newETag, facet, {
         onMutations: (mutations) => {
@@ -1037,7 +1058,8 @@ export class Resources {
    * Register a resource subscriber and push what it may see: the current snapshot to a reader,
    * `{ deniedNodes: [nodeId] }` to one who cannot read it (ADR-008 — told, not refused), and an
    * Error for a refused subscribe ({@link Subscriptions.subscribeResource} says which refuse). The
-   * initial answer wires no reaper; the next update reaps a dead tab.
+   * first snapshot takes the same reaper as every later update, so a tab gone by then loses its row
+   * at once.
    *
    * **Its guard is authentication plus the read evaluation this answer and every update run.** A
    * caller who cannot read still gets a row — that is the design, not a missing check.
@@ -1057,7 +1079,8 @@ export class Resources {
         event: 'subscribe-resource', resourceId, clientId, denied: 'deniedNodes' in outcome,
       });
       this.#send(tab, this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-        'deniedNodes' in outcome ? { deniedNodes: outcome.deniedNodes } : outcome.snapshot));
+        'deniedNodes' in outcome ? { deniedNodes: outcome.deniedNodes } : outcome.snapshot),
+        this.#ctn<ResourcesHost>().resourcesResults.onBroadcastResult(resourceId, new Date().toISOString()));
     } catch (err) {
       debug('nebula.Resources.doSubscribe').error('handler threw', {
         clientId,
@@ -1067,7 +1090,8 @@ export class Resources {
         name: err instanceof Error ? err.name : undefined,
       });
       this.#send(tab, this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-        err instanceof Error ? err : new Error(String(err))));
+        err instanceof Error ? err : new Error(String(err))),
+        this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('subscribe error'));
     }
   }
 
@@ -1190,7 +1214,7 @@ export class Resources {
    *  query subscriber the Gateway reports gone, keyed by `queryHash`. */
   #sendQueryUpdate(targets: BroadcastTarget[], queryHash: string, result: QueryUpdatePayload | Error): void {
     this.#send(targets, this.#ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
-      this.#ctn<ResourcesHost>().resourcesResults.onQueryBroadcastResult(queryHash));
+      this.#ctn<ResourcesHost>().resourcesResults.onQueryBroadcastResult(queryHash, new Date().toISOString()));
   }
 
   /**
@@ -1246,6 +1270,7 @@ export class Resources {
    * update, and nothing is delivered in between.
    */
   #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string): void {
+    const sentAt = new Date().toISOString();
     for (const [resourceId, snapshot] of mutations) {
       const readers: BroadcastTarget[] = [];
       const denied: BroadcastTarget[] = [];
@@ -1258,10 +1283,10 @@ export class Resources {
       }
       this.#send(readers,
         this.#ctn<NebulaClient>().handleResourceUpdate(snapshot.meta.typeName, resourceId, snapshot),
-        this.#ctn<ResourcesHost>().resourcesResults.onBroadcastResult(resourceId));
+        this.#ctn<ResourcesHost>().resourcesResults.onBroadcastResult(resourceId, sentAt));
       this.#send(denied,
         this.#ctn<NebulaClient>().handleResourceUpdate(snapshot.meta.typeName, resourceId, { deniedNodes: [snapshot.meta.nodeId] }),
-        this.#ctn<ResourcesHost>().resourcesResults.onBroadcastResult(resourceId));
+        this.#ctn<ResourcesHost>().resourcesResults.onBroadcastResult(resourceId, sentAt));
     }
   }
 }

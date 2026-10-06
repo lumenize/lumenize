@@ -3,10 +3,10 @@
  *
  * The platform profile rides a DEDICATED client channel (`#profileRefcount` / `handleProfileUpdate`), so it
  * never shares the resource `${type}:${id}` keyspace/routing with a dev-user ontology type named `Profile`
- * (Decision 2 keeps such a type LEGAL). This test proves a dev-user `Profile`-typed RESOURCE reconnects to
- * its STAR — NOT the global PROFILE DO — closing the shipped `#resubscribeAll` mis-route (nebula-client.ts,
+ * (Decision 2 keeps such a type LEGAL). This test proves the re-subscribe walk sends a dev-user `Profile`-typed
+ * RESOURCE to its STAR — NOT the global PROFILE DO — closing the shipped mis-route in that walk (nebula-client.ts,
  * committed `2a2978b`) that routed any `resourceType === 'Profile'` entry to the PROFILE binding and would
- * silently lose that resource's updates after any WS blip.
+ * silently lose that resource's updates after any re-subscribe.
  *
  * Auth: **real server issuance** (ADR-009 rung 2) via `adminClientAt` — claim the universe, which mints the
  * universe admin `scopeAdmin: true`, then refresh at the star — so the client can install an ontology with a `Profile`
@@ -56,7 +56,7 @@ async function starSubRows(star: string, resourceId: string): Promise<number> {
 }
 
 describe('Profile channel — a dev-user `Profile` type does NOT collide with the platform profile', () => {
-  it('a dev-user `Profile` RESOURCE reconnects to its STAR, not the global PROFILE DO (BLOCKER + shipped-bug fix)', async () => {
+  it('a dev-user `Profile` RESOURCE re-subscribes to its STAR, not the global PROFILE DO (BLOCKER + shipped-bug fix)', async () => {
     const star = uniqueStar();
     const client = await adminClient(star);
 
@@ -73,16 +73,16 @@ describe('Profile channel — a dev-user `Profile` type does NOT collide with th
     await client.resources.subscribe('Profile', rid).snapshot;
     await vi.waitFor(async () => expect(await starSubRows(star, rid)).toBe(1)); // subscribed on the STAR
 
-    // Drop the STAR row so ONLY a correct reconnect re-subscribe can restore it.
+    // Drop the STAR row so ONLY a correct re-subscribe can restore it.
     const stub: any = (env as any).STAR.getByName(star);
     await (runInDurableObject as any)(stub, (_i: any, c: any) =>
       c.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'resource' AND topic = ?`, rid));
     expect(await starSubRows(star, rid)).toBe(0);
 
-    // The reconnect walk MUST re-fire `Star.resources.subscribe(v, 'Profile', rid)` to the STAR. The shipped bug
+    // The re-subscribe walk MUST re-fire `Star.resources.subscribe(v, 'Profile', rid)` to the STAR. The shipped bug
     // routed any `resourceType === 'Profile'` entry to the global PROFILE DO instead — which would leave
     // the STAR row absent (silently losing this resource's updates).
-    (client as any)._resubscribeAllForTest();
+    (client as any)._restoreSubscriptionsForTest();
     await vi.waitFor(async () => expect(await starSubRows(star, rid)).toBe(1));
   });
 });

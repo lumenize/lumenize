@@ -122,7 +122,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     pairless[Symbol.dispose](); mixed[Symbol.dispose](); galaxyReader[Symbol.dispose]();
   });
 
-  it('SPOOF FENCE: smuggled author/role keys + a seeded CallOptions.state cannot alter the derived attribution', async () => {
+  it('SPOOF FENCE: smuggled author/role keys cannot alter the derived attribution', async () => {
     const scope = uniqueChatScope();
     const { client: mallory, payload } = await devClient(scope, 'mallory@example.com');
 
@@ -148,32 +148,6 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     expect(deriveKind(snap.meta.actingToken)).toBe('human');
 
     mallory[Symbol.dispose]();
-  });
-
-  it('STATE FENCE: a seeded CallOptions.state cannot alter the stamped actor', async () => {
-    const scope = uniqueChatScope();
-    const { client, payload } = await devClient(scope, 'stately@example.com');
-    const messageId = crypto.randomUUID();
-    // Seed `state` with actor-shaped keys on the raw call. `#buildActingToken` reads ONLY
-    // `callContext.originAuth` (verified claims) + the server-internal write-option, so
-    // the seeded state changes nothing. Capable-of-failing: read the actor out of
-    // `callContext.state` server-side → this stamps an act chain → red.
-    const result = await client.lmz.callAsync(
-      'GALAXY', scope,
-      client.ctn<GalaxyTest>().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), {
-        [messageId]: {
-          op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
-          value: { chat: DEFAULT_CHAT_ID, content: 'hi' },
-        },
-      }),
-      { state: { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB } } },
-    );
-    expect((result as { ok?: boolean }).ok).toBe(true);
-    const snap = await client.resources.read('Message', messageId) as Snapshot;
-    expect(snap.meta.actingToken.sub).toBe(payload.sub);
-    expect(snap.meta.actingToken.act).toBeUndefined();
-    expect(deriveKind(snap.meta.actingToken)).toBe('human');
-    client[Symbol.dispose]();
   });
 
   it('ACT-BEARING trigger: the coach entry is PRESERVED beneath the Nebula actor (depth-2 chain — a flatten reds)', async () => {

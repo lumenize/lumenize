@@ -40,7 +40,7 @@ function upgradeStatus(url: string, token: string): Promise<number> {
         Upgrade: 'websocket',
         'Sec-WebSocket-Version': '13',
         'Sec-WebSocket-Key': Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64'),
-        'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`,
+        'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${token}`,
       },
     });
     req.on('upgrade', (res, socket) => { socket.destroy(); resolve(res.statusCode ?? 101); });

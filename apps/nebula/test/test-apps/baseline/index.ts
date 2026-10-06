@@ -36,6 +36,19 @@ export class ProfileTest extends Profile {
     if (profileId === FAIL_CLOSED_PROFILE_ID) throw new Error('injected registry failure (test)');
     return super.lookupProfileScopes(profileId);
   }
+
+  /** Test-only: call `admitted` at `binding`/`target` on a FRESH chain this Profile starts,
+   *  keeping the outcome. Driven in-DO through `runInDurableObject`, outside any mesh call. */
+  callFreshChain(binding: string, target: string): void {
+    this.ctx.storage.kv.delete('fresh_chain_outcome');
+    const self = this.ctn() as any;
+    this.lmz.call(binding, target, self.admitted(), self.recordFreshChainOutcome(), { newChain: true });
+  }
+
+  /** The handler: the value `admitted`, or the refusal's message. */
+  recordFreshChainOutcome(result?: unknown): void {
+    this.ctx.storage.kv.put('fresh_chain_outcome', result instanceof Error ? `Error: ${result.message}` : String(result));
+  }
 }
 
 // Import classes needed for test subclasses
@@ -107,6 +120,25 @@ export class StarTest extends Star {
     return `You are ${this.lmz.callContext.originAuth!.sub}`;
   }
 
+  /** Test-only: a call target that checks nothing past `onBeforeCall`'s passage. */
+  @mesh()
+  admitted(): string {
+    return 'admitted';
+  }
+
+  /** Test-only: call `admitted` at `binding`/`target` on a FRESH chain this node starts, keeping
+   *  the outcome. Driven in-DO through `runInDurableObject`, outside any mesh call. */
+  callFreshChain(binding: string, target: string): void {
+    this.ctx.storage.kv.delete('fresh_chain_outcome');
+    const self = this.ctn() as any;
+    this.lmz.call(binding, target, self.admitted(), self.recordFreshChainOutcome(), { newChain: true });
+  }
+
+  /** The handler: the value `admitted`, or the refusal's message. */
+  recordFreshChainOutcome(result?: unknown): void {
+    this.ctx.storage.kv.put('fresh_chain_outcome', result instanceof Error ? `Error: ${result.message}` : String(result));
+  }
+
   /**
    * Test-only (T-migration): seed the legacy TOFU key to an arbitrary (stale)
    * value so a test can prove the structural gate ignores it. The new
@@ -146,6 +178,8 @@ export class StarTest extends Star {
       'NEBULA_CLIENT_GATEWAY',
       targetGatewayInstanceName,
       ctn[clientMethod](...args),
+      ctn.recordClientCallOutcome(),
+      { onErrorOnly: true },
     );
   }
 
@@ -157,8 +191,8 @@ export class StarTest extends Star {
     this.lmz.call('NEBULA_CLIENT_GATEWAY', targetGatewayInstanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
   }
 
-  /** The handler. A Gateway answers a refusal inside its ack, so this runs on this node's own
-   *  dispatch with the Error; a delivered call fires nothing back, so it records refusals only. */
+  /** The handler, at this node's fire-back door. The Gateway fires back a refusal's Error or the
+   *  Client's answer, and this records refusals only. */
   recordClientCallOutcome(result?: unknown): void {
     if (result instanceof Error) this.ctx.storage.kv.put('client_call_outcome', result.message);
   }
@@ -290,7 +324,7 @@ export class StarTest extends Star {
       throw new Error('ping requires a client origin with instanceName in callChain[0]');
     }
     this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-      (this.ctn() as any).handlePingResult(1));
+      (this.ctn() as any).handlePingResult(1), (this.ctn() as any).recordClientCallOutcome(), { onErrorOnly: true });
   }
 
   /**
@@ -317,7 +351,7 @@ export class StarTest extends Star {
    * of the response) or coincident with it.
    *
    * Returns the delay value directly (rather than via mesh callback) so the
-   * response arrives via the normal CALL_RESPONSE path. Wall-clock billing
+   * response arrives via the normal fire-back path. Wall-clock billing
    * is acceptable in this test-only handler.
    */
   @mesh()
@@ -381,6 +415,25 @@ export class StarTest extends Star {
 // ============================================
 
 export class GalaxyTest extends Galaxy {
+  /** Test-only: a call target that checks nothing past `onBeforeCall`'s passage. */
+  @mesh()
+  admitted(): string {
+    return 'admitted';
+  }
+
+  /** Test-only: call `admitted` at `binding`/`target` on a FRESH chain this node starts, keeping
+   *  the outcome. Driven in-DO through `runInDurableObject`, outside any mesh call. */
+  callFreshChain(binding: string, target: string): void {
+    this.ctx.storage.kv.delete('fresh_chain_outcome');
+    const self = this.ctn() as any;
+    this.lmz.call(binding, target, self.admitted(), self.recordFreshChainOutcome(), { newChain: true });
+  }
+
+  /** The handler: the value `admitted`, or the refusal's message. */
+  recordFreshChainOutcome(result?: unknown): void {
+    this.ctx.storage.kv.put('fresh_chain_outcome', result instanceof Error ? `Error: ${result.message}` : String(result));
+  }
+
   /** Test-only: the wake, after the fake's `onWake` has run. */
   @rawRpc()
   override async orderCertificate(operationId: string): Promise<void> {
@@ -427,8 +480,8 @@ export class GalaxyTest extends Galaxy {
     this.lmz.call('NEBULA_CLIENT_GATEWAY', targetGatewayInstanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
   }
 
-  /** The handler. A Gateway answers a refusal inside its ack, so this runs on this node's own
-   *  dispatch with the Error; a delivered call fires nothing back, so it records refusals only. */
+  /** The handler, at this node's fire-back door. The Gateway fires back a refusal's Error or the
+   *  Client's answer, and this records refusals only. */
   recordClientCallOutcome(result?: unknown): void {
     if (result instanceof Error) this.ctx.storage.kv.put('client_call_outcome', result.message);
   }
@@ -658,6 +711,14 @@ export class NebulaClientTest extends NebulaClient {
   /** Every push as it arrived: which handler, whose `originAuth.sub` rode it (none when the chain
    *  started fresh), and the call chain's binding names. CUMULATIVE — the identity probe's surface. */
   pushOrigins: Array<{ handler: string; originSub?: string; chain: string[] }> = [];
+
+  /** Every refusal the one-way initiators below heard, in order. */
+  callFailures: string[] = [];
+
+  /** The result handler for a one-way initiator, sent `onErrorOnly`: keeps any refusal. */
+  recordCallFailure(result?: unknown): void {
+    if (result instanceof Error) this.callFailures.push(result.message);
+  }
 
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
@@ -961,7 +1022,8 @@ export class NebulaClientTest extends NebulaClient {
   callStarSubscribe(starName: string, ontologyVersion: string, resourceType: string, resourceId: string): void {
     this.resetResults();
     this.lmz.call('STAR', starName,
-      this.ctn<Star>().resources.subscribe(ontologyVersion, resourceType, resourceId));
+      this.ctn<Star>().resources.subscribe(ontologyVersion, resourceType, resourceId),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
   }
 
   callStarInspectSubscribers(starName: string): void {
@@ -977,11 +1039,13 @@ export class NebulaClientTest extends NebulaClient {
     this.lastQueryUpdate = undefined;
     this.lastQueryError = undefined;
     this.queryUpdateCount = 0;
-    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeQuery(query));
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeQuery(query),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
   }
 
   callStarUnsubscribeQuery(starName: string, queryHash: string): void {
-    this.lmz.call('STAR', starName, this.ctn<Star>().resources.unsubscribeQuery(queryHash));
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.unsubscribeQuery(queryHash),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
   }
 
   /** Commit the durable agent Message (result-handler form to await). */
@@ -999,7 +1063,8 @@ export class NebulaClientTest extends NebulaClient {
 
   callStarSubscribeTree(starName: string): void {
     this.resetResults();
-    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeTree());
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeTree(),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
   }
 
   callStarInspectTreeSubscribers(starName: string): void {

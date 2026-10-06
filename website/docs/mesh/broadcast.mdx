@@ -5,7 +5,7 @@ description: Send one continuation to many targets — one call each, from the n
 
 # Broadcast
 
-`this.lmz.broadcast(targets, remote, options?)` sends one continuation to many `(bindingName, instanceName)` targets: one `this.lmz.call(...)` per target, made by the node that decided to push. Every mesh node's `this.lmz` carries it — a [LumenizeDO](./lumenize-do), a [LumenizeWorker](./lumenize-worker) and a [LumenizeClient](./lumenize-client).
+`this.lmz.broadcast(targets, remote, { onResult })` sends one continuation to many `(bindingName, instanceName)` targets: one `this.lmz.call(...)` per target, made by the node that decided to push. Every mesh node's `this.lmz` carries it — a [LumenizeDO](./lumenize-do), a [LumenizeWorker](./lumenize-worker) and a [LumenizeClient](./lumenize-client).
 
 It is the loop in [Making Calls § Breaking Call Chains](./calls#breaking-call-chains), with drop-on-failed-fanout cleanup built in. That helper passes `newChain: true`, and `broadcast` does the same by default.
 
@@ -25,27 +25,28 @@ publish(content: string) {
     bindingName: 'LUMENIZE_CLIENT_GATEWAY',
     instanceName: clientId,
   }));
-  this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content));
+  this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content), {
+    onResult: this.ctn().handleCallFailed('content update'),
+  });
 }
 ```
 
-That's it for the success path. Every delivery comes from `DocumentDO` at any number of targets, so a receiver that checks who called it sees the node that pushed.
+`onResult` is required, and hears only failed deliveries; here it logs them. Every delivery comes from `DocumentDO` at any number of targets, so a receiver that checks who called it sees the node that pushed.
 
 ## Options
 
 ```typescript @check-example('packages/mesh/src/broadcast.ts')
-export interface BroadcastOptions extends Pick<CallOptions, 'newChain' | 'state'> {
-  onResult?: AnyContinuation;
+export interface BroadcastOptions extends Pick<CallOptions, 'newChain'> {
+  onResult: AnyContinuation;
 }
 ```
 
-- **`onResult`** — a handler that hears failed deliveries. See [Result Handling](#result-handling-drop-on-failed-fanout) below.
-- **`newChain`** — by default a broadcast starts a fresh chain at this node for each target, carrying no `originAuth`, because a push speaks for the node that sends it rather than for whoever's call caused it. `false` makes each target inherit the caller's chain with this node appended, exactly as a [`call()`](./mesh-api#calloptions) does, for an app that wants the writer's claims to ride.
-- **`state`** — seeds or merges `callContext.state` for each target, as on `call()`.
+- **`onResult`** — required: a handler that hears failed deliveries. See [Result Handling](#result-handling-drop-on-failed-fanout) below.
+- **`newChain`** — by default a broadcast starts a fresh chain at this node for each target, carrying no `originAuth`, because a push speaks for the node that sends it rather than for whoever's call caused it. `false` makes each target inherit the caller's chain with this node appended, exactly as a [`call()`](./mesh-api#calloptions) does, for an app that wants the writer's claims to ride. A client's broadcast takes no `newChain`, since every call a client makes starts at the client.
 
 ## Result Handling (Drop-on-Failed-Fanout)
 
-For drop-on-failed-fanout cleanup, pass a partial continuation as `onResult`. The framework completes it by appending the per-target result via the standard last-argument convention (same mechanism the 4-arg `lmz.call` form uses):
+For drop-on-failed-fanout cleanup, pass a partial continuation as `onResult`. The framework completes it by appending the per-target result via the standard last-argument convention (the same mechanism `lmz.call`'s handler uses):
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
 @mesh()
@@ -63,9 +64,9 @@ publishAndPrune(content: string) {
   });
 }
 
-// No `@mesh()` — a Gateway answers inside its ack, so this runs on this node's own dispatch,
-// where the member-level check is off. Adding one would make this reaper callable as an ordinary
-// request, with caller-chosen arguments; only the framework-supplied callee makes that harmless.
+// No `@mesh()` — a Gateway fires a failed push back to this node's fire-back door, where the
+// member-level check is off. Adding one would make this reaper callable as an ordinary request,
+// with caller-chosen arguments; only the framework-supplied callee makes that harmless.
 onContentDelivered(result?: unknown): void {
   if (result instanceof Error && result.name === 'ClientDisconnectedError') {
     const clientId = this.lmz.callContext.callee?.instanceName;
@@ -80,17 +81,22 @@ onContentDelivered(result?: unknown): void {
 
 The handler's `result` argument is appended automatically. For failed Gateway deliveries the result is a `ClientDisconnectedError`, and WHICH subscriber dropped comes from `this.lmz.callContext.callee` — the address the framework sent that push to. It is deliberately not on the error: a reply is authored by the far side, so a field there could name anyone.
 
-:::warning[`callee` names the failing target only when the handler runs on the broadcaster's dispatch]
+`callee` names the failing target however the failure arrives. A target that refuses the call at admission refuses inside its acknowledgement, so the handler runs on the broadcaster's own dispatch with `callee` set to the address. A DO or Worker that accepts the call and throws afterwards fires its Error back to the broadcaster, and there `callee` is the node that fired it back. A client's Gateway acks every push and fires a failed delivery back the same way, with the client as the last hop. A client broadcaster's handler comes back through its Gateway the same way, so `callee` names the failed target there too.
 
-A Gateway answers a push inside its acknowledgement, and so does any target that refuses the call at admission. For those, the handler runs on the broadcaster's own dispatch and `callee` is the target — which is the case drop-on-failed-fanout cleanup reads. A DO or Worker that accepts the call and throws afterwards fires its Error back to the broadcaster instead, and there `callee` names the broadcaster itself.
+A failure that comes back as a fire-back runs the handler at the broadcaster's fire-back door. A broadcast starts a fresh chain, whose first hop is the broadcaster and which carries no `originAuth`, so the broadcaster's `onBeforeCall` does not run there: a class-wide guard that requires claims needs no exception for the broadcaster's own answers.
 
-A client broadcaster never learns the failed target from `callee`: its handler runs in the call site's context, and outside a mesh call reading `callContext` throws. From a client, send one `call` per target, with a handler that takes the target as an argument.
-
-:::
+```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
+onBeforeCall(): void {
+  super.onBeforeCall();
+  if (!this.lmz.callContext.originAuth?.sub) {
+    throw new Error('Authentication required');
+  }
+}
+```
 
 :::warning[Errors-only handler dispatch]
 
-`onResult` is invoked **only on Error**. Successful per-target deliveries silently drop the result; the handler is never dispatched in that case. `broadcast` adds [`lmz.call`'s `onErrorOnly` option](/docs/mesh/mesh-api#calloptions) to every call whenever you pass an `onResult`.
+`onResult` is invoked **only on Error**. Successful per-target deliveries silently drop the result; the handler is never dispatched in that case. `broadcast` adds [`lmz.call`'s `onErrorOnly` option](/docs/mesh/mesh-api#calloptions) to every call it makes.
 
 For the dominant use case — drop-on-failed-fanout cleanup — this is exactly the desired behavior. It also avoids a structural latency cost on Cloudflare workerd: success-path handler chains attached to outbound subrequests appear to keep the originating invocation alive until they settle, which adds up to hundreds of milliseconds of wall-clock RT to the originator at high N. Skipping them is both correct and faster.
 
@@ -110,8 +116,7 @@ If you have a real need for success callbacks, file an issue; the design accommo
 
 ```typescript @check-example('packages/mesh/src/broadcast.ts')
 const { onResult, newChain = true, ...passedThrough } = options;
-const callOptions: CallOptions = { ...passedThrough, newChain };
-if (onResult) callOptions.onErrorOnly = true;
+const callOptions: CallOptions = { ...passedThrough, newChain, onErrorOnly: true };
 for (const t of targets) {
   lmz.call(t.bindingName, t.instanceName, remote, onResult, callOptions);
 }

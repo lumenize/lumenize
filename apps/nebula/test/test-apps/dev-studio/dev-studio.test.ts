@@ -45,8 +45,9 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 // ceiling weakens nothing: an effect that never lands still reds, just later.
 // ⚠️ `authScope` is REQUIRED in the default claims, not decoration: `requireDominionHere` confines
 // the admin bit to the callee node (`hasDominionOver`), so a pattern-less admin claim is denied —
-// and because these are 3-arg fire-and-forget calls, that denial is SILENT (it surfaces as a missing
-// downstream effect, e.g. `expected +0 to be 1`, not as an error). The value mirrors the real caller
+// and because `fire`'s envelopes carry no `response` and its callers do not read the ack, that
+// denial is SILENT (it surfaces as a missing downstream effect, e.g. `expected +0 to be 1`, not as
+// an error). The value mirrors the real caller
 // that reaches a Galaxy: a universe admin, whose pattern is `{universe}.*`.
 // `method` is a name, or a PATH through a gate — `['resources', 'read']` reaches the plane's `read`
 // through the host's `resources` door, one `get` per segment, as a client's chain does.
@@ -64,7 +65,7 @@ const fire = (
   binding.getByName(instance).__executeOperation({
     version: 1,
     chain: preprocess([...[method].flat().map((key) => ({ type: 'get', key })), { type: 'apply', args }]),
-    callContext: { callChain, state: {}, originAuth: { sub: 'admin', claims } } as any,
+    callContext: { callChain, originAuth: { sub: 'admin', claims } } as any,
     metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName: instance } },
   });
 

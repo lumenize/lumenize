@@ -1,15 +1,20 @@
 /**
- * NebulaClientGateway — a tab receives a call only from a sender its holder has passage into.
+ * NebulaClientGateway — a tab receives a node's call only if its holder has passage into the node.
  *
  * The sender is the call's last hop, `callChain.at(-1)`, which the mesh stamps and no client can
  * write. Its scope is its name when that parses as one: a Galaxy reaches a tab on one of its Stars'
- * pages, since upward is free, and a sibling Star is refused as lateral (ADR-015). A sender whose
- * name is no scope, the `Profile`, passes, so a node not named by a scope must hold no tenant's
- * data. A Client sender's scope is the `aud` its own Gateway verified.
+ * hosts, since upward is free, and a sibling Star is refused as lateral (ADR-015). A Star
+ * `acme.crm.tenant2` pushing to a tab on `acme.crm.tenant1`'s host is refused; the Galaxy
+ * `acme.crm` pushing there passes. A sender whose name is no scope, the `Profile`, passes, so a
+ * node not named by a scope must hold no tenant's data.
  *
- * It reads the sender's address and no claims of the writer's, so a push that starts a fresh chain
- * passes it. It is kept because a subscriber row outlives the page it was made on: the row can go on
- * addressing a tab after that tab has moved to another scope's page.
+ * It is needed because a server-side node can address any Client whose name it holds, and this is
+ * what stops a lateral one. It reads the sender's address and no claims of the writer's, so a push
+ * that starts a fresh chain passes it.
+ *
+ * A sender that is itself a Client is not checked here. A tab is named `{sub}.{tabId}`, not by a
+ * scope, so it offers no scope to check passage into; the receiving Client decides, and
+ * `LumenizeClient.onBeforeCall` refuses it by default.
  */
 
 import { LumenizeClientGateway } from '@lumenize/mesh';
@@ -24,19 +29,15 @@ function scopeNamed(instanceName: string | undefined): string | undefined {
 }
 
 export class NebulaClientGateway extends LumenizeClientGateway {
-  override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+  override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined {
     const sender = envelope.callContext.callChain.at(-1);
     if (!sender) throw new Error('Call to a client names no sender');
 
-    let senderScope: string | undefined;
-    if (sender.type === 'LumenizeClient') {
-      // A client's call starts its own chain, so its Gateway's verified claims are the origin's.
-      senderScope = (envelope.callContext.originAuth?.claims as NebulaJwtPayload | undefined)?.aud;
-      if (!senderScope) throw new Error('Call to a client names no sender scope');
-    } else {
-      senderScope = scopeNamed(sender.instanceName);
-      if (senderScope === undefined) return;
-    }
+    // Another Client: the receiving Client decides (see the class comment).
+    if (sender.type === 'LumenizeClient') return;
+
+    const senderScope = scopeNamed(sender.instanceName);
+    if (senderScope === undefined) return;
 
     const claims = connectionInfo.claims as unknown as NebulaJwtPayload;
     if (!hasPassageInto(claims, senderScope)) {

@@ -71,7 +71,7 @@ type ContinuationMethods<T> = T extends object
  * ```typescript
  * // this.ctn<RemoteDO>().getData(id) returns Continuation<DataType>
  * const remote = this.ctn<RemoteDO>().getData(id);
- * this.lmz.call('REMOTE_DO', instanceId, remote);
+ * this.lmz.call('REMOTE_DO', instanceId, remote, this.ctn().handleData(remote));
  *
  * // Using $result placeholder for async results:
  * this.svc.fetch.proxy(url, this.ctn().handleResult(this.ctn().$result));

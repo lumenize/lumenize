@@ -1,17 +1,14 @@
 import { DurableObject } from 'cloudflare:workers';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { getDOStub } from '@lumenize/routing';
-import { debug } from '@lumenize/debug';
-import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from './ws-heartbeat.js';
-import type { CallEnvelope, ClientResultEnvelope } from './lmz-api.js';
-import type { NodeType, NodeIdentity, CallContext, OriginAuth, OriginRequest, OriginCf } from './types.js';
+import type { CallEnvelope } from './lmz-api.js';
+import type { CallContext } from './types.js';
+import { ClientGateway, type ClientGatewayHost } from './client-gateway.js';
 import {
   GatewayMessageType,
   ClientDisconnectedError,
-  ClientTokenExpiredError,
   WS_CLOSE_SUPERSEDED,
+  WS_CLOSE_TIMED_OUT,
   type CallMessage,
-  type CallResponseMessage,
+  type ResponseMessage,
   type IncomingCallMessage,
   type IncomingCallResponseMessage,
   type ConnectionStatusMessage,
@@ -24,12 +21,12 @@ import {
 export {
   GatewayMessageType,
   ClientDisconnectedError,
-  ClientTokenExpiredError,
   WS_CLOSE_SUPERSEDED,
+  WS_CLOSE_TIMED_OUT,
 };
 export type {
   CallMessage,
-  CallResponseMessage,
+  ResponseMessage,
   IncomingCallMessage,
   IncomingCallResponseMessage,
   ConnectionStatusMessage,
@@ -37,111 +34,33 @@ export type {
   GatewayConnectionInfo,
 };
 
-// ============================================
-// Constants
-// ============================================
-
-/** Grace period before marking subscriptions as lost (5 seconds) */
-const PRODUCTION_GRACE_PERIOD_MS = 5000;
-
 /**
- * Test-mode grace period (60 seconds). Used only when `LUMENIZE_MESH_TEST_MODE === 'true'`.
+ * LumenizeClientGateway — the Durable Object that hosts one `ClientGateway`.
  *
- * The production default (5 s) is generous relative to real-world reconnect latencies —
- * even a mobile-network handoff or a tab wake-up typically completes in < 1 s, and a
- * gateway DO serves a single user's WebSocket so CPU pressure on the DO itself is never
- * the bottleneck. In the test environment this invariant breaks: vitest runs every mesh
- * project in parallel, spinning up 10+ miniflare workers at once. Under that contention
- * a synthetic close/reconnect cycle can take >5 s of wall-clock time, which fires the
- * grace-period alarm mid-test and erroneously flips `subscriptionRequired` to true.
- * Bumping to 60 s in test mode gives the reconnect plenty of headroom without changing
- * production behavior. Production never sees this value.
+ * `ClientGateway` (`./client-gateway.ts`) is a Client's server-side half: it accepts the Client's
+ * socket, builds the context of every call the Client makes from that socket's verified
+ * attachment, forwards a node's call to the Client, and waits within a grace period for a Client
+ * whose socket closed. This class gives it a Durable Object to run in, one per Client, named
+ * `{sub}.{tabId}`, and every entry point below delegates to it.
+ *
+ * It extends `DurableObject` directly (NOT `LumenizeDO`) to keep its zero-storage design: nothing
+ * it or its `ClientGateway` does touches `ctx.storage`. State is derived from the Client's socket,
+ * that socket's attachment, and an in-memory grace period:
+ *
+ * | Client's socket | Grace period | State | subscriptionRequired on reconnect |
+ * |-----------------|--------------|-------|-----------------------------------|
+ * | Open | — | Connected | `false` (a supersede) |
+ * | None | Running (≤5 s) | Grace Period | `false`, or `true` once a delivery to it failed |
+ * | None | None, or ended | Disconnected | `true` |
+ *
+ * An evicted Gateway has no record of a grace period, so it reports `true`, the safe direction. A
+ * delivery that failed is recorded on the grace period and on every socket the Client still holds,
+ * open or closing, and the next connection is told `true` whatever the row says.
+ *
+ * Subclasses customize it through the three hooks below.
  */
-const TEST_GRACE_PERIOD_MS = 60_000;
-
-/** Timeout for client to respond to an incoming call (30 seconds) */
-const CLIENT_CALL_TIMEOUT_MS = 30000;
-
-// ============================================
-// Internal Types
-// ============================================
-
-/** Pending call waiting for client response */
-interface PendingCall {
-  resolve: (result: any) => void;
-  reject: (error: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
-}
-
-/** Waiter for client reconnection during grace period */
-interface ReconnectWaiter {
-  resolve: () => void;
-  reject: (error: Error) => void;
-}
-
-// ============================================
-// LumenizeClientGateway
-// ============================================
-
-/**
- * LumenizeClientGateway - Zero-storage WebSocket bridge for mesh clients
- *
- * This Durable Object bridges browser/Node.js clients into the Lumenize Mesh.
- * It extends DurableObject directly (NOT LumenizeDO) to maintain zero-storage design.
- *
- * **Design Principles:**
- * - Zero storage operations (no ctx.storage.kv, no ctx.storage.sql)
- * - State derived from getWebSockets(), getAlarm(), and WebSocket attachments
- * - 1:1 relationship with clients (each client has its own Gateway instance)
- * - Transparent proxying (doesn't interpret calls, just forwards them)
- * - Trust DMZ (builds a client call's whole callContext.callChain, and its originAuth, from verified sources)
- *
- * **Connection States (derived, not stored):**
- * | getWebSockets() | getAlarm() | State | subscriptionRequired |
- * |-----------------|------------|-------|---------------------|
- * | Has connection | Any | Connected | n/a |
- * | Empty | Pending (≤5s) | Grace Period | false |
- * | Empty | None | Disconnected | true |
- */
-export class LumenizeClientGateway extends DurableObject<any> {
-  #debugFactory = debug;
-
-  /** Pending calls waiting for client response */
-  #pendingCalls = new Map<string, PendingCall>();
-
-  /** Waiters for client reconnection during grace period */
-  #pendingReconnectWaiters: ReconnectWaiter[] = [];
-
-  get #gracePeriodMs(): number {
-    // Explicit numeric override takes precedence. Tests that need to observe
-    // post-grace behavior (e.g. drop-on-failed-fanout cleanup —
-    // the fanout's __executeOperation only returns ClientDisconnectedError
-    // after the grace period expires) set this to a small value via miniflare's
-    // `bindings` block so close → cleanup observable in well under a second.
-    // Production-safe by default — the binding is simply unset there.
-    const override = (this.env as any).LUMENIZE_MESH_GRACE_PERIOD_MS;
-    if (override !== undefined) {
-      const parsed = Number(override);
-      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-    }
-    return (this.env as any).LUMENIZE_MESH_TEST_MODE === 'true'
-      ? TEST_GRACE_PERIOD_MS
-      : PRODUCTION_GRACE_PERIOD_MS;
-  }
-
-  /**
-   * Timeout for a mesh→client push (`#forwardToClient`). Overridable in test mode (Q5) via the
-   * `LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS` miniflare binding — NOT prod-reachable — so grace→drop
-   * paths are asserted deterministically without a real ~30 s wait. Production default otherwise.
-   */
-  get #clientCallTimeoutMs(): number {
-    const override = (this.env as any).LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS;
-    if (override !== undefined) {
-      const parsed = Number(override);
-      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-    }
-    return CLIENT_CALL_TIMEOUT_MS;
-  }
+export class LumenizeClientGateway extends DurableObject<any> implements ClientGatewayHost {
+  #clientGateway = new ClientGateway(this.ctx, this.env, this);
 
   // ============================================
   // Extension Points (subclass overrides)
@@ -178,7 +97,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
   /**
    * Pre-dispatch hook: enrich the CallContext before a client call is routed to a DO.
    *
-   * Called from `#handleClientCall` after building the base CallContext.
+   * Called from `ClientGateway`'s `#handleClientCall` after building the base CallContext.
    * Return the (possibly enriched) CallContext.
    *
    * `callId` is the inbound CALL message's callId — useful for tracing /
@@ -196,708 +115,60 @@ export class LumenizeClientGateway extends DurableObject<any> {
   /**
    * Pre-forward hook: validate a DO-initiated call before forwarding to the client.
    *
-   * Called from `__executeOperation` before the call is sent over WebSocket.
-   * `connectionInfo` carries the connected client's verified identity and claims.
-   * Throw to reject the call (error is wrapped as `{ $error }` for RPC).
+   * Called after `__executeOperation` has acked, immediately before the call is sent down the
+   * socket. `connectionInfo` carries the connected client's verified identity and claims. Throw to
+   * refuse the call: the Error fills the calling node's continuation, which fires back to it. It
+   * returns `undefined` rather than `void` so that an `async` override, whose rejected Promise would
+   * refuse nothing, does not compile.
    */
-  onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+  onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined {
     // No validation by default
   }
 
   // ============================================
-  // Lifecycle Methods
+  // Entry points — each delegates to the ClientGateway
   // ============================================
 
-  /**
-   * Handle incoming HTTP requests (primarily WebSocket upgrades)
-   */
+  /** A WebSocket upgrade from the Client. */
   async fetch(request: Request): Promise<Response> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.fetch');
-
-    // Only handle WebSocket upgrades
-    const upgradeHeader = request.headers.get('Upgrade');
-    if (upgradeHeader?.toLowerCase() !== 'websocket') {
-      return new Response('Expected WebSocket upgrade', { status: 426 });
-    }
-
-    // Extract verified JWT from Authorization header (set by auth hooks)
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      log.warn('WebSocket upgrade rejected: missing Authorization Bearer header');
-      return new Response('Unauthorized: missing identity', { status: 401 });
-    }
-
-    // Decode JWT payload (no verification needed — Worker hooks already verified)
-    const jwtToken = authHeader.slice(7); // Strip 'Bearer '
-    let sub: string;
-    let jwtPayload: Record<string, unknown>;
-    try {
-      const payloadB64 = jwtToken.split('.')[1];
-      const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
-      jwtPayload = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
-      sub = jwtPayload.sub as string;
-    } catch (e) {
-      log.warn('Failed to decode JWT from Authorization header');
-      return new Response('Unauthorized: invalid token', { status: 401 });
-    }
-
-    if (!sub) {
-      log.warn('WebSocket upgrade rejected: JWT missing sub claim');
-      return new Response('Unauthorized: missing identity', { status: 401 });
-    }
-
-    // Extract routing headers (set by routeDORequest)
-    const instanceName = request.headers.get('X-Lumenize-DO-Instance-Name-Or-Id') ?? undefined;
-    const bindingName = request.headers.get('X-Lumenize-DO-Binding-Name') ?? undefined;
-
-    if (!instanceName) {
-      log.warn('WebSocket upgrade rejected: missing instance name header');
-      return new Response('Forbidden: missing instance name', { status: 403 });
-    }
-
-    if (!bindingName) {
-      log.warn('WebSocket upgrade rejected: missing binding name header');
-      return new Response('Forbidden: missing binding name', { status: 403 });
-    }
-
-    // Delegate instance name validation + optional additional claims to hook
-    const hookResult = this.onBeforeAccept(instanceName, sub, jwtPayload);
-
-    if (hookResult instanceof Response) {
-      return hookResult;
-    }
-
-    // Auto-include all JWT payload fields; hook result (if Record) merges on top
-    const claims: Record<string, unknown> = { ...jwtPayload, ...(hookResult ?? {}) };
-
-    // Determine if client needs to (re)establish subscriptions
-    const subscriptionRequired = await this.#isSubscriptionRequired();
-
-    // Accept WebSocket with hibernation support
-    const pair = new WebSocketPair();
-    const [client, server] = [pair[0], pair[1]];
-
-    // Store verified identity in WebSocket attachment — plus the HTTP facts of THIS upgrade, which
-    // become `callContext.originRequest` on every call the connection originates. Connection-scoped
-    // by construction: a reconnect re-runs this handler and rebuilds the snapshot.
-    const attachment: GatewayConnectionInfo = {
-      sub,
-      bindingName,
-      instanceName,
-      claims,
-      originRequest: captureOriginRequest(request),
-    };
-
-    // Close any existing sockets before accepting the new one.
-    // Multiple sockets means the client reconnected — supersede the old connection.
-    const existingSockets = this.ctx.getWebSockets();
-    for (const sock of existingSockets) {
-      sock.close(WS_CLOSE_SUPERSEDED, 'Superseded by new connection');
-    }
-
-    this.ctx.acceptWebSocket(server);
-    // Keepalive: auto-pong the client's heartbeat ping at the runtime level — keeps a long, quiet turn
-    // from idle-dropping the socket, WITHOUT waking this hibernated DO (no per-ping wall-clock cost).
-    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG));
-    server.serializeAttachment(attachment);
-
-    // Resolve any pending reconnect waiters
-    this.#resolveReconnectWaiters();
-
-    // Clear grace period alarm if set
-    const alarm = await this.ctx.storage.getAlarm();
-    if (alarm !== null) {
-      await this.ctx.storage.deleteAlarm();
-    }
-
-    // Send connection status immediately after accepting
-    // No complex types, use JSON.stringify directly
-    const statusMessage: ConnectionStatusMessage = {
-      type: GatewayMessageType.CONNECTION_STATUS,
-      subscriptionRequired,
-    };
-    server.send(JSON.stringify(statusMessage));
-
-    log.info('WebSocket connection accepted', {
-      sub,
-      instanceName,
-      subscriptionRequired,
-    });
-
-    // Return upgrade response with 'lmz' protocol
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-      headers: {
-        'Sec-WebSocket-Protocol': 'lmz',
-      },
-    });
+    return this.#clientGateway.acceptUpgrade(request);
   }
 
-  /**
-   * Handle incoming WebSocket messages from the client
-   */
+  /** A message from the Client's socket. */
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.webSocketMessage');
-
-    // Only handle string messages (JSON)
-    if (typeof message !== 'string') {
-      log.warn('Received non-string message, ignoring');
-      return;
-    }
-
-    // Check token expiration
-    const attachment = ws.deserializeAttachment() as GatewayConnectionInfo | null;
-    const tokenExp = attachment?.claims?.exp as number | undefined;
-    if (tokenExp && tokenExp < Date.now() / 1000) {
-      log.warn('Token expired, closing connection');
-      ws.close(4401, 'Token expired');
-      return;
-    }
-
-    let parsed: GatewayMessage;
-    try {
-      // Use JSON.parse - chain is already preprocessed by client, keep it that way
-      parsed = JSON.parse(message) as GatewayMessage;
-    } catch (e) {
-      log.error('Failed to parse message', { error: e });
-      return;
-    }
-
-    switch (parsed.type) {
-      case GatewayMessageType.CALL:
-        await this.#handleClientCall(ws, parsed as CallMessage, attachment);
-        break;
-
-      case GatewayMessageType.INCOMING_CALL_RESPONSE:
-        this.#handleIncomingCallResponse(parsed as IncomingCallResponseMessage);
-        break;
-
-      default:
-        log.warn('Unknown message type', { type: (parsed as any).type });
-    }
+    return this.#clientGateway.receiveMessage(ws, message);
   }
 
-  /**
-   * Handle WebSocket close event
-   */
+  /** The Client's socket closed; starts its grace period unless a new connection superseded it. */
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.webSocketClose');
-
-    log.info('WebSocket closed', { code, reason });
-
-    // Skip grace period for superseded connections — a new connection already exists
-    if (code === WS_CLOSE_SUPERSEDED) {
-      return;
-    }
-
-    // Set grace period alarm (5 seconds in production, 60 seconds in test mode).
-    // If client reconnects before alarm fires, subscriptions are preserved.
-    await this.ctx.storage.setAlarm(Date.now() + this.#gracePeriodMs);
+    this.#clientGateway.socketClosed(ws, code, reason);
   }
 
-  /**
-   * Handle WebSocket error event
-   */
+  /** The Client's socket errored. */
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.webSocketError');
-    log.error('WebSocket error', { error });
+    this.#clientGateway.socketErrored(ws, error);
   }
 
   /**
-   * Handle alarm (grace period expired)
+   * A mesh node's call to the Client: `this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)`.
+   * Acks once the envelope's version checks out, then answers through the node's own fire-back
+   * door, as a node does.
    */
-  async alarm(): Promise<void> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.alarm');
-
-    // Grace period expired - client didn't reconnect in time
-    log.info('Grace period expired');
-
-    // Explicitly delete alarm to ensure zero storage remains
-    await this.ctx.storage.deleteAlarm();
-
-    // Reject all pending reconnect waiters
-    this.#rejectReconnectWaiters(new ClientDisconnectedError(
-      'Client did not reconnect within grace period'
-    ));
+  async __executeOperation(envelope: CallEnvelope): Promise<{ $ack: true } | { $error: any }> {
+    return this.#clientGateway.executeOperation(envelope);
   }
 
   /**
-   * Receive and execute an RPC call from a mesh node destined for the client
+   * The Gateway's fire-back door: a node fires a Client's filled result handler continuation here,
+   * exactly as it would to any caller, and `ClientGateway` sends it down to the Client named in
+   * the envelope's `metadata.callee`, on its current socket.
    *
-   * This is called by mesh nodes via: this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)
-   */
-  async __executeOperation(envelope: CallEnvelope): Promise<any> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.__executeOperation');
-
-    // Envelope is plain JSON with only chain preprocessed
-    // No postprocessing needed - we pass the preprocessed chain directly to the client
-
-    // Validate envelope version
-    if (!envelope.version || envelope.version !== 1) {
-      return { $error: preprocess(new Error(`Unsupported RPC envelope version: ${envelope.version}`)) };
-    }
-
-    // ⓘ A local here used to resolve "which client is this" from the envelope metadata, for the
-    // helper that stamped it onto a `ClientDisconnectedError`. Both are gone: a reaper reads
-    // `callContext.callee`, which the framework sets from the address the caller used, so nothing
-    // on this path needs to name the client any more.
-
-    // Get active WebSocket connection
-    let ws = this.#getActiveWebSocket();
-
-    if (!ws) {
-      // Check if we're in grace period
-      const alarm = await this.ctx.storage.getAlarm();
-
-      if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
-        // In grace period - wait for reconnection
-        log.info('Client disconnected, waiting for reconnect during grace period');
-        try {
-          await this.#waitForReconnect();
-        } catch (err) {
-          // Route thrown errors (e.g., grace-period expiry rejecting waiters) through
-          // preprocess so the caller sees a structured `{ $error }` with the class
-          // preserved, matching the non-grace-period path. Without this, Workers RPC
-          // flattens custom Error subclasses into plain Error with the class name
-          // embedded in the message.
-          //
-          // The error is forwarded as it stands. It carries no client identity — who failed comes
-          // from `callContext.callee` at the caller, not from anything this reply says.
-          return { $error: preprocess(err) };
-        }
-        ws = this.#getActiveWebSocket();
-
-        if (!ws) {
-          return { $error: preprocess(new ClientDisconnectedError('Client did not reconnect in time')) };
-        }
-      } else {
-        // Not in grace period - client is disconnected
-        return { $error: preprocess(new ClientDisconnectedError('Client is not connected')) };
-      }
-    }
-
-    // Check token expiration before forwarding
-    const attachment = ws.deserializeAttachment() as GatewayConnectionInfo | null;
-
-    // Guard: attachment must be present (set during WebSocket accept)
-    if (!attachment) {
-      log.error('Null attachment in __executeOperation — closing WebSocket');
-      ws.close(1011, 'Connection not properly initialized');
-      return { $error: preprocess(new ClientDisconnectedError('Connection not properly initialized')) };
-    }
-
-    const tokenExp = attachment.claims?.exp as number | undefined;
-    if (tokenExp && tokenExp < Date.now() / 1000) {
-      log.warn('Token expired, closing connection');
-      ws.close(4401, 'Token expired');
-      // Its OWN class: the socket closes with 4401 and the client is back in about 100 ms, so a
-      // reaper must not treat this as a death. Every reaper guards on the name, so the rename IS
-      // the fix — nothing per-reaper changes.
-      return { $error: preprocess(new ClientTokenExpiredError('Client token expired')) };
-    }
-
-    // Let subclass validate/reject the incoming call before forwarding
-    try {
-      this.onBeforeCallToClient(envelope, attachment);
-    } catch (error) {
-      return { $error: preprocess(error) };
-    }
-
-    // Forward call to client and wait for response
-    // Return wrapped result/error for Workers RPC compatibility
-    try {
-      const result = await this.#forwardToClient(ws, envelope);
-      return { $result: result };
-    } catch (error) {
-      return { $error: preprocess(error) };
-    }
-  }
-
-  // ============================================
-  // Private Methods - Call Handling
-  // ============================================
-
-  /**
-   * Handle a call from the client to a mesh node
-   */
-  async #handleClientCall(
-    ws: WebSocket,
-    message: CallMessage,
-    attachment: GatewayConnectionInfo | null
-  ): Promise<void> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.#handleClientCall');
-    const { callId, binding, instance, chain, expectsResult, callContext: clientContext } = message;
-
-    // Guard: attachment must be present (set during WebSocket accept)
-    if (!attachment) {
-      log.error('Null attachment in #handleClientCall — closing WebSocket');
-      ws.close(1011, 'Connection not properly initialized');
-      return;
-    }
-
-    try {
-      // Build origin identity from VERIFIED sources (WebSocket attachment)
-      // This replaces whatever the client sent - Gateway is the trust boundary
-      const verifiedOrigin: NodeIdentity = {
-        type: 'LumenizeClient',
-        bindingName: attachment.bindingName,
-        instanceName: attachment.instanceName,
-      };
-
-      // Build originAuth from VERIFIED sources (WebSocket attachment)
-      const originAuth: OriginAuth = {
-        sub: attachment.sub,
-        claims: attachment.claims,
-      };
-
-      // Build callContext - the chain is the verified origin ALONE. A client's frame carries no
-      // chain (`CallMessage` has no field for one), and one a hostile frame adds is never read. A
-      // receiver reads `callChain.at(-1)` as the node that called it: a subscribe stores its binding
-      // as the address to push to, and `LumenizeClient.onBeforeCall` refuses a push whose last hop
-      // is another client. A hop a client could append would be a caller it chose.
-      // State is preprocessed by client for WebSocket - postprocess for Workers RPC
-      // originRequest comes from the ATTACHMENT (snapshotted at upgrade), never from the client's
-      // message — the same trust rule as originAuth: the Gateway is the boundary.
-      const baseContext: CallContext = {
-        callChain: [verifiedOrigin],
-        originAuth,
-        originRequest: attachment.originRequest,
-        state: clientContext?.state ? postprocess(clientContext.state) : {},
-      };
-
-      // Let subclass enrich context (e.g., inject claims into state)
-      const callContext = this.onBeforeCallToMesh(baseContext, attachment, callId);
-
-      // Determine callee type for metadata
-      const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
-
-      // Build envelope - chain is already preprocessed by client. The client keeps its handler
-      // IN-HEAP, so nothing travels except a `response` descriptor telling the callee to
-      // fire the RESULT back to THIS Gateway (addressed to the client + callId), which we then
-      // re-resolve to the client's current socket. `attachment.bindingName` is this Gateway's
-      // own binding (from the routing header at WS accept), so the callee can reach us.
-      const envelope: CallEnvelope = {
-        version: 1,
-        chain, // Already preprocessed by client - pass through
-        callContext,
-        metadata: {
-          caller: {
-            type: 'LumenizeClient',
-            bindingName: attachment.bindingName,
-            instanceName: attachment.instanceName,
-          },
-          callee: {
-            type: calleeType,
-            bindingName: binding,
-            instanceName: instance,
-          },
-        },
-        // 4-arg client call (expectsResult) → attach the fire-back descriptor; a 3-arg client
-        // call is truly fire-and-forget (no descriptor → the callee fires nothing back).
-        ...(expectsResult
-          ? {
-              response: {
-                kind: 'client' as const,
-                returnAddr: {
-                  type: 'LumenizeClient' as const,
-                  bindingName: attachment.bindingName,
-                  instanceName: attachment.instanceName,
-                },
-                callId,
-              },
-            }
-          : {}),
-      };
-
-      // Get stub and call
-      let stub: any;
-      if (instance) {
-        stub = getDOStub(this.env[binding], instance);
-      } else {
-        stub = this.env[binding];
-      }
-
-      // Early ack: the callee acks on admission, BEFORE the chain runs. On success the
-      // result returns LATER via our __handleResponse door — nothing is relayed to the client yet
-      // (it is fire-and-forget, holding its in-heap handler). On an admission reject we synthesize
-      // an ERROR RESULT for this callId so the client's handler is never stranded (Q4).
-      const ack = await stub.__executeOperation(envelope);
-      if (ack && '$error' in ack) {
-        const response: CallResponseMessage = {
-          type: GatewayMessageType.CALL_RESPONSE,
-          callId,
-          success: false,
-          error: ack.$error, // Already preprocessed by executeEnvelope
-        };
-        ws.send(JSON.stringify(response));
-      }
-
-    } catch (error) {
-      log.error('Call dispatch failed', { callId, binding, instance, error });
-
-      // Transport-level failure reaching the callee → error RESULT to the client (Q4).
-      const response: CallResponseMessage = {
-        type: GatewayMessageType.CALL_RESPONSE,
-        callId,
-        success: false,
-        error: preprocess(error),
-      };
-      ws.send(JSON.stringify(response));
-    }
-  }
-
-  /**
-   * The Gateway response door: a mesh node fires a client-originated call's RESULT back
-   * here (via `lmz.call`'s `response.kind:'client'` fire-back), addressed to this client + callId.
-   * We re-resolve delivery to the client's CURRENT socket (survives reconnect), so a
-   * result is never bound to the socket the call left on. Zero socket → bounded grace → drop
-   * (the client re-issues + reconciles on reload). Returns an early `{$ack:true}` like a mesh
-   * node; the fire-back is one-way, so the Star never awaits the client delivery here.
-   *
-   * NOTE (flagged for review): `onBeforeCallToClient` is NOT applied on this RESULT leg — the
-   * result is SOLICITED (it returns to the client that issued `callId`, already authorized by
-   * `onBeforeCallToMesh` on the request), and the client drops any RESULT whose `callId` it did
-   * not issue (in-heap lookup + dedup). `onBeforeCallToClient` guards UNSOLICITED mesh→client
-   * pushes, which this is not.
+   * `onBeforeCallToClient` does not run here: the answer is solicited, the continuation is the one
+   * the Client sent, and this Gateway wrote its return address from the socket's attachment.
    *
    * @internal Fired at by the framework, not for direct use.
    */
-  async __handleResponse(result: ClientResultEnvelope): Promise<{ $ack: true }> {
-    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.__handleResponse');
-    const { callId, clientInstanceName } = result;
-
-    const message: CallResponseMessage =
-      result.$error !== undefined
-        ? { type: GatewayMessageType.CALL_RESPONSE, callId, success: false, error: result.$error }
-        : { type: GatewayMessageType.CALL_RESPONSE, callId, success: true, result: result.$result };
-
-    let ws = this.#getActiveWebSocket();
-    if (!ws) {
-      // Zero-socket grace window: wait for a reconnect if we're inside the grace period.
-      const alarm = await this.ctx.storage.getAlarm();
-      if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
-        try {
-          await this.#waitForReconnect();
-          ws = this.#getActiveWebSocket();
-        } catch {
-          log.warn('client did not reconnect within grace — dropping RESULT (client re-issues on reload)', { callId, clientInstanceName });
-          return { $ack: true };
-        }
-      }
-      if (!ws) {
-        log.warn('no socket for client RESULT — dropping (client re-issues on reload)', { callId, clientInstanceName });
-        return { $ack: true };
-      }
-    }
-
-    // Deliver on the CURRENT socket (re-resolved — NOT the socket the call left on).
-    ws.send(JSON.stringify(message));
-    return { $ack: true };
+  async __handleResponse(envelope: CallEnvelope): Promise<{ $ack: true }> {
+    return this.#clientGateway.receiveFireBack(envelope);
   }
-
-  /**
-   * Handle a response from the client to an incoming call
-   */
-  #handleIncomingCallResponse(message: IncomingCallResponseMessage): void {
-    const { callId, success, result, error } = message;
-
-    const pending = this.#pendingCalls.get(callId);
-    if (!pending) {
-      const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.#handleIncomingCallResponse');
-      log.warn('Received response for unknown call', { callId });
-      return;
-    }
-
-    // Clear timeout and remove from pending
-    clearTimeout(pending.timeout);
-    this.#pendingCalls.delete(callId);
-
-    // Resolve or reject
-    // Note: result/error are preprocessed by client, postprocess them here
-    if (success) {
-      pending.resolve(postprocess(result));
-    } else {
-      const deserializedError = postprocess(error);
-      pending.reject(deserializedError instanceof Error ? deserializedError : new Error(String(deserializedError)));
-    }
-  }
-
-  /**
-   * Forward a mesh call to the client and wait for response
-   */
-  async #forwardToClient(ws: WebSocket, envelope: CallEnvelope): Promise<any> {
-    const callId = crypto.randomUUID();
-
-    // Build incoming call message for client
-    // Chain is already preprocessed (the caller's call() preprocesses for consistency)
-    // State is native from Workers RPC - preprocess for WebSocket
-    // The context goes down field by field, never spread, so nothing reaches a client unless it is
-    // named here. `originRequest` is left behind: it is the ORIGIN's IP, location and browser, and a
-    // push that inherits a writer's chain (`lmz.broadcast` with `{ newChain: false }`) would hand them to every
-    // subscriber.
-    // `originAuth` goes down, because a client's `onBeforeCall` authorizes the call from it.
-    const message: IncomingCallMessage = {
-      type: GatewayMessageType.INCOMING_CALL,
-      callId,
-      chain: envelope.chain, // Already preprocessed by caller
-      callContext: {
-        callChain: envelope.callContext.callChain,  // Plain strings - no preprocessing
-        originAuth: envelope.callContext.originAuth,  // From JWT - no preprocessing
-        state: preprocess(envelope.callContext.state),  // Native → preprocessed for WebSocket
-      },
-    };
-
-    return new Promise<any>((resolve, reject) => {
-      // Set timeout for client response
-      const timeout = setTimeout(() => {
-        this.#pendingCalls.delete(callId);
-        reject(new ClientDisconnectedError(
-          'Client call timed out'
-        ));
-      }, this.#clientCallTimeoutMs);
-
-      // Track pending call
-      this.#pendingCalls.set(callId, { resolve, reject, timeout });
-
-      // Send to client
-      ws.send(JSON.stringify(message));
-    });
-  }
-
-  // ============================================
-  // Private Methods - Connection State
-  // ============================================
-
-  /**
-   * Get the active WebSocket connection (if any)
-   */
-  #getActiveWebSocket(): WebSocket | null {
-    const sockets = this.ctx.getWebSockets();
-    return sockets.find(s => s.readyState === WebSocket.OPEN) ?? null;
-  }
-
-  /**
-   * Get the instance name of this Gateway DO from the WebSocket attachment
-   */
-  #getInstanceName(): string | undefined {
-    const ws = this.#getActiveWebSocket();
-    if (ws) {
-      const attachment = ws.deserializeAttachment() as GatewayConnectionInfo | null;
-      return attachment?.instanceName;
-    }
-    return undefined;
-  }
-
-  /**
-   * Determine if client needs to (re)establish subscriptions
-   *
-   * Returns false when:
-   * - Superseding an existing connection (subscriptions still active)
-   * - Reconnecting within the 5-second grace period (alarm pending)
-   *
-   * Returns true for everything else: fresh connection, reconnect after
-   * grace period expired, tab wake-up.
-   */
-  async #isSubscriptionRequired(): Promise<boolean> {
-    // Supersession: existing socket means subscriptions are still active
-    if (this.ctx.getWebSockets().length > 0) {
-      return false;
-    }
-
-    const alarm = await this.ctx.storage.getAlarm();
-
-    if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
-      // Reconnected within grace period — subscriptions still active
-      return false;
-    }
-
-    // Everything else: fresh connection, post-grace-period, or no alarm
-    return true;
-  }
-
-  // ============================================
-  // Private Methods - Grace Period
-  // ============================================
-
-  /**
-   * Wait for client to reconnect during grace period
-   */
-  async #waitForReconnect(): Promise<void> {
-    const alarm = await this.ctx.storage.getAlarm();
-
-    if (alarm === null) {
-      throw new ClientDisconnectedError(
-        'Client is not connected and no grace period active'
-      );
-    }
-
-    const remainingMs = alarm - Date.now();
-    if (remainingMs <= 0) {
-      throw new ClientDisconnectedError(
-        'Client grace period has expired'
-      );
-    }
-
-    return new Promise((resolve, reject) => {
-      // Add to waiters list - will be resolved when client reconnects
-      this.#pendingReconnectWaiters.push({ resolve, reject });
-
-      // Note: We don't set a timeout here because the alarm() method
-      // will reject all waiters when grace period expires
-    });
-  }
-
-  /**
-   * Resolve all pending reconnect waiters (called when client reconnects)
-   */
-  #resolveReconnectWaiters(): void {
-    const waiters = this.#pendingReconnectWaiters;
-    this.#pendingReconnectWaiters = [];
-
-    for (const waiter of waiters) {
-      waiter.resolve();
-    }
-  }
-
-  /**
-   * Reject all pending reconnect waiters (called when grace period expires)
-   */
-  #rejectReconnectWaiters(error: Error): void {
-    const waiters = this.#pendingReconnectWaiters;
-    this.#pendingReconnectWaiters = [];
-
-    for (const waiter of waiters) {
-      waiter.reject(error);
-    }
-  }
-}
-
-/**
- * The curated snapshot of an upgrade request that becomes `callContext.originRequest`.
- *
- * `cf` is a verbatim FIELD PICK, never the whole object — `request.cf` also carries
- * entitlement-gated and precision-creep fields the wire shape deliberately excludes (`OriginCf`'s
- * JSDoc lists them). `origin` is taken from the request URL — what routing delivered — and never
- * from a client header, which is what licenses building an emailed absolute URL from it.
- * Header-derived fields are omitted rather than set `undefined`, to keep the attachment small.
- */
-function captureOriginRequest(request: Request): OriginRequest {
-  const cf = (request as Request & { cf?: IncomingRequestCfProperties }).cf;
-  const pick: OriginCf | undefined = cf ? {
-    continent: cf.continent, country: cf.country, isEUCountry: cf.isEUCountry,
-    latitude: cf.latitude, longitude: cf.longitude,
-    region: cf.region, regionCode: cf.regionCode, city: cf.city,
-    colo: cf.colo, timezone: cf.timezone,
-  } : undefined;
-  const ip = request.headers.get('CF-Connecting-IP');
-  const userAgent = request.headers.get('User-Agent');
-  const acceptLanguage = request.headers.get('Accept-Language');
-  return {
-    ...(pick ? { cf: pick } : {}),
-    ...(ip ? { ip } : {}),
-    origin: new URL(request.url).origin,
-    ...(userAgent ? { userAgent } : {}),
-    ...(acceptLanguage ? { acceptLanguage } : {}),
-  };
 }

@@ -17,6 +17,7 @@ import {
 export type { Continuation, AnyContinuation };
 import {
   extractCallChains,
+  extractRemoteChain,
   type CallEnvelope,
 } from './lmz-api.js';
 import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './broadcast.js';
@@ -28,23 +29,19 @@ import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './
 // LumenizeClient runs in browsers where `node:async_hooks`'s AsyncLocalStorage
 // isn't available, and the userland Promise-then patching approach can't
 // preserve context across native `await` (V8 bypasses user-visible .then for
-// async-function resumes). So this file threads `CallContext` explicitly
-// through framework code via closures + a synchronous instance field
-// (`#currentCallContext`) rather than via ALS.
+// async-function resumes). So the context of the chain running now lives in a
+// synchronous instance field, `#currentCallContext`, rather than in ALS. It is
+// set while an incoming call's chain or a filled result handler runs.
 //
-// `this.lmz.callContext` (the user-facing getter) reads `#currentCallContext`
-// synchronously. It returns the correct value for code running SYNCHRONOUSLY
-// inside an `@mesh()` handler (no await between handler entry and the read),
-// but may return a stale value if read AFTER an await when concurrent calls
-// have re-entered the dispatcher. This is the same cliff as today; no current
+// `this.lmz.callContext` (the user-facing getter) and `onBeforeCall` read it.
+// It is correct for code running SYNCHRONOUSLY inside a chain, and may be
+// stale if read AFTER an await, once another chain has started meanwhile. No
 // browser-side `@mesh()` handler in `apps/nebula/` reads `callContext` after
-// an await, so it doesn't surface in practice. Framework code below does NOT
-// depend on the field being correct across awaits — it captures the parent
-// context synchronously at every `lmz.call(...)` entry and threads it as an
-// explicit parameter through to `#call` and the handler executor.
+// an await. Outgoing calls never read it: the Gateway builds each call's
+// `callChain` from the socket, so a Client sends no context of its own.
 //
-// See tasks/playwright-test-template.md § Known blockers #2 for the full
-// rationale and the alternatives considered (polyfill, refactor-everywhere).
+// See tasks/archive/playwright-test-template.md § Known blockers #2 for the
+// alternatives considered (polyfill, refactor-everywhere).
 
 /**
  * The context a client holds: exactly the type `this.lmz.callContext` exposes, so the two cannot
@@ -53,29 +50,26 @@ import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './
 type ClientCallContext = LmzApiClient['callContext'];
 
 /**
- * The `state` a client call carries — all it sends of its context, since the Gateway builds the
- * chain and `originAuth` from the socket's verified identity. The call-site context's state merged
- * with `options.state`, or `options.state` alone for a `newChain` call or one made outside a mesh call.
- * The parent is a parameter rather than looked up, because a browser has no `AsyncLocalStorage`.
+ * The options a client's call takes. `newChain` is not among them: every call a client makes
+ * starts at the client, because its Gateway builds the whole context from the socket's verified
+ * identity, so there is nothing for a client to start afresh.
  */
-function outgoingClientState(
-  parentContext: ClientCallContext | undefined,
-  options?: CallOptions,
-): ClientCallContext['state'] {
-  if (options?.newChain || !parentContext) return options?.state ?? {};
-  return options?.state ? { ...parentContext.state, ...options.state } : parentContext.state;
-}
+export type ClientCallOptions = Omit<CallOptions, 'newChain'>;
+
+/** The options a client's broadcast takes: a node's, without `newChain`, as for its calls. */
+export type ClientBroadcastOptions = Omit<BroadcastOptions, 'newChain'>;
 import {
   GatewayMessageType,
   WS_TOKEN_PREFIX,
+  WS_PROTOCOL,
   type CallMessage,
-  type CallResponseMessage,
+  type ResponseMessage,
   type IncomingCallMessage,
   type IncomingCallResponseMessage,
   type ConnectionStatusMessage,
   type GatewayMessage
 } from './gateway-messages.js';
-import type { CallContext, CallOptions } from './types.js';
+import type { CallContext, CallOptions, NodeIdentity } from './types.js';
 import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 
 // ============================================
@@ -84,8 +78,8 @@ import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 
 /**
  * The most calls a client holds while its socket is down or its token is being swapped. Past it a
- * call is refused, and whoever waits on it hears so: a `callAsync` rejects and a 4-arg handler runs,
- * each with a `QuotaExceededError` (a 3-arg call has nobody to tell).
+ * call is refused, and whoever waits on it hears so: a `callAsync` rejects and a call's result
+ * handler runs, each with a `QuotaExceededError`.
  */
 const MAX_QUEUE_SIZE = 1000;
 
@@ -96,6 +90,14 @@ const MAX_QUEUE_SIZE = 1000;
  * (`CLIENT_CALL_TIMEOUT_MS`, `lumenize-client-gateway.ts`).
  */
 const DEFAULT_CALLASYNC_TIMEOUT_MS = 30_000;
+
+/**
+ * How many recent answers a Client keeps, by `callId`. The Gateway sends a call again when the
+ * socket it went down is replaced before the answer comes back, and a Client that has answered it
+ * already sends the kept answer rather than running the handler twice. A repeat arrives within one
+ * reconnect, so a short record is enough.
+ */
+export const ANSWER_RECORD_SIZE = 64;
 
 /** Maximum reconnect backoff delay (30 seconds) */
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -219,10 +221,11 @@ export interface LumenizeClientConfig {
   onLoginRequired?: (error: LoginRequiredError) => void;
 
   /**
-   * Called when subscriptions need to be (re)established
-   *
-   * Fires on every connection except reconnects within the 5-second grace period.
-   * Use this as the single place to set up all subscriptions.
+   * Called when subscriptions need to be (re)established: on a first connection, and on a reconnect
+   * the Gateway reports as a loss — a delivery to the client failed, which also closes a socket still
+   * open with 4408, it was away past the 5-second grace period, or the Gateway lost its record of
+   * it. Not on any other reconnect, a token rotation included. Use this as the single place to set up
+   * all subscriptions, or override the client's `onSubscriptionRequired`.
    */
   onSubscriptionRequired?: () => void;
 
@@ -326,54 +329,52 @@ export interface LmzApiClient {
   readonly callContext: Omit<CallContext, 'originRequest'>;
 
   /**
-   * Fire-and-forget RPC call with optional handler
+   * One-way call whose outcome reaches `handlerContinuation`: the value, or the Error. A call that
+   * cares only about failure passes `onErrorOnly`.
    *
    * Returns immediately. If disconnected, queues the call — up to 1000 of them. Past that the call
-   * is refused, and a handler hears so as a `QuotaExceededError`.
+   * is refused, and the handler hears so as a `QuotaExceededError`.
    */
   call<T = any>(
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     remoteContinuation: Continuation<T>,
-    handlerContinuation?: Continuation<any>,
-    options?: CallOptions
+    handlerContinuation: Continuation<any>,
+    options?: ClientCallOptions
   ): void;
 
   /**
    * Send one continuation to many targets — one `call` per target, each over this client's socket
    * and stamped at its Gateway, so it grants nothing that many calls would not.
    *
-   * `options.onResult` hears only failures. Each call starts a fresh chain unless `newChain: false`,
-   * and `state` passes through to each call.
-   *
-   * ⚠️ On a client, `onResult` cannot tell WHICH target failed. The handler runs in the call site's
-   * context, where `callee` is never the failed target, and outside a mesh call reading `callContext`
-   * throws. To know which, send one `call` per target, with a handler that takes the target as an
-   * argument.
+   * `options.onResult` hears only failures. Each call starts at this client, as every client call
+   * does. The handler runs under its answer's context, so `callContext.callee` names the target
+   * that failed.
    *
    * @see `broadcast.ts` — the chain each target sees
    */
   broadcast<T = any>(
     targets: BroadcastTarget[],
     remoteContinuation: Continuation<T>,
-    options?: BroadcastOptions
+    options: ClientBroadcastOptions
   ): void;
 
   /**
    * Resilient, `Promise`-returning cross-node call — **client-only**.
    *
-   * **One message on the wire, two spellings in code.** A `callAsync` sends exactly what a 4-arg
-   * `call` sends; only the Promise and its timeout differ, and both stay in the tab, whose memory
-   * survives a freeze and a WS reconnect (ADR-003). That is why it is kept rather than folded into
-   * the 4-arg form, and why it does NOT strand on a dead socket the way the removed `callRaw` did.
+   * **One message on the wire, two spellings in code.** A `callAsync` sends exactly what a `call`
+   * sends: its result handler continuation is a call to a client method that settles the Promise
+   * kept under its `callId`. Only the Promise and its timeout differ, and both stay in the tab,
+   * whose memory survives a freeze and a WS reconnect (ADR-003). That is why it does NOT strand on a
+   * dead socket the way the removed `callRaw` did.
    *
-   * Rejects on an error RESULT, on `signal` abort, on the built-in default `timeoutMs`
-   * (`0`/`Infinity` disables), or with a `QuotaExceededError` when the client already holds 1000
-   * unsent calls.
+   * Rejects when the outcome is an Error, whether the node threw it or returned it, as a result
+   * handler sees both alike; on `signal` abort; on the built-in default `timeoutMs` (`0`/`Infinity`
+   * disables); or with a `QuotaExceededError` when the client already holds 1000 unsent calls.
    *
    * ⚠️ Prefer a higher-level SDK method (`client.resources.*`) when one exists, and a `subscribe` for
    * live UI data. `callAsync` is the SDK-layer awaitable escape hatch — the ONLY awaitable on
-   * `client.lmz`; `call` stays fire-and-forget/`void`.
+   * `client.lmz`; `call` stays one-way and `void`, its outcome going to a result handler.
    *
    * ⚠️ Abort cancels the WAIT. It cancels the server OPERATION only if the call had not yet left the
    * client — a queued call is dropped with its wait — and a call that has left runs regardless, so a
@@ -383,7 +384,7 @@ export interface LmzApiClient {
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     remoteContinuation: Continuation<T>,
-    options?: CallOptions & { timeoutMs?: number; signal?: AbortSignal }
+    options?: ClientCallOptions & { timeoutMs?: number; signal?: AbortSignal }
   ): Promise<Awaited<T>>;
 }
 
@@ -392,24 +393,9 @@ export interface LmzApiClient {
 // ============================================
 
 /**
- * A 4-arg `call()`'s response handler, kept IN-HEAP keyed by callId. The JS heap survives
- * a tab freeze AND a WebSocket reconnect, so the handler outlives every failure short of
- * discard/reload — the client bug this fixes is delivery-bound-to-a-transient-socket, not holding
- * the handler. `capturedContext` is the callContext active at the call site, restored when the
- * RESULT arrives so the handler (and any nested `call`) sees the right context.
- */
-interface InHeapHandler {
-  handlerChain: OperationChain;
-  capturedContext: ClientCallContext | undefined;
-  /** When true, run the handler only on an error RESULT (skip the success path — N6). */
-  onErrorOnly: boolean;
-}
-
-/**
- * A `callAsync` in-flight Promise, kept IN-HEAP keyed by callId and settled by the RESULT
- * fired back for that callId (`#handleCallResponse`). Parallel to `#inHeapHandlers`: `callAsync`
- * settles a Promise, it has no handler *chain*. `signal`/`onAbort` are retained so a normal settle
- * can remove the abort listener (no leak) and an abort can drop the entry.
+ * A `callAsync` in-flight Promise, kept in the tab keyed by callId and settled when its result
+ * handler continuation, `__settleCallAsync`, comes back filled. `signal`/`onAbort` are retained so
+ * a normal settle can remove the abort listener (no leak) and an abort can drop the entry.
  */
 interface PendingAsyncCall {
   resolve: (value: any) => void;
@@ -428,6 +414,35 @@ function combineAbortSignals(...signals: (AbortSignal | undefined)[]): AbortSign
   if (present.length === 0) return undefined;
   if (present.length === 1) return present[0];
   return AbortSignal.any(present);
+}
+
+/**
+ * Throw if a call's chains hold a function anywhere. The wire would carry one as an inert
+ * placeholder, so the far side, or this Client's own handler when it comes back, would receive
+ * something it cannot call. Runs before anything is sent or kept, so the caller gets a throw.
+ */
+function assertCrossable(...chains: OperationChain[]): void {
+  if (chains.some((chain) => holdsFunction(chain))) {
+    throw new TypeError(
+      'A function cannot cross the mesh: bind data into a continuation, never a function. ' +
+      'Pass what the handler needs as arguments, or keep it on the client and look it up there.',
+    );
+  }
+}
+
+/** Whether `value` holds a function anywhere, which no wire can carry. Cycle-safe. */
+function holdsFunction(value: unknown, seen: Set<object> = new Set()): boolean {
+  if (typeof value === 'function') return true;
+  if (value === null || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  if (value instanceof Map) {
+    for (const [k, v] of value) if (holdsFunction(k, seen) || holdsFunction(v, seen)) return true;
+    return false;
+  }
+  // A typed array or a DataView holds only bytes, and walking it would copy every element.
+  if (ArrayBuffer.isView(value)) return false;
+  const items = value instanceof Set ? [...value] : Object.values(value);
+  return items.some((v) => holdsFunction(v, seen));
 }
 
 /** Queued message waiting for connection */
@@ -473,10 +488,28 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #accessToken: string | null = null;
   #claims: Readonly<TClaims> | null = null;
   #refreshInFlight: Promise<void> | null = null;
-  // 4-arg call handlers kept in-heap keyed by callId (survives freeze + reconnect).
-  #inHeapHandlers = new Map<string, InHeapHandler>();
-  // callAsync: Promise settlers kept in-heap keyed by callId — parallel to #inHeapHandlers.
+  /**
+   * Minted once, when this Client is constructed, and stamped on every call; an answer echoes it,
+   * and one that does not carry this Client's own is dropped. A new Client is a new load, so a
+   * reloaded page, or a second Client on the same tab, never runs an answer meant for the one
+   * before. Pairs with `tabId`, which survives a reload where this does not.
+   */
+  readonly #loadId: string = crypto.randomUUID();
+  // callAsync: Promise settlers kept in the tab keyed by callId (survives freeze + reconnect).
   #pendingAsyncCalls = new Map<string, PendingAsyncCall>();
+  /** The last {@link ANSWER_RECORD_SIZE} incoming calls by `callId`: the answer sent, or `null`
+   *  while the handler still runs. Oldest first, as a `Map` keeps insertion order. */
+  #answers = new Map<string, string | null>();
+  /**
+   * The `sub` of the last token this Client held, which `#followSub` compares a new one with. Kept
+   * apart from `#claims` so `clearAccessToken()` does not erase it: a Client reused under another
+   * identity must still move to that identity's name.
+   */
+  #lastSub: string | undefined;
+
+  /** The token the current socket was opened with, which an `authedFetch` refresh compares against. */
+  #socketToken: string | null = null;
+
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
   #reauthAttemptedThisCycle = false; // forced one token re-auth this disconnect cycle (reset on open)
@@ -528,6 +561,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         // Trust boundary: parseJwtUnsafe returns the raw JwtPayload; the
         // subclass asserts the concrete claim shape via TClaims.
         this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
+        this.#lastSub = parsed.payload.sub;
       }
     }
 
@@ -690,23 +724,17 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#ws = null;
     }
 
-    // Explicit teardown: drop in-heap 4-arg handlers (no result will arrive). A transient WS
-    // drop/reconnect does NOT reach here — those handlers survive in the heap; on a full
-    // reload the client re-issues + reconciles. disconnect() is a deliberate discard.
-    this.#inHeapHandlers.clear();
-
-    // callAsync Promises DO have an awaiting caller (unlike the fire-and-forget in-heap handlers
-    // above), so an explicit teardown must REJECT them rather than drop silently — otherwise the
-    // awaiter hangs until the default timeout. Clean up each abort listener too (no leak).
+    // callAsync Promises have an awaiting caller, so an explicit teardown must REJECT them rather
+    // than drop silently — otherwise the awaiter hangs until the default timeout. Clean up each
+    // abort listener too (no leak).
     for (const pending of this.#pendingAsyncCalls.values()) {
       if (pending.signal && pending.onAbort) pending.signal.removeEventListener('abort', pending.onAbort);
       pending.reject(new Error('LumenizeClient disconnected before the callAsync result arrived'));
     }
     this.#pendingAsyncCalls.clear();
 
-    // Drop any messages queued while disconnected — the client holds no awaited per-call
-    // Promise (4-arg handlers are in #inHeapHandlers, cleared above; 3-arg is fire-and-forget),
-    // so there is nothing to reject.
+    // Drop any messages queued while disconnected: their result handlers travel with them, and
+    // the callAsync Promises among them were rejected above.
     this.#messageQueue = [];
 
     // Update state
@@ -763,6 +791,9 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * all of it. A peer feature goes through a node instead: a two-person chat is a
    * room on the server, with history and presence for free.
    *
+   * It runs before the incoming chain is decoded, so nothing a refused sender wrote is ever
+   * decoded; an override reads only `this.lmz.callContext`.
+   *
    * Access context via `this.lmz.callContext`.
    */
   onBeforeCall(): void {
@@ -775,6 +806,17 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         'Override onBeforeCall() to allow them.'
       );
     }
+  }
+
+  /**
+   * Called when this Client must re-establish its subscriptions, because a reaper may have dropped
+   * them: on its first connection, and on a reconnect the Gateway reports `subscriptionRequired:
+   * true`, which it does after any delivery to this Client failed, a 4408 close included. Not on a
+   * network blip or a token rotation inside the grace period. Override it in a subclass, or pass
+   * `onSubscriptionRequired` in the config, which this default calls.
+   */
+  onSubscriptionRequired(): void {
+    this.#config.onSubscriptionRequired?.();
   }
 
   /**
@@ -835,13 +877,14 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       const url = this.#buildWebSocketUrl();
 
       // Build protocols array with token
-      const protocols = ['lmz'];
+      const protocols: string[] = [WS_PROTOCOL];
       if (this.#accessToken) {
         protocols.push(`${WS_TOKEN_PREFIX}${this.#accessToken}`);
       }
 
       // Create WebSocket
       this.#ws = new this.#WebSocketClass(url, protocols);
+      this.#socketToken = this.#accessToken;
 
       // Set up event handlers
       // Capture the socket reference so stale close events from superseded
@@ -1132,8 +1175,29 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     if (!parsed) {
       throw new Error('Refresh returned a malformed access_token');
     }
+    const previousSub = this.#lastSub;
     // Trust boundary: see the constructor's claims assignment.
     this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
+    this.#lastSub = parsed.payload.sub;
+    this.#followSub(previousSub);
+  }
+
+  /**
+   * Move this Client to a new token's `sub`. A Client's name must start with its `sub`, so a token
+   * resting on a different membership needs `{newSub}.{tabId}`: a fresh Gateway, which reports
+   * `subscriptionRequired: true`. A membership never changes scope, so a token for another scope
+   * always carries another `sub` (the Registry's `#mintIdentity` JSDoc says so).
+   */
+  #followSub(previousSub: string | undefined): void {
+    const sub = (this.#claims as { sub?: string } | null)?.sub;
+    if (!previousSub || !sub || sub === previousSub || !this.#instanceName) return;
+    this.#instanceName = `${sub}${this.#instanceName.slice(this.#instanceName.indexOf('.'))}`;
+    this.#debugFactory('lmz.mesh.LumenizeClient.#followSub').info('the token names a new sub; reconnecting under it', {
+      instanceName: this.#instanceName,
+    });
+    // A socket open under the old name is replaced. A reconnect already under way builds its URL
+    // after this refresh, so it takes the new name by itself.
+    if (this.#ws?.readyState === WebSocket.OPEN && !this.#rotating) this.#rotateSocketForFreshToken();
   }
 
   /** Ensure a usable access token is in memory — refresh via the configured `refresh` source when it's
@@ -1184,6 +1248,13 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       await this.#ensureFreshToken();
       res = await fetchFn(url, withAuth(this.#accessToken!));
     }
+    // An open socket opened with an older token than this one would lapse under the next call,
+    // since judging the new token's `exp` never rotates it. Move it now, which also puts a changed
+    // claim, such as an admin verdict, in front of the Gateway and its hosts. A socket a rotation or
+    // reconnect already opened with this token is left alone.
+    if (this.#accessToken !== this.#socketToken && this.#ws?.readyState === WebSocket.OPEN && !this.#rotating) {
+      this.#rotateSocketForFreshToken();
+    }
     return res;
   }
 
@@ -1228,8 +1299,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         this.#handleConnectionStatus(message as ConnectionStatusMessage);
         break;
 
-      case GatewayMessageType.CALL_RESPONSE:
-        this.#handleCallResponse(message as CallResponseMessage);
+      case GatewayMessageType.RESPONSE:
+        this.#handleResponse(message as ResponseMessage);
         break;
 
       case GatewayMessageType.INCOMING_CALL:
@@ -1248,127 +1319,132 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // Flush queued messages
     this.#flushMessageQueue();
 
-    // Notify if subscriptions need to be (re)established
+    // Notify if subscriptions need to be (re)established. The Gateway's report is the one signal: it
+    // records any delivery to this Client that failed, a 4408 close included.
     if (message.subscriptionRequired) {
-      this.#config.onSubscriptionRequired?.();
+      this.onSubscriptionRequired();
     }
   }
 
   /**
-   * Handle a RESULT for a client-originated 4-arg call. Looks up the IN-HEAP handler by
-   * callId, runs it with the delivered value OR Error (`handler($result)`), and removes it.
-   * The delete-on-delivery IS the dedup: a duplicate RESULT for the same callId finds no handler
-   * and is dropped (M4). An unknown callId (a 3-arg call, or an already-handled one) is dropped.
+   * The response door: this Client's own result handler continuation, filled with the outcome, from
+   * a node's fire-back or a refusal at its Gateway's early ack. It runs with the `@mesh()` check
+   * off and no `onBeforeCall` — its Gateway wrote the return address and checked the continuation
+   * on the way out — under the fire-back's context, so `callee` is its last hop: the node that
+   * answered. An answer carrying another load's `loadId` is dropped, and this Client keeps nothing
+   * per call for it.
    */
-  #handleCallResponse(message: CallResponseMessage): void {
-    // A callId settles EITHER a callAsync Promise OR an in-heap 4-arg handler chain (never both).
-    const pending = this.#pendingAsyncCalls.get(message.callId);
-    if (pending) {
-      this.#pendingAsyncCalls.delete(message.callId);  // delete-on-delivery IS the dedup (M4)
-      // Normal settle → remove the abort listener (no leak).
-      if (pending.signal && pending.onAbort) {
-        pending.signal.removeEventListener('abort', pending.onAbort);
-      }
-      if (message.success) {
-        pending.resolve(postprocess(message.result));
-      } else {
-        const e = postprocess(message.error);
-        pending.reject(e instanceof Error ? e : new Error(String(e)));
-      }
+  #handleResponse(message: ResponseMessage): void {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClient.#handleResponse');
+    if (message.loadId !== this.#loadId) {
+      log.debug('dropped an answer meant for another load', { callId: message.callId, loadId: message.loadId });
       return;
     }
-
-    const handler = this.#inHeapHandlers.get(message.callId);
-    if (!handler) {
-      // No in-heap handler: a 3-arg fire-and-forget call, a duplicate RESULT (dedup), or an
-      // unknown callId. All are safely dropped — never a stranded Promise.
+    let chain: OperationChain;
+    try {
+      chain = postprocess(message.chain) as OperationChain;
+    } catch (error) {
+      log.error('could not decode an answer', {
+        callId: message.callId, error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
-    this.#inHeapHandlers.delete(message.callId);
-
-    // onErrorOnly (N6): skip the handler on a success RESULT (still removed above → dedup holds).
-    if (handler.onErrorOnly && message.success) return;
-
-    // result/error are preprocessed by the Gateway — postprocess here.
-    const resultOrError = message.success
-      ? postprocess(message.result)
-      : (() => {
-          const e = postprocess(message.error);
-          return e instanceof Error ? e : new Error(String(e));
-        })();
-
-    this.#runInHeapHandler(message.callId, handler, resultOrError);
+    const { callChain, originAuth } = message.callContext;
+    this.#runFilledChain(message.callId, chain, { callChain, originAuth, callee: callChain.at(-1) });
   }
 
   /**
-   * Run a 4-arg call's in-heap handler with its outcome, under the captured call-site context (so it,
-   * and any nested call, see the right context). Fire-and-forget with a defensive catch — a throwing
-   * handler must not crash.
+   * Run a filled result handler chain under `context`, with the `@mesh()` check off. A throwing
+   * handler is logged, never thrown: nothing awaits it.
    */
-  #runInHeapHandler(callId: string, handler: InHeapHandler, resultOrError: unknown): void {
-    const finalChain = replaceNestedOperationMarkers(handler.handlerChain, resultOrError);
-    const runHandler = async () => {
+  #runFilledChain(callId: string, chain: OperationChain, context: ClientCallContext): void {
+    const run = async () => {
       const prev = this.#currentCallContext;
-      this.#currentCallContext = handler.capturedContext ?? null;
+      this.#currentCallContext = context;
       try {
-        await executeFilledChain(finalChain, this, { requireMeshDecorator: false });
+        await executeFilledChain(chain, this, { requireMeshDecorator: false });
       } finally {
         this.#currentCallContext = prev;
       }
     };
-    runHandler().catch((err) => {
-      this.#debugFactory('lmz.mesh.LumenizeClient.#runInHeapHandler').error(
-        'in-heap call handler threw', { callId, error: err instanceof Error ? err.message : String(err) },
+    run().catch((err) => {
+      this.#debugFactory('lmz.mesh.LumenizeClient.#runFilledChain').error(
+        'result handler threw', { callId, error: err instanceof Error ? err.message : String(err) },
       );
     });
   }
 
+  /**
+   * `callAsync`'s result handler continuation: settles the Promise kept under `callId`, rejecting
+   * on an Error outcome. A Promise already settled, aborted or timed out is gone from the map, so a
+   * late answer does nothing. No `@mesh()`: no other node can call it, and it runs only as this
+   * Client's own continuation.
+   *
+   * @internal
+   */
+  __settleCallAsync(callId: string, result?: unknown): void {
+    const pending = this.#pendingAsyncCalls.get(callId);
+    if (!pending) return;
+    this.#pendingAsyncCalls.delete(callId);
+    if (pending.signal && pending.onAbort) pending.signal.removeEventListener('abort', pending.onAbort);
+    if (result instanceof Error || (typeof DOMException !== 'undefined' && result instanceof DOMException)) {
+      pending.reject(result);
+    } else {
+      pending.resolve(result);
+    }
+  }
+
   async #handleIncomingCall(message: IncomingCallMessage): Promise<void> {
     const { callId, chain: preprocessedChain, callContext: preprocessedCallContext } = message;
+    // A call the Gateway sent again on a new socket is answered from the record, never run twice.
+    // One still running answers on whatever socket is current when it finishes.
+    if (this.#answers.has(callId)) {
+      const kept = this.#answers.get(callId);
+      if (kept) this.#send(kept);
+      return;
+    }
+    this.#keepAnswer(callId, null);
     // Declared out here so the catch can name the member that failed. The WIRE form is not
     // readable for this — `preprocess` re-shapes the array — so the catch needs the postprocessed
-    // one, and gets `undefined` when postprocessing is itself what threw.
+    // one, and gets `undefined` when the caller check refused before decoding, or decoding threw.
     let chain: OperationChain | undefined;
 
     try {
-      // Postprocess fields that were preprocessed for WebSocket transport
-      chain = postprocess(preprocessedChain) as OperationChain;
       // No `originRequest`: it stays server-side, so the Gateway never sends one.
       const callContext: ClientCallContext = {
         callChain: preprocessedCallContext.callChain,  // Plain strings - no postprocessing
         originAuth: preprocessedCallContext.originAuth,  // From JWT - no postprocessing
-        state: postprocess(preprocessedCallContext.state),  // Preprocessed → native
+        // This Client's own identity, as every receiver stamps its own: never from the wire.
+        callee: this.#selfIdentity(),
       };
 
-      // Set up call context for this request. Setting #currentCallContext
-      // synchronously is sufficient for `this.lmz.callContext` reads in user
-      // code AND for the framework's own `lmz.call(...)` invocations — both
-      // read this field directly (see #call below). No ALS wrap needed; the
-      // browser can't preserve ALS across native await anyway, and the field
-      // is correct for the synchronous portion of the handler before any
-      // await yields control.
+      // The context this chain runs under, for `this.lmz.callContext` and `onBeforeCall` below.
+      // Correct until the chain's first await yields; see the header of this file.
       this.#currentCallContext = callContext;
 
-      // Run onBeforeCall hook
+      // The caller check runs BEFORE the chain is decoded. It reads only the plain `callChain`, and
+      // a refused sender's payload must never reach the decoder, which builds values from it.
       this.onBeforeCall();
+
+      // Postprocess the chain, which was preprocessed for WebSocket transport
+      chain = postprocess(preprocessedChain) as OperationChain;
 
       // Execute the operation chain
       const result = await executeOperationChain(chain, this);
 
       // Send success response (preprocess for structured clone handling)
-      const response: IncomingCallResponseMessage = {
+      this.#answerIncoming(callId, {
         type: GatewayMessageType.INCOMING_CALL_RESPONSE,
         callId,
         success: true,
         result: preprocess(result),
-      };
-      this.#send(JSON.stringify(response));
+      });
 
     } catch (error) {
       // ⚠️ LOG BEFORE SENDING. The response below is the only other place this failure goes, and it
       // travels AWAY from the node that is usually stuck: a push refused here is typically the very
       // thing this client is awaiting, so the error leaves for the caller while the local waiter
-      // hangs. The response leg already logs its handler throws (`#handleCallResponse` above); the
+      // hangs. The response leg already logs its handler throws (`#runFilledChain` above); the
       // request leg did not, and an override without `@mesh()` that shadowed a `@mesh()` method was
       // therefore invisible on every node — the refusal went onto the wire, the caller had no result
       // handler for a fire-and-forget push, and the symptom was a hang with no message anywhere.
@@ -1387,16 +1463,32 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
       // Send error response
       // Preprocess error (Error objects need special handling for JSON)
-      const response: IncomingCallResponseMessage = {
+      this.#answerIncoming(callId, {
         type: GatewayMessageType.INCOMING_CALL_RESPONSE,
         callId,
         success: false,
         error: preprocess(error),
-      };
-      this.#send(JSON.stringify(response));
+      });
 
     } finally {
       this.#currentCallContext = null;
+    }
+  }
+
+  /** Send the answer to an incoming call, and keep it, so a repeat of the call gets the same one. */
+  #answerIncoming(callId: string, response: IncomingCallResponseMessage): void {
+    const frame = JSON.stringify(response);
+    this.#keepAnswer(callId, frame);
+    this.#send(frame);
+  }
+
+  #keepAnswer(callId: string, frame: string | null): void {
+    this.#answers.delete(callId); // so a re-set moves to the newest end
+    this.#answers.set(callId, frame);
+    // Oldest first, and never a call still running, whose repeat must keep waiting for it.
+    for (const [id, kept] of this.#answers) {
+      if (this.#answers.size <= ANSWER_RECORD_SIZE) break;
+      if (kept !== null) this.#answers.delete(id);
     }
   }
 
@@ -1410,7 +1502,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     }
   }
 
-  #sendOrQueue(message: string, callId: string): void {
+  #sendOrQueue(message: string, callId: string, onRefused: (refusal: Error) => void): void {
     // ⚠️ An OPEN socket whose token is DUE is not a socket to send on. The Gateway checks the
     // ATTACHMENT's `exp` on every inbound message and closes 4401, dropping that message at the
     // door; the client then re-auths and reconnects, but a message already SENT is never replayed —
@@ -1426,7 +1518,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     }
     // Queue until reconnect, up to MAX_QUEUE_SIZE; past that the call is refused, not queued.
     if (this.#messageQueue.length >= MAX_QUEUE_SIZE) {
-      this.#refuseCall(callId);
+      this.#refuseCall(callId, onRefused);
       return;
     }
     this.#messageQueue.push({ message, callId });
@@ -1434,15 +1526,14 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   /**
-   * Refuse a call the queue has no room for, and tell whoever waits on it: a `callAsync` rejects and
-   * a 4-arg handler runs, each with a `QuotaExceededError`. A 3-arg call has nobody to tell, so it
-   * leaves only the log line.
+   * Refuse a call the queue has no room for, and tell whoever waits on it: the call's result
+   * handler runs here with a `QuotaExceededError`, and for a `callAsync` that rejects its Promise.
    *
-   * The outcome is delivered on a later task, as a RESULT or a timeout is. Settled at once, a caller
-   * that retries on failure would loop without ever yielding to the socket event that empties the
-   * queue.
+   * The outcome is delivered on a later task, as an answer or a timeout is. Settled at once, a
+   * caller that retries on failure would loop without ever yielding to the socket event that
+   * empties the queue.
    */
-  #refuseCall(callId: string): void {
+  #refuseCall(callId: string, onRefused: (refusal: Error) => void): void {
     this.#debugFactory('lmz.mesh.LumenizeClient.#sendOrQueue').warn(
       'message queue full — refusing call', { callId, limit: MAX_QUEUE_SIZE },
     );
@@ -1450,20 +1541,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       `LumenizeClient holds at most ${MAX_QUEUE_SIZE} calls while its socket is down; this one was refused`,
       'QuotaExceededError',
     );
-    const pending = this.#pendingAsyncCalls.get(callId);
-    if (pending) {
-      this.#pendingAsyncCalls.delete(callId);
-      if (pending.signal && pending.onAbort) {
-        pending.signal.removeEventListener('abort', pending.onAbort);
-      }
-      setTimeout(() => pending.reject(refusal), 0);
-      return;
-    }
-    const handler = this.#inHeapHandlers.get(callId);
-    if (handler) {
-      this.#inHeapHandlers.delete(callId);
-      setTimeout(() => this.#runInHeapHandler(callId, handler, refusal), 0);
-    }
+    setTimeout(() => onRefused(refusal), 0);
   }
 
   #rotating = false;
@@ -1497,74 +1575,69 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   // Private - RPC Methods
   // ============================================
 
+  /** This Client's own identity, as a node stamps its own: the Gateway it is reached through. */
+  #selfIdentity(): NodeIdentity {
+    return { type: 'LumenizeClient', bindingName: this.#config.gatewayBindingName, instanceName: this.#instanceName ?? undefined };
+  }
+
   /**
-   * Send a CALL message (no awaited Promise — the client never blocks on a result). `expectsResult`
-   * tells the Gateway whether to attach a fire-back descriptor (4-arg → the callee fires a RESULT
-   * back for this callId) or treat it as truly fire-and-forget (3-arg).
+   * Send a `call` message carrying its result handler continuation, which travels to the node and
+   * comes back filled (no awaited Promise — the client never blocks on a result). Its callers run
+   * `assertCrossable` first. A call the queue has no room for runs its handler here, with a
+   * `QuotaExceededError`.
    */
   #sendCall(
     callId: string,
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
-    chainOrContinuation: OperationChain | Continuation<any>,
-    parentContext: ClientCallContext | undefined,
-    expectsResult: boolean,
-    options?: CallOptions
+    remoteChain: OperationChain,
+    handlerChain: OperationChain,
+    options?: ClientCallOptions
   ): void {
-    const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
-
     const message: CallMessage = {
       type: GatewayMessageType.CALL,
       callId,
+      loadId: this.#loadId,
       binding: calleeBindingName,
       instance: calleeInstanceNameOrId,
-      chain: preprocess(chain),
-      expectsResult,
-      callContext: {
-        // User-defined - may contain extended types
-        state: preprocess(outgoingClientState(parentContext, options)),
-      },
+      chain: preprocess(remoteChain),
+      handler: preprocess(handlerChain),
+      ...(options?.onErrorOnly ? { onErrorOnly: true } : {}),
     };
+    const json = JSON.stringify(message);
 
     // Notify caller of the assigned callId before send/queue, so instrumentation can correlate.
     options?.onSent?.(callId);
-    this.#sendOrQueue(JSON.stringify(message), callId);
+    this.#sendOrQueue(json, callId, (refusal) => {
+      const self = this.#selfIdentity();
+      this.#runFilledChain(callId, replaceNestedOperationMarkers(handlerChain, refusal), { callChain: [self], callee: self });
+    });
   }
 
   #call<T = any>(
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     remoteContinuation: Continuation<T>,
-    handlerContinuation?: Continuation<any>,
-    options?: CallOptions
+    handlerContinuation: Continuation<any>,
+    options?: ClientCallOptions
   ): void {
-    // 1. Extract + validate chains (sync-throw on an invalid continuation).
+    // Extract + validate chains (sync-throw on an invalid continuation), then send both: the
+    // handler travels with the call and comes back filled, so nothing is kept here per call.
     const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
-
-    // 2. Capture the call-site context synchronously (threaded explicitly — no ALS in the browser).
-    const capturedContext = this.#currentCallContext ?? undefined;
-
-    // 3. A 4-arg call keeps its handler IN-HEAP keyed by callId — it survives tab freeze +
-    //    reconnect, and the RESULT re-resolves to the current socket. A 3-arg call is truly
-    //    fire-and-forget (no in-heap entry; expectsResult:false).
-    const callId = crypto.randomUUID();
-    if (handlerChain) {
-      this.#inHeapHandlers.set(callId, { handlerChain, capturedContext, onErrorOnly: options?.onErrorOnly === true });
-    }
-
-    // 4. Send the CALL (no handler travels).
-    this.#sendCall(callId, calleeBindingName, calleeInstanceNameOrId, remoteChain, capturedContext, !!handlerChain, options);
+    assertCrossable(remoteChain, handlerChain);
+    this.#sendCall(crypto.randomUUID(), calleeBindingName, calleeInstanceNameOrId, remoteChain, handlerChain, options);
   }
 
   #callAsync<T = any>(
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     remoteContinuation: Continuation<T>,
-    options?: CallOptions & { timeoutMs?: number; signal?: AbortSignal }
+    options?: ClientCallOptions & { timeoutMs?: number; signal?: AbortSignal }
   ): Promise<Awaited<T>> {
     // 1. Validate + extract the remote chain synchronously (sync-throw on an invalid
     //    continuation, same as `call()`; a developer error, never a rejection).
-    const { remoteChain } = extractCallChains(remoteContinuation, undefined);
+    const remoteChain = extractRemoteChain(remoteContinuation);
+    assertCrossable(remoteChain);
 
     // 2. Compose the caller's signal (external cancel) with the built-in default timeout, so
     //    the common path can't hang and `signal` stays free for unmount/user-cancel. 0/Infinity off.
@@ -1577,15 +1650,15 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // 3. Pre-aborted at the call site → reject immediately, don't dispatch (matches `fetch`).
     if (signal?.aborted) return Promise.reject(signal.reason);
 
-    // 4. Capture the call-site context synchronously (threaded explicitly — no ALS in the browser).
-    const capturedContext = this.#currentCallContext ?? undefined;
+    // 4. The result handler continuation settles the Promise kept under this callId.
     const callId = crypto.randomUUID();
+    const handlerChain = getOperationChain((this.ctn() as any).__settleCallAsync(callId))!;
 
     return new Promise<Awaited<T>>((resolve, reject) => {
       let onAbort: (() => void) | undefined;
       if (signal) {
         onAbort = () => {
-          // Abort BEFORE the RESULT: drop the entry (a late RESULT then finds nothing → dropped)
+          // Abort BEFORE the answer: drop the entry (a late answer then finds nothing → dropped)
           // and reject with the abort reason (a DOMException: AbortError or TimeoutError). The
           // delete's return-value guards a settle/abort race — never double-settle.
           if (!this.#pendingAsyncCalls.delete(callId)) return;
@@ -1599,12 +1672,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       }
       this.#pendingAsyncCalls.set(callId, { resolve, reject, signal, onAbort });
 
-      // 5. Send the CALL with expectsResult:true — no handler travels; the client holds the Promise,
-      //    settled by the RESULT fired back for this callId (#handleCallResponse). Reuses the 4-arg path.
-      this.#sendCall(
-        callId, calleeBindingName, calleeInstanceNameOrId,
-        remoteChain, capturedContext, true, options,
-      );
+      // 5. Send the call. Its continuation comes back filled and settles the Promise.
+      this.#sendCall(callId, calleeBindingName, calleeInstanceNameOrId, remoteChain, handlerChain, options);
     });
   }
 
@@ -1617,5 +1686,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    */
   protected pendingAsyncCallCount(): number {
     return this.#pendingAsyncCalls.size;
+  }
+
+  /** Test-only: how many answers the record of recent incoming calls holds. NOT part of the public API. */
+  protected answerRecordCount(): number {
+    return this.#answers.size;
   }
 }

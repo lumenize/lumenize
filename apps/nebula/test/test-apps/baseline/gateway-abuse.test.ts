@@ -53,7 +53,7 @@ describe('gateway abuse cases', () => {
       const resp = await SELF.fetch('http://localhost/NEBULA_CLIENT_GATEWAY/sub.tab1', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz',
+          'Sec-WebSocket-Protocol': 'lmz.2',
         },
       });
       expect(resp.status).toBe(404);
@@ -69,7 +69,7 @@ describe('gateway abuse cases', () => {
       const resp = await SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/sub.tab1', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz',
+          'Sec-WebSocket-Protocol': 'lmz.2',
         },
       });
       expect(resp.status).toBe(401);
@@ -79,7 +79,7 @@ describe('gateway abuse cases', () => {
       const resp = await SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/sub.tab1', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.invalid-jwt-token',
+          'Sec-WebSocket-Protocol': 'lmz.2, lmz.access-token.invalid-jwt-token',
         },
       });
       expect(resp.status).toBe(403);
@@ -115,6 +115,8 @@ describe('gateway abuse cases', () => {
         'STAR',
         star,
         adminClient.ctn<StarTest>().callClient(gwInstanceName, 'echo', 'hello'),
+        adminClient.ctn<NebulaClientTest>().recordCallFailure(),
+        { onErrorOnly: true },
       );
 
       // Verify echo was called on the client
@@ -146,6 +148,8 @@ describe('gateway abuse cases', () => {
         'STAR',
         star,
         adminClient.ctn<StarTest>().callClient(gwInstanceName, 'adminEcho', 'hello'),
+        adminClient.ctn<NebulaClientTest>().recordCallFailure(),
+        { onErrorOnly: true },
       );
 
       // Verify adminEcho was called on the client

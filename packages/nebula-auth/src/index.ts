@@ -58,6 +58,7 @@ export {
   hasPassageInto,
   noPassageMessage,
 } from './parse-id';
+export type { VerdictClaims } from './parse-id';
 
 // ADR-016's acting-principal projection — the ONE shared shape every record site uses.
 // ⚠️ Exported deliberately: `apps/nebula` records the identical shape (the `Snapshots` engine's `actingToken`

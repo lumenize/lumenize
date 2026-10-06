@@ -178,7 +178,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     await vi.waitFor(() => expect(subscribes().length).toBeGreaterThanOrEqual(1));
     // A round trip on the same socket, so every re-subscribe the tree change caused has landed.
     await member.client.resources.read('TestResource', open);
-    // Mutations: run #resubscribeAll on each tree update (3), or drop the ask-again (0) → red.
+    // Mutations: run #restoreSubscriptions on each tree update (3), or drop the ask-again (0) → red.
     expect(subscribes().map((e) => e.data.resourceId)).toEqual([closed]);
     expect(denied.deniedNodes).toEqual([priv]); // still denied: nothing changed but the tree
   });

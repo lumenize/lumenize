@@ -29,7 +29,7 @@ export type { Continuation, AnyContinuation };
  * **Key differences from LumenizeDO**:
  * - Workers are ephemeral (no storage, no persistence)
  * - No `instanceName` or `id` (always undefined)
- * - `call()` uses `ctx.waitUntil()` to keep the Worker alive for fire-and-forget calls
+ * - `call()` uses `ctx.waitUntil()` to keep the Worker alive across the call's ack
  * - No NADIS support (no `this.svc`)
  * 
  * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
@@ -39,7 +39,7 @@ export type { Continuation, AnyContinuation };
  * export class MyWorker extends LumenizeWorker<Env> {
  *   someMethod() {
  *     // Make a cross-node call to a DO. Identity is auto-initialized from envelope
- *     // metadata. 4-arg: the result fires back into the handler (never awaited).
+ *     // metadata. The result fires back into the handler (never awaited).
  *     const remote = this.ctn<UserDO>().getData();
  *     this.lmz.call('USER_DO', 'user-123', remote, this.ctn().handleData(remote));
  *   }
@@ -90,7 +90,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    * const handler = this.ctn().processData(remote);
    * 
    * // Make call
-   * await this.lmz.call('USER_DO', userId, remote, handler);
+   * this.lmz.call('USER_DO', userId, remote, handler);
    * ```
    * 
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
@@ -104,12 +104,12 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *
    * Override this method to:
    * - Validate authentication/authorization based on `this.lmz.callContext`
-   * - Populate `callContext.state` with computed data
    * - Add logging or tracing metadata
    * - Reject unauthorized calls by throwing an error
    *
-   * This hook is called BEFORE the operation chain is executed.
-   * The `callContext` is available via `this.lmz.callContext`.
+   * This hook is called BEFORE the operation chain is executed, at both receive entries, but not
+   * on the answers to a chain this Worker started. The `callContext` is available via
+   * `this.lmz.callContext`.
    *
    * **Important**: If you override this, remember to call `super.onBeforeCall()`
    * to ensure any parent class logic is also executed.

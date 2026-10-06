@@ -202,7 +202,7 @@ describe('the response leg reaches `results`, and the wire does not', () => {
   it.each([{ name: 'Star', ctor: Star }, { name: 'Galaxy', ctor: Galaxy }])('$name: no reaper and no forward is left on the host', ({ ctor }) => {
     // Undecorated members fall out of every `@mesh()` inventory, so each is asserted absent by name —
     // anywhere on the chain, which is where dispatch would find it.
-    for (const name of [...REAPERS, 'onInviteResult', 'onOntologyPulled']) {
+    for (const name of [...REAPERS, 'onInviteResult', 'onOntologyPulled', 'onPushUndelivered']) {
       expect(name in ctor.prototype, name).toBe(false);
     }
   });
@@ -210,7 +210,7 @@ describe('the response leg reaches `results`, and the wire does not', () => {
   it.each(HOSTS)('$name: `results` exposes exactly its members, and none of them leads back to the plane', async ({ make }) => {
     const host = await make();
     const { names, toPlane } = await surfaceOf(host, 'resourcesResults');
-    expect(names).toEqual(['onInviteResult', 'onOntologyPulled', ...REAPERS].sort());
+    expect(names).toEqual(['onInviteResult', 'onOntologyPulled', 'onPushUndelivered', ...REAPERS].sort());
     expect(toPlane).toEqual([]);
   });
 
@@ -322,7 +322,7 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
       ]),
       callContext: {
         callChain: [{ type: 'LumenizeDO', bindingName: 'GALAXY', instanceName: host.scope.split('.').slice(0, 2).join('.') }],
-        state: {}, originAuth: { sub: 'door-admin', claims },
+        originAuth: { sub: 'door-admin', claims },
       },
       metadata: { callee: { type: 'LumenizeDO', bindingName: 'STAR', instanceName: host.scope } },
     });

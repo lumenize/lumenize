@@ -1,14 +1,18 @@
 /**
  * Who a reaper believes, when a reply says somebody else died.
  *
- * A Galaxy fans a resource update to its subscribers with one 4-arg `lmz.call` per target, and every
+ * A Galaxy fans a resource update to its subscribers with one `lmz.call` per target, and every
  * target shares ONE handler chain — `resourcesResults.onBroadcastResult(resourceId)` for a resource
  * subscription, `resourcesResults.onQueryBroadcastResult(queryHash)` for a query — which carries
- * what changed and nothing identifying which target answered. The reaper takes *who died* from the
- * address the push was sent to (`callContext.callee`), never from the reply — the fix
- * `tasks/archive/mesh-entry-and-walk-gaps.md` § *R2* made, after a `ClientDisconnectedError` whose
- * `clientInstanceName` named anyone the replying client liked was the only source. The limbs below
- * show a forged reply cannot pick a victim.
+ * what changed and nothing identifying which target answered. Two things keep a reply from deciding
+ * a reap:
+ *  1. **The reaper takes *who died* from `callContext.callee`**, the fire-back's last hop, which
+ *     the tab's Gateway writes — the fix `tasks/archive/mesh-entry-and-walk-gaps.md` § *R2* made,
+ *     after a `ClientDisconnectedError` whose `clientInstanceName` named anyone the replying client
+ *     liked was the only source.
+ *  2. **The Gateway renames a tab's own `ClientDisconnectedError`**, so a reply cannot get even the
+ *     tab that sent it reaped. Only the Gateway says a tab is gone.
+ * The limbs below show a forged reply reaps nobody.
  *
  * ⚠️ **The harm is what this asserts, not a proxy for it.** A reaped subscriber stops receiving
  * pushes and its UI silently goes stale, so each limb changes the resource again and asks who still
@@ -37,8 +41,11 @@ import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
+import { waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
+/** The reapers' receipt: limb 1 waits for it, so both rows surviving cannot mean the reply never arrived. */
+export const bootVars = { DEBUG: 'nebula.Resources.reap' };
 
 /** A galaxy-tier scope: two segments, so the GALAXY owns resources and runs the reapers. The run's
  *  shared app, set as the scenario starts. */
@@ -49,8 +56,8 @@ const PUSH_TIMEOUT_MS = 8_000;
 
 /**
  * A tab that COUNTS the pushes it receives, and can be armed to answer one with a forged death
- * notice naming somebody else. `postprocess` restores `name` and copies every own key onto a plain
- * `Error` whatever the constructor, so the reaper's name guard matches and it reads the forged field.
+ * notice naming somebody else in a field of its own. The Gateway renames it before the reaper sees
+ * it, so the reaper's name guard does not match, and the reaper never reads that field anyway.
  *
  * ⚠️ **Armed, not hostile from birth.** The initial snapshot arrives through this same handler, so a
  * client that threw from the start would never become a subscriber at all — and every assertion
@@ -229,16 +236,28 @@ export async function run(stack: DevStack): Promise<void> {
         await new Promise((r) => setTimeout(r, 100));
       }
     });
-    await new Promise((r) => setTimeout(r, 1_500));  // the fire-back, then the reaper's DELETE
+    // The reaper logs its receipt of the forged reply before it decides anything, so both rows
+    // surviving below cannot be a reply that never arrived. A deployed target has no capture, and
+    // there the settle stands in for the barrier.
+    let receipt: { name?: string } | undefined;
+    if (stack.logs) {
+      const lines = await step('the reaper receives the forged reply', 20_000, () => waitForDebugLines(stack,
+        (all) => all.some((l) => l.message === 'update not delivered' && l.data.clientId === attacker.clientId),
+        'the reaper\'s receipt of the forged reply'));
+      receipt = lines.find((l) => l.message === 'update not delivered' && l.data.clientId === attacker.clientId)!.data;
+    } else {
+      await new Promise((r) => setTimeout(r, 1_500));  // the fire-back, then any DELETE
+    }
     attacker.client.hostile = false;
 
     const after = await bumpAndSee(both);
     record('a forged reply leaves the NAMED client subscribed', after.get('victim') === true,
       after.get('victim') ? 'the victim still receives pushes' : 'the victim was REAPED by a name it did not choose');
-    record('the REPLYING client is the row that goes', after.get('attacker') === false,
+    record('the REPLYING client keeps its subscription too', after.get('attacker') === true
+      && (receipt === undefined || receipt.name === 'Error'),
       after.get('attacker')
-        ? 'the forger kept its own subscription — it reaped someone else instead'
-        : 'the forger reaped itself, which it could have done by unsubscribing');
+        ? `the forger still receives pushes; the reaper heard ${receipt ? `an Error named ${receipt.name}` : 'a reply (its log is not observable on a deployed target)'}`
+        : `the forger was REAPED on its own word; the reaper heard ${receipt?.name ?? 'something'}`);
 
     // ── LIMB 2: the same forged error handed DIRECTLY to the old reaper address ───────────
     //    No reaper is left on the host — they answer through `resourcesResults`, which has no `@mesh()` — so the

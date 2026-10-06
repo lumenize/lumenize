@@ -120,11 +120,6 @@ const swcPlugin = swc.vite({
 // miniflare workers). Never set in .dev.vars or a deployed wrangler.jsonc.
 const testModeBindings = {
   LUMENIZE_MESH_TEST_MODE: 'true',
-  // Q5: the Gateway's mesh→client push timeout, overridden small so the
-  // no-response → ClientDisconnectedError path is deterministic without a real
-  // ~30s wait (test-mode only, never prod-reachable — security.md). Responding
-  // push tests answer in-isolate (sub-ms), well under this.
-  LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS: '500',
 };
 
 // --- Opt-out gating for the secret-less lane (mirrors packages/auth/vitest.config.js) ---
@@ -197,7 +192,25 @@ export default defineConfig({
             'test/for-docs/alarms/index.test.ts',
             'test/for-docs/security/**/*.test.ts',
             'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
+            'test/gateway-timing.test.ts', // Needs a short grace period — run in `gateway-timing`
           ],
+        },
+      },
+      {
+        // Gateway tests that need its grace period or its call timeout to RUN OUT. Every other
+        // project keeps the 60 s test-mode grace period, which their reconnect tests rely on under
+        // contention, and the 30 s call timeout, since a missed answer now closes the socket with
+        // 4408. These run alone with short ones (test-mode only, never prod-reachable — security.md).
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './wrangler.jsonc' },
+          miniflare: { bindings: {
+            ...testModeBindings, LUMENIZE_MESH_GRACE_PERIOD_MS: '3000', LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS: '500',
+          } },
+        })],
+        test: {
+          name: 'gateway-timing',
+          include: ['test/gateway-timing.test.ts'],
         },
       },
       ...(includeCfRemote ? [{

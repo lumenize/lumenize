@@ -55,7 +55,7 @@ describe('entrypoint auth-scope verification (e2e)', () => {
     const resp = await SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/test.tab1', {
       headers: {
         'Upgrade': 'websocket',
-        'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`,
+        'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${token}`,
       },
     });
     expect(resp.status).toBe(403);
@@ -66,7 +66,7 @@ describe('entrypoint auth-scope verification (e2e)', () => {
   // rung-4 craft rather than a login. Without the equality, reading `aud` would widen a plain
   // member of `acme.app` into passage over `acme.app.tenant-a`.
   const upgrade = (token: string) => SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/test.tab1', {
-    headers: { 'Upgrade': 'websocket', 'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}` },
+    headers: { 'Upgrade': 'websocket', 'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${token}` },
   });
 
   it("refuses a plain membership's token whose aud sits below its authScope", async () => {

@@ -1028,7 +1028,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz'
+          'Sec-WebSocket-Protocol': 'lmz.2'
         }
       });
 
@@ -1043,7 +1043,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.invalid-token'
+          'Sec-WebSocket-Protocol': 'lmz.2, lmz.access-token.invalid-token'
         }
       });
 
@@ -1069,7 +1069,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`
+          'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${token}`
         }
       });
 
@@ -1095,7 +1095,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`
+          'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${token}`
         }
       });
 
@@ -1210,7 +1210,7 @@ describe('@lumenize/auth - WebSocket Utilities', () => {
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.my-jwt-token-here'
+          'Sec-WebSocket-Protocol': 'lmz.2, lmz.access-token.my-jwt-token-here'
         }
       });
 
@@ -1231,7 +1231,7 @@ describe('@lumenize/auth - WebSocket Utilities', () => {
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz, other-protocol'
+          'Sec-WebSocket-Protocol': 'lmz.2, other-protocol'
         }
       });
 

@@ -2,9 +2,10 @@
  * Every update the plane sends that names a reaper reaps the tab its Gateway reports gone — one
  * limb per wiring site, each asserting the persisted row.
  *
- * A limb per SITE, not per kind of subscription, because of how a reap fails. A reaper runs locally
- * on the host that broadcast, where a handler's throw is only logged, and every reaper takes
- * `(string, result?)`, so a continuation naming the WRONG reaper compiles and fails silently.
+ * A limb per SITE, not per kind of subscription, because of how a reap fails. A reaper runs at the
+ * fire-back door of the host that broadcast, where a handler's throw is only logged, and the reapers
+ * take the same kinds of argument — strings, then the result — so a continuation naming the WRONG
+ * reaper compiles and fails silently.
  * `ResourcesHost` makes a MISNAMED reaper fail to compile (the `@ts-expect-error` below); only a
  * row assertion per site catches a wrong one.
  *
@@ -31,10 +32,19 @@
  * tab (`disconnect()` sends no unsubscribe — the row stays until a reaper takes it), then causes
  * the update and waits for the row to go. Mutation per limb: point its site's `onResult` at a
  * different reaper, or drop it, and exactly that limb reds.
+ *
+ * The first answer to a new subscriber is three more sites — a resource's first snapshot
+ * (`onBroadcastResult`), the tree's (`onTreeBroadcastResult`), and the Profile's
+ * (`onProfileBroadcastResult`). Like site 6, each is sent inside the subscriber's own subscribe,
+ * so no tab a test drives can be gone by then. Their limbs subscribe a tab whose Gateway never
+ * connected, by a hand-built envelope carrying a real admin's claims: that Gateway answers the
+ * first snapshot with `ClientDisconnectedError`, which is the one deterministic way to fail it. Mutation per limb: give the site the logging `onPushUndelivered` instead.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
 import { Browser } from '@lumenize/testing';
+import { preprocess } from '@lumenize/structured-clone';
 import { newContinuation } from '@lumenize/mesh';
 import type { Continuation } from '@lumenize/mesh';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
@@ -55,8 +65,8 @@ const TYPES = [
 const typedCtn = <T,>() => newContinuation() as Continuation<T>;
 void (() => {
   // @ts-expect-error — `onBroadcastResults` is not a reaper on ResourcesHost's results
-  typedCtn<ResourcesHost>().resourcesResults.onBroadcastResults('resource-id');
-  typedCtn<ResourcesHost>().resourcesResults.onBroadcastResult('resource-id');
+  typedCtn<ResourcesHost>().resourcesResults.onBroadcastResults('resource-id', 'sent-at');
+  typedCtn<ResourcesHost>().resourcesResults.onBroadcastResult('resource-id', 'sent-at');
 });
 
 const uuid = () => crypto.randomUUID();
@@ -232,5 +242,148 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     expect((await admin.resources.transaction({ [uuid()]: message(nodeA) })).kind).toBe('committed');
 
     await vi.waitFor(async () => expect(await rows('GALAXY', scope, 'query', id)).toBe(0));
+  });
+});
+
+/** The claims a real access token carries — its JWT payload. */
+function claimsOf(accessToken: string): { sub: string } & Record<string, unknown> {
+  return JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+}
+
+/**
+ * Run `chain` at `binding`/`instance` as a tab whose Gateway never connected, carrying
+ * `accessToken`'s claims, and return that tab's id. Its Gateway answers any push with
+ * `ClientDisconnectedError`.
+ */
+async function subscribeAsAbsentTab(
+  binding: string, instance: string, accessToken: string, chain: unknown[],
+): Promise<string> {
+  const claims = claimsOf(accessToken);
+  const tab = `${claims.sub}.absent-${uuid().slice(0, 8)}`;
+  const ack = await (env as any)[binding].getByName(instance).__executeOperation({
+    version: 1,
+    chain: preprocess(chain),
+    callContext: {
+      callChain: [{ type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: tab }],
+      originAuth: { sub: claims.sub, claims },
+    },
+    metadata: { callee: { type: 'LumenizeDO', bindingName: binding, instanceName: instance } },
+  });
+  expect(ack).toEqual({ $ack: true });
+  return tab;
+}
+
+const through = (...path: string[]) => (...args: unknown[]) =>
+  [...path.map((key) => ({ type: 'get', key })), { type: 'apply', args }];
+
+describe('the first answer to a new subscriber reaps a tab that is already gone', () => {
+  it('7: a resource\'s first snapshot (onBroadcastResult)', async () => {
+    const { star, accessToken, parent } = await starWithParent();
+    const tab = await subscribeAsAbsentTab('STAR', star, accessToken,
+      through('resources', 'subscribe')(VERSION, 'Parent', parent));
+    // The row was written and is gone: under the mutation it stays at 1.
+    await vi.waitFor(async () => expect(await rows('STAR', star, 'resource', tab)).toBe(0));
+  });
+
+  it('8: the tree\'s first snapshot (onTreeBroadcastResult)', async () => {
+    const { star, accessToken } = await starWithParent();
+    const tab = await subscribeAsAbsentTab('STAR', star, accessToken, through('resources', 'subscribeTree')());
+    await vi.waitFor(async () => expect(await rows('STAR', star, 'tree', tab)).toBe(0));
+  });
+
+  it('9: the Profile\'s first snapshot (onProfileBroadcastResult)', async () => {
+    const { accessToken } = await starWithParent();
+    const profileId = uuid();
+    await subscribeAsAbsentTab('PROFILE', profileId, accessToken, through('subscribe')());
+    await vi.waitFor(async () => {
+      const n = await (runInDurableObject as any)((env as any).PROFILE.getByName(profileId), (_i: any, c: any) =>
+        c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers').toArray()[0].n as number);
+      expect(n).toBe(0);
+    });
+  });
+});
+
+/**
+ * A reaper's answer and the gone tab's re-subscribe race: the Gateway fires the failure back in the
+ * turn it gives up, and the tab may come back and subscribe again while that fire-back is in flight.
+ * The reaper deletes only a row no newer than the push that failed, which rides its continuation as
+ * `sentAt`, so the re-subscribe's row survives.
+ *
+ * Why a hand-built fire-back: the window is the few milliseconds the fire-back spends in flight, and
+ * no product path widens it, so neither a `/live` run nor a real Gateway in this lane can land the
+ * re-subscribe inside it on demand. The fire-back is what the Gateway sends, on a chain the host
+ * started: the host's continuation, filled with `ClientDisconnectedError`, ending at the tab. Each
+ * limb's second half is the positive control: the same fire-back with a later `sentAt` reaps.
+ */
+describe('a re-subscribe that lands before its reaper keeps its row', () => {
+  afterEach(() => clearDebugSink());
+
+  const gone = () => Object.assign(new Error('Client did not reconnect within grace period'), { name: 'ClientDisconnectedError' });
+  const anHourBefore = (iso: string) => new Date(Date.parse(iso) - 3_600_000).toISOString();
+
+  /** The fire-back a tab's Gateway sends `host` when a push to `tab` fails, filling `chain`. */
+  async function fireBack(binding: string, host: string, tab: string, chain: unknown[]): Promise<void> {
+    const node = { type: 'LumenizeDO', bindingName: binding, instanceName: host };
+    const ack = await (env as any)[binding].getByName(host).__handleResponse({
+      version: 1,
+      chain: preprocess(chain),
+      callContext: {
+        callChain: [node, { type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: tab }],
+      },
+      metadata: { callee: node },
+    });
+    expect(ack).toEqual({ $ack: true });
+  }
+
+  /** Wait for the reaper's receipt for `tab`, logged whether or not it deleted anything. */
+  async function receipt(entries: DebugLogOutput[], tab: string, count: number): Promise<void> {
+    await vi.waitFor(() => expect(entries.filter((e) => e.message === 'update not delivered'
+      && e.data?.clientId === tab).length).toBe(count));
+  }
+
+  it('on the Resources plane', async () => {
+    const entries: DebugLogOutput[] = [];
+    setDebugSink((e) => entries.push(e));
+    const { star, parent } = await starWithParent();
+    const tab = await adminTab(star);
+    await tab.resources.subscribe('Parent', parent).snapshot;
+    const id = tab.lmz.instanceName!;
+    const subscribedAt: string = await (runInDurableObject as any)((env as any).STAR.getByName(star), (_i: any, c: any) =>
+      c.storage.sql.exec(`SELECT subscribedAt FROM Subscriptions WHERE kind = 'resource' AND clientId = ?`, id)
+        .toArray()[0].subscribedAt);
+
+    // A push sent an hour before this row was written failed, and its reaper arrives now.
+    await fireBack('STAR', star, id, through('resourcesResults', 'onBroadcastResult')(parent, anHourBefore(subscribedAt), gone()));
+    await receipt(entries, id, 1);
+    // MUTATION: drop the `subscribedAt <= ?` guard, and the newer row goes.
+    expect(await rows('STAR', star, 'resource', id)).toBe(1);
+
+    await fireBack('STAR', star, id, through('resourcesResults', 'onBroadcastResult')(parent, subscribedAt, gone()));
+    await vi.waitFor(async () => expect(await rows('STAR', star, 'resource', id)).toBe(0));
+    tab[Symbol.dispose]();
+  });
+
+  it('on a Profile', async () => {
+    const entries: DebugLogOutput[] = [];
+    setDebugSink((e) => entries.push(e));
+    const { star } = await starWithParent();
+    const tab = await adminTab(star);
+    const profileId = uuid();
+    await tab.subscribeProfile(profileId).snapshot;
+    const id = tab.lmz.instanceName!;
+    const profile = (env as any).PROFILE.getByName(profileId);
+    const subscribedAt: string = await (runInDurableObject as any)(profile, (_i: any, c: any) =>
+      c.storage.sql.exec('SELECT subscribedAt FROM Subscribers WHERE clientId = ?', id).toArray()[0].subscribedAt);
+    const subscribers = async () => (runInDurableObject as any)(profile, (_i: any, c: any) =>
+      c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers WHERE clientId = ?', id).toArray()[0].n as number);
+
+    await fireBack('PROFILE', profileId, id, through('onProfileBroadcastResult')(anHourBefore(subscribedAt), gone()));
+    await receipt(entries, id, 1);
+    // MUTATION: drop the `subscribedAt <= ?` guard, and the newer row goes.
+    expect(await subscribers()).toBe(1);
+
+    await fireBack('PROFILE', profileId, id, through('onProfileBroadcastResult')(subscribedAt, gone()));
+    await vi.waitFor(async () => expect(await subscribers()).toBe(0));
+    tab[Symbol.dispose]();
   });
 });

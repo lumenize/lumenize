@@ -18,7 +18,7 @@
  *  3. **A tab's own `onBeforeCall`** refuses a push whose last hop is another client. A forged last
  *     hop naming a DO slipped a push from one tab into a co-member's.
  *
- * `LumenizeClientGateway.#handleClientCall` now builds the chain from the verified origin alone, so
+ * `ClientGateway.#handleClientCall`, which the Gateway composes, now builds the chain from the verified origin alone, so
  * each limb below has to hold while the forging tab is still forging.
  *
  * ⚠️ **The only forged thing is what an attacker controls: the bytes its own tab sends.** Every tab

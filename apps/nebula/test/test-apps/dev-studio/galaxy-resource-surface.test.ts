@@ -112,7 +112,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
       'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
     ]);
     expect(surfaces.results).toEqual([
-      'onBroadcastResult', 'onInviteResult', 'onOntologyPulled', 'onQueryBroadcastResult',
+      'onBroadcastResult', 'onInviteResult', 'onOntologyPulled', 'onPushUndelivered', 'onQueryBroadcastResult',
       'onQuerySubscriberListBroadcastResult', 'onTreeBroadcastResult',
     ]);
     // The OrgTree's own state is `#` fields only: a TypeScript-`private` field is an own property,

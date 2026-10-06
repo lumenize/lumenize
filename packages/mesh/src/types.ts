@@ -95,12 +95,12 @@ export interface CallContext {
   originAuth?: OriginAuth;
 
   // Immutable — HTTP facts of the originating upgrade, stamped by the Gateway (client-originated
-  // chains only). Tamper-evident like originAuth: NOT in callChain[0] (which the client partly
-  // authors) and NOT in state (which any hop may mutate). Server-side only: never sent to a client.
+  // chains only). Tamper-evident like originAuth: NOT in callChain[0], which names the client.
+  // Server-side only: never sent to a client.
   originRequest?: OriginRequest;
 
   /**
-   * PER-HOP — the node THIS hop was addressed to, stamped by the framework from a source the
+   * PER-HOP — the node the call was addressed to, stamped by the framework from a source the
    * caller does not write. Unlike every other field here it does NOT ride through: each hop
    * overwrites it, and a wire-supplied value is discarded.
    *
@@ -109,22 +109,18 @@ export interface CallContext {
    * — and a reply is authored by the far side, which is how a client could name somebody else as
    * the one that died and have their subscription reaped.
    *
-   * **Two sources, both unforgeable, and no third.** `dispatchEnvelope` sets it from the address the
-   * caller addressed — the value a reaper reads. `executeEnvelope` sets it at the receiving node
-   * from that node's own identity, overwriting whatever arrived. ⓘ A mesh fire-back adds nothing:
-   * it can only land at `__handleResponse`, where `executeEnvelope` overwrites, so a handler running
-   * there sees ITS OWN node rather than the remote it called.
+   * **Three sources, none of which the caller writes.** On a local dispatch — a target that refused
+   * at admission — `dispatchEnvelope` sets it from the address the caller dispatched to. At a request door, `executeEnvelope` sets it from the
+   * receiving node's own identity. At the fire-back door, `__handleResponse`, `executeEnvelope`
+   * sets it from the fire-back's last hop, which the answering side's framework appended, or a
+   * Client's Gateway for its Client, so a result handler sees the target that answered. Each overwrites whatever arrived.
    */
   callee?: NodeIdentity;
-
-  // Mutable — can be modified by onBeforeCall or any handler along the way
-  state: Record<string, unknown>;
 }
 
 /** Options for `this.lmz.call()` */
 export interface CallOptions {
   newChain?: boolean; // Start fresh call chain (this node becomes origin)
-  state?: Record<string, unknown>; // Initial or merged state for the call
   /**
    * Called synchronously with the generated `callId` immediately before the
    * call message is sent (or queued, when disconnected). Lets instrumentation
@@ -134,12 +130,12 @@ export interface CallOptions {
    */
   onSent?: (callId: string) => void;
   /**
-   * For 4-arg `lmz.call` (with handler continuation): if true, the handler
-   * is invoked ONLY when the remote call rejects (Error path). On success,
-   * the handler chain is never dispatched and the success result is dropped.
+   * If true, the handler continuation is invoked ONLY when the remote call
+   * rejects (Error path). On success, the handler chain is never dispatched
+   * and the success result is dropped.
    *
-   * Useful for fire-and-forget paths that want structured error handling
-   * (retry, cleanup, escalation) without paying the per-call success-path
+   * For a call whose answer nobody needs: its handler still hears a failure
+   * (retry, cleanup, a log line) without paying the per-call success-path
    * dispatch cost — e.g. `lmz.broadcast`'s drop-on-failed-fanout, where
    * the originator only cares about `ClientDisconnectedError`.
    *

@@ -12,7 +12,7 @@
  * Each iteration captures three Node-side timestamps via `performance.now()`:
  *   - `sendTs`           — when the outbound CALL message is sent
  *   - `markerArrival`    — when the Gateway-emitted `bench_marker` arrives
- *   - `responseArrival`  — when the Promise settles (CALL_RESPONSE for delay,
+ *   - `responseArrival`  — when the Promise settles (the fire-back for delay,
  *                          mesh callback for transaction/ping)
  *
  * Three deltas:

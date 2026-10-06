@@ -375,8 +375,9 @@ export async function connectDriver(
       // has a wipe target; elsewhere the deterministic reset is the fresh boot.
       if (scope.split('.').length < 3) return;
       try {
-        // Fire-and-forget under the continuation-only model (mirrors nebula-studio-ui App.vue).
-        client.lmz.call('STAR', scope, (client.ctn() as any).resetDevData());
+        // One-way under the continuation-only model (mirrors nebula-studio-ui App.vue).
+        client.lmz.call('STAR', scope, (client.ctn() as any).resetDevData(),
+          client.ctn().logRefusal('resetDevData'), { onErrorOnly: true });
       } catch {
         /* best-effort — the deterministic local reset is the fresh boot */
       }

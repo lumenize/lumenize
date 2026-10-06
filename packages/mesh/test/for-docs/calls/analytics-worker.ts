@@ -2,9 +2,9 @@
  * AnalyticsWorker - Expensive computation offloaded from DO
  *
  * Demonstrates the two one-way calls pattern (DO→Worker→DO):
- * 1. DO fires-and-forgets to Worker to avoid wall-clock billing
+ * 1. DO makes a one-way call to the Worker to avoid wall-clock billing
  * 2. Worker does expensive async work (CPU-only billing)
- * 3. Worker fires-and-forgets back to DO with results
+ * 3. Worker makes a one-way call back to the DO with results
  */
 
 import { LumenizeWorker, mesh } from '../../../src/index.js';
@@ -29,11 +29,19 @@ export class AnalyticsWorker extends LumenizeWorker<Env> {
       readingTimeMinutes: Math.ceil(content.split(/\s+/).length / 200),
     };
 
-    // Fire-and-forget back to the DO with results
+    // A one-way call back to the DO with results
     this.lmz.call(
       'DOCUMENT_DO',
       documentId,
-      this.ctn<DocumentDO>().handleAnalyticsResult(result)
+      this.ctn<DocumentDO>().handleAnalyticsResult(result),
+      this.ctn().handleCallFailed('analytics result'),
+      { onErrorOnly: true }
     );
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }

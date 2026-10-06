@@ -1,5 +1,5 @@
 /**
- * The framework tells a handler which node this hop was addressed to.
+ * The framework tells a handler which node the call was addressed to.
  *
  * A fan-out hands every target the SAME handler chain, so the only thing that differs per target is
  * the reply — and a reply is authored by the far side. That is how a client could answer a push with
@@ -40,18 +40,15 @@ describe('callContext.callee is stamped per hop, from the address', () => {
     });
   });
 
-  it('the FIRE-BACK leg shows the receiving node, never the remote it called', async () => {
-    // A handler reached by a fire-back runs at the CALLER, and `executeEnvelope` stamps the field
-    // there from that node's own identity — so what it sees is itself, not `callee-fireback-target`.
-    // ⚠️ Worth stating because the obvious reading is the other one: `fireResponse` is where a
-    // fire-back is built, so a return address set THERE looks like the natural source. It is not,
-    // and it is not set: `__handleResponse` overwrites, so such a value never reaches a handler.
-    // The assertion that discriminates is the negative — the remote's name must not appear.
+  it('the FIRE-BACK leg shows the node that answered, from the last hop', async () => {
+    // A handler reached by a fire-back runs at the CALLER, so a stamp from the receiving node's own
+    // identity would show the caller itself. `executeEnvelope` takes the fire-back's last hop
+    // instead, which the answering node's `fireResponse` appended.
     const c = await caller('callee-fireback');
     c.testCalleeOnFireBack('TEST_DO', 'callee-fireback-target');
-    const seen = await seenBy(c) as { instanceName?: string };
-    expect(seen.instanceName).toBe('callee-fireback');
-    expect(seen.instanceName).not.toBe('callee-fireback-target');
+    expect(await seenBy(c)).toMatchObject({
+      type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'callee-fireback-target',
+    });
   });
 
   it("executeEnvelope: the receiving node's OWN name", async () => {
@@ -78,7 +75,6 @@ describe('callContext.callee is stamped per hop, from the address', () => {
       callContext: {
         callChain: [{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'somebody-else' }],
         callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'somebody-else' },
-        state: {},
       },
       metadata: {
         caller: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'somebody-else' },
@@ -91,5 +87,30 @@ describe('callContext.callee is stamped per hop, from the address', () => {
       expect(await target.getReceivedCallee()).toBeDefined();
     }, { timeout: 5000 });
     expect(await target.getReceivedCallee()).toMatchObject({ instanceName: 'callee-discard' });
+  }, 10000);
+
+  it('at the fire-back door, takes the last hop and DISCARDS a wire-supplied value', async () => {
+    // A real fire-back carries the answering node's own request-door stamp as `callee`, which
+    // always equals its last hop, so only a fire-back whose two disagree can tell which one the
+    // door reads. The handler must see the last hop.
+    const c = await caller('callee-fireback-discard');
+    const answerer = { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'the-answerer' };
+    const ack = await env.TEST_DO.getByName('callee-fireback-discard').__handleResponse({
+      version: 1,
+      chain: preprocess([{ type: 'get', key: 'recordCallee' }, { type: 'apply', args: ['done'] }]),
+      callContext: {
+        callChain: [
+          { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'callee-fireback-discard' },
+          answerer,
+        ],
+        callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'somebody-else' },
+      },
+      metadata: {
+        caller: answerer,
+        callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'callee-fireback-discard' },
+      },
+    } as never);
+    expect(ack).toEqual({ $ack: true });
+    expect(await seenBy(c)).toMatchObject({ instanceName: 'the-answerer' });
   }, 10000);
 });

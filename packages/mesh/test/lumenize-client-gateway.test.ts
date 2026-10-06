@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { env, runInDurableObject } from 'cloudflare:test';
 import { stringify, parse, preprocess, postprocess } from '@lumenize/structured-clone';
-import { setDebugSink, clearDebugSink } from '@lumenize/debug';
+import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
 import {
   GatewayMessageType,
   ClientDisconnectedError,
   WS_CLOSE_SUPERSEDED,
   type ConnectionStatusMessage,
   type CallMessage,
-  type CallResponseMessage,
+  type ResponseMessage,
   type IncomingCallMessage,
   type IncomingCallResponseMessage,
 } from '../src/lumenize-client-gateway';
@@ -28,6 +28,13 @@ function createFakeJwt(payload: Record<string, unknown>): string {
   return `${header}.${body}.${sig}`;
 }
 
+/** Wait until the Gateway has processed a close and started `instanceName`'s grace period. */
+async function waitForGracePeriod(entries: DebugLogOutput[], instanceName: string): Promise<void> {
+  await vi.waitFor(() => {
+    expect(entries.some((e) => e.message === 'grace period started' && e.data?.instanceName === instanceName)).toBe(true);
+  });
+}
+
 /** Upgrade with extra headers, wait for connection_status, return the socket. */
 async function connectWith(
   gateway: DurableObjectStub,
@@ -39,6 +46,7 @@ async function connectWith(
   const response = await gateway.fetch('https://example.com', {
     headers: {
       'Upgrade': 'websocket',
+      'Sec-WebSocket-Protocol': 'lmz.2',
       'Authorization': `Bearer ${token}`,
       'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
       'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -61,25 +69,24 @@ async function connectWith(
 }
 
 /**
- * Send one client call and return its postprocessed result. `callContext` is sent as given,
- * including any field outside the protocol, which is how a test plays a hostile client.
+ * Send one client call and return its postprocessed result. `callContext` is sent as given though
+ * `CallMessage` has no such field, which is how a test plays a hostile client.
  */
 async function callAndAwait(
   ws: WebSocket, callId: string, binding: string, instance: string, ops: unknown[],
-  callContext?: NonNullable<CallMessage['callContext']> & Record<string, unknown>,
+  callContext?: Record<string, unknown>,
 ): Promise<any> {
-  const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+  const responsePromise = new Promise<Answer>((resolve) => {
     ws.addEventListener('message', function handler(event: MessageEvent) {
       const msg = JSON.parse(event.data as string);
-      if (msg.type === GatewayMessageType.CALL_RESPONSE && msg.callId === callId) {
+      if (msg.type === GatewayMessageType.RESPONSE && msg.callId === callId) {
         ws.removeEventListener('message', handler);
-        msg.result = postprocess(msg.result);
-        resolve(msg);
+        resolve(answerOf(msg));
       }
     });
   });
-  const callMessage: CallMessage = {
-    type: GatewayMessageType.CALL, expectsResult: true, callId, binding, instance,
+  const callMessage: CallMessage & { callContext?: Record<string, unknown> } = {
+    type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER, callId, binding, instance,
     chain: preprocess(ops),
     ...(callContext ? { callContext } : {}),
   };
@@ -90,6 +97,77 @@ async function callAndAwait(
 }
 
 const GET_CONTEXT = [{ type: 'get', key: 'getCallContext' }, { type: 'apply', args: [] }];
+
+/** The `loadId` every hand-built call frame here carries, and its answers echo. */
+const LOAD_ID = 'test-load';
+/** A result handler continuation for a hand-built call frame; its answer fills the last argument. */
+const HANDLER = preprocess([{ type: 'get', key: 'onAnswer' }, { type: 'apply', args: [] }]);
+
+/** A node's fire-back to a Client's Gateway: the Client's handler, filled with `value`. */
+function fireBackTo(clientInstanceName: string, callId: string, value: unknown): CallEnvelope {
+  return {
+    version: 1,
+    chain: preprocess([{ type: 'get', key: 'onAnswer' }, { type: 'apply', args: [value] }]),
+    callContext: { callChain: [
+      { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: clientInstanceName },
+      { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'answering-node' },
+    ] },
+    metadata: {
+      caller: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'answering-node' },
+      callee: { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: clientInstanceName },
+    },
+    callId,
+    loadId: LOAD_ID,
+  };
+}
+
+/** What a `response` frame answered: the filled handler's last argument, a value or an Error. */
+interface Answer { callId: string; loadId: string; success: boolean; result?: any; error?: any; callChain: any[] }
+function answerOf(frame: ResponseMessage): Answer {
+  const chain = postprocess(frame.chain) as Array<{ type: string; args?: unknown[] }>;
+  const value = chain.at(-1)!.args!.at(-1);
+  const base = { callId: frame.callId, loadId: frame.loadId, callChain: frame.callContext.callChain };
+  return value instanceof Error ? { ...base, success: false, error: value } : { ...base, success: true, result: value };
+}
+
+/** The claims a node's call carries, which a test tells apart from the Client socket's own. */
+const NODE_ORIGIN_AUTH = { sub: 'node-origin', claims: { aud: 'node-origin' } };
+
+/**
+ * A node's call to `client`, as `lmz.call` builds one: the node is `returnAddr`, and its result
+ * handler continuation, `recordOutcome(tag)` on TEST_DO `recorder`, rides in `response`.
+ * `metadata.callee` is typed as `lmz.call` types it, a DO, which the Gateway must not copy.
+ */
+function callToClient(
+  client: string, recorder: string, tag: string,
+  opts: { ops?: unknown[]; gatewayBinding?: string; callerBinding?: string } = {},
+): CallEnvelope {
+  const node = { type: 'LumenizeDO' as const, bindingName: 'TEST_DO', instanceName: recorder };
+  return {
+    version: 1,
+    chain: preprocess(opts.ops ?? [{ type: 'get', key: 'someMethod' }, { type: 'apply', args: [] }]),
+    callContext: { callChain: [node], originAuth: NODE_ORIGIN_AUTH },
+    metadata: {
+      caller: { ...node, bindingName: opts.callerBinding ?? node.bindingName },
+      callee: { type: 'LumenizeDO', bindingName: opts.gatewayBinding ?? 'LUMENIZE_CLIENT_GATEWAY', instanceName: client },
+    },
+    response: {
+      kind: 'mesh',
+      returnAddr: node,
+      handler: preprocess([{ type: 'get', key: 'recordOutcome' }, { type: 'apply', args: [tag] }]),
+    },
+  };
+}
+
+/** What TEST_DO `recorder`'s handler kept under `tag`, once the Gateway's fire-back has arrived. */
+async function outcomeAt(recorder: string, tag: string): Promise<{ result: any; callee: any; callChain: any[]; originAuth: any }> {
+  const node = env.TEST_DO.getByName(recorder);
+  return vi.waitFor(async () => {
+    const kept = await node.getOutcomes(tag);
+    expect(kept).toHaveLength(1);
+    return parse(kept[0]);
+  }, { timeout: 5000 });
+}
 
 describe('LumenizeClientGateway', () => {
   describe('WebSocket connection', () => {
@@ -111,6 +189,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
         },
       });
 
@@ -125,6 +204,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'alice.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -142,6 +222,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'alice.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -160,6 +241,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'fresh-conn.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -190,63 +272,115 @@ describe('LumenizeClientGateway', () => {
     });
   });
 
-  describe('a lapsed token is not a death', () => {
-    /**
-     * The Gateway used to answer BOTH of its own conclusions — "this client is gone" and "this
-     * client's token just lapsed" — with `ClientDisconnectedError`, so every reaper's name guard
-     * matched a client that was about to reconnect. The lapse has its own class now, and the rename
-     * IS the fix: nothing per-reaper changes.
-     *
-     * ⚠️ **A REAL lapse on a REAL clock**, not a token born expired. `vi.setSystemTime` would move
-     * the clock both isolates see and would be legitimate, but the wait here is two and a half
-     * seconds — and what a token born expired proves is that the branch runs, not that a live
-     * socket survives its token lapsing under it.
-     */
-    it('answers a push to a live socket whose token lapsed with ClientTokenExpiredError', async () => {
-      const instance = 'lapsed.tab1';
-      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName(instance);
-      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
-
-      const token = createFakeJwt({ sub: 'lapsed', exp: Math.floor(Date.now() / 1000) + 2 });
+  describe('a push that meets an expired token waits for the reconnect', () => {
+    /** Upgrade `instance` with a token carrying `claims` over a 900 s `exp`, and accept the socket. */
+    async function upgrade(gateway: any, binding: string, instance: string, claims: Record<string, unknown>): Promise<WebSocket> {
+      const token = createFakeJwt({ sub: instance.split('.')[0], exp: Math.floor(Date.now() / 1000) + 900, ...claims });
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': instance,
-          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+          'X-Lumenize-DO-Binding-Name': binding,
         },
       });
       expect(response.status).toBe(101);
       const ws = response.webSocket!;
       ws.accept();
+      return ws;
+    }
 
-      // The socket stays OPEN across the lapse — that is the condition under test.
-      await new Promise((r) => setTimeout(r, 2500));
+    /** Answer the next call down `ws` with `value`, and resolve once it has. */
+    function answerNextCall(ws: WebSocket, value: unknown): Promise<void> {
+      return new Promise((resolve) => {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type !== GatewayMessageType.INCOMING_CALL) return;
+          ws.removeEventListener('message', handler);
+          const answer: IncomingCallResponseMessage = {
+            type: GatewayMessageType.INCOMING_CALL_RESPONSE,
+            callId: (msg as IncomingCallMessage).callId,
+            success: true,
+            result: preprocess(value),
+          };
+          ws.send(JSON.stringify(answer));
+          resolve();
+        });
+      });
+    }
 
-      const caller = env.TEST_DO.getByName('lapsed-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'lapsed-caller' });
-      caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', instance);
+    /** A token that lives 2 s, and a wait past it with its socket open. */
+    const shortExp = () => Math.floor(Date.now() / 1000) + 2;
+    const lapse = () => new Promise((r) => setTimeout(r, 2500));
 
-      await vi.waitFor(async () => {
-        expect(await caller.getLastCallErrorName()).toBeTruthy();
-      }, { timeout: 8000 });
+    // ⚠️ A REAL lapse on a REAL clock, not a token born expired: what a token born expired proves
+    // is that the branch runs, not that a live socket survives its token lapsing under it.
+    it('closes the socket with 4401, and delivers the push once the Client is back with a fresh token', async () => {
+      const instance = 'lapsed.tab1';
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(instance)) as any;
+      const ws = await upgrade(gateway, 'LUMENIZE_CLIENT_GATEWAY', instance, { exp: shortExp() });
+      const closed = new Promise<number>((resolve) => ws.addEventListener('close', (e) => resolve(e.code)));
+      await lapse();
 
-      // The discrimination IS the fix: a reaper guards on this name, so a lapse stops matching.
-      expect(await caller.getLastCallErrorName()).toBe('ClientTokenExpiredError');
-      expect(await caller.getLastCallErrorName()).not.toBe('ClientDisconnectedError');
+      expect(await gateway.__executeOperation(callToClient(instance, 'lapsed-recorder', 'lapsed'))).toEqual({ $ack: true });
+      expect(await closed).toBe(4401);
+
+      const ws2 = await upgrade(gateway, 'LUMENIZE_CLIENT_GATEWAY', instance, {});
+      await answerNextCall(ws2, 'answered on the new socket');
+      // MUTATION: answer at once, as before, and the node hears an Error.
+      const { result } = await outcomeAt('lapsed-recorder', 'lapsed');
+      expect(result).toBe('answered on the new socket');
+      ws2.close();
     }, 20000);
 
-    it('still answers a push to a client that never connected with ClientDisconnectedError', async () => {
-      // The control. Without it, a change that renamed BOTH conclusions would satisfy the limb
-      // above while leaving the two just as conflated as before.
-      const caller = env.TEST_DO.getByName('never-connected-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'never-connected-caller' });
-      caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', 'nobody.tab1');
+    // The Gateway's other expiry check, on a frame the Client sends up, closes with 4401 too, and a
+    // push right behind it, ahead of the Client's close echo, must wait for the reconnect as well.
+    // Both run in one turn inside the Gateway here, so no echo can come between them.
+    it('a push right behind a 4401 the Client\'s own frame caused waits for the reconnect', async () => {
+      const instance = 'lapsed-frame.tab1';
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(instance)) as any;
+      await upgrade(gateway, 'LUMENIZE_CLIENT_GATEWAY', instance, { exp: shortExp() });
+      await lapse();
 
-      await vi.waitFor(async () => {
-        expect(await caller.getLastCallErrorName()).toBeTruthy();
-      }, { timeout: 8000 });
-      expect(await caller.getLastCallErrorName()).toBe('ClientDisconnectedError');
+      await runInDurableObject(gateway, async (host: any, ctx: DurableObjectState) => {
+        const [server] = ctx.getWebSockets(instance);
+        void host.webSocketMessage(server, JSON.stringify({ type: GatewayMessageType.CALL }));
+        expect(await host.__executeOperation(callToClient(instance, 'lapsed-frame-recorder', 'behind'))).toEqual({ $ack: true });
+      });
+
+      const ws2 = await upgrade(gateway, 'LUMENIZE_CLIENT_GATEWAY', instance, {});
+      void answerNextCall(ws2, 'answered after the reconnect');
+      // MUTATION: start no grace period at this 4401, and the push finds no socket and is answered
+      // at once.
+      const { result } = await outcomeAt('lapsed-frame-recorder', 'behind');
+      expect(result).toBe('answered after the reconnect');
+      ws2.close();
+    }, 20000);
+
+    // In-lane because no product path changes a claim inside one grace period. An admin's token
+    // lapses under a push only admins may receive, and the Client comes back demoted.
+    it('checks the held push against the new socket\'s claims, never the expired one\'s', async () => {
+      const instance = 'lapsed-admin.tab1';
+      const gateway = env.CUSTOM_GATEWAY.get(env.CUSTOM_GATEWAY.idFromName(instance)) as any;
+      const ws = await upgrade(gateway, 'CUSTOM_GATEWAY', instance, { admin: true, exp: shortExp() });
+      const closed = new Promise<number>((resolve) => ws.addEventListener('close', (e) => resolve(e.code)));
+      await lapse();
+
+      expect(await gateway.__executeOperation(callToClient(instance, 'lapsed-admin-recorder', 'admins-only', {
+        gatewayBinding: 'CUSTOM_GATEWAY', callerBinding: 'ADMINS_ONLY_BINDING',
+      }))).toEqual({ $ack: true });
+      expect(await closed).toBe(4401);
+
+      const ws2 = await upgrade(gateway, 'CUSTOM_GATEWAY', instance, { admin: false });
+      let delivered = false;
+      void answerNextCall(ws2, 'delivered').then(() => { delivered = true; });
+      // MUTATION: check against the socket the call found, and the push reaches a Client no longer
+      // allowed it.
+      const { result: error } = await outcomeAt('lapsed-admin-recorder', 'admins-only');
+      expect(error.message).toBe('Custom: calls from ADMINS_ONLY_BINDING reach admins only');
+      expect(delivered).toBe(false);
+      ws2.close();
     }, 20000);
   });
 
@@ -260,6 +394,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'caller.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -293,8 +428,7 @@ describe('LumenizeClientGateway', () => {
 
       // Send a call to EchoDO
       const callMessage: CallMessage = {
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'test-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-instance-1',
@@ -302,15 +436,14 @@ describe('LumenizeClientGateway', () => {
       };
 
       // Set up response listener
-      // Gateway sends CALL_RESPONSE via JSON.stringify with result: preprocess(result)
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      // The Gateway sends the filled continuation down as a `response` frame
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
             // Postprocess the result field (Gateway preprocesses it)
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
@@ -321,7 +454,6 @@ describe('LumenizeClientGateway', () => {
       // Wait for response
       const callResponse = await responsePromise;
 
-      expect(callResponse.type).toBe(GatewayMessageType.CALL_RESPONSE);
       expect(callResponse.callId).toBe('test-call-1');
       expect(callResponse.success).toBe(true);
       expect(callResponse.result).toMatchObject({
@@ -353,6 +485,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'auth-user.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -384,22 +517,20 @@ describe('LumenizeClientGateway', () => {
 
       // Call EchoDO to inspect context
       const callMessage: CallMessage = {
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'auth-test-call',
         binding: 'ECHO_DO',
         instance: 'echo-auth-test',
         chain,
       };
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
             // Postprocess the result field (Gateway preprocesses it)
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
@@ -418,6 +549,35 @@ describe('LumenizeClientGateway', () => {
       });
 
       ws.close();
+    });
+
+    it('refuses a continuation that cannot run, or that ends in no call, each by its own message, before dispatch', async () => {
+      const entries: any[] = [];
+      setDebugSink((e) => entries.push(e));
+      try {
+        const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('malformed.tab1'));
+        const ws = await connectWith(gateway, 'malformed.tab1', 'malformed', {});
+        const frames: Array<{ callId?: string }> = [];
+        ws.addEventListener('message', (e: MessageEvent) => frames.push(JSON.parse(e.data as string)));
+        const send = (callId: string, handler: unknown) => ws.send(JSON.stringify({
+          type: GatewayMessageType.CALL, loadId: LOAD_ID, handler, callId, binding: 'ECHO_DO', instance: 'echo-malformed',
+          chain: preprocess([{ type: 'get', key: 'echo' }, { type: 'apply', args: ['x'] }]),
+        }));
+        send('bad-empty', preprocess([]));
+        send('bad-get', preprocess([{ type: 'get', key: 'onAnswer' }]));
+        // A well-formed call on the same socket is the barrier: by its answer, both were handled.
+        await callAndAwait(ws, 'good', 'ECHO_DO', 'echo-malformed', [{ type: 'get', key: 'echo' }, { type: 'apply', args: ['ok'] }]);
+
+        const refusals = entries.filter((e) => e.message === 'refused a call whose result handler continuation is malformed');
+        expect(refusals.map((e) => [e.data.callId, e.data.refusal])).toEqual([
+          ['bad-empty', 'Invalid operation chain: a chain must have at least one operation'],
+          ['bad-get', 'Invalid result handler continuation: it must end in a call, which its answer is filled into'],
+        ]);
+        expect(frames.filter((f) => f.callId === 'bad-empty' || f.callId === 'bad-get')).toEqual([]);
+        ws.close();
+      } finally {
+        clearDebugSink();
+      }
     });
   });
 
@@ -438,7 +598,6 @@ describe('LumenizeClientGateway', () => {
           { type: 'LumenizeDO', bindingName: 'NOT_A_BINDING', instanceName: 'anything' },
           { type: 'LumenizeDO', bindingName: 'ECHO_DO', instanceName: 'a-do-it-never-passed' },
         ],
-        state: preprocess({}),
       });
       expect(forged.callChain).toEqual([
         { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: 'chain-user.tab1' },
@@ -468,10 +627,9 @@ describe('LumenizeClientGateway', () => {
       // A direct DO-stub fetch carries no runtime `cf`, so the pick is ABSENT rather than an
       // empty object — the attachment stays small and a consumer can tell "unknown" from "empty".
       expect(ctx.originRequest.cf).toBeUndefined();
-      // And it rides beside originAuth, never inside callChain[0] or state (both client-writable).
+      // And it rides beside originAuth, never inside callChain[0], which names the client.
       expect(ctx.originAuth.sub).toBe('or-user');
       expect(ctx.callChain[0]).not.toHaveProperty('originRequest');
-      expect(ctx.state).not.toHaveProperty('originRequest');
       ws.close();
     });
 
@@ -492,7 +650,7 @@ describe('LumenizeClientGateway', () => {
     it('survives DO→DO forwarding unchanged (multi-hop)', async () => {
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName('or-user.tab3'));
       const ws = await connectWith(gateway, 'or-user.tab3', 'or-user', { 'Accept-Language': 'de-DE' });
-      // hop A captures its own context, then fires an onward 3-arg call so hop B captures too.
+      // hop A captures its own context, then fires an onward call so hop B captures too.
       await callAndAwait(ws, 'or-3', 'TEST_DO', 'or-hop-a', [
         { type: 'get', key: 'captureAndForward' },
         { type: 'apply', args: ['TEST_DO', 'or-hop-b'] },
@@ -563,6 +721,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -628,21 +787,19 @@ describe('LumenizeClientGateway', () => {
       ]);
 
       const callMessage: CallMessage = {
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'supersession-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-supersession-1',
         chain,
       };
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws2.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws2.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
@@ -677,7 +834,7 @@ describe('LumenizeClientGateway', () => {
     // A mesh node fires a client-originated call's RESULT to the Gateway's __handleResponse door;
     // the Gateway must deliver it to whatever socket the client is on NOW, never the socket the
     // call left on (delivery is re-resolved by instanceName, not bound to a transient socket).
-    it('re-resolves a RESULT to the CURRENT socket after a swap, not the origin socket', async () => {
+    it('re-resolves an answer to the CURRENT socket after a swap, not the origin socket', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('flowc.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
@@ -686,28 +843,24 @@ describe('LumenizeClientGateway', () => {
       const ws1Received: any[] = [];
       ws1.addEventListener('message', (event: MessageEvent) => {
         const m = JSON.parse(event.data as string);
-        if (m.type === GatewayMessageType.CALL_RESPONSE) ws1Received.push(m);
+        if (m.type === GatewayMessageType.RESPONSE) ws1Received.push(m);
       });
 
       const { ws: ws2 } = await connectAndWait(gateway, 'flowc', 'flowc.tab1');
-      const ws2ResultPromise = new Promise<CallResponseMessage>((resolve) => {
+      const ws2ResultPromise = new Promise<Answer>((resolve) => {
         ws2.addEventListener('message', function h(event: MessageEvent) {
           const m = JSON.parse(event.data as string);
-          if (m.type === GatewayMessageType.CALL_RESPONSE) { ws2.removeEventListener('message', h); resolve(m); }
+          if (m.type === GatewayMessageType.RESPONSE) { ws2.removeEventListener('message', h); resolve(answerOf(m)); }
         });
       });
 
-      // Fire the RESULT back to the door. It must land on ws2 (current) — NOT ws1 (origin/dead).
-      const ack = await gateway.__handleResponse({
-        callId: 'flowc-call-1',
-        clientInstanceName: 'flowc.tab1',
-        $result: preprocess('hello-current-socket'),
-      });
+      // Fire the answer back to the door. It must land on ws2 (current) — NOT ws1 (origin/dead).
+      const ack = await gateway.__handleResponse(fireBackTo('flowc.tab1', 'flowc-call-1', 'hello-current-socket'));
       expect(ack).toEqual({ $ack: true });
 
       const delivered = await ws2ResultPromise;
       expect(delivered.callId).toBe('flowc-call-1');
-      expect(postprocess(delivered.result)).toBe('hello-current-socket');
+      expect(delivered.result).toBe('hello-current-socket');
 
       // Capable-of-failing: the origin socket received NOTHING (delivery is not socket-bound).
       await new Promise((r) => setTimeout(r, 50));
@@ -716,27 +869,26 @@ describe('LumenizeClientGateway', () => {
       ws2.close();
     });
 
-    // Q4: a client 4-arg whose REQUEST is rejected at admission (the callee's onBeforeCall throws)
-    // must deliver an ERROR RESULT to the client — the client keeps its handler in-heap and must
-    // never hang. The Gateway synthesizes it from the callee's early-ack {$error}.
+    // Q4: a client call whose REQUEST is rejected at admission (the callee's onBeforeCall throws)
+    // must deliver an ERROR RESULT to the client, which must never hang. The Gateway fills the
+    // Client's continuation with the callee's early-ack {$error} and sends it down.
     it('Q4: an admission-rejected client call delivers an ERROR RESULT to the client (never stranded)', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('q4-reject.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
       const { ws } = await connectAndWait(gateway, 'q4-reject', 'q4-reject.tab1');
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function h(event: MessageEvent) {
           const m = JSON.parse(event.data as string);
-          if (m.type === GatewayMessageType.CALL_RESPONSE) { ws.removeEventListener('message', h); resolve(m); }
+          if (m.type === GatewayMessageType.RESPONSE) { ws.removeEventListener('message', h); resolve(answerOf(m)); }
         });
       });
 
       // REJECTING_DO.onBeforeCall throws → the Star early-acks {$error} → the Gateway sends an
-      // error CALL_RESPONSE for this callId (capable-of-failing: if #handleClientCall swallowed the
+      // error `response` for this callId (capable-of-failing: if #handleClientCall swallowed the
       // ack {$error} the client would hang and this promise never resolves).
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'q4-reject-1',
         binding: 'REJECTING_DO',
         instance: 'q4-reject-target',
@@ -746,7 +898,7 @@ describe('LumenizeClientGateway', () => {
       const r = await responsePromise;
       expect(r.callId).toBe('q4-reject-1');
       expect(r.success).toBe(false);
-      expect(postprocess(r.error).message).toMatch(/admission rejected by onBeforeCall/);
+      expect(r.error.message).toMatch(/admission rejected by onBeforeCall/);
       ws.close();
     });
 
@@ -757,16 +909,15 @@ describe('LumenizeClientGateway', () => {
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
       const { ws } = await connectAndWait(gateway, 'unencodable', 'unencodable.tab1');
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function h(event: MessageEvent) {
           const m = JSON.parse(event.data as string);
-          if (m.type === GatewayMessageType.CALL_RESPONSE) { ws.removeEventListener('message', h); resolve(m); }
+          if (m.type === GatewayMessageType.RESPONSE) { ws.removeEventListener('message', h); resolve(answerOf(m)); }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'unencodable-1',
         binding: 'TEST_DO',
         instance: 'unencodable-target',
@@ -776,7 +927,7 @@ describe('LumenizeClientGateway', () => {
       const r = await responsePromise;
       expect(r.callId).toBe('unencodable-1');
       expect(r.success).toBe(false);
-      const error = postprocess(r.error);
+      const error = r.error;
       expect(error.name).toBe('DataCloneError');
       expect(error.message).toBe(
         'The result of TEST_DO.returnUnencodable() cannot cross the mesh. '
@@ -785,46 +936,17 @@ describe('LumenizeClientGateway', () => {
       ws.close();
     });
 
-    // Q5: with CLIENT_CALL_TIMEOUT_MS injected small (miniflare binding), a mesh→client push to a
-    // connected-but-non-responding client fails fast with ClientDisconnectedError — deterministic,
-    // no real ~30s wait. Exercises the #clientCallTimeoutMs override branch.
-    it('Q5: a mesh→client push to a non-responding client times out (injected CLIENT_CALL_TIMEOUT_MS)', async () => {
-      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('q5-timeout.tab1');
-      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
-      const { ws } = await connectAndWait(gateway, 'q5-timeout', 'q5-timeout.tab1');
-      // Deliberately DO NOT respond to the INCOMING_CALL.
-
-      const result = await gateway.__executeOperation({
-        version: 1,
-        chain: preprocess([{ type: 'get', key: 'noSuchClientMethod' }, { type: 'apply', args: [] }]),
-        callContext: { callChain: [], state: {} },
-        metadata: {
-          caller: { type: 'LumenizeDO', bindingName: 'SOME_DO', instanceName: 'x' },
-          callee: { type: 'LumenizeDO', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: 'q5-timeout.tab1' },
-        },
-      });
-
-      const err = postprocess(result.$error);
-      expect(err.name).toBe('ClientDisconnectedError');
-      expect(err.message).toMatch(/timed out/i);
-      ws.close();
-    }, 4000);
-
-    it('drops a RESULT when the client has no socket (client re-issues on reload) — via the debug sink', async () => {
+    it('drops an answer when the client has no socket — via the debug sink', async () => {
       const entries: any[] = [];
       setDebugSink((e) => entries.push(e));
       try {
         const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('flowc-nosocket.tab1');
         const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
-        // No connection was ever established → no active socket, no grace alarm → immediate drop.
-        const ack = await gateway.__handleResponse({
-          callId: 'flowc-drop-1',
-          clientInstanceName: 'flowc-nosocket.tab1',
-          $result: preprocess('never-delivered'),
-        });
+        // No connection was ever established → no active socket, no grace period → immediate drop.
+        const ack = await gateway.__handleResponse(fireBackTo('flowc-nosocket.tab1', 'flowc-drop-1', 'never-delivered'));
         expect(ack).toEqual({ $ack: true });
-        expect(entries.some((e) => typeof e.message === 'string' && e.message.includes('no socket for client RESULT'))).toBe(true);
+        expect(entries.some((e) => typeof e.message === 'string' && e.message.includes('no socket for the client\'s answer'))).toBe(true);
       } finally {
         clearDebugSink();
       }
@@ -839,6 +961,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': 'Bearer not-a-valid-jwt',
           'X-Lumenize-DO-Instance-Name-Or-Id': 'jwt-invalid.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -858,6 +981,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'no-sub.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -877,6 +1001,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
         },
       });
@@ -894,6 +1019,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'no-binding.tab1',
         },
@@ -912,6 +1038,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'nodot',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -936,6 +1063,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -971,19 +1099,18 @@ describe('LumenizeClientGateway', () => {
         { type: 'apply', args: ['still alive'] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'post-unknown-call',
         binding: 'ECHO_DO',
         instance: 'echo-post-unknown',
@@ -1006,19 +1133,18 @@ describe('LumenizeClientGateway', () => {
         { type: 'apply', args: ['after bad json'] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'post-badjson-call',
         binding: 'ECHO_DO',
         instance: 'echo-post-badjson',
@@ -1038,20 +1164,18 @@ describe('LumenizeClientGateway', () => {
         { type: 'apply', args: ['hello-from-client'] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'worker-call-1',
         binding: 'TEST_WORKER',
         chain,
@@ -1071,19 +1195,18 @@ describe('LumenizeClientGateway', () => {
         { type: 'apply', args: [] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'error-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-error-test',
@@ -1113,20 +1236,18 @@ describe('LumenizeClientGateway', () => {
         { type: 'apply', args: ['still alive after unknown icr'] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'post-icr-call',
         binding: 'ECHO_DO',
         instance: 'echo-post-icr',
@@ -1138,7 +1259,7 @@ describe('LumenizeClientGateway', () => {
       ws.close();
     });
 
-    it('passes callContext.state through to target DO', async () => {
+    it('a frame\'s callContext reaches the node as nothing — no state key, since the Gateway builds the context', async () => {
       const { ws } = await connectGateway('state-test', 'state-test.tab1');
 
       const chain = preprocess([
@@ -1146,33 +1267,32 @@ describe('LumenizeClientGateway', () => {
         { type: 'apply', args: [] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'state-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-state-test',
         chain,
+        // A hostile frame: CallMessage has no callContext, so whatever this carries is never read.
         callContext: {
           callChain: [],
-          state: preprocess({ myKey: 'myValue' }),
+          state: preprocess({ isEditor: true }),
         },
       }));
 
       const callResponse = await responsePromise;
       expect(callResponse.success).toBe(true);
-      expect(callResponse.result.state).toMatchObject({ myKey: 'myValue' });
+      expect(callResponse.result).not.toHaveProperty('state');
       ws.close();
     });
   });
@@ -1192,6 +1312,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -1222,8 +1343,7 @@ describe('LumenizeClientGateway', () => {
 
       // Send a message — should trigger token expiry check and close
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'expired-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-expired',
@@ -1247,7 +1367,7 @@ describe('LumenizeClientGateway', () => {
       const result = await gateway.__executeOperation({
         version: 0,
         chain: {},
-        callContext: { callChain: [], state: {} },
+        callContext: { callChain: [] },
         metadata: {},
       });
 
@@ -1256,28 +1376,133 @@ describe('LumenizeClientGateway', () => {
       expect(error.message).toContain('Unsupported RPC envelope version');
     });
 
-    it('returns ClientDisconnectedError when no client connected', async () => {
-      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('exec-op-disconnected.tab1');
-      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
+    it('acks a call to a Client with no socket, and the node\'s handler then hears ClientDisconnectedError from that Client', async () => {
+      const name = 'exec-op-disconnected.tab1';
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(name)) as any;
 
-      const result = await gateway.__executeOperation({
-        version: 1,
-        chain: preprocess([
-          { type: 'get', key: 'someMethod' },
-          { type: 'apply', args: [] },
-        ]),
-        callContext: { callChain: [], state: {} },
-        metadata: {},
+      expect(await gateway.__executeOperation(callToClient(name, 'exec-op-disconnected-recorder', 'gone')))
+        .toEqual({ $ack: true });
+
+      const { result, callee, callChain, originAuth } = await outcomeAt('exec-op-disconnected-recorder', 'gone');
+      expect({ name: result.name, message: result.message })
+        .toEqual({ name: 'ClientDisconnectedError', message: 'Client is not connected' });
+      // With no socket, the Client's names come from the envelope, and its type from the Gateway.
+      const client = { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: name };
+      expect(callChain).toEqual([{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'exec-op-disconnected-recorder' }, client]);
+      expect(callee).toEqual(client);
+      expect(originAuth).toEqual(NODE_ORIGIN_AUTH);
+    });
+
+    it('answers the node with the decode error when the Client\'s answer will not decode', async () => {
+      const name = 'exec-op-undecodable.tab1';
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(name)) as any;
+      const ws = await connectWith(gateway, name, 'exec-op-undecodable', {});
+      ws.addEventListener('message', (event: MessageEvent) => {
+        const msg = JSON.parse(event.data as string);
+        if (msg.type !== GatewayMessageType.INCOMING_CALL) return;
+        // An arraybuffer whose bytes are not an array: structured-clone refuses to decode it.
+        ws.send(JSON.stringify({
+          type: GatewayMessageType.INCOMING_CALL_RESPONSE, callId: msg.callId, success: true,
+          result: { json: { $type: 'arraybuffer', subtype: 'ArrayBuffer', data: 'not-an-array' }, meta: {} },
+        }));
       });
 
-      expect(result.$error).toBeDefined();
-      const error = postprocess(result.$error);
-      expect(error).toBeInstanceOf(ClientDisconnectedError);
-      expect(error.message).toContain('Client is not connected');
+      expect(await gateway.__executeOperation(callToClient(name, 'exec-op-undecodable-recorder', 'undecodable')))
+        .toEqual({ $ack: true });
+      const { result } = await outcomeAt('exec-op-undecodable-recorder', 'undecodable');
+      expect({ name: result.name, message: result.message })
+        .toEqual({ name: 'DataCloneError', message: 'Could not deserialize arraybuffer: data is not an array' });
+      ws.close();
+    });
+
+    it('acks before the Client answers, then fills the node\'s handler with the answer, under the node\'s own claims', async () => {
+      const name = 'exec-op-held.tab1';
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(name)) as any;
+      const ws = await connectWith(gateway, name, 'exec-op-held', {});
+      const incoming = new Promise<IncomingCallMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.INCOMING_CALL) { ws.removeEventListener('message', handler); resolve(msg); }
+        });
+      });
+
+      // The Client holds its answer until the ack is in: an ack that waited for it would never come.
+      const ack = await Promise.race([
+        gateway.__executeOperation(callToClient(name, 'exec-op-held-recorder', 'held')),
+        new Promise((resolve) => setTimeout(() => resolve('no ack while the Client held its answer'), 2000)),
+      ]);
+      expect(ack).toEqual({ $ack: true });
+
+      const call = await incoming;
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.INCOMING_CALL_RESPONSE, callId: call.callId, success: true, result: preprocess('held-answer'),
+      } satisfies IncomingCallResponseMessage));
+
+      const { result, callChain, originAuth } = await outcomeAt('exec-op-held-recorder', 'held');
+      expect(result).toBe('held-answer');
+      // From the socket's attachment this time, and the node's claims, never the socket's.
+      expect(callChain.at(-1)).toEqual({ type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: name });
+      expect(originAuth).toEqual(NODE_ORIGIN_AUTH);
+      ws.close();
     });
   });
 
-  describe('Grace period and alarm', () => {
+  describe('Grace period', () => {
+    // Every test here waits on the Gateway's own markers, so the sink is installed for each.
+    let entries: DebugLogOutput[] = [];
+    beforeEach(() => {
+      entries = [];
+      setDebugSink((e) => entries.push(e));
+    });
+    afterEach(() => clearDebugSink());
+
+    it('an evicted Gateway answers a push at once, and tells the reconnect subscriptionRequired: true', async () => {
+      const name = 'grace-evicted.tab1';
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(name)) as any;
+
+      const token = createFakeJwt({ sub: 'grace-evicted', exp: Math.floor(Date.now() / 1000) + 900 });
+      const headers = {
+        'Upgrade': 'websocket',
+        'Sec-WebSocket-Protocol': 'lmz.2',
+        'Authorization': `Bearer ${token}`,
+        'X-Lumenize-DO-Instance-Name-Or-Id': name,
+        'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+      };
+      const response = await gateway.fetch('https://example.com', { headers });
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+      ws.close(1000, 'Normal close');
+      await waitForGracePeriod(entries, name);
+
+      // Evict it inside the grace period. The grace period lives in memory, so it goes with it.
+      // A stub that saw the abort stays broken, so the calls below take a fresh one, as a caller would.
+      await runInDurableObject(gateway, (_instance, ctx) => { ctx.abort(); }).catch(() => {});
+      const fresh = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(name)) as any;
+
+      expect(await fresh.__executeOperation(callToClient(name, 'grace-evicted-recorder', 'push')))
+        .toEqual({ $ack: true });
+      const { result: error } = await outcomeAt('grace-evicted-recorder', 'push');
+      expect({ name: error.name, message: error.message })
+        .toEqual({ name: 'ClientDisconnectedError', message: 'Client is not connected' });
+
+      const response2 = await fresh.fetch('https://example.com', { headers });
+      expect(response2.status).toBe(101);
+      const ws2 = response2.webSocket!;
+      ws2.accept();
+      const status = await new Promise<ConnectionStatusMessage>((resolve) => {
+        ws2.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws2.removeEventListener('message', handler);
+            resolve(msg);
+          }
+        });
+      });
+      expect(status.subscriptionRequired).toBe(true);
+      ws2.close();
+    });
+
     it('reconnect within grace period reports subscriptionRequired: false', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
@@ -1286,6 +1511,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -1305,22 +1531,20 @@ describe('LumenizeClientGateway', () => {
         });
       });
 
-      // Close WebSocket (not superseded) — triggers grace period alarm
+      // Close WebSocket (not superseded) — starts the grace period
       ws.close(1000, 'Normal close');
 
-      // Wait for webSocketClose to have processed the close frame and set the alarm.
+      // Wait for webSocketClose to have processed the close frame and started the grace period.
       // ws.close() only queues the frame; under CPU contention the reconnect fetch
       // below can race ahead of webSocketClose if we don't wait.
-      await vi.waitFor(async () => {
-        const alarm = await runInDurableObject(gateway, (_instance, ctx) => ctx.storage.getAlarm());
-        expect(alarm).not.toBeNull();
-      });
+      await waitForGracePeriod(entries, 'grace.tab1');
 
       // Reconnect within grace period
       const token2 = createFakeJwt({ sub: 'grace', exp: Math.floor(Date.now() / 1000) + 900 });
       const response2 = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token2}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -1344,136 +1568,7 @@ describe('LumenizeClientGateway', () => {
       ws2.close();
     });
 
-    it('reports subscriptionRequired: true after grace period expires', async () => {
-      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace-expired.tab1');
-      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
-
-      const token = createFakeJwt({ sub: 'grace-expired', exp: Math.floor(Date.now() / 1000) + 900 });
-      const response = await gateway.fetch('https://example.com', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Authorization': `Bearer ${token}`,
-          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-expired.tab1',
-          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
-        },
-      });
-      expect(response.status).toBe(101);
-      const ws = response.webSocket!;
-      ws.accept();
-
-      await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event: MessageEvent) {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
-            ws.removeEventListener('message', handler);
-            resolve();
-          }
-        });
-      });
-
-      ws.close(1000, 'Normal close');
-
-      // Fire the grace period alarm (simulates expiry).
-      // Retry until the alarm actually runs: ws.close() only queues the close frame,
-      // so under CPU contention webSocketClose may not have set the alarm yet when
-      // the first runDurableObjectAlarm call happens (it returns false and is a no-op).
-      await vi.waitFor(async () => {
-        const fired = await runDurableObjectAlarm(gateway);
-        expect(fired).toBe(true);
-      });
-
-      // Reconnect after alarm — should report subscriptionRequired: true
-      const token2 = createFakeJwt({ sub: 'grace-expired', exp: Math.floor(Date.now() / 1000) + 900 });
-      const response2 = await gateway.fetch('https://example.com', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Authorization': `Bearer ${token2}`,
-          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-expired.tab1',
-          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
-        },
-      });
-      expect(response2.status).toBe(101);
-      const ws2 = response2.webSocket!;
-      ws2.accept();
-
-      const statusMessage = await new Promise<ConnectionStatusMessage>((resolve) => {
-        ws2.addEventListener('message', function handler(event: MessageEvent) {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
-            ws2.removeEventListener('message', handler);
-            resolve(msg);
-          }
-        });
-      });
-
-      expect(statusMessage.subscriptionRequired).toBe(true);
-      ws2.close();
-    });
-
-    it('__executeOperation during grace-period expiry returns ClientDisconnectedError with class preserved', async () => {
-      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace-exec-expiry.tab1');
-      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
-
-      const token = createFakeJwt({ sub: 'grace-exec-expiry', exp: Math.floor(Date.now() / 1000) + 900 });
-      const response = await gateway.fetch('https://example.com', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Authorization': `Bearer ${token}`,
-          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-exec-expiry.tab1',
-          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
-        },
-      });
-      expect(response.status).toBe(101);
-      const ws = response.webSocket!;
-      ws.accept();
-
-      await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event: MessageEvent) {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
-            ws.removeEventListener('message', handler);
-            resolve();
-          }
-        });
-      });
-
-      ws.close(1000, 'Normal close');
-
-      // Wait for webSocketClose to arm the grace-period alarm before we call __executeOperation.
-      await vi.waitFor(async () => {
-        const alarm = await runInDurableObject(gateway, (_instance, ctx) => ctx.storage.getAlarm());
-        expect(alarm).not.toBeNull();
-      });
-
-      // Start __executeOperation without awaiting — it should park inside #waitForReconnect.
-      const opPromise = gateway.__executeOperation({
-        version: 1,
-        chain: preprocess([
-          { type: 'get', key: 'someMethod' },
-          { type: 'apply', args: [] },
-        ]),
-        callContext: { callChain: [], state: {} },
-        metadata: {},
-      });
-
-      // Give the RPC time to cross the isolate boundary, hit the two awaits ahead of
-      // #waitForReconnect, and register a pending waiter.
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Fire the alarm — triggers #rejectReconnectWaiters, which rejects the registered waiter.
-      const fired = await runDurableObjectAlarm(gateway);
-      expect(fired).toBe(true);
-
-      // With the fix: caught by try/catch, returned as { $error: preprocess(err) }.
-      // Without the fix: throw propagates, Workers RPC flattens the class.
-      const result = await opPromise;
-      expect(result.$error).toBeDefined();
-      const error = postprocess(result.$error);
-      expect(error).toBeInstanceOf(ClientDisconnectedError);
-      expect(error.message).toContain('Client did not reconnect within grace period');
-    });
-
-    it('__executeOperation during grace period resolves when client reconnects in time', async () => {
+    it('a call during the grace period is acked at once, and answered once the Client reconnects in time', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace-exec-reconnect.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
 
@@ -1481,6 +1576,7 @@ describe('LumenizeClientGateway', () => {
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-exec-reconnect.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -1502,30 +1598,25 @@ describe('LumenizeClientGateway', () => {
 
       ws.close(1000, 'Normal close');
 
-      await vi.waitFor(async () => {
-        const alarm = await runInDurableObject(gateway, (_instance, ctx) => ctx.storage.getAlarm());
-        expect(alarm).not.toBeNull();
+      await waitForGracePeriod(entries, 'grace-exec-reconnect.tab1');
+
+      // Acked at once; the delivery parks in the grace period's wait.
+      expect(await gateway.__executeOperation(callToClient('grace-exec-reconnect.tab1', 'grace-exec-reconnect-recorder', 'push')))
+        .toEqual({ $ack: true });
+
+      // The call is parked once the Gateway logs that it is waiting for this Client.
+      await vi.waitFor(() => {
+        expect(entries.some((e) => e.message === 'Client disconnected, waiting for reconnect during grace period'
+          && e.data?.instanceName === 'grace-exec-reconnect.tab1')).toBe(true);
       });
 
-      // Start __executeOperation — parks in #waitForReconnect.
-      const opPromise = gateway.__executeOperation({
-        version: 1,
-        chain: preprocess([
-          { type: 'get', key: 'someMethod' },
-          { type: 'apply', args: [] },
-        ]),
-        callContext: { callChain: [], state: {} },
-        metadata: {},
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Reconnect a fresh WebSocket before grace-period alarm fires.
+      // Reconnect a fresh WebSocket before the grace period ends.
       // webSocketMessage on the new WS resolves pending reconnect waiters.
       const token2 = createFakeJwt({ sub: 'grace-exec-reconnect', exp: Math.floor(Date.now() / 1000) + 900 });
       const response2 = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
           'Authorization': `Bearer ${token2}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-exec-reconnect.tab1',
           'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
@@ -1535,9 +1626,8 @@ describe('LumenizeClientGateway', () => {
       const ws2 = response2.webSocket!;
       ws2.accept();
 
-      // After reconnect, __executeOperation calls #forwardToClient which sends
-      // an INCOMING_CALL over the new WS and awaits the INCOMING_CALL_RESPONSE.
-      // Listen for it and respond so opPromise can resolve.
+      // After the reconnect, the Gateway sends the INCOMING_CALL over the new socket and waits for
+      // its INCOMING_CALL_RESPONSE, which fills the node's handler.
       await new Promise<void>((resolve) => {
         ws2.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
@@ -1555,9 +1645,79 @@ describe('LumenizeClientGateway', () => {
         });
       });
 
-      const result = await opPromise;
-      expect(result.$error).toBeUndefined();
-      expect(result.$result).toBe('reconnected-result');
+      const { result, originAuth } = await outcomeAt('grace-exec-reconnect-recorder', 'push');
+      expect(result).toBe('reconnected-result');
+      // The node's claims ride the fire-back, never the reconnected socket's.
+      expect(originAuth).toEqual(NODE_ORIGIN_AUTH);
+      ws2.close();
+    });
+
+    // What keeps a Gateway resident while it waits is `ctx.waitUntil`, from compatibility date
+    // 2026-10-01. Nothing in-lane evicts it, so the spy is the witness here, and the deployed pass at
+    // the wipe gate is what shows the object stays resident.
+    it('hands every wait it keeps to ctx.waitUntil: a push awaiting its Client, and an answer awaiting a reconnect', async () => {
+      const name = 'grace-wait-until.tab1';
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(env.LUMENIZE_CLIENT_GATEWAY.idFromName(name)) as any;
+      const ws = await connectWith(gateway, name, 'grace-wait-until', {});
+      const held: Array<{ settled: boolean }> = [];
+      await runInDurableObject(gateway, (instance: any) => {
+        const ctx = instance.ctx as DurableObjectState;
+        const original = ctx.waitUntil.bind(ctx);
+        vi.spyOn(ctx, 'waitUntil').mockImplementation((promise: Promise<unknown>) => {
+          const entry = { settled: false };
+          held.push(entry);
+          promise.finally(() => { entry.settled = true; });
+          original(promise);
+        });
+      });
+
+      // A push to a Client that has not answered yet: its wait is held from the ack on.
+      const incoming = new Promise<IncomingCallMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.INCOMING_CALL) { ws.removeEventListener('message', handler); resolve(msg); }
+        });
+      });
+      expect(await gateway.__executeOperation(callToClient(name, 'grace-wait-until-recorder', 'push'))).toEqual({ $ack: true });
+      const call = await incoming;
+      expect(held).toEqual([{ settled: false }]);
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.INCOMING_CALL_RESPONSE, callId: call.callId, success: true, result: preprocess('answered'),
+      } satisfies IncomingCallResponseMessage));
+      expect((await outcomeAt('grace-wait-until-recorder', 'push')).result).toBe('answered');
+      await vi.waitFor(() => expect(held[0].settled).toBe(true));
+
+      // An answer for a Client inside its grace period: acked at once, held until the reconnect.
+      ws.close(1000, 'Normal close');
+      await waitForGracePeriod(entries, name);
+      const ack = await Promise.race([
+        gateway.__handleResponse(fireBackTo(name, 'wait-until-1', 'after-reconnect')),
+        new Promise((resolve) => setTimeout(() => resolve('no ack while the Client was away'), 2000)),
+      ]);
+      expect(ack).toEqual({ $ack: true });
+      expect(held).toHaveLength(2);
+      expect(held[1].settled).toBe(false);
+
+      const token = createFakeJwt({ sub: 'grace-wait-until', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': name,
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+        },
+      });
+      const ws2 = response.webSocket!;
+      const delivered = new Promise<Answer>((resolve) => {
+        ws2.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.RESPONSE) { ws2.removeEventListener('message', handler); resolve(answerOf(msg)); }
+        });
+      });
+      ws2.accept();
+      expect((await delivered).result).toBe('after-reconnect');
+      await vi.waitFor(() => expect(held[1].settled).toBe(true));
       ws2.close();
     });
   });
@@ -1587,6 +1747,7 @@ describe('CustomGateway (hook overrides)', () => {
     const response = await gateway.fetch('https://example.com', {
       headers: {
         'Upgrade': 'websocket',
+        'Sec-WebSocket-Protocol': 'lmz.2',
         'Authorization': `Bearer ${token}`,
         'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
         'X-Lumenize-DO-Binding-Name': 'CUSTOM_GATEWAY',
@@ -1622,20 +1783,18 @@ describe('CustomGateway (hook overrides)', () => {
         { type: 'apply', args: ['binding-test'] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'cg-bind-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-bind',
@@ -1669,20 +1828,18 @@ describe('CustomGateway (hook overrides)', () => {
         { type: 'apply', args: [] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'cg-claims-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-claims',
@@ -1714,7 +1871,7 @@ describe('CustomGateway (hook overrides)', () => {
   });
 
   describe('onBeforeCallToMesh', () => {
-    it('injects claims into callContext.state', async () => {
+    it('stamps a top-level field the callee reads', async () => {
       const { ws } = await connectCustom('cg-enrich', 'cg-enrich.tab1', {
         role: 'editor',
         org: 'widgets-inc',
@@ -1725,20 +1882,18 @@ describe('CustomGateway (hook overrides)', () => {
         { type: 'apply', args: [] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'cg-enrich-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-enrich',
@@ -1748,61 +1903,13 @@ describe('CustomGateway (hook overrides)', () => {
       const callResponse = await responsePromise;
       expect(callResponse.success).toBe(true);
 
-      // Verify _auth was injected into state by onBeforeCallToMesh
-      expect(callResponse.result.state._auth).toMatchObject({
+      // The field CustomGateway's onBeforeCallToMesh stamped reached the callee
+      expect(callResponse.result._auth).toMatchObject({
         sub: 'cg-enrich',
         claims: {
           role: 'editor',
           org: 'widgets-inc',
         },
-      });
-
-      ws.close();
-    });
-
-    it('preserves client-sent state alongside injected auth', async () => {
-      const { ws } = await connectCustom('cg-merge', 'cg-merge.tab1', {
-        role: 'viewer',
-      });
-
-      const chain = preprocess([
-        { type: 'get', key: 'getCallContext' },
-        { type: 'apply', args: [] },
-      ]);
-
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event: MessageEvent) {
-          const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
-            ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
-          }
-        });
-      });
-
-      // Client sends state with a custom key
-      ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
-        callId: 'cg-merge-call-1',
-        binding: 'ECHO_DO',
-        instance: 'echo-cg-merge',
-        chain,
-        callContext: {
-          callChain: [],
-          state: preprocess({ myClientKey: 'clientValue' }),
-        },
-      }));
-
-      const callResponse = await responsePromise;
-      expect(callResponse.success).toBe(true);
-
-      // Both client state and injected _auth should be present
-      expect(callResponse.result.state.myClientKey).toBe('clientValue');
-      expect(callResponse.result.state._auth).toMatchObject({
-        sub: 'cg-merge',
-        claims: { role: 'viewer' },
       });
 
       ws.close();
@@ -1818,32 +1925,12 @@ describe('CustomGateway (hook overrides)', () => {
       // Connect a client first
       const { ws } = await connectCustom('cg-block-client', instanceName, { role: 'user' });
 
-      // Call __executeOperation directly with a blocked caller binding
-      const envelope: CallEnvelope = {
-        version: 1,
-        chain: preprocess([
-          { type: 'get', key: 'someMethod' },
-          { type: 'apply', args: [] },
-        ]),
-        callContext: { callChain: [], state: {} },
-        metadata: {
-          caller: {
-            type: 'LumenizeDO',
-            bindingName: 'BLOCKED_BINDING',
-            instanceName: 'some-instance',
-          },
-          callee: {
-            type: 'LumenizeDO',
-            bindingName: 'CUSTOM_GATEWAY',
-            instanceName,
-          },
-        },
-      };
+      // A call from a blocked binding: acked, then refused by the hook, and the refusal fills the node's handler.
+      expect(await gateway.__executeOperation(callToClient(instanceName, 'cg-block-recorder', 'blocked', {
+        gatewayBinding: 'CUSTOM_GATEWAY', callerBinding: 'BLOCKED_BINDING',
+      }))).toEqual({ $ack: true });
 
-      const result = await gateway.__executeOperation(envelope);
-
-      expect(result.$error).toBeDefined();
-      const error = postprocess(result.$error);
+      const { result: error } = await outcomeAt('cg-block-recorder', 'blocked');
       expect(error.message).toContain('BLOCKED_BINDING');
 
       ws.close();
@@ -1868,30 +1955,10 @@ describe('CustomGateway (hook overrides)', () => {
         });
       });
 
-      // Call __executeOperation with a non-blocked binding — should forward to client
-      const envelope: CallEnvelope = {
-        version: 1,
-        chain: preprocess([
-          { type: 'get', key: 'someMethod' },
-          { type: 'apply', args: [] },
-        ]),
-        callContext: { callChain: [], state: {} },
-        metadata: {
-          caller: {
-            type: 'LumenizeDO',
-            bindingName: 'ALLOWED_BINDING',
-            instanceName: 'some-instance',
-          },
-          callee: {
-            type: 'LumenizeDO',
-            bindingName: 'CUSTOM_GATEWAY',
-            instanceName,
-          },
-        },
-      };
-
-      // Start the __executeOperation (it will wait for client response)
-      const execPromise = gateway.__executeOperation(envelope);
+      // A call from a non-blocked binding is forwarded to the Client.
+      expect(await gateway.__executeOperation(callToClient(instanceName, 'cg-allow-recorder', 'allowed', {
+        gatewayBinding: 'CUSTOM_GATEWAY', callerBinding: 'ALLOWED_BINDING',
+      }))).toEqual({ $ack: true });
 
       // Wait for the incoming call to be forwarded to the client
       const incomingCall = await incomingCallPromise;
@@ -1905,8 +1972,8 @@ describe('CustomGateway (hook overrides)', () => {
         result: preprocess('client-response'),
       }));
 
-      const result = await execPromise;
-      expect(result.$result).toBeDefined();
+      const { result } = await outcomeAt('cg-allow-recorder', 'allowed');
+      expect(result).toBe('client-response');
 
       ws.close();
     });
@@ -1926,20 +1993,18 @@ describe('CustomGateway (hook overrides)', () => {
         { type: 'apply', args: [] },
       ]);
 
-      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+      const responsePromise = new Promise<Answer>((resolve) => {
         ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
-          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+          if (msg.type === GatewayMessageType.RESPONSE) {
             ws.removeEventListener('message', handler);
-            msg.result = postprocess(msg.result);
-            resolve(msg);
+            resolve(answerOf(msg));
           }
         });
       });
 
       ws.send(JSON.stringify({
-        type: GatewayMessageType.CALL,
-        expectsResult: true,
+        type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER,
         callId: 'cg-e2e-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-e2e',
@@ -1956,8 +2021,8 @@ describe('CustomGateway (hook overrides)', () => {
         claims: { role: 'admin', org: 'composure-inc' },
       });
 
-      // 2. onBeforeCallToMesh: _auth injected into state
-      expect(callResponse.result.state._auth).toMatchObject({
+      // 2. onBeforeCallToMesh: a top-level _auth stamped onto the context
+      expect(callResponse.result._auth).toMatchObject({
         sub: 'cg-e2e',
         claims: { role: 'admin', org: 'composure-inc' },
       });

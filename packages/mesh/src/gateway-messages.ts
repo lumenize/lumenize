@@ -24,6 +24,26 @@ import type { NodeIdentity, OriginAuth, OriginRequest } from './types.js';
 /** Close code for superseded connections (parallel to HTTP 409 Conflict) */
 export const WS_CLOSE_SUPERSEDED = 4409;
 
+/**
+ * Close code for a Client whose socket was open when the Gateway gave up on a delivery to it, which
+ * in practice means it missed the 30 s wait for an answer (parallel to HTTP 408 Request Timeout).
+ * The Gateway answered that call `ClientDisconnectedError`, which a reaper drops a subscriber row
+ * on. The close makes a paused tab reconnect when it wakes, and the Gateway tells that connection
+ * `subscriptionRequired: true`.
+ */
+export const WS_CLOSE_TIMED_OUT = 4408;
+
+// ============================================
+// Protocol name
+// ============================================
+
+/**
+ * The subprotocol a Client offers and its Gateway accepts, beside the access-token one. A Gateway
+ * answers 426 to an upgrade that offers only the previous name, `lmz`: that Client speaks the
+ * previous wire, which this version no longer has.
+ */
+export const WS_PROTOCOL = 'lmz.2';
+
 // ============================================
 // Access-token subprotocol
 // ============================================
@@ -32,7 +52,7 @@ export const WS_CLOSE_SUPERSEDED = 4409;
  * Subprotocol prefix carrying the access token on a WebSocket upgrade.
  *
  * ⚠️ **A PUBLISHED WIRE CONVENTION, not an internal detail.** `website/docs/mesh/security.mdx`
- * teaches third parties to hand-write `new WebSocket(url, ['lmz', \`lmz.access-token.${'${token}'}\`])`,
+ * teaches third parties to hand-write `new WebSocket(url, ['lmz.2', \`lmz.access-token.${'${token}'}\`])`,
  * and deployed clients already send this exact string — so changing the value is a breaking
  * protocol change, not a rename. `mesh/test/ws-token-subprotocol.test.ts` pins the literal for
  * that reason; a producer→consumer round-trip cannot catch it, being true by construction once
@@ -79,8 +99,8 @@ export function extractWebSocketToken(request: Request): string | null {
 export const GatewayMessageType = {
   /** Client initiating a call to a mesh node */
   CALL: 'call',
-  /** Gateway returning the result of a client-initiated call */
-  CALL_RESPONSE: 'call_response',
+  /** Gateway delivering a Client's filled result handler continuation */
+  RESPONSE: 'response',
   /** Mesh node calling the client (forwarded by Gateway) */
   INCOMING_CALL: 'incoming_call',
   /** Client's response to an incoming call */
@@ -104,7 +124,6 @@ export type GatewayMessageType = typeof GatewayMessageType[keyof typeof GatewayM
  * | Field | Preprocessing | Notes |
  * |-------|---------------|-------|
  * | `chain` | Always | May contain any type in method args |
- * | `callContext.state` | Always | User-defined, may contain extended types |
  * | `result` | Always | Method return value, any type |
  * | `error` | Always | Custom Error subclasses with properties |
  * | Other fields | Never | Plain strings/booleans |
@@ -117,35 +136,35 @@ export type GatewayMessageType = typeof GatewayMessageType[keyof typeof GatewayM
 export interface CallMessage {
   type: typeof GatewayMessageType.CALL;
   callId: string;
+  /** The id this Client minted when it was constructed; the answer echoes it. */
+  loadId: string;
   binding: string;
   instance?: string;
   /** Preprocessed operation chain (contains method args which may be any type) */
   chain: any;
-  /**
-   * True for a 4-arg client `call()` — the client keeps its handler in-heap and expects a
-   * RESULT fired back for this `callId`. Absent/false ⇒ a 3-arg client call, truly fire-and-forget
-   * (the Gateway attaches no fire-back descriptor). See `LumenizeClientGateway.#handleClientCall`.
-   */
-  expectsResult?: boolean;
-  /**
-   * All a client sends of its call context. It carries no chain: the Gateway builds a client
-   * call's `callChain` from the socket's verified identity, so a frame has nothing to add.
-   */
-  callContext?: {
-    /** User-defined, preprocessed for WebSocket (may contain Maps, Sets, etc.) */
-    state: any;
-  };
+  /** Preprocessed result handler continuation, which travels to the node and back */
+  handler: any;
+  /** When true, the node fires the handler back only with an Error */
+  onErrorOnly?: boolean;
+  // No callContext: the Gateway builds all of a client call's context from the socket's verified
+  // attachment, so a frame has nothing of its own to add.
 }
 
-/** Response to a client-initiated call */
-export interface CallResponseMessage {
-  type: typeof GatewayMessageType.CALL_RESPONSE;
+/**
+ * A Client's own result handler continuation, filled with the outcome: from a node's fire-back,
+ * or from a refusal at the early ack. The Client runs it with the `@mesh()` check off.
+ */
+export interface ResponseMessage {
+  type: typeof GatewayMessageType.RESPONSE;
   callId: string;
-  success: boolean;
-  /** Preprocessed result (may be any type) */
-  result?: any;
-  /** Preprocessed error (preserves custom Error properties) */
-  error?: any;
+  loadId: string;
+  /** Preprocessed filled handler chain */
+  chain: any;
+  /** The fire-back's context: its last hop is the node that answered. */
+  callContext: {
+    callChain: NodeIdentity[];
+    originAuth?: OriginAuth;
+  };
 }
 
 /** Mesh node calling the client (forwarded by Gateway) */
@@ -162,8 +181,6 @@ export interface IncomingCallMessage {
     /** Plain strings - no preprocessing needed */
     callChain: NodeIdentity[];
     originAuth?: OriginAuth;
-    /** User-defined, preprocessed for WebSocket */
-    state: any;
   };
 }
 
@@ -187,7 +204,7 @@ export interface ConnectionStatusMessage {
 /** Union of all Gateway messages */
 export type GatewayMessage =
   | CallMessage
-  | CallResponseMessage
+  | ResponseMessage
   | IncomingCallMessage
   | IncomingCallResponseMessage
   | ConnectionStatusMessage;
@@ -197,12 +214,16 @@ export type GatewayMessage =
 // ============================================
 
 /**
- * Error thrown when attempting to call a disconnected client
+ * The Gateway's verdict that a client is gone, which a reaper drops the client's subscriber row on.
  *
- * This error is thrown when:
+ * Only the Gateway raises it, when:
  * - A mesh node calls a client that is not connected
- * - The client's grace period has expired
+ * - The client's grace period has expired, including one the Gateway started by closing a socket
+ *   whose token had expired
  * - The client doesn't respond within the timeout
+ *
+ * A client's own answer carrying this name, returned or thrown, reaches the node renamed `Error`,
+ * so no client can get a subscriber row dropped by saying it is gone.
  *
  * Registered on globalThis below for proper structured-clone serialization
  * across mesh nodes.
@@ -215,31 +236,8 @@ export class ClientDisconnectedError extends Error {
   }
 }
 
-/**
- * The client's token lapsed while its socket was live — a SELF-HEALING condition, and deliberately
- * NOT a `ClientDisconnectedError`.
- *
- * The Gateway closes the socket with 4401 and the client is back in about 100 ms with a fresh
- * token. Reaping its subscriptions in that window is simply wrong, and it used to happen for one
- * reason: the Gateway answered both of its own conclusions — "this client is gone" and "this
- * client's token just lapsed" — with the same class, so every reaper's `name === 'ClientDisconnected
- * Error'` guard matched a client that was about to reconnect.
- *
- * Giving the lapse its own name is the whole fix: the existing guards stop matching it, with no
- * per-reaper change and nothing new to remember. A caller that genuinely wants to treat both alike
- * names both.
- */
-export class ClientTokenExpiredError extends Error {
-  name = 'ClientTokenExpiredError';
-
-  constructor(message: string = 'Client token expired') {
-    super(message);
-  }
-}
-
 // Register on globalThis for @lumenize/structured-clone deserialization
 (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
-(globalThis as any).ClientTokenExpiredError = ClientTokenExpiredError;
 
 // ============================================
 // WebSocket Attachment / Connection Info
@@ -269,4 +267,10 @@ export interface GatewayConnectionInfo {
    * attachment shares with `claims` (a comment, not an enforcement, in v1).
    */
   originRequest?: OriginRequest;
+  /**
+   * Set by the Gateway once a delivery to this Client failed while this socket was its socket, so a
+   * reaper may have dropped the Client's subscriptions. It rides the socket rather than the grace
+   * period, which ends, and is not lost when the Gateway is evicted.
+   */
+  subscriptionsLost?: true;
 }

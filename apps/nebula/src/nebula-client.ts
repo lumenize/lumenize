@@ -13,7 +13,7 @@
 // fails outside Workers. The same applies to types: import only from
 // /client to keep this module Node-importable in full.
 import { LumenizeClient, mesh, LoginRequiredError } from '@lumenize/mesh/client';
-import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
+import type { ConnectionState, ClientContinuation, LumenizeClientConfig } from '@lumenize/mesh/client';
 import type {
   NebulaJwtPayload, AffectedScope, ScopeDeletionPlan, InviteeRequest, InviteSummary,
   ScopeSummary, ScopeNode,
@@ -149,7 +149,7 @@ export interface SubscribeQueryOptions {
  * A `using`-compatible query-subscription handle returned by
  * {@link NebulaClient.resources.subscribeQuery}. The membership
  * (`resourceIds`, ordered) is REPLACED on every push (idempotent, self-healing —
- * no delta merge). `subscribeQuery` is fire-and-forget (the client computes the
+ * no delta merge). `subscribeQuery` is one-way (the client computes the
  * canonical `queryHash` LOCALLY and correlates pushes by it — ADR-003), so the
  * initial state arrives asynchronously; `ready` resolves on the first push.
  *
@@ -437,6 +437,20 @@ function audOf(accessToken: string): string | undefined {
   }
 }
 
+/**
+ * A token's `access.scopeAdmin`, read without verifying, as {@link audOf} reads `aud`. The claim is
+ * omitted when false, so its absence reads as `false`; `undefined` means the token did not parse.
+ */
+function scopeAdminOf(accessToken: string): boolean | undefined {
+  try {
+    const payload = accessToken.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/');
+    const access = (JSON.parse(atob(payload)) as { access?: { scopeAdmin?: unknown } }).access;
+    return access?.scopeAdmin === true;
+  } catch {
+    return undefined;
+  }
+}
+
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /** The page host's scope, from the first token's `aud`; `undefined` until that token arrives. */
   #activeScope?: string;
@@ -502,9 +516,20 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    *  constructor body once `#storeAdapter` exists. */
   #engine!: ConflictOutcomeEngine;
 
-  /** Previous connection state, for detecting the `reconnecting → connected`
-   *  transition in the connection-state callback (see constructor). */
-  #prevConnectionState: ConnectionState | null = null;
+  /** Whether this client has connected before, so the connection-state callback can tell a
+   *  first connection from every later one (see constructor). */
+  #connectedBefore = false;
+
+  /** The last token's `access.scopeAdmin`. A change under the same `sub` restores every
+   *  subscription, since a host decided what each one may see by the old verdict. */
+  #lastScopeAdmin: boolean | undefined;
+  /** Set when that verdict changed; the next reconnect restores every subscription. */
+  #scopeAdminChanged = false;
+  /** Set by `onSubscriptionRequired` on this connection, so the reconnect handler that runs just
+   *  after it does not send the same subscribes again. Cleared whenever the state leaves `connected`. */
+  #restoredOnThisConnection = false;
+  /** The org tree's subscribe went out and its first snapshot has not arrived. */
+  #treeSnapshotAwaited = false;
 
   /**
    * Runtime connection-state listener registered by the factory
@@ -524,9 +549,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #orgTreeListener: ((state: OrgTreeState) => void) | null = null;
 
   /**
-   * Active subscriptions registry. Used by auto-resubscribe on reconnect, and
-   * by refcount-with-grace. The entry is minimal — just enough to know what's
-   * subscribed.
+   * Active subscriptions registry. Used by the re-subscribe walk when the Gateway reports a loss
+   * or the admin verdict changes, and by refcount-with-grace. The entry is minimal — just enough to
+   * know what's subscribed.
    */
   #subscriptionRegistry = new Map<SubscribeKey, { resourceType: string; resourceId: string }>();
 
@@ -657,7 +682,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
     // LumenizeClient defers the initial onConnectionStateChange to a microtask,
     // so this wrapper only ever fires *after* construction completes — meaning
-    // it can safely read/write subclass fields (`#prevConnectionState`,
+    // it can safely read/write subclass fields (`#connectedBefore`,
     // `#state`) directly. No closure-variable workaround needed.
     super({
       ...baseConfig,
@@ -667,38 +692,27 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // The page's scope is the token's `aud`, set by the server from this page's host. Learned
         // here, after an await, so the class fields exist even when this runs from `super()`.
         this.#learnActiveScope(minted.access_token);
+        this.#noteScopeAdmin(minted.access_token);
         return minted;
       },
       onConnectionStateChange: (state) => {
-        // Re-subscribe everything on reconnect. The
-        // `reconnecting → connected` transition is the precise signal that
-        // a network-blip recovery just completed (LumenizeClient stays in
-        // `reconnecting` across retry attempts and only flips to `connected`
-        // when the WS is back up). The initial-connect transition is
-        // `disconnected → connecting → connected`, which we don't treat as
-        // a reconnect. On a first connect the registry is empty; after an explicit
-        // `disconnect()` it is not, and this path restores none of it — a gap, not a design.
-        if (this.#prevConnectionState === 'reconnecting' && state === 'connected') {
-          // The in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the
-          // drop and its RESULT re-resolves to the new socket. A RESULT that is truly lost ends in a
-          // timeout instead, and the engine rolls the write back and reports it `retryable` — the
-          // app decides whether to resubmit. No submit-gate to clear (it was retired).
-          this.#resubscribeAll();
+        // Every connection after the first restores only what may be missing: a subscribe whose
+        // first snapshot has not arrived, or everything when the token's admin verdict changed. That
+        // covers a reconnect and an explicit `disconnect()` then `connect()` alike. Everything else
+        // comes from `onSubscriptionRequired`, which the Gateway's report triggers,
+        // and which runs just after this callback on the same connection — hence the microtask. The
+        // in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the drop
+        // and its RESULT re-resolves to the new socket.
+        if (state !== 'connected') this.#restoredOnThisConnection = false;
+        if (state === 'connected') {
+          if (this.#connectedBefore) queueMicrotask(() => this.#afterReconnect());
+          this.#connectedBefore = true;
         }
         // Gate the engine's submission queue: not-'connected' suspends flush +
         // timers (a blip never rolls back); 'connected' replays held/in-flight.
         // `lmz.connection.*` surfacing is the factory's job (it observes the
         // client directly + replays at creation).
         this.#engine?.setConnectionState(state);
-        // OrgTree is a universal singleton (no refcount/grace): (re)subscribe on
-        // every `'connected'` — initial connect AND reconnecting→connected.
-        // Gated on a registered tree listener so headless clients (admin scripts,
-        // tests) that don't render the tree don't register/broadcast needlessly.
-        // Idempotent server-side (INSERT OR REPLACE).
-        if (state === 'connected' && this.#orgTreeListener) {
-          this.#hostCall(this.ctn<Star>().resources.subscribeTree());
-        }
-        this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
         // replays the current state once at creation via `connectionState`, so
         // factory/connect ordering is irrelevant).
@@ -710,7 +724,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#platformOrigin = platformOrigin;
     this.#parentOrigin = parentOrigin;
     // A seeded token (an impersonated child's first mint) is the first token: no refresh runs for it.
-    if (config.accessToken) this.#learnActiveScope(config.accessToken);
+    if (config.accessToken) {
+      this.#learnActiveScope(config.accessToken);
+      this.#noteScopeAdmin(config.accessToken);
+    }
     this.#ontologyVersion = ontologyVersion;
     this.#resourceHostBinding = resourceHostBinding ?? 'STAR';
     this.#chatHostBinding = chatHostBinding;
@@ -777,13 +794,45 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#resolveActiveScope(aud);
   }
 
-  /** A one-way call to this page's resource host; one made before the first token waits for it. */
-  #hostCall(remote: unknown): void {
+  /**
+   * A one-way call to this page's resource host; one made before the first token waits for it.
+   * Every one is a subscribe or an unsubscribe, so `onRefused` hears only an Error: a subscribe's
+   * goes to the push handler a host-reported error uses, and an unsubscribe's is logged.
+   */
+  #hostCall(remote: unknown, onRefused: ClientContinuation<any>): void {
     if (this.#activeScope !== undefined) {
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope, remote as never);
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope, remote as never, onRefused, { onErrorOnly: true });
       return;
     }
-    void this.#activeScopeKnown.then((scope) => this.lmz.call(this.#resourceHostBinding, scope, remote as never));
+    void this.#activeScopeKnown.then((scope) =>
+      this.lmz.call(this.#resourceHostBinding, scope, remote as never, onRefused, { onErrorOnly: true }));
+  }
+
+  /**
+   * The result handler for a call whose refusal leaves nothing to settle: an unsubscribe, or the
+   * org tree's subscribe. Sent `onErrorOnly`, so it hears only an Error, and logs it.
+   */
+  logRefusal(what: string, result?: unknown): void {
+    if (result instanceof Error) log.warn(`${what} was refused`, { error: result.message });
+  }
+
+  // A subscribe's result handlers, each sent `onErrorOnly`. A refusal goes to the push handler a
+  // host-reported error uses, so the pending subscribe rejects at once and its entry unwinds.
+
+  onResourceSubscribeRefused(resourceType: string, resourceId: string, result?: unknown): void {
+    if (result instanceof Error) this.handleResourceUpdate(resourceType, resourceId, result);
+  }
+
+  onQuerySubscribeRefused(queryHash: string, result?: unknown): void {
+    if (result instanceof Error) this.handleQueryUpdate(queryHash, result);
+  }
+
+  onRosterSubscribeRefused(queryHash: string, result?: unknown): void {
+    if (result instanceof Error) this.handleQuerySubscribersUpdate(queryHash, result);
+  }
+
+  onProfileSubscribeRefused(profileId: string, result?: unknown): void {
+    if (result instanceof Error) this.handleProfileUpdate(profileId, result);
   }
 
   /** {@link #hostCall}, awaiting the answer. */
@@ -1107,9 +1156,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * and resolve with the raw server facts. The submit-gate is RETIRED — `callAsync` correlates
    * each transaction by its own `callId`, so concurrent independent-resource batches run in parallel
    * (the engine's per-resource queue still serializes same-resource writes; ADR-005 + `snapshots.ts`
-   * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`
-   * (resolve → `{ontologyStale}`, not reject); an infra throw/timeout rejects → the engine's
-   * infrastructure-error. Resilient across reconnect: a dropped RESULT re-resolves to the
+   * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`,
+   * which `callAsync` rejects with as it does any Error outcome; it is caught here and becomes
+   * `{ontologyStale}`, and any other Error stays the engine's infrastructure-error. Resilient across reconnect: a dropped RESULT re-resolves to the
    * new socket. A RESULT that never arrives ends in a timeout, and the engine rolls the write back
    * and reports it `retryable`; resubmitting is the app's call, as the platform docs tell it.
    */
@@ -1117,12 +1166,18 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // One mesh `newETag` per batch (the server writes it as every resource's eTag — snapshots.ts
     // Step 4.5a); stable across reconnect replays, so a re-issued submission is replay-idempotent.
     const meshNewETag = subs[0]!.newETag;
-    const result = await this.#hostCallAsync(
-      this.ctn<Star>().resources.transaction(this.#requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
-    );
+    let result: any;
+    try {
+      result = await this.#hostCallAsync(
+        this.ctn<Star>().resources.transaction(this.#requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
+      );
+    } catch (e) {
+      if (!(e instanceof Error)) throw e;
+      result = e;
+    }
     if (result instanceof Error) {
-      // Ontology-stale is delivered as a RETURNED value (resolve, not reject) — the engine treats it
-      // as a version-skew signal, not an infrastructure error (asymmetric with `read`, which rejects).
+      // Ontology-stale is a version-skew signal, not an infrastructure error, so it is answered
+      // here rather than thrown on.
       if (isOntologyStaleError(result)) {
         // `installing` = the host fired a registry lazy-pull of the CURRENT version inside our
         // op's call context (an install it cannot await — ADR-003), so the op succeeds shortly
@@ -1189,25 +1244,51 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Re-issue `Star.resources.subscribe()` for every entry in `#subscriptionRegistry`.
-   * Fired from the `reconnecting → connected` transition in the constructor's
-   * connection-state callback.
-   *
-   * We unconditionally re-issue (no dedupe-on-pending) for correctness: if a
-   * subscribe was sent before the WS dropped but the initial-snapshot response
-   * was lost in flight, LumenizeClient does NOT re-send already-sent
-   * fire-and-forget messages on reconnect, so the pending Promise would hang
-   * forever without a fresh subscribe RTT here. The cost of being safe: a
-   * subscribe issued while the WS was already down (in LumenizeClient's
-   * #messageQueue) will both flush from the queue AND get re-issued — server's
-   * `INSERT OR REPLACE` makes both arrivals idempotent and the second
-   * initial-snapshot push deep-equals-dedups in `handleResourceUpdate`.
-   *
-   * We bypass `#subscribeResource` (rather than calling it for each entry)
-   * because its coalesce path piggybacks on existing pending entries without
-   * issuing a fresh RTT — which is exactly the trap above.
+   * The Gateway says this client's subscriptions may be gone — a first connection, or a reconnect
+   * after a delivery to it failed or past the grace period — so every live one is sent again. Then the config's handler runs, as the base class's does.
    */
-  #resubscribeAll(): void {
+  override onSubscriptionRequired(): void {
+    this.#restoredOnThisConnection = true;
+    this.#scopeAdminChanged = false;
+    this.#restoreSubscriptions();
+    super.onSubscriptionRequired();
+  }
+
+  /** What a reconnect the Gateway does not report as a loss still restores. */
+  #afterReconnect(): void {
+    if (this.#restoredOnThisConnection) return;
+    if (this.#scopeAdminChanged) {
+      this.#scopeAdminChanged = false;
+      this.#restoreSubscriptions();
+      return;
+    }
+    this.#resendPendingSubscribes();
+  }
+
+  /**
+   * Note a new token's `access.scopeAdmin`. A changed verdict under the same `sub` means a host
+   * decided what each subscription may see by the old one, so the next reconnect restores them all
+   * — the socket that reconnect opens carries the new token. A changed `sub` needs nothing here:
+   * the client moves to a fresh Gateway, which reports `subscriptionRequired: true`.
+   */
+  #noteScopeAdmin(accessToken: string): void {
+    const verdict = scopeAdminOf(accessToken);
+    if (verdict === undefined) return;
+    if (this.#lastScopeAdmin !== undefined && verdict !== this.#lastScopeAdmin) this.#scopeAdminChanged = true;
+    this.#lastScopeAdmin = verdict;
+  }
+
+  /**
+   * Re-issue every live subscription: every `#subscriptionRegistry` entry, every global-Profile
+   * sub, every query and roster watcher, and the org tree when a listener renders it. Run when the
+   * Gateway reports the subscriptions may be gone, or the token's admin verdict changed.
+   *
+   * Unconditional, no dedupe-on-pending, through `#hostCall` rather than `#subscribeResource`,
+   * whose coalesce path piggybacks on a pending entry without sending a fresh subscribe. The
+   * server's `INSERT OR REPLACE` makes a second arrival idempotent, and a second initial snapshot
+   * deep-equals-dedups in `handleResourceUpdate`.
+   */
+  #restoreSubscriptions(): void {
     // Every `#subscriptionRegistry` entry is a Star resource → re-subscribe to the active-scope Star.
     // (Global Profiles are NOT in this registry — they walk `#profileRefcount` below on their dedicated
     // PROFILE binding. This is what fixes the shipped mis-route where a dev-user `Profile`-typed resource
@@ -1222,39 +1303,78 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (version) {
       for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
         this.#hostCall(
-          this.ctn<Star>().resources.subscribe(version, resourceType, resourceId));
+          this.ctn<Star>().resources.subscribe(version, resourceType, resourceId),
+          this.ctn<this>().onResourceSubscribeRefused(resourceType, resourceId));
       }
     }
     // Re-fire every live global-Profile sub on its own PROFILE binding (binding-agnostic, instance = profileId).
     for (const profileId of this.#profileRefcount.keys()) {
-      this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe());
+      this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe(),
+        this.ctn<this>().onProfileSubscribeRefused(profileId), { onErrorOnly: true });
     }
-    // Re-fire every live query sub too. This is the demote self-heal vehicle:
-    // a reconnect after token expiry re-subscribes with the fresh token, so a
-    // demoted admin's new (non-admin) `access.scopeAdmin` is re-derived server-side and
+    // Re-fire every live query sub too, so a changed admin verdict is re-derived server-side and
     // the stored `dominionOverHostAtSubscribe` is cleared. The window subs ride the single-resource
-    // re-subscribe loop above.
-    for (const entry of this.#queryEntries.values()) {
+    // loop above.
+    for (const [queryHash, entry] of this.#queryEntries) {
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuery(entry.query));
+        this.ctn<Star>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
     }
     // Re-fire every live STANDALONE subscriber-list watcher sub (the roster re-arrives via
     // handleQuerySubscribersUpdate; the server's INSERT OR REPLACE makes the re-register idempotent).
-    for (const entry of this.#querySubscriberEntries.values()) {
+    for (const [queryHash, entry] of this.#querySubscriberEntries) {
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuerySubscribers(entry.query));
+        this.ctn<Star>().resources.subscribeQuerySubscribers(entry.query),
+        this.ctn<this>().onRosterSubscribeRefused(queryHash));
     }
+    // The org tree, gated on a registered listener so headless clients (admin scripts, tests) that
+    // don't render it don't register or broadcast needlessly.
+    if (this.#orgTreeListener) this.#subscribeTree();
   }
 
   /**
-   * @internal Test-only — invokes the same resubscribe walk that fires on a
-   * `reconnecting → connected` transition. Provided because forcing an
-   * unsolicited WS close from outside the client is awkward in the
-   * vitest-plugin harness. The state-machine wiring that calls this
-   * in production is covered by mesh-level tests + a smoke test that
-   * exercises the real supersede path.
+   * Send again every subscribe whose first snapshot has not arrived. One sent just as a socket
+   * closed may never have reached its host, and a reconnect the Gateway reports nothing lost on
+   * restores nothing else.
    */
-  _resubscribeAllForTest(): void { this.#resubscribeAll(); }
+  #resendPendingSubscribes(): void {
+    const version = this.#ontologyVersion;
+    if (version) {
+      for (const key of this.#pendingSubscribes.keys()) {
+        const entry = this.#subscriptionRegistry.get(key);
+        if (!entry) continue;
+        this.#hostCall(
+          this.ctn<Star>().resources.subscribe(version, entry.resourceType, entry.resourceId),
+          this.ctn<this>().onResourceSubscribeRefused(entry.resourceType, entry.resourceId));
+      }
+    }
+    for (const profileId of this.#profilePending.keys()) {
+      this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe(),
+        this.ctn<this>().onProfileSubscribeRefused(profileId), { onErrorOnly: true });
+    }
+    for (const [queryHash, entry] of this.#queryEntries) {
+      if (entry.ready.settled) continue;
+      this.#hostCall(
+        this.ctn<Star>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
+    }
+    for (const [queryHash, entry] of this.#querySubscriberEntries) {
+      if (entry.ready.settled) continue;
+      this.#hostCall(
+        this.ctn<Star>().resources.subscribeQuerySubscribers(entry.query),
+        this.ctn<this>().onRosterSubscribeRefused(queryHash));
+    }
+    if (this.#treeSnapshotAwaited && this.#orgTreeListener) this.#subscribeTree();
+  }
+
+  #subscribeTree(): void {
+    this.#treeSnapshotAwaited = true;
+    this.#hostCall(this.ctn<Star>().resources.subscribeTree(), this.ctn<this>().logRefusal('subscribeTree'));
+  }
+
+  /**
+   * @internal Test-only — runs the same walk `onSubscriptionRequired` runs, for tests that
+   * exercise what one re-subscribe does without forcing a lost subscription first.
+   */
+  _restoreSubscriptionsForTest(): void { this.#restoreSubscriptions(); }
 
   /** Resource namespace — entry point for subscribe / read / transaction. */
   readonly resources = {
@@ -1447,7 +1567,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           listeners: new Set(),
         };
         this.#queryEntries.set(queryHash, entry);
-        this.#hostCall(this.ctn<Star>().resources.subscribeQuery(query));
+        this.#hostCall(this.ctn<Star>().resources.subscribeQuery(query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
       }
       entry.refcount++;
       const e = entry;
@@ -1498,7 +1618,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /**
    * Org/permission-tree MUTATIONS (api-reference § client.orgTree). Reads are
    * NOT here — the tree is delivered on its own channel to `store.lmz.orgTree`
-   * (auto-subscribed on connect). Each mutator fires a resilient 4-arg `call()`
+   * (auto-subscribed on connect). Each mutator fires a resilient `call()`
    * ({@link #orgTreeMutate} → `callAsync`) through the host's `resources` door and returns a
    * resilient Promise — reject-on-failure, NO optimistic local write-through (the
    * broadcast echo, originator included, is the only store update path). `callAsync`
@@ -1590,7 +1710,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#subscribeRefcount.delete(key);
     this.#subscriptionRegistry.delete(key);
     this.#resourceAccess.delete(key);
-    this.#hostCall(this.ctn<Star>().resources.unsubscribe(resourceType, resourceId));
+    this.#hostCall(this.ctn<Star>().resources.unsubscribe(resourceType, resourceId), this.ctn<this>().logRefusal('unsubscribe'));
   }
 
   /**
@@ -1641,7 +1761,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       ws.sub[Symbol.dispose]();
     }
     entry.windowSubs.clear();
-    this.#hostCall(this.ctn<Star>().resources.unsubscribeQuery(queryHash));
+    this.#hostCall(this.ctn<Star>().resources.unsubscribeQuery(queryHash), this.ctn<this>().logRefusal('unsubscribeQuery'));
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -1653,7 +1773,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     return this.#subscribeVia(
       key,
       () => this.#hostCall(
-        this.ctn<Star>().resources.subscribe(version, resourceType, resourceId)),
+        this.ctn<Star>().resources.subscribe(version, resourceType, resourceId),
+        this.ctn<this>().onResourceSubscribeRefused(resourceType, resourceId)),
       this.#pendingSubscribes,
       // Through the SAME door the host's own error push uses, so abandoning runs that branch's
       // cleanup — the registry entry goes too, which is what stops a reconnect replaying a
@@ -1716,7 +1837,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#profileRefcount.set(profileId, (this.#profileRefcount.get(profileId) ?? 0) + 1);
     const snapshot = this.#subscribeVia(
       profileId,
-      () => this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe()),
+      () => this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe(),
+        this.ctn<this>().onProfileSubscribeRefused(profileId), { onErrorOnly: true }),
       this.#profilePending,
       (reason) => this.handleProfileUpdate(profileId, reason),
     );
@@ -1747,7 +1869,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const n = this.#profileRefcount.get(profileId) ?? 0;
     if (n > 1) { this.#profileRefcount.set(profileId, n - 1); return; } // other handles still hold it open
     this.#profileRefcount.delete(profileId);
-    this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().unsubscribe());
+    this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().unsubscribe(),
+      this.ctn<this>().logRefusal('unsubscribeProfile'), { onErrorOnly: true });
   }
 
   /**
@@ -1755,8 +1878,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * only; does NOT subscribe to the query's DATA). Returns a `using`-compatible {@link SubscriberListSubscription}
    * whose `ready` resolves on the first roster push; the roster lands in the reactive store at the
    * query-in-path `store.lmz.querySubscribers.<typeName>.<field>[value]` via the factory listener.
-   * Refcounted (a 2nd subscribe of the same canonical query coalesces) + reconnect-safe (re-fired by
-   * `#resubscribeAll`). Routes to the active-scope host (Star/Galaxy). tasks/nebula-subscriber-lists.md.
+   * Refcounted (a 2nd subscribe of the same canonical query coalesces) + reconnect-safe (re-sent on any
+   * reconnect until its first roster arrives, and re-fired whenever subscriptions may be gone). Routes to
+   * the active-scope host (Star/Galaxy). tasks/nebula-subscriber-lists.md.
    */
   subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription {
     const queryHash = canonicalQueryHash(query);
@@ -1768,7 +1892,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       entry = { query, refcount: 0, ready: { promise, resolve, reject, settled: false } };
       this.#querySubscriberEntries.set(queryHash, entry);
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuerySubscribers(query));
+        this.ctn<Star>().resources.subscribeQuerySubscribers(query),
+        this.ctn<this>().onRosterSubscribeRefused(queryHash));
     }
     entry.refcount++;
     const e = entry;
@@ -1789,7 +1914,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (entry.refcount > 1) { entry.refcount--; return; } // other handles still hold it open
     this.#querySubscriberEntries.delete(queryHash);
     this.#hostCall(
-      this.ctn<Star>().resources.unsubscribeQuerySubscribers(queryHash));
+      this.ctn<Star>().resources.unsubscribeQuerySubscribers(queryHash),
+      this.ctn<this>().logRefusal('unsubscribeQuerySubscribers'));
   }
 
   /**
@@ -1985,7 +2111,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           const registered = this.#subscriptionRegistry.get(key);
           if (!version || !registered) return;
           this.#hostCall(
-            this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId));
+            this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId),
+            this.ctn<this>().onResourceSubscribeRefused(registered.resourceType, registered.resourceId));
         })) {
         return;
       }
@@ -2084,6 +2211,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   @mesh()
   handleOrgTreeUpdate(envelope: { value: OrgTreeState }): void {
+    this.#treeSnapshotAwaited = false;
     this.#orgTreeListener?.(envelope.value);
     this.#askAgain();
   }
@@ -2094,11 +2222,12 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * than at the next write. The host answers each through its ordinary subscribe path. Filtered on
    * purpose: every client `createNebulaClient` builds watches the tree, and each re-subscribe costs
    * the host a billed write, so a tab with nothing denied costs nothing here. Never
-   * {@link #resubscribeAll}, which would re-subscribe everything on every tree change.
+   * {@link #restoreSubscriptions}, which would re-subscribe everything on every tree change.
    *
-   * On a reconnect the tree's first answer asks again for what `#resubscribeAll` asked a moment
-   * earlier: one extra idempotent write per denied subscription per reconnect. Accepted — telling
-   * that first answer apart would need a flag and an argument about arrival order to save it.
+   * When the subscriptions are restored, the tree's first answer asks again for what
+   * `#restoreSubscriptions` asked a moment earlier: one extra idempotent write per denied
+   * subscription per restore. Accepted — telling that first answer apart would need a flag and an
+   * argument about arrival order to save it.
    */
   #askAgain(): void {
     const version = this.#ontologyVersion;
@@ -2108,13 +2237,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         const registered = this.#subscriptionRegistry.get(key);
         if (!registered) continue;
         this.#hostCall(
-          this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId));
+          this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId),
+          this.ctn<this>().onResourceSubscribeRefused(registered.resourceType, registered.resourceId));
       }
     }
-    for (const entry of this.#queryEntries.values()) {
+    for (const [queryHash, entry] of this.#queryEntries) {
       if (entry.deniedNodes.length === 0) continue;
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuery(entry.query));
+        this.ctn<Star>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
     }
   }
 
@@ -2138,7 +2268,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (result instanceof Error) {
       if (isInstalling(result) && this.#retryInstalling(`query:${queryHash}`, () => {
         const live = this.#queryEntries.get(queryHash);
-        if (live) this.#hostCall(this.ctn<Star>().resources.subscribeQuery(live.query));
+        if (live) this.#hostCall(this.ctn<Star>().resources.subscribeQuery(live.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
       })) return;
       if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
@@ -2169,7 +2299,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (result instanceof Error) {
       if (isInstalling(result) && this.#retryInstalling(`roster:${queryHash}`, () => {
         const live = this.#querySubscriberEntries.get(queryHash);
-        if (live) this.#hostCall(this.ctn<Star>().resources.subscribeQuerySubscribers(live.query));
+        if (live) {
+          this.#hostCall(this.ctn<Star>().resources.subscribeQuerySubscribers(live.query),
+            this.ctn<this>().onRosterSubscribeRefused(queryHash));
+        }
       })) return;
       if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
@@ -2276,9 +2409,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#onPreviewReady?.(scope);
   }
 
-  // No onBeforeCall override — NebulaClient inherits the base LumenizeClient default, which blocks
-  // only a DIRECT client→client call (immediate caller is another client) and accepts DO/Worker-
-  // mediated pushes (Star fanout, transaction/read result). Nebula does no direct client→client, and
-  // the cross-scope boundary is NebulaClientGateway.onBeforeCallToClient, the tab's passage into the
-  // sender.
+  // No onBeforeCall override — NebulaClient inherits the base LumenizeClient default, which refuses
+  // a call whose immediate caller is another client and accepts DO/Worker-mediated pushes (Star
+  // fanout, transaction/read result). That default is the ONLY check on a call from another tab:
+  // NebulaClientGateway.onBeforeCallToClient checks a node sender's passage and leaves a client
+  // sender to this class. An override added here MUST call super.onBeforeCall().
 }

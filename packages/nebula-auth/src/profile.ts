@@ -39,7 +39,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { ComposedMeshDO, mesh, newContinuation, rawRpc, type Continuation } from '@lumenize/mesh';
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
-import { hasDominionOver, isPlatformScope } from './parse-id';
+import { hasDominionOver, isPlatformScope, parseId } from './parse-id';
 import { NEBULA_SUB, REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
 
@@ -89,8 +89,15 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
       `CREATE TABLE IF NOT EXISTS ProfileFields (field TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID`,
     );
     ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS Subscribers (clientId TEXT PRIMARY KEY, subscriberBinding TEXT NOT NULL) WITHOUT ROWID`,
+      `CREATE TABLE IF NOT EXISTS Subscribers (clientId TEXT PRIMARY KEY, subscriberBinding TEXT NOT NULL,
+        subscribedAt TEXT NOT NULL DEFAULT '') WITHOUT ROWID`,
     );
+    // A table from before `subscribedAt` gains it. Its rows predate every push, so '' is right: the
+    // reaper's `subscribedAt <= sentAt` holds for each of them.
+    const columns = ctx.storage.sql.exec(`PRAGMA table_info(Subscribers)`).toArray() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === 'subscribedAt')) {
+      ctx.storage.sql.exec(`ALTER TABLE Subscribers ADD COLUMN subscribedAt TEXT NOT NULL DEFAULT ''`);
+    }
     // Seed a baseline eTag once so an unwritten profile still delivers a client-usable snapshot.
     ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),
@@ -116,6 +123,26 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
         );
       }
     }
+  }
+
+  /**
+   * A Profile never runs under a name that parses as a scope, such as `acme.crm.bigco`.
+   *
+   * A Profile is named by a profile id: a UUID, a persona's version-5 UUID, or `NEBULA_SUB`
+   * (`'agent:nebula'`), none of which parses as a scope. Without this check a tab could bring a
+   * Profile into existence at a Star's name. Passage reads a claimless chain's scope from the name
+   * of the node that started it (`NebulaDO`'s `claimsForPassage`), which is sound only if every
+   * object running under a scope-shaped name checks passage into that scope, and a Profile checks
+   * none. Every other caller passes, since a Profile's reads are open to any caller holding its id
+   * (ADR-012) and its writes check ownership in the method.
+   */
+  onBeforeCall(): void {
+    super.onBeforeCall();
+    const name = this.lmz.instanceName;
+    if (name === undefined) return;
+    let isScope = true;
+    try { parseId(name); } catch { isScope = false; }
+    if (isScope) throw new Error(`"${name}" is a scope's name, and no Profile runs under one`);
   }
 
   // `ctn()` stays per-class (off ComposedMeshDO) — its `Continuation<this>` return can't cross the mixin
@@ -153,13 +180,17 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     const subscriberBinding = this.lmz.callContext.callChain[0]?.bindingName;
     if (!subscriberBinding) throw new Error('subscribe requires a gateway (callChain[0].bindingName)');
 
+    const subscribedAt = new Date().toISOString();
     this.ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO Subscribers (clientId, subscriberBinding) VALUES (?, ?)`,
-      clientId, subscriberBinding,
+      `INSERT OR REPLACE INTO Subscribers (clientId, subscriberBinding, subscribedAt) VALUES (?, ?, ?)`,
+      clientId, subscriberBinding, subscribedAt,
     );
-    // Initial-snapshot delivery (3-arg fire-and-forget) on the DEDICATED profile channel.
+    debug('nebula-auth.Profile.subscribe').debug('subscriber stored', { profileId: this.#profileId(), clientId, subscriberBinding });
+    // Initial-snapshot delivery on the DEDICATED profile channel, reaped as a broadcast is: a tab
+    // whose Gateway reports it gone loses the row this call just wrote.
     this.lmz.call(subscriberBinding, clientId,
-      this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()));
+      this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()),
+      this.ctn().onProfileBroadcastResult(subscribedAt), { onErrorOnly: true });
   }
 
   /** Drop the caller's subscriber row (best-effort; mirrors the Resources plane's `requests.unsubscribe`). */
@@ -252,9 +283,9 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * `access`, and `act` under impersonation — stay behind rather than riding into every
    * subscriber's scope. A subscriber's Gateway lets the push through because this Profile's name,
    * a `profileId`, is no scope, and a client's `onBeforeCall` decides from the caller, which is
-   * this Profile. On a failed delivery the Gateway answers with a `ClientDisconnectedError`, and
-   * `onProfileBroadcastResult` drops that subscriber's row (self-healing, per
-   * testing.md §self-healing-transient).
+   * this Profile. On a failed delivery the Gateway fires back a `ClientDisconnectedError`, and
+   * `onProfileBroadcastResult` drops that subscriber's row if it is no newer than this push
+   * (self-healing, per testing.md §self-healing-transient).
    */
   #fanout(): void {
     const targets = this.ctx.storage.sql.exec(`SELECT clientId, subscriberBinding FROM Subscribers`)
@@ -266,7 +297,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     this.lmz.broadcast(
       targets,
       this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()),
-      { onResult: this.ctn().onProfileBroadcastResult() },
+      { onResult: this.ctn().onProfileBroadcastResult(new Date().toISOString()) },
     );
   }
 
@@ -279,18 +310,22 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * framework from a source the caller does not write. The error says only THAT delivery failed.
    *
    * ⚠️ **That is what carries the security; staying undecorated is hygiene.** The older reason —
-   * that with this DO's open `onBeforeCall` an `@mesh` here would let any client forge a
+   * that with this DO's nearly open `onBeforeCall` an `@mesh` here would let any client forge a
    * `ClientDisconnectedError` naming another subscriber — described a real hole and no longer does:
-   * the error carries no identity to forge, so the worst a direct call achieves is reaping whoever
-   * made it. `public` and un-decorated stays right (a Gateway answers inside its ack, so the Error
-   * runs this handler on the Profile's own dispatch, where `@mesh()` is not checked), but it is now
+   * the error carries no identity to forge, and on a direct call `callee` is this Profile itself,
+   * which names no subscriber row, so it reaps nothing. `public` and un-decorated stays right (the
+   * Gateway fires the Error back to the Profile's fire-back door, where `@mesh()` is not checked), but it is now
    * the second line rather than the first. Detect by `name` (custom Error classes don't keep
    * `instanceof` — mesh.md).
    */
-  onProfileBroadcastResult(result?: unknown): void {
-    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientId = ?`, clientId);
+  onProfileBroadcastResult(sentAt: string, result?: unknown): void {
+    if (!(result instanceof Error)) return;
+    const clientId = this.lmz.callContext.callee?.instanceName;
+    // The reaper's receipt, so a run can see which tab an update failed to reach, and why.
+    debug('nebula-auth.Profile.reap').info('update not delivered', { clientId, name: result.name });
+    if (result.name === 'ClientDisconnectedError' && clientId) {
+      // Only a row no newer than the failed push: a re-subscribe that landed first keeps its own.
+      this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientId = ? AND subscribedAt <= ?`, clientId, sentAt);
     }
   }
 

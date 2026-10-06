@@ -34,8 +34,8 @@ class MeshProbe extends LumenizeClient {
   profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
   /**
    * When set, this tab answers every push by throwing a `ClientDisconnectedError` naming SOMEBODY
-   * ELSE. `postprocess` restores `name` and copies every own key onto a plain Error whatever the
-   * constructor, so the reaper's name guard matches and reads whatever the payload carries.
+   * ELSE in a field of its own. The Gateway renames it before filling the Profile's continuation,
+   * and the reaper never reads the field, so it names nobody.
    *
    * ⚠️ Armed on the SAME class rather than by a subclass override, deliberately: an override is a
    * new function and does not inherit `@mesh()`, which the entry rule refuses.
@@ -135,10 +135,12 @@ describe('Profile DO', () => {
    *
    * The Profile's reaper is its own `onProfileBroadcastResult`, reached through `lmz.broadcast` on
    * the one node that composes the mesh core without extending `LumenizeDO`. This drives it against
-   * a forged reply: a grep proves the forgeable field is gone; only a drive proves the
-   * framework-supplied callee ARRIVES here.
+   * a forged reply: a tab answers a push by throwing a `ClientDisconnectedError` naming another
+   * tab. The reaper takes its victim from the address it pushed to, so the named tab keeps its row;
+   * and the Gateway renames a Client's own `ClientDisconnectedError`, so the tab that threw keeps its
+   * row too. Only the Gateway says a Client is gone.
    */
-  it('reaps the subscriber that ANSWERED, never the one a forged reply names', async () => {
+  it('reaps neither the subscriber a forged reply names nor the one that forged it', async () => {
     const pid = uuid();
     await seedIdentity(pid, 'acme.app.tenant');
     using owner = await makeClient({ profileId: pid });
@@ -156,20 +158,27 @@ describe('Profile DO', () => {
       expect(attacker.profileUpdates.length).toBeGreaterThan(0);
     });
 
-    // Arm, push once so the forged reply lands, then disarm so the forger's own row is readable.
+    // Arm, push once, and wait for the reaper's receipt of the forged reply before disarming: both
+    // rows surviving would otherwise also be what a reply that never arrived looks like.
     attacker.forgedVictim = victim.lmz.instanceName;
     await write(owner, pid, { name: 'two' });
-    await new Promise((r) => setTimeout(r, 250));   // the fire-back, then the reaper's DELETE
+    const receipt = await vi.waitFor(() => {
+      const heard = sink.find((e) => e.namespace === 'nebula-auth.Profile.reap'
+        && e.data?.clientId === attacker.lmz.instanceName);
+      expect(heard).toBeDefined();
+      return heard;
+    });
     attacker.forgedVictim = undefined;
+    // MUTATION: skip the Gateway's rename of a thrown Error, and this names the reaped class.
+    expect(receipt.data.name).toBe('Error');
 
     const victimBefore = victim.profileUpdates.length;
     const attackerBefore = attacker.profileUpdates.length;
     await write(owner, pid, { name: 'three' });
     await vi.waitFor(() => {
       expect(victim.profileUpdates.length).toBeGreaterThan(victimBefore);
+      expect(attacker.profileUpdates.length).toBeGreaterThan(attackerBefore);
     });
-    // The named client keeps its row; the one that ANSWERED is the one that goes.
-    expect(attacker.profileUpdates.length).toBe(attackerBefore);
   });
 
   it('public read is OPEN — a cross-scope non-admin caller reads, firing ZERO registry reads (#3)', async () => {

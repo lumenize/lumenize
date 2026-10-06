@@ -100,8 +100,8 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   });
 
   // A target's Error reaches the origin's `onResult`: the erroring target fires the filled handler
-  // back to the origin, where it runs with the Error appended. Capable-of-failing: send each target
-  // the 3-arg form, dropping `onResult`, and no error reaches the origin.
+  // back to the origin, where it runs with the Error appended. Capable-of-failing: have the loop
+  // drop `onResult` from each target's call, and no error reaches the origin.
   test('broadcast: a target Error reaches the origin\'s onResult', async () => {
     const origin = env.TEST_DO.getByName('broadcast-origin');
     await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'broadcast-origin' });
@@ -140,7 +140,7 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
       'worker-call-result-store-1'
     );
 
-    // Wait for the fire-and-forget chain to complete
+    // Wait for the one-way chain to complete
     await vi.waitFor(async () => {
       const result = await storeDO.getForwardedResult();
       expect(result).toBe('echo: call-test-value');
@@ -157,19 +157,19 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
       'worker-call-error-store-1'
     );
 
-    // Wait for the fire-and-forget chain to complete
+    // Wait for the one-way chain to complete
     await vi.waitFor(async () => {
       const error = await storeDO.getForwardedError();
       expect(error).toBe('Remote error for testing');
     });
   });
 
-  test('fire-and-forget without handler does not crash', async () => {
+  test('an onErrorOnly call returns void and its work still runs', async () => {
     // This should not throw — call returns void, work happens in background
-    await env.TEST_WORKER.testCallFireAndForget(
+    await env.TEST_WORKER.testCallErrorsOnly(
       'TEST_DO',
       'worker-call-fandf-1',
-      'fire-and-forget-value'
+      'errors-only-value'
     );
 
     // Verify the remote DO received the call by checking its envelope

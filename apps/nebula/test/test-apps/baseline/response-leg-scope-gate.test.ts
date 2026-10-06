@@ -5,7 +5,9 @@
  * runs the SAME shared `executeEnvelope` → `onBeforeCall` (= `requirePassage`) as the request
  * leg — only the per-method @mesh allowlist is toggled off (`requireMeshDecorator:false`). So the
  * response door is scope-gated BY CONSTRUCTION: a legitimate response leg is admitted, and a
- * forged cross-scope response is rejected.
+ * forged cross-scope response is rejected. The one exception is a chain the node started, whose
+ * answers skip the hook whatever claims they carry (`.claude/rules/mesh.md`): only code holding
+ * the node's binding can send a fire-back, and it could write `callChain[0]` anyway.
  *
  * The gate re-checks **origin→node passage** (the propagated origin's own `access.authScope` vs
  * THIS node's instance name, via `hasPassageInto`), NOT responder identity (M1/N4) — so the admit
@@ -27,8 +29,10 @@ const PLATFORM = '_platform';
 // Build a fire-back (response-leg) envelope for the STAR node's __handleResponse door. `aud` /
 // `access` set the propagated ORIGIN's claims (never re-stamped by a responder); the chain
 // is a harmless method that only runs if admission passes (the door is @mesh-off).
-function makeResponseEnvelope(opts: { instanceName?: string; aud?: string; access?: unknown }) {
-  const callContext: any = { callChain: [], state: {} };
+function makeResponseEnvelope(opts: { instanceName?: string; aud?: string; access?: unknown; startedHere?: boolean }) {
+  const callContext: any = {
+    callChain: opts.startedHere ? [{ type: 'LumenizeDO', bindingName: 'STAR', instanceName: opts.instanceName }] : [],
+  };
   if (opts.aud !== undefined || opts.access !== undefined) {
     const claims: any = {};
     if (opts.aud !== undefined) claims.aud = opts.aud;
@@ -48,7 +52,7 @@ describe('response-leg scope gate matrix', () => {
     label: string;
     outcome: 'admit' | 'reject';
     match?: RegExp;
-    opts: (star: string, foreign: string) => { instanceName?: string; aud?: string; access?: unknown };
+    opts: (star: string, foreign: string) => { instanceName?: string; aud?: string; access?: unknown; startedHere?: boolean };
   };
 
   const cases: Case[] = [
@@ -86,6 +90,11 @@ describe('response-leg scope gate matrix', () => {
     // ── branch d: unparseable name (>3 segments) → rejected ──
     { label: 'unparseable callee name (branch d) → rejected', outcome: 'reject',
       opts: () => ({ instanceName: 'a.b.c.d.e', aud: 'a.b.c.d.e', access: { authScope: 'a.b.c.d.e' } }) },
+
+    // ── a chain this Star started: its answers skip the hook, even under foreign claims → ADMIT ──
+    // Mutation: run `onBeforeCall` on a node's own chain too, and the foreign claims are refused.
+    { label: 'a chain this node started skips the hook, whatever claims it carries', outcome: 'admit',
+      opts: (star, foreign) => ({ instanceName: star, aud: foreign, access: { authScope: foreign }, startedHere: true }) },
 
     // ── admin dominion: a platform admin on this node's own host → ADMIT (the split's other half) ──
     { label: "admin dominion: a platform admin on this node's host is admitted", outcome: 'admit',

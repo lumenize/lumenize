@@ -171,7 +171,7 @@ export class Fetch extends NadisPlugin {
       fetchTimeout: timeout
     };
 
-    // Call Worker directly via lmz.call() (fire-and-forget)
+    // Call the Worker directly via lmz.call(), with a handler that hears only a failed call
     // Worker will explicitly call back to svc.fetch.__handleProxyFetchResult when done
     const executorBinding = options?.executorBinding || 'FETCH_EXECUTOR';
     
@@ -181,16 +181,18 @@ export class Fetch extends NadisPlugin {
       url
     });
 
-    // call() returns immediately, uses blockConcurrencyWhile internally
-    // No handler needed - worker explicitly calls back to svc.fetch.__handleProxyFetchResult
+    // call() returns immediately. The result arrives separately, when the Worker calls back to
+    // svc.fetch.__handleProxyFetchResult, so the handler only logs a call that failed.
     const ctn = (this.doInstance as any).ctn() as any;
     (this.doInstance as any).lmz.call(
       executorBinding,
       undefined, // Workers don't have instance IDs
-      ctn.executeFetch(message)
+      ctn.executeFetch(message),
+      ((this.doInstance as any).ctn() as any).svc.fetch.logExecutorCallFailed(finalReqId),
+      { onErrorOnly: true },
     );
 
-    this.#log.debug('Worker call initiated (fire-and-forget)', { reqId: finalReqId });
+    this.#log.debug('Worker call initiated', { reqId: finalReqId });
 
     return finalReqId;
   }
@@ -214,6 +216,11 @@ export class Fetch extends NadisPlugin {
     options?: { timeout?: number }
   ): string {
     throw new Error('Fetch.direct() is not yet implemented. Use Fetch.proxy() for now.');
+  }
+
+  /** The result handler for the call to the executor, sent `onErrorOnly`: logs a call that failed. */
+  logExecutorCallFailed(reqId: string, result?: unknown): void {
+    if (result instanceof Error) this.#log.error('Executor call failed', { reqId, error: result.message });
   }
 
   /**

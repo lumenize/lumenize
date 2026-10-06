@@ -60,6 +60,12 @@ import * as displayNamesReachSubscribers from './scenarios/display-names-reach-s
 import * as starServesCurrentOntology from './scenarios/star-serves-current-ontology';
 import * as grantRevealsDenied from './scenarios/grant-reveals-denied';
 import * as clientSenderPassage from './scenarios/client-sender-passage';
+import * as nodeChainPassage from './scenarios/node-chain-passage';
+import * as subscribeRefusalArrives from './scenarios/subscribe-refusal-arrives';
+import * as forgedContinuation from './scenarios/forged-continuation';
+import * as lateAnswerDropped from './scenarios/late-answer-dropped';
+import * as resubscribeWhenLost from './scenarios/resubscribe-when-lost';
+import * as pushSurvivesTokenLapse from './scenarios/push-survives-token-lapse';
 import * as gatewayOneBinding from './scenarios/gateway-one-binding';
 import * as scopeTeardown from './scenarios/scope-teardown';
 import * as galaxyCap from './scenarios/galaxy-cap';
@@ -157,14 +163,20 @@ const SCENARIOS: Record<string, Scenario> = {
   'studio-guidance-loop': studioGuidanceLoop,   // a stated convention lands in AGENTS.md and holds; a data-bound request uses resources; skills activate (no Docker; REST lane; ~10 real turns)
   // ── what a logged-in browser session reaches past `@mesh` — red until the executor closes it ──
   'mesh-entry-reach': meshEntryReach,           // every chain a remote caller must not run, refused past a real gate (no Docker)
-  'reaper-victim-is-the-address': reaperVictimIsTheAddress,  // a forged reply reaps only its author; a real disconnect still reaps (no Docker)
+  'reaper-victim-is-the-address': reaperVictimIsTheAddress,  // a forged reply reaps nobody; a real disconnect still reaps (no Docker)
   'gateway-stamps-the-chain': gatewayStampsTheChain,        // a tab's appended hop reaches no subscriber row and no co-member's guard (no Docker)
   'display-names-reach-subscribers': displayNamesReachSubscribers, // consent's nickname lands at a first accept and reaches a live subscriber at a later one (no Docker)
   // ── a Star converges on its Galaxy's CURRENT ontology, never on the asking tab's ──────────
   'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — two real Applies)
   'grant-reveals-denied': grantRevealsDenied, // a grant with no write reveals what a real member was denied (Docker — one real Apply)
-  // ── a tab receives a call only from a sender its holder has passage into ───────────────────
-  'client-sender-passage': clientSenderPassage, // a tab on a sibling Star is refused at the receiving Gateway by passage (no Docker)
+  // ── a call from another tab reaches the receiving Client, which refuses it ─────────────────
+  'client-sender-passage': clientSenderPassage, // a tab's call to another tab is refused by the receiving Client, before it decodes the chain (no Docker)
+  'node-chain-passage': nodeChainPassage, // a Profile refuses to run under a scope's name; every real profile id still answers (no Docker)
+  'subscribe-refusal-arrives': subscribeRefusalArrives, // a refused subscribe rejects at once, refused before or after the ack (no Docker)
+  'forged-continuation': forgedContinuation, // a Client aims its continuation only at itself; only `lmz` offered → 426 (no Docker)
+  'late-answer-dropped': lateAnswerDropped, // an answer meant for an earlier load is dropped by the Client that receives it (no Docker)
+  'resubscribe-when-lost': resubscribeWhenLost, // a Client re-subscribes exactly when the Gateway says it lost something: a 4408, past the grace period, a new admin verdict or sub (no Docker)
+  'push-survives-token-lapse': pushSurvivesTokenLapse, // a push that meets an expired token waits for the reconnect; a revoked session's never arrives (no Docker, ~3 min)
   'gateway-one-binding': gatewayOneBinding, // /gateway/ refuses every binding but the client Gateway, before a Star exists (no Docker)
   'scope-teardown': scopeTeardown, // the facade's creates and deletes wipe Durable Objects server-side; records name the page (no Docker)
   'galaxy-cap': galaxyCap, // one owner cannot pass MAX_GALAXIES_PER_OWNER at create or acceptance; the root counts none (no Docker)

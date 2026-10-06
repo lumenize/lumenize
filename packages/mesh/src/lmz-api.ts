@@ -59,33 +59,42 @@ function requireCurrentCallContext(): CallContext {
 // ============================================
 
 /**
- * Extract and validate operation chains from continuations
+ * The operation chain of a call's remote continuation. Shared by every `call()` and the client's
+ * `callAsync`.
  *
- * Shared logic for DO, Worker, and Client call() methods.
- *
- * @param remoteContinuation - The remote continuation to execute
- * @param handlerContinuation - Optional handler continuation for callbacks
- * @returns Object with remoteChain and handlerChain (if provided)
- * @throws Error if continuations are invalid
+ * @throws Error if the continuation was not made by `this.ctn()`
  * @internal
  */
-export function extractCallChains(
-  remoteContinuation: AnyContinuation,
-  handlerContinuation?: AnyContinuation
-): { remoteChain: OperationChain; handlerChain?: OperationChain } {
+export function extractRemoteChain(remoteContinuation: AnyContinuation): OperationChain {
   const remoteChain = getOperationChain(remoteContinuation);
   if (!remoteChain) {
     throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
   }
+  return remoteChain;
+}
 
-  let handlerChain: OperationChain | undefined;
-  if (handlerContinuation) {
-    handlerChain = getOperationChain(handlerContinuation);
-    if (!handlerChain) {
-      throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
-    }
+/**
+ * The operation chains of a call's remote and handler continuations. Shared by the DO, Worker and
+ * Client `call()` methods.
+ *
+ * @throws Error if either continuation was not made by `this.ctn()`, or the handler does not end in
+ * a call
+ * @internal
+ */
+export function extractCallChains(
+  remoteContinuation: AnyContinuation,
+  handlerContinuation: AnyContinuation
+): { remoteChain: OperationChain; handlerChain: OperationChain } {
+  const remoteChain = extractRemoteChain(remoteContinuation);
+  const handlerChain = getOperationChain(handlerContinuation);
+  if (!handlerChain) {
+    throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
   }
-
+  // The answer is filled into the handler's final call, so a handler ending anywhere else would
+  // never hear it. A Client's Gateway refuses such a frame too, as the trust boundary.
+  if (handlerChain.at(-1)?.type !== 'apply') {
+    throw new Error('Invalid handlerContinuation: it must end in a call, which its answer is filled into');
+  }
   return { remoteChain, handlerChain };
 }
 
@@ -99,7 +108,7 @@ export function extractCallChains(
  * Handles both `newChain: true` (fresh context) and default (inherit + extend).
  *
  * @param callerIdentity - This node's identity (to add to callChain)
- * @param options - CallOptions with newChain and state
+ * @param options - CallOptions with newChain
  * @returns CallContext to include in the envelope
  * @internal
  */
@@ -115,7 +124,6 @@ export function buildOutgoingCallContext(
     return {
       callChain: [callerIdentity],
       originAuth: undefined,
-      state: options?.state ?? {}
     };
   }
 
@@ -123,24 +131,19 @@ export function buildOutgoingCallContext(
   // Append this node to the call chain (so receiver knows who called them)
   const newCallChain = [...currentContext.callChain, callerIdentity];
 
-  // Merge state if provided (options.state takes precedence on conflicts)
-  const newState = options?.state
-    ? { ...currentContext.state, ...options.state }
-    : currentContext.state;
-
   // Spread the inherited context and override only what this hop changes — so originAuth,
   // originRequest, and any immutable field added later ride through without being named here.
   // ⚠️ `callee` is PER-HOP, and is named here precisely BECAUSE the comment above says an unnamed
   // field rides through — which is right for every other field and wrong for this one.
   // ⓘ Honestly: no test reds without this line, and none can. Every receiver overwrites the field
-  // unconditionally (`executeEnvelope`), and the Gateway builds a client's context from an explicit
-  // four-field list, so an inherited value is discarded before anything reads it. What the line
+  // unconditionally (`executeEnvelope`), and the Gateway forwards a call to a client with an
+  // explicit two-field list (`#forwardToClient`), so an inherited value is discarded before anything
+  // reads it. What the line
   // buys is that the next per-hop field added here is added deliberately rather than by omission.
   return {
     ...currentContext,
     callChain: newCallChain,
     callee: undefined,
-    state: newState
   };
 }
 
@@ -196,9 +199,9 @@ function resolveStub(env: any, calleeBindingName: string, calleeInstanceName: st
  * ZERO state and is freed at the ack; the result (if any) returns later via the callee's
  * fire-back, never on this hop.
  *
- * On an admission/guard/overload reject the ack carries `{ $error }`: for a
- * 4-arg call the framework runs the handler **locally** with the Error (the caller is
- * still hot — it just awaited the short ack); a 3-arg reject is logged. A real
+ * On an admission/guard/overload reject the ack carries `{ $error }`, and
+ * the framework runs the handler **locally** with the Error (the caller is still hot — it
+ * just awaited the short ack). A real
  * Workers-RPC transport reject (e.g. a non-`@mesh` `WorkerEntrypoint` with no
  * `__executeOperation`, B8) is folded into the same admission-reject path. Never rejects.
  *
@@ -210,7 +213,7 @@ async function dispatchEnvelope(
   calleeBindingName: string,
   calleeInstanceName: string | undefined,
   envelope: CallEnvelope,
-  handlerChain: OperationChain | undefined,
+  handlerChain: OperationChain,
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.dispatchEnvelope');
   const stub = resolveStub(env, calleeBindingName, calleeInstanceName);
@@ -235,15 +238,7 @@ async function dispatchEnvelope(
   }
   const errorObj = error instanceof Error ? error : new Error(String(error));
 
-  if (!handlerChain) {
-    // 3-arg dispatch/admission failure has no handler to receive it → log, never throw async.
-    log.error('dispatch/admission failure on a 3-arg call (no handler to receive the error)', {
-      error: errorObj.message,
-    });
-    return;
-  }
-
-  // 4-arg: run the caller's handler LOCALLY with the Error (no hop — caller still hot).
+  // Run the caller's handler LOCALLY with the Error (no hop — caller still hot).
   try {
     const filled = replaceNestedOperationMarkers(handlerChain, errorObj);
     // The handler runs HERE, so the address that matters to it is the one this call was sent to —
@@ -272,14 +267,14 @@ async function dispatchEnvelope(
  *
  * Builds the envelope (validation sync-throws BEFORE the hop), attaches the
  * fire-back {@link EnvelopeResponse} descriptor, and dispatches the one
- * early-acking transport hop. The **caller holds ZERO state** — the 4-arg handler travels
+ * early-acking transport hop. The **caller holds ZERO state** — the handler travels
  * with the call and the callee fires it back; nothing is parked here.
  *
  * The only per-node-type divergence is what `ctx.waitUntil` does across the short ack hop: it
  * keeps an ephemeral `LumenizeWorker` alive at any compatibility date, and a DO/Container only
  * from 2026-10-01 (`durable_object_io_tasks_prevent_eviction`) — before that it is a **no-op**
  * on a DO, which the hop's few milliseconds make harmless. (The browser `LumenizeClient` does
- * NOT use this — it keeps its handler in-heap, via its own `#call`.)
+ * NOT use this — it sends its handler with the call through its Gateway, via its own `#call`.)
  *
  * @internal
  */
@@ -290,7 +285,7 @@ function callShared(
   calleeBindingName: string,
   calleeInstanceName: string | undefined,
   remoteContinuation: Continuation<any>,
-  handlerContinuation?: AnyContinuation,
+  handlerContinuation: AnyContinuation,
   options?: CallOptions,
 ): void {
   // 1. Extract + validate chains — sync-throw, LOUD, before the async hop.
@@ -310,16 +305,16 @@ function callShared(
   // 3. Validate the target binding shape — sync-throw at the call site.
   assertCallTarget(env, calleeBindingName, calleeInstanceName);
 
-  // 4. Build the fire-back descriptor. 4-arg → the handler TRAVELS (mesh sink);
-  //    3-arg → discard. onErrorOnly is evaluated callee-side (N6).
+  // 4. Build the fire-back descriptor: the handler TRAVELS (mesh sink). onErrorOnly is evaluated
+  //    callee-side (N6).
   const selfIdentity: NodeIdentity = {
     type: self.type,
     bindingName: self.bindingName,
     instanceName: self.instanceName,
   };
-  const response: EnvelopeResponse = handlerChain
-    ? { kind: 'mesh', returnAddr: selfIdentity, handler: preprocess(handlerChain), onErrorOnly: options?.onErrorOnly }
-    : { kind: 'discard', onErrorOnly: options?.onErrorOnly };
+  const response: EnvelopeResponse = {
+    kind: 'mesh', returnAddr: selfIdentity, handler: preprocess(handlerChain), onErrorOnly: options?.onErrorOnly,
+  };
 
   // 5. Build the envelope with propagated callContext.
   const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
@@ -347,40 +342,27 @@ function callShared(
 
 /**
  * Fire-back routing carried on a `call()` envelope (absent on a non-`call()`
- * envelope — alarms, fetch executor-delivery — and on the fire-back envelope
- * itself, since a handler never re-fires).
+ * envelope — alarms — and on the fire-back envelope itself, since a handler never
+ * re-fires).
  *
- * Present ⇒ the callee, **after its early ack**, runs the chain under
- * `ctx.waitUntil` and then delivers the outcome per `kind`:
- * - `discard` — 3-arg fire-and-forget: run, drop the result; a post-ack throw is logged.
- * - `mesh` — 4-arg DO/Worker caller: fill `handler` with the outcome and fire it one-way
- *   to `returnAddr.__handleResponse` (run there at `requireMeshDecorator:false`).
- * - `client` — 4-arg client-via-Gateway caller: fire the bare outcome to the Gateway's
- *   `__handleResponse` door keyed by `callId`; the client runs its own in-heap handler.
+ * Present ⇒ the callee, **after its early ack**, runs the chain under `ctx.waitUntil`, fills
+ * `handler` with the outcome, and fires it one-way to `returnAddr.__handleResponse` (run there at
+ * `requireMeshDecorator:false`). The caller answers the same way whoever it is: a Client's Gateway
+ * wrote this descriptor for it, with the Client as `returnAddr`, and hands the fire-back down.
  *
- * `onErrorOnly` (N6) is evaluated **callee-side**: the success fire-back is skipped.
+ * `onErrorOnly` (N6) is evaluated **callee-side**: the success fire-back is skipped. `callId` and
+ * `loadId` are echoed onto the fire-back for a caller that set them; a Client uses both.
  *
  * @internal
  */
-export type EnvelopeResponse =
-  | { kind: 'discard'; onErrorOnly?: boolean }
-  | { kind: 'mesh'; returnAddr: NodeIdentity; handler: any; onErrorOnly?: boolean }
-  | { kind: 'client'; returnAddr: NodeIdentity; callId: string; onErrorOnly?: boolean };
-
-/**
- * The bare-result payload a mesh node fires to the Gateway's `__handleResponse` door for a
- * client-originated 4-arg call. Unlike a mesh fire-back it carries NO handler chain —
- * the client runs its own in-heap handler; the Gateway only re-resolves delivery by `callId` +
- * `clientInstanceName`. `$result`/`$error` are preprocessed for structured-clone transport.
- *
- * @internal
- */
-export interface ClientResultEnvelope {
-  callId: string;
-  clientInstanceName: string;
-  $result?: any;
-  $error?: any;
-}
+export type EnvelopeResponse = {
+  kind: 'mesh';
+  returnAddr: NodeIdentity;
+  handler: any;
+  onErrorOnly?: boolean;
+  callId?: string;
+  loadId?: string;
+};
 
 /**
  * Versioned envelope for RPC calls with automatic metadata propagation
@@ -400,7 +382,6 @@ export interface ClientResultEnvelope {
  * | `callContext.callChain` | No (plain strings) | Never |
  * | `callContext.originAuth` | No (from JWT) | Never |
  * | `callContext.originRequest` | No (edge facts, plain strings) | Never |
- * | `callContext.state` | Yes (user-defined) | Over WebSocket: Yes |
  * | `chain` (contains args) | Yes (method arguments) | Over WebSocket: Yes |
  *
  * Workers RPC uses native structured clone which handles Maps, Sets, Dates, etc.
@@ -462,10 +443,16 @@ export interface CallEnvelope {
 
   /**
    * Fire-back routing for an early-ack `call()` dispatch. Absent on the fire-back
-   * envelope itself (a handler never re-fires) and on non-`call()` envelopes (alarms,
-   * fetch executor-delivery). See {@link EnvelopeResponse}.
+   * envelope itself (a handler never re-fires) and on non-`call()` envelopes (alarms).
+   * See {@link EnvelopeResponse}.
    */
   response?: EnvelopeResponse;
+
+  /** On a fire-back: the `callId` the call's descriptor carried, echoed. */
+  callId?: string;
+
+  /** On a fire-back: the `loadId` the call's descriptor carried, echoed. */
+  loadId?: string;
 }
 
 /**
@@ -514,7 +501,7 @@ export interface LmzApi {
   /**
    * Current call context (only valid during `@mesh` handler execution)
    *
-   * Contains origin, originAuth, callChain, and state for the current request.
+   * Contains callChain, originAuth, originRequest and callee for the current request.
    * Uses AsyncLocalStorage internally, so concurrent requests are isolated.
    *
    * @throws Error if accessed outside of a mesh call context
@@ -540,7 +527,7 @@ export interface LmzApi {
   __init(options: { bindingName?: string; instanceName?: string }): void;
 
   /**
-   * Fire-and-forget RPC call with continuation pattern
+   * One-way call whose outcome reaches a result handler continuation
    *
    * High-level method for DO-to-DO/Worker calls using continuation pattern.
    * Returns immediately while work executes asynchronously in the background.
@@ -549,11 +536,11 @@ export interface LmzApi {
    * - Application code that wants actor model behavior
    * - Event handlers that need to trigger remote calls without blocking
    * - Methods that want to chain operations across DOs
-   * - Fire-and-forget calls (omit handler)
+   * - Calls whose outcome matters only on failure (a handler with `onErrorOnly`)
    *
    * **Continuation pattern**:
    * - Remote continuation: what to execute on remote DO/Worker
-   * - Handler continuation (optional): what to execute locally when result arrives
+   * - Handler continuation: what to execute locally when the result or Error arrives
    * - Result/error automatically injected into handler via OCAN markers
    *
    * **Requirements**:
@@ -564,10 +551,10 @@ export interface LmzApi {
    * - `calleeBindingName` - Binding name of target DO/Worker (e.g., 'REMOTE_DO')
    * - `calleeInstanceName` - Instance name of target DO (undefined for Workers)
    * - `remoteContinuation` - What to execute remotely (from `this.ctn<RemoteDO>()`)
-   * - `handlerContinuation` - Optional: What to execute locally when done (from `this.ctn()`)
+   * - `handlerContinuation` - What to execute locally when done (from `this.ctn()`)
    * - `options` - Optional configuration
    *
-   * **Returns**: void (returns immediately, handler executes asynchronously if provided)
+   * **Returns**: void (returns immediately; the handler runs when the outcome arrives)
    *
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
@@ -575,15 +562,14 @@ export interface LmzApi {
     calleeBindingName: string,
     calleeInstanceName: string | undefined,
     remoteContinuation: Continuation<T>,
-    handlerContinuation?: AnyContinuation,
+    handlerContinuation: AnyContinuation,
     options?: CallOptions
   ): void;
 
   /**
    * Send one continuation to many targets — one `call` per target, from this node, at any N.
    *
-   * `options.onResult` hears only failures. Each call starts a fresh chain unless `newChain: false`,
-   * and `state` passes through to each call.
+   * `options.onResult` hears only failures. Each call starts a fresh chain unless `newChain: false`.
    * A target whose binding does not route throws synchronously, before any later target is sent.
    *
    * @see `broadcast.ts` — the chain each target sees, and where `callContext.callee` names the target
@@ -591,7 +577,7 @@ export interface LmzApi {
   broadcast<T = any>(
     targets: BroadcastTarget[],
     remoteContinuation: Continuation<T>,
-    options?: BroadcastOptions
+    options: BroadcastOptions
   ): void;
 }
 
@@ -725,7 +711,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       calleeBindingName: string,
       calleeInstanceName: string | undefined,
       remoteContinuation: Continuation<T>,
-      handlerContinuation?: AnyContinuation,
+      handlerContinuation: AnyContinuation,
       options?: CallOptions
     ): void {
       callShared(this, env, doInstance, calleeBindingName, calleeInstanceName, remoteContinuation, handlerContinuation, options);
@@ -734,7 +720,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     broadcast<T = any>(
       targets: BroadcastTarget[],
       remoteContinuation: Continuation<T>,
-      options?: BroadcastOptions
+      options: BroadcastOptions
     ): void {
       broadcastShared(this, targets, remoteContinuation, options);
     },
@@ -796,7 +782,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       calleeBindingName: string,
       calleeInstanceName: string | undefined,
       remoteContinuation: Continuation<T>,
-      handlerContinuation?: AnyContinuation,
+      handlerContinuation: AnyContinuation,
       options?: CallOptions
     ): void {
       callShared(this, env, workerInstance, calleeBindingName, calleeInstanceName, remoteContinuation, handlerContinuation, options);
@@ -805,7 +791,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
     broadcast<T = any>(
       targets: BroadcastTarget[],
       remoteContinuation: Continuation<T>,
-      options?: BroadcastOptions
+      options: BroadcastOptions
     ): void {
       broadcastShared(this, targets, remoteContinuation, options);
     },
@@ -863,16 +849,17 @@ function describeCallee(node: EnvelopeExecutorNode, chain: OperationChain): stri
 
 /**
  * Fill + fire a `call()`'s response back to its origin (the post-ack half of the
- * traveling-handler model). Runs inside the callee's `runWithCallContext` scope, under
- * `ctx.waitUntil`. Never rejects — every failure is logged, so a bad handler or a
- * rejected response leg can never crash the callee node or become an unhandled rejection.
+ * traveling-handler model), as `answerer`, which becomes the fire-back's last hop. A node runs
+ * it inside its `runWithCallContext` scope, under `ctx.waitUntil`; a Client's Gateway runs it
+ * as its Client, which is why it is exported (ADR-007). Never rejects — every failure is
+ * logged, so a bad handler or a rejected response leg can never crash the answering side or
+ * become an unhandled rejection.
  *
- * - `discard` (3-arg): drop a success; **log** a post-ack throw — it has nowhere to go.
- * - `mesh` (4-arg DO/Worker): fill the traveling handler and fire it one-way to
- *   `returnAddr.__handleResponse`. The sink's ack carries `{ $error }` only if the
- *   response leg was **rejected at admission** (e.g. the response-leg scope gate, `requirePassage`) — logged
- *   here; a handler that throws *post-ack at the sink* (N8) is logged on the sink itself.
- * - `client`: delivered via the Gateway door — built in the client-leg phase.
+ * - Fill the traveling handler and fire it one-way to `returnAddr.__handleResponse`: a node's
+ *   own fire-back door, or a Client's Gateway, which hands it down. The sink's ack carries
+ *   `{ $error }` only if the response leg was **rejected at admission** (e.g. the response-leg
+ *   scope gate, `requirePassage`) — logged here; a handler that throws *post-ack at the sink*
+ *   (N8) is logged on the sink itself.
  * - A result that cannot be encoded (a `CryptoKey`, a native `Response`) reaches the
  *   handler as a `DataCloneError` naming `callee`, in its place — on either leg — so the
  *   caller hears about it instead of waiting on a reply that never comes.
@@ -881,8 +868,8 @@ function describeCallee(node: EnvelopeExecutorNode, chain: OperationChain): stri
  *
  * @internal
  */
-async function fireResponse(
-  node: EnvelopeExecutorNode,
+export async function fireResponse(
+  answerer: NodeIdentity,
   env: any,
   inboundContext: CallContext,
   response: EnvelopeResponse | undefined,
@@ -895,8 +882,9 @@ async function fireResponse(
   const errText = () => (outcome instanceof Error ? outcome.message : String(outcome));
 
   // No fire-back wanted, or onErrorOnly skipping a success. An undelivered post-ack
-  // throw must still surface (a 3-arg fire-and-forget, or a handler throw at the sink — N8).
-  if (!response || response.kind === 'discard' || (response.onErrorOnly && !isError)) {
+  // throw must still surface: a continuation that throws at the fire-back door carries no
+  // `response` of its own, so this is the only place its Error is logged (N8).
+  if (!response || (response.onErrorOnly && !isError)) {
     if (isError) {
       // The stack rides along: a bare message (`TypeError: undefined is not a function`,
       // 2026-09-06, once in a dozen live runs) names nothing a reader can act on.
@@ -907,84 +895,63 @@ async function fireResponse(
     return;
   }
 
-  if (response.kind === 'mesh') {
-    const calleeIdentity: NodeIdentity = {
-      type: node.lmz.type,
-      bindingName: node.lmz.bindingName!,
-      instanceName: node.lmz.instanceName,
-    };
-    const handlerChain = postprocess(response.handler) as OperationChain;
-    let chain: CallEnvelope['chain'];
-    try {
-      chain = preprocess(replaceNestedOperationMarkers(handlerChain, outcome));
-    } catch (encodeError) {
-      chain = preprocess(replaceNestedOperationMarkers(
-        handlerChain, unencodableResult(outcome, callee, encodeError),
-      ));
-    }
-    // The fire-back rides the same transport as any mesh hop, so callContext propagates
-    // identically — the callee appends itself; originAuth is unchanged. No
-    // `response` descriptor: the handler does not itself fire back.
-    const fireEnvelope: CallEnvelope = {
-      version: 1,
-      chain,
-      callContext: {
-        ...inboundContext,  // originAuth, originRequest, and any later immutable field ride through
-        callChain: [...inboundContext.callChain, calleeIdentity],
-        // ⓘ `callee` is deliberately NOT set here. A mesh fire-back can only land at
-        // `__handleResponse`, and `executeEnvelope` overwrites the field there from the receiving
-        // node's own identity — so a value set on this envelope is discarded before any handler
-        // sees it. Measured: removing a stamp here reds nothing, which is what it means for a
-        // line to be unnecessary rather than untested.
+  const chain = fillHandler(response.handler, outcome, callee);
+  // The fire-back rides the same transport as any mesh hop, so callContext propagates
+  // identically — the answerer appends itself; originAuth is unchanged. No
+  // `response` descriptor: the handler does not itself fire back.
+  const fireEnvelope: CallEnvelope = {
+    version: 1,
+    chain,
+    callContext: {
+      ...inboundContext,  // originAuth, originRequest, and any later immutable field ride through
+      // The last hop is the answerer, and it is where the caller's `__handleResponse` reads the
+      // handler's `callee` from, so the handler learns which target answered. The inbound
+      // `callee` rides along in the spread above, and that door discards it.
+      callChain: [...inboundContext.callChain, answerer],
+    },
+    metadata: {
+      caller: { type: answerer.type, bindingName: answerer.bindingName, instanceName: answerer.instanceName },
+      callee: {
+        type: response.returnAddr.type,
+        bindingName: response.returnAddr.bindingName,
+        instanceName: response.returnAddr.instanceName,
       },
-      metadata: {
-        caller: { type: calleeIdentity.type, bindingName: calleeIdentity.bindingName, instanceName: calleeIdentity.instanceName },
-        callee: {
-          type: response.returnAddr.type,
-          bindingName: response.returnAddr.bindingName,
-          instanceName: response.returnAddr.instanceName,
-        },
-      },
-    };
-    let ack: any;
-    try {
-      const stub = resolveStub(env, response.returnAddr.bindingName, response.returnAddr.instanceName);
-      ack = await stub.__handleResponse(fireEnvelope);
-    } catch (transportError) {
-      log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, {
-        error: transportError instanceof Error ? transportError.message : String(transportError),
-      });
-      return;
-    }
-    if (ack && '$error' in ack) {
-      let sinkErr = 'unknown';
-      try { const e = postprocess(ack.$error); sinkErr = e instanceof Error ? e.message : String(e); } catch { /* keep default */ }
-      log.error(`${nodeTypeName}: response leg rejected at the sink (scope gate or admission)`, { error: sinkErr });
-    }
-    return;
-  }
-
-  // response.kind === 'client': the client keeps its handler in-heap, so we fire the
-  // BARE result (not a chain) to the Gateway's __handleResponse door, addressed to the client's
-  // instanceName + callId. The Gateway re-resolves delivery to the client's current socket.
-  let payload: Pick<ClientResultEnvelope, '$result' | '$error'>;
-  try {
-    payload = isError ? { $error: preprocess(outcome) } : { $result: preprocess(outcome) };
-  } catch (encodeError) {
-    payload = { $error: preprocess(unencodableResult(outcome, callee, encodeError)) };
-  }
-  const clientResult: ClientResultEnvelope = {
-    callId: response.callId,
-    clientInstanceName: response.returnAddr.instanceName!,
-    ...payload,
+    },
+    ...(response.callId !== undefined ? { callId: response.callId } : {}),
+    ...(response.loadId !== undefined ? { loadId: response.loadId } : {}),
   };
+  let ack: any;
   try {
     const stub = resolveStub(env, response.returnAddr.bindingName, response.returnAddr.instanceName);
-    await stub.__handleResponse(clientResult);
+    ack = await stub.__handleResponse(fireEnvelope);
   } catch (transportError) {
-    log.error(`${nodeTypeName}: client fire-back to the Gateway door failed`, {
+    log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, {
       error: transportError instanceof Error ? transportError.message : String(transportError),
     });
+    return;
+  }
+  if (ack && '$error' in ack) {
+    let sinkErr = 'unknown';
+    try { const e = postprocess(ack.$error); sinkErr = e instanceof Error ? e.message : String(e); } catch { /* keep default */ }
+    log.error(`${nodeTypeName}: response leg rejected at the sink (scope gate or admission)`, { error: sinkErr });
+  }
+}
+
+/**
+ * Fill a result handler continuation with a call's outcome — the code every fire-back uses,
+ * exported so a Client's Gateway, which extends `DurableObject` rather than composing the mesh
+ * core, fills a continuation the same way (ADR-007). `handler` arrives preprocessed and the filled
+ * chain leaves preprocessed. A result that cannot be encoded is replaced by a `DataCloneError`
+ * naming `callee`, so the handler still runs.
+ *
+ * @internal
+ */
+export function fillHandler(handler: any, outcome: unknown, callee: string): any {
+  const handlerChain = postprocess(handler) as OperationChain;
+  try {
+    return preprocess(replaceNestedOperationMarkers(handlerChain, outcome));
+  } catch (encodeError) {
+    return preprocess(replaceNestedOperationMarkers(handlerChain, unencodableResult(outcome, callee, encodeError)));
   }
 }
 
@@ -993,8 +960,9 @@ async function fireResponse(
  * `LumenizeDO` and `LumenizeWorker`, for BOTH RPC entries:
  * `__executeOperation` (requests, `requireMeshDecorator: true`) and `__handleResponse`
  * (fire-backs, `requireMeshDecorator: false`). `onBeforeCall` runs on **both** — the
- * response leg is scope-gated by construction, and the walk rules are unconditional; only the
- * member-level check toggles.
+ * response leg is scope-gated by construction — except at the fire-back door on a chain this node
+ * started, whose answers carry no claims. The walk rules are unconditional; only the member-level
+ * check toggles.
  *
  * **Early ack:** admission (version/callContext/identity/`onBeforeCall`) runs first
  * and returns `{ $ack: true }` the instant the callee is admitted — BEFORE the chain. The
@@ -1019,6 +987,9 @@ export async function executeEnvelope(
      * fire-back door, never the request door. Its final `apply` then carries data rather than a
      * template's arguments, so it is not scanned for nested markers.
      *
+     * It also selects where `callee` comes from: the fire-back's last hop, the target that
+     * answered, rather than this node's own identity.
+     *
      * ⚠️ **Orthogonal to `requireMeshDecorator` in both directions, so it MUST NOT be folded into
      * it.** `alarms.ts` runs a never-substituted chain with that flag off, and a pre-filled chain
      * used to reach the request door, where it is on.
@@ -1040,7 +1011,7 @@ export async function executeEnvelope(
   let operationChain: OperationChain;
 
   // --- ADMISSION (pre-ack). Every failure here rejects the EARLY ACK with { $error },
-  //     which the dispatcher turns into a locally-run handler (4-arg) or a log (3-arg). ---
+  //     which the dispatcher turns into a locally-run handler. ---
   try {
     if (!envelope.version || envelope.version !== 1) {
       const error = new Error(
@@ -1068,22 +1039,33 @@ export async function executeEnvelope(
 
     // Postprocess the chain (aliases/cycles, custom Error types).
     operationChain = postprocess(envelope.chain);
-    // OVERWRITTEN unconditionally from this node's own identity — whatever the envelope carried is
-    // DISCARDED. That is the whole point: the value must come from a source the caller cannot
-    // write, and the only such source at the receiving end is the receiver itself.
+    // OVERWRITTEN unconditionally — whatever `callee` the envelope carried is DISCARDED, because the
+    // value must come from a source the caller cannot write. At the request door that source is
+    // this node itself. At the fire-back door it is the fire-back's last hop, which the answering
+    // side's framework appended (`fireResponse`), so a result handler learns which target answered.
     callContext = {
       ...envelope.callContext,
-      callee: {
-        type: node.lmz.type,
-        bindingName: node.lmz.bindingName!,
-        instanceName: node.lmz.instanceName,
-      },
+      callee: options?.filled
+        ? envelope.callContext.callChain.at(-1)
+        : {
+          type: node.lmz.type,
+          bindingName: node.lmz.bindingName!,
+          instanceName: node.lmz.instanceName,
+        },
     };
 
-    // onBeforeCall is the guard — it runs under the call context and may read/mutate
-    // state; a throw here rejects admission (scope/auth). This is the scope gate on the
-    // response leg too (both entries call this path).
-    runWithCallContext(callContext, () => { node.onBeforeCall(); });
+    // onBeforeCall is the guard — it runs under the call context; a throw here rejects
+    // admission (scope/auth). This is the scope gate on the response leg too, except on a chain
+    // this node started: the answers to its own broadcasts and alarms come back on that chain,
+    // which carries no claims, and a guard requiring them would refuse every one. Skipping costs
+    // nothing, because the envelope's `callChain` is the sender's to write at either door, and
+    // only code holding this node's binding can send one.
+    // A first hop and a known binding are both required: an unstamped node and an empty chain would
+    // otherwise compare `undefined` with `undefined` and skip the hook for a stranger.
+    const [origin] = callContext.callChain;
+    const startedHere = options?.filled === true && origin !== undefined && node.lmz.bindingName !== undefined
+      && origin.bindingName === node.lmz.bindingName && origin.instanceName === node.lmz.instanceName;
+    if (!startedHere) runWithCallContext(callContext, () => { node.onBeforeCall(); });
   } catch (error) {
     return { $error: preprocess(error) };
   }
@@ -1101,8 +1083,13 @@ export async function executeEnvelope(
       outcome = err instanceof Error ? err : new Error(String(err));
       isError = true;
     }
+    const answerer: NodeIdentity = {
+      type: node.lmz.type,
+      bindingName: node.lmz.bindingName!,
+      instanceName: node.lmz.instanceName,
+    };
     await fireResponse(
-      node, options?.env, callContext, envelope.response, outcome, isError, nodeTypeName,
+      answerer, options?.env, callContext, envelope.response, outcome, isError, nodeTypeName,
       describeCallee(node, operationChain),
     );
   }).catch((detachedError: unknown) => {
@@ -1173,9 +1160,9 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
 
     /**
      * Hook run at admission, before each incoming mesh call executes (inside `executeEnvelope`, on
-     * BOTH receive entries incl. the response leg). Override for auth/scope guards — reject by
-     * throwing, or cache derived context in `callContext.state`; call `super.onBeforeCall()` if a
-     * parent adds logic. Does NOT run on the `fetch()` path (by design). Default: no-op.
+     * BOTH receive entries incl. the response leg, but not on the answers to a chain this node
+     * started). Override for auth/scope guards — reject by throwing; call `super.onBeforeCall()`
+     * if a parent adds logic. Does NOT run on the `fetch()` path (by design). Default: no-op.
      */
     onBeforeCall(): void {
       // Default: no-op. Subclasses override for authentication/authorization.

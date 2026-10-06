@@ -38,6 +38,7 @@ import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
 import { stringify } from '@lumenize/structured-clone';
 import { PermissionDeniedError } from './errors';
 import { canonicalQueryHash } from './query-hash';
+import { END_OF_TIME } from './snapshots';
 import type { QueryDescriptor } from './query-hash';
 import type { Snapshots, Snapshot } from './snapshots';
 
@@ -100,8 +101,8 @@ export type SubscriberRow = {
    * unconfined. The stored value is **monotonically narrowing** — a strict conjunct-subset of the
    * raw bit, and the host instance name is immutable for the DO's lifetime, so drift can only go
    * 1→0 (under-privilege), never 0→1 (ADR-013). **It converges on a changed claim by
-   * re-subscription**: `NebulaClient` re-issues every subscription on reconnect, which re-derives
-   * the bit from the fresh token.
+   * re-subscription**: `NebulaClient` re-subscribes everything once a new token's `scopeAdmin`
+   * differs from the last one's, on the socket that token opens, which re-derives the bit.
    */
   dominionOverHostAtSubscribe: number;
   subscriberBinding: string;
@@ -236,15 +237,20 @@ export class Subscriptions {
   }
 
   /**
-   * Drop one resource row. `ClientDisconnectedError` does NOT mean "gone past the grace period" —
-   * the Gateway raises it for a live socket whose token expired too — but dropping is still right,
-   * because `NebulaClient` re-issues every subscription on reconnect (`#resubscribeAll`), so a
-   * prematurely dropped row heals on the next connect. PK-targeted: one billed write.
+   * Drop one resource row, on the Gateway's `ClientDisconnectedError` or an unsubscribe. Dropping is
+   * safe however soon the tab comes back: the Gateway tells its next connection
+   * `subscriptionRequired: true`, inside the grace period or past it, and closes a socket still open
+   * with 4408, so the tab re-subscribes either way.
+   *
+   * A reaper passes `sentAt`, the time its push was sent, and only a row subscribed at or before it
+   * goes. The tab's re-subscribe can land before the reaper does, and its row is newer than the push
+   * that failed, so it survives. An unsubscribe passes none and always deletes. Each `remove*` here
+   * takes `sentAt` the same way. PK-targeted: one billed write.
    */
-  removeResource(resourceId: string, clientId: string): void {
+  removeResource(resourceId: string, clientId: string, sentAt?: string): void {
     this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientId = ?`,
-      resourceId, clientId,
+      `DELETE FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientId = ? AND subscribedAt <= ?`,
+      resourceId, clientId, sentAt ?? END_OF_TIME,
     );
   }
 
@@ -293,10 +299,10 @@ export class Subscriptions {
 
   /** Drop one query row. Returns `rowsWritten` (0 on a no-op) so the roster goes to watchers only
    *  on an actual removal — the mass-disconnect-storm guard. */
-  removeQuery(queryHash: string, clientId: string): number {
+  removeQuery(queryHash: string, clientId: string, sentAt?: string): number {
     return this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'query' AND topic = ? AND clientId = ?`,
-      queryHash, clientId,
+      `DELETE FROM Subscriptions WHERE kind = 'query' AND topic = ? AND clientId = ? AND subscribedAt <= ?`,
+      queryHash, clientId, sentAt ?? END_OF_TIME,
     ).rowsWritten;
   }
 
@@ -330,10 +336,10 @@ export class Subscriptions {
 
   /** Drop one watcher row — from the roster rows only, so a client that is also a data subscriber
    *  of the query keeps that row. Returns `rowsWritten`. */
-  removeRoster(queryHash: string, clientId: string): number {
+  removeRoster(queryHash: string, clientId: string, sentAt?: string): number {
     return this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'roster' AND topic = ? AND clientId = ?`,
-      queryHash, clientId,
+      `DELETE FROM Subscriptions WHERE kind = 'roster' AND topic = ? AND clientId = ? AND subscribedAt <= ?`,
+      queryHash, clientId, sentAt ?? END_OF_TIME,
     ).rowsWritten;
   }
 
@@ -357,10 +363,10 @@ export class Subscriptions {
   }
 
   /** Drop one tree subscriber. */
-  removeTree(clientId: string): void {
+  removeTree(clientId: string, sentAt?: string): void {
     this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'tree' AND topic = '' AND clientId = ?`,
-      clientId,
+      `DELETE FROM Subscriptions WHERE kind = 'tree' AND topic = '' AND clientId = ? AND subscribedAt <= ?`,
+      clientId, sentAt ?? END_OF_TIME,
     );
   }
 

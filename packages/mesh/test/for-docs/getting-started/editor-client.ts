@@ -50,7 +50,9 @@ export class EditorClient extends LumenizeClient {
         this.lmz.call(
           'DOCUMENT_DO',
           documentId,
-          this.ctn<DocumentDO>().update(content)
+          this.ctn<DocumentDO>().update(content),
+          this.ctn().handleCallFailed('save'),
+          { onErrorOnly: true }
         );
       },
       close: () => {
@@ -69,13 +71,13 @@ export class EditorClient extends LumenizeClient {
     );
   }
 
-  // Called on every connection (except reconnects within 5s grace period)
-  onSubscriptionRequired = () => {
+  // Called when subscriptions may have been lost; an ordinary reconnect skips it
+  override onSubscriptionRequired(): void {
     // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }
-  };
+  }
 
   // Response handler for subscribe - receives initial content or Error
   handleSubscribeResult(documentId: string, result: string | Error) {
@@ -101,5 +103,11 @@ export class EditorClient extends LumenizeClient {
   @mesh()
   handleSpellFindings(documentId: string, findings: SpellFinding[]) {
     this.#documents.get(documentId)?.onSpellFindings?.(findings);
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }

@@ -49,8 +49,9 @@ Here's how each component handles it:
 3. **Gateway** decodes the JWT payload to extract `sub`, `exp`, and claims — stores as `originAuth` in WebSocket attachment
 4. **Gateway** validates that JWT `sub` matches the Gateway instance name prefix (prevents hijacking)
 5. **Before each call**, the client checks its own token: within 30 s of expiry (or already past it), the call is **queued**, the token refreshed, and the socket **rotated** — a new connection authenticated with the fresh token, on which the queued call is then delivered. A call is never sent on a socket whose token is due.
-6. **On each inbound message**, Gateway checks the expiration stored at upgrade — if expired, it closes with `4401` and that message is dropped. This is the backstop, not the normal path: with step 5 it fires only for revocation, key rotation, or clock skew.
-7. **On 4401**, client refreshes via HTTP and reconnects automatically. Anything queued while disconnected is delivered once the new connection reports ready; a message the Gateway already dropped is not replayed, which is why step 5 keeps calls off a stale socket in the first place.
+6. **On each inbound message**, Gateway checks the expiration stored at upgrade — if expired, it closes with `4401` and that message is dropped. This is the backstop, not the normal path: with step 5 it fires for revocation, key rotation, clock skew, or a client answering a call after its token lapsed.
+7. **Before each call it sends the client**, Gateway checks the same expiration. If expired, it closes with `4401` and holds the call, in the grace period that close starts, until the client reconnects with a fresh token; the call is then checked against the new connection and sent there. A client that cannot refresh, its session revoked, never comes back, so it receives nothing past its token's expiry.
+8. **On 4401**, client refreshes via HTTP and reconnects automatically. Anything queued while disconnected is delivered once the new connection reports ready; a message the Gateway already dropped is not replayed, which is why step 5 keeps calls off a stale socket in the first place.
 
 The Gateway doesn't re-verify the JWT signature — it trusts that the auth hooks already did. This is the same trust boundary shown in the [Architecture Overview](#architecture-overview) diagram.
 
@@ -95,7 +96,7 @@ A chain arriving off the wire must open on a `@mesh()`-decorated method or gette
 
 ### Class-Level: `onBeforeCall()`
 
-Override to enforce class-wide policies:
+Override to enforce class-wide policies. It also runs when the answer to one of this node's calls comes back, at its fire-back door, except on a chain this node started: a broadcast or an alarm starts a fresh chain that carries no `originAuth`, and a guard that requires claims would refuse every answer on it. Skipping the hook there costs nothing, since only code holding the node's binding can send a fire-back.
 
 ```typescript @check-example('packages/mesh/test/for-docs/security/user-profile-do.ts')
 export class UserProfileDO extends LumenizeDO<Env> {
@@ -158,29 +159,23 @@ Then reuse it across multiple methods:
   }
 ```
 
-### Call Context State
+### Computing Access in the Guard
 
-The `callContext.state` object is a mutable `Record<string, unknown>` that persists through the call chain. Use it to compute data once and access it in multiple guards or even method code:
+A guard computes its decision from what the call carries, `originAuth`, and from the node's own storage. Compute it in the guard of the node the decision is about:
 
 ```typescript @check-example('packages/mesh/test/for-docs/security/team-doc-do.ts')
-  onBeforeCall() {
-    super.onBeforeCall();
-    // Compute once, use in multiple guards
-    const sub = this.lmz.callContext.originAuth!.sub;
-    this.lmz.callContext.state.isEditor = this.allowedEditors.has(sub);
-  }
-
   @mesh((instance: TeamDocDO) => {
-    if (!instance.lmz.callContext.state.isEditor) {
+    const sub = instance.lmz.callContext.originAuth?.sub;
+    if (!sub || !instance.allowedEditors.has(sub)) {
       throw new Error('Editor access required');
     }
   })
-  editWithStateCheck(changes: DocumentChange): { edited: true; byUser: string } {
+  editAsEditor(changes: DocumentChange): { edited: true; byUser: string } {
     // ...
   }
 ```
 
-State propagates through the entire call chain — if DO1 calls DO2, DO2's guards see the same `state` object. However, different but interleaved concurrent requests each get their own isolated `state` via AsyncLocalStorage.
+Only the guard on a chain's first operation runs, so a decision computed once and cached for later would save nothing, and one carried to another node was computed for a different node. A value that a later hop needs travels as an argument of the continuation you call it with.
 
 ## Integrating Alternative Auth (Advanced)
 
@@ -209,7 +204,7 @@ If the `Authorization` header is missing or the JWT lacks a `sub` claim, the Gat
 **Instance name format requirement**: The default Gateway validates that the instance name follows `{sub}.{tabId}` format, where `sub` matches the JWT subject claim. If the prefix doesn't match, the connection is rejected with 403. This prevents connection hijacking where an attacker with a valid token tries to connect to someone else's Gateway instance.
 
 :::tip Customizing connection validation and claims
-If your application uses a different instance name format or extracts different JWT claims, override [`onBeforeAccept`](./gateway#onbeforeacceptinstancename-sub-jwtpayload) in a Gateway subclass. You can also use [`onBeforeCallToMesh`](./gateway#onbeforecalltomeshbasecontext-connectioninfo) to enrich `CallContext` with security-critical fields — add them as top-level properties (not in `state`) so they're immutable by convention. See [Gateway: Extensibility](./gateway#extensibility) for the full API and examples.
+If your application uses a different instance name format or extracts different JWT claims, override [`onBeforeAccept`](./gateway#onbeforeacceptinstancename-sub-jwtpayload) in a Gateway subclass. You can also use [`onBeforeCallToMesh`](./gateway#onbeforecalltomeshbasecontext-connectioninfo) to enrich `CallContext` with security-critical fields — add them as top-level properties, which ride every onward hop. See [Gateway: Extensibility](./gateway#extensibility) for the full API and examples.
 :::
 
 :::warning Never trust client-provided tokens
@@ -235,7 +230,7 @@ async function createAuth0WebSocketHooks(env: Env) {
   const publicKey = await importSPKI(env.AUTH0_PUBLIC_KEY, 'RS256');
 
   return async (request: Request, context: RouteDORequestHooksContext): Promise<Request | Response> => {
-    // Extract token from subprotocol header (e.g., "lmz, lmz.access-token.eyJ...")
+    // Extract token from subprotocol header (e.g., "lmz.2, lmz.access-token.eyJ...")
     const protocols = request.headers.get('Sec-WebSocket-Protocol')?.split(',').map(p => p.trim()) ?? [];
     const tokenProtocol = protocols.find(p => p.startsWith('lmz.access-token.'));
     const token = tokenProtocol?.replace('lmz.access-token.', '');
@@ -275,7 +270,7 @@ routeDORequest(request, env, {
 Browsers don't allow custom headers on WebSocket upgrades. `LumenizeClient` works around this by encoding the token in the subprotocol list:
 
 ```
-Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
+Sec-WebSocket-Protocol: lmz.2, lmz.access-token.eyJhbGciOiJF...
 ```
 
 The auth hooks extract the token from this subprotocol, verify it, and forward it via the standard `Authorization: Bearer` header. The Gateway only sees the header — it never touches the subprotocol.

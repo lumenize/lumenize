@@ -1599,15 +1599,23 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    * because `dist/` serves Galaxy-direct from this DO's VFS and the Studio sets the
    * iframe source before connecting, so there was nothing to warm and nothing to
    * announce. A fresh chain, like every push: the nudge is this Galaxy speaking, so the
-   * asking client's claims stay behind. Fire-and-forget + try/catch (a delivery failure
-   * must never break the dev loop), so a nudge sent while the socket is down is lost.
+   * asking client's claims stay behind. A delivery failure must never break the dev loop, so a
+   * synchronous throw is caught and a failed delivery reaches a handler that logs it: a nudge
+   * sent while the socket is down is lost.
    */
   protected deliverPreviewReady(scope: string, clientId: string): void {
     try {
       this.lmz.call(CLIENT_GATEWAY_BINDING, clientId, this.ctn<NebulaClient>().handlePreviewReady(scope),
-        undefined, { newChain: true });
+        this.ctn<Galaxy>().onPreviewReadyUndelivered(), { newChain: true, onErrorOnly: true });
     } catch (e) {
       debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: e });
+    }
+  }
+
+  /** {@link deliverPreviewReady}'s result handler, sent `onErrorOnly`: logs a nudge that did not land. */
+  onPreviewReadyUndelivered(result?: unknown): void {
+    if (result instanceof Error) {
+      debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: result.message });
     }
   }
 

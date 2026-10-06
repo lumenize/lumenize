@@ -14,7 +14,7 @@ describe('WebSocket Auth Example', () => {
       headers: {
         'Upgrade': 'websocket',
         'Connection': 'Upgrade',
-        'Sec-WebSocket-Protocol': 'lmz'
+        'Sec-WebSocket-Protocol': 'lmz.2'
       }
     });
 
