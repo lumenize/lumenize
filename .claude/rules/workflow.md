@@ -106,6 +106,16 @@ You MUST score each candidate on this, and MUST say so when you recommend:
 - **ADR-022 (Proposed)** — **every session lives on `platform.lumenize.dev`: a page on any `lumenize.dev` host gets its access token by a credentialed `fetch` there.** ⚠️ `aud` is the scope its host spells, from `Origin`, and passage and dominion read it, taking only the admin bit from the membership; `authScope` is the broadest-dominion membership there, never narrowed to the host; every cookie is `__Host-`-named, none on a scope host; the client names neither scope; a persona host's token has no `act`, by design.
 - **ADR-023 (Proposed)** — **code crosses the mesh boundary only at one of two bridges**: **a facade** the infrastructure package owns (the Registry facade, so far), through which mesh code reaches raw infrastructure, and **`@rawRpc`**, through which our own code reaches a mesh node, for an operation no client may call. ⚠️ Never an operation only our own code may invoke on a node's `fetch`, never a general channel free of claims.
 
+## Teeing up decisions for Larry
+**When more than one thing needs Larry's decision, each MUST be teed up on its own, one per turn**, never as a list to answer at once. Each item carries four parts:
+
+- **Context**, with the source quoted rather than pointed at, so Larry need not open a file to follow it.
+- **Analysis**: what is true, checked against the code, and what each answer would cost.
+- **Alternatives**, each with its trade-off.
+- **A recommendation.**
+
+**Order them by dependency first, then by risk, and re-order after each answer**, since an answer can settle or reshape what follows. The first item MAY open with a short numbered list of what is coming. The same procedure serves a build's hand-off (`/build-task`) and a review's gate (`/review-task`). Larry, 2026-10-06: *"I use that all of the time now."*
+
 ## Related skills
 - `/task-management` — docs-first vs task-file-first
 - `/write-task` — draft a task file: design intent first, gated on a hand review, then phases

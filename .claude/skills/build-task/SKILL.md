@@ -22,7 +22,15 @@ Read the task file + linked sub-tasks + referenced docs + the relevant `.claude/
 **Exploratory phases.** Most phases are transcription of a pinned design — they carry decisions + concrete, testable success criteria, and the verifier checks conformance to them. But some phases are inherently *empirical*: real-infra harnesses, browser/WS tooling, network-failure simulation — work whose mechanism you can only learn by running it (the §5.3.7-v4 WS-disconnect tooling took three tries: `ws.close()` hangs through the http-proxy → CDP offline hangs the whole vitest-browser run → synthetic `CloseEvent` works; none of that was pin-able in advance). Such a phase should be **explicitly tagged exploratory** in the task file (per `tasks/README.md`). When a phase has only `"works"`-grade bullets and no pinned decisions, do NOT silently hold it to transcription-grade conformance — that degrades its verifier to a rubber stamp. Instead treat it as exploratory: its deliverable is **(a)** capable-of-failing tests for the discovered behavior and **(b)** a captured findings note recording the mechanism that worked *and the alternatives that failed* (harvest it into a reference memory or the right rule — v4's findings became the `vitest-browser-ws-disconnect` memory). If a phase is thin and is *neither* tagged exploratory nor pinned, that's a spec gap — flag it before building, don't paper over it.
 
 ### 2. Implement
-Phase by phase, sequentially, in the current branch, following `.claude/rules/` (path-scoped rules auto-load as you touch files). After each phase, run the narrowest type-check / tests for the files you touched. Update the task file as you go when reality diverges from the plan. Don't commit.
+Phase by phase, sequentially, in the current branch, following `.claude/rules/` (path-scoped rules auto-load as you touch files). After each phase, run the narrowest type-check / tests for the files you touched. Update the task file as you go when reality diverges from the plan. Commit each phase once its gate and its mutation checks pass, by explicit path (`git commit -m … -- <paths>`, never `-A`); pushing stays gated.
+
+**At each phase end, write the phase's build notes into the task file's § *Build notes*** (create it on first use, after the phases), and commit them with the phase:
+
+- **For the human:** every question or decision that arose and needs them, with its source quoted, and anything the phase changed that the task file had decided.
+- **Retro notes:** what the phase taught, what was hard, what failed unexpectedly and why.
+- **Close-out notes:** what the phase closed or made obsolete — a backlog row, a sibling task file's line, a sentence of standing guidance.
+
+A long unattended run spans several compactions, and a compaction keeps only a summary of the conversation. The notes are what the hand-off works from, so nothing deferred lives only in the transcript. (Larry, 2026-10-06, after a ten-phase run whose deferred items had to be dug out of a 42 MB transcript.)
 
 ⚠️ **At each phase end, walk your own DIFF before you report the phase done.** For every line you wrote that **asserts something about existing code** — a JSDoc claim, a code comment, an edit to a task file or to standing guidance (`.claude/rules/`, an ADR, `backlog.md`) — either cite the check you ran or run it now. Diff-scoped, so it costs a dozen lines.
 
@@ -169,7 +177,7 @@ const verdicts = await parallel(PHASES.map(p => () =>
     `broken for sibling verifiers. The parent already ran the suites green before this fan-out; assess ` +
     `capable-of-failing and correctness by READING the code (and the recorded mutation-validation results in ` +
     `the task file), not by executing. If a criterion is only confirmable by execution, say so in your verdict. ` +
-    `Pass ONLY if it satisfies its success criteria: ${p.successCriteria}. ⚠️ Hunt specifically for NEW assertions that CANNOT FAIL — the two classes with no mutation ritual attached, which you can assess by reading: (a) any INSTRUMENT the phase documents (a grep in a rule, criterion or comment) — read the command and ask whether it could produce output at all, since a malformed one returns empty and reads as conformant; (b) any MULTI-LIMB /live scenario — it reddens on its FIRST failing limb, which hides every later limb, so ask per limb whether that limb could fail on its own and whether it calls something actually reachable. Also flag any .claude/rules/ violations ` +
+    `Pass ONLY if it satisfies its success criteria: ${p.successCriteria}. ⚠️ Hunt specifically for NEW assertions that CANNOT FAIL — the two classes with no mutation ritual attached, which you can assess by reading: (a) any INSTRUMENT the phase documents (a grep in a rule, criterion or comment) — read the command and ask whether it could produce output at all, since a malformed one returns empty and reads as conformant; (b) any MULTI-LIMB /live scenario — it reddens on its FIRST failing limb, which hides every later limb, so ask per limb whether that limb could fail on its own and whether it calls something actually reachable. ⚠️ Hunt STATE WITH A LIFETIME too: for every record that expires, is evicted, or is recreated by a late event (a grace period, a cache, an in-memory map, a socket attachment), ask what the invariant does at each of those moments. Also flag any .claude/rules/ violations ` +
     `and any divergence from the task file. ⏳ PRE-ALPHA EXCEPTION: do NOT flag the phase for leaving the system non-deployable, for depending on a later pre-alpha task file, or for coverage deliberately deferred to a later file that carries acceptance criteria for it — those conform. Default conforms=false if uncertain.\n\nPhase goal: ${p.goal}\n\n` +
     `TASK FILE (+ linked docs):\n${TASK}`,
     { label: `verify:${p.id}`, phase: 'Verify', schema: VERDICT }).then(v => ({ phase: p.id, verdict: v }))))
@@ -179,16 +187,29 @@ return {
 }
 ```
 
-### 4. Report & hand off
-Summarize: which phases conformed, which failed verification (with their issues), and what needs human attention. Fix blockers, then leave everything in the working tree for review; **don't commit** unless the user asks.
+### 4. Hand off: report, retro, decisions
+1. **Report** which phases conformed and which failed verification, with their issues, and fix the blockers.
+2. **Post-process § *Build notes*:** merge duplicates, drop what a later phase settled, and order what remains by dependency, then risk.
+3. **Answer § *Phase Retro*** from the retro notes.
+4. **Tee up every open decision** per `workflow.md` § *Teeing up decisions for Larry*, one per turn.
+5. **Close out** (step 5) once the decisions land.
+
+### 5. Close out
+From the close-out notes, then by checking:
+
+- **Delete every backlog row the work closed or made obsolete**, as `tasks/README.md` § *Backlog* requires, and update any row whose status it changed. A BREAKING-notes row stays until a release carries it.
+- **Update every active file that names the task**, the master plan and sibling task files included: the pointer, and the status beside it.
+- **Tell any session waiting on the work.**
+- **Archive the task file** per `tasks/README.md` § *Archive is frozen*: the move, its own relative links, a dated block for anything now known false, and the inbound references.
+- **Commit by explicit path.**
 
 ## Phase Retro
 
-At least once per task file (at completion if nowhere else), and after any phase that was large or hit lots of problems, briefly answer:
+At the hand-off (step 4), from the per-phase retro notes in § *Build notes*, briefly answer:
 1. **What did we learn?** (surprising discoveries, undocumented behavior, patterns worth capturing)
 2. **What did we struggle with?** (implementation friction, confusing APIs, wrong assumptions)
 3. **Did any tests fail unexpectedly?** (root cause, not just the fix)
-4. **Impact on follow-on work?** (does this change later phases, create new backlog items, or simplify/complicate the plan?)
+4. **Impact on follow-on work?** (does this change later phases or later task files, create new backlog items, or simplify/complicate the plan? Rows the work closed are step 5's.)
 5. **Process changes?** (rules, conventions, or skill updates that would have prevented this work's friction or caught it earlier — propose **concrete edits** to `CLAUDE.md`, `.claude/rules/`, skill files, or `tasks/README.md`. If nothing comes to mind, say so explicitly — don't pad.)
 
 Question 5 is about how we work, not what we work on next. Resist the urge to roll process insights into question 4 — they belong here, where the prompt forces a concrete edit proposal.
@@ -201,6 +222,8 @@ Capture anything reusable (patterns, conventions, gotchas) in the appropriate pl
 
 ## Calibration
 Tracked in `tasks/backlog.md` § Testing & Quality (the design record `tasks/archive/task-review-panel.md` is frozen — don't write there). Tune verifier strictness against real builds.
+
+**Data point — mesh calls to and from clients (10 phases, 2026-10-05/06), and the panels found the DESIGN's hole, not the build's.** Two phases' panels returned four majors between them, and every one was a record with a lifetime failing at its boundary: a client's loss recorded on a grace period that then ended, a dead socket still listed past it, a close arriving after it, and the Gateway's other 4401 starting none. The first sat inside a decision the task file had pinned through three review passes. Its rejected alternative argued the Gateway's own record "would be lost if it were evicted", while an evicted Gateway already gives the safe answer: a false premise under a conclusion nobody questioned (`calibration.md` §7). ⇒ The verifier prompt now hunts state with a lifetime by name. The same build ran unattended through several compactions, and the eleven items it left for the human had to be rebuilt from the transcript afterwards; the per-phase § *Build notes* exist because of it.
 
 **Data point — the guidance file tree (7 phases, two panels, 2026-09-05/06), and the second pass located a class the first cannot: THE OTHER VENUE.** The first panel found three majors the builder's own discipline had missed in the ordinary way — a live limb that could not fail on its own (its `docker ps` check passed with the teardown deleted, because the real classifier rarely started a box for a question), markers without the stamped discriminator `testing.md` requires, and a gate that ran after the short-circuit it was meant to precede. Every one was fixed within the hour. The second panel, on the fixed tree, found three more majors and none was in the diff: a rule's `paths:` glob still loading on the constant's retired home and not on the platform file that replaced it; task-file handles in six test headers, spelled `Phase N`, which the letter-series grep the rule documented could not see; and a limb that read the dev stack's captured stdio, a capability only a local boot has, so it would have failed its own positive control on every deployed run — against a registry rule that every scenario runs unchanged in both venues. ⇒ **Two tuning lessons.** (1) A limb that reads an ENVIRONMENT capability — stdio, Docker, a mailbox — must be read against the other venue in the registry before it ships; the panel is the only reader that checks a scenario against a venue it did not run in, so its prompt now names that hunt. (2) An instrument's pattern is part of the claim it backs: "the handle grep is clean" was true of the grep and false of the tree, and a widened pattern was the whole fix. The falsified-text grep from the 08-20 entry caught nothing here because the falsified text was a glob, not a sentence — read the frontmatter of every rule the build repoints.
 
