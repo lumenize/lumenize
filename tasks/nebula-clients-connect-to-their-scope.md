@@ -242,11 +242,11 @@ Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's 
 | File | Sections | Change | Lands |
 |---|---|---|---|
 | `docs/adr/007-shared-node-security-core.md` | § *Decision*: "No node type accepts its own application WebSocket"; "JWT verified once, at the Gateway trust boundary"; "One gated path, selected by address not content"; the identity-stamp clause; "the guard covers the mesh path only"; the **Evidence** line and the client-divergence paragraph, both naming the Gateway | Reword: a node hosts its Clients' sockets by composition; the token is verified once, at the edge Worker, before the upgrade; on a host node each door branches on the address called, and the branch for a Client runs nothing on the host node and stamps no identity; a hosted Client's frames are on the mesh path | Phase 1 |
-| `docs/adr/003-continuation-messaging.md` | § *Decision*'s "Delivery re-resolves" | Reword: delivery re-resolves to the Client's current socket on its host node, which holds a wait for the Client's answer for at most 30 s under `ctx.waitUntil` | Phase 1 |
-| `docs/adr/012-global-profile-visibility.md` | the Gateway's authN as the only check | Reword for the upgrade | Phase 1 |
+| `docs/adr/003-continuation-messaging.md` | § *Context*'s example flow; the early-ack sentence and "Delivery re-resolves" in § *When awaiting is OK* | Reword: delivery re-resolves to the Client's current socket on its host node, which holds a wait for the Client's answer for at most 30 s under `ctx.waitUntil` | Phase 1 |
+| `docs/adr/012-global-profile-visibility.md` | each mention of the Gateway's authN as the only check | Reword for the upgrade | Phase 1 |
 | `docs/adr/015-passage-and-dominion.md` | the call-to-a-client bullet | Reword: the host node checks it | Phase 1 |
-| `docs/vision/auth.md` | § *Lumenize Nebula mesh*; § *The layers a call passes*, M3 and M4 included; § *How the claims travel*; § *Founding a Star*; the facade paragraph's per-`sub` limit | Rewrite to the sentence above; § *Founding a Star* says a Galaxy created through its Universe lands beside it (D3) | Phase 1 |
-| `docs/vision/_ai-security.md` | the attribution paragraph: a client's `instanceName` begins with its `sub`, and the Gateway builds `callChain[0]` | Reword: the host node builds it | Phase 1 |
+| `docs/vision/auth.md` | § *Lumenize Nebula mesh*; § *The layers a call passes*, M3 and M4 included; § *How the claims travel*; § *Founding a Star*; the facade paragraph's per-`sub` limit; the `/pictures` route's "through the Gateway" | Rewrite to the sentence above; § *Founding a Star* says a Galaxy created through its Universe lands beside it (D3) | Phase 1 |
+| `docs/vision/_ai-security.md` | the attribution paragraph: a client's `instanceName` begins with its `sub`, and the Gateway builds `callChain[0]` and keeps what a client supplied past it | Reword: the host node builds it | Phase 1 |
 | `.claude/rules/security.md` | the "client → Gateway → DO" example; "the Gateway verifies a stateless JWT" | Reword | Phase 1 |
 | `.claude/rules/mesh.md` | § *`LumenizeClientGateway` is the server-side half of a Client*; § *A client's `instanceName` MUST start with its `sub`*; § *A broadcast target's `bindingName` comes from a source the client cannot write*; § *Nebula platform code never drops to raw primitives*; § *Node identity is stamped on every first-contact entry (not just mesh calls)* | Rewrite for the host node and the trust boundary as built, and say nothing about when plain Mesh would use a per-Client DO, which the package merge would only unlearn | Phase 5 |
 | `.claude/rules/workers-projects.md` | the Gateway as one of `mesh`'s raw internals | Reword: `ClientGateway` is the raw internal, composed by `NebulaDO` (D4) | Phase 4 |
@@ -311,7 +311,7 @@ The rows of § *What changes in standing guidance* that land in Phase 1 are rewr
 
 **Success criteria:**
 
-- Every Phase 1 row's section places a Client's socket on its host node, and carries a *Today's code differs* block that Phase 6 deletes. *Mutation:* leave one row's section unedited; Phase 6's grep finds it.
+- Every Phase 1 row's section places a Client's socket on its host node. Where the new wording is not yet true, the section carries a *Today's code differs* block that Phase 6 deletes; wording that holds today, because today's host node is the Client's own Gateway, needs none. *Mutation:* leave one row's section unedited; Phase 6's grep finds it.
 - `node scripts/check-prose.mjs` passes on every file the phase touches.
 
 ### Phase 2 — Mesh can host a Client on any node that composes `ClientGateway`
@@ -401,6 +401,17 @@ The switch, in one commit:
 - The deploy to `test-nebula` succeeds with `NEBULA_CLIENT_GATEWAY` unbound, and the deployed sweep passes.
 - **A deployed-only scenario:** Alice and Dana hold sockets on a Star, the Worker is redeployed unchanged, and each Client's connection reports `subscriptionRequired: true` and calls `onSubscriptionRequired` once, after which a later push arrives. *Mutation:* report `subscriptionRequired: false` after a reset; the scenario reds on the report, not the push, since the rows survive a redeploy.
 - The task-handle grep, run over everything this file changed, finds nothing.
+
+## Build notes
+
+### Phase 1
+
+- **For Larry — this phase's diff is yours to review:** ADR-003, ADR-007, ADR-012, ADR-015, `docs/vision/auth.md`, `docs/vision/_ai-security.md` and `.claude/rules/security.md`.
+  - **Blocks only where the wording is not yet true.** ADR-003, ADR-007 and `auth.md`'s § *Lumenize Nebula mesh* and § *Founding a Star* carry a *Today's code differs* block. The rest says "the node hosting the client", which is the Client's own Gateway today, so it is true now and after.
+  - **One change goes past the hosted model.** `_ai-security.md` said the Gateway "preserves whatever the client supplied beyond" `callChain[0]`. That has been false since mesh-calls, whose Client frame carries no chain at all, so the caveat paragraph now says every entry is framework-built.
+  - **§ *Founding a Star* now says an app lands beside its Universe** (D3), and why that is near its creator in nearly every case.
+- **Retro:** ADR-012 sat at its 13 KB budget before this phase, so its four rewordings keep the same length ("the upgrade's authN" for "the Gateway's authN").
+- **Close-out:** nothing closed yet.
 
 ## Non-goals
 
