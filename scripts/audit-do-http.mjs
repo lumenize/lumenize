@@ -2,10 +2,11 @@
 /**
  * `npm run audit:do-http` — what reaches a Durable Object's `fetch`, and what our code calls on a stub.
  *
- * A mesh node's `fetch` hears from three kinds of caller, and each keeps a track of its own
+ * A mesh node's `fetch` hears from four kinds of caller, and each keeps a track of its own
  * (`.claude/rules/raw-comm.md` § *What reaches a Durable Object's `fetch`*, ADR-007, ADR-023): pages
- * only under `/_public/`, through one forward; our own code by `rawRpcStub`, never `fetch`; and a
- * node's own container at the paths its library fixes. Nothing keeps those apart at runtime but the
+ * only under `/_public/`, through one forward; a Client's upgrade only under `/gateway/`, which the
+ * Worker rewrites from the hostname; our own code by `rawRpcStub`, never `fetch`; and a node's own
+ * container at the paths its library fixes. Nothing keeps those apart at runtime but the
  * paths each forward produces, so this scans source — every `src` tree under `apps/`, and `packages/nebula-auth/src`,
  * never tests — and checks four things:
  *
@@ -19,8 +20,9 @@
  *      its stub inside mesh — so an inline `getByName(…).teardown()` that skips the entry fails here.
  *
  * The named forwards: the page track (`forwardPage`), nebula-auth's Registry forward (`forwardRaw`),
- * and two outside this scan — `routeDORequest` in `@lumenize/routing`, whose `/gateway/` upgrade
- * check 2 bounds, and `@cloudflare/computer`'s `WorkspaceProxy`, which dials the Galaxy's `/api`.
+ * and two outside this scan — `routeDORequest` in `@lumenize/routing`, whose `/gateway/` upgrades
+ * check 2 bounds, to the client Gateway and to the scope's node a host spells, and
+ * `@cloudflare/computer`'s `WorkspaceProxy`, which dials the Galaxy's `/api`.
  *
  * It prints what it checked on every run, so an empty failure list is never the only output.
  */

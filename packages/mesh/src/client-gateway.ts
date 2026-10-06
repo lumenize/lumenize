@@ -392,6 +392,18 @@ export class ClientGateway {
   }
 
   /**
+   * Close every Client socket the host holds with `code`, as a host about to be deleted does with
+   * `WS_CLOSE_GONE`, so each Client hears why rather than seeing its socket drop. A socket is a
+   * Client's when it carries the Client's name as its tag, which every socket this half accepts does.
+   */
+  closeAll(code: number, reason: string): void {
+    for (const ws of this.#ctx.getWebSockets()) {
+      if (this.#ctx.getTags(ws)[0] === undefined) continue;
+      try { ws.close(code, reason); } catch { /* already closing */ }
+    }
+  }
+
+  /**
    * A node's call to a Client — the host's `__executeOperation`. Acks once the envelope's version
    * checks out, before it looks for a socket, as a node acks on admission. Everything after the ack
    * runs under `ctx.waitUntil` and ends in a fire-back to the node's `__handleResponse` with the

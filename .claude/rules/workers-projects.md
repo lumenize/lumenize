@@ -36,8 +36,8 @@ Convenience only, not authoritative, and may lag the code:
 
 | Package | Layer |
 |---|---|
-| `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources) — its business logic reaches a node only over the mesh or through a `@rawRpc()`-decorated method, and its Worker reaches a Durable Object's `fetch` only through the forwards `npm run audit:do-http` lists ([raw-comm.md](raw-comm.md)). Galaxy is a plain `NebulaDO` that drives a container via raw `ctx.container` → also [containers.md](containers.md) |
-| `mesh` | Mesh framework — defines the Mesh surface (`LumenizeDO`) *and* raw internals (the Gateway). Driving a container is raw `ctx.container` on any DO — no base class → [containers.md](containers.md) |
+| `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources), where `NebulaDO` composes `ClientGateway` so every scope's node hosts the Clients on its pages — its business logic reaches a node only over the mesh or through a `@rawRpc()`-decorated method, and its Worker reaches a Durable Object's `fetch` only through the forwards `npm run audit:do-http` lists ([raw-comm.md](raw-comm.md)). Galaxy is a plain `NebulaDO` that drives a container via raw `ctx.container` → also [containers.md](containers.md) |
+| `mesh` | Mesh framework — defines the Mesh surface (`LumenizeDO`) *and* raw internals: `ClientGateway`, a Client's server-side half, which a host node composes, and `LumenizeClientGateway`, a Durable Object of one Client's own. Driving a container is raw `ctx.container` on any DO — no base class → [containers.md](containers.md) |
 | `fetch` | Mesh library — uses `this.lmz`, defines no DO |
 | `auth`, `ts-runtime-parser-validator` | raw-DO infrastructure — `extends DurableObject` |
 | `nebula-auth` | dual-layer, derived per-file: the Registry/router core is raw-DO infrastructure, while two subpath exports compose mesh — `/profile` (a `ComposedMeshDO`) and `/facade` (`NebulaAuthFacade`, a `LumenizeWorker`) — and `worker-token.ts` reaches the `Profile` through `rawRpcStub` → those files also follow [mesh.md](mesh.md) |

@@ -1,6 +1,8 @@
 /**
- * Passage decides what reaches a tab, through real Gateways: a Galaxy reaches a plain member's tab
- * on one of its Stars, and a sibling Star is refused at the tab's Gateway by message.
+ * Passage decides what reaches a tab, through a real host node: a Galaxy reaches a plain member's
+ * tab on one of its Stars, and a sibling Star is refused at the Star hosting the tab, by message.
+ * The tab connects at `/gateway/{id}` on its Star's host, so the Star holds its socket as
+ * `{star}/{id}`, and every push to it arrives at the Star's own doors.
  *
  * In-lane rather than `/live`, because a Star or a Galaxy calling a tab is a call only our own code
  * makes (`testing.md`); the test subclasses' `callClientReporting` keeps a refusal so it can be
@@ -25,9 +27,9 @@ describe('passage decides what reaches a tab', () => {
       NebulaClientTest, new Browser(), starA, galaxy, 'admin@example.com');
     await createSubject(new Browser(), starA, accessToken, 'member@example.com');
     const { client: member, payload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), starA, starA, 'member@example.com');
+      NebulaClientTest, new Browser(), starA, starA, 'member@example.com', 'v1', { hostFromHostname: true });
     expect(payload.access).toEqual({ authScope: starA }); // fixture guard: a plain member of Star A
-    const tab = member.lmz.instanceName!;
+    const tab = `STAR/${starA}/${member.lmz.instanceName}`;
 
     // The Galaxy above the tab's Star: upward, so the tab has passage into the sender.
     const before = member.orgTreeUpdateCount;
@@ -37,8 +39,8 @@ describe('passage decides what reaches a tab', () => {
     expect(await admin.lmz.callAsync('GALAXY', galaxy, admin.ctn<GalaxyTest>().clientCallOutcome()))
       .toBeUndefined(); // no refusal came back
 
-    // A sibling Star: lateral, refused at the tab's Gateway with the passage message, which the
-    // Gateway fires back to the Star's handler after its ack.
+    // A sibling Star: lateral, refused at the Star hosting the tab with the passage message, which
+    // that Star fires back to the sender's handler after its ack.
     await admin.lmz.callAsync('STAR', starB,
       admin.ctn<StarTest>().callClientReporting(tab, 'handleOrgTreeUpdate', { value: {} }));
     await vi.waitFor(async () => expect(await admin.lmz.callAsync('STAR', starB,

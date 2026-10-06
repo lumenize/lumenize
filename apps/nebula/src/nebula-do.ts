@@ -2,11 +2,11 @@
  * NebulaDO — Base class for all Nebula tier Durable Objects (Universe, Galaxy, Star)
  *
  * Provides structural tenant isolation via onBeforeCall() and shared guard
- * functions for @mesh(guard) decorators.
+ * functions for @mesh(guard) decorators, and hosts the Clients on its scope's pages.
  */
 
-import { LumenizeDO, mesh, rawRpc } from '@lumenize/mesh';
-import type { CallContext } from '@lumenize/mesh';
+import { ClientGateway, LumenizeDO, WS_CLOSE_GONE, mesh, rawRpc } from '@lumenize/mesh';
+import type { CallContext, CallEnvelope, ClientGatewayHost, GatewayConnectionInfo } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload, VerdictClaims } from '@lumenize/nebula-auth';
@@ -22,6 +22,9 @@ import type { NebulaJwtPayload, VerdictClaims } from '@lumenize/nebula-auth';
  * to compile for `NebulaDO` itself.
  */
 type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string } };
+
+/** The prefix a Client's upgrade arrives under at its host node: `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`. */
+export const GATEWAY_PREFIX = '/gateway';
 
 /**
  * Guard: require admin access **over the node this call is running on**.
@@ -146,6 +149,46 @@ export function requirePassage(
   }
 }
 
+/** A node's scope is its name when that parses as one; anything else names none. */
+function scopeNamed(instanceName: string | undefined): string | undefined {
+  if (!instanceName) return undefined;
+  try { return parseId(instanceName).raw; } catch { return undefined; }
+}
+
+/**
+ * Guard: a Client receives a node's call only if its holder has passage into the node that sent it.
+ *
+ * The sender is the call's last hop, `callChain.at(-1)`, which the mesh stamps and no client can
+ * write. Its scope is its name when that parses as one: a Galaxy reaches a tab on one of its Stars'
+ * hosts, since upward is free, and a sibling Star is refused as lateral (ADR-015). A Star
+ * `acme.crm.tenant2` pushing to a tab on `acme.crm.tenant1`'s host is refused; the Galaxy
+ * `acme.crm` pushing there passes. A sender whose name is no scope, the `Profile`, passes, so a
+ * node not named by a scope must hold no tenant's data.
+ *
+ * It is needed because a server-side node can address any Client whose address it holds, and this
+ * is what stops a lateral one. It reads the sender's address and no claims of the writer's, so a
+ * push that starts a fresh chain passes it.
+ *
+ * A sender that is itself a Client is not checked here: its name does not parse as a scope, so it
+ * offers none to check passage into. The receiving Client decides, and `LumenizeClient.onBeforeCall`
+ * refuses it by default.
+ */
+export function requirePassageIntoSender(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+  const sender = envelope.callContext.callChain.at(-1);
+  if (!sender) throw new Error('Call to a client names no sender');
+
+  // Another Client: the receiving Client decides (see above).
+  if (sender.type === 'LumenizeClient') return;
+
+  const senderScope = scopeNamed(sender.instanceName);
+  if (senderScope === undefined) return;
+
+  const claims = connectionInfo.claims as unknown as NebulaJwtPayload;
+  if (!hasPassageInto(claims, senderScope)) {
+    throw new Error(noPassageMessage(claims?.aud, senderScope));
+  }
+}
+
 /**
  * NebulaDO — base class for Universe, Galaxy, and Star.
  *
@@ -166,8 +209,25 @@ export function requirePassage(
  * the derived scope equals the address an attacker must already control.
  * See tasks/archive/nebula-onbeforecall-higher-admin-reach.md and
  * tasks/archive/nebula-do-scope-isolation.md.
+ *
+ * **It hosts the Clients on its scope's pages, by composing `ClientGateway`.** A page on
+ * `tenant1.crm.acme.lumenize.dev` upgrades at `/gateway/alice.9f2c41aa`, and the Star
+ * `acme.crm.tenant1` holds the socket as `acme.crm.tenant1/alice.9f2c41aa`; Universe, Galaxy and
+ * Star add nothing for it. A call addressed to that name arrives at this node's doors and goes down
+ * the socket after {@link requirePassageIntoSender}, and `onBeforeCall` never runs for it. A hosted
+ * Client's own call to this node runs in place, through the same door and `onBeforeCall` as an RPC.
  */
-export class NebulaDO extends LumenizeDO {
+export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
+  /** The paths {@link onRequest} dispatches on, and the only ones: `npm run audit:do-http` holds it to these. */
+  static readonly HTTP_PREFIXES: readonly string[] = [GATEWAY_PREFIX];
+
+  #clientGateway = new ClientGateway(this.ctx, this.env, this, { hostNode: true });
+
+  /** What this node's doors hand a message addressed to a Client it hosts. */
+  override get __clientGateway(): ClientGateway {
+    return this.#clientGateway;
+  }
+
   /**
    * Tear this node down: wipe all of its storage and reset the object, so the next call constructs
    * a fresh one. A deletion calls it on every scope it removes, and a creation on every scope it
@@ -185,6 +245,11 @@ export class NebulaDO extends LumenizeDO {
    * Galaxy's Workspace would stay pointed at dropped tables and a re-created scope would fail with
    * `no such table`. The abort rejects the caller's call; the scope lifecycle hooks read that
    * rejection as the reset it is.
+   *
+   * A deletion first closes every socket this node hosts with `WS_CLOSE_GONE` (4410), so each
+   * Client hears that its scope is gone rather than seeing a drop, and the yield before the abort
+   * lets those close frames go out. A creation sends no close of its own: its abort drops a socket
+   * as any reset does, and the Client reconnects to the fresh object.
    */
   @rawRpc()
   async teardown(cause: 'deletion' | 'creation', operationId: string): Promise<void> {
@@ -194,6 +259,7 @@ export class NebulaDO extends LumenizeDO {
     debug('nebula.scope.teardown').info('tearing down', {
       tier, cause, operationId, binding: this.lmz.bindingName, instanceName,
     });
+    if (cause === 'deletion') this.#clientGateway.closeAll(WS_CLOSE_GONE, 'Scope deleted');
     await this.beforeTeardown();
     await this.ctx.storage.deleteAll();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -202,6 +268,61 @@ export class NebulaDO extends LumenizeDO {
 
   /** What a node releases outside its storage before {@link teardown} wipes it. Default: nothing. */
   protected async beforeTeardown(): Promise<void> {}
+
+  // ─── Hosting the Clients on this scope's pages ──────────────────────────────────────────────
+
+  /**
+   * A Client's upgrade, under {@link GATEWAY_PREFIX}. The Worker verified its token, checked that
+   * its `aud` is this node's scope and that its id begins with its `sub`, and rewrote the path to
+   * name this node. Recognized by the prefix, never by an `Upgrade` header: `ClientGateway` reads
+   * the token without verifying it, and the Galaxy's container dials back with an upgrade of its
+   * own. Anything else is 404; a node with a surface of its own handles that first.
+   */
+  override async onRequest(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
+      return this.#clientGateway.acceptUpgrade(request);
+    }
+    return new Response('Not Found', { status: 404 });
+  }
+
+  /** A message from a hosted Client's socket. */
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    return this.#clientGateway.receiveMessage(ws, message);
+  }
+
+  /** A hosted Client's socket closed; starts its grace period unless a new connection superseded it. */
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    this.#clientGateway.socketClosed(ws, code, reason);
+  }
+
+  /** A hosted Client's socket errored. */
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    this.#clientGateway.socketErrored(ws, error);
+  }
+
+  /**
+   * Accept a Client only under an id that begins with its token's `sub`: Alice's tab is
+   * `alice.9f2c41aa`. The Worker refuses the same upgrade before routing.
+   */
+  onBeforeAccept(instanceName: string, sub: string): Response | undefined {
+    const id = instanceName.slice(instanceName.indexOf('/') + 1);
+    const dot = id.indexOf('.');
+    if (dot === -1 || id.slice(0, dot) !== sub) {
+      return new Response('Forbidden: identity mismatch', { status: 403 });
+    }
+    return undefined;
+  }
+
+  /** A hosted Client's call carries the context its socket's verified attachment builds, unchanged. */
+  onBeforeCallToMesh(baseContext: CallContext): CallContext {
+    return baseContext;
+  }
+
+  /** A node's call to a hosted Client: {@link requirePassageIntoSender}. */
+  onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined {
+    requirePassageIntoSender(envelope, connectionInfo);
+    return undefined;
+  }
 
   onBeforeCall() {
     // Scope is derived from this DO's instance name (stamped from the envelope's

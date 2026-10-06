@@ -60,6 +60,7 @@ export type { MeshGuard } from './mesh-decorator';
 export { LumenizeClientGateway, ClientDisconnectedError, GatewayMessageType } from './lumenize-client-gateway';
 // A Client's server-side half, which a node composes to host Clients
 export { ClientGateway } from './client-gateway';
+export { WS_CLOSE_GONE } from './gateway-messages';
 export type { ClientGatewayHost, ClientGatewayOptions } from './client-gateway';
 export type {
   GatewayConnectionInfo,

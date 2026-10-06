@@ -6,7 +6,8 @@
  *     signup, Home, a link's page and its consume, acceptance, logout and the refresh.
  *  2. **The routes every host answers by path.** `/_version`, `/pictures` and `/gateway/*`; and
  *     `/auth/*`, which every host but the platform host answers with a 404, so a page step's
- *     single-page fallback never answers it with a 200.
+ *     single-page fallback never answers it with a 200. On a scope's host or a persona's,
+ *     `/gateway/{id}` is a Client's upgrade to the node that host spells, which hosts it.
  *  3. **A page chosen by host.** The apex redirects to the platform host; the platform host serves
  *     the auth app's static files; a universe or galaxy host serves Studio; a Star's or persona's
  *     host serves its galaxy's built app through the page track (`page-forward.ts`). A page loads
@@ -20,9 +21,11 @@
 import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
 import { verifyNebulaAccessToken, createRouter, parseId } from '@lumenize/nebula-auth';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { deploymentOrigin, hostOrigin, parseHost, type HostTarget } from '@lumenize/nebula-auth/claims';
 import { handlePictureUpload, servePicture } from './profile-pictures';
 import { forwardPage } from './page-forward';
+import { GATEWAY_PREFIX } from './nebula-do';
 import { LUMENIZE_ORIGIN_META } from './page-meta';
 import { routeDORequest } from '@lumenize/routing';
 import { extractWebSocketToken } from '@lumenize/mesh/client';
@@ -67,8 +70,8 @@ function handleVersion(request: Request): Response | undefined {
   return Response.json({ match, dirty: buildDirty() });
 }
 
-/** Verifies JWT from WebSocket subprotocol and forwards it as Authorization header. */
-async function onBeforeConnect(request: Request): Promise<Response | Request> {
+/** The token an upgrade carries in its subprotocol, verified, or the refusal. */
+async function verifiedUpgradeToken(request: Request): Promise<{ token: string; jwt: NebulaJwtPayload } | Response> {
   const log = debug('nebula.entrypoint.onBeforeConnect');
   const token = extractWebSocketToken(request);
   if (!token) {
@@ -82,9 +85,68 @@ async function onBeforeConnect(request: Request): Promise<Response | Request> {
     log.debug('rejected: invalid JWT', { path: new URL(request.url).pathname });
     return new Response('Forbidden: invalid JWT', { status: 403 });
   }
+  return { token, jwt };
+}
+
+/** Verifies JWT from WebSocket subprotocol and forwards it as Authorization header. */
+async function onBeforeConnect(request: Request): Promise<Response | Request> {
+  const verified = await verifiedUpgradeToken(request);
+  if (verified instanceof Response) return verified;
   const headers = new Headers(request.headers);
-  headers.set('Authorization', `Bearer ${token}`);
+  headers.set('Authorization', `Bearer ${verified.token}`);
   return new Request(request, { headers });
+}
+
+/** The binding of the node each tier of scope names. */
+const TIER_BINDING = { universe: 'UNIVERSE', galaxy: 'GALAXY', star: 'STAR' } as const;
+
+/**
+ * A Client's upgrade at `/gateway/{id}` on a scope's host or a persona's, forwarded to the node the
+ * host spells, which hosts it: on `tenant1.crm.acme.lumenize.dev`, `/gateway/alice.9f2c41aa` reaches
+ * the Star `acme.crm.tenant1` as `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`. A persona's host
+ * spells its `.dev` Star.
+ *
+ * Every refusal comes before routing, so a refused upgrade wakes no node: not an upgrade (426), not
+ * exactly one id segment (400), no token or one that does not verify (401, 403), a token whose `aud`
+ * is not the host's scope (403), and an id that does not begin with the token's `sub` (403). The
+ * `aud` check is what keeps a token for one tenant's host from holding a socket on another's. Every
+ * client-sent `x-lumenize-*` header is dropped, since mesh stamps a node's name from them.
+ */
+async function hostedUpgrade(request: Request, url: URL, scope: string): Promise<Response> {
+  const log = debug('nebula.entrypoint.hostedUpgrade');
+  const path = url.pathname;
+  if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
+    return new Response('Expected WebSocket upgrade', { status: 426 });
+  }
+  const segments = path.slice(`${GATEWAY_PREFIX}/`.length).split('/');
+  if (segments.length !== 1 || segments[0] === '') {
+    log.debug('refused: not one id segment', { path });
+    return new Response('Bad Request: the upgrade path names no single client id', { status: 400 });
+  }
+  const [id] = segments;
+  const verified = await verifiedUpgradeToken(request);
+  if (verified instanceof Response) return verified;
+  const { token, jwt } = verified;
+  if (jwt.aud !== scope) {
+    log.debug('refused: the token is for another host', { path, aud: jwt.aud, scope });
+    return new Response('Forbidden: the token is for another host', { status: 403 });
+  }
+  const dot = id.indexOf('.');
+  if (dot === -1 || id.slice(0, dot) !== jwt.sub) {
+    log.debug('refused: the id is not the token\'s', { path, sub: jwt.sub });
+    return new Response('Forbidden: identity mismatch', { status: 403 });
+  }
+  const binding = TIER_BINDING[parseId(scope).tier];
+  const headers = new Headers();
+  request.headers.forEach((value, name) => {
+    if (!name.toLowerCase().startsWith('x-lumenize-')) headers.set(name, value);
+  });
+  headers.set('Authorization', `Bearer ${token}`);
+  const forwarded = new Request(new URL(`${GATEWAY_PREFIX}/${binding}/${scope}/${id}`, url), {
+    method: request.method, headers,
+  });
+  return (await routeDORequest(forwarded, env, { prefix: 'gateway', bindings: ['UNIVERSE', 'GALAXY', 'STAR'] }))
+    ?? new Response('Not Found', { status: 404 });
 }
 
 /** `response`, with `frame-ancestors` set to `ancestors`. */
@@ -153,8 +215,16 @@ const router = createRouter([
   { path: '/pictures/:key', method: 'GET', steps: [(_request, state) => servePicture(state.params.key, env)] },
   {
     path: '/gateway/*',
-    steps: [async (request) =>
-      (await routeDORequest(request, env, {
+    steps: [async (request) => {
+      // A scope's host, or a persona's: the Client connects to the node the host spells. The
+      // Gateway's own binding keeps its route until Nebula's pages move off it.
+      const url = new URL(request.url);
+      const target = parseHost(url.host, deploymentOrigin(env));
+      if ((target?.kind === 'scope' || target?.kind === 'persona')
+        && !url.pathname.startsWith(`${GATEWAY_PREFIX}/NEBULA_CLIENT_GATEWAY/`)) {
+        return hostedUpgrade(request, url, target.scope);
+      }
+      return (await routeDORequest(request, env, {
         prefix: 'gateway',
         // The client Gateway is the only Durable Object a browser connects to; any other binding
         // answers 404 before a Durable Object is constructed for it. The upgrade rests on its token,
@@ -164,7 +234,8 @@ const router = createRouter([
           return new Response('Not Implemented', { status: 501 });
         },
         onBeforeConnect,
-      })) ?? new Response('Not Found', { status: 404 })],
+      })) ?? new Response('Not Found', { status: 404 });
+    }],
   },
   // `/auth/*` answers only on the platform host, which step 1 already took.
   { path: '/auth', steps: [() => new Response('Not Found', { status: 404 })] },

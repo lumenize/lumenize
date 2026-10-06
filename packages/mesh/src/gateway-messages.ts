@@ -33,6 +33,13 @@ export const WS_CLOSE_SUPERSEDED = 4409;
  */
 export const WS_CLOSE_TIMED_OUT = 4408;
 
+/**
+ * Close code for a Client whose host node is being deleted (parallel to HTTP 410 Gone). A host
+ * closes every Client socket it holds with it before its storage goes, so a Client can tell a
+ * deleted scope from a reset, which drops its socket with no code of the host's.
+ */
+export const WS_CLOSE_GONE = 4410;
+
 // ============================================
 // Protocol name
 // ============================================

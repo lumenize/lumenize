@@ -38,7 +38,7 @@ import {
 } from '@lumenize/ts-runtime-parser-validator/runtime';
 import { NEBULA_SUB, hasDominionOver, projectActingToken } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { NebulaDO, requireDominionHere } from './nebula-do';
+import { GATEWAY_PREFIX, NebulaDO, requireDominionHere } from './nebula-do';
 // Types only — the COMPILE itself runs in the container build job
 // (tasks/archive/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
 // stores, and does not build). No value import of the compile half may return here;
@@ -713,7 +713,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   // ─── HTTP surface: the built app's serve + the build-box dial-back ──
 
   /** The paths {@link onRequest} dispatches on, and the only ones: `npm run audit:do-http` holds it to these. */
-  static readonly HTTP_PREFIXES = [PUBLIC_PREFIX, '/api'] as const;
+  static override readonly HTTP_PREFIXES: readonly string[] = [GATEWAY_PREFIX, PUBLIC_PREFIX, '/api'];
 
   /**
    * The Galaxy's HTTP surface: two tracks, each on a prefix its own caller alone produces.
@@ -725,7 +725,8 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    *    workspace proxy on the path `@cloudflare/computer` fixes, whose upgrade it refuses without
    *    the client secret it minted. No page forward produces it.
    *
-   * Everything else is 404 — the data plane rides the mesh, never HTTP.
+   * Everything else goes to `NebulaDO`'s, which accepts a Client's upgrade under `/gateway/` and
+   * answers 404 to the rest — the data plane rides the mesh, never HTTP.
    */
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -735,7 +736,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
     if (url.pathname === PUBLIC_PREFIX || url.pathname.startsWith(`${PUBLIC_PREFIX}/`)) {
       return this.#serveBuiltApp(request, url);
     }
-    return new Response('Not Found', { status: 404 });
+    return super.onRequest(request);
   }
 
   /**

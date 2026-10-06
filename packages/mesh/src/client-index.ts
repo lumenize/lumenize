@@ -53,6 +53,7 @@ export {
   ClientDisconnectedError,
   WS_CLOSE_SUPERSEDED,
   WS_CLOSE_TIMED_OUT,
+  WS_CLOSE_GONE,
   WS_TOKEN_PREFIX,
   WS_PROTOCOL,
   extractWebSocketToken,

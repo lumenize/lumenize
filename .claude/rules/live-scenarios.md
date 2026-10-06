@@ -50,6 +50,13 @@ also shows the capture works. A facade call prints no access-log line, so its ma
 `operationId` the call mints, and the limb waits for that call's completion line instead
 (`waitForDebugLines`, `harness/lib/stdio.ts`).
 
+**A debug entry MUST be read through `debugLines` (`harness/lib/stdio.ts`), never matched line by
+line.** wrangler prints each entry as a multi-line JSON block, its `namespace` and its `data` on
+different lines, so a test for both on one line is false on every tree. Bit 2026-10-06:
+`scope-hosts-its-clients` asserted that a refused upgrade started no Star that way, and passed
+whatever happened; only its positive control, which found no start where there plainly was one,
+showed the match could not fire.
+
 ## What the harness constructs, and what each limb proves
 
 **Check what the harness CONSTRUCTS, not only what a scenario asserts.** A helper that builds

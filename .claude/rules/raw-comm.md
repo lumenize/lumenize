@@ -49,15 +49,16 @@ The dividing line is **where the endpoint's essence lives** — the DO's data (f
 
 ## What reaches a Durable Object's `fetch`
 
-A mesh node's `fetch` hears from three kinds of caller, and each MUST keep to a track of its own. Without the tracks they are kept apart only by which paths each forward happens to produce, so a page forward that kept its host's path would reach the Galaxy's container path `/api`, and could set the `x-lumenize-*` headers mesh stamps a node's name from.
+A mesh node's `fetch` hears from four kinds of caller, and each MUST keep to a track of its own. Without the tracks they are kept apart only by which paths each forward happens to produce, so a page forward that kept its host's path would reach the Galaxy's container path `/api`, and could set the `x-lumenize-*` headers mesh stamps a node's name from.
 
 - **Pages, only under `/_public/`.** The Worker's page step forwards through one helper, `forwardPage` in `apps/nebula/src/page-forward.ts`, which moves the path under `/_public/` — `https://dev.crm.acme.lumenize.dev/assets/app.js` arrives as `/_public/assets/app.js` — answers anything but `GET` and `HEAD` with a 405 carrying `Allow: GET, HEAD`, refuses an `Upgrade` with a 426, and strips every client-sent `x-lumenize-*` header before setting its own. A new host's page MUST be a row in the page step that names its binding, never a second forward.
+- **A Client's upgrade, only under `/gateway/`.** A page's Client upgrades at `/gateway/{id}` on its own host, and the Worker turns `https://tenant1.crm.acme.lumenize.dev/gateway/alice.9f2c41aa` into `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa` for `routeDORequest`, whose `bindings` name `UNIVERSE`, `GALAXY` and `STAR` alone. Before routing it verifies the token, requires its `aud` to be the scope the host spells (a persona's host spells its `.dev` Star) and its `sub` to begin the id, and strips every client-sent `x-lumenize-*` header, so a refused upgrade wakes no node. `NebulaDO.onRequest` hands that prefix to the `ClientGateway` it composes, which reads the token without verifying it, so a node MUST recognize the upgrade by its prefix, never by an `Upgrade` header: the Galaxy's container dials back to `/api` with an upgrade carrying a Bearer.
 - **Our own code, never by `fetch`.** It calls a `@rawRpc()`-decorated method through `rawRpcStub` (`@lumenize/mesh/raw-rpc`), whose one entry stamps the callee's identity and refuses any undecorated name ([ADR-023](../../docs/adr/023-the-mesh-boundary-is-crossed-at-a-bridge.md)). An operation only our own code may invoke MUST NOT be a path on a node's `fetch`.
 - **A node's own container, only at the paths its library fixes.** Today that is the Galaxy's `/api`, where `@cloudflare/computer`'s `WorkspaceProxy` dials back. No page forward can produce it, because every page path starts `/_public/`.
 
-A node's `onRequest` MUST compare the path only against the prefixes its class registers in a static `HTTP_PREFIXES` array, and answer 404 to anything else — `Galaxy.HTTP_PREFIXES` holds `PUBLIC_PREFIX` and `'/api'`.
+A node's `onRequest` MUST compare the path only against the prefixes its class registers in a static `HTTP_PREFIXES` array, and answer 404 to anything else — `NebulaDO.HTTP_PREFIXES` holds `GATEWAY_PREFIX`, and `Galaxy.HTTP_PREFIXES` adds `PUBLIC_PREFIX` and `'/api'`.
 
-Two other forwards carry page traffic into a Durable Object's `fetch`, and neither target is a mesh node: `routeDORequest` sends a `/gateway/` upgrade to the client Gateway, only for the bindings its `bindings` allow-list names; and nebula-auth's `forwardRaw` sends the claim `POST`s to the Registry, a raw Durable Object that reads no identity header.
+Two other forwards carry page traffic into a Durable Object's `fetch`, and neither target is a mesh node: `routeDORequest` sends a `/gateway/NEBULA_CLIENT_GATEWAY/{id}` upgrade to the client Gateway, only for the bindings its `bindings` allow-list names; and nebula-auth's `forwardRaw` sends the claim `POST`s to the Registry, a raw Durable Object that reads no identity header.
 
 **`npm run audit:do-http` is the proof.** It scans every `src` tree under `apps/` and `packages/nebula-auth/src`, never tests, and checks four things:
 
@@ -103,7 +104,7 @@ The `fetch()`-forwarded path (§ *Edge Worker fronting a DO*) is the alternative
 ## Hibernation WebSocket API
 DOs that accept and push to connected clients MUST use the Hibernation WebSocket API: accept in `fetch()` via `ctx.acceptWebSocket(server)` returning a `101` with the client socket; push with `for (const ws of this.ctx.getWebSockets()) ws.send(message)`; in `webSocketClose` echo the code, but `1005` ("no status present") MUST be mapped to `1000` since `1005` is invalid to send. vitest-plugin tests can open real `new WebSocket()` connections to deployed Workers for e2e patterns.
 
-(In the Mesh world, client WebSockets terminate at the Gateway — app/platform DOs never accept their own.)
+(In the Mesh world a Client's socket is accepted by `ClientGateway`, composed into the node that hosts it — `NebulaDO`, for every Nebula scope — and no other platform code accepts one. Nebula's pages still upgrade at the Gateway's binding until `tasks/nebula-clients-connect-to-their-scope.md` moves them to their scope's node.)
 
 ## Alarms
 Schedule directly with `ctx.storage.setAlarm(...)` plus an `async alarm()` handler. (Mesh code uses `this.svc.alarms.schedule(...)` instead, which carries an OCAN continuation — see [mesh.md](mesh.md).)
