@@ -375,8 +375,19 @@ export async function handleEmailMagicLink(request: Request, env: Env): Promise<
   const origin = new URL(request.url).origin;
   // The link names no scope. The prover chooses among whatever memberships the address holds once
   // the link's page lands them on Home, or follows `return_to`.
-  const result = await registry(env).requestMagicLink(email, origin, returnTo) as
-    { message: string; magicLinkUrl?: string };
+  let result: { message: string; magicLinkUrl?: string };
+  try {
+    result = await registry(env).requestMagicLink(email, origin, returnTo) as typeof result;
+  } catch (err) {
+    // A failed send is the one error this RPC answers with a status of its own. It arrives as a plain
+    // `Error` named `RegistryError` (`raw-comm.md` § *Errors over raw Workers RPC*), so it is told
+    // apart by name and code; anything else stays the router's 500.
+    const e = err as { name?: unknown; errorCode?: unknown; status?: unknown; message?: unknown };
+    if (e.name === 'RegistryError' && e.errorCode === 'email_send_failed' && typeof e.status === 'number') {
+      return errorResponse(e.status, e.errorCode, String(e.message));
+    }
+    throw err;
+  }
   return Response.json({ ...result, expires_in: MAGIC_LINK_TTL });
 }
 

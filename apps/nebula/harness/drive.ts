@@ -74,6 +74,7 @@ import * as claimLifecycle from './scenarios/claim-lifecycle';
 import * as refreshReadsTheHost from './scenarios/refresh-reads-the-host';
 import * as linksSignNobodyIn from './scenarios/links-sign-nobody-in';
 import * as linksSignInOnce from './scenarios/links-sign-in-once';
+import * as failedSendSaysTryAgain from './scenarios/failed-send-says-try-again';
 import * as invitesLandOnTheirHost from './scenarios/invites-land-on-their-host';
 import * as logoutEndsEveryHost from './scenarios/logout-ends-every-host';
 import * as hostsAndFrames from './scenarios/hosts-and-frames';
@@ -185,6 +186,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'refresh-reads-the-host': refreshReadsTheHost, // which cookies the refresh reads, which membership it picks, and a dead cookie's expiry (no Docker)
   'links-sign-nobody-in': linksSignNobodyIn, // an image, a navigation or a rendered page signs nobody in; an invite pre-fills only for an accepted someone (no Docker)
   'links-sign-in-once': linksSignInOnce, // a link's button spends it, every replay finds it used, the cap refuses on the page (no Docker)
+  'failed-send-says-try-again': failedSendSaysTryAgain, // a send the provider refuses answers 502 "try again" on a claim, its resume and a login (no Docker)
   'invites-land-on-their-host': invitesLandOnTheirHost, // a re-invite lands on its host; a 401 with a pending membership offers consent (no Docker)
   'logout-ends-every-host': logoutEndsEveryHost, // one logout ends every host, records each sub, and is bounded (no Docker)
   'hosts-and-frames': hostsAndFrames, // each host gets its own page, token and framing; no scope page reads Home's data (no Docker)

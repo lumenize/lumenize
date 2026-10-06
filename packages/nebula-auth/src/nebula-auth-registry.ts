@@ -579,12 +579,11 @@ export class NebulaAuthRegistry extends DurableObject {
       // convergence covers the other double-submit shape: two different slugs.)
       const firstApp = this.#galaxiesAtOrBeneath(slug)[0];
       const resumeTo = firstApp ? this.#scopeHome(firstApp, origin) : undefined;
-      if (this.#resumeClaimIfOwner(slug, normalizeEmail(email), link, origin, log, resumeTo)) {
-        // The link row is written and (outside test mode) the mail is on its way — answer exactly as
-        // a first claim does, so the caller cannot tell a resume from an original.
-        return this.#isTestMode
-          ? { message: 'Magic link generated (test mode)', magicLinkUrl: this.#magicLinkUrl(link.rawToken, origin) }
-          : { message: 'Check your email for the magic link' };
+      const lc = normalizeEmail(email);
+      if (this.#resumeClaimIfOwner(slug, lc, link, resumeTo)) {
+        // Deliver it exactly as a first claim does, awaited, so neither the answer nor its timing
+        // tells a resume from an original, and a failed send fails both the same way.
+        return this.#deliverMagicLink(link.rawToken, lc, slug, origin);
       }
       throw new RegistryError(409, 'slug_taken', `Universe "${slug}" is already claimed`);
     }
@@ -786,7 +785,17 @@ export class NebulaAuthRegistry extends DurableObject {
 
     const lc = normalizeEmail(email);
     if (!this.checkSlugAvailable(universeGalaxyStarId)) {
-      this.#resumeClaimIfOwner(universeGalaxyStarId, lc, link, origin, log, this.#scopeHome(universeGalaxyStarId, origin));
+      // ⚠️ **The answer is `slug_taken` whether or not this address is the unfinished claimer.** A
+      // fresh-claim-shaped success for a resume would turn the two answers into an email-confirmation
+      // oracle: probe with a throwaway address → `slug_taken`, probe with `victim@corp.com` → success
+      // proves the victim is that Star's unverified claimer. The email, which reaches only the real
+      // owner, is the one channel left.
+      // ⚠️ **So the send is fired, never awaited.** Only a resume has a provider to wait on, so
+      // awaiting it would make the answer's TIMING recover the bit its identical body hides.
+      // `#deliverMagicLink` logs a failed send itself, and the catch keeps it from going unhandled.
+      if (this.#resumeClaimIfOwner(universeGalaxyStarId, lc, link, this.#scopeHome(universeGalaxyStarId, origin))) {
+        void this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin).catch(() => {});
+      }
       throw new RegistryError(409, 'slug_taken', `Star "${universeGalaxyStarId}" is already claimed`);
     }
 
@@ -809,19 +818,11 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * The resumable claim: when the slug is taken by a claimer who never finished (link lost, failed, or
-   * expired), re-send their link — **by email only**. Synchronous by construction; the caller throws
-   * `slug_taken` immediately after, whether or not this fired.
-   *
-   * ⚠️ **The response must be identical either way.** Answering a resume with a fresh-claim-shaped
-   * success would turn success-vs-`slug_taken` into an email-confirmation oracle: probe a slug with a
-   * throwaway address → `slug_taken`; probe with `victim@corp.com` → success proves the victim is that
-   * slug's unverified claimer, and mails them. Keeping the body identical leaves the email as the only
-   * channel, and it reaches the real owner.
-   *
-   * ⚠️ **The send is fired, never awaited.** Only this branch would have an external hop to wait on, so
-   * awaiting it makes the resume a *timing* oracle recovering exactly the bit the identical body hides.
-   * Its rejection is caught here so it can't surface as an unhandled rejection. (Guaranteed delivery —
-   * outbox/retries — is deferred: `tasks/backlog.md` § internal email reliability.)
+   * expired), write a fresh link row for that claimer and return `true`; the caller sends it, by email
+   * only. Synchronous by construction, so it sits between a claim's slug check and its answer with no
+   * `await` opening the input gate. How each caller answers, and whether it waits on the send, is the
+   * caller's: `claimUniverse` answers as a first claim does, and `claimStar` answers `slug_taken`
+   * either way.
    *
    * ⚠️ **Writes ONLY a `MagicLinks` row — never a membership UPDATE.** The `scopeAdmin = 1` clause
    * keeps ordinary (non-admin) pending invitees out of the resume — and "resuming" one by setting
@@ -839,9 +840,7 @@ export class NebulaAuthRegistry extends DurableObject {
   #resumeClaimIfOwner(
     universeGalaxyStarId: string,
     lcEmail: string,
-    link: { rawToken: string; tokenHash: string; expiresAt: string },
-    origin: string,
-    log: ReturnType<typeof debug>,
+    link: { tokenHash: string; expiresAt: string },
     returnTo?: string,
   ): boolean {
     const claimer = [...this.ctx.storage.sql.exec(
@@ -852,17 +851,6 @@ export class NebulaAuthRegistry extends DurableObject {
     if (claimer.length === 0) return false; // not the unverified claimer — an ordinary slug_taken, no mail
 
     this.#insertMagicLinkRow(link.tokenHash, lcEmail, universeGalaxyStarId, 'claim', link.expiresAt, returnTo);
-    if (this.#isTestMode) return true; // same short-circuit as #deliverMagicLink; never leak the URL here
-    void this.#sendEmail({
-      type: 'magic-link',
-      to: lcEmail,
-      instanceName: universeGalaxyStarId,
-      magicLinkUrl: this.#magicLinkUrl(link.rawToken, origin),
-    }).catch((err) => {
-      log.error('Resume magic-link send failed', {
-        universeGalaxyStarId, error: err instanceof Error ? err.message : String(err),
-      });
-    });
     return true;
   }
 
@@ -1706,9 +1694,19 @@ export class NebulaAuthRegistry extends DurableObject {
     }
     // `instanceName` is what routes the mail for `waitForEmail` and is required on every variant, so a
     // scope-less link reports the one thing that IS true of it — it belongs to no instance.
-    await this.#sendEmail({
-      type: 'magic-link', to: lcEmail, instanceName: universeGalaxyStarId ?? SCOPELESS_INSTANCE_TAG, magicLinkUrl,
-    });
+    const instanceName = universeGalaxyStarId ?? SCOPELESS_INSTANCE_TAG;
+    try {
+      await this.#sendEmail({ type: 'magic-link', to: lcEmail, instanceName, magicLinkUrl });
+    } catch (err) {
+      // The provider refused or never answered, so no mail is coming. The link row is already
+      // committed, and every caller's retry writes a fresh one and sends again, so the person is told
+      // to retry rather than handed a bare 500. A bounce AFTER the provider accepts never reaches
+      // here; that is `tasks/backlog.md` § internal email reliability.
+      debug('nebula-auth.Registry.email').error('Magic-link send failed', {
+        to: lcEmail, instanceName, error: err instanceof Error ? err.message : String(err),
+      });
+      throw new RegistryError(502, 'email_send_failed', "We couldn't send your sign-in email. Try again.");
+    }
     return { message: 'Check your email for the magic link' };
   }
 
