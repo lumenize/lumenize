@@ -55,8 +55,6 @@ passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
    and its scopeAdmin is false, so it holds passage at most.
 ```
 
-> **Today's code differs.** A chain a node started carries no token, and `requirePassage` refuses it rather than reading the starting node's name.
-
 **One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(claims, targetScope)` and `hasPassageInto(claims, targetScope)`.
 
 **Those signatures take two arguments where the predicates take three**, because two of the three arrive together: from a verified token, `aud` and `access.scopeAdmin`; for a chain a node started, the starting node's name and `false`. One function derives the pair from a call's context. `targetScope` is passed separately.

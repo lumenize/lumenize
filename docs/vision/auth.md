@@ -32,8 +32,6 @@ Two things named throughout this document are not mesh nodes at all, so neither 
 
 **A client and its Gateway together are the equivalent of a server-side node, with its responsibilities split between two execution environments.** The client runs in the browser and does what a node's own code does. The Gateway is a Durable Object, and it bridges both differences: it terminates the socket, establishes a client's claims on the way in, and on the way out checks that the tab has passage into the scope of whatever node is sending to it (§ *How the claims travel*). It also does for its client what a node's own framework does inside a node: it acks a call, keeps the call's result handler continuation, and fires the answer back. So a client's mesh address is its Gateway's, and anything that must not depend on the browser's honesty lives in the Gateway half.
 
-> **Today's code differs.** On a call to a client, the Gateway holds the calling node's call open until the client answers, for up to 30 s, and returns the answer where an ack belongs. A client keeps its own result handler continuation in the tab, keyed by a call id, rather than sending it with the call.
-
 ## The layers a call passes
 
 We use **defense in depth** and **zero trust** throughout.
@@ -118,10 +116,10 @@ The same kind of value appears in three distinct roles.
 | | Answers | Where it lives |
 |---|---|---|
 | **`authScope`** | *who you are* — the membership this session was established under | `access.authScope` in the token, and the refresh cookie's name |
-| **`activeScope`** | *where you are acting right now* — the scope your host spells, within `authScope` | the token's `aud`, taken from the host |
+| **`activeScope`** | *where you are acting right now* — the scope your host spells, within `authScope` | the token's `aud`, taken from the host; for a chain a node started, that node's name |
 | **`targetScope`** | *what you are acting on* | a mesh node's name, or a call parameter |
 
-**The first two are properties of the caller; the third is a property of the call.** `authScope` and `activeScope` ride the token and change only at login or refresh; `targetScope` differs for every call the same token makes. The two sections below cover the first two — `targetScope` needs no section of its own, because it is simply whatever is being addressed.
+**The first two are properties of the caller; the third is a property of the call.** On a call from a person, `authScope` and `activeScope` ride the token and change only at login or refresh; `targetScope` differs for every call the same token makes. The two sections below cover the first two — `targetScope` needs no section of its own, because it is simply whatever is being addressed.
 
 **The coarse-grained verdicts read `activeScope` and `targetScope`, with `scopeAdmin` from the membership** (§ *Coarse-grained access control*). The code a host serves is what makes a call, and on a Star's host that code is the user-developer's, so the host a call came from bounds what it may do. `authScope` says which membership the token rests on, and so whose `scopeAdmin` bit it carries.
 
@@ -186,13 +184,11 @@ So every node's M3 has to decide safely when the claims are absent, and each kin
 - **A node with no scope of its own**, such as the facade or the Profile, checks the claims at the top of each method that needs them instead.
 - **A client and its Gateway split the question between them**, as they split everything a node does (§ *Lumenize Nebula mesh*). The Gateway decides passage. The client does everything after it, dominion's override included if a Client ever has such need, and it refuses any call whose last hop is another client (below). So a subscription update, sent by a node, arrives with no claims and passes.
 
-**Before a call reaches a client, its Gateway checks the tab's passage into the sender's scope.** The tab's `activeScope` is its host's, and the sender's scope is the name of the node that made the last hop, when that name is a scope. A Galaxy `acme.crm` sending to a tab on `acme.crm.bigco`'s host passes, since upward is free, and a sibling Star `acme.crm.other` sending to that tab is refused as lateral. A sender whose name is no scope, such as the Profile, passes, so a node not named by a scope must hold no tenant's data. The check reads the sender's address rather than claims, so a fresh chain passes it. It is there because a subscriber row outlives the page it was made on, and the Gateway is the last place a row pointing at the wrong tab can be caught.
+**Before a call reaches a client, its Gateway checks the tab's passage into the sender's scope.** The tab's `activeScope` is its host's, and the sender's scope is the name of the node that made the last hop, when that name is a scope. A Galaxy `acme.crm` sending to a tab on `acme.crm.bigco`'s host passes, since upward is free, and a sibling Star `acme.crm.other` sending to that tab is refused as lateral. A sender whose name is no scope, such as the Profile, passes, so a node not named by a scope must hold no tenant's data. The check reads the sender's address rather than claims, so a fresh chain passes it. It is there because a server-side node can address any client whose name it holds, and the Gateway is the last place a lateral push to it can be stopped.
 
 **A client refuses any call whose last hop is another client.** Passage has nothing to decide there: a tab is named `{sub}.{tabId}`, not by a scope, so it offers no `targetScope`, and the other tab's `aud` says where its person is acting, not what the tab is. An app that opts in decides in its own guards, from the caller's claims. A feature such as a two-person chat goes through a server-side node instead.
 
 What never meets that boundary — a result handler run locally — is the node's own code, not a call from outside. And no client can start a fresh chain or forge a result. The Gateway builds every call a client makes, its context included, from the connection's verified token, and sends it only to a node's request door, where `@mesh()` is required.
-
-> **Today's code differs.** A chain a node started carries no claims, and every scoped node refuses it. For a sender that is itself a client, the Gateway still checks the tab's passage into the sender's `aud`. And a client writes `state` into its calls' context, which its Gateway passes on.
 
 ## Coarse-grained access control
 

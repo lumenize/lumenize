@@ -405,8 +405,7 @@ record names both parties — the subject and the full actor chain — which is 
 
 **Through what path.** `lmz.callContext.callChain` is the immutable `[origin, …, caller]` list of mesh nodes a
 call travelled, extended automatically at every hop and reset only by an explicit `newChain`. It is the
-tracing mechanism — provenance is not something a caller threads by hand, and trace markers do not belong in
-the mutable `state` side channel.
+tracing mechanism — provenance is not something a caller threads by hand.
 
 ⭐ **Identity rides the whole way, not just at the origin.** The two halves travel together on the same
 context: `callChain` is the topology, and `originAuth` — the verified `sub` plus the full JWT payload,
