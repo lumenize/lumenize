@@ -1,5 +1,5 @@
 /**
- * Special number tests (NaN, Infinity, -Infinity)
+ * Special number tests (NaN, Infinity, -Infinity, -0)
  */
 
 import { describe, it, expect } from 'vitest';
@@ -92,8 +92,7 @@ describe('Special Numbers', () => {
     };
     const result = parse(stringify(mixed));
     expect(result.zero).toBe(0);
-    // Note: -0 becomes +0 through JSON (known limitation)
-    expect(result.negZero).toBe(0);
+    expect(result.negZero).toBe(-0);
     expect(result.nan).toBeNaN();
     expect(result.inf).toBe(Infinity);
     expect(result.negInf).toBe(-Infinity);
@@ -146,14 +145,23 @@ describe('Special Numbers - Edge Cases', () => {
     expect(result).toEqual(contexts);
   });
 
-  it('does not preserve sign of zero (JSON limitation)', async () => {
-    // Note: +0 and -0 are NOT special numbers, but interesting edge case
-    // JSON does not preserve the sign of zero - known limitation
-    const obj = { pos: +0, neg: -0 };
-    const result = parse(stringify(obj));
-    // Both become +0 after JSON round-trip
+  // JSON writes -0 as 0, so -0 travels tagged; +0 must stay untagged and positive.
+  it('preserves the sign of zero', async () => {
+    const result = parse(stringify({
+      pos: +0,
+      neg: -0,
+      inArray: [-0, 0],
+      boxed: new Number(-0),
+      floats: new Float64Array([-0, 0]),
+    }));
+
     expect(Object.is(result.pos, +0)).toBe(true);
-    expect(Object.is(result.neg, +0)).toBe(true); // -0 becomes +0
+    expect(Object.is(result.neg, -0)).toBe(true);
+    expect(result.inArray.map((n: number) => Object.is(n, -0))).toEqual([true, false]);
+    expect(result.boxed).toBeInstanceOf(Number);
+    expect(Object.is(result.boxed.valueOf(), -0)).toBe(true);
+    expect(Array.from(result.floats, (n: number) => Object.is(n, -0))).toEqual([true, false]);
+    expect(Object.is(parse(stringify(-0)), -0)).toBe(true);
   });
 
   it('handles arrays of only special numbers', async () => {

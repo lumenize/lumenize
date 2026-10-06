@@ -22,7 +22,7 @@
  *     references (`refCount`); the second walk emits the wire form.
  *
  * Special-type tags emitted:
- *   undefined, bigint, number-special (NaN/Infinity/-Infinity),
+ *   undefined, bigint, number-special (NaN/Infinity/-Infinity/-0),
  *   date, regexp, map, set, error, headers, url, arraybuffer (covers
  *   ArrayBuffer/DataView/TypedArray), boolean-object, number-object,
  *   string-object, bigint-object, request-sync, response-sync, function.
@@ -249,6 +249,9 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       if (Number.isNaN(value)) return { $type: 'number-special', value: 'NaN' };
       if (value === Infinity) return { $type: 'number-special', value: 'Infinity' };
       if (value === -Infinity) return { $type: 'number-special', value: '-Infinity' };
+      // JSON writes -0 as 0. The decoder's `Number(value)` fallback already
+      // reads the tag back, so a receiver that predates it gets -0 too.
+      if (Object.is(value, -0)) return { $type: 'number-special', value: '-0' };
       return value;
     }
     if (typeof value === 'bigint') return { $type: 'bigint', value: value.toString() };
@@ -359,6 +362,7 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       if (Number.isNaN(num)) v = 'NaN';
       else if (num === Infinity) v = 'Infinity';
       else if (num === -Infinity) v = '-Infinity';
+      else if (Object.is(num, -0)) v = '-0';
       return { $type: 'number-object', value: v };
     }
     if (value instanceof String) {
