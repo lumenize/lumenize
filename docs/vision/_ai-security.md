@@ -412,14 +412,13 @@ context: `callChain` is the topology, and `originAuth` — the verified `sub` pl
 including the `act` chain — is the identity, inherited **unchanged at every hop** and never re-derived. So
 any node, however many hops deep, can answer *who is this on behalf of* without a lookup and without anyone
 threading it by hand; that is what lets Resources build the `actingToken` record from context alone. At a client origin the
-identity is even present in the topology element, since a client's `instanceName` begins with its `sub` and
-the Gateway verifies that against the JWT before accepting the socket. **Attribution needs both halves, and
+identity is even present in the topology element, since a client's id begins with its `sub` and its host
+node checks that against the JWT before accepting the socket. **Attribution needs both halves, and
 both are already present** — what is missing is somewhere to put them (below), not the data itself.
 
-One honest caveat, and it applies to the topology half only: **only `callChain`'s origin is verified.** The
-Gateway builds `callChain[0]` from verified sources and preserves whatever the client supplied beyond it, so
-entries between the origin and the Gateway are client-assertable; everything appended downstream is
-framework-stamped. `originAuth` carries no such caveat — it is replaced wholesale from the verified
+**Every `callChain` entry is framework-built.** The client's server-side half builds `callChain[0]` from
+verified sources, and a client's frame carries no chain at all, so nothing a client sends lands in it;
+everything appended downstream is framework-stamped. `originAuth` carries no such caveat — it is replaced wholesale from the verified
 attachment. Neither is an authorization input.
 
 ⚠️ **Neither of these is persisted anywhere durable except the `actingToken` column.** `callChain` lives for the duration of

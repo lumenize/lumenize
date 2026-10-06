@@ -15,7 +15,15 @@ ADR-008 established "identity is not confidential" but is **explicitly intra-Sta
 
 ## Decision
 
-**Public profile fields (`name`/`nickname`/`picture`) are readable and subscribable by ANY authenticated caller that holds the `profileId`** — across scope/Star/Universe boundaries. No scope-intersection gate, no registry read on the read/subscribe path; the Gateway's authN is the only check. **Holding the `profileId` is the whole ADDRESSING story — it is not a secret, and unguessability is not what carries the trust** (re-weighted 2026-08-20; the original *"holding it IS the capability"* phrasing is `calibration.md` §1's recorded trigger — it misdrafted ADR-017). Three things make the open read safe, in order. (1) The Gateway's **authN**: no anonymous caller reaches a Profile at all. (2) The **`PUBLIC_FIELDS` allow-list** at the DO: the read reveals only public display fields, so it would be safe **even if handles were guessable**. (3) The **acceptance predicate** on the scoped-admin branch, for everything past the public set. Unguessability buys exactly one thing on top: an authenticated caller cannot **enumerate** the platform-wide directory of display fields. Weight it accordingly. ⚠️ **The analogy is a public GitHub profile with an unguessable handle instead of a slug — and it stops there.** A GitHub profile is readable **logged out**; this is not, and never was: the Gateway's authN is a real requirement, so an anonymous holder of a `profileId` reaches nothing. There is also no HTTPS surface to reach — the Profile DO has no `fetch()` handler and no route, so a Profile cannot be curled, crawled, or linked to from outside. Reading it is a mesh call on an already-authenticated connection.
+**Public profile fields (`name`/`nickname`/`picture`) are readable and subscribable by ANY authenticated caller that holds the `profileId`**, across scope, Star and Universe boundaries. No scope-intersection gate and no registry read sit on the read or subscribe path.
+
+- **Holding the `profileId` is the whole ADDRESSING story.** It is not a secret, and unguessability is not what carries the trust.
+- **Three things make the open read safe, in order:**
+  1. **The mesh admits no anonymous caller.** A Profile is reachable only by a mesh call, and the only way into the mesh from outside is a Client's authenticated connection.
+  2. **The `PUBLIC_FIELDS` allow-list at the DO.** The read reveals only public display fields, so it would be safe **even if handles were guessable**.
+  3. **The acceptance predicate** on the scoped-admin branch, for everything past the public set.
+- **Unguessability buys exactly one thing on top:** an authenticated caller cannot **enumerate** the platform-wide directory of display fields. Weight it accordingly.
+- ⚠️ **The analogy is a public GitHub profile with an unguessable handle instead of a slug, and it stops there.** A GitHub profile is readable **logged out**; this one never was (item 1). The Profile DO has no `fetch()` handler and no route, so it cannot be curled, crawled, or linked to.
 
 This **generalizes** ADR-008's principle from within-a-Star to a global handle, which is why it is a commitment of its own.
 
@@ -52,7 +60,7 @@ A caller who claims a Universe and invites an address they guessed therefore get
 | Approach | Why rejected |
 |---|---|
 | **Scope-intersection gate** on the profile read | § *Context* says what it breaks. It is the designated **fallback if this ADR is ever un-ratified**, and the profile-store build's tests pin which paths would flip. |
-| **Guessable slug** (`/profiles/{username}`) | Enumerable → any authenticated caller can crawl the whole display-fields directory. That bulk-enumeration bound is all unguessability buys (§ Decision, re-weighted 2026-08-20) — a slug spends it for nothing. |
+| **A guessable handle, such as a username** | Any authenticated caller could crawl the whole display-fields directory, one mesh call per guess. That bulk-enumeration bound is all unguessability buys (§ *Decision*), and a guessable handle spends it for nothing. ADR-010 rules out keying on a natural attribute anyway. |
 | **Per-scope profile copies** | Re-introduces the stale-copy / re-key problem [ADR-013](013-identity-profileid-resolution.md) exists to avoid, and defeats "one profile a person edits once." |
 | **Retire the scoped-admin branch entirely** (owner + super-admin only) | It was the decision here until 2026-08-04, on the grounds that scope-local authority over a global object points sideways and can be manufactured. The manufacture half is answered by requiring an **accepted** membership; the sideways half is real and is accepted above. What settles it is that admins curating a member's private fields is a **wanted capability**, not an oversight — retiring the branch removes it with no replacement short of super-admin, and the read it deletes is a cost worth paying for the capability. |
 | **Per-scope (scope-keyed) private fields** | ⏳ **Deferred, not rejected — and it is the designated answer if the sideways residual bites.** Keying the private set by scope makes the object scope-local, so an admin writing it holds ordinary downward dominion (ADR-015) and the residual disappears structurally rather than by gate. Declined for now because it adds a dimension to a field set with **no production consumers yet**, and because one person holding many scopes — the case that makes it hurt — does not exist at this population. |
@@ -66,7 +74,7 @@ A caller who claims a Universe and invites an address they guessed therefore get
 - **Open-resolution ≠ enumeration** — a caller can only resolve handles the mesh actually handed them; there is no directory to crawl.
 
 ### Negative / mitigations
-- The trust rests on the **public/private field split being enforced at the DO**, and on the Gateway's authN (§ *Decision*).
+- The trust rests on the **public/private field split being enforced at the DO**, and on the mesh admitting no anonymous caller (§ *Decision*).
 - **An admin of one intersecting scope can write a global object.** Accepted in § *Decision*. The mitigation that matters meanwhile is that acceptance requires mailbox proof, so the population holding this is people the person actually joined.
 - **Acceptance is load-bearing AUTHZ and it lives in a query rather than a gate** — a place nobody expects to find a security control. Each conjunct must therefore be pinned by a test that reds when it is dropped: `getScopesForProfile`'s by the manufacture test in `packages/nebula-auth/test/identity-mint-point.test.ts`, `getIdentityScope`'s by the acceptance test in `packages/nebula-auth/test/impersonation-mint.test.ts`.
 - A future *protected-class public field* would need its own gate — the open read is public-fields-**only** by construction, not a blanket "the Profile DO is open."
