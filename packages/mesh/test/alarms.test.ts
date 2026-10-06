@@ -197,6 +197,12 @@ describe('Alarms', () => {
       await stub.scheduleCronAlarm('* * * * *', { task: 'cron' });
 
       const scheduledOnly = await stub.getSchedules({ type: 'scheduled' });
+      // TS2589 (excessively deep): comparing `Schedule` with a LumenizeDO stub's mapped return
+      // type trips it the first time TypeScript does it, and the result is cached for every later
+      // comparison, so it lands here because this file is checked first. If it moves, the
+      // directive below goes unused and type-check fails: move it to the new site.
+      // tasks/backlog.md tracks the cause.
+      // @ts-expect-error TS2589, explained above
       expect(scheduledOnly.every((s: Schedule) => s.type === 'scheduled')).toBe(true);
 
       const delayedOnly = await stub.getSchedules({ type: 'delayed' });

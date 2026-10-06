@@ -75,10 +75,10 @@ export class CustomGateway extends LumenizeClientGateway {
 }
 
 // Export documentation example DOs
-export { UsersDO, NotificationsDO } from './for-docs/lumenize-do/basic-usage.test';
+export { UsersDO, NotificationsDO } from './for-docs/lumenize-do/example-dos';
 
 // Export alarms documentation example DOs
-export { TaskSchedulerDO } from './for-docs/alarms/basic-usage.test';
+export { TaskSchedulerDO } from './for-docs/alarms/task-scheduler-do';
 
 // Export test DO for NadisPlugin tests
 export { NadisPluginTestDO } from './nadis-plugin-test-do';
