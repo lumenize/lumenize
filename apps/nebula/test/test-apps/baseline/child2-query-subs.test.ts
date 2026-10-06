@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
-import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, createSubject, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -132,7 +132,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     a.callStarInspectQuerySubscribers(star);
     const rows = await waitForSuccess(a) as QuerySubscriberRow[];
     // One client, one canonical query → exactly one row (idempotent re-subscribe).
-    expect(rows.filter((r) => r.clientId === a.lmz.instanceName)).toHaveLength(1);
+    expect(rows.filter((r) => r.clientAddress === addressOfClient(a))).toHaveLength(1);
     expect(rows[0].queryHash).toBe(canonicalQueryHash(formA));
 
     a[Symbol.dispose]();
@@ -222,7 +222,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     // The row IS registered (authorize-at-delivery, not at registration).
     adminC.callStarInspectQuerySubscribers(star);
     const rows = await waitForSuccess(adminC) as QuerySubscriberRow[];
-    expect(rows.some((r) => r.clientId === user.lmz.instanceName)).toBe(true);
+    expect(rows.some((r) => r.clientAddress === addressOfClient(user))).toBe(true);
 
     adminC[Symbol.dispose](); user[Symbol.dispose]();
   });

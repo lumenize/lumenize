@@ -41,7 +41,7 @@ import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
 /** The reapers' receipt: limb 1 waits for it, so both rows surviving cannot mean the reply never arrived. */
@@ -242,9 +242,9 @@ export async function run(stack: DevStack): Promise<void> {
     let receipt: { name?: string } | undefined;
     if (stack.logs) {
       const lines = await step('the reaper receives the forged reply', 20_000, () => waitForDebugLines(stack,
-        (all) => all.some((l) => l.message === 'update not delivered' && l.data.clientId === attacker.clientId),
+        (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === attacker.clientId),
         'the reaper\'s receipt of the forged reply'));
-      receipt = lines.find((l) => l.message === 'update not delivered' && l.data.clientId === attacker.clientId)!.data;
+      receipt = lines.find((l) => l.message === 'update not delivered' && clientIdIn(l.data) === attacker.clientId)!.data;
     } else {
       await new Promise((r) => setTimeout(r, 1_500));  // the fire-back, then any DELETE
     }

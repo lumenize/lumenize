@@ -20,7 +20,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { adminClientAt } from '../../test-helpers';
+import { adminClientAt, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -74,11 +74,11 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     await b.client.resources.subscribe('TestResource', resourceId).snapshot;
 
-    // Sanity: 2 resource rows in Subscriptions (one per clientId, same resourceId).
+    // Sanity: 2 resource rows in Subscriptions (one per client address, same resourceId).
     a.client.callStarInspectSubscribers(star);
     const rowsBefore = await waitForSuccess(a.client) as SubscriberRow[];
     expect(rowsBefore).toHaveLength(2);
-    const bClientId = b.client.lmz.instanceName;
+    const aAddress = addressOfClient(a.client);
 
     // Disconnect b. b's WebSocket closes; b's Gateway starts its grace period,
     // 100 ms here (per vitest.config.js LUMENIZE_MESH_GRACE_PERIOD_MS).
@@ -102,7 +102,8 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
       a.client.callStarInspectSubscribers(star);
       const rows = await waitForSuccess(a.client) as SubscriberRow[];
       expect(rows).toHaveLength(1);
-      expect(rows[0].clientId).not.toBe(bClientId);
+      // Exactly A's row survives: the reaper deleted the address the failed push went to.
+      expect(rows[0].clientAddress).toBe(aAddress);
     });
   });
 

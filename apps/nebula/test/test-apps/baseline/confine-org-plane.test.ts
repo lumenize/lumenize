@@ -26,7 +26,7 @@ import { OrgTree, Subscriptions, Snapshots, ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_
 import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
-import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const CHAT_QUERY = {
@@ -116,9 +116,9 @@ describe('the DAG permission plane is confined to its host', () => {
       const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: 'p1' };
       const { descendant, covering } = await onNonLeafHost(g, ({ subs, as }) => {
         as('descendant-admin', DESCENDANT(g));
-        const d = subs.registerQuery(query, 'client-d', 'BINDING');
+        const d = subs.registerQuery(query, 'BINDING/client-d');
         as('covering-admin', COVERING(g));
-        const c = subs.registerQuery(query, 'client-c', 'BINDING');
+        const c = subs.registerQuery(query, 'BINDING/client-c');
         return { descendant: d.row.dominionOverHostAtSubscribe, covering: c.row.dominionOverHostAtSubscribe };
       });
       // Pre-fix BOTH were 1 (the raw bit). The stored value is a verdict, not a claim.
@@ -141,9 +141,9 @@ describe('the DAG permission plane is confined to its host', () => {
       const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: 'p1' };
       const { dAllowed, cAllowed } = await onNonLeafHost(g, ({ tree, subs, as }) => {
         as('descendant-admin', DESCENDANT(g));
-        const d = subs.registerQuery(query, 'client-d', 'BINDING');
+        const d = subs.registerQuery(query, 'BINDING/client-d');
         as('covering-admin', COVERING(g));
-        const c = subs.registerQuery(query, 'client-c', 'BINDING');
+        const c = subs.registerQuery(query, 'BINDING/client-c');
         // Neither holds a DAG grant, so ONLY the stored verdict can allow them.
         const dEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'descendant-admin', Boolean(d.row.dominionOverHostAtSubscribe));
         const cEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'covering-admin', Boolean(c.row.dominionOverHostAtSubscribe));
@@ -248,14 +248,14 @@ describe('the DAG permission plane is confined to its host', () => {
       using adminContent = admin.resources.subscribe('Message', seeded);
       await adminContent.snapshot;
 
-      type SubscriberRow = { clientId: string; dominionOverHostAtSubscribe: number };
+      type SubscriberRow = { clientAddress: string; dominionOverHostAtSubscribe: number };
       const rows: SubscriberRow[] = await (runInDurableObject as any)(
         (env as any).GALAXY.getByName(scope),
         (_i: any, c: any) => c.storage.sql.exec(
-          `SELECT clientId, dominionOverHostAtSubscribe FROM Subscriptions WHERE kind = 'resource' AND topic = ?`, seeded,
+          `SELECT clientAddress, dominionOverHostAtSubscribe FROM Subscriptions WHERE kind = 'resource' AND topic = ?`, seeded,
         ).toArray() as SubscriberRow[]);
-      const devRow = rows.find((r) => r.clientId === devAdmin.lmz.instanceName);
-      const adminRow = rows.find((r) => r.clientId === admin.lmz.instanceName);
+      const devRow = rows.find((r) => r.clientAddress === addressOfClient(devAdmin));
+      const adminRow = rows.find((r) => r.clientAddress === addressOfClient(admin));
       expect(devRow?.dominionOverHostAtSubscribe).toBe(0); // admitted by the grant, NOT as admin
       expect(adminRow?.dominionOverHostAtSubscribe).toBe(1); // the covering admin, as admin
 

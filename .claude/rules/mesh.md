@@ -131,8 +131,8 @@ lmz.call(t.bindingName, t.instanceName, remote, onResult, { onErrorOnly: true })
 // so a re-subscribe that lands before this reaper keeps its row.
 onBroadcastResult: (resourceId: string, sentAt: string, result?: unknown): void => {
   if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-    const clientId = this.#lmz().callContext.callee?.instanceName;
-    if (clientId) this.removeSubscriber(resourceId, clientId, sentAt);
+    const callee = this.#lmz().callContext.callee;
+    if (callee?.instanceName) this.removeSubscriber(resourceId, addressOf(callee), sentAt);
   }
 },
 ```
@@ -145,10 +145,10 @@ Application code rarely writes this per-target call by hand — it gets the same
 `broadcast` is the Lumenize primitive (`this.lmz.broadcast`), its API symbols (`onBroadcastResult`, `BroadcastTarget`), and the user-facing concept — it MUST be used everywhere those apply. `fanout` MAY be used **only** for the generic technique, in the two names that carry it: the *drop-on-failed-fanout* cleanup pattern, and the Profile's private `#fanout()`, which calls `lmz.broadcast`. The recursive tier whose tree dispatch the word once named is gone. You MUST NOT "correct" either name to `broadcast`, and MUST NOT reintroduce `fanout` for the primitive. (The `fanout-scaling-benchmark` files + `bench:fanout` scripts predate this split and are a known straggler — not a counter-example.)
 
 ## A broadcast target's `bindingName` comes from a source the client cannot write
-**For a client subscriber, the stored binding MUST come from the Gateway-stamped chain, and MUST NOT
+**For a client subscriber, the stored address MUST come from the Gateway-stamped chain, and MUST NOT
 come from a parameter or anything else the client sends.** The Gateway builds a client call's
-`callChain` from the socket's verified identity alone, so `callChain[0].bindingName` is its own
-binding; the Profile's `subscribe` reads it there.
+`callChain` from the socket's verified identity alone, so `addressOf(callChain[0])` is the client's own
+address, binding included; the Profile's `subscribe` and the Resources plane both build it there.
 
 ⚠️ **The reason is that one unroutable row fails a write that has already landed.** `lmz.broadcast`
 checks each target synchronously and has no per-target catch, so the first row naming a binding the

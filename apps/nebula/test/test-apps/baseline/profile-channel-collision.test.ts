@@ -47,7 +47,7 @@ async function waitDone(c: NebulaClientTest): Promise<void> {
   await vi.waitFor(() => expect(c.callCompleted).toBe(true));
 }
 
-/** Count the STAR's resource rows for `resourceId` (PK `(kind, topic, clientId)`). */
+/** Count the STAR's resource rows for `resourceId` (PK `(kind, topic, clientAddress)`). */
 async function starSubRows(star: string, resourceId: string): Promise<number> {
   const stub: any = (env as any).STAR.getByName(star);
   return (runInDurableObject as any)(stub, (_i: any, c: any) =>

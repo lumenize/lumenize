@@ -40,7 +40,7 @@ import { connectDriver, constructionPairs, readDevVar, scopeUrlOf, waitForHost, 
 import { provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, foundTenantStar } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
-import { debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
 import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } from '../lib/browser';
 
 export const needsContainer = false;
@@ -191,12 +191,12 @@ export async function run(stack: DevStack): Promise<void> {
     return refreshAccessToken(origin, { refreshToken, authScope: scope }, scope);
   };
 
-  /** How many subscribes the host logged for `clientId`, once a later line has arrived. */
+  /** How many subscribes the host logged for the client `clientId`, once a later line has arrived. */
   const subscribesOf = async (clientId: string, barrierClientId: string): Promise<number | undefined> => {
     if (!stack.logs) return undefined;
     const lines = await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'subscribe-resource'
-      && l.data.clientId === barrierClientId), 'the barrier subscribe');
-    return lines.filter((l) => l.message === 'subscribe-resource' && l.data.clientId === clientId).length;
+      && clientIdIn(l.data) === barrierClientId), 'the barrier subscribe');
+    return lines.filter((l) => l.message === 'subscribe-resource' && clientIdIn(l.data) === clientId).length;
   };
 
   /** A tab of the app's owner, signed in through its own cookie jar, so it renews past the
@@ -304,9 +304,9 @@ export async function run(stack: DevStack): Promise<void> {
       await until(() => tab.pushes > pushesBefore, 10_000, '').catch(() => {});
       let reaped: boolean | undefined;
       if (stack.logs) {
-        await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && l.data.clientId === id), 'limb 4\'s reap')
+        await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === id), 'limb 4\'s reap')
           .catch(() => {});
-        reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && l.data.clientId === id
+        reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === id
           && l.data.name === 'ClientDisconnectedError');
       }
       const ok = log.statuses.at(-1) === true && tab.pushes > pushesBefore && reaped !== false;
@@ -368,7 +368,7 @@ export async function run(stack: DevStack): Promise<void> {
         // reconnects inside the grace period and only a signal of the loss makes it re-subscribe.
         // A deployed target has no capture to watch, so it waits past the 30 s and the grace period.
         const isReap = (l: { message: string; data: Record<string, unknown> }) => l.message === 'update not delivered'
-          && l.data.name === 'ClientDisconnectedError' && !ours.has(String(l.data.clientId));
+          && l.data.name === 'ClientDisconnectedError' && !ours.has(String(clientIdIn(l.data)));
         const reapsBefore = stack.logs ? debugLines(stack.logs()).filter(isReap).length : 0;
         await writer.client.postUserMessage(first);
         if (stack.logs) {

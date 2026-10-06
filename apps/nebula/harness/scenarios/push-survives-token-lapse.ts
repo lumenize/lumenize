@@ -30,7 +30,7 @@ import type { DevStack } from '../lib/harness';
 import { constructionPairs, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
 export const bootVars = {
@@ -150,9 +150,9 @@ export async function run(stack: DevStack): Promise<void> {
     await until(() => revoked.connectionState === 'disconnected', 15_000, '').catch(() => {});
     let reaped: boolean | undefined;
     if (stack.logs) {
-      await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && l.data.clientId === revokedId),
+      await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === revokedId),
         'the revoked tab\'s reap').catch(() => {});
-      reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && l.data.clientId === revokedId
+      reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === revokedId
         && l.data.name === 'ClientDisconnectedError');
     }
     const silent = revoked.pushes === revokedBefore;
@@ -171,8 +171,8 @@ export async function run(stack: DevStack): Promise<void> {
       await barrier.resources.subscribe('Chat', chatId).snapshot;
       const barrierId = barrier.lmz.instanceName!;
       const lines = await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'subscribe-resource'
-        && l.data.clientId === barrierId), 'the barrier subscribe');
-      subscribes = lines.filter((l) => l.message === 'subscribe-resource' && l.data.clientId === live.lmz.instanceName).length;
+        && clientIdIn(l.data) === barrierId), 'the barrier subscribe');
+      subscribes = lines.filter((l) => l.message === 'subscribe-resource' && clientIdIn(l.data) === live.lmz.instanceName).length;
     }
     limb('limb 1 — a push to a tab whose token lapsed', pushed && renewed && later && (subscribes === undefined || subscribes === 1),
       `the push ${pushed ? 'arrived' : 'was LOST'}; token ${renewed ? 'renewed' : 'NOT renewed'}; the next write ${later ? 'arrived' : 'never arrived'}; subscribes ${subscribes ?? '(not observable)'} (1 is the first)`);

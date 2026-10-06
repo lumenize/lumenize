@@ -26,7 +26,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
 import type { Galaxy, OntologyVersionRow, Snapshot } from '@lumenize/nebula';
-import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueScope = () => `scf-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -187,14 +187,14 @@ describe('the source entries sit at the chat floor', () => {
     await g.write('src/App.vue', '<template><p>recorded</p></template>');
     const commits = entries.filter((e) => e.namespace === 'nebula.Galaxy.writeSource' && e.message === 'commit');
     expect(commits).toHaveLength(1);
-    const data = commits[0]!.data as { path?: string; clientId?: string; actingToken?: { sub?: string; act?: unknown } };
+    const data = commits[0]!.data as { path?: string; clientAddress?: string; actingToken?: { sub?: string; act?: unknown } };
     expect(data.path).toBe('src/App.vue');
     // The projection names the MEMBER (the subject of the verified claims), not the owner
     // who granted them, and the client that made the call. Mutation: strip the claims from
     // the log line → `actingToken` is absent → red.
     expect(data.actingToken?.sub).toBe(payload.sub);
     expect(data.actingToken?.act).toBeUndefined(); // self-acting — no delegation chain
-    expect(data.clientId).toBe(member.lmz.instanceName);
+    expect(data.clientAddress).toBe(addressOfClient(member));
 
     owner[Symbol.dispose](); member[Symbol.dispose]();
   });

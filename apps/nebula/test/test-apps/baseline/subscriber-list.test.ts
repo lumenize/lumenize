@@ -22,7 +22,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { canonicalQueryHash, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { QueryDescriptor, OntologyVersionConfig } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
-import { ORIGIN, pageOf } from '../../test-helpers';
+import { ORIGIN, pageOf, addressOfClient } from '../../test-helpers';
 
 const VERSION = 'v1';
 const TYPES = [
@@ -81,9 +81,9 @@ async function kindRows(star: string, kind: 'query' | 'roster', queryHash: strin
 }
 
 let sink: any[] = [];
-const marks = (event: string, queryHash: string, clientId: string) =>
+const marks = (event: string, queryHash: string, clientAddress: string) =>
   sink.filter((e) => e.namespace === 'nebula.Resources.subscribers'
-    && e.data?.event === event && e.data?.queryHash === queryHash && e.data?.clientId === clientId);
+    && e.data?.event === event && e.data?.queryHash === queryHash && e.data?.clientAddress === clientAddress);
 beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });
 afterEach(() => {
   clearDebugSink();
@@ -167,7 +167,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     // 2nd tab of the SAME sub → NOT isNewSub → the roster did not change → NO push to the watcher.
     const a2 = await connect({ star, sub: aSub, tab: 't2' });
     await a2.resources.subscribeQuery(query).ready;
-    await vi.waitFor(() => expect(marks('subscribe', qh, a2.lmz.instanceName)[0]?.data.mode).toBe('noop'));
+    await vi.waitFor(() => expect(marks('subscribe', qh, addressOfClient(a2))[0]?.data.mode).toBe('noop'));
     expect(w.querySubscribersUpdateCount).toBe(wBaseline); // the non-isNewSub join emitted nothing to watchers
   });
 
@@ -190,7 +190,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     // B leaves (dispose the data-sub handle → fires unsubscribeQuery) → the watcher gets the shrunk roster.
     bHandle[Symbol.dispose]();
     await vi.waitFor(() => expect(rosterSubs(w)).toEqual(new Set([aSub])));
-    await vi.waitFor(() => expect(marks('remove', qh, b.lmz.instanceName).some((m) => m.data.mode === 'broadcast')).toBe(true));
+    await vi.waitFor(() => expect(marks('remove', qh, addressOfClient(b)).some((m) => m.data.mode === 'broadcast')).toBe(true));
   });
 
   it('FAIL-CLOSED validation — a watcher on an INVALID query is rejected (ready rejects), not left silently empty', async () => {
@@ -230,7 +230,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     // instead leave the roster row here (this stays 1) — so this alone catches the wrong-kind mutation.
     await vi.waitFor(async () => expect(await kindRows(star, 'roster', qh)).toBe(0));
     // ...and the roster reap did NOT touch the query rows: DR's (now-stale) data row SURVIVES alongside
-    // the trigger's → 2 rows. (Both kinds share the (topic, clientId) pair, so a roster-only check would
+    // the trigger's → 2 rows. (Both kinds share the (topic, clientAddress) pair, so a roster-only check would
     // false-pass; asserting the query rows stayed at 2 proves the dedicated reap didn't clobber the data
     // sub — DR's stale data row is reaped separately by a data broadcast, out of this test's scope.)
     expect(await kindRows(star, 'query', qh)).toBe(2);

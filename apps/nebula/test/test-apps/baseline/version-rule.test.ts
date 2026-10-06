@@ -29,7 +29,7 @@ import {
   ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID, canonicalQueryHash,
 } from '@lumenize/nebula';
 import type { Galaxy, Star, QueryDescriptor, TransactionResult } from '@lumenize/nebula';
-import { adminClientAt, universeAdminClient } from '../../test-helpers';
+import { adminClientAt, universeAdminClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { GalaxyTest, StarTest } from './index';
 
@@ -99,7 +99,7 @@ describe('a Galaxy serves a newer seed its source answers', () => {
     });
     // The old subscriber's query row went with the drain.
     const oldRows = await (runInDurableObject as any)((env as any).GALAXY.getByName(scope), (_i: any, c: any) =>
-      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'query' AND clientId = ?`, old.lmz.instanceName)
+      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'query' AND clientAddress = ?`, addressOfClient(old))
         .toArray()[0].n);
     expect(oldRows).toBe(0);
     owner[Symbol.dispose](); old[Symbol.dispose]();

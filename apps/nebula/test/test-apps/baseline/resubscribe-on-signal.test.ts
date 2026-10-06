@@ -31,9 +31,9 @@ async function closeFromGateway(client: NebulaClientTest, code: number): Promise
 }
 
 /** The Star's resource subscriber rows: the server-internal state a re-subscribe rewrites. */
-async function resourceRows(star: string): Promise<Array<{ clientId: string; dominion: number; subscribedAt: string }>> {
+async function resourceRows(star: string): Promise<Array<{ clientAddress: string; dominion: number; subscribedAt: string }>> {
   return (runInDurableObject as any)((env as any).STAR.getByName(star), (_i: unknown, ctx: DurableObjectState) =>
-    ctx.storage.sql.exec(`SELECT clientId, dominionOverHostAtSubscribe AS dominion, subscribedAt
+    ctx.storage.sql.exec(`SELECT clientAddress, dominionOverHostAtSubscribe AS dominion, subscribedAt
       FROM Subscriptions WHERE kind = 'resource'`).toArray());
 }
 

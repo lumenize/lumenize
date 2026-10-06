@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { adminClientAt, createInvitedClient, foundAndLogin, createSubject, ownerOf } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, foundAndLogin, createSubject, ownerOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -173,7 +173,7 @@ describe('star-subscribe', () => {
     // …and it registered, so the next update tells it again.
     admin.callStarInspectSubscribers(star);
     const rows = await waitForSuccess(admin) as SubscriberRow[];
-    expect(rows.filter((r) => r.clientId === user.lmz.instanceName && r.resourceId === resourceId)).toHaveLength(1);
+    expect(rows.filter((r) => r.clientAddress === addressOfClient(user) && r.resourceId === resourceId)).toHaveLength(1);
 
     admin[Symbol.dispose]();
     user[Symbol.dispose]();
@@ -200,7 +200,7 @@ describe('star-subscribe', () => {
 
     admin.callStarInspectSubscribers(star);
     const rows = await waitForSuccess(admin) as SubscriberRow[];
-    expect(rows.filter((r) => r.clientId === user.lmz.instanceName)).toHaveLength(0);
+    expect(rows.filter((r) => r.clientAddress === addressOfClient(user))).toHaveLength(0);
 
     admin[Symbol.dispose]();
     user[Symbol.dispose]();
@@ -218,7 +218,7 @@ describe('star-subscribe', () => {
     expect(client.lastResourceUpdate).toBeDefined();
     expect(client.resourceUpdateCount).toBe(1);
 
-    // Second subscribe (same clientId, rt, rid)
+    // Second subscribe (same client, rt, rid)
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForResult(client);
     expect(client.lastResourceUpdate).toBeDefined();
@@ -232,8 +232,7 @@ describe('star-subscribe', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].resourceId).toBe(resourceId);
     expect(rows[0].sub).toBeDefined();
-    expect(rows[0].clientId).toBeDefined();
-    expect(rows[0].subscriberBinding).toBe('NEBULA_CLIENT_GATEWAY');
+    expect(rows[0].clientAddress).toBe(addressOfClient(client));
     expect(rows[0].subscribedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     client[Symbol.dispose]();

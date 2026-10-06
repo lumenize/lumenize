@@ -25,7 +25,7 @@ import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import {
-  adminClientAt, universeAdminClient, browserLogin, foundAndLogin, createSubject, createInvitedClient, ORIGIN, pageOf, ownerOf } from '../../test-helpers';
+  adminClientAt, universeAdminClient, browserLogin, foundAndLogin, createSubject, createInvitedClient, ORIGIN, pageOf, ownerOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -158,7 +158,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
 
   it('a tree change re-subscribes exactly what was denied — one subscribe, not one per subscription', async () => {
     const { admin, member, priv, open, closed } = await starWithMember();
-    const clientId = member.client.lmz.instanceName!;
+    const clientAddress = addressOfClient(member.client);
     // A query with no results, so it has nothing to deny.
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() };
 
@@ -172,7 +172,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     expect(q.deniedNodes).toEqual([]); // …and the query is not
 
     const subscribes = () => sink.filter((e) => e.namespace === 'nebula.Resources.subscribers'
-      && (e.data?.event === 'subscribe-resource' || e.data?.event === 'subscribe') && e.data?.clientId === clientId);
+      && (e.data?.event === 'subscribe-resource' || e.data?.event === 'subscribe') && e.data?.clientAddress === clientAddress);
     sink.length = 0;
     await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'unrelated', 'Unrelated');
     await vi.waitFor(() => expect(subscribes().length).toBeGreaterThanOrEqual(1));
@@ -185,23 +185,23 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
 
   it('a denied resource subscriber that disconnects is reaped at the next write — on a Star', async () => {
     const { star, admin, closed, eTags } = await starWithMember();
-    const rows = async (clientId: string) => (runInDurableObject as any)((env as any).STAR.getByName(star), (_i: any, c: any) =>
-      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientId = ?`,
-        closed, clientId).toArray()[0].n as number);
+    const rows = async (clientAddress: string) => (runInDurableObject as any)((env as any).STAR.getByName(star), (_i: any, c: any) =>
+      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientAddress = ?`,
+        closed, clientAddress).toArray()[0].n as number);
 
     const adminBrowser = new Browser();
     const { accessToken } = await foundAndLogin(adminBrowser, star, ownerOf('admin@example.com'), star);
     await createSubject(adminBrowser, star, accessToken, 'doomed@example.com');
     const { client: doomed } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'doomed@example.com');
     expect(await doomed.resources.subscribe('TestResource', closed).snapshot).toBeNull();
-    const id = doomed.lmz.instanceName!;
-    expect(await rows(id)).toBe(1);
+    const doomedAddress = addressOfClient(doomed);
+    expect(await rows(doomedAddress)).toBe(1);
 
     doomed.disconnect();
     await vi.waitFor(() => expect(doomed.connectionState).toBe('disconnected'));
     await commit(admin, star, { [closed]: { op: 'put', eTag: eTags[closed], value: { title: 'next' } } });
     // Mutation: send the denied update without the resource reaper → the row stays → red.
-    await vi.waitFor(async () => expect(await rows(id)).toBe(0));
+    await vi.waitFor(async () => expect(await rows(doomedAddress)).toBe(0));
   });
 
   it('a denied resource subscriber that disconnects is reaped at the next write — on a Galaxy', async () => {
@@ -215,17 +215,17 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     expect((await admin.resources.transaction({
       [m]: { op: 'create', typeName: 'Message', nodeId: nodeB, value: { chat, content: 'm' } },
     })).kind).toBe('committed');
-    const rows = async (clientId: string) => (runInDurableObject as any)((env as any).GALAXY.getByName(scope), (_i: any, c: any) =>
-      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientId = ?`,
-        m, clientId).toArray()[0].n as number);
+    const rows = async (clientAddress: string) => (runInDurableObject as any)((env as any).GALAXY.getByName(scope), (_i: any, c: any) =>
+      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientAddress = ?`,
+        m, clientAddress).toArray()[0].n as number);
 
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'doomed@example.com');
     const { client: doomed } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'doomed@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
     expect(await doomed.resources.subscribe('Message', m).snapshot).toBeNull();
-    const id = doomed.lmz.instanceName!;
-    expect(await rows(id)).toBe(1);
+    const doomedAddress = addressOfClient(doomed);
+    expect(await rows(doomedAddress)).toBe(1);
 
     doomed.disconnect();
     await vi.waitFor(() => expect(doomed.connectionState).toBe('disconnected'));
@@ -233,7 +233,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     expect((await admin.resources.transaction({
       [m]: { op: 'put', typeName: 'Message', eTag: current.meta.eTag, value: { chat, content: 'm2' } },
     })).kind).toBe('committed');
-    await vi.waitFor(async () => expect(await rows(id)).toBe(0));
+    await vi.waitFor(async () => expect(await rows(doomedAddress)).toBe(0));
   });
 });
 

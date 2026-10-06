@@ -49,8 +49,9 @@ import { newContinuation } from '@lumenize/mesh';
 import type { Continuation } from '@lumenize/mesh';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, ResourcesHost, SubscriptionKind, TransactionResult } from '@lumenize/nebula';
-import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar } from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
+import { splitAddress } from '@lumenize/mesh';
 
 const VERSION = 'v1';
 const TYPES = [
@@ -72,10 +73,10 @@ void (() => {
 const uuid = () => crypto.randomUUID();
 
 /** Rows of one kind a client holds in a host's `Subscriptions` table. */
-async function rows(binding: 'STAR' | 'GALAXY', instance: string, kind: SubscriptionKind, clientId: string): Promise<number> {
+async function rows(binding: 'STAR' | 'GALAXY', instance: string, kind: SubscriptionKind, clientAddress: string): Promise<number> {
   const stub: any = (env as any)[binding].getByName(instance);
   return (runInDurableObject as any)(stub, (_i: any, c: any) =>
-    c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = ? AND clientId = ?', kind, clientId)
+    c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = ? AND clientAddress = ?', kind, clientAddress)
       .toArray()[0].n as number);
 }
 
@@ -118,7 +119,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     const { star, admin, parent } = await starWithParent();
     const doomed = await adminTab(star);
     await doomed.resources.subscribe('Parent', parent).snapshot;
-    const id = doomed.lmz.instanceName!;
+    const id = addressOfClient(doomed);
     expect(await rows('STAR', star, 'resource', id)).toBe(1);
 
     await close(doomed);
@@ -136,7 +137,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     using handle = doomed.resources.subscribeQuery(query);
     await handle.ready;
     expect(handle.deniedNodes).toEqual([]); // positive control: this tab is in the no-denial group
-    const id = doomed.lmz.instanceName!;
+    const id = addressOfClient(doomed);
     expect(await rows('STAR', star, 'query', id)).toBe(1);
 
     await close(doomed);
@@ -150,7 +151,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     const doomed = await adminTab(star);
     using watch = doomed.subscribeQuerySubscribers(query);
     await watch.ready;
-    const id = doomed.lmz.instanceName!;
+    const id = addressOfClient(doomed);
     expect(await rows('STAR', star, 'roster', id)).toBe(1);
 
     await close(doomed);
@@ -166,7 +167,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     const doomed = await adminTab(star);
     doomed.callStarSubscribeTree(star);
     await vi.waitFor(() => expect(doomed.orgTreeUpdateCount).toBeGreaterThanOrEqual(1));
-    const id = doomed.lmz.instanceName!;
+    const id = addressOfClient(doomed);
     expect(await rows('STAR', star, 'tree', id)).toBe(1);
 
     await close(doomed);
@@ -185,7 +186,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     const doomed = await tab();
     await doomed.lmz.callAsync('GALAXY', scope, (doomed.ctn() as any).resources.subscribeTree());
     await vi.waitFor(() => expect(doomed.orgTreeUpdateCount).toBeGreaterThanOrEqual(1));
-    const id = doomed.lmz.instanceName!;
+    const id = addressOfClient(doomed);
     expect(await rows('GALAXY', scope, 'tree', id)).toBe(1);
 
     await close(doomed);
@@ -206,7 +207,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     using handle = doomed.resources.subscribeQuery(query);
     await handle.ready;
     expect(handle.deniedNodes).toEqual([nodeB]); // positive control: this tab is in the has-denial group
-    const id = doomed.lmz.instanceName!;
+    const id = addressOfClient(doomed);
     expect(await rows('STAR', star, 'query', id)).toBe(1);
 
     await close(doomed);
@@ -235,7 +236,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     using handle = doomed.resources.subscribeQuery(query);
     await handle.ready;
     expect(handle.deniedNodes).toEqual([nodeB]); // positive control: this tab is in the has-denial group
-    const id = doomed.lmz.instanceName!;
+    const id = addressOfClient(doomed);
     expect(await rows('GALAXY', scope, 'query', id)).toBe(1);
 
     await close(doomed);
@@ -328,7 +329,7 @@ describe('a re-subscribe that lands before its reaper keeps its row', () => {
       version: 1,
       chain: preprocess(chain),
       callContext: {
-        callChain: [node, { type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: tab }],
+        callChain: [node, { type: 'LumenizeClient', ...splitAddress(tab) }],
       },
       metadata: { callee: node },
     });
@@ -338,7 +339,7 @@ describe('a re-subscribe that lands before its reaper keeps its row', () => {
   /** Wait for the reaper's receipt for `tab`, logged whether or not it deleted anything. */
   async function receipt(entries: DebugLogOutput[], tab: string, count: number): Promise<void> {
     await vi.waitFor(() => expect(entries.filter((e) => e.message === 'update not delivered'
-      && e.data?.clientId === tab).length).toBe(count));
+      && e.data?.clientAddress === tab).length).toBe(count));
   }
 
   it('on the Resources plane', async () => {
@@ -347,9 +348,9 @@ describe('a re-subscribe that lands before its reaper keeps its row', () => {
     const { star, parent } = await starWithParent();
     const tab = await adminTab(star);
     await tab.resources.subscribe('Parent', parent).snapshot;
-    const id = tab.lmz.instanceName!;
+    const id = addressOfClient(tab);
     const subscribedAt: string = await (runInDurableObject as any)((env as any).STAR.getByName(star), (_i: any, c: any) =>
-      c.storage.sql.exec(`SELECT subscribedAt FROM Subscriptions WHERE kind = 'resource' AND clientId = ?`, id)
+      c.storage.sql.exec(`SELECT subscribedAt FROM Subscriptions WHERE kind = 'resource' AND clientAddress = ?`, id)
         .toArray()[0].subscribedAt);
 
     // A push sent an hour before this row was written failed, and its reaper arrives now.
@@ -370,12 +371,12 @@ describe('a re-subscribe that lands before its reaper keeps its row', () => {
     const tab = await adminTab(star);
     const profileId = uuid();
     await tab.subscribeProfile(profileId).snapshot;
-    const id = tab.lmz.instanceName!;
+    const id = addressOfClient(tab);
     const profile = (env as any).PROFILE.getByName(profileId);
     const subscribedAt: string = await (runInDurableObject as any)(profile, (_i: any, c: any) =>
-      c.storage.sql.exec('SELECT subscribedAt FROM Subscribers WHERE clientId = ?', id).toArray()[0].subscribedAt);
+      c.storage.sql.exec('SELECT subscribedAt FROM Subscribers WHERE clientAddress = ?', id).toArray()[0].subscribedAt);
     const subscribers = async () => (runInDurableObject as any)(profile, (_i: any, c: any) =>
-      c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers WHERE clientId = ?', id).toArray()[0].n as number);
+      c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers WHERE clientAddress = ?', id).toArray()[0].n as number);
 
     await fireBack('PROFILE', profileId, id, through('onProfileBroadcastResult')(anHourBefore(subscribedAt), gone()));
     await receipt(entries, id, 1);

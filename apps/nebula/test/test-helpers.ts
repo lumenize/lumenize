@@ -16,6 +16,14 @@ import {
 } from './lib/email-login';
 
 /** The deployment this lane's Worker serves — `LUMENIZE_ORIGIN` in its `wrangler.jsonc`. */
+/**
+ * A Client's address as a subscription row stores it: the binding and instance name its
+ * server-side half stamps on `callChain[0]`, joined, such as `NEBULA_CLIENT_GATEWAY/alice.9f2c41aa`.
+ */
+export function addressOfClient(client: { lmz: { bindingName: string; instanceName: string } }): string {
+  return `${client.lmz.bindingName}/${client.lmz.instanceName}`;
+}
+
 export const DEPLOYMENT = 'http://lumenize.localhost';
 /**
  * The platform host: every session's routes and the pages that sign a person in. Under

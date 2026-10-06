@@ -36,7 +36,7 @@ import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
 export const bootVars = { DEBUG: 'nebula.Resources.ontology,nebula.Resources.reap,lmz.mesh.ClientGateway.socketClosed' };
@@ -196,7 +196,7 @@ export async function run(stack: DevStack): Promise<void> {
       let received = false;
       try {
         await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered'
-          && l.data.clientId === hostileName), 'the reaper\'s receipt of the hostile answer');
+          && clientIdIn(l.data) === hostileName), 'the reaper\'s receipt of the hostile answer');
         received = true;
       } catch { /* reported below */ }
       const ranIt = debugLines(stack.logs()).some((l) => l.message === 'ontology pull failed'

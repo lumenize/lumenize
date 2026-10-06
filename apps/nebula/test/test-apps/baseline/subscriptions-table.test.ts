@@ -12,9 +12,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/nebula';
+import { ROOT_NODE_ID, Subscriptions, canonicalQueryHash } from '@lumenize/nebula';
+import { ensureSubscribersTable } from '@lumenize/nebula-auth/profile';
 import type { QueryDescriptor, SubscriptionKind, TransactionResult } from '@lumenize/nebula';
-import { adminClientAt } from '../../test-helpers';
+import { adminClientAt, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 /** Each universe's founder has its own address: one address may own at most MAX_GALAXIES_PER_OWNER
@@ -46,8 +47,8 @@ async function commit(admin: NebulaClientTest, star: string, ops: Parameters<Neb
 const inStar = <T,>(star: string, fn: (inst: any, state: DurableObjectState) => T): Promise<T> =>
   (runInDurableObject as any)((env as any).STAR.getByName(star), fn);
 
-const rows = (star: string, kind: SubscriptionKind, clientId: string) => inStar(star, (_i, s) =>
-  s.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = ? AND clientId = ?', kind, clientId)
+const rows = (star: string, kind: SubscriptionKind, clientAddress: string) => inStar(star, (_i, s) =>
+  s.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = ? AND clientAddress = ?', kind, clientAddress)
     .toArray()[0].n as number);
 
 // ── The schema ─────────────────────────────────────────────────────────────────────────────────
@@ -64,11 +65,11 @@ const WELL_FORMED: Record<SubscriptionKind, Row> = {
   tree: { kind: 'tree', topic: '', sub: null, profileId: null, dominionOverHostAtSubscribe: null, query: null },
 };
 
-function insert(state: DurableObjectState, row: Row, clientId: string): void {
+function insert(state: DurableObjectState, row: Row, clientAddress: string): void {
   state.storage.sql.exec(
-    `INSERT INTO Subscriptions (kind, topic, clientId, subscriberBinding, subscribedAt, sub, profileId, dominionOverHostAtSubscribe, query)
-     VALUES (?, ?, ?, 'NEBULA_CLIENT_GATEWAY', ?, ?, ?, ?, ?)`,
-    row.kind, row.topic, clientId, new Date().toISOString(), row.sub, row.profileId, row.dominionOverHostAtSubscribe, row.query,
+    `INSERT INTO Subscriptions (kind, topic, clientAddress, subscribedAt, sub, profileId, dominionOverHostAtSubscribe, query)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    row.kind, row.topic, clientAddress, new Date().toISOString(), row.sub, row.profileId, row.dominionOverHostAtSubscribe, row.query,
   );
 }
 
@@ -78,7 +79,7 @@ describe('the Subscriptions table refuses a row that breaks its kind', () => {
     await starAdmin(star);
     const written = await inStar(star, (_i, s) => {
       for (const row of Object.values(WELL_FORMED)) insert(s, row, `ok-${row.kind}`);
-      return s.storage.sql.exec(`SELECT kind FROM Subscriptions WHERE clientId LIKE 'ok-%' ORDER BY kind`).toArray().map((r) => r.kind);
+      return s.storage.sql.exec(`SELECT kind FROM Subscriptions WHERE clientAddress LIKE 'ok-%' ORDER BY kind`).toArray().map((r) => r.kind);
     });
     expect(written).toEqual(['query', 'resource', 'roster', 'tree']);
   });
@@ -130,7 +131,7 @@ describe('storage the four old registries left behind', () => {
     await admin.resources.subscribeQuery(query).ready;
     await admin.subscribeQuerySubscribers(query).ready;
     admin.callStarSubscribeTree(star);
-    const id = admin.lmz.instanceName!;
+    const id = addressOfClient(admin);
     await vi.waitFor(async () => expect(await rows(star, 'tree', id)).toBe(1));
     for (const kind of ['resource', 'query', 'roster'] as const) expect(await rows(star, kind, id)).toBe(1);
   });
@@ -219,10 +220,10 @@ async function holdEveryKind() {
   const watch = client.subscribeQuerySubscribers(query);
   await watch.ready;
   client.callStarSubscribeTree(star);
-  const id = client.lmz.instanceName!;
+  const id = addressOfClient(client);
   await vi.waitFor(async () => expect(await rows(star, 'tree', id)).toBe(1));
   const held = await inStar(star, (_i, s) => s.storage.sql.exec(
-    'SELECT kind, topic FROM Subscriptions WHERE clientId = ? ORDER BY kind', id).toArray());
+    'SELECT kind, topic FROM Subscriptions WHERE clientAddress = ? ORDER BY kind', id).toArray());
   expect(held).toEqual([
     { kind: 'query', topic }, { kind: 'resource', topic }, { kind: 'roster', topic }, { kind: 'tree', topic: '' },
   ]);
@@ -265,8 +266,65 @@ describe('each remover takes only its own kind', () => {
     await vi.waitFor(() => expect(client.connectionState).toBe('disconnected'));
     // A tree change is the one update this client's other rows do not receive.
     await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'reap', 'Reap');
-    // Mutation: key the tree remover on `clientId` alone → every row of the client goes → red.
+    // Mutation: key the tree remover on `clientAddress` alone → every row of the client goes → red.
     await vi.waitFor(async () => expect(await rows(star, 'tree', id)).toBe(0));
     expect(await surviving(star, id)).toEqual({ resource: 1, query: 1, roster: 1, tree: 0 });
+  });
+});
+
+// ── A table from before the address column ─────────────────────────────────────────────────────
+// In-lane, because only storage written by an older build has this shape: no running system can
+// produce it now, and the deployed `test-nebula` is where it would otherwise first meet one.
+
+describe('a subscriber table keyed on clientId migrates to the address', () => {
+  const columns = (sql: SqlStorage) => sql.exec('PRAGMA table_info(Subscriptions)').toArray().map((c: any) => c.name);
+
+  it('Subscriptions drops its old rows once, and keeps the rows written after', async () => {
+    const star = uniqueStar();
+    await starAdmin(star);
+    const seen = await inStar(star, (_i, s) => {
+      const sql = s.storage.sql;
+      // The shape the table had before, with its marker where that build left it.
+      sql.exec('DROP TABLE Subscriptions');
+      sql.exec(`CREATE TABLE Subscriptions (kind TEXT NOT NULL, topic TEXT NOT NULL, clientId TEXT NOT NULL,
+        subscriberBinding TEXT NOT NULL, subscribedAt TEXT NOT NULL, sub TEXT, profileId TEXT,
+        dominionOverHostAtSubscribe INTEGER, query TEXT, PRIMARY KEY (kind, topic, clientId)) WITHOUT ROWID`);
+      sql.exec(`INSERT INTO Subscriptions (kind, topic, clientId, subscriberBinding, subscribedAt)
+        VALUES ('tree', '', 'old.tab1', 'NEBULA_CLIENT_GATEWAY', '2026-10-01T00:00:00.000Z')`);
+      s.storage.kv.put('__sql_migrations_Subscriptions', 1);
+      const build = () => new Subscriptions(s, () => ({ callChain: [] }) as any, undefined as any, () => star);
+      build();
+      const migrated = { columns: columns(sql), rows: sql.exec('SELECT COUNT(*) AS n FROM Subscriptions').toArray()[0].n };
+      sql.exec(`INSERT INTO Subscriptions (kind, topic, clientAddress, subscribedAt)
+        VALUES ('tree', '', 'STAR/x/new.tab1', '2026-10-06T00:00:00.000Z')`);
+      build();
+      return { ...migrated, kept: sql.exec('SELECT clientAddress FROM Subscriptions').toArray() };
+    });
+    // Mutation: give the drop the baseline's id, 1, and the old table survives with its column.
+    expect(seen.columns).toContain('clientAddress');
+    expect(seen.columns).not.toContain('clientId');
+    expect(seen.rows).toBe(0);
+    expect(seen.kept).toEqual([{ clientAddress: 'STAR/x/new.tab1' }]);
+  });
+
+  it('a Profile\'s Subscribers drops its old rows once, and keeps the rows written after', async () => {
+    const profile = (env as any).PROFILE.getByName(uuid());
+    const seen = await (runInDurableObject as any)(profile, (_i: unknown, s: DurableObjectState) => {
+      const sql = s.storage.sql;
+      const cols = () => sql.exec('PRAGMA table_info(Subscribers)').toArray().map((c: any) => c.name);
+      sql.exec('DROP TABLE Subscribers');
+      sql.exec(`CREATE TABLE Subscribers (clientId TEXT PRIMARY KEY, subscriberBinding TEXT NOT NULL,
+        subscribedAt TEXT NOT NULL DEFAULT '') WITHOUT ROWID`);
+      sql.exec(`INSERT INTO Subscribers (clientId, subscriberBinding) VALUES ('old.tab1', 'NEBULA_CLIENT_GATEWAY')`);
+      ensureSubscribersTable(sql);
+      const migrated = { columns: cols(), rows: sql.exec('SELECT COUNT(*) AS n FROM Subscribers').toArray()[0].n };
+      sql.exec(`INSERT INTO Subscribers (clientAddress, subscribedAt) VALUES ('STAR/x/new.tab1', '2026-10-06T00:00:00.000Z')`);
+      ensureSubscribersTable(sql);
+      return { ...migrated, kept: sql.exec('SELECT clientAddress FROM Subscribers').toArray() };
+    });
+    // Mutation: drop the table whatever its columns, and the row written after goes too.
+    expect(seen.columns).toEqual(['clientAddress', 'subscribedAt']);
+    expect(seen.rows).toBe(0);
+    expect(seen.kept).toEqual([{ clientAddress: 'STAR/x/new.tab1' }]);
   });
 });

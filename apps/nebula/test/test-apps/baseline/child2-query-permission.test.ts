@@ -17,8 +17,7 @@ import { ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT
 import type { TransactionResult, QuerySubscriberRow, QueryDescriptor, Snapshot } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import {
-  adminClientAt, universeAdminClient, createInvitedClient, createPlatformAdminClient, browserLogin, createSubject, ORIGIN, pageOf,
-} from '../../test-helpers';
+  adminClientAt, universeAdminClient, createInvitedClient, createPlatformAdminClient, browserLogin, createSubject, ORIGIN, pageOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -217,10 +216,10 @@ describe('a permission change and a query subscriber', () => {
     // Inspect the stored dominionOverHostAtSubscribe flags: admin row = 1 (one row), ex row = 0.
     a.callStarInspectQuerySubscribers(star);
     const rows = await waitForSuccess(a) as QuerySubscriberRow[];
-    const uniRows = rows.filter((r) => r.clientId === uni.lmz.instanceName);
+    const uniRows = rows.filter((r) => r.clientAddress === addressOfClient(uni));
     expect(uniRows).toHaveLength(1);
     expect(uniRows[0].dominionOverHostAtSubscribe).toBe(1);
-    const exRow = rows.find((r) => r.clientId === ex.lmz.instanceName);
+    const exRow = rows.find((r) => r.clientAddress === addressOfClient(ex));
     expect(exRow?.dominionOverHostAtSubscribe).toBe(0);
 
     a[Symbol.dispose](); uni[Symbol.dispose](); ex[Symbol.dispose]();

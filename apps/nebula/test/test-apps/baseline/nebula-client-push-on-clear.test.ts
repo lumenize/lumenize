@@ -2,7 +2,7 @@
  * Push-on-clear ontology-stale notification — Phase 5.3.4b
  *
  * When the plane installs a version that replaces another, it drains the resource, query and
- * roster rows (`Subscriptions.clear` returns the distinct `(subscriberBinding, clientId)` pairs it
+ * roster rows (`Subscriptions.clear` returns the distinct `clientAddress` values it
  * dropped) and sends each such subscriber a single `OntologyStaleError` through its broadcast,
  * using sentinel rt='' / rid=''.
  *
@@ -14,7 +14,7 @@
  *
  * Two angles tested here:
  *   1. **Grouping**: a single client with N subscribed resources receives
- *      exactly **one** notification (distinct on `(binding, clientId)`),
+ *      exactly **one** notification (distinct on `clientAddress`),
  *      not N.
  *   2. **Version substitution**: the `OntologyStaleInfo` passed to
  *      `onShouldRefreshUI` carries the client's pinned `clientVersion`
@@ -91,7 +91,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
     }
 
     // Verify 3 rows exist on Star — proves we have N>1 rows mapping to the
-    // same (binding, clientId), the case grouping needs to dedupe.
+    // same `clientAddress`, the case grouping needs to dedupe.
     a.client.callStarInspectSubscribers(star);
     const rowsBefore = await waitForSuccess(a.client) as SubscriberRow[];
     expect(rowsBefore).toHaveLength(3);

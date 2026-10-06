@@ -1,8 +1,9 @@
 /**
  * Subscriptions — every subscription a host's plane holds, in one table.
  *
- * Four kinds share one delivery address — `clientId` · `subscriberBinding` · `subscribedAt` — and
- * one key, `(kind, topic, clientId)`:
+ * Four kinds share one delivery address — `clientAddress` · `subscribedAt` — and one key,
+ * `(kind, topic, clientAddress)`. A client's address is one string, its host node plus its id,
+ * such as `STAR/acme.crm.tenant1/alice.9f2c41aa`, which `addressOf` builds from `callChain[0]`:
  *
  *   | kind       | who                                   | topic                  |
  *   |------------|---------------------------------------|------------------------|
@@ -80,12 +81,41 @@ const SUBSCRIPTIONS_MIGRATIONS: SQLSchemaMigration[] = [
       CHECK (kind <> 'tree' OR topic = '')
     ) WITHOUT ROWID`,
   },
+  {
+    idMonotonicInc: 2,
+    description: 'drop the table keyed on clientId; its rows are disposable, since every client re-subscribes',
+    sql: `DROP TABLE IF EXISTS Subscriptions`,
+  },
+  {
+    idMonotonicInc: 3,
+    description: 'Subscriptions keyed on (kind, topic, clientAddress), the one-string address',
+    sql: `CREATE TABLE IF NOT EXISTS Subscriptions (
+      kind TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      clientAddress TEXT NOT NULL,
+      subscribedAt TEXT NOT NULL,
+      sub TEXT,
+      profileId TEXT,
+      dominionOverHostAtSubscribe INTEGER,
+      query TEXT,
+      PRIMARY KEY (kind, topic, clientAddress),
+      CHECK (kind IN ('resource', 'query', 'roster', 'tree')),
+      CHECK ((kind IN ('resource', 'query')) = (sub IS NOT NULL)),
+      CHECK ((kind IN ('resource', 'query')) = (profileId IS NOT NULL)),
+      CHECK (CASE WHEN kind IN ('resource', 'query')
+                  THEN dominionOverHostAtSubscribe IS NOT NULL AND dominionOverHostAtSubscribe IN (0, 1)
+                  ELSE dominionOverHostAtSubscribe IS NULL END),
+      CHECK ((kind = 'query') = (query IS NOT NULL)),
+      CHECK (kind <> 'tree' OR topic = '')
+    ) WITHOUT ROWID`,
+  },
 ];
 
 /** A subscriber to one Resource. */
 export type SubscriberRow = {
   resourceId: string;
-  clientId: string;
+  /** The subscriber's one-string address, such as `STAR/acme.crm.tenant1/alice.9f2c41aa`. */
+  clientAddress: string;
   sub: string;
   /** The subscriber's public `profileId` claim at subscribe time. */
   profileId: string;
@@ -105,7 +135,6 @@ export type SubscriberRow = {
    * differs from the last one's, on the socket that token opens, which re-derives the bit.
    */
   dominionOverHostAtSubscribe: number;
-  subscriberBinding: string;
   subscribedAt: string;
 };
 
@@ -114,25 +143,23 @@ export type QuerySubscriberRow = {
   queryHash: string;
   /** The full query object, structured-clone-stringified — parsed by every re-run. */
   query: string;
-  clientId: string;
+  clientAddress: string;
   sub: string;
   /** The subscriber's public `profileId` claim — the roster's display handle. */
   profileId: string;
   /** The confined dominion verdict — see {@link SubscriberRow.dominionOverHostAtSubscribe}. */
   dominionOverHostAtSubscribe: number;
-  subscriberBinding: string;
   subscribedAt: string;
 };
 
 /** A roster watcher or a tree subscriber: the delivery address alone. */
 export type AddressRow = {
-  clientId: string;
-  subscriberBinding: string;
+  clientAddress: string;
   subscribedAt: string;
 };
 
 /** The distinct delivery addresses a clear dropped — one notice per client, however many rows. */
-export type DroppedAddress = { subscriberBinding: string; clientId: string };
+export type DroppedAddress = { clientAddress: string };
 
 /** A resource subscribe's answer: the snapshot a reader gets, or the node a denied subscriber is
  *  told it cannot read. */
@@ -200,8 +227,7 @@ export class Subscriptions {
   subscribeResource(
     resourceType: string,
     resourceId: string,
-    clientId: string,
-    subscriberBinding: string,
+    clientAddress: string,
   ): ResourceSubscribeOutcome {
     let snapshot: Snapshot | null;
     try {
@@ -211,7 +237,7 @@ export class Subscriptions {
       if (this.#snapshots.currentTypeName(resourceId) !== resourceType) {
         throw new Error(`Resource '${resourceId}' is not a '${resourceType}'`);
       }
-      this.#insertResource(resourceId, clientId, subscriberBinding);
+      this.#insertResource(resourceId, clientAddress);
       return { deniedNodes: [e.nodeId] };
     }
     if (snapshot === null) {
@@ -222,17 +248,17 @@ export class Subscriptions {
         `Resource type mismatch: '${resourceId}' is type '${snapshot.meta.typeName}', requested '${resourceType}'`,
       );
     }
-    this.#insertResource(resourceId, clientId, subscriberBinding);
+    this.#insertResource(resourceId, clientAddress);
     return { snapshot };
   }
 
-  #insertResource(resourceId: string, clientId: string, subscriberBinding: string): void {
+  #insertResource(resourceId: string, clientAddress: string): void {
     const { sub, profileId, dominion } = this.#identity();
     this.#ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO Subscriptions
-         (kind, topic, clientId, subscriberBinding, subscribedAt, sub, profileId, dominionOverHostAtSubscribe)
-       VALUES ('resource', ?, ?, ?, ?, ?, ?, ?)`,
-      resourceId, clientId, subscriberBinding, new Date().toISOString(), sub, profileId, dominion,
+         (kind, topic, clientAddress, subscribedAt, sub, profileId, dominionOverHostAtSubscribe)
+       VALUES ('resource', ?, ?, ?, ?, ?, ?)`,
+      resourceId, clientAddress, new Date().toISOString(), sub, profileId, dominion,
     );
   }
 
@@ -247,17 +273,17 @@ export class Subscriptions {
    * that failed, so it survives. An unsubscribe passes none and always deletes. Each `remove*` here
    * takes `sentAt` the same way. PK-targeted: one billed write.
    */
-  removeResource(resourceId: string, clientId: string, sentAt?: string): void {
+  removeResource(resourceId: string, clientAddress: string, sentAt?: string): void {
     this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientId = ? AND subscribedAt <= ?`,
-      resourceId, clientId, sentAt ?? END_OF_TIME,
+      `DELETE FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientAddress = ? AND subscribedAt <= ?`,
+      resourceId, clientAddress, sentAt ?? END_OF_TIME,
     );
   }
 
   /** Every subscriber to one Resource — the update's audience. PK-prefix scan. */
   forResource(resourceId: string): SubscriberRow[] {
     return this.#ctx.storage.sql.exec<SubscriberRow>(
-      `SELECT topic AS resourceId, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
+      `SELECT topic AS resourceId, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
        FROM Subscriptions WHERE kind = 'resource' AND topic = ?`,
       resourceId,
     ).toArray();
@@ -268,7 +294,7 @@ export class Subscriptions {
   /**
    * Register a query subscriber. **Always registers** — authorization is at delivery, never here —
    * so an authenticated caller always gets a row. `INSERT OR REPLACE` keyed by
-   * `(kind, queryHash, clientId)`: a re-subscribe reuses the row.
+   * `(kind, queryHash, clientAddress)`: a re-subscribe reuses the row.
    *
    * `isNewSub` says whether this `sub` was ABSENT from the query's subscribers before — a
    * distinct-by-`sub` gain. The roster goes to watchers only on one: `subscribeQuery` is
@@ -276,8 +302,7 @@ export class Subscriptions {
    */
   registerQuery(
     query: QueryDescriptor,
-    clientId: string,
-    subscriberBinding: string,
+    clientAddress: string,
   ): { queryHash: string; row: QuerySubscriberRow; isNewSub: boolean } {
     const { sub, profileId, dominion } = this.#identity();
     const queryHash = canonicalQueryHash(query);
@@ -286,30 +311,30 @@ export class Subscriptions {
     const isNewSub = !this.forQuery(queryHash).some((r) => r.sub === sub);
     this.#ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO Subscriptions
-         (kind, topic, clientId, subscriberBinding, subscribedAt, sub, profileId, dominionOverHostAtSubscribe, query)
-       VALUES ('query', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      queryHash, clientId, subscriberBinding, subscribedAt, sub, profileId, dominion, queryBlob,
+         (kind, topic, clientAddress, subscribedAt, sub, profileId, dominionOverHostAtSubscribe, query)
+       VALUES ('query', ?, ?, ?, ?, ?, ?, ?)`,
+      queryHash, clientAddress, subscribedAt, sub, profileId, dominion, queryBlob,
     );
     return {
       queryHash,
-      row: { queryHash, query: queryBlob, clientId, sub, profileId, dominionOverHostAtSubscribe: dominion, subscriberBinding, subscribedAt },
+      row: { queryHash, query: queryBlob, clientAddress, sub, profileId, dominionOverHostAtSubscribe: dominion, subscribedAt },
       isNewSub,
     };
   }
 
   /** Drop one query row. Returns `rowsWritten` (0 on a no-op) so the roster goes to watchers only
    *  on an actual removal — the mass-disconnect-storm guard. */
-  removeQuery(queryHash: string, clientId: string, sentAt?: string): number {
+  removeQuery(queryHash: string, clientAddress: string, sentAt?: string): number {
     return this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'query' AND topic = ? AND clientId = ? AND subscribedAt <= ?`,
-      queryHash, clientId, sentAt ?? END_OF_TIME,
+      `DELETE FROM Subscriptions WHERE kind = 'query' AND topic = ? AND clientAddress = ? AND subscribedAt <= ?`,
+      queryHash, clientAddress, sentAt ?? END_OF_TIME,
     ).rowsWritten;
   }
 
   /** Every subscriber of one query. */
   forQuery(queryHash: string): QuerySubscriberRow[] {
     return this.#ctx.storage.sql.exec<QuerySubscriberRow>(
-      `SELECT topic AS queryHash, query, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
+      `SELECT topic AS queryHash, query, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
        FROM Subscriptions WHERE kind = 'query' AND topic = ?`,
       queryHash,
     ).toArray();
@@ -318,62 +343,62 @@ export class Subscriptions {
   /** Every live query row — the commit re-run groups these by `queryHash`. */
   allQueries(): QuerySubscriberRow[] {
     return this.#ctx.storage.sql.exec<QuerySubscriberRow>(
-      `SELECT topic AS queryHash, query, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
+      `SELECT topic AS queryHash, query, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
        FROM Subscriptions WHERE kind = 'query'`,
     ).toArray();
   }
 
   // ─── roster ────────────────────────────────────────────────────────
 
-  /** Register a watcher of a query's roster. Idempotent per `(queryHash, clientId)`. */
-  registerRoster(queryHash: string, clientId: string, subscriberBinding: string): void {
+  /** Register a watcher of a query's roster. Idempotent per `(queryHash, clientAddress)`. */
+  registerRoster(queryHash: string, clientAddress: string): void {
     this.#ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO Subscriptions (kind, topic, clientId, subscriberBinding, subscribedAt)
-       VALUES ('roster', ?, ?, ?, ?)`,
-      queryHash, clientId, subscriberBinding, new Date().toISOString(),
+      `INSERT OR REPLACE INTO Subscriptions (kind, topic, clientAddress, subscribedAt)
+       VALUES ('roster', ?, ?, ?)`,
+      queryHash, clientAddress, new Date().toISOString(),
     );
   }
 
   /** Drop one watcher row — from the roster rows only, so a client that is also a data subscriber
    *  of the query keeps that row. Returns `rowsWritten`. */
-  removeRoster(queryHash: string, clientId: string, sentAt?: string): number {
+  removeRoster(queryHash: string, clientAddress: string, sentAt?: string): number {
     return this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'roster' AND topic = ? AND clientId = ? AND subscribedAt <= ?`,
-      queryHash, clientId, sentAt ?? END_OF_TIME,
+      `DELETE FROM Subscriptions WHERE kind = 'roster' AND topic = ? AND clientAddress = ? AND subscribedAt <= ?`,
+      queryHash, clientAddress, sentAt ?? END_OF_TIME,
     ).rowsWritten;
   }
 
   /** Every watcher of one query's roster — the roster update's audience. */
   watchersOf(queryHash: string): AddressRow[] {
     return this.#ctx.storage.sql.exec<AddressRow>(
-      `SELECT clientId, subscriberBinding, subscribedAt FROM Subscriptions WHERE kind = 'roster' AND topic = ?`,
+      `SELECT clientAddress, subscribedAt FROM Subscriptions WHERE kind = 'roster' AND topic = ?`,
       queryHash,
     ).toArray();
   }
 
   // ─── tree ──────────────────────────────────────────────────────────
 
-  /** Register a tree subscriber. Idempotent per `clientId` (the topic is always `''`). */
-  registerTree(clientId: string, subscriberBinding: string): void {
+  /** Register a tree subscriber. Idempotent per `clientAddress` (the topic is always `''`). */
+  registerTree(clientAddress: string): void {
     this.#ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO Subscriptions (kind, topic, clientId, subscriberBinding, subscribedAt)
-       VALUES ('tree', '', ?, ?, ?)`,
-      clientId, subscriberBinding, new Date().toISOString(),
+      `INSERT OR REPLACE INTO Subscriptions (kind, topic, clientAddress, subscribedAt)
+       VALUES ('tree', '', ?, ?)`,
+      clientAddress, new Date().toISOString(),
     );
   }
 
   /** Drop one tree subscriber. */
-  removeTree(clientId: string, sentAt?: string): void {
+  removeTree(clientAddress: string, sentAt?: string): void {
     this.#ctx.storage.sql.exec(
-      `DELETE FROM Subscriptions WHERE kind = 'tree' AND topic = '' AND clientId = ? AND subscribedAt <= ?`,
-      clientId, sentAt ?? END_OF_TIME,
+      `DELETE FROM Subscriptions WHERE kind = 'tree' AND topic = '' AND clientAddress = ? AND subscribedAt <= ?`,
+      clientAddress, sentAt ?? END_OF_TIME,
     );
   }
 
   /** Every tree subscriber — the tree update's audience. */
   treeSubscribers(): AddressRow[] {
     return this.#ctx.storage.sql.exec<AddressRow>(
-      `SELECT clientId, subscriberBinding, subscribedAt FROM Subscriptions WHERE kind = 'tree'`,
+      `SELECT clientAddress, subscribedAt FROM Subscriptions WHERE kind = 'tree'`,
     ).toArray();
   }
 
@@ -393,7 +418,7 @@ export class Subscriptions {
     if (kinds.length === 0) return [];
     const marks = kinds.map(() => '?').join(', ');
     const dropped = this.#ctx.storage.sql.exec<DroppedAddress>(
-      `SELECT DISTINCT subscriberBinding, clientId FROM Subscriptions WHERE kind IN (${marks})`,
+      `SELECT DISTINCT clientAddress FROM Subscriptions WHERE kind IN (${marks})`,
       ...kinds,
     ).toArray();
     this.#ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind IN (${marks})`, ...kinds);

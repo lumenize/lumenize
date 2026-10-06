@@ -16,8 +16,7 @@ import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { SubscriberRow } from '@lumenize/nebula';
 import {
-  adminClientAt, createInvitedClient, createPlatformAdminClient, foundAndLogin, createSubject, ownerOf,
-} from '../../test-helpers';
+  adminClientAt, createInvitedClient, createPlatformAdminClient, foundAndLogin, createSubject, ownerOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -112,7 +111,7 @@ describe('per-push read recheck', () => {
     // But the user's sub row REMAINS (never dropped, ADR-008).
     admin.callStarInspectSubscribers(star);
     const rows = await waitForSuccess(admin) as SubscriberRow[];
-    expect(rows.some((r) => r.clientId === user.lmz.instanceName && r.resourceId === rid)).toBe(true);
+    expect(rows.some((r) => r.clientAddress === addressOfClient(user) && r.resourceId === rid)).toBe(true);
 
     admin[Symbol.dispose]();
     user[Symbol.dispose]();

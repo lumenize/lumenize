@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { SubscriberRow, TransactionResult } from '@lumenize/nebula';
-import { adminClientAt } from '../../test-helpers';
+import { adminClientAt, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -25,11 +25,11 @@ async function admin(star: string) {
   await waitForResult(a.client);
   return a.client;
 }
-/** The resource ids `clientId` currently holds single-resource content subs for. */
-async function contentSubs(inspector: NebulaClientTest, star: string, clientId: string): Promise<string[]> {
+/** The resource ids `clientAddress` currently holds single-resource content subs for. */
+async function contentSubs(inspector: NebulaClientTest, star: string, clientAddress: string): Promise<string[]> {
   inspector.callStarInspectSubscribers(star);
   const rows = await waitForSuccess(inspector) as SubscriberRow[];
-  return rows.filter((r) => r.clientId === clientId).map((r) => r.resourceId).sort();
+  return rows.filter((r) => r.clientAddress === clientAddress).map((r) => r.resourceId).sort();
 }
 
 describe('child2 client window management (Phase 6)', () => {
@@ -50,11 +50,11 @@ describe('child2 client window management (Phase 6)', () => {
     );
     await sub.ready;
     await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2));
-    const clientId = a.lmz.instanceName;
+    const clientAddress = addressOfClient(a);
 
     // Render ONLY c1 → exactly one content sub (c1), NOT c2 (windowed lazy hydrate).
     sub.setRenderWindow([c1]);
-    await vi.waitFor(async () => expect(await contentSubs(a, star, clientId)).toEqual([c1]));
+    await vi.waitFor(async () => expect(await contentSubs(a, star, clientAddress)).toEqual([c1]));
 
     // Bounce: drop c1 then re-add it within the grace window; wait PAST grace. The
     // content sub must SURVIVE (grace timer cancelled on re-entry) — c1 stays
@@ -63,11 +63,11 @@ describe('child2 client window management (Phase 6)', () => {
     sub.setRenderWindow([]);
     sub.setRenderWindow([c1]);
     await new Promise((r) => setTimeout(r, 300)); // > renderGraceMs, lets any (wrong) dispose fire
-    expect(await contentSubs(a, star, clientId)).toEqual([c1]);
+    expect(await contentSubs(a, star, clientAddress)).toEqual([c1]);
 
     // Positive control: leave c1 and DON'T return → after grace it IS released.
     sub.setRenderWindow([]);
-    await vi.waitFor(async () => expect(await contentSubs(a, star, clientId)).toEqual([]));
+    await vi.waitFor(async () => expect(await contentSubs(a, star, clientAddress)).toEqual([]));
 
     a[Symbol.dispose]();
   });

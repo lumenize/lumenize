@@ -13,9 +13,9 @@
  *
  * **It hands the wire one surface, {@link Resources.requests}, and never itself.** A host's one
  * `@mesh() get resources` returns `requests`, whose members derive what a caller may not state —
- * the client's own id, the binding its updates go to — apply the version rule, and call an op
- * below. The ops keep their `clientId` parameters harmlessly, because nothing on the wire can
- * name them.
+ * the client's own address, where its updates go — apply the version rule, and call an op below.
+ * The ops keep their `clientAddress` parameters harmlessly, because nothing on the wire can name
+ * them.
  *
  * **It sends through the host's `lmz`, handed in as a thunk.** Every subscription update leaves
  * through `lmz.broadcast` — to one tab or to many — and the node invite's facade call through
@@ -26,7 +26,7 @@
 
 import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
-import { newContinuation } from '@lumenize/mesh';
+import { addressOf, newContinuation, splitAddress } from '@lumenize/mesh';
 import type { AnyContinuation, BroadcastTarget, Continuation, LmzApi } from '@lumenize/mesh';
 // Type-only: the facade continuation and the client pushes are typed without pulling a second
 // mesh entry, or the client, into this module's value graph.
@@ -266,19 +266,17 @@ export class Resources {
   // ─── The request-leg surface ─────────────────────────────────────────
 
   /**
-   * The caller's own address, derived — the client's id from `callChain[0]` and the binding its
-   * updates go to from `callChain.at(-1)` — so no member takes either as an argument. Refuses a
-   * chain that no client originated: the id names a client's rows, and nothing else has any.
+   * The caller's own address, derived from `callChain[0]`, which the client's server-side half
+   * builds from its socket's verified attachment — `STAR/acme.crm.tenant1/alice.9f2c41aa` — so no
+   * member takes it as an argument. Refuses a chain that no client originated: the address names a
+   * client's rows, and nothing else has any.
    */
-  #caller(): { clientId: string; subscriberBinding: string } {
-    const chain = this.#lmz().callContext.callChain;
-    const origin = chain[0];
+  #caller(): string {
+    const origin = this.#lmz().callContext.callChain[0];
     if (origin?.type !== 'LumenizeClient' || !origin.instanceName) {
       throw new Error('Resources requests need a client origin: callChain[0] must be a LumenizeClient');
     }
-    const subscriberBinding = chain.at(-1)?.bindingName;
-    if (!subscriberBinding) throw new Error('Resources requests need a gateway in callChain.at(-1)');
-    return { clientId: origin.instanceName, subscriberBinding };
+    return addressOf(origin);
   }
 
   /**
@@ -287,12 +285,11 @@ export class Resources {
    */
   #buildRequests(): ResourcesRequests {
     const tree = () => this.#orgTree;
-    const tab = (address: { clientId: string; subscriberBinding: string }) =>
-      [{ bindingName: address.subscriberBinding, instanceName: address.clientId }];
+    const tab = (address: string) => [splitAddress(address)];
     return {
       transaction: (ontologyVersion, newETag, ops) => {
-        const { clientId } = this.#caller();
-        return this.#gate(ontologyVersion) ?? this.#transaction(ontologyVersion, newETag, ops, clientId);
+        const clientAddress = this.#caller();
+        return this.#gate(ontologyVersion) ?? this.#transaction(ontologyVersion, newETag, ops, clientAddress);
       },
       read: (ontologyVersion, resourceId) => {
         const stale = this.#gate(ontologyVersion);
@@ -307,11 +304,11 @@ export class Resources {
             this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stale notice'));
           return;
         }
-        this.doSubscribe(resourceType, resourceId, address.clientId, address.subscriberBinding);
+        this.doSubscribe(resourceType, resourceId, address);
       },
       unsubscribe: (resourceType, resourceId) => {
         void resourceType; // resource rows key on the id; the type lives on the snapshot
-        this.removeSubscriber(resourceId, this.#caller().clientId);
+        this.removeSubscriber(resourceId, this.#caller());
       },
       subscribeQuery: (query) => {
         const address = this.#caller();
@@ -320,9 +317,9 @@ export class Resources {
           this.#sendQueryUpdate(tab(address), canonicalQueryHash(query), stale);
           return;
         }
-        this.doSubscribeQuery(query, address.clientId, address.subscriberBinding);
+        this.doSubscribeQuery(query, address);
       },
-      unsubscribeQuery: (queryHash) => this.removeQuerySubscriber(queryHash, this.#caller().clientId),
+      unsubscribeQuery: (queryHash) => this.removeQuerySubscriber(queryHash, this.#caller()),
       subscribeQuerySubscribers: (query) => {
         const address = this.#caller();
         const stale = this.#gate(undefined);
@@ -330,10 +327,10 @@ export class Resources {
           this.#sendRoster(tab(address), canonicalQueryHash(query), stale);
           return;
         }
-        this.doSubscribeQuerySubscribers(query, address.clientId, address.subscriberBinding);
+        this.doSubscribeQuerySubscribers(query, address);
       },
       unsubscribeQuerySubscribers: (queryHash) =>
-        this.removeQuerySubscriberListWatcher(queryHash, this.#caller().clientId),
+        this.removeQuerySubscriberListWatcher(queryHash, this.#caller()),
       invite: async (nodeId, invitees) => {
         const stale = this.#gate(undefined);
         if (stale) throw stale;
@@ -341,48 +338,49 @@ export class Resources {
       },
       get orgTree() { return tree(); },
       subscribeTree: () => {
-        const address = this.#caller();
-        this.doSubscribeTree(address.clientId, address.subscriberBinding);
+        this.doSubscribeTree(this.#caller());
       },
     };
   }
 
   /**
-   * Build {@link Resources.results}, the same way as `requests`. A reaper takes the dead tab from
-   * `callContext.callee`, which the tab's Gateway writes, and reaps only on the Gateway's own
-   * `ClientDisconnectedError`: the Gateway renames a tab's Error of that name.
+   * Build {@link Resources.results}, the same way as `requests`. A reaper takes the dead tab's
+   * address from `callContext.callee`, the fire-back's last hop, which the tab's server-side half
+   * writes, and reaps only on that half's own `ClientDisconnectedError`: it renames a tab's Error
+   * of that name.
    */
   #buildResults(): ResourcesResults {
     const gone = (result: unknown): string | undefined => {
       if (!(result instanceof Error)) return undefined;
-      const clientId = this.#lmz().callContext.callee?.instanceName;
+      const callee = this.#lmz().callContext.callee;
+      const clientAddress = callee?.instanceName ? addressOf(callee) : undefined;
       // Every reaper's receipt, so a run can see which tab an update failed to reach, and why.
-      debug('nebula.Resources.reap').info('update not delivered', { clientId, name: result.name });
-      return result.name === 'ClientDisconnectedError' ? clientId : undefined;
+      debug('nebula.Resources.reap').info('update not delivered', { clientAddress, name: result.name });
+      return result.name === 'ClientDisconnectedError' ? clientAddress : undefined;
     };
     return {
       onInviteResult: (nodeId, tiers, result) => this.#onInviteResult(nodeId, tiers, result),
       onOntologyPulled: (result) => this.#onOntologyPulled(result),
       onBroadcastResult: (resourceId, sentAt, result) => {
-        const clientId = gone(result);
-        if (clientId) this.removeSubscriber(resourceId, clientId, sentAt);
+        const clientAddress = gone(result);
+        if (clientAddress) this.removeSubscriber(resourceId, clientAddress, sentAt);
       },
       onQueryBroadcastResult: (queryHash, sentAt, result) => {
-        const clientId = gone(result);
-        if (clientId) this.removeQuerySubscriber(queryHash, clientId, sentAt);
+        const clientAddress = gone(result);
+        if (clientAddress) this.removeQuerySubscriber(queryHash, clientAddress, sentAt);
       },
       onQuerySubscriberListBroadcastResult: (queryHash, sentAt, result) => {
-        const clientId = gone(result);
-        if (clientId) this.removeQuerySubscriberListWatcher(queryHash, clientId, sentAt);
+        const clientAddress = gone(result);
+        if (clientAddress) this.removeQuerySubscriberListWatcher(queryHash, clientAddress, sentAt);
       },
       onTreeBroadcastResult: (sentAt, result) => {
-        const clientId = gone(result);
-        if (clientId) this.removeTreeSubscriber(clientId, sentAt);
+        const clientAddress = gone(result);
+        if (clientAddress) this.removeTreeSubscriber(clientAddress, sentAt);
       },
       onPushUndelivered: (what, result) => {
         if (!(result instanceof Error)) return;
         debug('nebula.Resources.push').warn(`${what} was not delivered`, {
-          clientId: this.#lmz().callContext.callee?.instanceName, error: result.message,
+          callee: this.#lmz().callContext.callee?.instanceName, error: result.message,
         });
       },
     };
@@ -557,7 +555,7 @@ export class Resources {
    *  resource channel, which the client routes to its refresh hook whatever pair carried it. */
   #notifyStale(targets: DroppedAddress[], currentVersion: string): void {
     this.#send(
-      targets.map((d) => ({ bindingName: d.subscriberBinding, instanceName: d.clientId })),
+      targets.map((d) => (splitAddress(d.clientAddress))),
       this.#ctn<NebulaClient>().handleResourceUpdate('', '', new OntologyStaleError('', currentVersion)),
       this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stale notice'),
     );
@@ -800,7 +798,7 @@ export class Resources {
       .forQuery(canonicalQueryHash(query))
       .filter((r) =>
         this.#orgTree.evaluatePermissions([nodeId], 'read', r.sub, Boolean(r.dominionOverHostAtSubscribe)).allowed.size > 0)
-      .map((r) => ({ bindingName: r.subscriberBinding, instanceName: r.clientId }));
+      .map((r) => (splitAddress(r.clientAddress)));
   }
 
   // --- Subscriber-list roster (a query's live subscriber roster, delivered to WATCHERS —
@@ -827,7 +825,7 @@ export class Resources {
   #watcherTargets(queryHash: string): BroadcastTarget[] {
     return this.#subscriptions
       .watchersOf(queryHash)
-      .map((r) => ({ bindingName: r.subscriberBinding, instanceName: r.clientId }));
+      .map((r) => (splitAddress(r.clientAddress)));
   }
 
   /** Broadcast the current distinct-by-`sub` roster to a query's WATCHERS — fired ONLY on a genuine
@@ -850,8 +848,8 @@ export class Resources {
 
   /** Drop one resource subscription — `requests.unsubscribe` for the caller's own row, and the
    *  `results.onBroadcastResult` for a tab the Gateway reports gone, which passes `sentAt`. */
-  removeSubscriber(resourceId: string, clientId: string, sentAt?: string): void {
-    this.#subscriptions.removeResource(resourceId, clientId, sentAt);
+  removeSubscriber(resourceId: string, clientAddress: string, sentAt?: string): void {
+    this.#subscriptions.removeResource(resourceId, clientAddress, sentAt);
   }
 
   /**
@@ -859,9 +857,9 @@ export class Resources {
    * is NOT a data-subscriber). Validates the query fail-closed (parity with `doSubscribeQuery`); on success
    * registers the watcher + delivers the CURRENT roster single-target to the joining watcher (its initial
    * snapshot). A watcher joining does NOT change roster content → no re-push to other watchers. Identity
-   * (`clientId`/`subscriberBinding`) is derived by the `requests` door from `callChain`, never passed in.
+   * (`clientAddress`) is derived by the `requests` door from `callChain`, never passed in.
    */
-  doSubscribeQuerySubscribers(query: QueryDescriptor, clientId: string, subscriberBinding: string): void {
+  doSubscribeQuerySubscribers(query: QueryDescriptor, clientAddress: string): void {
     const queryHash = canonicalQueryHash(query);
     try {
       this.#validateQuery(query);
@@ -869,32 +867,32 @@ export class Resources {
       // Fail-closed: reject the watcher handle (Error keyed by queryHash) so a typo'd/malformed query
       // doesn't register a silent, permanently-empty watcher.
       debug('nebula.Resources.doSubscribeQuerySubscribers').warn('watcher query rejected', {
-        queryHash, clientId, error: err instanceof Error ? err.message : String(err),
+        queryHash, clientAddress, error: err instanceof Error ? err.message : String(err),
       });
-      this.#sendRoster([{ bindingName: subscriberBinding, instanceName: clientId }], queryHash,
+      this.#sendRoster([splitAddress(clientAddress)], queryHash,
         err instanceof Error ? err : new Error(String(err)));
       return;
     }
-    this.#subscriptions.registerRoster(queryHash, clientId, subscriberBinding);
-    debug('nebula.Resources.subscribers').debug('watch', { event: 'watch', queryHash, clientId });
-    this.#sendRoster([{ bindingName: subscriberBinding, instanceName: clientId }], queryHash, this.#rosterFor(queryHash));
+    this.#subscriptions.registerRoster(queryHash, clientAddress);
+    debug('nebula.Resources.subscribers').debug('watch', { event: 'watch', queryHash, clientAddress });
+    this.#sendRoster([splitAddress(clientAddress)], queryHash, this.#rosterFor(queryHash));
   }
 
   /** Drop one roster watcher — `unsubscribeQuerySubscribers` + `results`' DEDICATED
    *  roster reaper call this (the latter on a `ClientDisconnectedError`). Drops ONLY
    *  the roster row (never the client's query row) and does NOT re-fire `#broadcastRoster`. */
-  removeQuerySubscriberListWatcher(queryHash: string, clientId: string, sentAt?: string): void {
-    this.#subscriptions.removeRoster(queryHash, clientId, sentAt);
+  removeQuerySubscriberListWatcher(queryHash: string, clientAddress: string, sentAt?: string): void {
+    this.#subscriptions.removeRoster(queryHash, clientAddress, sentAt);
   }
 
   /** Drop one query-sub row — `unsubscribeQuery` + `results`' query reaper
    *  call this (the latter on a `ClientDisconnectedError`, m6). On an ACTUAL
    *  removal (`rowsWritten > 0`) re-push the shrunk roster to the query's WATCHERS; a no-op remove
    *  (duplicate/late fire-back) emits nothing — the mass-disconnect-storm guard. */
-  removeQuerySubscriber(queryHash: string, clientId: string, sentAt?: string): void {
-    const removed = this.#subscriptions.removeQuery(queryHash, clientId, sentAt);
+  removeQuerySubscriber(queryHash: string, clientAddress: string, sentAt?: string): void {
+    const removed = this.#subscriptions.removeQuery(queryHash, clientAddress, sentAt);
     debug('nebula.Resources.subscribers').debug('remove', {
-      event: 'remove', queryHash, clientId, mode: removed > 0 ? 'broadcast' : 'noop',
+      event: 'remove', queryHash, clientAddress, mode: removed > 0 ? 'broadcast' : 'noop',
     });
     if (removed > 0) this.#broadcastRoster(queryHash);
   }
@@ -910,17 +908,17 @@ export class Resources {
    * tree kind. The initial tree takes the same reaper as every later change, so a tab gone by then
    * loses its row at once.
    */
-  doSubscribeTree(clientId: string, subscriberBinding: string): void {
+  doSubscribeTree(clientAddress: string): void {
     const state = this.#orgTree.getState();
-    this.#subscriptions.registerTree(clientId, subscriberBinding);
-    this.#send([{ bindingName: subscriberBinding, instanceName: clientId }],
+    this.#subscriptions.registerTree(clientAddress);
+    this.#send([splitAddress(clientAddress)],
       this.#ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }),
       this.#ctn<ResourcesHost>().resourcesResults.onTreeBroadcastResult(new Date().toISOString()));
   }
 
   /** Drop one tree subscriber — `results.onTreeBroadcastResult` calls this on a `ClientDisconnectedError`. */
-  removeTreeSubscriber(clientId: string, sentAt?: string): void {
-    this.#subscriptions.removeTree(clientId, sentAt);
+  removeTreeSubscriber(clientAddress: string, sentAt?: string): void {
+    this.#subscriptions.removeTree(clientAddress, sentAt);
   }
 
   /**
@@ -933,7 +931,7 @@ export class Resources {
     const subscribers = this.#subscriptions.treeSubscribers();
     if (subscribers.length === 0) return;
     const state = this.#orgTree.getState();
-    const targets = subscribers.map((t) => ({ bindingName: t.subscriberBinding, instanceName: t.clientId }));
+    const targets = subscribers.map((t) => (splitAddress(t.clientAddress)));
     this.#send(targets, this.#ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }),
       this.#ctn<ResourcesHost>().resourcesResults.onTreeBroadcastResult(new Date().toISOString()));
   }
@@ -982,10 +980,10 @@ export class Resources {
    * refuses the commit, and the caller is answered stale, as a version change would be.
    */
   async #transaction(
-    pinned: string, newETag: string, ops: Record<string, OperationDescriptor>, clientId: string,
+    pinned: string, newETag: string, ops: Record<string, OperationDescriptor>, clientAddress: string,
   ): Promise<TransactionResult | OntologyStaleError> {
     try {
-      return await this.doTransaction(newETag, ops, clientId);
+      return await this.doTransaction(newETag, ops, clientAddress);
     } catch (err) {
       if (err instanceof WipedMidTransactionError) return new OntologyStaleError(pinned, this.#installedVersion());
       throw err;
@@ -1000,20 +998,20 @@ export class Resources {
   async doTransaction(
     newETag: string,
     ops: Record<string, OperationDescriptor>,
-    clientId: string,
+    clientAddress: string,
   ): Promise<TransactionResult> {
     const generation = this.#generation;
     try {
       const { version, facet } = this.installedOntology();
       // RETURN the result — the framework fires it back to the originating client's `callAsync`
       // (the return-value pattern). The committed-mutation broadcasts to OTHER subscribers stay a one-way
-      // side effect (originator excluded via `clientId`). An infra throw propagates → `callAsync` rejects.
+      // side effect (originator excluded via `clientAddress`). An infra throw propagates → `callAsync` rejects.
       return await this.#snapshots.transaction(ops, version, newETag, facet, {
         onMutations: (mutations) => {
           // The single post-commit hook drives BOTH channels (Flow 2 + Flow 3 A):
           // single-resource content fanout, then the query rerun for touched types —
           // then the host's own post-commit observer (the codegen trigger's seam).
-          this.#broadcast(mutations, clientId);
+          this.#broadcast(mutations, clientAddress);
           this.#rerunQueriesForCommit(mutations);
           this.#onCommitted?.(mutations);
         },
@@ -1021,7 +1019,7 @@ export class Resources {
       });
     } catch (err) {
       debug('nebula.Resources.doTransaction').error('handler threw', {
-        clientId,
+        clientAddress,
         error: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
       });
@@ -1067,23 +1065,22 @@ export class Resources {
   doSubscribe(
     resourceType: string,
     resourceId: string,
-    clientId: string,
-    subscriberBinding: string,
+    clientAddress: string,
   ): void {
-    const tab = [{ bindingName: subscriberBinding, instanceName: clientId }];
+    const tab = [splitAddress(clientAddress)];
     try {
-      const outcome = this.#subscriptions.subscribeResource(resourceType, resourceId, clientId, subscriberBinding);
+      const outcome = this.#subscriptions.subscribeResource(resourceType, resourceId, clientAddress);
       // Marker: one per registered resource subscribe, stamped with the client — the ask-again
       // test counts these to show a tree change re-subscribes only what was denied.
       debug('nebula.Resources.subscribers').debug('subscribe-resource', {
-        event: 'subscribe-resource', resourceId, clientId, denied: 'deniedNodes' in outcome,
+        event: 'subscribe-resource', resourceId, clientAddress, denied: 'deniedNodes' in outcome,
       });
       this.#send(tab, this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
         'deniedNodes' in outcome ? { deniedNodes: outcome.deniedNodes } : outcome.snapshot),
         this.#ctn<ResourcesHost>().resourcesResults.onBroadcastResult(resourceId, new Date().toISOString()));
     } catch (err) {
       debug('nebula.Resources.doSubscribe').error('handler threw', {
-        clientId,
+        clientAddress,
         resourceType,
         resourceId,
         error: err instanceof Error ? err.message : String(err),
@@ -1108,20 +1105,20 @@ export class Resources {
    * unknown `queryType` thus fails CLOSED). On success the membership-delivery
    * routine runs scoped to JUST this new subscriber.
    */
-  doSubscribeQuery(query: QueryDescriptor, clientId: string, subscriberBinding: string): void {
+  doSubscribeQuery(query: QueryDescriptor, clientAddress: string): void {
     try {
       this.#validateQuery(query);
     } catch (err) {
       const queryHash = canonicalQueryHash(query);
       debug('nebula.Resources.doSubscribeQuery').warn('query rejected', {
-        clientId, queryType: query.queryType, typeName: query.typeName, field: query.field,
+        clientAddress, queryType: query.queryType, typeName: query.typeName, field: query.field,
         error: err instanceof Error ? err.message : String(err),
       });
-      this.#sendQueryUpdate([{ bindingName: subscriberBinding, instanceName: clientId }], queryHash,
+      this.#sendQueryUpdate([splitAddress(clientAddress)], queryHash,
         err instanceof Error ? err : new Error(String(err)));
       return;
     }
-    const { row, queryHash, isNewSub } = this.#subscriptions.registerQuery(query, clientId, subscriberBinding);
+    const { row, queryHash, isNewSub } = this.#subscriptions.registerQuery(query, clientAddress);
     // Initial push — scoped to the one new subscriber (mirrors single-resource
     // subscribe, which pushes the first snapshot rather than returning it).
     this.#broadcastQueries(query, [row]);
@@ -1131,7 +1128,7 @@ export class Resources {
     // DATA-subscriber is not a watcher and has no binding for a roster; the reconnect-storm guard +
     // Decision 1's roster⇒watchers-only — tasks/nebula-subscriber-lists.md).
     debug('nebula.Resources.subscribers').debug('subscribe', {
-      event: 'subscribe', queryHash, clientId, mode: isNewSub ? 'broadcast' : 'noop',
+      event: 'subscribe', queryHash, clientAddress, mode: isNewSub ? 'broadcast' : 'noop',
     });
     if (isNewSub) this.#broadcastRoster(queryHash);
   }
@@ -1201,11 +1198,11 @@ export class Resources {
         resourceIds: matches.filter((m) => allowed.has(m.nodeId)).map((m) => m.resourceId),
         deniedNodes: [...denied],
       };
-      this.#sendQueryUpdate([{ bindingName: t.subscriberBinding, instanceName: t.clientId }], queryHash, result);
+      this.#sendQueryUpdate([splitAddress(t.clientAddress)], queryHash, result);
     }
 
     if (noDenial.length > 0) {
-      const noDenialTargets = noDenial.map((t) => ({ bindingName: t.subscriberBinding, instanceName: t.clientId }));
+      const noDenialTargets = noDenial.map((t) => (splitAddress(t.clientAddress)));
       this.#sendQueryUpdate(noDenialTargets, queryHash, { resourceIds: allResourceIds });
     }
   }
@@ -1269,17 +1266,17 @@ export class Resources {
    * holds no token. There is no revocation window — a revoked grant is caught by the very next
    * update, and nothing is delivered in between.
    */
-  #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string): void {
+  #broadcast(mutations: Map<string, Snapshot>, originatorAddress: string): void {
     const sentAt = new Date().toISOString();
     for (const [resourceId, snapshot] of mutations) {
       const readers: BroadcastTarget[] = [];
       const denied: BroadcastTarget[] = [];
       for (const row of this.#subscriptions.forResource(resourceId)) {
-        if (row.clientId === originatorClientId) continue;
+        if (row.clientAddress === originatorAddress) continue;
         const canRead = this.#orgTree.evaluatePermissions(
           [snapshot.meta.nodeId], 'read', row.sub, Boolean(row.dominionOverHostAtSubscribe),
         ).allowed.size > 0;
-        (canRead ? readers : denied).push({ bindingName: row.subscriberBinding, instanceName: row.clientId });
+        (canRead ? readers : denied).push(splitAddress(row.clientAddress));
       }
       this.#send(readers,
         this.#ctn<NebulaClient>().handleResourceUpdate(snapshot.meta.typeName, resourceId, snapshot),

@@ -66,7 +66,7 @@ Each goal says how today's design misses it.
 - **Adapted — every place that stores or reads a Client's address.** Today each address is a Gateway's binding plus a Client's id. Each gains its host node, which is what makes this change wide; it is also mechanical.
   - **Readers:** Resources' `#caller()` takes the binding from `callChain.at(-1)` and the id from `callChain[0]`; the Galaxy's `#clientOrigin()` and `Profile.subscribe` read `callChain[0]`; the Galaxy's preview-ready call names `NEBULA_CLIENT_GATEWAY` and a Client id.
   - **Stored:** the `Subscriptions` table (`apps/nebula/src/subscriptions.ts`) and the Profile's `Subscribers` table, and the `DroppedAddress` type that carries one.
-  - **Finding them all:** `grep -rn "callChain\[0\]\|callChain.at(-1)\|subscriberBinding\|CLIENT_GATEWAY" apps/nebula/src packages/nebula-auth/src` lists every site, for triage rather than as a tripwire, since it also matches comments.
+  - **Finding them all:** `grep -rn "callChain\[0\]\|callChain.at(-1)\|subscriberBinding\|CLIENT_GATEWAY\|callee?*\.instanceName" apps/nebula/src packages/nebula-auth/src` lists every site, for triage rather than as a tripwire, since it also matches comments.
 - **Carried over, its reasons shifted — `packages/mesh/src/tab-id.ts`**, which keeps a tab's id across reloads.
   - **Today, for two reasons.** Each `{sub}.{tabId}` reserves a Gateway DO name for good, so a new id per reload would leak names. And a reload that comes back within the grace period keeps its subscriptions.
   - **Hosted, for one.** No name is reserved, but the id is how the host node knows which socket a Client already has: a reconnect under the same id closes the old socket, and within the grace period keeps its subscriptions.
@@ -424,6 +424,15 @@ The switch, in one commit:
 - **Retro:** eight of nine tests passed on first write, so every one was mutation-checked: twelve mutations, each caught by the test it targets. The one first-run failure was the test's own fixture, a node whose stamped name differed from the name it was reached by, so its answers went elsewhere.
 - **Verified:** mesh 40 files and 467 tests, `nebula-auth` 491, `apps/nebula` 1023, all green. `drive.ts all --fast` passed 51 of 52; `studio-overlays-by-url` failed when the email-test socket closed before its mail arrived, and passed alone on the rerun.
 - **Close-out:** nothing closed. The mesh test Worker now rewrites `/gateway/{id}` on `*.hosted.test` the way Phase 4's Worker will, and `ClientHostDO` is its host node.
+
+### Phase 3
+
+- **For Larry — a latent bug this fixes.** Resources' `#caller()` joined the client's id from `callChain[0]` with the binding from `callChain.at(-1)`. On a chain a node relays for a client, such as the codegen loop writing under the poster's call, that stored the relaying node's binding beside the client's id, an address that reaches nothing. The one join from `callChain[0]` removes it, and `resources-door.test.ts`'s relayed-chain test pins it.
+- **For Larry — the Galaxy's `#clientOrigin()` now requires a client at `callChain[0]`.** Before, any origin's instance name counted, so a build a node started would have aimed its preview-ready nudge at a Gateway named after that node.
+- **For Larry — the Profile's table setup moved into an exported `ensureSubscribersTable`**, so a test can run it over a seeded old table; the constructor calls it as before.
+- **Retro:** about twenty test files read the old columns and changed mechanically, through a new `addressOfClient` in `test-helpers.ts`. Four `/live` scenarios read `clientId` off the host's log lines; `harness/lib/stdio.ts` gains `clientIdIn`, which takes the id off the address, so they survive Phase 5's address change unedited. Every mutation was caught: storing only the id, the binding from `callChain.at(-1)`, each reaper deleting by the bare id, the drop reusing the baseline's id, and an unguarded drop.
+- **Verified:** `apps/nebula` 1026 tests in 119 files and `nebula-auth` 491, green; the type-check passes; `drive.ts all --fast` passed 52 of 52. Two `nebula-client-denied` tests failed on the first full run, keying a row read on the bare id; they read the address now.
+- **Close-out:** `mesh.md`'s reaper example and § *A broadcast target's `bindingName` comes from a source the client cannot write* now describe the stored address; Phase 5's row for that section still renames it.
 
 ## Non-goals
 

@@ -5,7 +5,7 @@
  * (StarTest, NebulaClientTest), and provides the Worker entrypoint.
  */
 
-import { mesh, rawRpc } from '@lumenize/mesh';
+import { mesh, rawRpc, splitAddress } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
@@ -185,10 +185,11 @@ export class StarTest extends Star {
 
   /** Test-only: `callClient`, keeping a refusal so a test can match it by its message. */
   @mesh(requireDominionHere)
-  callClientReporting(targetGatewayInstanceName: string, clientMethod: string, ...args: any[]): void {
+  callClientReporting(clientAddress: string, clientMethod: string, ...args: any[]): void {
     const ctn = this.ctn() as any;
     this.ctx.storage.kv.delete('client_call_outcome');
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', targetGatewayInstanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
+    const { bindingName, instanceName } = splitAddress(clientAddress);
+    this.lmz.call(bindingName, instanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
   }
 
   /** The handler, at this node's fire-back door. The Gateway fires back a refusal's Error or the
@@ -277,8 +278,8 @@ export class StarTest extends Star {
   @mesh(requireDominionHere)
   inspectSubscribers(): SubscriberRow[] {
     return this.ctx.storage.sql.exec<SubscriberRow>(
-      `SELECT topic AS resourceId, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
-       FROM Subscriptions WHERE kind = 'resource' ORDER BY topic, clientId`,
+      `SELECT topic AS resourceId, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
+       FROM Subscriptions WHERE kind = 'resource' ORDER BY topic, clientAddress`,
     ).toArray();
   }
 
@@ -287,18 +288,18 @@ export class StarTest extends Star {
   @mesh(requireDominionHere)
   inspectQuerySubscribers(): QuerySubscriberRow[] {
     return this.ctx.storage.sql.exec<QuerySubscriberRow>(
-      `SELECT topic AS queryHash, query, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
-       FROM Subscriptions WHERE kind = 'query' ORDER BY topic, clientId`,
+      `SELECT topic AS queryHash, query, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
+       FROM Subscriptions WHERE kind = 'query' ORDER BY topic, clientAddress`,
     ).toArray();
   }
 
   /** Test-only: dump the tree rows (the dedicated org-tree channel). */
   @mesh(requireDominionHere)
-  inspectTreeSubscribers(): Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }> {
+  inspectTreeSubscribers(): Array<{ clientAddress: string; subscribedAt: string }> {
     const rows = this.ctx.storage.sql.exec(
-      `SELECT clientId, subscriberBinding, subscribedAt FROM Subscriptions WHERE kind = 'tree' ORDER BY clientId`,
+      `SELECT clientAddress, subscribedAt FROM Subscriptions WHERE kind = 'tree' ORDER BY clientAddress`,
     ).toArray();
-    return rows as unknown as Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }>;
+    return rows as unknown as Array<{ clientAddress: string; subscribedAt: string }>;
   }
 
   /**
@@ -319,11 +320,11 @@ export class StarTest extends Star {
    */
   @mesh()
   ping(): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
+    const origin = this.lmz.callContext.callChain[0];
+    if (!origin?.instanceName) {
       throw new Error('ping requires a client origin with instanceName in callChain[0]');
     }
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+    this.lmz.call(origin.bindingName, origin.instanceName,
       (this.ctn() as any).handlePingResult(1), (this.ctn() as any).recordClientCallOutcome(), { onErrorOnly: true });
   }
 
@@ -474,10 +475,11 @@ export class GalaxyTest extends Galaxy {
 
   /** Test-only: a directed call from this Galaxy to a client, keeping a refusal by its message. */
   @mesh(requireDominionHere)
-  callClientReporting(targetGatewayInstanceName: string, clientMethod: string, ...args: any[]): void {
+  callClientReporting(clientAddress: string, clientMethod: string, ...args: any[]): void {
     const ctn = this.ctn() as any;
     this.ctx.storage.kv.delete('client_call_outcome');
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', targetGatewayInstanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
+    const { bindingName, instanceName } = splitAddress(clientAddress);
+    this.lmz.call(bindingName, instanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
   }
 
   /** The handler, at this node's fire-back door. The Gateway fires back a refusal's Error or the

@@ -21,9 +21,9 @@ function uniqueStar(): string {
 }
 
 // Two distinct admin clients on the same Star — different browsers means
-// different Gateway instances means different `clientId`s, even though the
+// different Gateway instances means different client addresses, even though the
 // underlying `sub` (user identity) is the same. Sufficient for fanout
-// testing: originator exclusion is keyed on `clientId`.
+// testing: originator exclusion is keyed on the client's address.
 async function twoAdminClients(star: string) {
   const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
@@ -141,7 +141,7 @@ describe('star-fanout', () => {
   it('multiple subscribers receive same fanout', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    // Spin up a third client (also admin, distinct browser → distinct clientId)
+    // Spin up a third client (also admin, distinct browser → distinct client address)
     const c = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     const resourceId = crypto.randomUUID();

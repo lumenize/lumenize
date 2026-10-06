@@ -25,7 +25,7 @@
  * DAG-granted, and the per-op check lives inside the plane.
  */
 
-import { mesh, rawRpc } from '@lumenize/mesh';
+import { addressOf, mesh, rawRpc, splitAddress } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
 import type { DurableObjectStorageLike } from '@cloudflare/computer';
@@ -118,7 +118,6 @@ type RegistryFile = OntologyVersionRow & { appliedAt: string };
 /** The per-client Gateway DO — codegen results and stream chunks are delivered back to
  *  the originating client through it (direct delivery, addressed by the client's stable
  *  instanceName, so it survives a WS drop+reconnect during a long turn). */
-const CLIENT_GATEWAY_BINDING = 'NEBULA_CLIENT_GATEWAY';
 
 /** The ontology source file — compiled to the runtime validator (the ontology is just
  *  another source file in the Workspace). */
@@ -598,7 +597,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
       instanceName: this.lmz.instanceName,
       path: rel,
       oid,
-      ...(origin ? { clientId: origin.clientId, actingToken: projectActingToken(origin.claims) } : {}),
+      ...(origin ? { clientAddress: origin.clientAddress, actingToken: projectActingToken(origin.claims) } : {}),
     });
     return { oid, path: rel };
   }
@@ -618,12 +617,14 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    * no mesh call context at all (reading `lmz.callContext` outside a call throws, and
    * that is the one case this tolerates).
    */
-  #clientOrigin(): { clientId: string; claims: NebulaJwtPayload } | undefined {
+  #clientOrigin(): { clientAddress: string; claims: NebulaJwtPayload } | undefined {
     let cc: CallContextLike | undefined;
     try { cc = this.lmz.callContext; } catch { return undefined; }
-    const clientId = cc?.callChain[0]?.instanceName;
+    const origin = cc?.callChain[0];
     const claims = cc?.originAuth?.claims as NebulaJwtPayload | undefined;
-    return clientId && claims ? { clientId, claims } : undefined;
+    return origin?.type === 'LumenizeClient' && origin.instanceName && claims
+      ? { clientAddress: addressOf(origin), claims }
+      : undefined;
   }
 
   /** Read the ontology source + its content-addressed version (`hashBlob` of the
@@ -1299,9 +1300,9 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   protected announceBuildToRequester(): void {
     // No client origin (a server-internal build, or a direct in-DO call with no mesh
     // context at all) — nobody asked, so nobody is told.
-    const clientId = this.#clientOrigin()?.clientId;
-    if (!clientId) return;
-    this.deliverPreviewReady(this.lmz.instanceName!, clientId);
+    const clientAddress = this.#clientOrigin()?.clientAddress;
+    if (!clientAddress) return;
+    this.deliverPreviewReady(this.lmz.instanceName!, clientAddress);
   }
 
   // ─── The codegen turn ───────────────────────────────────────────────
@@ -1593,8 +1594,8 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
 
   /**
    * Tell the client that asked for a build its preview is ready, by direct delivery — a
-   * one-way mesh call to the client's Gateway addressed by its stable `instanceName`
-   * (`clientId`), so a WS reconnect doesn't strand it. The build reply is its only
+   * one-way mesh call to the client's stable address, such as `GALAXY/acme.crm/alice.9f2c41aa`,
+   * so a WS reconnect doesn't strand it. The build reply is its only
    * caller ({@link announceBuildToRequester}): the former initial-load cue was deleted,
    * because `dist/` serves Galaxy-direct from this DO's VFS and the Studio sets the
    * iframe source before connecting, so there was nothing to warm and nothing to
@@ -1603,9 +1604,10 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    * synchronous throw is caught and a failed delivery reaches a handler that logs it: a nudge
    * sent while the socket is down is lost.
    */
-  protected deliverPreviewReady(scope: string, clientId: string): void {
+  protected deliverPreviewReady(scope: string, clientAddress: string): void {
     try {
-      this.lmz.call(CLIENT_GATEWAY_BINDING, clientId, this.ctn<NebulaClient>().handlePreviewReady(scope),
+      const { bindingName, instanceName } = splitAddress(clientAddress);
+      this.lmz.call(bindingName, instanceName, this.ctn<NebulaClient>().handlePreviewReady(scope),
         this.ctn<Galaxy>().onPreviewReadyUndelivered(), { newChain: true, onErrorOnly: true });
     } catch (e) {
       debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: e });
@@ -2084,4 +2086,4 @@ const GALAXY_AGENTS_PATH = 'AGENTS.md';
 const GALAXY_LAYER_PREFACE = "The app's own AGENTS.md — the layer below the platform's. It adds to the platform guidance and never subtracts from it; keep it current (see the platform guidance):";
 
 /** The shape `#clientOrigin` reads off a call context. */
-type CallContextLike = { callChain: Array<{ instanceName?: string }>; originAuth?: { claims?: unknown } };
+type CallContextLike = { callChain: Array<{ type?: string; bindingName: string; instanceName?: string }>; originAuth?: { claims?: unknown } };

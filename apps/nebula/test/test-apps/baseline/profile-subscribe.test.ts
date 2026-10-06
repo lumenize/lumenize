@@ -305,7 +305,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     try {
       expect(await stub.__executeOperation(envelope)).toEqual({ $ack: true });
       // MUTATION: read `callChain.at(-1)` again and the row stores the relay's `STAR` instead.
-      await vi.waitFor(() => expect(stored).toEqual([{ profileId: pid, clientId, subscriberBinding: 'NEBULA_CLIENT_GATEWAY' }]));
+      await vi.waitFor(() => expect(stored).toEqual([{ profileId: pid, clientAddress: `NEBULA_CLIENT_GATEWAY/${clientId}` }]));
     } finally {
       clearDebugSink();
     }

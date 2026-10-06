@@ -20,7 +20,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
-import { universeAdminClient, uniqueGalaxyScope } from '../../test-helpers';
+import { universeAdminClient, uniqueGalaxyScope, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { GalaxyTest } from './index';
 
@@ -80,7 +80,7 @@ describe('nebula-client preview-ready hook — the build reply', () => {
     // landed, so a nudge the Galaxy had sent that tab is in before it.
     const trees = other.orgTreeUpdateCount;
     await asker.lmz.callAsync('GALAXY', galaxy,
-      asker.ctn<GalaxyTest>().callClientReporting(other.lmz.instanceName!, 'handleOrgTreeUpdate', { value: {} }));
+      asker.ctn<GalaxyTest>().callClientReporting(addressOfClient(other), 'handleOrgTreeUpdate', { value: {} }));
     await vi.waitFor(() => expect(other.orgTreeUpdateCount).toBe(trees + 1));
     expect(other.previewReadyCount).toBe(0);
     expect(asker.pushOrigins.filter((p) => p.handler === 'handlePreviewReady'))

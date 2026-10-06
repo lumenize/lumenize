@@ -36,7 +36,7 @@
  *      — data model; tasks/archive/nebula-profile-store.md — the frozen design record
  */
 import { DurableObject } from 'cloudflare:workers';
-import { ComposedMeshDO, mesh, newContinuation, rawRpc, type Continuation } from '@lumenize/mesh';
+import { ComposedMeshDO, addressOf, mesh, newContinuation, rawRpc, splitAddress, type Continuation } from '@lumenize/mesh';
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, isPlatformScope, parseId } from './parse-id';
@@ -76,6 +76,19 @@ interface ProfileUpdateReceiver {
 /** The public fields, in the ProfileFields k-v table. `privateNotes` and `eTag` are separate keys. */
 const PUBLIC_FIELDS = ['name', 'nickname', 'picture'] as const;
 
+/**
+ * The Profile's `Subscribers` table: one row per subscriber, keyed on its address, such as
+ * `STAR/acme.crm.tenant1/alice.9f2c41aa`. A table still keyed on `clientId` is dropped first: its
+ * rows are disposable, since every client re-subscribes, and the check drops it once, never on a
+ * later wake. Run by the constructor; exported so a test can run it over a seeded old table.
+ * @internal
+ */
+export function ensureSubscribersTable(sql: SqlStorage): void {
+  const columns = sql.exec(`PRAGMA table_info(Subscribers)`).toArray() as Array<{ name: string }>;
+  if (columns.some((c) => c.name === 'clientId')) sql.exec(`DROP TABLE Subscribers`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS Subscribers (clientAddress TEXT PRIMARY KEY, subscribedAt TEXT NOT NULL) WITHOUT ROWID`);
+}
+
 export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
   /** Monotonic ULID factory — the forward-only per-write `eTag` (a statically-init utility; loss-safe). */
   #ulid = ulidFactory({ monotonic: true });
@@ -88,16 +101,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS ProfileFields (field TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID`,
     );
-    ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS Subscribers (clientId TEXT PRIMARY KEY, subscriberBinding TEXT NOT NULL,
-        subscribedAt TEXT NOT NULL DEFAULT '') WITHOUT ROWID`,
-    );
-    // A table from before `subscribedAt` gains it. Its rows predate every push, so '' is right: the
-    // reaper's `subscribedAt <= sentAt` holds for each of them.
-    const columns = ctx.storage.sql.exec(`PRAGMA table_info(Subscribers)`).toArray() as Array<{ name: string }>;
-    if (!columns.some((c) => c.name === 'subscribedAt')) {
-      ctx.storage.sql.exec(`ALTER TABLE Subscribers ADD COLUMN subscribedAt TEXT NOT NULL DEFAULT ''`);
-    }
+    ensureSubscribersTable(ctx.storage.sql);
     // Seed a baseline eTag once so an unwritten profile still delivers a client-usable snapshot.
     ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),
@@ -168,27 +172,25 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * Profile speaking and carries none.
    * Open — no authz.
    *
-   * Both halves of the row come from `callChain[0]`, the element the Gateway stamps from the
-   * socket's verified attachment: the client's instance name, and the Gateway's own binding, which
-   * `routeDORequest` set at the upgrade. The chain's last element names whichever node relayed the
-   * call, which is not the address to push to.
+   * The row is the client's address, built from `callChain[0]`, the element its server-side half
+   * stamps from the socket's verified attachment: `STAR/acme.crm.tenant1/alice.9f2c41aa`. The
+   * chain's last element names whichever node relayed the call, which is not the address to push to.
    */
   @mesh()
   subscribe(): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) throw new Error('subscribe requires a client origin (callChain[0].instanceName)');
-    const subscriberBinding = this.lmz.callContext.callChain[0]?.bindingName;
-    if (!subscriberBinding) throw new Error('subscribe requires a gateway (callChain[0].bindingName)');
+    const origin = this.lmz.callContext.callChain[0];
+    if (!origin?.instanceName) throw new Error('subscribe requires a client origin (callChain[0].instanceName)');
+    const clientAddress = addressOf(origin);
 
     const subscribedAt = new Date().toISOString();
     this.ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO Subscribers (clientId, subscriberBinding, subscribedAt) VALUES (?, ?, ?)`,
-      clientId, subscriberBinding, subscribedAt,
+      `INSERT OR REPLACE INTO Subscribers (clientAddress, subscribedAt) VALUES (?, ?)`,
+      clientAddress, subscribedAt,
     );
-    debug('nebula-auth.Profile.subscribe').debug('subscriber stored', { profileId: this.#profileId(), clientId, subscriberBinding });
+    debug('nebula-auth.Profile.subscribe').debug('subscriber stored', { profileId: this.#profileId(), clientAddress });
     // Initial-snapshot delivery on the DEDICATED profile channel, reaped as a broadcast is: a tab
-    // whose Gateway reports it gone loses the row this call just wrote.
-    this.lmz.call(subscriberBinding, clientId,
+    // whose server-side half reports it gone loses the row this call just wrote.
+    this.lmz.call(origin.bindingName, origin.instanceName,
       this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()),
       this.ctn().onProfileBroadcastResult(subscribedAt), { onErrorOnly: true });
   }
@@ -196,8 +198,8 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
   /** Drop the caller's subscriber row (best-effort; mirrors the Resources plane's `requests.unsubscribe`). */
   @mesh()
   unsubscribe(): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (clientId) this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientId = ?`, clientId);
+    const origin = this.lmz.callContext.callChain[0];
+    if (origin?.instanceName) this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientAddress = ?`, addressOf(origin));
   }
 
   // ── Writes (gated by requireOwnerOrAdmin) ────────────────────────────────────────────────────────
@@ -288,12 +290,9 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * (self-healing, per testing.md §self-healing-transient).
    */
   #fanout(): void {
-    const targets = this.ctx.storage.sql.exec(`SELECT clientId, subscriberBinding FROM Subscribers`)
+    const targets = this.ctx.storage.sql.exec(`SELECT clientAddress FROM Subscribers`)
       .toArray()
-      .map((row) => ({
-        bindingName: (row as { subscriberBinding: string }).subscriberBinding,
-        instanceName: (row as { clientId: string }).clientId,
-      }));
+      .map((row) => splitAddress((row as { clientAddress: string }).clientAddress));
     this.lmz.broadcast(
       targets,
       this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()),
@@ -320,12 +319,13 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    */
   onProfileBroadcastResult(sentAt: string, result?: unknown): void {
     if (!(result instanceof Error)) return;
-    const clientId = this.lmz.callContext.callee?.instanceName;
+    const callee = this.lmz.callContext.callee;
+    const clientAddress = callee?.instanceName ? addressOf(callee) : undefined;
     // The reaper's receipt, so a run can see which tab an update failed to reach, and why.
-    debug('nebula-auth.Profile.reap').info('update not delivered', { clientId, name: result.name });
-    if (result.name === 'ClientDisconnectedError' && clientId) {
+    debug('nebula-auth.Profile.reap').info('update not delivered', { clientAddress, name: result.name });
+    if (result.name === 'ClientDisconnectedError' && clientAddress) {
       // Only a row no newer than the failed push: a re-subscribe that landed first keeps its own.
-      this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientId = ? AND subscribedAt <= ?`, clientId, sentAt);
+      this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientAddress = ? AND subscribedAt <= ?`, clientAddress, sentAt);
     }
   }
 

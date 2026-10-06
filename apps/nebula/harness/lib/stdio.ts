@@ -12,6 +12,14 @@ export type DebugLine = {
   namespace: string; message: string; level?: string; data: Record<string, any>; idx: number;
 };
 
+/**
+ * The client id a host's log line names: the last segment of its `clientAddress`, `alice.9f2c41aa`
+ * in `GALAXY/acme.crm/alice.9f2c41aa`, which a scenario compares with a client's `lmz.instanceName`.
+ */
+export function clientIdIn(data: Record<string, any>): string | undefined {
+  return typeof data.clientAddress === 'string' ? data.clientAddress.split('/').pop() : undefined;
+}
+
 /** Every JSON debug block in `raw`, in order. wrangler pretty-prints each as a `{`…`}` block. */
 export function debugLines(raw: string): DebugLine[] {
   const out: DebugLine[] = [];

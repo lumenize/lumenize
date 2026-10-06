@@ -24,8 +24,7 @@ import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
 import {
-  createSubject, universeAdminClient, createInvitedClient,
-} from '../../test-helpers';
+  createSubject, universeAdminClient, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { FAIL_CLOSED_PROFILE_ID, NebulaClientTest } from './index';
 
 const ORIGIN = 'http://localhost';
@@ -164,7 +163,7 @@ describe('Profile DO', () => {
     await write(owner, pid, { name: 'two' });
     const receipt = await vi.waitFor(() => {
       const heard = sink.find((e) => e.namespace === 'nebula-auth.Profile.reap'
-        && e.data?.clientId === attacker.lmz.instanceName);
+        && e.data?.clientAddress === addressOfClient(attacker));
       expect(heard).toBeDefined();
       return heard;
     });

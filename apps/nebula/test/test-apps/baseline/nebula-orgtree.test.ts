@@ -2,7 +2,7 @@
  * OrgTree dedicated channel (Phase 5.3.7-v3 / P8 server side).
  *
  * The org/permission tree is NOT a resource — it's a per-Star singleton on its
- * own channel: `subscribeTree` registers a `tree` row (keyed by clientId
+ * own channel: `subscribeTree` registers a `tree` row (keyed by clientAddress
  * alone), and every tree mutation broadcasts the synthesized `getState()` to ALL
  * subscribers INCLUDING the originator (no optimistic local write, so the echo is
  * the only update path). Delivery is `handleOrgTreeUpdate` — wholly separate from

@@ -7,8 +7,8 @@
  *     door succeeds, which shows the refusal was not for passage;
  *   - each host's own `@mesh()` surface, read off its prototype the way the entry rule reads it;
  *   - `requests` exposes exactly its members, and none of them leads back to the plane;
- *   - a trailing `clientId` or binding a caller appends is ignored: it drops no one else's row,
- *     writes no row under another client's id, and stores no binding the caller chose;
+ *   - a trailing address a caller appends is ignored: it drops no one else's row and writes no
+ *     row under another client's address or a binding the caller chose;
  *   - a chain no client originated is refused and writes nothing;
  *   - a transaction cannot carry an `actor`, so a client cannot forge Nebula's authorship;
  *   - on the Galaxy, a Star-tier caller with no grant is told `permission` as a resolved result,
@@ -35,7 +35,7 @@ import {
 } from '@lumenize/nebula';
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
 import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
-import { adminClientAt, universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uuid = () => crypto.randomUUID();
@@ -102,11 +102,11 @@ const HOSTS = [
   { name: 'Galaxy', make: galaxyHost },
 ] as const;
 
-/** The resource plane's rows of one kind held by `clientId` on a host, with the binding each stores. */
-async function rowsOf(host: Host, kind: string, clientId: string): Promise<Array<{ subscriberBinding: string }>> {
+/** The resource plane's rows of one kind held by `clientAddress` on a host. */
+async function rowsOf(host: Host, kind: string, clientAddress: string): Promise<unknown[]> {
   const stub = (env as any)[host.binding].getByName(host.scope);
   return (runInDurableObject as any)(stub, (_i: any, c: any) =>
-    c.storage.sql.exec('SELECT subscriberBinding FROM Subscriptions WHERE kind = ? AND clientId = ?', kind, clientId)
+    c.storage.sql.exec('SELECT clientAddress FROM Subscriptions WHERE kind = ? AND clientAddress = ?', kind, clientAddress)
       .toArray());
 }
 
@@ -246,8 +246,8 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
       await c.resources.subscribeQuery(host.query).ready;
       await c.subscribeQuerySubscribers(host.query).ready;
     }
-    const idA = a.lmz.instanceName!;
-    const idB = b.lmz.instanceName!;
+    const idA = addressOfClient(a);
+    const idB = addressOfClient(b);
     for (const kind of ['resource', 'query', 'roster']) {
       expect(await rowsOf(host, kind, idA)).toHaveLength(1);
       expect(await rowsOf(host, kind, idB)).toHaveLength(1);
@@ -278,8 +278,8 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     using heard = bystander.resources.subscribe(host.resourceType, rid);
     await heard.snapshot;
 
-    const idA = a.lmz.instanceName!;
-    const idB = b.lmz.instanceName!;
+    const idA = addressOfClient(a);
+    const idB = addressOfClient(b);
     const forged = [idB, 'NO_SUCH_BINDING'];
     const door = () => (a.ctn() as any).resources;
     await a.lmz.callAsync(host.binding, host.scope, door().subscribe(host.version, host.resourceType, rid, ...forged));
@@ -287,9 +287,9 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     await a.lmz.callAsync(host.binding, host.scope, door().subscribeQuerySubscribers(host.query, ...forged));
     await a.lmz.callAsync(host.binding, host.scope, door().subscribeTree(...forged));
 
-    // Every kind's row carries A's id and the binding the Gateway stamped — never the forged pair.
+    // Every kind's row carries the address A's server-side half stamped — never the forged one.
     for (const kind of ['resource', 'query', 'roster', 'tree']) {
-      expect(await rowsOf(host, kind, idA)).toEqual([{ subscriberBinding: 'NEBULA_CLIENT_GATEWAY' }]);
+      expect(await rowsOf(host, kind, idA)).toEqual([{ clientAddress: idA }]);
       expect(await rowsOf(host, kind, idB)).toEqual([]);
     }
     // A's own initial answers arrive, which is the barrier for B's silence.
@@ -331,6 +331,31 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     const rows = await (runInDurableObject as any)(stub, (_i: any, c: any) =>
       c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'tree'`).toArray()[0].n);
     expect(rows).toBe(0);
+  });
+
+  it('a relayed chain stores its client origin\'s address, never the relaying node\'s binding', async () => {
+    const host = await starHost();
+    // A node relaying a client's call keeps the client first on the chain and itself last, which no
+    // client's own call can build: its server-side half stamps the origin alone.
+    const claims = { aud: host.scope, sub: 'door-admin', profileId: 'p-door-admin', access: { authScope: host.scope, scopeAdmin: true } };
+    const client = { type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: `${uuid()}.tab1` };
+    const galaxy = host.scope.split('.').slice(0, 2).join('.');
+    const stub = (env as any).STAR.getByName(host.scope);
+    expect(await stub.__executeOperation({
+      version: 1,
+      chain: preprocess([
+        { type: 'get', key: 'resources' }, { type: 'get', key: 'subscribeTree' }, { type: 'apply', args: [] },
+      ]),
+      callContext: {
+        callChain: [client, { type: 'LumenizeDO', bindingName: 'GALAXY', instanceName: galaxy }],
+        originAuth: { sub: 'door-admin', claims },
+      },
+      metadata: { callee: { type: 'LumenizeDO', bindingName: 'STAR', instanceName: host.scope } },
+    })).toEqual({ $ack: true });
+    // Mutation: take the binding from `callChain.at(-1)` again, and the row names the Galaxy's.
+    const address = `NEBULA_CLIENT_GATEWAY/${client.instanceName}`;
+    await vi.waitFor(async () => expect(await rowsOf(host, 'tree', address)).toEqual([{ clientAddress: address }]));
+    expect(await rowsOf(host, 'tree', `GALAXY/${client.instanceName}`)).toEqual([]);
   });
 
   it('a transaction carrying an `actor` commits under the caller\'s own claims — no forged `act`', async () => {

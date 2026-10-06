@@ -25,7 +25,7 @@ import {
 } from '@lumenize/nebula';
 import type { Galaxy, QueryDescriptor, Snapshot, TransactionResult, OntologyVersionConfig } from '@lumenize/nebula';
 import {
-  adminClientAt, universeAdminClient, foundAndLogin, createSubject, createInvitedClient } from '../../test-helpers';
+  adminClientAt, universeAdminClient, foundAndLogin, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { GalaxyTest, StarTest } from './index';
 
@@ -334,7 +334,7 @@ describe('Studio\'s Wipe records no ontology, so the next op installs once and w
     await vi.waitFor(async () => expect((await ontologyKv(a, dev)).index).toEqual([version]));
     expect(wipes(dev).map((e) => e.data!.cause)).toEqual(['reset']);
     const treeRows = await (runInDurableObject as any)((env as any).STAR.getByName(dev), (_i: any, c: any) =>
-      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'tree' AND clientId = ?`, watcher.lmz.instanceName).toArray()[0].n);
+      c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'tree' AND clientAddress = ?`, addressOfClient(watcher)).toArray()[0].n);
     expect(treeRows).toBe(1);
     for (const c of [owner, a, watcher]) c[Symbol.dispose]();
   }, 120_000);
