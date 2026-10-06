@@ -1,6 +1,8 @@
 # Calls to and from a Client behave like calls between nodes
 
-**Status:** Pass 2 written 2026-10-05, with every decision Larry's. Stage 1 `/review-task` ran twice on 2026-10-04 and Stage 2 once on the phase-less file, and every item from all three runs is settled; the vision doc, the ADRs and `security.md` changed docs-first (→ D18). Stage 2 runs again on the phases before `/build-task`. The master plan's Open decision 4, where a Client's server-side half is hosted, no longer gates this file (→ D23).
+**Status:** ✅ Built 2026-10-05/06, all ten phases, and archived 2026-10-06. Every decision is Larry's, and the ones taken after the build are in § *After the build — what Larry decided on 2026-10-06*.
+
+**Known false since the build (2026-10-06).** Phase 9's second bullet, and its criterion whose mutation is "rely on the flag alone", describe the Client acting on a 4408 close from its own close handling. That flag was deleted: a Client acts only on `subscriptionRequired`, which the Gateway sets from the loss it recorded on the grace period and on the socket's attachment. The criterion's observable still holds — a Client closed with 4408 and back within 5 s is told `true` — and `gateway-timing.test.ts` asserts it there.
 
 ## Goals
 
@@ -23,9 +25,9 @@ D7, D8 and D17 ride along: D7 refuses a second live impersonation child of one s
 
 ## Relationships
 
-- **Builds after [archive/nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md), built 2026-10-04.** Its 30-character slug cap is what lets D10 tell a scope's name from an id. Its fresh-chain default for `lmz.broadcast` keeps a writer's tab address off every update. It also built D9 and D12.
-- **Builds on the toolchain row of [nebula-pre-alpha.md](nebula-pre-alpha.md), built 2026-10-04**: `@cloudflare/vitest-plugin` and compatibility date 2026-10-01. D11 rewrites the transport between a Client and its Gateway, so the test runtime had to stop moving first. The new date is also what lets `ctx.waitUntil` hold a Durable Object resident, which D11's and D5's waits rely on (→ D23).
-- **Hands [nebula-clients-connect-to-their-scope.md](nebula-clients-connect-to-their-scope.md), which owns the master plan's Open decision 4, a server-side half it can move.** That open decision gates a later hosting task, not this file (Larry, 2026-10-04). This build writes the server-side half as code a Durable Object composes, with the Gateway as its first host (→ D23), so if a Client's socket later moves to its scope's node, that code moves rather than being rewritten. The two experiments the decision rests on, `experiments/gateway-vs-hosted/RESULTS.md` and `experiments/do-socket-drop-probe/RESULTS.md`, belong to that task. How each decision fares under the move:
+- **Builds after [archive/nebula-scope-moves-to-subdomain.md](nebula-scope-moves-to-subdomain.md), built 2026-10-04.** Its 30-character slug cap is what lets D10 tell a scope's name from an id. Its fresh-chain default for `lmz.broadcast` keeps a writer's tab address off every update. It also built D9 and D12.
+- **Builds on the toolchain row of [nebula-pre-alpha.md](../nebula-pre-alpha.md), built 2026-10-04**: `@cloudflare/vitest-plugin` and compatibility date 2026-10-01. D11 rewrites the transport between a Client and its Gateway, so the test runtime had to stop moving first. The new date is also what lets `ctx.waitUntil` hold a Durable Object resident, which D11's and D5's waits rely on (→ D23).
+- **Hands [nebula-clients-connect-to-their-scope.md](../nebula-clients-connect-to-their-scope.md), which owns the master plan's Open decision 4, a server-side half it can move.** That open decision gates a later hosting task, not this file (Larry, 2026-10-04). This build writes the server-side half as code a Durable Object composes, with the Gateway as its first host (→ D23), so if a Client's socket later moves to its scope's node, that code moves rather than being rewritten. The two experiments the decision rests on, `experiments/gateway-vs-hosted/RESULTS.md` and `experiments/do-socket-drop-probe/RESULTS.md`, belong to that task. How each decision fares under the move:
   - **Unaffected:** D6, D8, D10, D15, D16, D18, D19, D21, D22 and D24, and D9, which is built.
   - **Moves with the server-side half, as D23's code:** D4, D5, D11 and D12.
   - **Tied to Gateway names, so parked until the hosting decision:** D7 and D17, D25's Gateway check, and the Gateway-specific wording in D3 and D20.
@@ -42,7 +44,7 @@ D7, D8 and D17 ride along: D7 refuses a second live impersonation child of one s
 
   The same edit strikes what those rows will then get wrong: `ClientTokenExpiredError` listed as new, though D5 deletes it before any release; `lmz.broadcast`'s `newChain` and `state` called additive; the CALL frame keeping only `state`; and `ClientResultEnvelope.clientInstanceName` staying.
 - **Takes over Phases 1, 2, 4 and 5 of `tasks/on-hold/mesh-resilience-testing.md`**, which drive the grace period and reconnect paths D4 and D5 change. Phase 9 re-derives them for this Gateway, `/live` first, and trims that file to Phases 3, 6 and 7.
-- **Hands D7, D17 and D25's Gateway check to [nebula-clients-connect-to-their-scope.md](nebula-clients-connect-to-their-scope.md)**, since all three are about Gateway names and wait on Open decision 4. That file's § *Relationships* already takes them up, and Phase 9 checks it still does.
+- **Hands D7, D17 and D25's Gateway check to [nebula-clients-connect-to-their-scope.md](../nebula-clients-connect-to-their-scope.md)**, since all three are about Gateway names and wait on Open decision 4. That file's § *Relationships* already takes them up, and Phase 9 checks it still does.
 
 ## Constraints
 

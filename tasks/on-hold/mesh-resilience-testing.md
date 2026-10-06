@@ -1,6 +1,6 @@
 # Mesh Resilience Integration Testing
 
-**Status**: Not started. Phases 1, 2, 4 and 5 were taken by [mesh-calls-to-and-from-clients.md](../mesh-calls-to-and-from-clients.md) § *Phase 9* on 2026-10-05, which drives them as the `/live` scenario `resubscribe-when-lost` and in `packages/mesh/test/resubscribe-and-redelivery.test.ts`; their sections below are kept as written. Phases 3, 6 and 7 stay here, on hold.
+**Status**: Not started. Phases 1, 2, 4 and 5 were taken by [archive/mesh-calls-to-and-from-clients.md](../archive/mesh-calls-to-and-from-clients.md) § *Phase 9* on 2026-10-05, which drives them as the `/live` scenario `resubscribe-when-lost` and in `packages/mesh/test/resubscribe-and-redelivery.test.ts`; their sections below are kept as written. Phases 3, 6 and 7 stay here, on hold.
 
 ## Objective
 
