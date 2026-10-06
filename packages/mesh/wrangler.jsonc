@@ -44,6 +44,10 @@
         "class_name": "EchoDO"
       },
       {
+        "name": "CLIENT_HOST_DO",
+        "class_name": "ClientHostDO"
+      },
+      {
         "name": "ALARM_TEST_DO",
         "class_name": "AlarmTestDO"
       },
@@ -81,6 +85,7 @@
     "OnStartTestDO": { "type": "durable-object", "storage": "sqlite" },
     "OnStartErrorDO": { "type": "durable-object", "storage": "sqlite" },
     "EchoDO": { "type": "durable-object", "storage": "sqlite" },
+    "ClientHostDO": { "type": "durable-object", "storage": "sqlite" },
     "AlarmTestDO": { "type": "durable-object", "storage": "sqlite" },
     "TaskSchedulerDO": { "type": "durable-object", "storage": "sqlite" },
     "OnRequestTestDO": { "type": "durable-object", "storage": "sqlite" },

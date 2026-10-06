@@ -177,6 +177,21 @@ describe('parseId', () => {
       expect(() => parseId(name)).toThrow('Invalid slug at position 1');
     });
   });
+
+  // A Client a scope's node hosts is named by that scope, a `/` and its id. A claimless chain whose
+  // first hop parses as a scope acts as a member of it, so a Client's name must never parse as one,
+  // at any tier, and its `/` is what keeps it from parsing.
+  describe('a hosted Client\'s name', () => {
+    const id = '6f1d9c2e-4b7a-4c1e-9a3f-2d8b5e7c1a90.k2f9x7';
+    it.each([
+      ['on a Universe', `acme/${id}`],
+      ['on a Galaxy', `acme.crm/${id}`],
+      ['on a Star', `acme.crm.tenant1/${id}`],
+      ['an impersonation child on a Star', `acme.crm.tenant1/${id}.acme-crm-tenant1`],
+    ])('%s does not parse', (_label, name) => {
+      expect(() => parseId(name)).toThrow();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

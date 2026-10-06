@@ -58,6 +58,9 @@ export type { MeshGuard } from './mesh-decorator';
 
 // LumenizeClientGateway - WebSocket bridge for mesh clients
 export { LumenizeClientGateway, ClientDisconnectedError, GatewayMessageType } from './lumenize-client-gateway';
+// A Client's server-side half, which a node composes to host Clients
+export { ClientGateway } from './client-gateway';
+export type { ClientGatewayHost, ClientGatewayOptions } from './client-gateway';
 export type {
   GatewayConnectionInfo,
   GatewayMessage,
@@ -81,6 +84,7 @@ export type {
 
 // Tab ID management for browser clients
 export { getOrCreateTabId } from './tab-id';
+export { isClientInstanceName, hostInstanceOf, addressOf, splitAddress } from './client-address';
 export type { TabIdDeps } from './tab-id';
 
 // Test helpers

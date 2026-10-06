@@ -1,8 +1,8 @@
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { getDOStub } from '@lumenize/routing';
 import { debug } from '@lumenize/debug';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from './ws-heartbeat.js';
-import { fillHandler, fireResponse, type CallEnvelope, type EnvelopeResponse } from './lmz-api.js';
+import { fillHandler, fireResponse, resolveStub, type CallEnvelope, type EnvelopeResponse } from './lmz-api.js';
+import { hostInstanceOf } from './client-address.js';
 import { validateOperationChain, type OperationChain } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, OriginAuth, OriginRequest, OriginCf } from './types.js';
 import {
@@ -37,6 +37,9 @@ const TEST_GRACE_PERIOD_MS = 60_000;
 
 /** Timeout for a Client to answer an incoming call (30 seconds) */
 const CLIENT_CALL_TIMEOUT_MS = 30000;
+
+/** The most characters Cloudflare allows a WebSocket tag, which a hosted Client's name becomes. */
+const MAX_TAG_LENGTH = 256;
 
 /** A call a node made to the Client, waiting for the Client's answer */
 interface PendingCall {
@@ -82,6 +85,23 @@ export interface ClientGatewayHost {
   ): Response | Record<string, unknown> | undefined;
   onBeforeCallToMesh(baseContext: CallContext, connectionInfo: GatewayConnectionInfo, callId: string): CallContext;
   onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined;
+  /**
+   * A host node's own request door. A Client's call to the node that hosts it runs through it as a
+   * method call, so it passes `onBeforeCall` and the `@mesh()` check exactly as an RPC would.
+   */
+  __executeOperation?(envelope: CallEnvelope): Promise<any>;
+}
+
+/** How a `ClientGateway` is composed. */
+export interface ClientGatewayOptions {
+  /**
+   * The host is a node that hosts many Clients, such as the Star `acme.crm.tenant1`, rather than a
+   * Durable Object of one Client's own. Each Client's id is then the one path segment after the
+   * host's instance name, `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`, and its name is
+   * `acme.crm.tenant1/alice.9f2c41aa`. An upgrade naming no id, or more than one, is refused, so no
+   * Client is ever named by its host's own name. A Client's call to its host runs in place.
+   */
+  hostNode?: boolean;
 }
 
 /**
@@ -112,10 +132,13 @@ export class ClientGateway {
   /** Each Client's grace period, by `instanceName`, from its socket's close to its reconnect */
   #gracePeriods = new Map<string, GracePeriod>();
 
-  constructor(ctx: DurableObjectState, env: any, host: ClientGatewayHost) {
+  #hostNode: boolean;
+
+  constructor(ctx: DurableObjectState, env: any, host: ClientGatewayHost, options?: ClientGatewayOptions) {
     this.#ctx = ctx;
     this.#env = env;
     this.#host = host;
+    this.#hostNode = options?.hostNode === true;
   }
 
   get #gracePeriodMs(): number {
@@ -194,12 +217,20 @@ export class ClientGateway {
     }
 
     // Extract routing headers (set by routeDORequest)
-    const instanceName = request.headers.get('X-Lumenize-DO-Instance-Name-Or-Id') ?? undefined;
+    const hostInstanceName = request.headers.get('X-Lumenize-DO-Instance-Name-Or-Id') ?? undefined;
     const bindingName = request.headers.get('X-Lumenize-DO-Binding-Name') ?? undefined;
 
-    if (!instanceName) {
+    if (!hostInstanceName) {
       log.warn('WebSocket upgrade rejected: missing instance name header');
       return new Response('Forbidden: missing instance name', { status: 403 });
+    }
+
+    // A host node names each Client by its own name and the Client's id; a Gateway of one Client's
+    // own is named by the Client's name already.
+    const instanceName = this.#hostNode ? clientNameFromPath(request, hostInstanceName) : hostInstanceName;
+    if (instanceName instanceof Response) {
+      log.warn('WebSocket upgrade rejected: the path names no single client id', { hostInstanceName });
+      return instanceName;
     }
 
     if (!bindingName) {
@@ -603,20 +634,19 @@ export class ClientGateway {
         response,
       };
 
-      // Get stub and call
-      let stub: any;
-      if (instance) {
-        stub = getDOStub(this.#env[binding], instance);
-      } else {
-        stub = this.#env[binding];
-      }
-
       // Early ack: the callee acks on admission, BEFORE the chain runs, and its answer arrives
       // later at our __handleResponse door. A refusal at the ack takes the same road back: the
       // Client's continuation, filled with the Error, with the node that refused as the last hop.
+      // A call to the host node itself, or to another Client it hosts, runs in place through the
+      // host's own request door, so it passes the same checks an RPC would and costs no request.
       let ack: any;
       try {
-        ack = await stub.__executeOperation(envelope);
+        if (this.#isHostNode(binding, instance, attachment)) {
+          log.debug('ran in place', { callId, binding, instance });
+          ack = await this.#host.__executeOperation!(envelope);
+        } else {
+          ack = await resolveStub(this.#env, binding, instance).__executeOperation(envelope);
+        }
       } catch (error) {
         log.error('Call dispatch failed', { callId, binding, instance, error });
         ack = { $error: preprocess(error) };
@@ -629,6 +659,17 @@ export class ClientGateway {
       log.error('Call dispatch failed', { callId, binding, instance, error });
       this.#refuseToClient(ws, message, baseContext, refusedBy, error);
     }
+  }
+
+  /**
+   * Whether a Client's call to (`binding`, `instance`) is for the node hosting it, its own name or
+   * another Client's on it. Only a host node composed with `hostNode` and given its own request door
+   * runs a call in place.
+   */
+  #isHostNode(binding: string, instance: string | undefined, attachment: GatewayConnectionInfo): boolean {
+    return this.#hostNode && instance !== undefined && typeof this.#host.__executeOperation === 'function'
+      && binding === attachment.bindingName
+      && hostInstanceOf(instance) === hostInstanceOf(attachment.instanceName);
   }
 
   /**
@@ -846,6 +887,31 @@ export class ClientGateway {
       grace.waiters.push({ resolve, reject });
     });
   }
+}
+
+/**
+ * A hosted Client's name: its host's instance name, a `/`, and the one path segment after that name,
+ * which is the Client's id. `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa` names
+ * `acme.crm.tenant1/alice.9f2c41aa`. A path whose second-to-last segment is not the host's name names
+ * no single id, so a missing id and two ids are both refused, as is an id that decodes to hold a `/`
+ * or makes a name longer than a tag may be.
+ */
+function clientNameFromPath(request: Request, hostInstanceName: string): string | Response {
+  let segments: string[];
+  try {
+    segments = new URL(request.url).pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return new Response('Bad Request: the upgrade path does not decode', { status: 400 });
+  }
+  const id = segments.at(-1);
+  if (segments.length < 2 || segments.at(-2) !== hostInstanceName || !id || id.includes('/')) {
+    return new Response('Bad Request: the upgrade path names no single client id', { status: 400 });
+  }
+  const name = `${hostInstanceName}/${id}`;
+  if (name.length > MAX_TAG_LENGTH) {
+    return new Response(`Bad Request: a client's name is at most ${MAX_TAG_LENGTH} characters`, { status: 400 });
+  }
+  return name;
 }
 
 /**

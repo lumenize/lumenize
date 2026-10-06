@@ -416,6 +416,15 @@ The switch, in one commit:
 - **Retro:** ADR-012 sat at its 13 KB budget before this phase; the outline and the cuts brought it to 12.7 KB.
 - **Close-out:** Larry reviewed the ADRs and vision docs; the rules were mine to review. While there, three rules lost text that no longer earned its tokens: `calibration.md` §6's dated inventory of `.dev.vars` lines and scenario counts, `durable-objects.md`'s count of legacy `migrations` configs and its story of a root `node_modules/wrangler` that no longer exists, and two paragraphs of `security.md` history, one defending a deleted wording and one recounting who once got the refresh path wrong.
 
+### Phase 2
+
+- **For Larry — names the phase chose, all open to change:** `LumenizeClient`'s `hostFromHostname` (D7's URL), `ClientGateway`'s `hostNode` option, `ComposedMeshDO`'s `__clientGateway` getter a host overrides, and the address helpers `isClientInstanceName`, `hostInstanceOf`, `addressOf` and `splitAddress`, exported from `@lumenize/mesh` and `@lumenize/mesh/client`.
+- **For Larry — one detail differs from D1's wording.** D1 says the address string is also the socket's tag. The tag is the Client's instance name, `acme.crm.tenant1/alice.9f2c41aa`, without the binding: every socket on one host shares the binding, so the shorter tag is just as unique, and `ClientGateway` already tagged by instance name.
+- **For Phase 5:** under `hostFromHostname` a Client's own `lmz.instanceName` is its id, `alice.9f2c41aa`, not its address. `LumenizeClient.onBeforeCall` exempts a call whose last hop is the Client itself by comparing against that id, so a hosted Client calling itself through the mesh would be refused as a peer. Nothing does that today.
+- **Retro:** eight of nine tests passed on first write, so every one was mutation-checked: twelve mutations, each caught by the test it targets. The one first-run failure was the test's own fixture, a node whose stamped name differed from the name it was reached by, so its answers went elsewhere.
+- **Verified:** mesh 40 files and 467 tests, `nebula-auth` 491, `apps/nebula` 1023, all green. `drive.ts all --fast` passed 51 of 52; `studio-overlays-by-url` failed when the email-test socket closed before its mail arrived, and passed alone on the rerun.
+- **Close-out:** nothing closed. The mesh test Worker now rewrites `/gateway/{id}` on `*.hosted.test` the way Phase 4's Worker will, and `ClientHostDO` is its host node.
+
 ## Non-goals
 
 - **Deleting `LumenizeClientGateway` and its tests** — the package merge does it (D4).

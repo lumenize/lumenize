@@ -7,6 +7,8 @@ import type { Schedule } from '../src/alarms';
 import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
 import { continuationFromChain } from './continuation-from-chain.js';
 import { preprocess, postprocess, stringify } from '@lumenize/structured-clone';
+import { debug } from '@lumenize/debug';
+import { ClientGateway, type ClientGatewayHost } from '../src/client-gateway';
 
 // Export LumenizeClientGateway for testing
 export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
@@ -1736,6 +1738,91 @@ export class EchoDO extends LumenizeDO<Env> {
   }
 }
 
+/**
+ * A node that hosts Clients, the way a scope's node does: it composes `ClientGateway` in host-node
+ * mode and hands it its socket events and every message addressed to one of its Clients. A Client
+ * on `h1` is `h1/{sub}.{tabId}` under `CLIENT_HOST_DO`.
+ */
+export class ClientHostDO extends LumenizeDO<Env> implements ClientGatewayHost {
+  #clientGateway = new ClientGateway(this.ctx, this.env, this, { hostNode: true });
+
+  override get __clientGateway(): ClientGateway {
+    return this.#clientGateway;
+  }
+
+  /** The marker a test counts to see how many times this host admitted a call. */
+  override onBeforeCall(): void {
+    debug('test.ClientHostDO.onBeforeCall').debug('host admitted a call', {
+      instanceName: this.lmz.instanceName,
+      origin: this.lmz.callContext.callChain[0]?.instanceName,
+    });
+  }
+
+  @mesh()
+  echo(value: unknown): unknown {
+    return value;
+  }
+
+  /** No `@mesh()`: a call naming it is refused, in place or over RPC. */
+  secret(): string {
+    return 'secret';
+  }
+
+  @mesh(() => { throw new Error('Guard: hosts only'); })
+  guarded(): string {
+    return 'guarded';
+  }
+
+  /** Push `value` to the Client named `clientName` on this host, keeping its answer under `tag`. */
+  @mesh()
+  pushTo(clientName: string, value: string, tag: string): void {
+    this.lmz.call('CLIENT_HOST_DO', clientName, this.ctn<HostedTestClientShape>().receive(value), this.ctn<ClientHostDO>().keepAnswer(tag));
+  }
+
+  keepAnswer(tag: string, result?: unknown): void {
+    this.ctx.storage.kv.put(`answer:${tag}`, result instanceof Error ? `Error: ${result.message}` : result);
+  }
+
+  @mesh()
+  answerFor(tag: string): unknown {
+    return this.ctx.storage.kv.get(`answer:${tag}`);
+  }
+
+  onBeforeAccept(instanceName: string, sub: string): Response | undefined {
+    const id = instanceName.slice(instanceName.indexOf('/') + 1);
+    return id.startsWith(`${sub}.`) ? undefined : new Response('Forbidden: identity mismatch', { status: 403 });
+  }
+
+  onBeforeCallToMesh(baseContext: CallContext): CallContext {
+    return baseContext;
+  }
+
+  onBeforeCallToClient(): undefined {
+    return undefined;
+  }
+
+  override onRequest(request: Request): Promise<Response> {
+    return this.#clientGateway.acceptUpgrade(request);
+  }
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    return this.#clientGateway.receiveMessage(ws, message);
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    this.#clientGateway.socketClosed(ws, code, reason);
+  }
+
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    this.#clientGateway.socketErrored(ws, error);
+  }
+}
+
+/** The shape of the hosted test Client's push handler, which `ClientHostDO.pushTo` names. */
+interface HostedTestClientShape {
+  receive(value: string): string;
+}
+
 // Import routeDORequest for e2e testing with Browser.WebSocket
 import { env } from 'cloudflare:workers';
 import { routeDORequest } from '@lumenize/routing';
@@ -1750,6 +1837,15 @@ export default {
     // For e2e tests, we need to route WebSocket connections to the Gateway
     // The routeDORequest function matches URLs like /gateway/LUMENIZE_CLIENT_GATEWAY/{instanceName}
     // and routes them to the appropriate DO
+
+    // A Client whose host comes from the hostname upgrades at /gateway/{id}; on `h1.hosted.test`
+    // that is the Client `h1/{id}` on CLIENT_HOST_DO, the rewrite a scope's Worker makes.
+    const url = new URL(request.url);
+    const hostedId = url.hostname.endsWith('.hosted.test') ? /^\/gateway\/([^/]+)$/.exec(url.pathname)?.[1] : undefined;
+    if (hostedId !== undefined) {
+      url.pathname = `/gateway/CLIENT_HOST_DO/${url.hostname.split('.')[0]}/${hostedId}`;
+      request = new Request(url, request);
+    }
 
     const response = await routeDORequest(request, env, {
       prefix: 'gateway',

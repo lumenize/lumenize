@@ -6,6 +6,8 @@ import { getOperationChain, executeOperationChain, executeFilledChain, replaceNe
 import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
 import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './broadcast.js';
 import { findRawRpcMethod } from './raw-rpc-decorator.js';
+import { isClientInstanceName, hostInstanceOf } from './client-address.js';
+import type { ClientGateway } from './client-gateway.js';
 
 // Re-export types for convenience
 export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
@@ -182,14 +184,28 @@ function assertCallTarget(
 
 /**
  * Resolve the Workers-RPC stub for a mesh target. A DO binding needs a `getDOStub`
- * lookup by instance name; a Worker/service binding is used directly.
+ * lookup by instance name; a Worker/service binding is used directly. A Client's instance name,
+ * `acme.crm.tenant1/alice.9f2c41aa`, reaches the node that hosts it, `acme.crm.tenant1`.
  *
  * @internal
  */
-function resolveStub(env: any, calleeBindingName: string, calleeInstanceName: string | undefined): any {
+export function resolveStub(env: any, calleeBindingName: string, calleeInstanceName: string | undefined): any {
   return calleeInstanceName !== undefined
-    ? getDOStub(env[calleeBindingName], calleeInstanceName)
+    ? getDOStub(env[calleeBindingName], hostInstanceOf(calleeInstanceName))
     : env[calleeBindingName];
+}
+
+/**
+ * Whether a message to (`bindingName`, `instanceName`) is for a Client that `node` itself hosts, so
+ * it goes to `node`'s own door as a method call rather than over RPC to itself. Only a Client's
+ * address qualifies: a node's call to its own name keeps the RPC it has always made.
+ */
+function isOwnHostedClient(
+  node: { lmz?: { bindingName?: string; instanceName?: string } } | undefined,
+  bindingName: string, instanceName: string | undefined,
+): instanceName is string {
+  return isClientInstanceName(instanceName) && node?.lmz?.bindingName === bindingName
+    && node.lmz.instanceName === hostInstanceOf(instanceName);
 }
 
 /**
@@ -216,11 +232,16 @@ async function dispatchEnvelope(
   handlerChain: OperationChain,
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.dispatchEnvelope');
-  const stub = resolveStub(env, calleeBindingName, calleeInstanceName);
 
   let ack: any;
   try {
-    ack = await stub.__executeOperation(envelope);
+    if (isOwnHostedClient(nodeInstance, calleeBindingName, calleeInstanceName)) {
+      // A push to a Client this node hosts reaches its socket through the node's own door.
+      log.debug('delivered in place', { bindingName: calleeBindingName, instanceName: calleeInstanceName });
+      ack = await nodeInstance.__executeOperation(envelope);
+    } else {
+      ack = await resolveStub(env, calleeBindingName, calleeInstanceName).__executeOperation(envelope);
+    }
   } catch (transportError) {
     ack = {
       $error: preprocess(transportError instanceof Error ? transportError : new Error(String(transportError))),
@@ -877,6 +898,8 @@ export async function fireResponse(
   isError: boolean,
   nodeTypeName: string,
   callee: string,
+  /** The answering node, when its own door may take the answer: a Client it hosts asked. */
+  local?: { lmz: { bindingName?: string; instanceName?: string }; __handleResponse(envelope: CallEnvelope): Promise<any> },
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.fireResponse');
   const errText = () => (outcome instanceof Error ? outcome.message : String(outcome));
@@ -922,8 +945,14 @@ export async function fireResponse(
   };
   let ack: any;
   try {
-    const stub = resolveStub(env, response.returnAddr.bindingName, response.returnAddr.instanceName);
-    ack = await stub.__handleResponse(fireEnvelope);
+    const { bindingName, instanceName } = response.returnAddr;
+    if (local && isOwnHostedClient(local, bindingName, instanceName)) {
+      // The asker is a Client this node hosts, so its answer goes down its socket from here.
+      log.debug('answered in place', { bindingName, instanceName });
+      ack = await local.__handleResponse(fireEnvelope);
+    } else {
+      ack = await resolveStub(env, bindingName, instanceName).__handleResponse(fireEnvelope);
+    }
   } catch (transportError) {
     log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, {
       error: transportError instanceof Error ? transportError.message : String(transportError),
@@ -1000,6 +1029,8 @@ export async function executeEnvelope(
     waitUntil?: (promise: Promise<any>) => void;
     /** The node's bindings — used to resolve the fire-back return-address stub. */
     env?: any;
+    /** The node's own fire-back door, which takes the answer to a Client the node hosts in place. */
+    handleResponseLocally?: (envelope: CallEnvelope) => Promise<any>;
     onValidationError?: (error: Error, details: Record<string, any>) => void;
   }
 ): Promise<{ $ack: true } | { $error: any }> {
@@ -1088,9 +1119,11 @@ export async function executeEnvelope(
       bindingName: node.lmz.bindingName!,
       instanceName: node.lmz.instanceName,
     };
+    const handleResponseLocally = options?.handleResponseLocally;
     await fireResponse(
       answerer, options?.env, callContext, envelope.response, outcome, isError, nodeTypeName,
       describeCallee(node, operationChain),
+      handleResponseLocally ? { lmz: node.lmz, __handleResponse: handleResponseLocally } : undefined,
     );
   }).catch((detachedError: unknown) => {
     // Defensive: fireResponse never rejects, but a bug there must not become an
@@ -1173,16 +1206,48 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
      * under `ctx.waitUntil` via the shared `executeEnvelope`. @internal
      */
     async __executeOperation(envelope: CallEnvelope): Promise<any> {
+      const hosted = this.#forHostedClient(envelope);
+      if (hosted) return hosted === 'refused' ? this.#refuseClientAddress(envelope) : await hosted.executeOperation(envelope);
       const base = this as unknown as { ctx: DurableObjectState; env: any };
       return await executeEnvelope(envelope, this, {
         nodeTypeName,
         includeInstanceName: true,
         waitUntil: (p) => base.ctx.waitUntil(p),
         env: base.env,
+        handleResponseLocally: (e) => this.__handleResponse(e),
         onValidationError: (error, details) => {
           debug(`lmz.mesh.${nodeTypeName}.__executeOperation`).error(error.message.split('.')[0], details);
         },
       });
+    }
+
+    /**
+     * The server-side half of the Clients this node hosts, or `undefined` for a node that hosts
+     * none. A node that hosts Clients composes a `ClientGateway` and returns it here; both doors
+     * hand it every message addressed to one of them (ADR-007's "Hosting a Client adds no mode").
+     * @internal
+     */
+    get __clientGateway(): ClientGateway | undefined {
+      return undefined;
+    }
+
+    /**
+     * Where a message addressed to a Client goes: this node's `ClientGateway`, or `'refused'` when
+     * the node hosts none. `undefined` for a message addressed to a node. It reads only the `/` in
+     * `metadata.callee`, never this node's stamped name, which a teardown's `deleteAll()` can have
+     * erased, and it runs before `executeEnvelope` stamps an identity, so a Client's address never
+     * becomes a node's name.
+     */
+    #forHostedClient(envelope: CallEnvelope): ClientGateway | 'refused' | undefined {
+      if (!isClientInstanceName(envelope?.metadata?.callee?.instanceName)) return undefined;
+      return this.__clientGateway ?? 'refused';
+    }
+
+    #refuseClientAddress(envelope: CallEnvelope): { $error: any } {
+      const callee = envelope.metadata!.callee;
+      return { $error: preprocess(new Error(
+        `${callee.bindingName}/${callee.instanceName} names a Client, and this ${nodeTypeName} hosts no Clients`,
+      )) };
     }
 
     /**
@@ -1217,11 +1282,15 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
      * still apply. @internal
      */
     async __handleResponse(envelope: CallEnvelope): Promise<any> {
+      // An answer for a Client this node hosts goes down its socket and never runs here.
+      const hosted = this.#forHostedClient(envelope);
+      if (hosted) return hosted === 'refused' ? this.#refuseClientAddress(envelope) : await hosted.receiveFireBack(envelope);
       const base = this as unknown as { ctx: DurableObjectState; env: any };
       return await executeEnvelope(envelope, this, {
         nodeTypeName,
         includeInstanceName: true,
         requireMeshDecorator: false,
+        handleResponseLocally: (e) => this.__handleResponse(e),
         // Every chain that arrives here was filled by the callee's `fireResponse`, so its last
         // apply is a result rather than a template's arguments.
         filled: true,

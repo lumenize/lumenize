@@ -31,6 +31,9 @@ export type {
   ClientBroadcastOptions,
   Continuation as ClientContinuation,
 } from './lumenize-client';
+// A Client's address and the `/` that tells it from a node's
+export { isClientInstanceName, hostInstanceOf, addressOf, splitAddress } from './client-address';
+
 // The parameter types of `lmz.broadcast`, which the client's `lmz` carries too
 export type { BroadcastTarget, BroadcastOptions } from './broadcast';
 

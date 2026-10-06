@@ -188,6 +188,17 @@ export interface LumenizeClientConfig {
   gatewayBindingName?: string;
 
   /**
+   * The Worker derives this Client's host node from the page's hostname, so the upgrade names only
+   * the Client's id: `wss://tenant1.crm.acme.lumenize.dev/gateway/alice.9f2c41aa`. The Worker writes
+   * the binding and scope into the path from the hostname, `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`,
+   * and the host node names the Client `acme.crm.tenant1/alice.9f2c41aa`. `gatewayBindingName` is
+   * then unused in the URL.
+   *
+   * Default: `false`, which upgrades at `/gateway/{gatewayBindingName}/{instanceName}`.
+   */
+  hostFromHostname?: boolean;
+
+  /**
    * Initial JWT access token
    *
    * If omitted, fetched via `refresh` before connecting.
@@ -942,13 +953,15 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       baseUrl = baseUrl.replace('http://', 'ws://');
     }
 
-    // Build URL: /gateway/{bindingName}/{instanceName}
+    // Build URL: /gateway/{bindingName}/{instanceName}, or /gateway/{instanceName} when the Worker
+    // derives the host node from the hostname
     const binding = this.#config.gatewayBindingName;
     const instance = this.#instanceName;
     if (!instance) {
       throw new Error('instanceName not available — connect has not completed');
     }
 
+    if (this.#config.hostFromHostname) return `${baseUrl}/gateway/${instance}`;
     return `${baseUrl}/gateway/${binding}/${instance}`;
   }
 
