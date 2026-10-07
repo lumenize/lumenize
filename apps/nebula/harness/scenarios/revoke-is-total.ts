@@ -17,9 +17,12 @@
  * build lost time twice to fixtures that were the *safe* shape rather than the dangerous one — a
  * class of error that cannot occur when the state is produced by the system under test.
  *
- * ⚠️ Deliberately silent on KV **edge propagation**. `security.md`'s ~60s + access-TTL bound still
- * applies and no lane can reproduce that gap deterministically; asserting it here would be a flake,
- * not a check. The reasoning lives in the task file's revocation decision, out of the assertions.
+ * **It asserts revocation within KV's propagation window, never at once.** The Registry deletes the
+ * record from its own colo, which reads it gone at once; a page served from another colo keeps
+ * reading its cached copy for up to about 60 s (`security.md` § *Refresh tokens*). On 2026-10-07 the
+ * test zone's requests landed in Frankfurt, Madrid and Paris while the Registry sat elsewhere, and
+ * an at-once assertion that had passed five sweeps failed four runs in four, turning 401 at 45 s.
+ * A revoke that missed a token never turns 401, so the window still catches it.
  *
  * `needsContainer = false` — auth only, so the boot skips Docker.
  */
@@ -31,6 +34,9 @@ import { testSlug } from '../lib/test-scopes';
 import { provisionAndLogin, loginViaEmail, refreshFromPage, refreshCookie } from '../../test/lib/email-login';
 
 export const needsContainer = false;
+
+/** KV's propagation window, about 60 s (`security.md` § *Refresh tokens*), with margin. */
+const REVOKE_WINDOW_MS = 75_000;
 
 /** Present a refresh cookie from `scope`'s page and report the status the running server returns. */
 async function refreshStatus(origin: string, scope: string, refreshToken: string): Promise<number> {
@@ -81,14 +87,20 @@ export async function run(stack: DevStack): Promise<void> {
   // ── The property: a real 401 from a real server, for EVERY session ───────────────────────────
   // Reds against a revoke that misses any token — which is exactly what the blanket-vs-scoped
   // un-index bug produced: a live KV record with no index row, invisible to every future revoke.
-  assert.equal(
-    await refreshStatus(origin, universe, firstCookie), 401,
-    'session 1 still refreshes after the revoke',
-  );
-  assert.equal(
-    await refreshStatus(origin, universe, secondCookie), 401,
-    'session 2 still refreshes after the revoke — the fan-out missed a token',
-  );
+  // Within the propagation window, plus margin, since the page may not share the Registry's colo.
+  const revokedWithin = async (cookie: string): Promise<number | undefined> => {
+    const start = Date.now();
+    while (Date.now() - start < REVOKE_WINDOW_MS) {
+      if (await refreshStatus(origin, universe, cookie) === 401) return Date.now() - start;
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+    return undefined;
+  };
+  const lagFirst = await revokedWithin(firstCookie);
+  assert.ok(lagFirst !== undefined, `session 1 still refreshes ${REVOKE_WINDOW_MS / 1000} s after the revoke`);
+  const lagSecond = await revokedWithin(secondCookie);
+  assert.ok(lagSecond !== undefined,
+    `session 2 still refreshes ${REVOKE_WINDOW_MS / 1000} s after the revoke — the fan-out missed a token`);
 
-  console.error('[revoke-is-total] two real sessions, both 401 after the revoke');
+  console.error(`[revoke-is-total] two real sessions, both 401 after the revoke (after ${lagFirst} ms and ${lagSecond} ms more)`);
 }

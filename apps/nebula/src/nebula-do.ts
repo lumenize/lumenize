@@ -246,12 +246,15 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
    * `no such table`. The abort rejects the caller's call; the scope lifecycle hooks read that
    * rejection as the reset it is.
    *
-   * A deletion closes every socket this node hosts with `WS_CLOSE_GONE` (4410) once its storage is
-   * wiped, so a Client told its scope is gone finds it gone: a Galaxy's `beforeTeardown` can wait
-   * twenty seconds on a certificate order, and a 4410 sent before it let a Client read the chat it
-   * was told was deleted (found on the deployed pass, 2026-10-06). A socket accepted during that
-   * wait is closed with the rest, the yield before the abort lets the close frames go out, and an
-   * upgrade landing in the yield is closed the same way at once (`ClientGateway.closeAll`). A creation sends no close of its own: its abort drops a socket
+   * A deletion closes every socket this node hosts with `WS_CLOSE_GONE` (4410) after
+   * {@link beforeTeardown} and before `deleteAll()`. After, because a Galaxy's `beforeTeardown` can
+   * wait twenty seconds on a certificate order, and a 4410 sent ahead of it let a Client read the
+   * chat it had been told was deleted; a socket accepted during that wait is closed with the rest.
+   * Before, because the close frames go out during the wipe and the yield after it, and a close
+   * sent after the wipe was lost to the abort, so the Client timed out instead (both found on the
+   * deployed pass, 2026-10-07). No read reaches the node between the close and the wipe, since
+   * storage holds the input gate. An upgrade that lands before the abort is closed the same way at
+   * once (`ClientGateway.closeAll`). A creation sends no close of its own: its abort drops a socket
    * as any reset does, and the Client reconnects to the fresh object.
    */
   @rawRpc()
@@ -263,8 +266,8 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
       tier, cause, operationId, binding: this.lmz.bindingName, instanceName,
     });
     await this.beforeTeardown();
-    await this.ctx.storage.deleteAll();
     if (cause === 'deletion') this.#clientGateway.closeAll(WS_CLOSE_GONE, 'Scope deleted');
+    await this.ctx.storage.deleteAll();
     await new Promise((resolve) => setTimeout(resolve, 0));
     this.ctx.abort('scope-deleted');
   }

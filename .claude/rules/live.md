@@ -138,6 +138,15 @@ header carries the reasoning). Do not delete it as clutter. A deployed sweep spe
 waiting on Cloudflare, so `drive.ts all --concurrency=N` overlaps the waits: at 2 it took 79.5 min
 against 142 one at a time (2026-10-04). A local sweep refuses it.
 
+**A local sweep never runs the deployed-only paths, so a change to what a Client hears back MUST
+be checked against them before the deploy.** They are `drive.ts`'s account sweep and the shared
+app's cleanup, and every branch on `HARNESS_TARGET_URL` (`grep -rln HARNESS_TARGET_URL
+apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
+paths still waited for the answer; the first deployed run's account sweep reported ten failed
+deletes that had all landed. **A deployed sweep SHOULD run beside a `wrangler tail <worker>
+--format json` capture,** since a deployed failure leaves no logs otherwise: one that day passed
+when run alone and stayed unexplained.
+
 ⚠️ **Exploration, distinct from automated testing.** `.claude/rules/testing.md` owns the vitest suites
 (the capable-of-failing, committed regression net); this is the *running-system* check. Both MUST be
 used, cross-linked, and MUST NOT be merged — a finding here worth locking in becomes a vitest test there.
