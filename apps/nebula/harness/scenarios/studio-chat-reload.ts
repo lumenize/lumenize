@@ -98,9 +98,13 @@ export async function run(stack: DevStack): Promise<void> {
     //    SUBSCRIPTION like everyone else's — so this wait ASSERTS the whole
     //    post → commit → fanout → subscription-render pipeline, capable of failing.
     const marker = `harness browser check ${Date.now()}`;
+    // Visible text only: the model's reasoning often quotes the request, and the stream transcript
+    // holding it is a hidden <pre>, so `.first()` alone can pick that and wait on it until timeout.
+    // Deployed, the reply has usually started streaming by the time this looks (2026-10-07).
+    const shown = () => page.getByText(marker).filter({ visible: true });
     await page.getByPlaceholder('Describe a change…').fill(marker);
     await page.getByPlaceholder('Describe a change…').press('Enter');
-    await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
+    await shown().first().waitFor({ state: 'visible', timeout: 20_000 });
     // 5a. CAPTURE BEFORE reload — proof of what the turn actually produced on screen (or that it
     //     didn't echo). Without this, "empty after reload" is ambiguous (never-posted vs lost).
     const before = await captureArtifacts(inst, 'studio-chat-before-reload');
@@ -111,9 +115,9 @@ export async function run(stack: DevStack): Promise<void> {
     //    optimistic echo could not distinguish.
     await page.goto(`${scopeUrl(SCOPE)}/`, { waitUntil: 'domcontentloaded' });
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
-    await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
+    await shown().first().waitFor({ state: 'visible', timeout: 20_000 });
     const after = await captureArtifacts(inst, 'studio-chat-after-reload');
-    const renderedAfterReload = (await page.getByText(marker).count()) > 0;
+    const renderedAfterReload = (await shown().count()) > 0;
 
     // ⚠️ No dialog may be open on a settled Studio. Asserted on the [open] ATTRIBUTE, not on
     // visibility — daisyUI transitions `visibility` over .3s, so isVisible() can catch the tail of a

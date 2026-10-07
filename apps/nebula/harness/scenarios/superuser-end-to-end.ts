@@ -138,19 +138,24 @@ export async function run(stack: DevStack): Promise<void> {
   // (`drive.ts`'s account sweep), so it reds only if the last two days' runs left fifty.
   const scopesRes = await homeSummary(origin, refreshCookie(PLATFORM_SCOPE, refreshToken));
   assert.equal(scopesRes.status, 200, `Home's summary ${scopesRes.status} for a superuser`);
-  type Node = { scope: string; children?: Node[] };
+  type Node = { scope: string; children?: Node[]; childCount?: number };
   const { groups } = await scopesRes.json() as { groups: { summary: { emails?: { memberships?: Node[] }[] } }[] };
-  const walk = (n: Node): string[] => [n.scope, ...(n.children ?? []).flatMap(walk)];
-  const ids = groups.flatMap((g) => (g.summary.emails ?? []).flatMap((e) => (e.memberships ?? []).flatMap(walk)));
+  const nodes = (n: Node): Node[] => [n, ...(n.children ?? []).flatMap(nodes)];
+  const all = groups.flatMap((g) => (g.summary.emails ?? []).flatMap((e) => (e.memberships ?? []).flatMap(nodes)));
+  const ids = all.map((n) => n.scope);
   assert.ok(
     ids.includes(someUniverse),
     `the superuser did not enumerate "${someUniverse}" — a scope they hold no membership in. ` +
     `Got ${ids.length} scope(s): ${ids.join(', ')}`,
   );
-  // The summary descended into the app only if the budget reached it; when it did, the tenant is there.
-  if (ids.includes(`${someUniverse}.app`)) {
-    assert.ok(ids.includes(`${someUniverse}.app.tenant`),
-      `the summary listed "${someUniverse}.app" without its tenant: ${ids.join(', ')}`);
+  // The summary fills the tree a level at a time under a node budget, so on a platform holding
+  // dozens of accounts — a deployed sweep's — it can list every app and run out before any tenant.
+  // Then the app's node counts the tenant it could not list, which is the truncation made visible.
+  const app = all.find((n) => n.scope === `${someUniverse}.app`);
+  if (app) {
+    const listed = (app.children ?? []).some((c) => c.scope === `${someUniverse}.app.tenant`);
+    assert.ok(listed || (app.childCount ?? 0) >= 1,
+      `the summary listed "${someUniverse}.app" with neither its tenant nor a count of it: ${ids.join(', ')}`);
   }
   // Run in both venues, so the frontier path is exercised on a small tree too.
   // Mutation: let `expandScope` answer an empty level for the platform membership → reds.
