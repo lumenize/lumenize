@@ -88,19 +88,18 @@ export async function run(stack: DevStack): Promise<void> {
   // Reds against a revoke that misses any token — which is exactly what the blanket-vs-scoped
   // un-index bug produced: a live KV record with no index row, invisible to every future revoke.
   // Within the propagation window, plus margin, since the page may not share the Registry's colo.
-  const revokedWithin = async (cookie: string): Promise<number | undefined> => {
-    const start = Date.now();
-    while (Date.now() - start < REVOKE_WINDOW_MS) {
-      if (await refreshStatus(origin, universe, cookie) === 401) return Date.now() - start;
-      await new Promise((r) => setTimeout(r, 2_000));
-    }
-    return undefined;
-  };
-  const lagFirst = await revokedWithin(firstCookie);
+  // Both sessions against one clock, so neither gets a window of its own.
+  const start = Date.now();
+  let lagFirst: number | undefined;
+  let lagSecond: number | undefined;
+  while (Date.now() - start < REVOKE_WINDOW_MS && (lagFirst === undefined || lagSecond === undefined)) {
+    if (lagFirst === undefined && await refreshStatus(origin, universe, firstCookie) === 401) lagFirst = Date.now() - start;
+    if (lagSecond === undefined && await refreshStatus(origin, universe, secondCookie) === 401) lagSecond = Date.now() - start;
+    if (lagFirst === undefined || lagSecond === undefined) await new Promise((r) => setTimeout(r, 2_000));
+  }
   assert.ok(lagFirst !== undefined, `session 1 still refreshes ${REVOKE_WINDOW_MS / 1000} s after the revoke`);
-  const lagSecond = await revokedWithin(secondCookie);
   assert.ok(lagSecond !== undefined,
     `session 2 still refreshes ${REVOKE_WINDOW_MS / 1000} s after the revoke — the fan-out missed a token`);
 
-  console.error(`[revoke-is-total] two real sessions, both 401 after the revoke (after ${lagFirst} ms and ${lagSecond} ms more)`);
+  console.error(`[revoke-is-total] two real sessions, both 401 after the revoke (at ${lagFirst} ms and ${lagSecond} ms)`);
 }

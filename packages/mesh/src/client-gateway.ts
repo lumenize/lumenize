@@ -119,8 +119,9 @@ export interface ClientGatewayOptions {
  * Client's answer, and waits within a grace period for a Client whose socket closed.
  *
  * **Zero storage.** Nothing here touches `ctx.storage`. State is derived from the host's sockets,
- * each tagged with its Client's `instanceName`, from those sockets' attachments, and from an
- * in-memory grace period per Client. Every socket lookup names its Client, so one host can hold
+ * each tagged with its Client's `instanceName`, from those sockets' attachments, and from two
+ * in-memory records: a grace period per Client, and the node calls waiting for a Client's answer.
+ * Both die with the isolate, and each says what that costs where it is declared. Every socket lookup names its Client, so one host can hold
  * many Clients; `LumenizeClientGateway` holds one.
  *
  * The host reaches it only through its entry points and hands it only its `ctx`, its `env` and the
@@ -140,10 +141,12 @@ export class ClientGateway {
   /** The host is a node that hosts many Clients, not a Durable Object of one Client's own. */
   #hostNode: boolean;
 
-  /** The close every Client gets from now on, once the host has called {@link closeAll}. */
-  #closedWith: { code: number; reason: string } | undefined;
-
   constructor(ctx: DurableObjectState, env: any, host: ClientGatewayHost, options?: ClientGatewayOptions) {
+    // A mesh node has doors that hand a Client's traffic to this half; named by the node's own name,
+    // that Client's answers would run as the node's own chain, so the one-Client mode refuses one.
+    if (options?.singleClient && '__clientGateway' in host) {
+      throw new Error('ClientGateway: singleClient is for a Durable Object of one Client\'s own; a mesh node hosts each Client under its own id');
+    }
     this.#ctx = ctx;
     this.#env = env;
     this.#host = host;
@@ -252,16 +255,6 @@ export class ClientGateway {
 
     if (hookResult instanceof Response) {
       return hookResult;
-    }
-
-    // The host has closed every Client for good, as a host being deleted does: this one is told the
-    // same at once. Accepted outside hibernation, so its close starts no grace period on the host.
-    if (this.#closedWith) {
-      const closing = new WebSocketPair();
-      closing[1].accept();
-      closing[1].close(this.#closedWith.code, this.#closedWith.reason);
-      log.info('WebSocket closed at once: the host has closed every Client', { instanceName, code: this.#closedWith.code });
-      return new Response(null, { status: 101, webSocket: closing[0], headers: { 'Sec-WebSocket-Protocol': WS_PROTOCOL } });
     }
 
     // Auto-include all JWT payload fields; hook result (if Record) merges on top
@@ -414,14 +407,8 @@ export class ClientGateway {
    * Close every Client socket the host holds with `code`, as a host about to be deleted does with
    * `WS_CLOSE_GONE`, so each Client hears why rather than seeing its socket drop. A socket is a
    * Client's when it carries the Client's name as its tag, which every socket this half accepts does.
-   *
-   * Until the object resets, every upgrade accepted after this is closed with the same code at
-   * once, so a page that loads while its host is still being torn down hears it too, rather than
-   * being dropped by the reset and reconnecting into whatever the reset builds. The record is in
-   * memory, so the reset that ends a deletion clears it with everything else.
    */
   closeAll(code: number, reason: string): void {
-    this.#closedWith = { code, reason };
     for (const ws of this.#ctx.getWebSockets()) {
       if (this.#ctx.getTags(ws)[0] === undefined) continue;
       try { ws.close(code, reason); } catch { /* already closing */ }

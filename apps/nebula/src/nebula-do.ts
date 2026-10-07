@@ -253,8 +253,7 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
    * Before, because the close frames go out during the wipe and the yield after it, and a close
    * sent after the wipe was lost to the abort, so the Client timed out instead (both found on the
    * deployed pass, 2026-10-07). No read reaches the node between the close and the wipe, since
-   * storage holds the input gate. An upgrade that lands before the abort is closed the same way at
-   * once (`ClientGateway.closeAll`). A creation sends no close of its own: its abort drops a socket
+   * storage holds the input gate. A creation sends no close of its own: its abort drops a socket
    * as any reset does, and the Client reconnects to the fresh object.
    */
   @rawRpc()

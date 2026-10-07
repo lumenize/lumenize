@@ -77,11 +77,9 @@ describe('wake-up sensing', () => {
     expect(deleted.connectionState).toBe('disconnected');
     expect(stopped.connectionState).toBe('disconnected');
 
-    // `online` reconnects at once, without the backoff the drop scheduled.
+    // `online` reconnects at once, without the backoff the drop scheduled: a Client holding an
+    // unexpired token opens its socket synchronously, so the count is read before any timer runs.
     window.dispatchEvent(new Event('online'));
-    // The dropped Client's new socket is the barrier: the event reached every Client by the time it
-    // exists, so a reconnect by either of the others would have constructed one too.
-    await vi.waitFor(() => expect(sockets.made.length).toBeGreaterThan(3));
     expect(sockets.made.map((s) => (s as unknown as { url: string }).url).slice(3))
       .toEqual([expect.stringContaining('user-123.dropped')]);
     expect(deleted.connectionState).toBe('disconnected');

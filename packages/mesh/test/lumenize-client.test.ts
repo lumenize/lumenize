@@ -2107,3 +2107,28 @@ describe('WebSocket heartbeat (keepalive)', () => {
     client.disconnect(); // stops the interval (no leaked timer)
   });
 });
+
+describe('A Client stopped while its first token is fetched', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  // `disconnect()` lands while the connect awaits its refresh; the refresh then resolves. Mutation:
+  // drop the `#stoppedOnPurpose` check after the awaits in `#connectInternal` → a socket opens for a
+  // Client its app stopped.
+  it('opens no socket once the refresh resolves', async () => {
+    let resolveRefresh!: (t: { access_token: string }) => void;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: () => new Promise((resolve) => { resolveRefresh = resolve; }),
+    });
+    await vi.waitFor(() => expect(resolveRefresh).toBeDefined());
+    client.disconnect();
+    resolveRefresh({ access_token: createFakeJwt({ sub: 'user', exp: Math.floor(Date.now() / 1000) + 900 }) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(createdWebSockets).toHaveLength(0);
+    expect(client.connectionState).toBe('disconnected');
+  });
+});

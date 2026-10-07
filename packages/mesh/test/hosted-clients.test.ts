@@ -1,10 +1,10 @@
 /**
- * A node that hosts Clients: `ClientGateway` composed in host-node mode on a `LumenizeDO`, the way
- * a scope's node hosts the Clients on its pages.
+ * A node that hosts Clients: `ClientGateway` composed with no options on a `LumenizeDO`, the way a
+ * scope's node hosts the Clients on its pages.
  *
- * vitest-plugin, because no Nebula route reaches a host node until the task that builds this moves
- * Nebula's pages onto it; the `/live` scenarios written then drive the same code end to end. Each
- * limb uses `ClientHostDO` from the test Worker, either through a real `LumenizeClient` that
+ * vitest-plugin, because these limbs need a host that is not Nebula's, a node never stamped, or a
+ * socket held unanswered; `scope-hosts-its-clients` and the other `/live` scenarios drive the same
+ * code end to end through Nebula's pages. Each limb uses `ClientHostDO` from the test Worker, either through a real `LumenizeClient` that
  * upgrades at `/gateway/{id}` on `h*.hosted.test`, which the test Worker rewrites the way a scope's
  * Worker does, or through a socket played by hand where a limb needs to hold a frame unanswered.
  */
@@ -17,6 +17,7 @@ import { LumenizeClient, type LumenizeClientConfig } from '../src/lumenize-clien
 import { mesh } from '../src/mesh-decorator';
 import { createTestRefreshFunction } from '../src/create-test-refresh-function';
 import { GatewayMessageType, WS_CLOSE_GONE } from '../src/gateway-messages';
+import { ClientGateway } from '../src/client-gateway';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { ClientHostDO, EchoDO, TestDO } from './test-worker-and-dos';
 
@@ -169,29 +170,6 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     expect(alice.connectionState).toBe('disconnected');
   });
 
-  it('tells a Client that connects after its host closed every Client with 4410 the same', async () => {
-    using alice = await connect('h9');
-    await alice.lmz.callAsync('CLIENT_HOST_DO', 'h9', alice.ctn<ClientHostDO>().closeEveryClient(WS_CLOSE_GONE))
-      .catch(() => undefined);
-
-    // A page that loads while its host is still being torn down, before the reset.
-    const told: string[] = [];
-    const sub = crypto.randomUUID();
-    const browser = new Browser();
-    const late = new HostedClient({
-      instanceName: `${sub}.tab1`,
-      baseUrl: 'https://h9.hosted.test',
-      hostFromHostname: true,
-      refresh: createTestRefreshFunction({ sub }),
-      fetch: browser.fetch,
-      WebSocket: browser.WebSocket,
-      onHostDeleted: (e) => told.push(e.name),
-    });
-    await vi.waitFor(() => expect(told).toEqual(['HostDeletedError']), { timeout: 10000 });
-    expect(late.connectionState).toBe('disconnected');
-    late.disconnect();
-  });
-
   it('refuses a Client\'s call to another Client, on the same host and on another', async () => {
     using alice = await connect('h5');
     using dana = await connect('h5');
@@ -239,6 +217,17 @@ describe('a message addressed to a Client stamps no node\'s name', () => {
     await host.__handleResponse(callTo(`${hostName}/x.tab1`, [{ type: 'get', key: 'receive' }, { type: 'apply', args: ['answer'] }]));
     await runInDurableObject(host, (instance: ClientHostDO) => expect(instance.lmz.instanceName).toBeUndefined());
     expect(marked('host admitted a call', (d) => d.origin === 'pusher')).toHaveLength(0);
+  });
+});
+
+describe('the one-Client mode', () => {
+  // Named by the node's own name, a hosted Client's answers would run as the node's own chain.
+  // Mutation: drop the refusal in the constructor → the node composes it unchallenged.
+  it('is refused on a mesh node, and allowed on a host with no doors', () => {
+    const hooks = { onBeforeAccept: () => undefined, onBeforeCallToMesh: (c: any) => c, onBeforeCallToClient: () => undefined };
+    expect(() => new ClientGateway({} as any, {}, { ...hooks, __clientGateway: undefined } as any, { singleClient: true }))
+      .toThrow('singleClient is for a Durable Object of one Client\'s own');
+    expect(() => new ClientGateway({} as any, {}, hooks as any, { singleClient: true })).not.toThrow();
   });
 });
 

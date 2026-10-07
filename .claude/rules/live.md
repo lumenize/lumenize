@@ -140,8 +140,8 @@ against 142 one at a time (2026-10-04). A local sweep refuses it.
 
 **A local sweep never runs the deployed-only paths, so a change to what a Client hears back MUST
 be checked against them before the deploy.** They are `drive.ts`'s account sweep and the shared
-app's cleanup, and every branch on `HARNESS_TARGET_URL` (`grep -rln HARNESS_TARGET_URL
-apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
+app's cleanup, and every branch on `HARNESS_TARGET_URL` or on the stack's logs being absent
+(`grep -rlnE 'HARNESS_TARGET_URL|stack\.logs' apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
 paths still waited for the answer; the first deployed run's account sweep reported ten failed
 deletes that had all landed. **A deployed sweep SHOULD run beside a `wrangler tail <worker>
 --format json` capture,** since a deployed failure leaves no logs otherwise: one that day passed

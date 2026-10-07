@@ -918,6 +918,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         await this.#ensureFreshToken();
       }
 
+      // Stopped while a refresh or a tab id was awaited, by `disconnect()` or by its host's
+      // deletion: no socket opens, since one would reconnect what was stopped on purpose.
+      if (this.#stoppedOnPurpose) return;
+
       // Build WebSocket URL
       const url = this.#buildWebSocketUrl();
 
@@ -1053,10 +1057,14 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   async #handleTokenExpired(): Promise<void> {
     try {
       await this.#refreshToken();
+      // A Client stopped while the refresh was in flight stays stopped.
+      if (this.#stoppedOnPurpose) return;
       // Reconnect with new token
       this.#setConnectionState('reconnecting');
       this.#connectInternal();
     } catch (error) {
+      // A Client stopped on purpose does not send its user to log in.
+      if (this.#stoppedOnPurpose) return;
       // Refresh failed - login required
       const loginError = new LoginRequiredError(
         'Token refresh failed',

@@ -60,7 +60,9 @@ describe('scope lifecycle hooks — teardown', () => {
   // since no local Galaxy orders a certificate). A Star named `*.slow` waits a second the same way.
   // In-lane because the local stack has no teardown that waits. Mutation: close the sockets before
   // `beforeTeardown`, as the teardown first did → the Client hears 4410 while the probe is present.
-  it('tells a Client its host is deleted only once the host\'s storage is gone', async () => {
+  // It cannot see the close moved after `deleteAll()`, which loses the 4410 to the abort deployed
+  // only; deployed `scope-teardown` and `delete-from-its-own-page` catch that.
+  it('tells a Client its host is deleted only after the host\'s beforeTeardown', async () => {
     const name = `hk${crypto.randomUUID().slice(0, 8)}.app.slow`;
     await seed(name);
     const sub = crypto.randomUUID();

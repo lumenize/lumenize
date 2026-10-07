@@ -37,6 +37,9 @@ import { testSlug } from '../lib/test-scopes';
 
 export const needsContainer = false;
 
+/** Parked in every sweep: its redeploy would restart the objects other scenarios are using. */
+export const skip = 'run it directly, deployed, with HARNESS_REDEPLOY=1: it redeploys the test Worker';
+
 /** A tab that counts its re-subscribe reports and the tree pushes that reach it. */
 class CountingTab extends NebulaClient {
   required = 0;
