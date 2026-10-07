@@ -241,6 +241,12 @@ const SCENARIOS: Record<string, Scenario> = {
  * first callers would each claim one. And a scenario whose `bootVars` name the bootstrap address
  * signs in as the one deployed superuser, whose mail every such scenario waits on, so those run one
  * at a time. A failure under concurrency that passes alone is contention: say so, never retry it away.
+ *
+ * With N above 1 the LONGEST START FIRST, by each scenario's duration in the last sweep on the same
+ * venue, which every sweep records in `durations-{venue}.json` beside its kept outputs. A scenario
+ * with no record starts first too, so a new one cannot become the run's long tail. On 2026-10-07 the
+ * 20-minute `deleted-on-cloudflare` started last at concurrency 2 and kept the run going long after
+ * everything else had finished.
  */
 async function sweep(fast: boolean, concurrency: number): Promise<void> {
   const deployed = Boolean(process.env.HARNESS_TARGET_URL);
@@ -264,6 +270,11 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
   // can see. They are listed before the run so the count at the top is the count that will print.
   const parked = registered.filter((n) => SCENARIOS[n].skip !== undefined);
   const names = registered.filter((n) => SCENARIOS[n].skip === undefined);
+  const durationsFile = join(tmpdir(), 'lumenize-sweep', `durations-${deployed ? 'deployed' : 'local'}.json`);
+  let durations: Record<string, number> = {};
+  try { durations = JSON.parse(readFileSync(durationsFile, 'utf8')) as Record<string, number>; } catch { /* first sweep on this venue */ }
+  // Longest first, a scenario with no record before any (stable, so ties keep registration order).
+  if (concurrency > 1) names.sort((a, b) => (durations[b] ?? Infinity) - (durations[a] ?? Infinity));
   const logDir = join(tmpdir(), 'lumenize-sweep', new Date().toISOString().replace(/[:.]/g, '-'));
   mkdirSync(logDir, { recursive: true });
   console.error(`[harness] sweeping ${names.length} scenario(s)${fast ? ' (container-free only)' : ''} — each one's output kept under ${logDir}`);
@@ -353,6 +364,8 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     checkTree(name); // an edit DURING this scenario taints it too
     const tainted = taintedFrom !== undefined;
     results.push({ name, ok, secs: ((Date.now() - t0) / 1000).toFixed(1), detail, tainted });
+    durations[name] = Math.round((Date.now() - t0) / 1000);
+    writeFileSync(durationsFile, JSON.stringify(durations, null, 2));
     console.error(`${ok ? '✅' : '❌'} ${name.padEnd(26)} ${results.at(-1)!.secs}s ${detail}${tainted ? ' (source changed mid-sweep)' : ''}`);
     if (!ok && process.env.HARNESS_DEBUG) console.error(out);
     if (packs) peakPacks = Math.max(peakPacks, (await packs().catch(() => [])).length);
