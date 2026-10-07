@@ -68,9 +68,10 @@ function submit() {
   emit('create', slug.value.trim());
 }
 
-// An account with no apps has nothing to choose — so the create form IS the page. A claim writes
-// the account's first app, so this is an account whose apps were all deleted. An account that has
-// apps opens on the list, with Create one click away.
+// An account with no apps has nothing to choose, so the create form opens on its own. A claim writes
+// the account's first app, so this is an account whose apps were all deleted, and its owner may want
+// the account gone too: Cancel always shows, and closing the form leaves "Delete this account" in
+// reach. An account that has apps opens on the list, with Create one click away.
 //
 // ⚠️ **Gated on `ready`, and fires at most once.** On mount the list is always empty — the scope
 // load has not resolved yet — so an `onMounted` version popped the create form open on EVERY visit,
@@ -146,9 +147,9 @@ watch(
           <p v-if="error" class="text-sm text-error">{{ error }}</p>
           <div class="flex justify-end gap-2">
             <button
-              v-if="apps.length > 0"
               type="button"
               class="btn btn-ghost btn-sm"
+              data-testid="create-cancel"
               :disabled="busy"
               @click="emit('create-close')"
             >

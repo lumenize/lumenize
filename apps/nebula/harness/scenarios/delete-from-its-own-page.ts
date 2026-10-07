@@ -7,10 +7,9 @@
  * waiting for with `HostDeletedError`, and calls `onHostDeleted`. Studio reads its own delete's
  * rejection as the success it is, and leaves for a page that still exists.
  *
- * The cast: **O** signs up with an account and its first app, `crm`, and a tenant Star `t1` is
- * founded under it. O also creates a second app, so the account page, which opens its Create form
- * over everything when the account has no app, still offers its delete. **D** is O's own session
- * on `t1`'s page, a Node client standing for anyone on a page of the app.
+ * The cast: **O** signs up with an account and its only app, `crm`, and a tenant Star `t1` is
+ * founded under it. **D** is O's own session on `t1`'s page, a Node client standing for anyone on a
+ * page of the app.
  *
  * Three limbs, all run, with the verdict at the end (`live-scenarios.md`):
  *  1. **O deletes `crm` from its own Studio page and lands on the account page,** and
@@ -19,9 +18,11 @@
  *  2. **D is told the app is gone and does not reconnect**, so no Star `t1` is built again after
  *     the deletion, as the Star's construction log shows. Mutation: let the Client reconnect on
  *     4410, and D's reconnect builds an empty `t1`.
- *  3. **O deletes the account from its own page and lands on Home**, on the platform host.
- *     Mutation: send both of Studio's leaves to the account page, and the page stays on a deleted
- *     account.
+ *  3. **O deletes the account, now with no apps, from its own page and lands on Home**, on the
+ *     platform host. An empty account's page opens its Create form on its own, so O cancels it
+ *     first. Mutations: send both of Studio's leaves to the account page, and the page stays on a
+ *     deleted account; hide the form's Cancel when the account has no apps, and the delete cannot
+ *     be reached.
  *
  * A real signup and login throughout (ADR-009 rung 1). Limb 2's construction log needs the local
  * stack's capture, so on a deployed target only its connection state is asserted.
@@ -36,7 +37,7 @@ import { constructionPairs, readDevVar, scopeUrlOf } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { debugLines } from '../lib/stdio';
-import { foundTenantStar, refreshAccessToken, createGalaxyViaFacade } from '../../test/lib/email-login';
+import { foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = false;
 export const bootVars = { DEBUG: 'nebula.Star.onStart' };
@@ -90,11 +91,6 @@ export async function run(stack: DevStack): Promise<void> {
     const cookie = (await page.context().cookies()).find((c) => c.name === `__Host-refresh-token.${universe}`);
     assert.ok(cookie, "O's signup set no refresh cookie for the account");
     const onT1 = await refreshAccessToken(stack.baseUrl, { refreshToken: cookie.value, authScope: universe }, t1);
-    const onAccount = await refreshAccessToken(stack.baseUrl, { refreshToken: cookie.value, authScope: universe }, universe);
-    await createGalaxyViaFacade({
-      baseUrl: scopeUrlOf(stack, universe), accessToken: onAccount.accessToken, sub: onAccount.sub,
-      universeGalaxyId: `${universe}.crm2`,
-    });
     const told: string[] = [];
     const ctx = new Browser().context(scopeUrlOf(stack, t1));
     d = new NebulaClient({
@@ -155,7 +151,10 @@ export async function run(stack: DevStack): Promise<void> {
     }
 
     // ── LIMB 3: O deletes the account from its own page and lands on Home ─────────────────────
-    await page.getByTestId('universe-delete').waitFor({ state: 'visible', timeout: 30_000 });
+    // The account has no apps now, so its page opens the Create form over everything on its own.
+    await page.getByTestId('create-cancel').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByTestId('create-cancel').click();
+    await page.getByTestId('universe-delete').waitFor({ state: 'visible', timeout: 10_000 });
     await page.getByTestId('universe-delete').click();
     await page.getByTestId('confirm-delete').waitFor({ state: 'visible', timeout: 10_000 });
     const beforeAccountDelete = navigations.length;

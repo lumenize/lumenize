@@ -728,7 +728,6 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
 
 ## Nebula Studio UI
 
-- [ ] **An account with no apps cannot be deleted from its own page (surfaced 2026-10-06).** The account page opens its Create form over everything when the account holds no app, and the form shows Cancel only when `apps.length > 0` (`UniverseView.vue`), so "Delete this account" cannot be reached. `delete-from-its-own-page` creates a second app first to get past it. The likely fix is a Cancel that is always there, or the delete inside the empty state.
 
 - [ ] **The viewport → `setRenderWindow` driver — the one deferral [archive/nebula-reactive-ai-chat.md](archive/nebula-reactive-ai-chat.md) § *Phase 5* left open (re-homed here 2026-09-03; it had no live home).** The windowed-content-sub mechanism with its 2000 ms grace is Child-2 capability code and is exercised (`child2-query-window.test.ts`, `child3-stream`). What was never built is the Vue/DOM half: an IntersectionObserver or virtual-scroll driver feeding the visible message ids to `setRenderWindow`, so only the visible window is content-subscribed while older messages scroll off. Today `App.vue` passes the whole thread (`sub.setRenderWindow(sub.resourceIds)` — "the pre-alpha thread is small — render it all"), which is fine until a thread is not small. Not vitest-plugin-testable — it lives with the Studio chat UI and wants a `/live` or ui-smoke check. A restore of the subscriptions re-fires only the active (windowed) subs, through `#restoreSubscriptions`.
 
