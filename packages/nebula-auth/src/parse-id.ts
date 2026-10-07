@@ -83,7 +83,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
  * `{persona}--{star}`, 30 + 2 + 30 (ADR-021). `warehouse-management-system` is 27.
  *
  * It also keeps an id from parsing as a scope: a `profileId`, a persona's version-5 id and a
- * Gateway's `{sub}.{tabId}` each carry a 36-character UUID, which the slug grammar alone accepts.
+ * Client's `{sub}.{tabId}` id each carry a 36-character UUID, which the slug grammar alone accepts.
  */
 export const MAX_SLUG_LENGTH = 30;
 

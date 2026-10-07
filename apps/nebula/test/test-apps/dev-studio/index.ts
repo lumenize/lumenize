@@ -5,7 +5,7 @@
  * `@cloudflare/computer` Workspace + host-side git (writeSource / commit / readSource)
  * and the compile-and-apply into the registry, which the derived `{u}.{g}.dev` star pulls on its
  * next op. Driven via `__executeOperation` envelopes (the
- * interim-dev-loop pattern) — no Gateway/JWT infra.
+ * interim-dev-loop pattern) — no client/JWT infra.
  *
  * `DevStarOntologyProbe` is the `.dev` data-Star target with a single read hook so a
  * test can confirm the pull installed the compiled version.
@@ -115,7 +115,7 @@ export class GalaxyLoopProbe extends Galaxy {
   // --- Chat-ontology facet hooks ---
   // These exercise the INSTALLED chat ontology exactly the way the composed data-plane's
   // provider does — through the protected `chatOntology()` accessor (the same
-  // self-seeding install + loader mount), without needing a Gateway/client.
+  // self-seeding install + loader mount), without needing a client.
 
   /** Parse a value through the INSTALLED Chat/Message facet, with the tool-args facet
    *  ALSO mounted in THIS DO first — a passing parse therefore proves no Worker-Loader

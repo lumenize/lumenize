@@ -11,7 +11,7 @@
  * concurrent in-flight calls.
  *
  * Also captures `bench_marker` frames emitted by
- * `InstrumentedNebulaClientGateway` for the gateway-hop benchmark
+ * the instrumented host nodes (`worker/instrumented-hosts.ts`) for the gateway-hop benchmark
  * (`tasks/gateway-hop-benchmark.md`). Markers are correlated by the
  * callId carried in each frame and timestamped on arrival via
  * `performance.now()`. The decomposed-call helpers (`callStarDelayDecomposed`,

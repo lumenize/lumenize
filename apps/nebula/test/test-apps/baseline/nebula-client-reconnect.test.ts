@@ -1,7 +1,7 @@
 /**
  * Reconnect re-subscribe: what a reconnect restores, and what it leaves alone.
  *
- * A Client re-subscribes exactly when the Gateway says it lost something, never on a network blip
+ * A Client re-subscribes exactly when its host node says it lost something, never on a network blip
  * or a token rotation inside the grace period. Two angles:
  *
  *   - **The walk itself**: a test-only `_restoreSubscriptionsForTest()` hook runs the same walk
@@ -9,7 +9,7 @@
  *     Star → snapshot push → a fresh row — without first losing a subscription.
  *
  *   - **A supersede**: a second client with the same `instanceName` and `accessToken` makes the
- *     Gateway close the first one's socket with 4409. The first reconnects while the second is still
+ *     host node close the first one's socket with 4409. The first reconnects while the second is still
  *     connected, so it supersedes in turn and is told `subscriptionRequired: false` — this project's
  *     grace period is 100 ms, so a supersede is how a reconnect here keeps its record. It
  *     re-subscribes nothing, and its row keeps delivering.
@@ -127,7 +127,7 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     const [rowBefore] = await waitForSuccess(a.client) as SubscriberRow[];
 
     // Construct a second client with the same instanceName + accessToken.
-    // Gateway sees an existing socket for this instanceName, closes it with
+    // The host node sees an existing socket for this instanceName, closes it with
     // WS_CLOSE_SUPERSEDED (4409). a.client's #handleClose routes that to
     // #scheduleReconnect → state → 'reconnecting' → 1s backoff → reconnect.
     const aInstanceName = a.client.lmz.instanceName;

@@ -360,7 +360,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
   it('T7: RESTORE is a DISTINCT path from reload — the in-heap walk re-registers the thread query', async () => {
     // The RELOAD path (a fresh heap rebuilding from the durable thread) is child3-e2e's
     // late-joiner test; THIS is the other path: the same heap's re-subscribe walk, which runs
-    // when the Gateway reports a loss. The idempotent end-state would hide a broken walk (testing.md), so the
+    // when the host node reports a loss. The idempotent end-state would hide a broken walk (testing.md), so the
     // server is given AMNESIA first — only the walk can restore fanout.
     const scope = uniqueChatScope();
     const { client: a } = await devClient(scope);

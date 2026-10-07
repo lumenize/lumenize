@@ -5,7 +5,6 @@ const instrumented = instrumentDOProject(sourceModule);
 
 // Wrangler requires DO classes as named exports.
 export const {
-  NebulaClientGateway,
   Universe,
   GalaxyTest,
   StarTest,

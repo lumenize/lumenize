@@ -8,7 +8,7 @@
  * subject's name while acting with admin-derived authority they do not have.
  *
  * **Vehicle: `admin.impersonate(subjectSub)`** — the production client capability, driven
- * through the REAL `NebulaClientGateway`. It mints through `NebulaAuthFacade.impersonate` and hands
+ * through the REAL host node of its page. It mints through `NebulaAuthFacade.impersonate` and hands
  * the result to a full `NebulaClient`, so this exercises the path the Studio actually
  * takes rather than a hand-rolled `LumenizeClient` no product code can reach.
  *

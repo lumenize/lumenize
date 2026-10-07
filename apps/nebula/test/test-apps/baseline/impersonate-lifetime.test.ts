@@ -78,7 +78,7 @@ describe('lifetime — the cascade', () => {
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     // A REAL transient drop, via the supersede path `nebula-client-reconnect.test.ts` uses: a second
-    // client on the same instanceName makes the Gateway close the first with 4409, which
+    // client on the same instanceName makes its host node close the first with 4409, which
     // `#handleClose` routes to `#scheduleReconnect()` → 'reconnecting'. It never calls
     // `disconnect()` and never reaches 'disconnected' — which is the whole distinction under test.
     const browserB = new Browser();
@@ -168,7 +168,7 @@ describe('lifetime — child logout() is child-only teardown', () => {
 
     // The regression guard, kept beside the navigation: the admin's cookie still mints on the
     // universe's page. Invisible to the connection assertions — the admin's socket is already open
-    // and the Gateway verifies a stateless JWT.
+    // and its host node accepted a stateless JWT at the upgrade.
     const probe = await browser.context(pageOf(universe)).fetch(`${ORIGIN}/auth/refresh-token`, { method: 'POST' });
     expect(probe.status, "the admin's refresh cookie must survive a child logout").toBe(200);
 
@@ -199,7 +199,7 @@ describe('lifetime — readiness follows the CREDENTIAL, not the CONNECTION', ()
 
     // The mint rides the parent's socket, so one issued while paused waits for the reconnect. The
     // one real precondition is that the parent already HAS a name — it connected once above — since
-    // the child's Gateway name derives from the parent's tabId.
+    // the child's id derives from the parent's tabId.
     // Mutation: hook the impersonation teardown on `disconnect()` instead of on the three
     // end-of-session doors → the latch fires here → this rejects with /torn down/ → reds.
     const pending = admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
@@ -208,11 +208,12 @@ describe('lifetime — readiness follows the CREDENTIAL, not the CONNECTION', ()
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
     expect(child.claims.sub).toBe(member.sub);
 
-    // And the first mint after the reconnect, the shape the regression broke.
+    // And the first mint after the reconnect, the shape the regression broke. The first child is
+    // ended first: a second open child of the same subject from this tab would share its id.
+    child[Symbol.dispose]();
     const second = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(second.connectionState).toBe('connected'));
 
-    child.disconnect();
     second.disconnect();
     admin.disconnect();
   });

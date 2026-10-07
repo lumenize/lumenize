@@ -13,10 +13,10 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { preprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
-import { LumenizeClient } from '../src/lumenize-client';
+import { LumenizeClient, type LumenizeClientConfig } from '../src/lumenize-client';
 import { mesh } from '../src/mesh-decorator';
 import { createTestRefreshFunction } from '../src/create-test-refresh-function';
-import { GatewayMessageType } from '../src/gateway-messages';
+import { GatewayMessageType, WS_CLOSE_GONE } from '../src/gateway-messages';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { ClientHostDO, EchoDO, TestDO } from './test-worker-and-dos';
 
@@ -32,7 +32,7 @@ class HostedClient extends LumenizeClient {
 }
 
 /** A real Client on `host`, upgrading at `/gateway/{sub}.tab1` on `{host}.hosted.test`. */
-async function connect(host: string): Promise<HostedClient> {
+async function connect(host: string, extra: Partial<LumenizeClientConfig> = {}): Promise<HostedClient> {
   const sub = crypto.randomUUID();
   const browser = new Browser();
   const client = new HostedClient({
@@ -42,6 +42,7 @@ async function connect(host: string): Promise<HostedClient> {
     refresh: createTestRefreshFunction({ sub }),
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
+    ...extra,
   });
   await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
   return client;
@@ -154,6 +155,18 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     await alice.lmz.callAsync('CLIENT_HOST_DO', 'h4', alice.ctn<ClientHostDO>().pushTo(name, 'pushed', 'own'));
     await vi.waitFor(async () => expect(await host.answerFor('own')).toBe('pushed!'), { timeout: 5000 });
     expect(marked('delivered in place', (d) => d.instanceName === name)).toHaveLength(1);
+  });
+
+  it('stops a Client its host closes with 4410: the pending call is rejected, and it does not reconnect', async () => {
+    const told: string[] = [];
+    using alice = await connect('h7', { onHostDeleted: (e) => told.push(e.name) });
+
+    // The call that closes the socket is still waiting for its answer when the close arrives.
+    const pending = alice.lmz.callAsync('CLIENT_HOST_DO', 'h7', alice.ctn<ClientHostDO>().closeEveryClient(WS_CLOSE_GONE));
+    await expect(pending).rejects.toMatchObject({ name: 'HostDeletedError' });
+    expect(told).toEqual(['HostDeletedError']);
+    // A scheduled reconnect would already read 'reconnecting'.
+    expect(alice.connectionState).toBe('disconnected');
   });
 
   it('refuses a Client\'s call to another Client, on the same host and on another', async () => {

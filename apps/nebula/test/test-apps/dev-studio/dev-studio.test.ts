@@ -2,7 +2,7 @@
  * Galaxy source-of-truth + compile-and-apply (the `dev-studio` project — its name
  * predates the collapse of DevStudio into Galaxy).
  *
- * Driven via `__executeOperation` envelopes (no Gateway/JWT), so the real receive seam
+ * Driven via `__executeOperation` envelopes (no client/JWT), so the real receive seam
  * runs (onBeforeCall passage guard + requireDominionHere). Proves:
  *  - **append + lazy-pull**: `applyOntology` compiles the Workspace's ontology
  *    `.d.ts` into the Galaxy's registry (no downward push exists), and a Star data op
@@ -189,7 +189,7 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     }, { timeout: 15000 });
     // A v1 write warms v1's validator, so a facet that outlived the install would judge the v2
     // writes below.
-    const client = [{ type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: 'admin.tab' }];
+    const client = [{ type: 'LumenizeClient', bindingName: 'STAR', instanceName: `${star}/admin.tab` }];
     const admin = { aud: star, profileId: 'p-admin', access: { scopeAdmin: true, authScope: galaxy.split('.')[0] } };
     const rows = (rid: string) => inDO(env.STAR, star, (s) =>
       s.ctx.storage.sql.exec('SELECT COUNT(*) AS n FROM Snapshots WHERE resourceId = ?', rid).toArray()[0].n) as Promise<number>;

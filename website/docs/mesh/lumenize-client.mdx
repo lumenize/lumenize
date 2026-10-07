@@ -268,10 +268,12 @@ export interface LumenizeClientConfig {
   baseUrl?: string;
   instanceName?: string;
   gatewayBindingName?: string;
+  hostFromHostname?: boolean;
   accessToken?: string;
   refresh?: string | (() => Promise<{ access_token: string; sub?: string }>);
   onConnectionStateChange?: (state: ConnectionState) => void;
   onLoginRequired?: (error: LoginRequiredError) => void;
+  onHostDeleted?: (error: HostDeletedError) => void;
   onSubscriptionRequired?: () => void;
   onConnectionError?: (error: Error) => void;
   // ...

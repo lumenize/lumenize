@@ -283,9 +283,9 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * Push the new public snapshot to every subscriber with `lmz.broadcast`, which sends each push
    * from this Profile and starts each push's chain here, so the writer's claims — `sub`, `aud`,
    * `access`, and `act` under impersonation — stay behind rather than riding into every
-   * subscriber's scope. A subscriber's Gateway lets the push through because this Profile's name,
+   * subscriber's scope. A subscriber's host node lets the push through because this Profile's name,
    * a `profileId`, is no scope, and a client's `onBeforeCall` decides from the caller, which is
-   * this Profile. On a failed delivery the Gateway fires back a `ClientDisconnectedError`, and
+   * this Profile. On a failed delivery that host node fires back a `ClientDisconnectedError`, and
    * `onProfileBroadcastResult` drops that subscriber's row if it is no newer than this push
    * (self-healing, per testing.md §self-healing-transient).
    */
@@ -302,7 +302,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
 
   /**
    * Dead-subscriber cleanup — the fan-out's `onResult`, run with a failed delivery's Error. Drops the
-   * subscriber row when the Gateway reports the client disconnected. Mirrors the Resources plane's
+   * subscriber row when its host node reports the client disconnected. Mirrors the Resources plane's
    * `results.onBroadcastResult`.
    *
    * **WHICH row comes from `callContext.callee`** — the address this push was sent to, stamped by the
@@ -313,7 +313,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * `ClientDisconnectedError` naming another subscriber — described a real hole and no longer does:
    * the error carries no identity to forge, and on a direct call `callee` is this Profile itself,
    * which names no subscriber row, so it reaps nothing. `public` and un-decorated stays right (the
-   * Gateway fires the Error back to the Profile's fire-back door, where `@mesh()` is not checked), but it is now
+   * host node fires the Error back to the Profile's fire-back door, where `@mesh()` is not checked), but it is now
    * the second line rather than the first. Detect by `name` (custom Error classes don't keep
    * `instanceof` — mesh.md).
    */

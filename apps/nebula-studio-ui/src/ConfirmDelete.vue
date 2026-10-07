@@ -47,6 +47,12 @@ async function go() {
     await props.scopes.delete(props.target);
     emit('deleted');
   } catch (e) {
+    // Deleting the scope this page is on closes the page's own socket before the answer can
+    // arrive, and the client rejects the call with this: the delete happened.
+    if ((e as Error)?.name === 'HostDeletedError') {
+      emit('deleted');
+      return;
+    }
     error.value = (e as Error).message || 'Could not delete it.';
   } finally {
     busy.value = false;

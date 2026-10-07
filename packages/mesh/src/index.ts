@@ -73,7 +73,7 @@ export type {
 } from './lumenize-client-gateway';
 
 // LumenizeClient - Browser/Node.js client for mesh communication
-export { LumenizeClient, LoginRequiredError, TOKEN_REFRESH_AHEAD_SECONDS } from './lumenize-client';
+export { LumenizeClient, LoginRequiredError, HostDeletedError, TOKEN_REFRESH_AHEAD_SECONDS } from './lumenize-client';
 export type {
   LumenizeClientConfig,
   ConnectionState,

@@ -60,6 +60,7 @@ export type ClientCallOptions = Omit<CallOptions, 'newChain'>;
 export type ClientBroadcastOptions = Omit<BroadcastOptions, 'newChain'>;
 import {
   GatewayMessageType,
+  WS_CLOSE_GONE,
   WS_TOKEN_PREFIX,
   WS_PROTOCOL,
   type CallMessage,
@@ -157,6 +158,16 @@ export class LoginRequiredError extends Error {
 (globalThis as any).LoginRequiredError = LoginRequiredError;
 
 /**
+ * The node hosting this Client was deleted: its host closed the socket with `WS_CLOSE_GONE` (4410).
+ * Every pending `callAsync` is rejected with it, and `onHostDeleted` receives it. The Client does
+ * not reconnect, since an upgrade would only build an empty object at the deleted name. Detect it by
+ * `name`, the way every typed error here is detected.
+ */
+export class HostDeletedError extends Error {
+  name = 'HostDeletedError';
+}
+
+/**
  * Configuration for LumenizeClient
  */
 export interface LumenizeClientConfig {
@@ -230,6 +241,14 @@ export interface LumenizeClientConfig {
    * Typical action: redirect to login page
    */
   onLoginRequired?: (error: LoginRequiredError) => void;
+
+  /**
+   * Called when the node hosting this Client was deleted. The Client has stopped as `disconnect()`
+   * stops it, and its pending `callAsync`s were rejected with the same error.
+   *
+   * Typical action: leave the page, whose scope no longer exists.
+   */
+  onHostDeleted?: (error: HostDeletedError) => void;
 
   /**
    * Called when subscriptions need to be (re)established: on a first connection, and on a reconnect
@@ -735,12 +754,19 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#ws = null;
     }
 
-    // callAsync Promises have an awaiting caller, so an explicit teardown must REJECT them rather
-    // than drop silently — otherwise the awaiter hangs until the default timeout. Clean up each
-    // abort listener too (no leak).
+    this.#stop(new Error('LumenizeClient disconnected before the callAsync result arrived'));
+  }
+
+  /**
+   * End this Client's calls and mark it disconnected, once its socket is gone and nothing will
+   * reconnect it. callAsync Promises have an awaiting caller, so they are REJECTED with `error`
+   * rather than dropped — otherwise the awaiter hangs until the default timeout — and each abort
+   * listener is removed too (no leak).
+   */
+  #stop(error: Error): void {
     for (const pending of this.#pendingAsyncCalls.values()) {
       if (pending.signal && pending.onAbort) pending.signal.removeEventListener('abort', pending.onAbort);
-      pending.reject(new Error('LumenizeClient disconnected before the callAsync result arrived'));
+      pending.reject(error);
     }
     this.#pendingAsyncCalls.clear();
 
@@ -998,6 +1024,16 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       // Token expired - try refresh
       this.#accessToken = null;
       this.#handleTokenExpired();
+      return;
+    }
+
+    if (code === WS_CLOSE_GONE) {
+      // The node hosting this Client was deleted. Reconnecting would build an empty object at the
+      // deleted name, so the Client stops and says why.
+      const error = new HostDeletedError(`The node hosting this client was deleted${reason ? `: ${reason}` : ''}`);
+      this.#clearReconnectTimeout();
+      this.#stop(error);
+      this.#config.onHostDeleted?.(error);
       return;
     }
 

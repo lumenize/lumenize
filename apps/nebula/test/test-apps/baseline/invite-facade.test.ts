@@ -1,6 +1,6 @@
 /**
  * The invite facade — the mesh-speaking guarded entry (`NebulaAuthFacade.invite`, reached by a
- * client `lmz.callAsync('NEBULA_AUTH_FACADE', undefined, …)` through the Gateway; a service
+ * client `lmz.callAsync('NEBULA_AUTH_FACADE', undefined, …)` through its host node; a service
  * binding with no instance name routes as a LumenizeWorker).
  *
  * The rule under test, enforced once, at this facade:
@@ -11,7 +11,7 @@
  * server-issued logins; test-mode `links` only as the URL carrier, with every persisted-bit
  * assertion made on a real-login JWT, never the invite summary alone. Every test here ALSO proves
  * the § *One Registry primitive* verify-anyway: a client `lmz` call reaches a WORKER binding
- * through the Gateway — nothing in this file talks HTTP to `/invite`.
+ * through its host node — nothing in this file talks HTTP to `/invite`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
@@ -29,7 +29,7 @@ import { consumeLink } from '../../lib/email-login';
 
 function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0, 8)}@example.com`; }
 
-/** Drive the facade the way production does: client → Gateway → Worker binding. */
+/** Drive the facade the way production does: client → its host node → Worker binding. */
 function facadeInvite(
   client: NebulaClient, targetScope: string, invitees: unknown,
 ): Promise<InviteSummary> {
@@ -173,7 +173,7 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
   });
 
   // A node's FRESH chain carries no client's claims — the live producer of a claims-less call, and
-  // one no page can produce, since the Gateway stamps `originAuth` on every client call. In-lane for
+  // one no page can produce, since the host node stamps `originAuth` on every client call. In-lane for
   // that reason. Every facade method meets the one gate.
   // Mutation: drop the facade's `onBeforeCall` gate → the call reaches the method, whose first read
   // of `originAuth!.claims` throws a TypeError rather than this message → reds.

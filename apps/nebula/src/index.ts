@@ -80,9 +80,6 @@ export {
   makeEdgeKey,
 } from './org-ops';
 
-// Gateway
-export { NebulaClientGateway } from './nebula-client-gateway';
-
 // Client
 export { NebulaClient } from './nebula-client';
 export type {

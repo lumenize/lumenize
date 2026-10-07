@@ -84,6 +84,14 @@ export class ImpersonationChainError extends Error {
 }
 
 /**
+ * Thrown when `impersonate()` names a subject this tab is already impersonating. The two children
+ * would share one id, and their host node would replace one socket with the other.
+ */
+export class ImpersonationAlreadyOpenError extends Error {
+  name = 'ImpersonationAlreadyOpenError';
+}
+
+/**
  * Thrown when a mint fails for good: the facade refused it, or the client it would mint through has
  * been torn down. Retrying cannot help either way, so a child that meets one ends. A transport
  * failure — a timeout, a disconnect — is never wrapped in one, and stays transient.
@@ -110,18 +118,18 @@ export function assertCanImpersonate(claims: { act?: unknown } | null | undefine
 }
 
 /**
- * The child's Gateway DO name.
+ * The child's id, under which its host node holds its socket.
  *
- * ⚠️ **DETERMINISTIC, never random, because a DO name reservation is PERMANENT** — it cannot be
- * deleted, by us or from the dashboard, so a random suffix would reserve a fresh Gateway name on
- * every call, forever. Determinism also means a reload with the same tab, subject and scope reuses
- * one name. (`packages/mesh/src/tab-id.ts`'s header carries the general rule.)
+ * ⚠️ **DETERMINISTIC, never random.** A reload of one tab impersonating one subject on one scope
+ * comes back under the same id, so its new socket replaces the old one instead of sitting beside
+ * it, and `impersonate()` refuses a second open child of the same subject because the two would
+ * share it.
  *
- * ⚠️ **The SEGMENT ORDER is load-bearing, not stylistic.** `LumenizeClientGateway.onBeforeAccept`
- * rejects a name with no `.`, then requires the text before the FIRST `.` to equal the `sub` of the
- * verified JWT. So the subject's `sub` must come first; this works only because a surrogate `sub` is
- * a dotless UUID. Put the tabId or the scope first and the Gateway answers 403 "identity mismatch",
- * which reads as a token problem and sends a debugger in entirely the wrong direction.
+ * ⚠️ **The SEGMENT ORDER is load-bearing, not stylistic.** The Worker refuses an upgrade whose id
+ * does not begin with the token's `sub` and a `.`, and the child's token is the subject's. So the
+ * subject's `sub` must come first; this works only because a surrogate `sub` is a dotless UUID. Put
+ * the tabId or the scope first and the upgrade answers 403 "identity mismatch", which reads as a
+ * token problem and sends a debugger in entirely the wrong direction.
  *
  * The scope's dots become dashes for readability only — everything after the first `.` is free.
  */

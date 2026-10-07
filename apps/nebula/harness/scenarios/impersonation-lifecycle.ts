@@ -30,6 +30,7 @@ import {
 } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
+import { debugLines } from '../lib/stdio';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
@@ -37,7 +38,7 @@ import {
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 
 export const needsContainer = false;
-export const bootVars = { DEBUG: 'nebula-auth.facade.impersonate' };
+export const bootVars = { DEBUG: 'nebula-auth.facade.impersonate,lmz.mesh.ClientGateway.acceptUpgrade' };
 
 /** Outside the client's 30s refresh-ahead window, so nothing here re-mints on its own. */
 const SAFE_TTL = 300;
@@ -214,6 +215,8 @@ export async function run(stack: DevStack): Promise<void> {
   // subject's real token.
   // Per-limb mutation (live.md): hard-code the mint's `scopeAdmin` to false → the bit comparison
   // below reds while limb 1's sub/act/aud assertions stay green.
+  // `below` is a second subject at the Star, which the later limbs impersonate beside the first.
+  let below!: Awaited<ReturnType<typeof inviteAndLogin>>;
   {
     const subjectClaims = parseJwtUnsafe(subject.accessToken)!.payload as any;
     // Concrete-value anchors FIRST: the mirror comparisons below would pass vacuously as
@@ -236,7 +239,7 @@ export async function run(stack: DevStack): Promise<void> {
     // design, not a gap. The same call on the subject's own token, for someone beneath them, mints —
     // the positive control. Both go straight to the facade, past the client's own pre-flight, which
     // limb 2 covers. Mutation: drop the mint's `act` gate → the derived token mints → reds.
-    const below = await inviteAndLogin(
+    below = await inviteAndLogin(
       stack, star, { accessToken: subject.accessToken, sub: subject.sub },
       `below-${suffix}@lumenize-test.dev`, testToken,
     );
@@ -264,6 +267,26 @@ export async function run(stack: DevStack): Promise<void> {
   );
   assert.equal(mintRequests, mintsBeforeChain, 'the chain refusal must happen BEFORE any call');
 
+  // ── 2b. The child is hosted by its parent's host node, and a second child of one subject is refused
+  // The child connects on its parent's page, so the Star holds its socket beside its parent's under an
+  // id of its own. A second child of the same subject from this tab would share that id, so
+  // `impersonate()` refuses it before any call. Mutation: drop the check → the second child mints,
+  // and its upgrade closes the first child's socket with 4409 → the rejection below never comes.
+  if (stack.logs) {
+    const name = `${star}/${child.lmz.instanceName}`;
+    await until(`the Star to hold ${name}`, () => debugLines(stack.logs!()).some((e) =>
+      e.message === 'WebSocket connection accepted' && e.data.instanceName === name));
+  } else {
+    console.error('[impersonation-lifecycle] limb 2b host: not observable on a deployed target');
+  }
+  const mintsBeforeSecond = mintRequests;
+  await assert.rejects(
+    () => adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL }),
+    (e: unknown) => (e as Error).name === 'ImpersonationAlreadyOpenError',
+    'a second child of one subject from one tab must be refused',
+  );
+  assert.equal(mintRequests, mintsBeforeSecond, 'the duplicate refusal must happen BEFORE any call');
+
   // ── 3. A failed FIRST mint rejects cleanly and leaves no half-registered child ──────────────────
   // Two refusals with different messages: one message could be satisfied by a build that hard-codes
   // it. The first is the mint's COLLAPSED refusal — an absent subject answers identically to one the
@@ -290,9 +313,10 @@ export async function run(stack: DevStack): Promise<void> {
   assert.equal(isTornDown(adminClient), false, 'a bare disconnect() must NOT mark the parent torn down');
   adminClient.connect();
   await connected(adminClient);
-  const afterPause = await adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
+  // The second subject, since the first's child is still open.
+  const afterPause = await adminClient.impersonate(below.sub, { ttlSeconds: SAFE_TTL });
   await connected(afterPause);
-  assert.equal(afterPause.claims.sub, subject.sub, 'the first mint after a pause must succeed');
+  assert.equal(afterPause.claims.sub, below.sub, 'the first mint after a pause must succeed');
 
   // ── 4b. A transport failure does not end a child ────────────────────────────────────────────────
   // The child's token is born due, so its `connect()` re-mints over the parent's socket — which the
@@ -300,6 +324,8 @@ export async function run(stack: DevStack): Promise<void> {
   // rejects as transport. Once the parent reconnects, the queued re-mint lands.
   // Mutation: classify any rejection but the typed refusal as terminal → the child ends
   // `disconnected` → reds.
+  // The first subject's child ends first, so this one is the subject's only open child.
+  child[Symbol.dispose]();
   const pausing = await adminClient.impersonate(subject.sub, { ttlSeconds: REMINT_TTL });
   await connected(pausing);
   pausing.disconnect();
@@ -313,13 +339,10 @@ export async function run(stack: DevStack): Promise<void> {
   await connected(pausing, 45_000);
   assert.equal(pausing.claims.sub, subject.sub, 'the re-minted child must still be the subject');
 
-  // ── 5. Two children coexist ─────────────────────────────────────────────────────────────────────
-  const secondChild = await adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
-  await connected(secondChild);
-  assert.notEqual(
-    secondChild.lmz.instanceName, adminClient.lmz.instanceName,
-    'a child must never share the parent Gateway name',
-  );
+  // ── 5. Children of two subjects coexist ─────────────────────────────────────────────────────────
+  assert.notEqual(afterPause.lmz.instanceName, pausing.lmz.instanceName, 'two subjects\' children must have different ids');
+  assert.notEqual(afterPause.lmz.instanceName, adminClient.lmz.instanceName, 'a child must never share its parent\'s id');
+  assert.equal(afterPause.connectionState, 'connected', 'the second subject\'s child must still be connected');
   assert.ok(childrenOf(adminClient).length >= 2, 'the parent must hold its live children');
 
   // ── 6. child.logout() is CHILD-ONLY teardown — the admin's cookie must survive ─────────────────
@@ -347,20 +370,20 @@ export async function run(stack: DevStack): Promise<void> {
   assert.equal(probe.status, 200, "a child logout must NOT revoke the admin's refresh cookie");
   assert.equal(universeAdmin.connectionState, 'connected', 'the admin must stay connected');
 
-  // ── 7. A refusal ends a child ───────────────────────────────────────────────────────────────────
-  // The subject's membership goes with their Star, deleted by the admin above it. The child's next
-  // re-mint is then refused by the facade, and the refusal is terminal: the child ends.
-  // Mutation: classify the typed refusal as transient → the child keeps retrying and never settles
-  // on `disconnected` → reds.
-  const ending = await adminClient.impersonate(subject.sub, { ttlSeconds: REMINT_TTL });
+  // ── 7. Deleting the subject's Star ends the child ───────────────────────────────────────────────
+  // The subject's membership goes with their Star, deleted by the admin above it. The child acts on
+  // its parent's page, which is that Star, so the deletion closes its socket with 4410 and the child
+  // stops for good, before any re-mint could be refused; `impersonate-lifetime.test.ts`'s TERMINAL
+  // re-mint test covers a refusal. Its token is outside the refresh-ahead window, so a reconnect
+  // would need no mint. Mutation: let a Client reconnect on 4410 → the child reconnects into an
+  // empty Star and never settles on `disconnected` → reds.
+  pausing[Symbol.dispose]();
+  const ending = await adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL });
   await connected(ending);
   await universeAdmin.scopes.delete(star);
-  ending.disconnect();
-  ending.connect();
-  await until('the refused child to end', () => ending.connectionState === 'disconnected', 30_000);
+  await until('the child on the deleted Star to end', () => ending.connectionState === 'disconnected', 30_000);
   await sleep(3_000);
-  assert.equal(ending.connectionState, 'disconnected', 'a refused child must stay ended');
-  assert.equal(childrenOf(adminClient).includes(ending), false, 'an ended child must leave its parent');
+  assert.equal(ending.connectionState, 'disconnected', 'a child whose Star was deleted must stay ended');
 
   // ── 8. Disposing the parent tears the children down, and closes minting ─────────────────────────
   await adminClient.dispose();

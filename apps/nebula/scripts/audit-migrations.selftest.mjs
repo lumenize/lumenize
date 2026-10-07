@@ -10,6 +10,9 @@
  *   (e) a `Profil` export (a PREFIX of the real `Profile`) not re-exported → re-export red
  *       (a SUBSTRING grep for `Profil` false-passes on `Profile` — this proves we PARSE, not grep)
  *   (f) malformed JSONC                                   → parse failure, NOT a vacuous pass
+ *   (g) a tombstoned (`"state": "deleted"`) class still bound → still-bound red
+ *   The baseline itself carries a tombstone that worker.ts does not re-export, so it proves a
+ *   deleted export is left out of the counts and the re-export check.
  *
  * Plain Node (no vitest/tsc): the gate is a tooling script, and `scripts/**` is outside the
  * tsconfig/vitest globs. Run: `node scripts/audit-migrations.selftest.mjs`
@@ -61,8 +64,8 @@ expectRed('(b) Star missing from worker.ts',
 // (c) a durable-object export flipped to legacy-kv (non-SQLite → sync storage throws at runtime).
 expectRed('(c) durable-object export storage:legacy-kv',
   { wranglerJsonc: wranglerJsonc.replace(
-      '"NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" }',
-      '"NebulaClientGateway": { "type": "durable-object", "storage": "legacy-kv" }'), workerTs },
+      '"Universe": { "type": "durable-object", "storage": "sqlite" }',
+      '"Universe": { "type": "durable-object", "storage": "legacy-kv" }'), workerTs },
   /must be storage:"sqlite"/);
 
 // (d) NebulaEmailSender (a WorkerEntrypoint, not a DO) registered as a durable-object export.
@@ -82,4 +85,9 @@ expectRed('(f) malformed JSONC parse failure',
   { wranglerJsonc: '{ this is not json ]]', workerTs },
   /parse failed/);
 
-console.log(`\n✅ exports-audit selftest: ${passed} checks passed (baseline + 6 must-red mutations).`);
+// (g) a tombstoned class still bound: the binding would name a class the worker no longer has.
+expectRed('(g) a "state": "deleted" export still bound',
+  { wranglerJsonc: wranglerJsonc.replace('"bindings": [', '"bindings": [\n      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },'), workerTs },
+  /"state": "deleted" but still bound.*NebulaClientGateway/);
+
+console.log(`\n✅ exports-audit selftest: ${passed} checks passed (baseline + 7 must-red mutations).`);

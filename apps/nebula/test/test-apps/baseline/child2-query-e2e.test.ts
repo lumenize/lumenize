@@ -3,7 +3,7 @@
  *
  * Drives the PUBLIC `client.resources.subscribeQuery` (NOT a callXxx initiator —
  * the unit under test is client-side membership / windowed content subs / grace,
- * m7) over the full integration path (real JWTs, Gateway). Client A subscribes
+ * m7) over the full integration path (real JWTs, host node). Client A subscribes
  * `Message where session == S`; client B creates / reparents / deletes Messages; A's
  * `resourceIds` tracks the full ordered membership, content arrives via lazy
  * per-resource subs for the rendered window ONLY, a resource A loses read on falls

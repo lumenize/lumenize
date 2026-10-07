@@ -12,7 +12,7 @@ import { Browser } from '@lumenize/testing';
 import { REGISTRY_INSTANCE_NAME } from '@lumenize/nebula-auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
-import { adminClientAt, pageOf } from '../../test-helpers';
+import { adminClientAt, pageOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -22,11 +22,12 @@ function uniqueStar(): string {
   return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
-/** Close a client's socket from inside its Gateway, as the network would. */
-async function closeFromGateway(client: NebulaClientTest, code: number): Promise<void> {
-  const gateway = (env as any).NEBULA_CLIENT_GATEWAY.get((env as any).NEBULA_CLIENT_GATEWAY.idFromName(client.lmz.instanceName));
-  await (runInDurableObject as any)(gateway, (_instance: unknown, ctx: DurableObjectState) => {
-    for (const ws of ctx.getWebSockets()) ws.close(code, 'closed by the test');
+/** Close a client's socket from inside its host node, as the network would. */
+async function closeFromHost(client: NebulaClientTest, code: number): Promise<void> {
+  const [binding, scope] = addressOfClient(client).split('/');
+  const host = (env as any)[binding].getByName(scope);
+  await (runInDurableObject as any)(host, (_instance: unknown, ctx: DurableObjectState) => {
+    for (const ws of ctx.getWebSockets(`${scope}/${client.lmz.instanceName}`)) ws.close(code, 'closed by the test');
   });
 }
 
@@ -117,7 +118,7 @@ describe('NebulaClient re-subscribes when something was lost', () => {
   }, 60_000);
 
   // An explicit `disconnect()` and `connect()` is not a `reconnecting → connected` transition, and
-  // a connect this quick lands inside the grace period, so the Gateway reports nothing lost.
+  // a connect this quick lands inside the grace period, so the host node reports nothing lost.
   it('a subscribe whose frame was lost is sent again when a disconnected client connects again', async () => {
     const star = uniqueStar();
     const { client: a } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
@@ -162,13 +163,13 @@ describe('NebulaClient re-subscribes when something was lost', () => {
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
     ]);
     expect(snapshot?.value).toEqual({ title: 'again' });
-    // Fixture guard: the Gateway reported nothing lost, so no full restore sent the snapshot.
+    // Fixture guard: the host node reported nothing lost, so no full restore sent the snapshot.
     expect(told.at(-1)).toBe(false);
     a[Symbol.dispose]();
     b[Symbol.dispose]();
   }, 60_000);
 
-  it('the org tree is re-subscribed when the Gateway reports a loss, and not on a token rotation', async () => {
+  it('the org tree is re-subscribed when the host node reports a loss, and not on a token rotation', async () => {
     const star = uniqueStar();
     const { client } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     let trees = 0;
@@ -176,7 +177,7 @@ describe('NebulaClient re-subscribes when something was lost', () => {
 
     // This project's grace period is 100 ms, so a reconnect after the 1 s backoff is told
     // `subscriptionRequired: true`. MUTATION: leave the tree out of the walk, and none arrives.
-    await closeFromGateway(client, 4000);
+    await closeFromHost(client, 4000);
     await vi.waitFor(() => expect(client.connectionState).toBe('reconnecting'));
     await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10_000 });
     await vi.waitFor(() => expect(trees).toBe(1));

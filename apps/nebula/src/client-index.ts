@@ -6,7 +6,7 @@
  * Use this from Node.js test harnesses and unbundled browsers.
  *
  * The main `@lumenize/nebula` entry re-exports `Universe`, `Galaxy`, `Star`,
- * `NebulaClientGateway`, and the entrypoint — all of which transitively import
+ * and the entrypoint — all of which transitively import
  * `cloudflare:workers` and fail outside Workers. This file leaves them out and
  * exports only the client-side surface.
  *

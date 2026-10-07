@@ -61,7 +61,6 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "Star" },
@@ -171,7 +170,9 @@
   // (reached via nebula-pre-alpha.md:88) — its `migrations`-shaped steps are superseded by the exports-aware
   // audit; follow do-exports-and-toolchain-upgrade.md Phase 4, not the frozen narration.
   "exports": {
-    "NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    // Retired: each scope's node hosts its pages' Clients. The tombstone stays while any deployed
+    // worker still holds the class; a fresh deploy after a wipe emits no tombstones.
+    "NebulaClientGateway": { "type": "durable-object", "state": "deleted" },
     "Universe": { "type": "durable-object", "storage": "sqlite" },
     "Galaxy": { "type": "durable-object", "storage": "sqlite" },
     "Star": { "type": "durable-object", "storage": "sqlite" },

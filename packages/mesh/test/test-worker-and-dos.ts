@@ -1788,6 +1788,12 @@ export class ClientHostDO extends LumenizeDO<Env> implements ClientGatewayHost {
     return this.ctx.storage.kv.get(`answer:${tag}`);
   }
 
+  /** Close every hosted Client's socket with `code`, as a host about to be deleted does. */
+  @mesh()
+  closeEveryClient(code: number): void {
+    this.#clientGateway.closeAll(code, 'test host closing');
+  }
+
   onBeforeAccept(instanceName: string, sub: string): Response | undefined {
     const id = instanceName.slice(instanceName.indexOf('/') + 1);
     return id.startsWith(`${sub}.`) ? undefined : new Response('Forbidden: identity mismatch', { status: 403 });

@@ -22,6 +22,11 @@
  * well-formed agent reply landed durably, `replyTo`-linked to the posted message.
  * Generation quality is reported, not gated.
  *
+ * It also asserts where the turn's stream chunks go: the poster's tab is hosted by the Galaxy
+ * running the turn, so each chunk reaches it in place, as the Galaxy's `delivered in place` line
+ * says, and never by a Workers RPC to the Galaxy itself. Mutation: route a push to a Client this
+ * node hosts through a stub; the line is missing though the chunks still arrive.
+ *
  * Requires the `env.AI`-free REST lane: `WORKERS_AI_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in
  * `.dev.vars` (`runModel` prefers REST whenever the token is present). `CF_AI_GATEWAY` is
  * OPTIONAL and unset by default — see `#callModelRest`'s JSDoc for why that default is a
@@ -33,6 +38,9 @@ import type { Snapshot } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { debugLines } from '../lib/stdio';
+
+export const bootVars = { DEBUG: 'lmz.mesh.lmzApi.dispatchEnvelope' };
 
 /** A galaxy scope of this scenario's own (never shared — codegen writes source).
  *  Per-run unique for the same reason as `build-box.ts`: a deployed target's state is
@@ -65,10 +73,16 @@ export async function run(stack: DevStack): Promise<void> {
     });
     await sub.ready;
 
+    // Every chunk of this turn that reaches the poster's own tab.
+    let chunks = 0;
+    let replyTo: string | undefined;
+    driver.client.setOnStreamChunk((_messageId, _text, chunkReplyTo) => { if (chunkReplyTo === replyTo) chunks += 1; });
+
     const t0 = Date.now();
     const userMessageId = await driver.client.postUserMessage(
       'Add a button labelled Ping that appends the word pong to a list.',
     );
+    replyTo = userMessageId;
 
     // The completion observation: a SECOND Message appears whose replyTo is the posted id.
     const deadline = Date.now() + TURN_TIMEOUT_MS;
@@ -93,6 +107,22 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok((v.thought ?? '').length > 0,
       'thought must be non-empty — it is assembled from the parsed model turn, so an empty one means ' +
       'nothing came back from the model even though a Message landed');
+
+    // The chunks: the Galaxy hosts the poster's tab, so it delivers each one in place.
+    assert.ok(chunks > 0, 'no stream chunk of the turn reached the poster\'s tab');
+    const address = `${SCOPE}/${driver.client.lmz.instanceName}`;
+    if (stack.logs === undefined) {
+      console.error('[studio-codegen-rest] in-place delivery is not observable on a deployed target');
+    } else {
+      // The stdio reaches this process late and in bursts, so the count waits for it to catch up.
+      const inPlaceCount = () => debugLines(stack.logs!()).filter((e) => e.message === 'delivered in place'
+        && e.data.bindingName === 'GALAXY' && e.data.instanceName === address).length;
+      const caughtUp = Date.now() + 15_000;
+      while (inPlaceCount() < chunks && Date.now() < caughtUp) await new Promise((r) => setTimeout(r, 200));
+      const inPlace = inPlaceCount();
+      assert.ok(inPlace >= chunks,
+        `${chunks} chunk(s) reached the tab, but the Galaxy logged ${inPlace} in-place delivery(ies) to ${address}`);
+    }
 
     console.error(`[studio-codegen-rest] turn completed in ${elapsed}s`);
     console.error(`[studio-codegen-rest] reply: ${v.content}`);

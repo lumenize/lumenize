@@ -29,8 +29,8 @@ import { isOntologyStaleError, NoOntologyInstalledError } from './errors';
 // on the package barrel, and Node/browser-safe like the rest of this file.
 import {
   INTERNAL_REFRESH, INTERNAL_PARENT, assertCanImpersonate, childInstanceName, parentTabIdFrom,
-  mintImpersonation, registerChild, deregisterChild, onClientTornDown, isTornDown,
-  ImpersonationMintError,
+  mintImpersonation, registerChild, deregisterChild, childrenOf, onClientTornDown, isTornDown,
+  ImpersonationMintError, ImpersonationAlreadyOpenError,
   type ChildConfigBase, type ImpersonateOptions, type RefreshFn,
 } from './impersonation';
 import {
@@ -249,7 +249,7 @@ export interface ReadOptions {
   ontologyVersion?: string;
 }
 
-export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {
+export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName' | 'hostFromHostname'> {
   /**
    * The platform host's origin, `https://platform.lumenize.dev`, where every refresh goes. The
    * browser sends the platform host's cookies with it and names this page in `Origin`, and the
@@ -335,9 +335,9 @@ function isInstalling(result: unknown): boolean {
 }
 
 /**
- * Default ceiling on a subscribe's wait for its first push. Matches the Gateway's own
+ * Default ceiling on a subscribe's wait for its first push. Matches the host node's own
  * `CLIENT_CALL_TIMEOUT_MS` deliberately: the leg this bound covers ENDS at a mesh→client push, so a
- * client that gave up sooner would abandon subscribes the Gateway is still willing to deliver.
+ * client that gave up sooner would abandon subscribes its host node is still willing to deliver.
  */
 const SUBSCRIBE_TIMEOUT_MS = 30000;
 
@@ -549,7 +549,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #orgTreeListener: ((state: OrgTreeState) => void) | null = null;
 
   /**
-   * Active subscriptions registry. Used by the re-subscribe walk when the Gateway reports a loss
+   * Active subscriptions registry. Used by the re-subscribe walk when the host node reports a loss
    * or the admin verdict changes, and by refcount-with-grace. The entry is minimal — just enough to
    * know what's subscribed.
    */
@@ -686,7 +686,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // `#state`) directly. No closure-variable workaround needed.
     super({
       ...baseConfig,
-      gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+      // The page's host names the node that hosts this Client, so the upgrade names only its id:
+      // `/gateway/alice.9f2c41aa` on `tenant1.crm.acme.lumenize.dev` reaches the Star `acme.crm.tenant1`.
+      hostFromHostname: true,
       refresh: async () => {
         const minted = await refreshFn();
         // The page's scope is the token's `aud`, set by the server from this page's host. Learned
@@ -699,7 +701,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // Every connection after the first restores only what may be missing: a subscribe whose
         // first snapshot has not arrived, or everything when the token's admin verdict changed. That
         // covers a reconnect and an explicit `disconnect()` then `connect()` alike. Everything else
-        // comes from `onSubscriptionRequired`, which the Gateway's report triggers,
+        // comes from `onSubscriptionRequired`, which the host node's report triggers,
         // and which runs just after this callback on the same connection — hence the microtask. The
         // in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the drop
         // and its RESULT re-resolves to the new socket.
@@ -998,13 +1000,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * session dies with this client rather than at term.
    *
    * ⚠️ **Precondition:** this client must already have an `instanceName` — it has connected at least
-   * once, or was constructed with one — because the child's Gateway name derives from this one's
+   * once, or was constructed with one — because the child's id derives from this one's
    * tabId. A *paused* (`disconnect()`ed) or *expired-token* parent is fine — its mint waits for the
    * reconnect and refreshes its own token first; a never-connected one is not.
    *
    * @param sub The subject's surrogate `sub` — the person to act as.
    * @throws {ImpersonationChainError} when this client is itself impersonating — before any network
    *   call. Impersonation does not chain.
+   * @throws {ImpersonationAlreadyOpenError} when this client already has an open child acting as
+   *   `sub` — before any network call. Dispose that child first.
    * @throws {ImpersonationMintError} when the facade refuses, carrying its message.
    */
   async impersonate(sub: string, opts?: ImpersonateOptions): Promise<NebulaClient> {
@@ -1019,6 +1023,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // The child acts on this client's page, so its scope is this one's; a parent that holds a token
     // has learned it.
     const activeScope = this.#activeScope ?? await this.#activeScopeKnown;
+    // A second child of one subject from this tab would share the first's id, and its host node
+    // would close the first's socket on the second's upgrade, so it is refused before any mint.
+    const instanceName = childInstanceName(sub, parentTabIdFrom(this.lmz.instanceName), activeScope);
+    if (childrenOf(this).some((c) => (c as NebulaClient).lmz.instanceName === instanceName)) {
+      throw new ImpersonationAlreadyOpenError(
+        `This tab is already impersonating ${sub}; dispose that client before opening another.`,
+      );
+    }
     // Assigned immediately after construction; see the TDZ note in the terminal branch below.
     let childRef: NebulaClient | undefined;
     const mint = async () => {
@@ -1041,7 +1053,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const child = new NebulaClient({
       ...this.#childConfigBase,
       accessToken: minted.access_token,
-      instanceName: childInstanceName(sub, parentTabIdFrom(this.lmz.instanceName), activeScope),
+      instanceName,
       [INTERNAL_REFRESH]: (async () => {
         try {
           return await mint();
@@ -1244,7 +1256,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * The Gateway says this client's subscriptions may be gone — a first connection, or a reconnect
+   * The host node says this client's subscriptions may be gone — a first connection, or a reconnect
    * after a delivery to it failed or past the grace period — so every live one is sent again. Then the config's handler runs, as the base class's does.
    */
   override onSubscriptionRequired(): void {
@@ -1254,7 +1266,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     super.onSubscriptionRequired();
   }
 
-  /** What a reconnect the Gateway does not report as a loss still restores. */
+  /** What a reconnect the host node does not report as a loss still restores. */
   #afterReconnect(): void {
     if (this.#restoredOnThisConnection) return;
     if (this.#scopeAdminChanged) {
@@ -1269,7 +1281,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Note a new token's `access.scopeAdmin`. A changed verdict under the same `sub` means a host
    * decided what each subscription may see by the old one, so the next reconnect restores them all
    * — the socket that reconnect opens carries the new token. A changed `sub` needs nothing here:
-   * the client moves to a fresh Gateway, which reports `subscriptionRequired: true`.
+   * the client reconnects under a new id, which its host node has no record of, so it reports
+   * `subscriptionRequired: true`.
    */
   #noteScopeAdmin(accessToken: string): void {
     const verdict = scopeAdminOf(accessToken);
@@ -1281,7 +1294,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /**
    * Re-issue every live subscription: every `#subscriptionRegistry` entry, every global-Profile
    * sub, every query and roster watcher, and the org tree when a listener renders it. Run when the
-   * Gateway reports the subscriptions may be gone, or the token's admin verdict changed.
+   * host node reports the subscriptions may be gone, or the token's admin verdict changed.
    *
    * Unconditional, no dedupe-on-pending, through `#hostCall` rather than `#subscribeResource`,
    * whose coalesce path piggybacks on a pending entry without sending a fresh subscribe. The
@@ -1333,7 +1346,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * Send again every subscribe whose first snapshot has not arrived. One sent just as a socket
-   * closed may never have reached its host, and a reconnect the Gateway reports nothing lost on
+   * closed may never have reached its host, and a reconnect the host node reports nothing lost on
    * restores nothing else.
    */
   #resendPendingSubscribes(): void {
@@ -2186,7 +2199,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * `Profile`. Two jobs (mirrors `handleResourceUpdate`): mirror the snapshot into the store via the
    * factory's `#profileListener` (→ `store.lmz.profiles[profileId]`) and settle a pending
    * `subscribeProfile().snapshot` (first-call-wins). `result === null` (absent profile) writes nothing.
-   * An Error rejects the pending Promise (no state write). `@mesh()` — a remotely dispatched Gateway push.
+   * An Error rejects the pending Promise (no state write). `@mesh()` — a push, delivered by the host node.
    */
   @mesh()
   handleProfileUpdate(profileId: string, result: Snapshot | null | Error): void {
@@ -2290,7 +2303,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * watcher query). Correlated by the locally-computed `queryHash`; a push for an unknown/disposed
    * `queryHash` is ignored (a late/racing push can't resurrect a disposed watcher). On a roster: deliver
    * it to the factory's registered listener (→ `store.lmz.querySubscribers.*`, keyed by the entry's
-   * query + optional name) and settle `ready`. On an Error: reject `ready`. `@mesh()` — a Gateway push.
+   * query + optional name) and settle `ready`. On an Error: reject `ready`. `@mesh()` — a push.
    */
   @mesh()
   handleQuerySubscribersUpdate(queryHash: string, result: SubscriberRosterPayload | Error): void {
@@ -2320,7 +2333,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * into the ephemeral {@link #streamingMessages} cache + fires the optional live hook.
    * NOT durable: reconciled away when the durable `Message` lands ({@link handleResourceUpdate}),
    * or lost on reload (the durable Message restores via the query sub). `@mesh()` — a
-   * remotely dispatched Gateway push, like `handleQueryUpdate`/`handleResourceUpdate`.
+   * push, like `handleQueryUpdate`/`handleResourceUpdate`.
    */
   @mesh()
   handleStreamChunk(messageId: string, progress: string, replyTo?: string): void {
@@ -2402,7 +2415,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Receive the Galaxy's build reply — "your preview has a new dist" (direct delivery,
    * addressed to this client's `instanceName`, so it survives a WS reconnect during the
    * build). Invokes the `onPreviewReady` hook so the UI can refresh the preview iframe.
-   * `@mesh()` because it arrives over the Gateway like the other pushes.
+   * `@mesh()` because it arrives as a push like the others.
    */
   @mesh()
   handlePreviewReady(scope: string): void {
@@ -2412,6 +2425,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   // No onBeforeCall override — NebulaClient inherits the base LumenizeClient default, which refuses
   // a call whose immediate caller is another client and accepts DO/Worker-mediated pushes (Star
   // fanout, transaction/read result). That default is the ONLY check on a call from another tab:
-  // NebulaClientGateway.onBeforeCallToClient checks a node sender's passage and leaves a client
+  // the host node's `requirePassageIntoSender` checks a node sender's passage and leaves a client
   // sender to this class. An override added here MUST call super.onBeforeCall().
 }

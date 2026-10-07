@@ -152,8 +152,8 @@ export interface ResourcesResults {
   onInviteResult(nodeId: string, tiers: Record<string, PermissionTier>, result?: unknown): Promise<void>;
   /** A source's answer — a Star's `getCurrentOntology()` fire-back. Installs a row it has not. */
   onOntologyPulled(result?: unknown): void;
-  /** The reapers: each drops the row of the tab its Gateway reports gone — the tab from
-   *  `callContext.callee`, the fire-back's last hop, which the Gateway writes — if the row is no
+  /** The reapers: each drops the row of the tab its host node reports gone — the tab from
+   *  `callContext.callee`, the fire-back's last hop, which that host node writes — if the row is no
    *  newer than `sentAt`, the time the failed push was sent. A re-subscribe that lands first keeps
    *  its row. */
   onBroadcastResult(resourceId: string, sentAt: string, result?: unknown): void;
@@ -255,7 +255,7 @@ export class Resources {
 
   /**
    * Every subscription update leaves here: one `lmz.broadcast`, to one tab or to many. `onResult`
-   * hears each failed delivery: a reaper that drops a target the Gateway reports gone, or, for a
+   * hears each failed delivery: a reaper that drops a target its host node reports gone, or, for a
    * push no subscriber row stands behind, `onPushUndelivered`, which logs it.
    */
   #send<T>(targets: BroadcastTarget[], remote: Continuation<T>, onResult: AnyContinuation): void {
@@ -839,7 +839,7 @@ export class Resources {
   }
 
   /** A roster update — the query's roster, or an Error for a rejected watcher query. Its reaper
-   *  drops a watcher the Gateway reports gone from the roster rows only, never the query rows,
+   *  drops a watcher its host node reports gone from the roster rows only, never the query rows,
    *  so a client that is also a data-subscriber of the query keeps that row. */
   #sendRoster(targets: BroadcastTarget[], queryHash: string, result: SubscriberEntry[] | Error): void {
     this.#send(targets, this.#ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, result),
@@ -847,7 +847,7 @@ export class Resources {
   }
 
   /** Drop one resource subscription — `requests.unsubscribe` for the caller's own row, and the
-   *  `results.onBroadcastResult` for a tab the Gateway reports gone, which passes `sentAt`. */
+   *  `results.onBroadcastResult` for a tab its host node reports gone, which passes `sentAt`. */
   removeSubscriber(resourceId: string, clientAddress: string, sentAt?: string): void {
     this.#subscriptions.removeResource(resourceId, clientAddress, sentAt);
   }
@@ -1208,7 +1208,7 @@ export class Resources {
   }
 
   /** A query update — the membership, or an Error for a rejected query. Its reaper drops a
-   *  query subscriber the Gateway reports gone, keyed by `queryHash`. */
+   *  query subscriber its host node reports gone, keyed by `queryHash`. */
   #sendQueryUpdate(targets: BroadcastTarget[], queryHash: string, result: QueryUpdatePayload | Error): void {
     this.#send(targets, this.#ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
       this.#ctn<ResourcesHost>().resourcesResults.onQueryBroadcastResult(queryHash, new Date().toISOString()));
@@ -1256,7 +1256,7 @@ export class Resources {
    * Resource-mutation broadcast — invoked from `Snapshots.transaction` via the
    * `onMutations` callback after a successful commit. Looks up subscribers per
    * mutated resource, excludes the originator, and sends each what it may see, with the
-   * resource reaper for a tab the Gateway reports gone.
+   * resource reaper for a tab its host node reports gone.
    *
    * **Every subscriber is rechecked on every update, and told the result.** A reader gets the
    * committed snapshot. A subscriber who cannot read it gets `{ deniedNodes: [nodeId] }` — nothing

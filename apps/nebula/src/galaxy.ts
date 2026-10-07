@@ -115,10 +115,6 @@ const registryPath = (version: string) => `${REGISTRY_DIR}/${version}.json`;
  *  stamps it at append; the job never writes it. */
 type RegistryFile = OntologyVersionRow & { appliedAt: string };
 
-/** The per-client Gateway DO — codegen results and stream chunks are delivered back to
- *  the originating client through it (direct delivery, addressed by the client's stable
- *  instanceName, so it survives a WS drop+reconnect during a long turn). */
-
 /** The ontology source file — compiled to the runtime validator (the ontology is just
  *  another source file in the Workspace). */
 const ONTOLOGY_PATH = 'src/ontology.d.ts';

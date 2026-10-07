@@ -2,7 +2,7 @@
  * Galaxy @mesh surface + resource facet (the `dev-studio` project — its name predates
  * the collapse of DevStudio into Galaxy).
  *
- * Two things, neither needing a Gateway/client:
+ * Two things, neither needing a client:
  *  1. **Frozen surface, in THREE tiers plus what the door hands back.** Every entry reachable
  *     on the Galaxy's whole prototype chain: the bare `@mesh()` door `resources` and the
  *     registry and config reads; the source entries — every entry `LOOP_TOOL_ENTRIES` names plus

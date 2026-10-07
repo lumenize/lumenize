@@ -17,11 +17,15 @@ import {
 
 /** The deployment this lane's Worker serves — `LUMENIZE_ORIGIN` in its `wrangler.jsonc`. */
 /**
- * A Client's address as a subscription row stores it: the binding and instance name its
- * server-side half stamps on `callChain[0]`, joined, such as `NEBULA_CLIENT_GATEWAY/alice.9f2c41aa`.
+ * A Client's address as a subscription row stores it: its host node's binding and scope, then its
+ * id, such as `STAR/acme.crm.tenant1/alice.9f2c41aa`. The host is the page's scope, which is the
+ * token's `aud`.
  */
-export function addressOfClient(client: { lmz: { bindingName: string; instanceName: string } }): string {
-  return `${client.lmz.bindingName}/${client.lmz.instanceName}`;
+export function addressOfClient(client: { claims: { aud?: string } | null; lmz: { instanceName: string } }): string {
+  const scope = client.claims?.aud;
+  if (!scope) throw new Error('addressOfClient: the client holds no token yet, so its host is unknown');
+  const binding = ['UNIVERSE', 'GALAXY', 'STAR'][scope.split('.').length - 1];
+  return `${binding}/${scope}/${client.lmz.instanceName}`;
 }
 
 export const DEPLOYMENT = 'http://lumenize.localhost';
@@ -241,7 +245,7 @@ export async function bootstrapAdmin(
 /**
  * Create a subject via admin invite + magic link flow.
  *
- * The invite rides the MESH — `NebulaClient.invite` → Gateway → `NEBULA_AUTH_FACADE` — the one
+ * The invite rides the MESH — `NebulaClient.invite` → its host node → `NEBULA_AUTH_FACADE` — the one
  * production surface (there is no HTTP invite route). The admin token this helper is handed backs
  * a short-lived client for exactly that call: a handed token on a client of the SAME identity is
  * the sanctioned shape (testing.md — renewal never runs inside this one-call lifetime), and it

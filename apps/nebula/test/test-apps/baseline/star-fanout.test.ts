@@ -21,7 +21,7 @@ function uniqueStar(): string {
 }
 
 // Two distinct admin clients on the same Star — different browsers means
-// different Gateway instances means different client addresses, even though the
+// different tabIds means different client addresses, even though the
 // underlying `sub` (user identity) is the same. Sufficient for fanout
 // testing: originator exclusion is keyed on the client's address.
 async function twoAdminClients(star: string) {

@@ -4,7 +4,7 @@
  * `originAuth` and call chain as it arrives (`NebulaClientTest.pushOrigins`).
  *
  * Every update leaves through the plane's one `lmz.broadcast`, which starts a fresh chain at the
- * host by default, and the tab's Gateway checks the tab's passage into the sender rather than any
+ * host by default, and the tab's host node checks the tab's passage into the sender rather than any
  * claim the push carries.
  *
  * Two positive controls:
@@ -27,7 +27,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, TransactionResult } from '@lumenize/nebula';
-import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar } from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { StarTest } from './index';
 
@@ -62,7 +62,7 @@ describe('no subscription update carries the identity of the caller whose call c
     const { client: probe, payload: probeP } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'probe@example.com');
 
     await admin.lmz.callAsync('STAR', star,
-      admin.ctn<StarTest>().callClient(probe.lmz.instanceName!, 'handleOrgTreeUpdate', { value: {} }));
+      admin.ctn<StarTest>().callClient(addressOfClient(probe), 'handleOrgTreeUpdate', { value: {} }));
     await vi.waitFor(() => expect(probe.pushOrigins.some((p) => p.handler === 'handleOrgTreeUpdate')).toBe(true));
 
     const arrived = probe.pushOrigins.find((p) => p.handler === 'handleOrgTreeUpdate')!;

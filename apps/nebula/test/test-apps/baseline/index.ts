@@ -12,7 +12,6 @@ import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 
 // Re-export DO classes and entrypoint for wrangler bindings
 export {
-  NebulaClientGateway,
   Universe,
   NebulaAuthFacade,
   PlatformHost,
@@ -172,11 +171,12 @@ export class StarTest extends Star {
   }
 
   @mesh(requireDominionHere)
-  callClient(targetGatewayInstanceName: string, clientMethod: string, ...args: any[]): void {
+  callClient(clientAddress: string, clientMethod: string, ...args: any[]): void {
     const ctn = this.ctn() as any;
+    const { bindingName, instanceName } = splitAddress(clientAddress);
     this.lmz.call(
-      'NEBULA_CLIENT_GATEWAY',
-      targetGatewayInstanceName,
+      bindingName,
+      instanceName,
       ctn[clientMethod](...args),
       ctn.recordClientCallOutcome(),
       { onErrorOnly: true },
@@ -192,7 +192,7 @@ export class StarTest extends Star {
     this.lmz.call(bindingName, instanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
   }
 
-  /** The handler, at this node's fire-back door. The Gateway fires back a refusal's Error or the
+  /** The handler, at this node's fire-back door. The client's host node fires back a refusal's Error or the
    *  Client's answer, and this records refusals only. */
   recordClientCallOutcome(result?: unknown): void {
     if (result instanceof Error) this.ctx.storage.kv.put('client_call_outcome', result.message);
@@ -344,10 +344,10 @@ export class StarTest extends Star {
   /**
    * Test-only: spike handler for the ws.send flush experiment in
    * `tasks/gateway-hop-benchmark.md`. Forces a known-duration await on the
-   * Star side; the Gateway's invocation is paused at
+   * Star side; the host node's invocation is paused at
    * `await stub.__executeOperation(envelope)` for at least `delayMs`. The
    * spike test pairs this with a `BENCH_MARKER` frame emitted from the
-   * Gateway's `onBeforeCallToMesh` hook (before that await) to measure
+   * host node's `onBeforeCallToMesh` hook (before that await) to measure
    * whether the marker reaches the client mid-invocation (~delayMs ahead
    * of the response) or coincident with it.
    *
@@ -482,7 +482,7 @@ export class GalaxyTest extends Galaxy {
     this.lmz.call(bindingName, instanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
   }
 
-  /** The handler, at this node's fire-back door. The Gateway fires back a refusal's Error or the
+  /** The handler, at this node's fire-back door. The client's host node fires back a refusal's Error or the
    *  Client's answer, and this records refusals only. */
   recordClientCallOutcome(result?: unknown): void {
     if (result instanceof Error) this.ctx.storage.kv.put('client_call_outcome', result.message);
@@ -746,7 +746,7 @@ export class NebulaClientTest extends NebulaClient {
     this.orgTreeUpdateCount = 0;
   }
 
-  // --- Mesh-callable methods (DOs call these through the Gateway) ---
+  // --- Mesh-callable methods (DOs call these through the client's host node) ---
 
   @mesh()
   echo(message: string): string {

@@ -2,9 +2,9 @@
  * Drop-on-failed-fanout subscriber cleanup
  *
  * When a client closes its WebSocket and doesn't reconnect within the
- * Gateway's grace period, that client's resource rows leak. The
+ * host node's grace period, that client's resource rows leak. The
  * cleanup mechanism is **reactive**, not proactive: the next time the plane's broadcast
- * (`this.lmz.broadcast`) tries to push to that client, the Gateway fires back
+ * (`this.lmz.broadcast`) tries to push to that client, its host node fires back
  * `ClientDisconnectedError`, and the Star's `resourcesResults.onBroadcastResult` — the `onResult`
  * partial `lmz.broadcast` completes per target — deletes the offending row at the Star's fire-back door.
  *
@@ -80,17 +80,17 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     expect(rowsBefore).toHaveLength(2);
     const aAddress = addressOfClient(a.client);
 
-    // Disconnect b. b's WebSocket closes; b's Gateway starts its grace period,
+    // Disconnect b. b's WebSocket closes; b's host node starts its grace period,
     // 100 ms here (per vitest.config.js LUMENIZE_MESH_GRACE_PERIOD_MS).
     b.client.disconnect();
 
-    // Wait past the grace period so b's Gateway is fully "disconnected"
+    // Wait past the grace period so b's host node holds it fully "disconnected"
     // (no active WS, no pending alarm). Generous margin to absorb any
     // miniflare-induced latency.
     await new Promise((r) => setTimeout(r, 500));
 
     // a triggers a mutation. The plane's broadcast fans out via lmz.broadcast; one of
-    // its targets is b (disconnected). b's Gateway fires back
+    // its targets is b (disconnected). b's host node fires back
     // ClientDisconnectedError → resourcesResults.onBroadcastResult deletes b's row.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
       [resourceId]: { op: 'put', eTag, value: { title: 'Updated by a' } },

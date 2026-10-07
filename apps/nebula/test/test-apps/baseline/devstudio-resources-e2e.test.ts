@@ -71,7 +71,7 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
   it('fans a Message mutation out to a SECOND subscriber client (push to other subscribers)', async () => {
     const scope = uniqueChatScope();
     const { client: a } = await devAdmin(scope);
-    // Distinct Browser ⇒ distinct Gateway ⇒ distinct client address (the fanout is keyed
+    // Distinct Browser ⇒ distinct tabId ⇒ distinct client address (the fanout is keyed
     // on it, so b's put fans out to a, the non-originator subscriber).
     const { client: b } = await devAdmin(scope);
     const messageId = crypto.randomUUID();

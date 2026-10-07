@@ -18,7 +18,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject, browserLogin, ORIGIN, pageOf } from '../../test-helpers';
-import { ImpersonationChainError, ImpersonationMintError, childrenOf } from '../../../src/impersonation';
+import { ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown } from '../../../src/impersonation';
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 
 /** Comfortably outside the client's 30s refresh-ahead window, so construction does not re-mint. */
@@ -163,7 +163,7 @@ describe('impersonate() — the mint', () => {
 describe('impersonate() — two children coexist', () => {
   // The ONLY criterion protecting two load-bearing decisions: "an admin may want two subjects live
   // at once" (which rejects a mode flag on one client) and the scope segment in the child's name.
-  // The failure it catches is SILENT — the Gateway names one DO per instanceName, so a colliding
+  // The failure it catches is SILENT — the host node holds one socket per id, so a colliding
   // pair supersedes each other's socket rather than erroring.
   it('two different subjects, from one parent', async () => {
     const { star, admin, adminToken } = await adminAndMember('m1@example.com');
@@ -185,6 +185,26 @@ describe('impersonate() — two children coexist', () => {
     expect(c2.claims.sub).toBe(m2.sub);
     expect(childrenOf(admin).length).toBe(2);
     c1.disconnect(); c2.disconnect(); admin.disconnect();
+  });
+
+  // Two children of ONE subject from one tab share an id, so the second's upgrade would close the
+  // first's socket with 4409. `impersonate()` refuses it before minting; a disposed child frees it.
+  it('one subject twice from one parent is refused until the first child is ended', async () => {
+    const { admin, member } = await adminAndMember();
+    const c1 = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
+    await vi.waitFor(() => expect(c1.connectionState).toBe('connected'));
+
+    // Mutation: drop the check in `impersonate()`, and the second mints and opens beside the first.
+    await expect(admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL }))
+      .rejects.toMatchObject({ name: 'ImpersonationAlreadyOpenError' });
+    expect(childrenOf(admin)).toEqual([c1]);
+
+    // Positive control: once the first child is ended, the same subject opens again.
+    c1[Symbol.dispose]();
+    expect(isTornDown(c1)).toBe(true);
+    const c2 = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
+    await vi.waitFor(() => expect(c2.connectionState).toBe('connected'));
+    c2.disconnect(); admin.disconnect();
   });
 
 });

@@ -29,7 +29,7 @@ are because of helpers we used to test during the task file build"*).
 **Where it bit (2026-09-02):** local `wrangler dev` inferred its host from `wrangler.jsonc`'s
 `routes`, so every login link a local stack emailed pointed at **production** — 22 green scenarios,
 found by one hand-driven click. Both fixes were to the environment and the code, never a helper:
-`apps/nebula/scripts/local-config.mjs` strips `routes`, and the Gateway stamps the upgrade's origin
+`apps/nebula/scripts/local-config.mjs` strips `routes`, and a Client's host node stamps the upgrade's origin
 into `callContext.originRequest` so a mesh-borne facade mints from it rather than the issuer. ⇒
 **Every emailed link is now followed AS SENT in every lane**, which is the property to defend: a new
 host-rewriting helper is a regression of this rule, whatever its JSDoc says.

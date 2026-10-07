@@ -263,8 +263,8 @@ export class Subscriptions {
   }
 
   /**
-   * Drop one resource row, on the Gateway's `ClientDisconnectedError` or an unsubscribe. Dropping is
-   * safe however soon the tab comes back: the Gateway tells its next connection
+   * Drop one resource row, on the host node's `ClientDisconnectedError` or an unsubscribe. Dropping is
+   * safe however soon the tab comes back: its host node tells its next connection
    * `subscriptionRequired: true`, inside the grace period or past it, and closes a socket still open
    * with 4408, so the tab re-subscribes either way.
    *

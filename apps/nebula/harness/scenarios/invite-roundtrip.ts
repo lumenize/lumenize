@@ -62,9 +62,12 @@ export async function run(stack: DevStack): Promise<void> {
   const inviteeBrowser = new Browser();
   const waiter = waitForEmail({ testToken, instance: star, to: inviteeEmail, timeout: 60_000 });
   try {
+    // On the universe's page, with the token that page's refresh mints: the node a page's host
+    // names accepts no token for another host.
+    const onUniverse = await refreshAccessToken(origin, adminSession.session, universe);
     admin = await connectDriver(stack, {
       scope: universe,
-      session: { accessToken: adminSession.accessToken, sub: adminSession.sub },
+      session: { accessToken: onUniverse.accessToken, sub: onUniverse.sub },
     });
 
     // ── LIMB 1: the synchronous per-invitee summary, URL-free ────────────────────────────────────

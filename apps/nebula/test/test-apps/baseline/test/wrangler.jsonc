@@ -6,7 +6,6 @@
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
-      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "GalaxyTest" },
       { "name": "STAR", "class_name": "StarTest" },
@@ -20,7 +19,6 @@
     { "binding": "REFRESH_TOKEN_KV", "id": "nebula-baseline-refresh-token-kv-test" }
   ],
   "exports": {
-    "NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" },
     "Universe": { "type": "durable-object", "storage": "sqlite" },
     "GalaxyTest": { "type": "durable-object", "storage": "sqlite" },
     "StarTest": { "type": "durable-object", "storage": "sqlite" },

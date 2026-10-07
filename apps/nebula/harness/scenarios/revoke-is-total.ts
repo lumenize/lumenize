@@ -70,7 +70,10 @@ export async function run(stack: DevStack): Promise<void> {
   // close.
   const admin = await connectDriver(stack, { scope: universe, email: person });
   try {
-    await admin.client.scopes.delete(universe);
+    // The page's own scope goes, so its socket closes before the answer can arrive and the call
+    // rejects with `HostDeletedError`: the delete happened, as Studio's confirmation reads it.
+    await admin.client.scopes.delete(universe)
+      .catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
   } finally {
     admin.dispose();
   }

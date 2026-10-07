@@ -1,14 +1,14 @@
 /**
  * Phase 4 smoke test for `tasks/gateway-hop-benchmark.md` — verifies that the
  * multi-client harness produces M distinct authenticated WS connections, each
- * landing on its own NebulaClientGateway DO instance.
+ * held by the Star its page names under an id of its own.
  *
  * Two checks:
  *
  *   1. **M distinct instanceNames**: each client's `instanceName` is
  *      `{sub}.{tabId}`; same `sub` (one auth bootstrap) but distinct `tabId`
  *      per Context, so the set has cardinality M. This proves M distinct
- *      Gateway DOs are addressed (DO instance is keyed by `instanceName`).
+ *      sockets are addressed on the host node (each tagged by `instanceName`).
  *
  *   2. **All M clients can dispatch**: each client successfully calls
  *      `Star.delay(5)` and gets a response. Validates the auth + WS + mesh
@@ -36,7 +36,7 @@ function uniqueGalaxy(): string {
 }
 
 describe('multi-client harness', () => {
-  it('M=8: each client lands on a distinct Gateway DO', async () => {
+  it('M=8: each client holds its own socket on the Star, under a distinct id', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
     const browser = new Browser();
@@ -56,14 +56,14 @@ describe('multi-client harness', () => {
       const tabIds = new Set(instanceNames.map((n) => n.split('.').slice(1).join('.')));
 
       // All M clients should share one sub (one auth identity) and have
-      // M distinct tabIds (M distinct Gateway DOs).
+      // M distinct tabIds (M distinct sockets on the Star).
       expect(subs.size).toBe(1);
       expect(tabIds.size).toBe(M);
       expect(new Set(instanceNames).size).toBe(M);
 
       // Each client can dispatch a call. Star.delay(5) is a 5ms sleep on the
       // Star side that returns the delay value via the fire-back — exercises
-      // the full path (WS → Gateway → Star → Gateway → WS) for every client.
+      // the full path (WS → the Star hosting it, in place → WS) for every client.
       const results = await Promise.all(
         harness.clients.map((c) => c.callStarDelay(star, 5)),
       );

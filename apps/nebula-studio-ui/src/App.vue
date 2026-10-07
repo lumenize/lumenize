@@ -391,6 +391,9 @@ async function connect() {
     // initial load needs no cue — `dist/` serves from the Galaxy's VFS and the iframe
     // source is set below before anything is asked.
     onPreviewReady: (scope) => { if (scope === activeScope) reloadPreview(); },
+    // This page's own scope was deleted, from here or elsewhere, and the client has stopped: an
+    // app's page leaves as a delete of it does, and an account's page for Home.
+    onHostDeleted: () => (activeScope?.includes(".") ? onAppDeleted() : leaveTo(platformUrl("/"))),
   });
   await n.ready; // rejects with no session, after the client has sent this page to log in
   n.client.setOnStreamChunk((messageId, text, replyTo) => {

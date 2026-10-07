@@ -96,7 +96,8 @@ export async function run(stack: DevStack): Promise<void> {
     const cSession = await provisionAndLogin({ baseUrl: origin, scope: cee, email: c, testToken });
     const cDriver = await connectDriver(stack, { scope: cee, session: cSession });
     try {
-      await cDriver.client.scopes.delete(cee);
+      // The account's own page deletes it, so the call rejects with `HostDeletedError`: it happened.
+      await cDriver.client.scopes.delete(cee).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
     } finally {
       cDriver.dispose();
     }

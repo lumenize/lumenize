@@ -124,9 +124,12 @@ export async function run(stack: DevStack): Promise<void> {
     scope: star,
     session: { accessToken: starAdmin.accessToken, sub: starAdmin.sub },
   });
+  // The owner on the galaxy's page holds the token that page's refresh mints, whose `aud` is the
+  // galaxy: the node a page's host names accepts no token for another host.
+  const ownerOnGalaxy = await refreshAccessToken(origin, ownerSession.session, galaxy);
   const owner = await connectDriver(stack, {
     scope: galaxy,
-    session: { accessToken: ownerSession.accessToken, sub: ownerSession.sub },
+    session: { accessToken: ownerOnGalaxy.accessToken, sub: ownerOnGalaxy.sub },
   });
 
   try {

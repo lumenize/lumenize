@@ -13,6 +13,10 @@
  *   7. Two deletions from two pages record two pages; a universe's deletion logs its own marker.
  *   8. No protection is reported missing that nothing uses.
  *
+ * A page whose own scope is deleted stops: its host node closes it with 4410, and the call that asked
+ * rejects with `HostDeletedError` rather than answering. So limb 4 reads what it deleted from the
+ * facade's completion line, reads the deleted scopes through the universe's page, which stands, and
+ * brings each stopped test client back explicitly before its next call.
  * Locally miniflare's abort wipes storage by itself, so limb 4 witnesses the in-memory reset; the
  * durable wipe is the deployed pass's. The markers and records are read from the stack's stdio,
  * which a deployed target does not capture — those halves report themselves not observable there.
@@ -22,7 +26,7 @@
 import assert from 'node:assert/strict';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
-import type { Star } from '@lumenize/nebula';
+import type { Galaxy, Star } from '@lumenize/nebula';
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
@@ -60,6 +64,15 @@ export async function run(stack: DevStack): Promise<void> {
   const has = (ns: string, message: string, field: string, value: unknown) => (all: Line[]) =>
     all.some((l) => l.namespace === ns && l.message === message && l.data[field] === value);
   const drivers: Driver[] = [];
+  /** Bring back a client whose page's scope was deleted, which stops rather than reconnecting. */
+  const reconnect = async (d: Driver) => {
+    d.client.connect();
+    const t = Date.now();
+    while (d.client.connectionState !== 'connected') {
+      if (Date.now() - t > 20_000) throw new Error(`the client on ${d.scope} did not reconnect`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
   const driver = async (scope: string, session: { accessToken: string; sub: string }) => {
     const d = await connectDriver(stack, { scope, session, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION });
     drivers.push(d);
@@ -158,18 +171,21 @@ export async function run(stack: DevStack): Promise<void> {
     const watching = watcher.client.resources.subscribeQuery(chatQuery(chatId));
     await watching.ready;
 
-    const deleted = await atGalaxy.client.scopes.delete(galaxy);
-    assert.deepEqual(deleted.affected.map((a) => a.instanceName).sort(), [galaxy, `${galaxy}.dev`, tenant].sort());
+    // The galaxy's own page deletes it, so the page's socket closes with 4410 before the facade's
+    // answer can arrive, and the call rejects with `HostDeletedError`: the delete happened. What it
+    // deleted is the facade's completion line, below.
+    await atGalaxy.client.scopes.delete(galaxy).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
 
     // Read before anything re-creates the slug, since a re-create's own teardown would empty it
-    // either way. Mutations: skip the deletion's hook → the old chat comes back; drop the
-    // `ctx.abort()` → the read fails with `no such table`.
-    {
-      using after = atGalaxy.client.resources.subscribeQuery(chatQuery(chatId));
-      await after.ready;
-      assert.deepEqual(after.resourceIds, [], "a deleted galaxy's chat must read empty");
-    }
-    assert.equal(await tenantHasNode(), false, "a deleted tenant's Star must read empty");
+    // either way, and through the universe's page, which the deletion leaves standing.
+    // Mutations: skip the deletion's hook → the old message comes back; drop the `ctx.abort()` →
+    // the read fails with `no such table`.
+    const message = await atUniverse.client.lmz.callAsync('GALAXY', galaxy,
+      atUniverse.client.ctn<Galaxy>().resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, messageId));
+    assert.equal(message, null, "a deleted galaxy's chat must read empty");
+    const tenantStillHasNode = await atUniverse.client.lmz.callAsync('STAR', tenant,
+      atUniverse.client.ctn<Star>().resources.orgTree.getState()).then((st) => st.nodes.has(nodeId));
+    assert.equal(tenantStillHasNode, false, "a deleted tenant's Star must read empty");
 
     if (observable) {
       const all = await stdio(has('nebula-auth.facade.executeScopeDeletion', 'deleted', 'target', galaxy),
@@ -177,6 +193,8 @@ export async function run(stack: DevStack): Promise<void> {
       const done = all.find((l) => l.namespace === 'nebula-auth.facade.executeScopeDeletion'
         && l.message === 'deleted' && l.data.target === galaxy);
       assert.ok(done, 'the facade logged no completion line for the delete');
+      assert.deepEqual([...done.data.affected].sort(), [galaxy, `${galaxy}.dev`, tenant].sort(),
+        'the delete must name the galaxy, its .dev Star and its tenant');
       const op = done.data.operationId;
       const markers = all.filter((l) => l.namespace === 'nebula.scope.teardown' && l.message === 'tearing down'
         && l.data.operationId === op);
@@ -200,6 +218,7 @@ export async function run(stack: DevStack): Promise<void> {
     const deployed = process.env.HARNESS_TARGET_URL !== undefined;
     watching[Symbol.dispose]();
     if (!deployed) {
+      await reconnect(atGalaxy);
       watcher.client.disconnect();
       watcher.client.connect();
       await (async () => { const t = Date.now(); while (watcher.client.connectionState !== 'connected') {
@@ -214,10 +233,13 @@ export async function run(stack: DevStack): Promise<void> {
       await rs.ready;
       return latest ?? [];
     };
-    // Positive control: the re-subscribe really wrote a row before the re-create.
+    // Positive control: the re-subscribe really wrote a row before the re-create. Then the watcher
+    // pauses: the re-create resets the Galaxy it is on, and a connected watcher would come back and
+    // re-subscribe into the new app, a fresh row this limb is not about.
     if (!deployed) {
       await (async () => { const t = Date.now(); while ((await roster(atGalaxy)).length === 0) {
         if (Date.now() - t > 20_000) throw new Error("the watcher's re-subscribe never reached the galaxy"); } })();
+      watcher.client.disconnect();
     } else {
       console.error("[scope-teardown] limb 5's stale row: not observable on a deployed target, where a deleted app's host has no certificate");
     }
@@ -225,6 +247,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.deepEqual(await atUniverse.client.scopes.createGalaxy(universe, 'crm'), { instanceName: galaxy });
     // The re-created app orders a new certificate, which the rest of the scenario's calls need.
     await waitForHost(scopeUrlOf(stack, galaxy));
+    if (deployed) await reconnect(atGalaxy);
     // Mutation: skip the teardown at creation → the watcher's re-created row survives → reds.
     assert.deepEqual(await roster(atGalaxy), [], "a re-created app's subscriber list must start empty");
     {
@@ -254,7 +277,8 @@ export async function run(stack: DevStack): Promise<void> {
     // ── 7. Two pages, two records; a universe's deletion logs its own marker ─────────────────────
     await atUniverse.client.scopes.createGalaxy(universe, 'crm2');
     await atUniverse.client.scopes.delete(`${universe}.crm2`);
-    await atUniverse.client.scopes.delete(universe);
+    // The universe's own page deletes it: as in limb 4, the call rejects with `HostDeletedError`.
+    await atUniverse.client.scopes.delete(universe).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
     if (observable) {
       const all = await stdio(has('nebula-auth.facade.executeScopeDeletion', 'deleted', 'target', universe),
         "the universe deletion's completion line");

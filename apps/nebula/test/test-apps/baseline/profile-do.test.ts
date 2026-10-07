@@ -11,7 +11,7 @@
  * Harness: a plain `LumenizeClient` (mesh) with `refresh: createNebulaTestToken(...)` (ADR-009 rung 3,
  * justified per-site: these tests need PRECISE control over the `profileId` / `access` / scope claims,
  * which the cookie login can't give — and the baseline login lane is expectedly red mid-turnover). The
- * client connects to the REAL `NebulaClientGateway`; the JWT is verified normally at the entrypoint.
+ * client connects to the REAL host node of its token's scope; the JWT is verified normally at the entrypoint.
  * The Profile DO is driven via `callAsync` — a remote `@mesh` throw REJECTS the promise. Runs in
  * isolation, not gated on the red baseline.
  */
@@ -24,16 +24,15 @@ import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
 import {
-  createSubject, universeAdminClient, createInvitedClient, addressOfClient } from '../../test-helpers';
+  createSubject, universeAdminClient, createInvitedClient, addressOfClient, pageOf } from '../../test-helpers';
 import { FAIL_CLOSED_PROFILE_ID, NebulaClientTest } from './index';
 
-const ORIGIN = 'http://localhost';
 /** Captures pushes on the dedicated profile channel — the subscribe() leg of the neither-list test. */
 class MeshProbe extends LumenizeClient {
   profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
   /**
    * When set, this tab answers every push by throwing a `ClientDisconnectedError` naming SOMEBODY
-   * ELSE in a field of its own. The Gateway renames it before filling the Profile's continuation,
+   * ELSE in a field of its own. The host node renames it before filling the Profile's continuation,
    * and the reaper never reads the field, so it names nobody.
    *
    * ⚠️ Armed on the SAME class rather than by a subclass override, deliberately: an override is a
@@ -58,10 +57,11 @@ async function makeClient(opts: {
 }): Promise<MeshProbe> {
   const activeScope = opts.activeScope ?? 'acme.app.tenant';
   const browser = new Browser();
-  const ctx = browser.context(ORIGIN);
+  // On the page of the scope its token names, whose node hosts it.
+  const ctx = browser.context(pageOf(activeScope));
   const client = new MeshProbe({
-    baseUrl: ORIGIN,
-    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+    baseUrl: pageOf(activeScope),
+    hostFromHostname: true,
     refresh: createNebulaTestToken({
       issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
@@ -136,8 +136,8 @@ describe('Profile DO', () => {
    * the one node that composes the mesh core without extending `LumenizeDO`. This drives it against
    * a forged reply: a tab answers a push by throwing a `ClientDisconnectedError` naming another
    * tab. The reaper takes its victim from the address it pushed to, so the named tab keeps its row;
-   * and the Gateway renames a Client's own `ClientDisconnectedError`, so the tab that threw keeps its
-   * row too. Only the Gateway says a Client is gone.
+   * and the tab's host node renames a Client's own `ClientDisconnectedError`, so the tab that threw
+   * keeps its row too. Only a Client's server-side half says a Client is gone.
    */
   it('reaps neither the subscriber a forged reply names nor the one that forged it', async () => {
     const pid = uuid();
@@ -159,7 +159,7 @@ describe('Profile DO', () => {
 
     // Arm, push once, and wait for the reaper's receipt of the forged reply before disarming: both
     // rows surviving would otherwise also be what a reply that never arrived looks like.
-    attacker.forgedVictim = victim.lmz.instanceName;
+    attacker.forgedVictim = addressOfClient(victim);
     await write(owner, pid, { name: 'two' });
     const receipt = await vi.waitFor(() => {
       const heard = sink.find((e) => e.namespace === 'nebula-auth.Profile.reap'
@@ -168,7 +168,7 @@ describe('Profile DO', () => {
       return heard;
     });
     attacker.forgedVictim = undefined;
-    // MUTATION: skip the Gateway's rename of a thrown Error, and this names the reaped class.
+    // MUTATION: skip the host node's rename of a thrown Error, and this names the reaped class.
     expect(receipt.data.name).toBe('Error');
 
     const victimBefore = victim.profileUpdates.length;
@@ -403,7 +403,7 @@ describe('Profile DO', () => {
     await expect(write(ownerClient, pid, { name: 'Y' })).resolves.toBeUndefined();
 
     // Every other client in this file is `using`-scoped; these two are plain consts because
-    // `impersonate()` needs a live parent. Dispose explicitly so they do not hold Gateway sockets
+    // `impersonate()` needs a live parent. Dispose explicitly so they do not hold sockets on their host node
     // open for the rest of the run.
     admin.disconnect();
     ownerClient.disconnect();

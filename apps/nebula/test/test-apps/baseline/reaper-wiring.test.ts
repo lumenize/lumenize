@@ -1,5 +1,5 @@
 /**
- * Every update the plane sends that names a reaper reaps the tab its Gateway reports gone — one
+ * Every update the plane sends that names a reaper reaps the tab its host node reports gone — one
  * limb per wiring site, each asserting the persisted row.
  *
  * A limb per SITE, not per kind of subscription, because of how a reap fails. A reaper runs at the
@@ -10,7 +10,7 @@
  * row assertion per site catches a wrong one.
  *
  * Why vitest-plugin rather than `/live`: the rows are server-internal state no client can read, and
- * reading them takes `runInDurableObject`. The path under test — the real Gateway reporting a
+ * reading them takes `runInDurableObject`. The path under test — the real host node reporting a
  * closed socket, the plane's broadcast, the reaper on the host's `resourcesResults` — runs unchanged
  * in this lane.
  *
@@ -36,8 +36,8 @@
  * The first answer to a new subscriber is three more sites — a resource's first snapshot
  * (`onBroadcastResult`), the tree's (`onTreeBroadcastResult`), and the Profile's
  * (`onProfileBroadcastResult`). Like site 6, each is sent inside the subscriber's own subscribe,
- * so no tab a test drives can be gone by then. Their limbs subscribe a tab whose Gateway never
- * connected, by a hand-built envelope carrying a real admin's claims: that Gateway answers the
+ * so no tab a test drives can be gone by then. Their limbs subscribe a tab that never connected to
+ * its host node, by a hand-built envelope carrying a real admin's claims: that host node answers the
  * first snapshot with `ClientDisconnectedError`, which is the one deterministic way to fail it. Mutation per limb: give the site the logging `onPushUndelivered` instead.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -252,50 +252,69 @@ function claimsOf(accessToken: string): { sub: string } & Record<string, unknown
 }
 
 /**
- * Run `chain` at `binding`/`instance` as a tab whose Gateway never connected, carrying
- * `accessToken`'s claims, and return that tab's id. Its Gateway answers any push with
- * `ClientDisconnectedError`.
+ * Run `chain` at `binding`/`instance` as a tab hosted on the Star `star` that never connected,
+ * carrying `accessToken`'s claims, and return that tab's address. The Star holds no socket for it,
+ * so it answers any push with `ClientDisconnectedError`.
  */
 async function subscribeAsAbsentTab(
-  binding: string, instance: string, accessToken: string, chain: unknown[],
+  binding: string, instance: string, star: string, accessToken: string, chain: unknown[],
 ): Promise<string> {
   const claims = claimsOf(accessToken);
-  const tab = `${claims.sub}.absent-${uuid().slice(0, 8)}`;
+  const tab = { type: 'LumenizeClient', bindingName: 'STAR', instanceName: `${star}/${claims.sub}.absent-${uuid().slice(0, 8)}` };
   const ack = await (env as any)[binding].getByName(instance).__executeOperation({
     version: 1,
     chain: preprocess(chain),
     callContext: {
-      callChain: [{ type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: tab }],
+      callChain: [tab],
       originAuth: { sub: claims.sub, claims },
     },
     metadata: { callee: { type: 'LumenizeDO', bindingName: binding, instanceName: instance } },
   });
   expect(ack).toEqual({ $ack: true });
-  return tab;
+  return `${tab.bindingName}/${tab.instanceName}`;
 }
 
 const through = (...path: string[]) => (...args: unknown[]) =>
   [...path.map((key) => ({ type: 'get', key })), { type: 'apply', args }];
 
 describe('the first answer to a new subscriber reaps a tab that is already gone', () => {
+  /** Whether the reaper's receipt names `tab`: the push it reaps for went to that address. */
+  const reaped = (entries: DebugLogOutput[], tab: string) =>
+    entries.some((e) => e.message === 'update not delivered' && e.data?.clientAddress === tab);
+
   it('7: a resource\'s first snapshot (onBroadcastResult)', async () => {
-    const { star, accessToken, parent } = await starWithParent();
-    const tab = await subscribeAsAbsentTab('STAR', star, accessToken,
-      through('resources', 'subscribe')(VERSION, 'Parent', parent));
-    // The row was written and is gone: under the mutation it stays at 1.
-    await vi.waitFor(async () => expect(await rows('STAR', star, 'resource', tab)).toBe(0));
+    const entries: DebugLogOutput[] = [];
+    setDebugSink((e) => entries.push(e));
+    try {
+      const { star, accessToken, parent } = await starWithParent();
+      const tab = await subscribeAsAbsentTab('STAR', star, star, accessToken,
+        through('resources', 'subscribe')(VERSION, 'Parent', parent));
+      // Fixture guard: the push went to the tab's address, so its row was written under it.
+      await vi.waitFor(() => expect(reaped(entries, tab)).toBe(true));
+      // The row was written and is gone: under the mutation it stays at 1.
+      await vi.waitFor(async () => expect(await rows('STAR', star, 'resource', tab)).toBe(0));
+    } finally {
+      clearDebugSink();
+    }
   });
 
   it('8: the tree\'s first snapshot (onTreeBroadcastResult)', async () => {
-    const { star, accessToken } = await starWithParent();
-    const tab = await subscribeAsAbsentTab('STAR', star, accessToken, through('resources', 'subscribeTree')());
-    await vi.waitFor(async () => expect(await rows('STAR', star, 'tree', tab)).toBe(0));
+    const entries: DebugLogOutput[] = [];
+    setDebugSink((e) => entries.push(e));
+    try {
+      const { star, accessToken } = await starWithParent();
+      const tab = await subscribeAsAbsentTab('STAR', star, star, accessToken, through('resources', 'subscribeTree')());
+      await vi.waitFor(() => expect(reaped(entries, tab)).toBe(true));
+      await vi.waitFor(async () => expect(await rows('STAR', star, 'tree', tab)).toBe(0));
+    } finally {
+      clearDebugSink();
+    }
   });
 
   it('9: the Profile\'s first snapshot (onProfileBroadcastResult)', async () => {
-    const { accessToken } = await starWithParent();
+    const { star, accessToken } = await starWithParent();
     const profileId = uuid();
-    await subscribeAsAbsentTab('PROFILE', profileId, accessToken, through('subscribe')());
+    await subscribeAsAbsentTab('PROFILE', profileId, star, accessToken, through('subscribe')());
     await vi.waitFor(async () => {
       const n = await (runInDurableObject as any)((env as any).PROFILE.getByName(profileId), (_i: any, c: any) =>
         c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers').toArray()[0].n as number);
@@ -305,14 +324,14 @@ describe('the first answer to a new subscriber reaps a tab that is already gone'
 });
 
 /**
- * A reaper's answer and the gone tab's re-subscribe race: the Gateway fires the failure back in the
+ * A reaper's answer and the gone tab's re-subscribe race: the host node fires the failure back in the
  * turn it gives up, and the tab may come back and subscribe again while that fire-back is in flight.
  * The reaper deletes only a row no newer than the push that failed, which rides its continuation as
  * `sentAt`, so the re-subscribe's row survives.
  *
  * Why a hand-built fire-back: the window is the few milliseconds the fire-back spends in flight, and
- * no product path widens it, so neither a `/live` run nor a real Gateway in this lane can land the
- * re-subscribe inside it on demand. The fire-back is what the Gateway sends, on a chain the host
+ * no product path widens it, so neither a `/live` run nor a real host node in this lane can land the
+ * re-subscribe inside it on demand. The fire-back is what the tab's host node sends, on a chain the host
  * started: the host's continuation, filled with `ClientDisconnectedError`, ending at the tab. Each
  * limb's second half is the positive control: the same fire-back with a later `sentAt` reaps.
  */
@@ -322,7 +341,7 @@ describe('a re-subscribe that lands before its reaper keeps its row', () => {
   const gone = () => Object.assign(new Error('Client did not reconnect within grace period'), { name: 'ClientDisconnectedError' });
   const anHourBefore = (iso: string) => new Date(Date.parse(iso) - 3_600_000).toISOString();
 
-  /** The fire-back a tab's Gateway sends `host` when a push to `tab` fails, filling `chain`. */
+  /** The fire-back a tab's host node sends `host` when a push to `tab` fails, filling `chain`. */
   async function fireBack(binding: string, host: string, tab: string, chain: unknown[]): Promise<void> {
     const node = { type: 'LumenizeDO', bindingName: binding, instanceName: host };
     const ack = await (env as any)[binding].getByName(host).__handleResponse({

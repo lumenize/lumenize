@@ -58,7 +58,7 @@ A mesh node's `fetch` hears from four kinds of caller, and each MUST keep to a t
 
 A node's `onRequest` MUST compare the path only against the prefixes its class registers in a static `HTTP_PREFIXES` array, and answer 404 to anything else — `NebulaDO.HTTP_PREFIXES` holds `GATEWAY_PREFIX`, and `Galaxy.HTTP_PREFIXES` adds `PUBLIC_PREFIX` and `'/api'`.
 
-Two other forwards carry page traffic into a Durable Object's `fetch`, and neither target is a mesh node: `routeDORequest` sends a `/gateway/NEBULA_CLIENT_GATEWAY/{id}` upgrade to the client Gateway, only for the bindings its `bindings` allow-list names; and nebula-auth's `forwardRaw` sends the claim `POST`s to the Registry, a raw Durable Object that reads no identity header.
+One other forward carries page traffic into a Durable Object's `fetch`, and its target is no mesh node: nebula-auth's `forwardRaw` sends the claim `POST`s to the Registry, a raw Durable Object that reads no identity header.
 
 **`npm run audit:do-http` is the proof.** It scans every `src` tree under `apps/` and `packages/nebula-auth/src`, never tests, and checks four things:
 
@@ -104,7 +104,7 @@ The `fetch()`-forwarded path (§ *Edge Worker fronting a DO*) is the alternative
 ## Hibernation WebSocket API
 DOs that accept and push to connected clients MUST use the Hibernation WebSocket API: accept in `fetch()` via `ctx.acceptWebSocket(server)` returning a `101` with the client socket; push with `for (const ws of this.ctx.getWebSockets()) ws.send(message)`; in `webSocketClose` echo the code, but `1005` ("no status present") MUST be mapped to `1000` since `1005` is invalid to send. vitest-plugin tests can open real `new WebSocket()` connections to deployed Workers for e2e patterns.
 
-(In the Mesh world a Client's socket is accepted by `ClientGateway`, composed into the node that hosts it — `NebulaDO`, for every Nebula scope — and no other platform code accepts one. Nebula's pages still upgrade at the Gateway's binding until `tasks/nebula-clients-connect-to-their-scope.md` moves them to their scope's node.)
+(In the Mesh world a Client's socket is accepted by `ClientGateway`, composed into the node that hosts it — `NebulaDO`, for every Nebula scope — and no other platform code accepts one.)
 
 ## Alarms
 Schedule directly with `ctx.storage.setAlarm(...)` plus an `async alarm()` handler. (Mesh code uses `this.svc.alarms.schedule(...)` instead, which carries an OCAN continuation — see [mesh.md](mesh.md).)

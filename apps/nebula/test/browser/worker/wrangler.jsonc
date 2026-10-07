@@ -12,7 +12,6 @@
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
-      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
@@ -37,7 +36,6 @@
   // DEPLOYED throwaway harness: if a future redeploy is ever rejected because CF still holds the old
   // migration history, dashboard-delete the worker + redeploy (it holds no durable state worth keeping).
   "exports": {
-    "NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" },
     "Universe": { "type": "durable-object", "storage": "sqlite" },
     "Galaxy": { "type": "durable-object", "storage": "sqlite" },
     "StarTest": { "type": "durable-object", "storage": "sqlite" },

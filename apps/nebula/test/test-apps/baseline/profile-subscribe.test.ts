@@ -1,6 +1,6 @@
 /**
  * Profile DO (tasks/archive/nebula-profile-store.md): the client subscribe path (binding-agnostic,
- * instance = profileId ≠ activeScope), cross-scope delivery past the Gateway's passage check, and the
+ * instance = profileId ≠ activeScope), cross-scope delivery past the host node's passage check, and the
  * `lmz.broadcast` fan-out + dead-subscriber-row drop. Every test is capable-of-failing; the delivery
  * is mutation-checked (see the mutation note in the headline test).
  *
@@ -36,7 +36,7 @@ class SubscriberProbe extends LumenizeClient {
   updates: Array<{ resourceType: string; resourceId: string; snapshot: ProfileSnapshot }> = [];
   // No onBeforeCall override — the DEFAULT LumenizeClient guard accepts the fanned-out UPDATE because
   // its immediate caller is the PROFILE DO (not another client); the Profile starts each update's
-  // chain afresh, so it is the origin too. The Gateway's onBeforeCallToClient lets it through because
+  // chain afresh, so it is the origin too. The host node's onBeforeCallToClient lets it through because
   // a Profile's name is no scope.
   @mesh()
   handleProfileUpdate(profileId: string, snapshot: ProfileSnapshot): void {
@@ -58,7 +58,7 @@ async function meshClient(opts: {
   const ctx = browser.context(pageOf(activeScope));
   const client = new SubscriberProbe({
     baseUrl: pageOf(activeScope),
-    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+    hostFromHostname: true,
     refresh: createNebulaTestToken({
       issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
@@ -124,7 +124,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
 
     // Y mutates → the UPDATE starts a fresh chain at the Profile and carries no claims. X has no
     // passage into Y's universe, so it is delivered to X ONLY because a Profile's name is no scope.
-    // ⚠️ MUTATION-CHECK: in NebulaClientGateway.onBeforeCallToClient, refuse a node sender whose name
+    // ⚠️ MUTATION-CHECK: in the host node's `requirePassageIntoSender`, refuse a node sender whose name
     // is no scope, and nothing from the Profile arrives — the initial snapshot is the Profile's call
     // to X too, so profileUpdates stays empty.
     await writeProfile(owner, pid, { name: 'Grace' });
@@ -171,7 +171,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
   it('a REAL NebulaClient receives a cross-scope profile UPDATE via subscribeProfile — production receive path (#5)', async () => {
     // The whole point of the subscribe path, on the REAL client. The fanned-out update's immediate
     // CALLER is the PROFILE DO, so the corrected caller-based default onBeforeCall accepts it (no
-    // override needed); the Gateway's passage check is the cross-scope boundary.
+    // override needed); the host node's passage check is the cross-scope boundary.
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     await writeProfile(owner, pid, { name: 'Ada' });
@@ -276,9 +276,9 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     expect(x.profileUpdates[1].originAuth).toBeUndefined();
   });
 
-  it('subscribe stores the binding from callChain[0] — the element the Gateway stamps — not the last one', async () => {
-    // ⓘ Below the Gateway on purpose (`testing.md` § *Philosophy*): the Gateway builds a client
-    // call's chain from the verified origin alone (the `/live` scenario `gateway-stamps-the-chain`),
+  it('subscribe stores the binding from callChain[0] — the element the host node stamps — not the last one', async () => {
+    // ⓘ Below the host node on purpose (`testing.md` § *Philosophy*): a client's server-side half
+    // builds its call's chain from the verified origin alone (the `/live` scenario `gateway-stamps-the-chain`),
     // so on a client's own call both ends are one element and no client can build this shape. A
     // chain that reaches the Profile through a relaying node can, and this hands the Profile one.
     const pid = uuid();
@@ -289,7 +289,8 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
       chain: preprocess([{ type: 'get', key: 'subscribe' }, { type: 'apply', args: [] }]),
       callContext: {
         callChain: [
-          { type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: clientId },
+          // Hosted by the Galaxy, so its binding differs from the relaying Star's.
+          { type: 'LumenizeClient', bindingName: 'GALAXY', instanceName: `acme.app/${clientId}` },
           { type: 'LumenizeDO', bindingName: 'STAR', instanceName: 'acme.app.tenant' },
         ],
       },
@@ -305,7 +306,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     try {
       expect(await stub.__executeOperation(envelope)).toEqual({ $ack: true });
       // MUTATION: read `callChain.at(-1)` again and the row stores the relay's `STAR` instead.
-      await vi.waitFor(() => expect(stored).toEqual([{ profileId: pid, clientAddress: `NEBULA_CLIENT_GATEWAY/${clientId}` }]));
+      await vi.waitFor(() => expect(stored).toEqual([{ profileId: pid, clientAddress: `GALAXY/acme.app/${clientId}` }]));
     } finally {
       clearDebugSink();
     }

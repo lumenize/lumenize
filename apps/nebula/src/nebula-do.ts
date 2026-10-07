@@ -314,7 +314,7 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
   }
 
   /** A hosted Client's call carries the context its socket's verified attachment builds, unchanged. */
-  onBeforeCallToMesh(baseContext: CallContext): CallContext {
+  onBeforeCallToMesh(baseContext: CallContext, connectionInfo: GatewayConnectionInfo, callId: string): CallContext {
     return baseContext;
   }
 
@@ -347,13 +347,13 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
  * `acme.crm.bigco` calling from an alarm has passage into itself, `acme.crm` and `acme`, and
  * dominion over nothing. The answer it gets back on that chain runs no passage check at all: mesh
  * skips `onBeforeCall` at a node's fire-back door on a chain the node started. A chain a node named by an id started, such as a Profile's, gives nothing, and passage
- * refuses it. A client's chain always carries claims, because its Gateway stamps them, so no
+ * refuses it. A client's chain always carries claims, because its host node stamps them, so no
  * client can borrow a node's scope this way. Nothing is written into `originAuth`.
  *
  * This grants nothing a caller lacked: anyone with passage into a node has it into the node's
  * ancestors. It is sound only because a scope-shaped name always names an object that checks
- * passage into that scope — a `Profile` refuses to run under one, and a Gateway under one can
- * accept no socket, so it starts no chain.
+ * passage into that scope — a `Profile` refuses to run under one — and because a hosted Client's
+ * name always contains a `/`, `acme.crm.tenant1/alice.9f2c41aa`, so it never parses as one.
  */
 function claimsForPassage(callContext: CallContext): VerdictClaims | undefined {
   const claims = callContext.originAuth?.claims as NebulaJwtPayload | undefined;

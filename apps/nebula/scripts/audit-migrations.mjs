@@ -30,8 +30,9 @@
  */
 
 /**
- * Freeze-time count of registered DO classes: NebulaClientGateway, Universe, Galaxy, Star,
- * NebulaAuthRegistry, Profile — 6. (DevStudio + DevContainer collapsed INTO Galaxy —
+ * Freeze-time count of registered DO classes: Universe, Galaxy, Star, NebulaAuthRegistry,
+ * Profile — 5. A `"state": "deleted"` export, `NebulaClientGateway` now that each scope's node hosts
+ * its pages' Clients, is a tombstone, not a class, and is not counted. (DevStudio + DevContainer collapsed INTO Galaxy —
  * tasks/archive/nebula-galaxy-collapse-and-chat.md; the per-scope `NebulaAuth` DO was dissolved
  * earlier — tasks/nebula-auth-surrogate-sub.md.)
  * The gate is a one-way-door tripwire, so when the registry LEGITIMATELY changes (a DO class added or
@@ -39,7 +40,7 @@
  * conscious edit is the discipline, and it keeps a silent parse failure (→ empty set, size 0) from
  * vacuous-passing.
  */
-export const EXPECTED_DO_CLASS_COUNT = 6;
+export const EXPECTED_DO_CLASS_COUNT = 5;
 
 /** Non-DO exports that must never be a `durable_objects` binding NOR a `type: "durable-object"` export. */
 const NON_DO_EXPORTS = ['default', 'NebulaEmailSender'];
@@ -159,8 +160,12 @@ export function auditMigrations({ wranglerJsonc, workerTs }) {
   // throws on first sync-storage access = hard deploy failure — the invariant the old new_classes ban held).
   const doClasses = new Set();
   const nonSqlite = [];
+  const deleted = [];
   for (const [name, cfg] of Object.entries(exportsMap)) {
     if (cfg?.type !== 'durable-object') continue; // e.g. a WorkerEntrypoint export — not a DO
+    // A tombstone keeps a retired class off a deployed worker that still holds it. It names no
+    // class the worker exports, so it is neither counted nor re-export-checked, and nothing may bind it.
+    if (cfg?.state === 'deleted') { deleted.push(name); continue; }
     doClasses.add(name);
     if (cfg?.storage !== 'sqlite') nonSqlite.push(`${name} (storage: ${cfg?.storage ?? 'missing'})`);
   }
@@ -172,6 +177,12 @@ export function auditMigrations({ wranglerJsonc, workerTs }) {
       `durable-object exports must be storage:"sqlite" (a non-SQLite DO throws on sync storage — ` +
         `hard deploy failure): ${nonSqlite.join(', ')}`,
     );
+  }
+
+  // A tombstoned class still bound would deploy a binding to a class the worker no longer has.
+  const stillBound = deleted.filter((c) => bindingClasses.has(c));
+  if (stillBound.length) {
+    errors.push(`exported with "state": "deleted" but still bound in durable_objects.bindings: ${stillBound.join(', ')}`);
   }
 
   // Size tripwire: both sets EXACTLY the freeze-time count (a silent parse→{} → size 0 → red).

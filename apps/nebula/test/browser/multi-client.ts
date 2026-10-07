@@ -2,8 +2,8 @@
  * Multi-client harness for the gateway-hop benchmark's Phase 4/5 work.
  *
  * Spins up M `HarnessNebulaClient` instances against the same Worker, each
- * with its own `tabId` (so each lands on its own `NebulaClientGateway` DO
- * via `instanceName = {sub}.{tabId}`), all sharing one authenticated
+ * with its own `tabId` (so each holds its own socket on the host node its page
+ * names, under `instanceName = {sub}.{tabId}`), all sharing one authenticated
  * identity.
  *
  * **Why one shared JWT, not M independent refreshes**: NebulaAuth's
@@ -15,8 +15,8 @@
  * the bench, sequentializing M=64 refreshes adds ~6–32 s of setup time and
  * doesn't affect what we're measuring (per-call infrastructure cost), so we
  * mint one JWT upfront and pass it explicitly to each client. Each client
- * still gets a unique `instanceName` (different tabId) so they land on
- * distinct Gateway DOs — exactly what Phase 5's Shape A test requires.
+ * still gets a unique `instanceName` (different tabId), so each holds a socket
+ * of its own on the host node.
  *
  * See `tasks/gateway-hop-benchmark.md` Phase 4.
  */
@@ -86,7 +86,7 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
   // Step 3: Create M clients with distinct tabIds. Passing both `accessToken`
   // and `instanceName` makes the LumenizeClient constructor skip its own
   // refresh + tabId generation (see lumenize-client.ts:540), so each client
-  // connects with the shared JWT against its own Gateway DO.
+  // connects with the shared JWT under its own id on the host node.
   const contexts: Context[] = [];
   const clients: HarnessNebulaClient[] = [];
   for (let i = 0; i < M; i++) {

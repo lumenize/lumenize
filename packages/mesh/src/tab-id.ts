@@ -11,14 +11,14 @@
  * tests can pass Context properties directly without mocking globals.
  *
  * ⚠️ **Why the id is PERSISTED rather than random per page load — the non-obvious part.**
- * A client's `instanceName` (`${sub}.${tabId}`) names a Gateway Durable Object, and **a DO
- * name reservation is permanent**: it cannot be deleted, by us or from the dashboard. So a
- * fresh random id on every page load would reserve a new name on every reload, forever.
- * Persisting the id in sessionStorage is what makes a reload reuse the *same* Gateway DO —
- * which also preserves subscription continuity across a refresh. Unused reservations cost
- * nothing ONLY because the Gateway is deliberately zero-storage (see `LumenizeClientGateway`,
- * which extends `DurableObject` directly for exactly this reason); keeping it storage-less is
- * therefore load-bearing, not an implementation detail.
+ * A client's `instanceName` (`${sub}.${tabId}`) is its id on the node that hosts it, the tag
+ * its socket carries there: `acme.crm.tenant1/alice.9f2c41aa` on the Star `acme.crm.tenant1`.
+ * Persisting the id in sessionStorage is what makes a reload come back under the *same* tag, so
+ * the host supersedes the old socket rather than holding both, and its grace period carries
+ * subscription continuity across the refresh. Behind a `LumenizeClientGateway` the id also names
+ * a Durable Object, and **a DO name reservation is permanent**, so a random id per load would
+ * reserve a new name on every reload, forever — which costs nothing only because that Gateway
+ * keeps no storage.
  *
  * ⇒ **Any new client-side `instanceName` must be DETERMINISTIC for a given (identity, tab),
  * never random-per-construction.** A random suffix looks harmless and leaks names for the

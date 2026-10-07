@@ -655,7 +655,7 @@ export async function createGalaxyViaFacade(options: {
   const { baseUrl, accessToken, sub, universeGalaxyId } = options;
   const client = new FacadeCaller({
     baseUrl: baseUrl.replace(/\/$/, ''),
-    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+    hostFromHostname: true,
     instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
     accessToken,
     refresh: async () => ({ access_token: accessToken, sub }),

@@ -14,7 +14,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import { universeAdminClient, createSubject, createInvitedClient, uniqueGalaxyScope } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient, uniqueGalaxyScope, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { StarTest, GalaxyTest } from './index';
 
@@ -27,9 +27,9 @@ describe('passage decides what reaches a tab', () => {
       NebulaClientTest, new Browser(), starA, galaxy, 'admin@example.com');
     await createSubject(new Browser(), starA, accessToken, 'member@example.com');
     const { client: member, payload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), starA, starA, 'member@example.com', 'v1', { hostFromHostname: true });
+      NebulaClientTest, new Browser(), starA, starA, 'member@example.com');
     expect(payload.access).toEqual({ authScope: starA }); // fixture guard: a plain member of Star A
-    const tab = `STAR/${starA}/${member.lmz.instanceName}`;
+    const tab = addressOfClient(member);
 
     // The Galaxy above the tab's Star: upward, so the tab has passage into the sender.
     const before = member.orgTreeUpdateCount;

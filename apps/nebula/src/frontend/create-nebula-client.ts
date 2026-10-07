@@ -900,6 +900,19 @@ export function defaultOnLoginRequired(platformOrigin: string, parentOrigin: str
 }
 
 /**
+ * What a page does when its scope is deleted, unless the app supplies `onHostDeleted`. A top-level
+ * page goes to Home on the platform host, since the scope it showed is gone and its client has
+ * stopped. A framed page — the dev tab inside Studio — stays where it is: its app was deleted, and
+ * Studio, which is that app's page too, leaves.
+ */
+export function defaultOnHostDeleted(platformOrigin: string): () => void {
+  return () => {
+    if (typeof window === 'undefined' || inFrame()) return;
+    window.location.assign(`${platformOrigin}/`);
+  };
+}
+
+/**
  * Integration entry point — constructs a {@link NebulaClient} and wraps it in a
  * Vue-reactive store (via {@link createNebulaStore}) with optimistic writes,
  * debounced transactions, conflict resolution, and effect-scope-tied
@@ -937,6 +950,7 @@ export function createNebulaClient(config: CreateNebulaClientConfig): FactoryRes
     parentOrigin: resolved.parentOrigin,
     ontologyVersion: resolved.ontologyVersion,
     onShouldRefreshUI: resolved.onShouldRefreshUI,
+    onHostDeleted: config.onHostDeleted ?? defaultOnHostDeleted(resolved.platformOrigin),
     onConnectionStateChange: (state) => {
       if (state === 'connected' && !readySettled) {
         readySettled = true;

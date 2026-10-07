@@ -1,18 +1,18 @@
 /**
  * **A call from another tab reaches the receiving Client, which refuses it before decoding it.**
  *
- * A tab is named `{sub}.{tabId}`, not by a scope, so it offers no scope for the receiving Gateway
- * to check passage into. The Gateway passes a Client sender through, and the receiving Client's
+ * A tab is named `{scope}/{sub}.{tabId}`, which is no scope, so it offers none for the receiving
+ * tab's host node to check passage into. The host node passes a Client sender through, and the receiving Client's
  * default `onBeforeCall` refuses it with its own message. Two plain members, each invited into one
  * of two sibling Stars, make limb 1 lateral.
  *
  * Two limbs:
  *  1. **A tab on Star B calling a tab on Star A reaches A's Client and is refused there**, matched
  *     on *Direct client-to-client calls are disabled by default*, never a passage message.
- *     Mutation: restore the Gateway's Client branch, and the passage refusal arrives instead.
+ *     Mutation: check a Client sender's passage in the host node, and the passage refusal arrives instead.
  *  2. **A tab whose frame carries a chain no decoder can read is still refused with that message.**
  *     Its socket nulls the chain of each CALL frame it sends while armed, and nothing else. The
- *     tab is on Star A, so it passes any Gateway check, and the refusal shows the caller check ran
+ *     tab is on Star A, so it passes any host node's check, and the refusal shows the caller check ran
  *     before decoding. Mutation: decode before `onBeforeCall`, and the decoder's `TypeError`
  *     arrives instead.
  *
@@ -109,8 +109,10 @@ export async function run(stack: DevStack): Promise<void> {
     const tabA = await connectDriver(stack, { scope: starA, session: memberA });
     const tabB = await connectDriver(stack, { scope: starB, session: memberB });
     drivers.push(tabA, tabB);
+    // Tab A's address on its host node, the Star of its page.
+    const tabAName = `${starA}/${tabA.client.lmz.instanceName}`;
     const callTabA = (from: Driver) => from.client.lmz.callAsync(
-      'NEBULA_CLIENT_GATEWAY', tabA.client.lmz.instanceName!,
+      'STAR', tabAName,
       (from.client.ctn() as any).handleOrgTreeUpdate({ value: {} }));
 
     const failures: string[] = [];
@@ -148,7 +150,7 @@ export async function run(stack: DevStack): Promise<void> {
       }
       garble.armed = true;
       const garbled = await refusal(garbler.lmz.callAsync(
-        'NEBULA_CLIENT_GATEWAY', tabA.client.lmz.instanceName!,
+        'STAR', tabAName,
         (garbler.ctn() as any).handleOrgTreeUpdate({ value: {} })));
       garble.armed = false;
       assert.ok(garble.rewritten > 0, 'the garbling socket sent no CALL frame, so limb 2 tested nothing');

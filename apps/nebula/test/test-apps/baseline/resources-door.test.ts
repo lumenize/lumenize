@@ -338,24 +338,32 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     // A node relaying a client's call keeps the client first on the chain and itself last, which no
     // client's own call can build: its server-side half stamps the origin alone.
     const claims = { aud: host.scope, sub: 'door-admin', profileId: 'p-door-admin', access: { authScope: host.scope, scopeAdmin: true } };
-    const client = { type: 'LumenizeClient', bindingName: 'NEBULA_CLIENT_GATEWAY', instanceName: `${uuid()}.tab1` };
+    // A Client hosted by the Star, so its binding differs from the relaying Galaxy's.
+    const client = { type: 'LumenizeClient', bindingName: 'STAR', instanceName: `${host.scope}/${uuid()}.tab1` };
     const galaxy = host.scope.split('.').slice(0, 2).join('.');
     const stub = (env as any).STAR.getByName(host.scope);
-    expect(await stub.__executeOperation({
-      version: 1,
-      chain: preprocess([
-        { type: 'get', key: 'resources' }, { type: 'get', key: 'subscribeTree' }, { type: 'apply', args: [] },
-      ]),
-      callContext: {
-        callChain: [client, { type: 'LumenizeDO', bindingName: 'GALAXY', instanceName: galaxy }],
-        originAuth: { sub: 'door-admin', claims },
-      },
-      metadata: { callee: { type: 'LumenizeDO', bindingName: 'STAR', instanceName: host.scope } },
-    })).toEqual({ $ack: true });
-    // Mutation: take the binding from `callChain.at(-1)` again, and the row names the Galaxy's.
-    const address = `NEBULA_CLIENT_GATEWAY/${client.instanceName}`;
-    await vi.waitFor(async () => expect(await rowsOf(host, 'tree', address)).toEqual([{ clientAddress: address }]));
-    expect(await rowsOf(host, 'tree', `GALAXY/${client.instanceName}`)).toEqual([]);
+    // The subscriber holds no socket, so its first snapshot fails and the reaper reaps the row it
+    // pushed to, logging that row's address: the row is read off that receipt, not the table, which
+    // the reaper may already have emptied.
+    const reaped: string[] = [];
+    setDebugSink((e) => { if (e.message === 'update not delivered') reaped.push(e.data?.clientAddress as string); });
+    try {
+      expect(await stub.__executeOperation({
+        version: 1,
+        chain: preprocess([
+          { type: 'get', key: 'resources' }, { type: 'get', key: 'subscribeTree' }, { type: 'apply', args: [] },
+        ]),
+        callContext: {
+          callChain: [client, { type: 'LumenizeDO', bindingName: 'GALAXY', instanceName: galaxy }],
+          originAuth: { sub: 'door-admin', claims },
+        },
+        metadata: { callee: { type: 'LumenizeDO', bindingName: 'STAR', instanceName: host.scope } },
+      })).toEqual({ $ack: true });
+      // Mutation: take the binding from `callChain.at(-1)` again, and the row names the Galaxy's.
+      await vi.waitFor(() => expect(reaped).toEqual([`STAR/${client.instanceName}`]));
+    } finally {
+      clearDebugSink();
+    }
   });
 
   it('a transaction carrying an `actor` commits under the caller\'s own claims — no forged `act`', async () => {

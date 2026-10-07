@@ -4,9 +4,9 @@
  * Wraps the production Nebula entrypoint with bench-specific routes:
  *
  *   - `/bench/colo` — returns the Worker's own colo via `request.cf.colo`.
- *     The Gateway DO for this user's session is reliably in the same colo
- *     (DOs follow first-access placement; user is consistent), so this
- *     also identifies the Gateway colo.
+ *     The host node a test's client connects to is reliably in the same colo
+ *     when the test is first to touch it (DOs follow first-access placement),
+ *     so this also identifies the host node's colo.
  *   - `/bench/cross-region-star?jurisdiction=eu` — creates a Star DO via
  *     `newUniqueId({ jurisdiction })` and returns its hex ID. Used by
  *     `cross-region.test.ts` to deliberately place a Star outside the
@@ -27,21 +27,18 @@ export { BenchAgent } from './bench-agent';
 
 export {
   Universe,
-  Galaxy,
   NebulaAuthFacade,
   PlatformHost,
 } from '@lumenize/nebula';
 // The consent route reaches a person's Profile through the `@rawRpc()` bridge.
 export { Profile } from '@lumenize/nebula-auth/profile';
 
-// Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,
-// re-exported under the `NebulaClientGateway` name so the wrangler.jsonc class
-// binding (and any prior migration history) stays unchanged.
-export { InstrumentedNebulaClientGateway as NebulaClientGateway } from './instrumented-nebula-client-gateway';
+// Bench Worker binds GALAXY and STAR to host nodes that emit the bench marker, re-exported under
+// the names the wrangler.jsonc class bindings already use.
+export { InstrumentedGalaxy as Galaxy, InstrumentedStar as StarTest } from './instrumented-hosts';
 
 export { NebulaAuthRegistry } from '@lumenize/nebula-auth';
 
-export { StarTest } from '../../test-apps/baseline/index';
 
 import { NebulaEmailSender } from '@lumenize/nebula-auth';
 

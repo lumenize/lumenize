@@ -43,7 +43,7 @@ sequenceDiagram
     participant W as Auth Worker
     participant R as Registry DO
     participant KV as Workers KV
-    participant GW as Gateway DO
+    participant GW as Galaxy DO
 
     rect rgba(220, 220, 255, 0.3)
         Note over P,R: 1. Name the account and its first app — MINTS the claiming admin identity
@@ -87,7 +87,7 @@ sequenceDiagram
         W-->>S: access token, with CORS for the Studio host
         Note over S: NebulaClient takes its scope from the token's aud
         S->>W: WebSocket upgrade at /gateway/ on the Studio host (token in subprotocol)
-        W->>GW: Forward to Gateway
+        W->>GW: Forward to the Galaxy acme.crm, which the host names and which hosts the client
         GW-->>S: WebSocket connected
     end
 ```
@@ -108,7 +108,7 @@ sequenceDiagram
     participant W as Auth Worker
     participant KV as Workers KV
     participant P as Platform host page
-    participant GW as Gateway DO
+    participant GW as Star DO
 
     rect rgba(200, 240, 200, 0.3)
         Note over T,GW: 1. A cookie covers the host — mint, and connect
@@ -118,7 +118,7 @@ sequenceDiagram
         KV-->>W: record
         Note over W: mint JWT (aud: "acme.app.tenant-a")
         W-->>T: Access token (stored in memory)
-        T->>GW: WebSocket upgrade (token in subprotocol)
+        T->>GW: WebSocket upgrade at /gateway/, to the Star the host names (token in subprotocol)
         GW-->>T: WebSocket connected
     end
 
@@ -208,7 +208,7 @@ Every `NebulaClient` connection passes through four security layers before any `
 sequenceDiagram
     participant C as NebulaClient
     participant EP as Entrypoint<br/>(onBeforeConnect)
-    participant GW as NebulaClientGateway<br/>(onBeforeAccept)
+    participant GW as Host node<br/>(onBeforeAccept)
     participant DO as NebulaDO<br/>(onBeforeCall)
     participant M as mesh guard<br/>(e.g. requireDominionHere)
 
@@ -222,7 +222,7 @@ sequenceDiagram
     end
 
     rect rgba(220, 220, 255, 0.3)
-        Note over EP,GW: Layer 2 — the Gateway binds the tab to its token
+        Note over EP,GW: Layer 2 — the node the host names binds the tab to its token
         EP->>GW: Forward WebSocket
         Note over GW: onBeforeAccept:<br/>the instance name starts with the token's sub
         GW-->>C: WebSocket accepted
@@ -234,7 +234,7 @@ sequenceDiagram
         Note over C,DO: Layer 3 — passage into the node
         C->>GW: lmz.call(binding, node, ...)
         Note over GW: stamp the verified claims onto callContext.originAuth
-        GW->>DO: the call, with its callContext
+        GW->>DO: the call, in place or relayed, with its callContext
         Note over DO: onBeforeCall, requirePassage:<br/>the host's scope (aud) at or below this node,<br/>or dominion over it from that host
         alt No passage
             DO-->>GW: Error: No passage from the host's scope into this node
@@ -286,11 +286,11 @@ sequenceDiagram
         W-->>T2: { access_token } (aud: "bigco.hr.bigco-hq")<br/>NebulaClient connects
     end
 
-    Note over T1,T2: Both tabs active simultaneously.<br/>Each has its own access token (in memory),<br/>own WebSocket, own Gateway instance.
+    Note over T1,T2: Both tabs active simultaneously.<br/>Each has its own access token (in memory),<br/>own WebSocket, held by the node its host names.
 ```
 
 Key properties:
 - **One cookie jar, read per host** — every refresh cookie sits on the platform host at `Path=/`, and the refresh keeps only those at or above the asking page's host
 - **Independent access tokens** — stored in memory per tab, not shared
-- **Independent WebSockets** — each `NebulaClient` has its own Gateway connection
+- **Independent WebSockets** — each `NebulaClient` has its own socket on the node its page's host names
 - **No cross-talk** — updates arrive only on the correct tab's connection

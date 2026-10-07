@@ -15,7 +15,6 @@
  */
 export { default } from './entrypoint';
 export {
-  NebulaClientGateway,
   Universe,
   Galaxy,
   Star,

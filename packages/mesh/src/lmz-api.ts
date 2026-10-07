@@ -1092,7 +1092,9 @@ export async function executeEnvelope(
     // nothing, because the envelope's `callChain` is the sender's to write at either door, and
     // only code holding this node's binding can send one.
     // A first hop and a known binding are both required: an unstamped node and an empty chain would
-    // otherwise compare `undefined` with `undefined` and skip the hook for a stranger.
+    // otherwise compare `undefined` with `undefined` and skip the hook for a stranger. A Client's
+    // chain never passes for one its host started: a hosted Client's instance name always contains
+    // a `/`, `acme.crm.tenant1/alice.9f2c41aa`, and no node's does.
     const [origin] = callContext.callChain;
     const startedHere = options?.filled === true && origin !== undefined && node.lmz.bindingName !== undefined
       && origin.bindingName === node.lmz.bindingName && origin.instanceName === node.lmz.instanceName;

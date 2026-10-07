@@ -46,7 +46,7 @@
  * mesh-composing class in a widely-imported index breaks pure-unit transforms (packaging.md).
  *
  * **Invite links point at the platform host, on the origin the inviter's connection ARRIVED on** —
- * `callContext.originRequest.origin`, which the Gateway stamps from the upgrade request's URL (what
+ * `callContext.originRequest.origin`, which the Client's host node stamps from the upgrade request's URL (what
  * routing delivered, never a client-supplied header — a client-chosen origin in an emailed login link
  * would be an account-takeover vector, which is why it is read from the Trust DMZ and from nowhere
  * else). The Registry spells the platform host from it, keeping its protocol and port, so a local

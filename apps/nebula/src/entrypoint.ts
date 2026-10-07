@@ -72,7 +72,7 @@ function handleVersion(request: Request): Response | undefined {
 
 /** The token an upgrade carries in its subprotocol, verified, or the refusal. */
 async function verifiedUpgradeToken(request: Request): Promise<{ token: string; jwt: NebulaJwtPayload } | Response> {
-  const log = debug('nebula.entrypoint.onBeforeConnect');
+  const log = debug('nebula.entrypoint.hostedUpgrade');
   const token = extractWebSocketToken(request);
   if (!token) {
     // Log the pathname, NOT request.url — a full URL can carry a query-string secret (security.md
@@ -86,15 +86,6 @@ async function verifiedUpgradeToken(request: Request): Promise<{ token: string; 
     return new Response('Forbidden: invalid JWT', { status: 403 });
   }
   return { token, jwt };
-}
-
-/** Verifies JWT from WebSocket subprotocol and forwards it as Authorization header. */
-async function onBeforeConnect(request: Request): Promise<Response | Request> {
-  const verified = await verifiedUpgradeToken(request);
-  if (verified instanceof Response) return verified;
-  const headers = new Headers(request.headers);
-  headers.set('Authorization', `Bearer ${verified.token}`);
-  return new Request(request, { headers });
 }
 
 /** The binding of the node each tier of scope names. */
@@ -203,8 +194,8 @@ async function servePage(request: Request, url: URL, target: HostTarget | null, 
 /**
  * The routes every host answers by path, as ONE table — the Registry's routes-and-steps convention
  * (`createRouter` from nebula-auth's route-pipeline). `/_version` is the FIRST row, so it cannot be
- * reordered behind a future handler. The gateway row forwards to its own router, which answers
- * everything under its prefix — an in-prefix miss is its 404, converted here so the runner's
+ * reordered behind a future handler. The gateway row answers everything under its prefix: a
+ * Client's upgrade on a scope's host or a persona's, and 404 on any other, so the runner's
  * ran-out-of-steps 500 stays what it means.
  */
 const router = createRouter([
@@ -216,25 +207,12 @@ const router = createRouter([
   {
     path: '/gateway/*',
     steps: [async (request) => {
-      // A scope's host, or a persona's: the Client connects to the node the host spells. The
-      // Gateway's own binding keeps its route until Nebula's pages move off it.
+      // A Client's upgrade reaches the node its host spells, so only a scope's host or a persona's
+      // has one to reach.
       const url = new URL(request.url);
       const target = parseHost(url.host, deploymentOrigin(env));
-      if ((target?.kind === 'scope' || target?.kind === 'persona')
-        && !url.pathname.startsWith(`${GATEWAY_PREFIX}/NEBULA_CLIENT_GATEWAY/`)) {
-        return hostedUpgrade(request, url, target.scope);
-      }
-      return (await routeDORequest(request, env, {
-        prefix: 'gateway',
-        // The client Gateway is the only Durable Object a browser connects to; any other binding
-        // answers 404 before a Durable Object is constructed for it. The upgrade rests on its token,
-        // which rides the subprotocol and which no cross-site page can obtain.
-        bindings: ['NEBULA_CLIENT_GATEWAY'],
-        onBeforeRequest() {  // No plans to ever implement
-          return new Response('Not Implemented', { status: 501 });
-        },
-        onBeforeConnect,
-      })) ?? new Response('Not Found', { status: 404 });
+      if (target?.kind !== 'scope' && target?.kind !== 'persona') return new Response('Not Found', { status: 404 });
+      return hostedUpgrade(request, url, target.scope);
     }],
   },
   // `/auth/*` answers only on the platform host, which step 1 already took.

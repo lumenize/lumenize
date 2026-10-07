@@ -8,7 +8,7 @@
  * Harness — **rung 3 is LOAD-BEARING here, not a shortcut** (ADR-009 requires the justification in place):
  * the assertions name the exact identity values, e.g. `roster).toContainEqual({ sub: aSub, profileId: aPid })`.
  * Real issuance assigns `sub`/`profileId` server-side, so a test cannot choose them through it. (`profile-channel-collision` had no such need and moved to rung 2.) `NebulaClientTest`
- * + `createNebulaTestToken` → real Gateway → Star/DevStudio. A WATCHER uses `client.subscribeQuerySubscribers`
+ * + `createNebulaTestToken` → real host node → Star/DevStudio. A WATCHER uses `client.subscribeQuerySubscribers`
  * and asserts on the `handleQuerySubscribersUpdate` capture (`lastQuerySubscribersUpdate`/count). Data
  * churn uses `client.resources.subscribeQuery`. Server branch decisions are asserted via the debug marker
  * `nebula.Resources.subscribers`. Every test is capable-of-failing.

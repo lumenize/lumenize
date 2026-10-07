@@ -8,7 +8,7 @@
  *
  * One limb and its positive control, with the verdict at the end (`live-scenarios.md`):
  *  1. **A scenario-local socket under a Client's name sends a call and closes at once**, so the
- *     answer, a refusal after the ack, waits out the gap in the Gateway's grace period. A second
+ *     answer, a refusal after the ack, waits out the gap in its host node's grace period. A second
  *     Client, built with the first one's `instanceName` in the same browser context, connects and
  *     receives it. It does not run it — the handler would log `late-answer was refused` — and its
  *     debug marker names the foreign `loadId`. Mutation: skip the `loadId` check.
@@ -37,7 +37,8 @@ export async function run(stack: DevStack): Promise<void> {
   const app = await sharedApp(stack, testToken);
   const session = await provisionAndLogin({ baseUrl: origin, scope: app.galaxy, email: app.ownerEmail, testToken });
   const instanceName = `${session.sub}.late-${crypto.randomUUID().slice(0, 8)}`;
-  const gatewayUrl = `${scopeUrlOf(stack, app.galaxy).replace(/^http/, 'ws')}/gateway/NEBULA_CLIENT_GATEWAY/${instanceName}`;
+  // On the app's own page, so the Galaxy hosts both Clients under one name.
+  const gatewayUrl = `${scopeUrlOf(stack, app.galaxy).replace(/^http/, 'ws')}/gateway/${instanceName}`;
   // `UNIVERSE` at the Galaxy's name admits the call, then finds no member named `resources`: a
   // refusal after the ack, which reaches the Client by the fire-back road the grace period covers.
   const refusedAfterAck = [{ type: 'get', key: 'resources' }, { type: 'get', key: 'subscribeTree' }, { type: 'apply', args: [] }];

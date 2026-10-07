@@ -2,7 +2,7 @@
  * A tab cannot extend the call chain its own call carries.
  *
  * A client's CALL frame used to carry a `callContext.callChain`, and a hostile tab can still write one.
- * The Gateway used to stamp element 0 from the socket's verified attachment and copy every element
+ * A Client's server-side half used to stamp element 0 from the socket's verified attachment and copy every element
  * after it from the frame. Three readers
  * take the LAST element, `callChain.at(-1)`, as the node that called them, so a hop the tab appended
  * became a caller it chose:
@@ -11,14 +11,14 @@
  *     to. A binding absent from `env` makes `lmz.call` throw synchronously at that row on every later
  *     update, and the loop has no per-target catch — so every subscriber ordered after the row stops
  *     hearing, and the writer's own call fails. The Profile's `subscribe` now reads element 0, the
- *     one the Gateway stamps, so this limb holds unless that read AND the Gateway both regress: it
- *     no longer singles out the Gateway, and the two limbs below do.
+ *     one the host node stamps, so this limb holds unless that read AND the host node both regress:
+ *     it no longer singles out the host node, and the two limbs below do.
  *  2. **A data-plane host** stores it the same way. There the throw lands in the fan-out that runs
  *     after a commit, so a write lands and still fails its writer's call.
  *  3. **A tab's own `onBeforeCall`** refuses a push whose last hop is another client. A forged last
  *     hop naming a DO slipped a push from one tab into a co-member's.
  *
- * `ClientGateway.#handleClientCall`, which the Gateway composes, now builds the chain from the verified origin alone, so
+ * `ClientGateway.#handleClientCall`, which every host node composes, now builds the chain from the verified origin alone, so
  * each limb below has to hold while the forging tab is still forging.
  *
  * ⚠️ **The only forged thing is what an attacker controls: the bytes its own tab sends.** Every tab
@@ -34,7 +34,7 @@
  *
  * ⚠️ **Row order is what made the old hole cost a bystander, so it is chosen, not left to chance.**
  * The Profile's `Subscribers` table and the Galaxy's `Subscriptions` table are `WITHOUT ROWID`, the
- * Profile's keyed by `clientId` and the Galaxy's by `(kind, topic, clientId)`, and each fan-out reads
+ * Profile's keyed by `clientAddress` and the Galaxy's by `(kind, topic, clientAddress)`, and each fan-out reads
  * one topic's rows with no `ORDER BY`, which scans key order. The forging tab's name sorts first (`.a-forger`) and the honest tab's last
  * (`.z-honest`), so a throw at the forged row reaches the honest tab. If that order ever changed, the
  * limbs would still hold on a correct tree; only their mutation check would weaken.
@@ -61,9 +61,6 @@ export const needsContainer = false;
  *  run's shared app, set as the scenario starts. */
 let SCOPE = '';
 
-/** The Gateway binding every Nebula tab connects through. */
-const GATEWAY = 'NEBULA_CLIENT_GATEWAY';
-
 /** A push crosses one process boundary. Past this it is a failure, not slowness. */
 const PUSH_TIMEOUT_MS = 8_000;
 
@@ -77,11 +74,11 @@ const doHop = (): NodeIdentity => ({ type: 'LumenizeDO', bindingName: 'GALAXY', 
 
 /**
  * Element 0 of the chain the forging tab writes. An honest frame carries no chain, so a hostile tab
- * writes a whole one. The old Gateway replaced element 0 with the verified origin and copied the rest,
+ * writes a whole one. The old server-side half replaced element 0 with the verified origin and copied the rest,
  * so what stands here never mattered: the hop after it is the forgery.
  */
 const PLACEHOLDER_ORIGIN: NodeIdentity = {
-  type: 'LumenizeClient', bindingName: GATEWAY, instanceName: 'placeholder.forged',
+  type: 'LumenizeClient', bindingName: 'GALAXY', instanceName: 'placeholder/forged.tab',
 };
 
 /** The title the forged push carries, so the honest tab can tell it from a real update. */
@@ -146,8 +143,8 @@ class ProbeClient extends NebulaClient {
 /**
  * ⚠️ **An override is a NEW function, and the mark lives on the function value — so it does not
  * inherit.** Production spells the decorator `@mesh()`; this file runs under `tsx`, which does not
- * transform TC39 decorators, so it sets the same flag the decorator sets. Without it the Gateway's
- * push is refused at the client and no subscription ever delivers.
+ * transform TC39 decorators, so it sets the same flag the decorator sets. Without it the host
+ * node's push is refused at the client and no subscription ever delivers.
  */
 (ProbeClient.prototype.handleResourceUpdate as any)[Symbol.for('lumenize.mesh.callable')] = true;
 (ProbeClient.prototype.handleProfileUpdate as any)[Symbol.for('lumenize.mesh.callable')] = true;
@@ -366,9 +363,9 @@ export async function run(stack: DevStack): Promise<void> {
       `the rename ${chatAfter.outcome}; forger ${saw(chatAfter.heard, 'forger')}, honest ${saw(chatAfter.heard, 'honest')}`);
 
     // ── LIMB 3: tab guard — a push into a co-member's tab whose last hop names a DO ──────────
-    //    The refusal is matched on its MESSAGE: a Gateway refusal, a timeout and the tab's own
+    //    The refusal is matched on its MESSAGE: a host node's refusal, a timeout and the tab's own
     //    refusal are indistinguishable as booleans, and only the last one is the guard working.
-    const pushed = await forging(forge, doHop(), () => forger.client.lmz.callAsync(GATEWAY, honest.clientId,
+    const pushed = await forging(forge, doHop(), () => forger.client.lmz.callAsync('GALAXY', `${SCOPE}/${honest.clientId}`,
       forger.client.ctn<NebulaClient>().handleResourceUpdate('Chat', chatId,
         { value: { title: FORGED_TITLE }, meta: { typeName: 'Chat', eTag: 'forged' } } as any),
       { timeoutMs: PUSH_TIMEOUT_MS }));
