@@ -39,6 +39,8 @@ assert.ok(!cfg.r2_buckets.some((b) => b.bucket_name === 'nebula-blobs'), "the bl
 // Its own certificate zone, never production's.
 assert.equal(cfg.vars.CERTIFICATE_ZONE_ID, ZONE_ID, "CERTIFICATE_ZONE_ID must be the test zone's");
 assert.notEqual(cfg.vars.CERTIFICATE_ZONE_ID, prod.vars.CERTIFICATE_ZONE_ID, "CERTIFICATE_ZONE_ID must never be production's");
+assert.equal(cfg.vars.NEBULA_AUTH_ACCESS_TOKEN_TTL, '120', 'the test target mints two-minute tokens, so a deployed lapse waits two minutes');
+assert.ok(!('NEBULA_AUTH_ACCESS_TOKEN_TTL' in prod.vars), "production's config must not shorten its tokens");
 
 // Refuses without a namespace id or a zone id.
 assert.throws(() => deriveTestDeployConfig({ workerName: 'test-nebula', kvNamespaceId: '', zoneId: ZONE_ID }), /namespace id/);

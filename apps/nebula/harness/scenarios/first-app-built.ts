@@ -274,8 +274,9 @@ export async function run(stack: DevStack): Promise<void> {
         }
         if (await page.getByText('No reply arrived').count() > 0) {
           await captureArtifacts(inst, 'first-app-built-failed-flash');
-          throw new Error('the failure banner PAINTED during a live turn — the idle window elapsed on a ' +
-            'turn that was still running, which the server heartbeat exists to prevent ' +
+          throw new Error('the failure banner PAINTED before any reply — either the idle window elapsed on a ' +
+            'turn that was still running, which the server heartbeat exists to prevent, or the turn died and ' +
+            'the banner is right; the Galaxy\'s logs say which ' +
             `(${((Date.now() - turnStartedAt) / 1000).toFixed(0)} s into the turn; ${tailsSeen.size} distinct tails seen; ` +
             `last new tail ${lastTailAt ? `${((Date.now() - lastTailAt) / 1000).toFixed(0)} s ago` : 'never'})`);
         }
@@ -293,8 +294,14 @@ export async function run(stack: DevStack): Promise<void> {
     // and its cleanup, which is how every banner red before 2026-09-06 lost its evidence.
     liveWatch.catch(() => { /* re-thrown by the await below */ });
     try {
-      await page.getByText('💭 thought process').first()
-        .waitFor({ state: 'visible', timeout: TURN_TIMEOUT_MS });
+      // Raced against the watch, so a banner, a frozen spinner or an empty bubble ends the run when it
+      // appears. Awaited one after the other, a turn that died waited out the whole deadline with its
+      // banner already up (2026-10-07, a deployed Galaxy reset mid-turn: 1064 s). The deadline stays
+      // for a turn that keeps beating and never answers, since a live turn may run 14 minutes.
+      await Promise.race([
+        page.getByText('💭 thought process').first().waitFor({ state: 'visible', timeout: TURN_TIMEOUT_MS }),
+        liveWatch,
+      ]);
       await liveWatch;
     } catch (e) {
       if (e instanceof Error && /PAINTED|EMPTY assistant bubble|did not MOVE|transcript modal/.test(e.message)) throw e;
