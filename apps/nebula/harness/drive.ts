@@ -69,7 +69,7 @@ import * as resubscribeWhenLost from './scenarios/resubscribe-when-lost';
 import * as pushSurvivesTokenLapse from './scenarios/push-survives-token-lapse';
 import * as scopeHostsItsClients from './scenarios/scope-hosts-its-clients';
 import * as deleteFromItsOwnPage from './scenarios/delete-from-its-own-page';
-import * as redeployAsksToResubscribe from './scenarios/redeploy-asks-to-resubscribe';
+import * as redeployStrandsNoClient from './scenarios/redeploy-strands-no-client';
 import * as scopeTeardown from './scenarios/scope-teardown';
 import * as galaxyCap from './scenarios/galaxy-cap';
 import * as claimLifecycle from './scenarios/claim-lifecycle';
@@ -183,7 +183,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'push-survives-token-lapse': pushSurvivesTokenLapse, // a push that meets an expired token waits for the reconnect; a revoked session's never arrives (no Docker, ~3 min)
   'scope-hosts-its-clients': scopeHostsItsClients, // /gateway/{id} on a scope's host lands on that scope's node; refusals wake none; a deletion closes 4410 (no Docker)
   'delete-from-its-own-page': deleteFromItsOwnPage, // deleting an app or an account from its own page lands somewhere that exists; the scope's pages stop (no Docker)
-  'redeploy-asks-to-resubscribe': redeployAsksToResubscribe, // a redeploy resets every host node, and each Client it held is told to re-subscribe once; deployed only, with HARNESS_REDEPLOY=1 (no Docker)
+  'redeploy-strands-no-client': redeployStrandsNoClient, // after a redeploy a change still reaches every tab its host held, whatever the sockets did; deployed only, with HARNESS_REDEPLOY=1 (no Docker)
   'scope-teardown': scopeTeardown, // the facade's creates and deletes wipe Durable Objects server-side; records name the page (no Docker)
   'galaxy-cap': galaxyCap, // one owner cannot pass MAX_GALAXIES_PER_OWNER at create or acceptance; the root counts none (no Docker)
   'claim-lifecycle': claimLifecycle, // nothing enters a pending claim; a first acceptance wipes its scopes; every acceptance, claim and consume records (no Docker)

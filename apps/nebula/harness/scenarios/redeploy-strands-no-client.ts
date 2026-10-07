@@ -1,19 +1,23 @@
 /**
- * **A redeploy resets every host node, and each Client it hosted is told to re-subscribe, once.**
+ * **A redeploy strands no Client: after it, a change still reaches every tab on the host.**
  *
- * A page's Client is held by the node its host names, so a redeploy, which restarts every Durable
- * Object, drops every Client on a node together. Each reconnects to a fresh object that has no
- * record of it, which must say so: the connection reports `subscriptionRequired: true`, and the
- * Client calls `onSubscriptionRequired` once. The subscription rows themselves survive a redeploy,
- * so a later push arrives either way, which is why the limb reds on the report and not on the push.
+ * A page's Client is held by the node its host names. The task that hosted pages there expected a
+ * redeploy to restart that node and drop its sockets, so each Client would reconnect to a fresh
+ * object and be told to re-subscribe. Measured on 2026-10-07, it does not: two redeploys of
+ * `test-nebula`, each a new version, left both tabs' sockets open, since a hibernated host's sockets
+ * live in the runtime and the new version picks them up. Whichever happens, what a user feels is
+ * whether the next change reaches the page, so that is what this asserts, and it reports what the
+ * sockets did. A host reset is `scope-hosts-its-clients` limb 7's: founding a Star resets it, and
+ * its tab is told to re-subscribe.
  *
  * One limb. Alice and Dana, two tabs of one login, hold sockets on a tenant Star and watch its
- * tree. The test Worker is redeployed unchanged, with `npm run deploy:test`. Then: each tab was told
- * to re-subscribe exactly once, and a later change to the tree reaches both. Mutation: have the
- * host node report `subscriptionRequired: false` to a Client it has no record of, deployed.
+ * tree. The test Worker is redeployed with `npm run deploy:test`, a minute passes for a rollout to
+ * drop sockets if it will, and then both tabs are connected and a later change to the tree reaches
+ * both. Mutation, deployed: a host that finds a Client's socket only among those it accepted in
+ * this isolate, so the redeployed host cannot deliver.
  *
  * Deployed only, and only when asked. A local stack has no redeploy, and a redeploy in the middle of
- * a deployed sweep would reset every other scenario's objects too, so this runs with
+ * a deployed sweep could reset every other scenario's objects too, so this runs with
  * `HARNESS_REDEPLOY=1` against the test target alone, after the sweep, and reports itself skipped
  * otherwise. It refuses any target but `lumenize-test.dev`, since the command it runs deploys that.
  *
@@ -37,6 +41,8 @@ export const needsContainer = false;
 class CountingTab extends NebulaClient {
   required = 0;
   treePushes = 0;
+  /** Every connection state the tab passed through, so a failure says whether its socket dropped. */
+  states: string[] = [];
 
   override onSubscriptionRequired(): void {
     this.required += 1;
@@ -91,6 +97,7 @@ export async function run(stack: DevStack): Promise<void> {
       fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
+      onConnectionStateChange: (state) => { t.states.push(state); },
     });
     tabs.push(t);
     assert.ok(await eventually(() => t.connectionState === 'connected', 30_000), `${name}'s tab never connected`);
@@ -102,21 +109,23 @@ export async function run(stack: DevStack): Promise<void> {
     const alice = await tab('alice');
     const dana = await tab('dana');
     const before = [alice.required, dana.required];
+    const statesBefore = [alice.states.length, dana.states.length];
 
-    // ── The redeploy: unchanged code, every Durable Object restarted ──────────────────────────
+    // ── The redeploy: a new version, since every deploy stamps its build time ─────────────────
     const appDir = fileURLToPath(new URL('../..', import.meta.url));
-    console.log('  · redeploying the test Worker, unchanged…');
+    console.log('  · redeploying the test Worker…');
     const deploy = spawnSync('npm', ['run', 'deploy:test'], { cwd: appDir, stdio: 'inherit', timeout: 15 * 60_000 });
     assert.equal(deploy.status, 0, `npm run deploy:test exited ${deploy.status}`);
 
-    // Each tab drops and reconnects to a fresh Star with no record of it.
-    const told = await eventually(() => alice.required > before[0] && dana.required > before[1], 180_000);
-    // A rollout that reset the Star twice would report twice: wait long enough to see a second.
-    await new Promise((r) => setTimeout(r, 20_000));
-    const reports = [alice.required - before[0], dana.required - before[1]];
-    assert.ok(told && reports[0] === 1 && reports[1] === 1,
-      `after the redeploy Alice was told to re-subscribe ${reports[0]} time(s) and Dana ${reports[1]}, not once each`);
-    console.log('  ✓ each tab was told to re-subscribe, once');
+    // A minute for a rollout to drop the sockets, if it will, and for each tab to come back.
+    await new Promise((r) => setTimeout(r, 60_000));
+    for (const [i, [name, t]] of ([['Alice', alice], ['Dana', dana]] as const).entries()) {
+      const since = t.states.slice(statesBefore[i]);
+      console.log(`  · ${name}'s socket ${since.length === 0 ? 'stayed open' : `went ${JSON.stringify(since)}`}; ` +
+        `told to re-subscribe ${t.required - before[i]} time(s)`);
+    }
+    assert.ok(alice.connectionState === 'connected' && dana.connectionState === 'connected',
+      `after the redeploy Alice is ${alice.connectionState} and Dana ${dana.connectionState}`);
 
     // ── A later push reaches both ───────────────────────────────────────────────────────────
     const pushes = [alice.treePushes, dana.treePushes];
