@@ -1,6 +1,6 @@
 # A Client connects to its scope's node
 
-**Status:** Pass 2, with Stage 2 `/review-task` run 2026-10-06 and its findings applied; `/build-task` is next. D1–D7 are Larry's. Stage 1 ran twice, on 2026-10-05 and on 2026-10-06 against mesh-calls as built, and Larry settled what it raised one item at a time. This file decides [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Open decisions*, item 4, and is a deliberate exception to one child task file at a time: it outgrew the master plan while [mesh-calls-to-and-from-clients.md](archive/mesh-calls-to-and-from-clients.md) built.
+**Status:** ✅ Built 2026-10-06/07 and archived: six phases, two verification passes and a deployed pass, with the decisions it raised settled in § *Open for Larry, in order* and § *Close-out*. Where the build departed from a phase's wording, that list's last item says so, and each phase's notes say why. Before the build: Pass 2, with Stage 2 `/review-task` run 2026-10-06 and its findings applied. D1–D7 are Larry's. Stage 1 ran twice, on 2026-10-05 and on 2026-10-06 against mesh-calls as built, and Larry settled what it raised one item at a time. This file decides [nebula-pre-alpha.md](../nebula-pre-alpha.md) § *Open decisions*, item 4, and is a deliberate exception to one child task file at a time: it outgrew the master plan while [mesh-calls-to-and-from-clients.md](mesh-calls-to-and-from-clients.md) built.
 
 **Objective — a `NebulaClient` opens its one socket on the Durable Object (DO) its page's host spells, and that object hosts the Client's server-side half, so no Client needs a Durable Object of its own.**
 
@@ -22,7 +22,7 @@ A page on `crm.acme.lumenize.dev` connects to the Galaxy `acme.crm`. A page on `
 
 Each goal says how today's design misses it.
 
-1. **A Client's calls to its host node take one hop.** Today each one goes Client → Gateway → server-side node. Measured, the hop adds 7–18 ms per call at p50 ([experiments/gateway-vs-hosted/RESULTS.md](../experiments/gateway-vs-hosted/RESULTS.md)).
+1. **A Client's calls to its host node take one hop.** Today each one goes Client → Gateway → server-side node. Measured, the hop adds 7–18 ms per call at p50 ([experiments/gateway-vs-hosted/RESULTS.md](../../experiments/gateway-vs-hosted/RESULTS.md)).
 2. **A server-side node pushes to the Clients it hosts directly.** Today every push to a Client is an RPC to that Client's Gateway.
    - **What users feel in pre-alpha is the chat stream.** `Resources.streamProgress` pushes each chunk of a model's reply to every subscribed Client, one RPC per Client per chunk. Hosted on the Galaxy, each push is a `ws.send`.
    - **At scale it is broadcast.** A broadcast to 1,000 subscribing Clients reached them in 1.1–1.2 s at p50 through Gateways, against 93–113 ms when the node held the sockets, with a hosted p99 of 102–138 ms. Those are arrival times, recorded by each Client's handler as it ran, from the moment the publisher called `publish`. All 1,000 ran in one Node process, so browsers spread across the internet add their own latency; the server's share is what the two numbers compare.
@@ -33,7 +33,7 @@ Each goal says how today's design misses it.
 
 ## Relationships
 
-- **Builds after [mesh-calls-to-and-from-clients.md](archive/mesh-calls-to-and-from-clients.md), built 2026-10-05.** Its D23 extracts a Client's server-side half as `ClientGateway`, code a Durable Object composes, with `LumenizeClientGateway` as its first host node. This task moves that code onto a scope's node; § *What mesh-calls handed this file* rules on what it left open.
+- **Builds after [mesh-calls-to-and-from-clients.md](mesh-calls-to-and-from-clients.md), built 2026-10-05.** Its D23 extracts a Client's server-side half as `ClientGateway`, code a Durable Object composes, with `LumenizeClientGateway` as its first host node. This task moves that code onto a scope's node; § *What mesh-calls handed this file* rules on what it left open.
 - **The package merge comes after it** (Larry, 2026-10-06), as a task file not yet written. It builds `@lumenize/mesh` 1.0-alpha on the Universe/Galaxy/Star tree, folds `NebulaDO` into `LumenizeDO`, moves `nebula-auth` into Mesh as a subpath, and deletes `LumenizeClientGateway` (D4).
 - **Its gate is `deploy`.** Every generated app bundles the Client, and the wipe rebuilds them all. The subscription rows need not be kept (§ *What the examples settle*).
 - **Leaves `tasks/on-hold/mesh-origin-request.md`'s `locationHint` half on hold.** A Galaxy created through its Universe lands beside it (D3), and the hint is the lever if a far Galaxy ever matters.
@@ -196,7 +196,7 @@ Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's 
 
 **A Galaxy created from the account page lands beside its Universe, and that is accepted** (D3). Bob, an admin of `acme`, creates the app `crm` on `acme.lumenize.dev`.
 - **Today** his call goes through his Gateway, which the Worker at his PoP placed near him. The facade runs in the Gateway's colo, so `createGalaxy`'s wipe, its first touch of `acme.crm`, places the app near Bob.
-- **Hosted,** the same call goes through the Universe's own object, and the facade runs in that object's colo. Measured, 33 of 36 objects first touched by an object's call landed in the caller's own colo, and the rest one colo over ([experiments/do-placement-probe/RESULTS.md](../experiments/do-placement-probe/RESULTS.md)). So `acme.crm` and its `.dev` Star land beside `acme`, and a wipe, a reset or an eviction never moves them.
+- **Hosted,** the same call goes through the Universe's own object, and the facade runs in that object's colo. Measured, 33 of 36 objects first touched by an object's call landed in the caller's own colo, and the rest one colo over ([experiments/do-placement-probe/RESULTS.md](../../experiments/do-placement-probe/RESULTS.md)). So `acme.crm` and its `.dev` Star land beside `acme`, and a wipe, a reset or an eviction never moves them.
 
 **Beside the Universe is nearly always where a first touch by the creator would put it anyway** (Larry, 2026-10-06):
 - **Most Galaxies are created by the Universe's founder,** 90 to 99 percent in Larry's estimate, and the first is created with the Universe itself, by the HTTP claim at the founder's own PoP. Only a founder away from home, or a second admin elsewhere, sees a difference.
@@ -223,7 +223,7 @@ Alice is a member of the Star `acme.crm.tenant1`, on its page, and her Client's 
 ### What a reset costs
 
 **When a host node resets, every Client on it reconnects together,** each socket closing with code 1006.
-- **What triggers it.** Cloudflare's runtime reset objects that kept running hot JavaScript in a slow state: 6 of 16 fresh instances ran a JavaScript loop about 10× slower, and sustained work in that state ended in a reset 13–50 s in ([experiments/do-socket-drop-probe/RESULTS.md](../experiments/do-socket-drop-probe/RESULTS.md)). Larry expects Cloudflare to make that rarer, not to end it, and an exception that breaks the object, the memory limit and a deploy reset it too.
+- **What triggers it.** Cloudflare's runtime reset objects that kept running hot JavaScript in a slow state: 6 of 16 fresh instances ran a JavaScript loop about 10× slower, and sustained work in that state ended in a reset 13–50 s in ([experiments/do-socket-drop-probe/RESULTS.md](../../experiments/do-socket-drop-probe/RESULTS.md)). Larry expects Cloudflare to make that rarer, not to end it, and an exception that breaks the object, the memory limit and a deploy reset it too.
 - **What a Client loses.** The answer to every call it had in flight on the host node, whether the call ran there or was relayed. A relayed call's answer still reaches the Client if it lands after the Client reconnects, since the Client keeps its pending calls across a reconnect; one that lands sooner finds no socket and no grace period on the rebuilt host node, and is dropped.
 - **What it waits for.** Each lost call waits out its 30 s timeout. A reset of a call's target loses the same answers today, since a Gateway acks a call before the target runs it; what hosting adds is that a host node's reset reaches every Client on it at once. Subscriptions come back as § *What the examples settle* says, with `subscriptionRequired: true` (mesh-calls' D4).
 - **Failing pending calls at once was considered and is not built** (Larry, 2026-10-06). The boot id it would compare is minted at construction, so it changes on every wake from hibernation as well as on a reset, and a Client would reject relayed calls whose answers were still coming.

@@ -1,6 +1,6 @@
 # do-placement-probe: where a named Durable Object lands, by who touches it first (deployed)
 
-**Question.** `tasks/nebula-clients-connect-to-their-scope.md` § *Open questions*, item 2 proposes placing a new Galaxy by letting its creator's browser be the first thing to touch it, instead of hinting a region. That rests on three claims nobody had measured: a Worker's first touch places a named object at its PoP; an object's first touch, over a service binding, places a new one beside it; and a wiped object can or cannot be placed anew by its next touch.
+**Question.** `tasks/archive/nebula-clients-connect-to-their-scope.md` § *Open questions*, item 2 proposes placing a new Galaxy by letting its creator's browser be the first thing to touch it, instead of hinting a region. That rests on three claims nobody had measured: a Worker's first touch places a named object at its PoP; an object's first touch, over a service binding, places a new one beside it; and a wiped object can or cannot be placed anew by its next touch.
 
 **Method.** `experiment-do-placement-probe`, deployed 2026-10-05, driven from one Node process in Pittsburgh (PoP IAD). Every Worker invocation and every object reports its own colo from Cloudflare's trace endpoint (`cdn-cgi/trace`), so nothing is inferred.
 
