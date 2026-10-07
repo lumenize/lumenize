@@ -18,10 +18,13 @@ Repeatedly, shortcutting the real email-based login to save an automated run a f
 The **real email-based login is the default** for anything exercising auth / identity / multi-user, for the harness / e2e / `/live`, and — decisively — **as the path design reasoning grounds on.** Never conclude how the system behaves from a synthetic path. Shortcuts form a ladder, most-preferred first:
 
 1. **Real login** (email → magic-link → cookie → token). The only path we ground behavior on. Frictionless via catch-all routing.
-2. **Test-mode server-issuance** (`LUMENIZE_AUTH_TEST_MODE` / `createTestRefreshFunction`) — for isolated unit tests needing an authed identity but not the email round-trip. **Real server issuance, no email, no client mint.** This rung exists so we don't trade the shortcut tax for a **flake tax** — email is an external dependency, and an outage or non-delivery reddens an otherwise-deterministic unit suite.
-   - ⚠️ **Open (2026-07-21): this rung's cost rationale did not survive re-measurement.** The Context originally justified it on "8 s is too slow to put in every unit test"; the real figure is **~0.9 s marginal** inside a running suite, so the speed argument is gone, as is the "cold-start latency" it leaned on. The **flake** argument above stands on its own and is why the rung is left in place pending review — but it was never the *written* reason. **Whether rung 2 survives is a decision for Larry, not something the measurement settles.**
+2. **Test-mode server-issuance** (the Registry in test mode, `AUTH_TEST_MODE`, which returns the magic link instead of mailing it) — for isolated unit tests needing an authed identity but not the email round-trip. **Real server issuance, no email, no client mint.** Speed is not the reason for this rung, since a real login costs **~0.9 s marginal** inside a running suite. Two other costs are:
+   - **Flake.** Email is an external dependency, and an outage or non-delivery reddens an otherwise-deterministic unit suite.
+   - **Mail volume.** Every real login sends a message, and testing alone already nears the mail plan's monthly allowance.
 3. **Client-side synthetic mint** (`create-nebula-test-token`) — last resort; each surviving use justified in-place.
 4. **Negative-control mints** — deliberately *wrong-shape* tokens (base-shape, no-`access`) to prove the gateway rejects them. Real login cannot produce a wrong-shape token, so this is **not** a happy-path shortcut and stays legitimate.
+
+> **Today's code differs.** The test-mode variable is `NEBULA_AUTH_TEST_MODE`, and `LUMENIZE_AUTH_TEST_MODE` in `@lumenize/auth`. Mesh's own suites mint their tokens with `createTestRefreshFunction`, which signs in the test with the private key, so it is rung 3 in all but name.
 
 The real multi-user login is **dual-use**: our testing/harness infra *and* a user-developer feature (log N users into their own preview tabs to test their access-control model; later, the substrate for user-developer automated testing). Build it in a reusable place, not per-test.
 

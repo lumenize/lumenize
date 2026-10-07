@@ -9,7 +9,7 @@
 
 **Lumenize code runs on two sides of one boundary, and each side has to call the other.**
 
-- **Mesh nodes** call each other with `lmz.call`. Every hop carries verified claims in `callContext`, a guard (`onBeforeCall`) checks them, and only `@mesh()`-decorated members can be called. The Galaxy, each Star and the Profile are mesh nodes.
+- **Mesh nodes** call each other with `lmz.call`. Every hop carries verified claims in `callContext`, guards check them (passage on a scoped node, then `onBeforeCall`), and only `@mesh()`-decorated members can be called. The Galaxy, each Star and the Profile are mesh nodes.
 - **Raw infrastructure** speaks Workers RPC and HTTP and knows nothing of claims. `NebulaAuthRegistry`, the identity singleton, extends `DurableObject` directly.
 
 Two examples, one per direction:
@@ -28,7 +28,7 @@ The rest of this ADR names the two bridges, says when each is the right one, and
 Three rules hold for both:
 
 1. **The crossing runs between code we wrote, running in our own Worker.** The facade's raw call reaches the Registry from `nebula-auth`'s own facade, and a `@rawRpc` call reaches a node from our Worker's own code. Both halves matter. `NebulaClient` is ours, but it runs in someone's browser, where its user can change it, so it is a client and makes neither hop. A user-developer's code never runs in our Worker at all.
-2. **Whatever authorizes the crossing is checked before it crosses.** The facade checks the caller's claims before its hop, so a refused call never reaches the Registry. A `@rawRpc` call goes around the node's mesh guard, its `onBeforeCall` and the `@mesh()` check, because it carries out a decision already checked where it was made.
+2. **Whatever authorizes the crossing is checked before it crosses.** The facade checks the caller's claims before its hop, so a refused call never reaches the Registry. A `@rawRpc` call goes around the node's mesh guards, its passage step, its `onBeforeCall` and the `@mesh()` check, because it carries out a decision already checked where it was made.
 3. **The side entered keeps the checks it applies to calls from within itself.** The Registry still checks the claims each of its methods is handed, so a caller that reached it some other way is still refused. A mesh node's guard still covers every mesh call, and a `@rawRpc()`-decorated method is simply never one.
 
 ### Into raw infrastructure: a facade
@@ -81,7 +81,9 @@ The method name becomes a string only inside the stub, and the arguments and res
 
 ### What this does not cover
 
-Mesh code reaching a raw object its own package owns needs no facade, since the facade exists to put the raw hop in that package, beside the rules it serves. The `Profile`, a mesh node in `nebula-auth`, already sits there and reads the Registry by raw RPC, mid-call, to learn who administers a profile. Nor does this cover mesh's own client Gateway, which builds envelopes by hand because it is part of what the mesh is built from.
+Code in Mesh's auth layer, `@lumenize/mesh/auth`, reaching the Registry that layer owns needs no facade, since the facade exists to put the raw hop in that layer, beside the rules it serves. The `Profile` sits there and reads the Registry by raw RPC, mid-call, to learn who administers a profile. Mesh's other code reaches the Registry through the facade, as an app's does. Nor does this cover `ClientGateway`, which a host node composes, and which builds envelopes by hand because it is part of what the mesh is built from.
+
+> **Today's code differs.** The Registry, the facade and the `Profile` are in `@lumenize/nebula-auth`, a package of their own, so the auth layer and its package are the same thing.
 
 ## Alternatives considered
 
