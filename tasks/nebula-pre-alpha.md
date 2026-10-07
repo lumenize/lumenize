@@ -33,7 +33,7 @@
 | — | **Generated apps are pure Vapor** — the scaffold mounts with `createVaporApp`, every SFC is `<script setup vapor>`, and Lucide icons compile through `unplugin-icons` | none — § *Generated apps are pure Vapor* | deploy |
 | ⑤ | **The ontology history is one committed file** | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — design intent only; independent of ④, either order | **data** |
 | — | **Shared pages** — Universe Signup, Galaxy create and login: scope full names captured at claim, and per page whether an app forwards to ours or runs its own | none — § *Shared pages* | **data** |
-| — | **Mesh is built on the scope tree** — `@lumenize/mesh` 1.0-alpha takes in what Nebula layers on it, all MIT: `NebulaDO` folds into `ScopedMeshDO` (today's `LumenizeDO`), `nebula-auth` becomes a subpath of Mesh, and `NebulaClient`'s session half folds into `MeshClient` (today's `LumenizeClient`). Resources, and the Vue store built on Resources, ship beside it, UNLICENSED. **Part 1 gates the wipe:** only what would cost a migration later, which is `@lumenize/resources` with the import path generated apps use, the renames a stored row, a built app or a deployed secret sees, and the agent's `sub`. **Part 2 follows the wipe,** before [mesh-1-alpha.md](mesh-1-alpha.md) | [mesh-is-built-on-the-scope-tree.md](mesh-is-built-on-the-scope-tree.md) — Pass 1, D1–D20 decided; Stage 1 runs again on the reshaped file | **data** (Part 1) |
+| — | **Mesh is built on the scope tree** — `@lumenize/mesh` 1.0-alpha takes in what Nebula layers on it, all MIT: `NebulaDO` folds into `ScopedMeshDO` (today's `LumenizeDO`), `nebula-auth` becomes a subpath of Mesh, and `NebulaClient`'s session half folds into `MeshClient` (today's `LumenizeClient`). Resources, and the Vue store built on Resources, ship beside it, UNLICENSED. Anything that risks a schema change lands here, before the wipe, among them the import path generated apps use and the agent's `sub`; docs and configuration wait for [mesh-1-alpha.md](mesh-1-alpha.md) | [mesh-is-built-on-the-scope-tree.md](mesh-is-built-on-the-scope-tree.md) — Pass 1, D1–D23 decided; Stage 1's second gate is being worked | **data** |
 | ⑥ | **The wipe + redeploy** | § *⑥ The wipe* | — |
 | — | **Turn-log inspection v0** | none — § *Turn-log inspection v0* | ungated |
 | — | **The superuser → impersonate join scenario** (~¼ day) | none — § *The superuser join scenario* | ungated |
@@ -58,7 +58,7 @@
 **Close-out, after pre-alpha ships:**
 
 - 👤 **Larry's hand-review of ADR-011 onward** — inputs in § *ADR hand-review*.
-- **Mesh 1.0.0-alpha.1 ships**, before the npm publish below: [mesh-1-alpha.md](mesh-1-alpha.md) holds what an adopter needs that Nebula does not — the website docs rewrite, Mesh's default auth UI, tier labels, the deprecations, and the version and dist-tag.
+- **Mesh 1.0.0-alpha.1 ships**, before the npm publish below: [mesh-1-alpha.md](mesh-1-alpha.md) holds what an adopter needs that Nebula does not, each item landing without changing what Nebula runs.
 - **npm publish** from merged `main` (`/release-workflow`); no package has been published yet.
 - **`pre-alpha` → `alpha`:** PR `pre-alpha` → `main`, release, branch `alpha` off `main`. Continuous CI comes from an open draft PR `pre-alpha` → `main`.
 
