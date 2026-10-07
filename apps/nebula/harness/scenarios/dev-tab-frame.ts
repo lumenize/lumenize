@@ -235,9 +235,20 @@ export async function run(stack: DevStack): Promise<void> {
       await pPage.waitForURL((u) => u.origin === studio, { timeout: 30_000 });
       await devTabFrame(pPage); // positive control: the co-minted .dev membership gives P's tab a token
       await driver.client.scopes.delete(devStar);
-      await pPage.goto(`${studio}/`, { waitUntil: 'domcontentloaded' });
-      await pPage.getByTestId('preview-notice').filter({ hasText: 'no session for its workspace' })
-        .waitFor({ state: 'visible', timeout: 30_000 });
+      // The deletion revokes P's `.dev` session, which a page served from a colo other than the
+      // Registry's can still refresh for up to about 60 s (`security.md` § *Refresh tokens*), so the
+      // tab reloads until the frame has no token, within that window. The assertions below read the
+      // load that showed the notice.
+      const noSession = pPage.getByTestId('preview-notice').filter({ hasText: 'no session for its workspace' });
+      for (const deadline = Date.now() + 75_000; ;) {
+        await pPage.goto(`${studio}/`, { waitUntil: 'domcontentloaded' });
+        try {
+          await noSession.waitFor({ state: 'visible', timeout: 15_000 });
+          break;
+        } catch (e) {
+          if (Date.now() > deadline) throw e;
+        }
+      }
       await new Promise((r) => setTimeout(r, 2_000));
       assert.equal(new URL(pPage.url()).origin, studio, "a frame with no token must leave Studio's window where it is");
       assert.equal(await pPage.evaluate(() => (window as unknown as { __loginRequired?: number }).__loginRequired), 1,

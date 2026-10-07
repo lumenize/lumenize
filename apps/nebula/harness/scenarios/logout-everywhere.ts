@@ -87,7 +87,17 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 2: Q's session ends when P logs out everywhere ────────────────────────────────────
     await p.page.getByTestId('logout-confirm').click();
     await p.page.waitForURL((u) => u.origin === origin && u.pathname === '/auth/login', { timeout: 30_000 });
-    assert.equal((await refreshFrom(q)).status, 401, "Q's session must end when P logs out on every device");
+    // Within KV's propagation window, about 60 s (`security.md` § *Refresh tokens*): the Registry
+    // deletes the record from its own colo, and a page served from another keeps reading its cached
+    // copy until then (`revoke-is-total` measured 45 to 50 s). A logout that missed the session never
+    // turns 401.
+    const start = Date.now();
+    let status = (await refreshFrom(q)).status;
+    while (status !== 401 && Date.now() - start < 75_000) {
+      await new Promise((r) => setTimeout(r, 2_000));
+      status = (await refreshFrom(q)).status;
+    }
+    assert.equal(status, 401, "Q's session must end within 75 s of P's logout on every device");
     console.error("  ✓ limb 2 — P's logout everywhere ended the session Q held");
 
     // ── LIMB 3: the logout records whose sessions ended ────────────────────────────────────────
