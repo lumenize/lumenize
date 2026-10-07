@@ -818,7 +818,9 @@ export async function handleComingSoon(request: Request, _env: Env): Promise<Res
  *    is skipped at warn. An unaccepted membership mints nothing. The first accepted `scopeAdmin` one
  *    wins — the broadest dominion — else the membership at the host's own scope, else 401.
  * 4. **A KV miss falls back once to the Registry**, which heals the record through the reap. A miss
- *    on both expires that cookie, so a revoked membership's cookie stops costing a Registry read.
+ *    on both expires that cookie, so a revoked membership's cookie stops costing a Registry read. A
+ *    record still pending asks the Registry too, since KV can serve a copy an accept has replaced:
+ *    staleness may permit for KV's window, but never refuses.
  * 5. **It answers CORS for that origin alone**, with credentials; no other route answers CORS.
  * 6. **A persona's host mints the persona's own plain token**, `manny--dev.crm.acme` answering as
  *    Manny, for a browser whose ACCEPTED admin cookie at or above the Star holds dominion over it —
@@ -876,6 +878,17 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
           : undefined,
       });
       if (healed) [record] = await putRefreshRecords(env, [{ tokenHash, record: healed }]);
+      if (!record) { expired.push(candidate.scope); continue; }
+    } else if (!record.accepted) {
+      // A pending copy may be one an accept has already replaced: a colo that read the record before
+      // the accept can serve it for up to KV's ~60 s window. Refusing on it would tell someone who has
+      // just accepted that they have not, so the Registry's index decides. Staleness that permits is
+      // accepted (`security.md`) and staleness that refuses is not. The accepted record a page
+      // refreshes every 15 minutes never pays this read, and a page stops at the 401, so it is one
+      // read per page load by someone not yet accepted.
+      const current = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+      log.debug('kv pending', { operationId, scope: candidate.scope, healed: current?.accepted === true });
+      if (current?.accepted) [record] = await putRefreshRecords(env, [{ tokenHash, record: current }]);
       if (!record) { expired.push(candidate.scope); continue; }
     }
     if (now > record.expiresAt) continue;

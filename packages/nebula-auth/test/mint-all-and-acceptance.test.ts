@@ -264,6 +264,42 @@ describe('a cookie is inert until its holder accepts', () => {
     expect(after.parsed.access.authScope).toBe(galaxy);
   });
 
+  // In-lane because the stale copy is a colo's: a local stack's KV reads back its own write, so no
+  // running system here can serve the pre-accept record after the accept. The fixture writes it.
+  it('a KV copy still pending after the accept is checked against the Registry, which mints and heals it', async () => {
+    const pending: any[] = [];
+    setDebugSink((e) => { if (e.namespace === 'nebula-auth.worker.refresh' && e.message === 'kv pending') pending.push(e); });
+    try {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, addr());
+      const galaxy = `${u}.app`;
+      await createGalaxy(galaxy, admin.access_token);
+      const invitee = addr();
+      await issueInvitesAs(admin.access_token, galaxy, [{ email: invitee }]);
+      const { tokenFor } = await plainLogin(SELF, invitee);
+      const token = tokenFor(galaxy);
+      const key = `refresh:${await hashString(token)}`;
+      const beforeAccept = await (env as any).REFRESH_TOKEN_KV.get(key) as string;
+
+      // Not yet accepted, the Registry agrees with KV: still refused, and nothing is put.
+      expect((await refresh(SELF, galaxy, refreshCookie(galaxy, token))).status).toBe(401);
+
+      // Accepted, then a far colo's copy from before the accept: what that colo would serve.
+      await acceptMembership(SELF, galaxy, token);
+      await (env as any).REFRESH_TOKEN_KV.put(key, beforeAccept);
+      expect((await kvRecord(token)).accepted).toBe(false);
+
+      const after = await refreshAndParse(SELF, galaxy, token);
+      expect(after.parsed.access.authScope).toBe(galaxy);
+      expect((await kvRecord(token)).accepted).toBe(true); // healed where the person is
+      // One read each time, and only the second found the accept. Mutation: drop the Registry
+      // read, and the refresh above is refused `membership_not_accepted`.
+      expect(pending.map((e) => e.data.healed)).toEqual([false, true]);
+    } finally {
+      clearDebugSink();
+    }
+  });
+
   it('accepting a galaxy invite takes up its co-minted `.dev` sibling in the same act', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, addr());

@@ -9,7 +9,7 @@ Nebula uses [nebula-auth](/docs/auth) for passwordless authentication. Every sco
 
 :::info[Where the pieces live]
 
-There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the **default Worker** (`routeNebulaAuthRequest`) on the platform host: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only on a KV miss**. Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
+There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the **default Worker** (`routeNebulaAuthRequest`) on the platform host: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only when KV's answer would refuse**: a miss, or a membership still pending. Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
 
 :::
 
@@ -141,7 +141,7 @@ A URL names its scope by its host, so a bookmark or a shared link lands on the p
 
 :::note[Refresh is a KV read]
 
-The refresh token gets a fixed 30-day TTL at login — there is no per-refresh rotation and no slide, so `refresh-token` is a Workers-KV read plus a JWT mint, with **zero writes**. On a KV miss the Worker falls back once to the Registry's strongly-consistent index, which mints and heals the KV record; a miss on both answers with the cookie expired. `logout` deletes the KV record + its index entry; because KV is eventually consistent, revocation propagates within the KV window plus the short access-token TTL.
+The refresh token gets a fixed 30-day TTL at login — there is no per-refresh rotation and no slide, so `refresh-token` is a Workers-KV read plus a JWT mint, with **zero writes**. On a KV miss the Worker falls back once to the Registry's strongly-consistent index, which mints and heals the KV record; a miss on both answers with the cookie expired. A record still pending asks the index too, since a colo can serve a copy from before the accept: KV's lag may let a revoked session work for its window, but never refuses someone who has accepted. `logout` deletes the KV record + its index entry; because KV is eventually consistent, revocation propagates within the KV window plus the short access-token TTL.
 
 :::
 
