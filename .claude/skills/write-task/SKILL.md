@@ -38,31 +38,50 @@ too late for a new task file — the draft is already composed by then.
 
 ## Pass 1 — design intent only
 
-Write the file down to and including *Design intent, constraints, and future state*, then **stop and ask for a read.** Nothing below it exists yet.
+Write the file down to and including *Open questions*, then **stop and ask for a read.** Nothing below it exists yet, except the two artifacts the gate may start (below).
 
 ```markdown
 # [Title — what it delivers, not what it touches]
 
 **Status:** [one line: what this is, what it blocks or is blocked by, any pinned business decision + date]
 
-**Objective — [the capability, in the sentence a stranger would need].**
+## Objective
+**[The capability, in the sentence a stranger would need.]**
+[Optional: a table or example of the end state, when one sentence cannot show it.]
 
-[Often: **N goals, in the order they matter** — the properties that make the objective worth delivering,
-ranked. See the goals rules below.]
+## Context
+[Why this, and why now. One sentence when the cause is a bug; a few paragraphs when it is history.]
+
+## Goals
+[Often: N goals, in the order they matter — the properties that make the objective worth
+delivering, each with how today's design misses it. See the goals rules below.]
 
 ## Relationships
 [What gates this and what this gates, one line each, by file. Seeded here — completed in Pass 2.]
 
-## Context and current state
+## Current state
 Built already: [what exists, anchored on symbol + quoted fragment — never line numbers —
                 AND what becomes of each part: carried over, adapted, or left behind]
 Missing: [numbered, specific, each a thing this task adds or changes]
 
-## Design intent, constraints, and future state
+## Design intent
 [The contract the phases must conform to. See the rules below.]
+
+## Constraints
+[Which ADRs bind this, which rules apply, what the milestone allows.]
+
+## Future state
+[What this makes possible next, and what it must not foreclose.]
+
+## Open questions
+[Decisions that must be made and that gate something, each with its options and a recommendation.]
 ```
 
-**Rules for the design-intent section — these are what make it worth reviewing:**
+**Each section is a heading of its own so a sibling file can cite it by name** — `§ *Constraints*`, not a section whose title lists its children (Larry, 2026-10-06, from the pen round on `tasks/mesh-is-built-on-the-scope-tree.md`, which first used this outline).
+
+**Rules for the Pass 1 sections — these are what make it worth reviewing:**
+
+- **Context says why; Current state says what exists.** History and motivation go in Context, the inventory and each part's fate in Current state. Merged, the two left motivation with no home, so it got wedged above the goals.
 
 - **State the RATIONALE once.** This section is a *contract*, not a summary of the phases. If a reason appears here and again in a phase, delete the phase's copy and cite the section by name — it is the copy that drifts, and the implementer does not need it to do the work. (The identity-mint file stated one fact in **five** places; a reviewer then has to diff five copies to find the current one.) A phase repeating the **instruction** is different and is fine: the phase has to stand alone for whoever transcribes it. `.claude/rules/prose-voice.md` § *Duplication — the reader decides it* carries the split and a worked example of each side.
 - **Positive form only.** No "not X" disclaimers, no dated self-corrections, no rebutting an objector the reader cannot see. The negative belongs in the Decisions table as a rejected alternative — that is its home, per the `answer-by-describing-not-asserting` rule.
@@ -74,7 +93,7 @@ Missing: [numbered, specific, each a thing this task adds or changes]
   - ⚠️ **If the goals and the `Missing` list come out near-parallel, MERGE them** — give each goal its own "today, this is how it goes wrong" clause and delete `Missing`. Keep both lists only where they sit on genuinely different axes (`Missing` = specific defects, goals = outcome properties, as in `nebula-passage-dominion-from-scope.md`). Two parallel lists say everything twice and then drift, which is the defect this skill exists to prevent, reproduced inside one file.
 - **`Built already` states a FATE, not just an inventory.** For each part: carried over unchanged, adapted, or left behind. "What exists" alone leaves a cold implementer to guess which existing code they may keep, and the guess is usually "all of it". The verdicts are also load-bearing evidence — a part carried over unchanged is why a change is a migration rather than a rewrite, and that is a fact a reviewer wants when pricing it.
 - **Open questions** are decisions that must be MADE and that gate something. If the honest answer to *"what happens if we never decide this?"* is "nothing — we keep a seam open," it is a design consideration, not an open question.
-- **Relationships sits ABOVE Context, and Pass 1 seeds only the gating half.** It is orientation — a reader arriving cold wants the constellation before the argument — and it is read at the Pass-1 gate, which is the whole reason it moved up: below Phases it sits under content the reviewer skips. Write only what gates this and what this gates; supersessions, invalidated backlog rows, and un-skip obligations are outputs of the design and land in Pass 2. ⚠️ **Say each gating fact once.** The Status line already carries "what this blocks or is blocked by", so a Relationships row restating it is the backward duplication `prose-voice.md` § *Duplication* rules out — keep the one-line verdict in Status and the per-file detail here.
+- **Relationships sits after Goals and above Current state, and Pass 1 seeds only the gating half.** It is orientation — a reader who knows why and what for wants the constellation before the inventory — and it is read at the Pass-1 gate, which is the whole reason it moved up: below Phases it sits under content the reviewer skips. Write only what gates this and what this gates; supersessions, invalidated backlog rows, and un-skip obligations are outputs of the design and land in Pass 2. ⚠️ **Say each gating fact once.** The Status line already carries "what this blocks or is blocked by", so a Relationships row restating it is the backward duplication `prose-voice.md` § *Duplication* rules out — keep the one-line verdict in Status and the per-file detail here.
 
 **Then stop.** Present the section and ask for a read. Expect to iterate here — it is cheaper than iterating on phases.
 
@@ -119,7 +138,7 @@ Only after the intent is approved:
 ## Non-goals
 [Named exclusions, each with a home if it is deferred rather than dropped]
 
-## Relationships  ← COMPLETE the Pass-1 section in place; it stays above Context
+## Relationships  ← COMPLETE the Pass-1 section in place; it stays above Current state
 [+ un-skip obligations this task owns in other lanes · what it supersedes · which backlog rows it invalidates]
 ```
 
