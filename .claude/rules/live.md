@@ -138,6 +138,8 @@ header carries the reasoning). Do not delete it as clutter. A deployed sweep spe
 waiting on Cloudflare, so `drive.ts all --concurrency=N` overlaps the waits: at 2 it took 79.5 min
 against 142 one at a time (2026-10-04). A local sweep refuses it.
 
+**A build whose change can only show deployed MUST end its close-out with a deployed pass of its own scenarios** (Larry, 2026-10-07). That covers a change to what a Client hears back, to teardown or `ctx.abort()`, to Workers KV or auth, to certificates or placement, or to a container. Deploy with `deploy-test.sh` and run the scenarios the build wrote or touched beside a `wrangler tail` capture; the full sweep stays at the wipe gate and milestones. The evidence is `nebula-clients-connect-to-their-scope`: its deployed pass found both of that build's real defects, a 4410 close ordered wrong twice, first ahead of a Galaxy's wipe and then behind its abort, and an older stale-KV refusal. No local tier could produce any of them, because no local Galaxy orders a certificate, a local abort delivers every frame, and local KV reads back its own writes.
+
 **A local sweep never runs the deployed-only paths, so a change to what a Client hears back MUST
 be checked against them before the deploy.** They are `drive.ts`'s account sweep and the shared
 app's cleanup, and every branch on `HARNESS_TARGET_URL` or on the stack's logs being absent
