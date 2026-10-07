@@ -390,6 +390,13 @@ describe('Logout deletes the KV record', () => {
 });
 
 describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-colo propagation)', () => {
+  const misses: any[] = [];
+  beforeEach(() => {
+    misses.length = 0;
+    setDebugSink((e) => { if (e.namespace === 'nebula-auth.worker.refresh' && e.message === 'kv miss') misses.push(e); });
+  });
+  afterEach(() => clearDebugSink());
+
   it('a missing KV record but live index+identity → the registry reconstructs + self-heals KV → refresh succeeds', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
@@ -408,6 +415,12 @@ describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-co
     // Self-healed: the record is back in KV, so the NEXT refresh hits KV directly (no fallback).
     expect(await kvRecord(admin.refreshToken)).not.toBeNull();
     expect((await refresh(SELF, uni, refreshCookie(uni, admin.refreshToken))).status).toBe(200);
+    // The one miss is logged, with the live record's age since login; the hit after it logs none.
+    // Mutation: drop the line, or log it on every read → the count is not 1.
+    expect(misses).toHaveLength(1);
+    expect(misses[0].data).toMatchObject({ scope: uni, healed: true });
+    expect(misses[0].data.ageSeconds).toBeGreaterThanOrEqual(0);
+    expect(misses[0].data.ageSeconds).toBeLessThan(60);
   });
 
   it('a bogus refresh token (no index row) → 401, not a fallback mint', async () => {
@@ -415,6 +428,9 @@ describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-co
     await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const resp = await refresh(SELF, uni, refreshCookie(uni, 'totally-bogus'));
     expect(resp.status).toBe(401);
+    // A miss the Registry cannot answer is logged too, with no age, since no record says when.
+    expect(misses.map((m) => m.data.healed)).toEqual([false]);
+    expect(misses[0].data.ageSeconds).toBeUndefined();
   });
 });
 

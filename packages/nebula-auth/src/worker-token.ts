@@ -866,6 +866,15 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
       // KV miss: a propagation gap, or a revoked record. The Registry's strongly consistent index
       // tells them apart; a healed record is put here, where the person is, and reaped if orphaned.
       const healed = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+      // Every miss reaches the singleton, so this line counts them. A miss on a record older than
+      // KV's ~60 s propagation window, with the record still live, means KV is not keeping the
+      // refresh off the Registry; `ageSeconds` is time since the session's login.
+      log.debug('kv miss', {
+        operationId, scope: candidate.scope, healed: healed !== null,
+        ageSeconds: healed
+          ? Math.round((Date.now() - (Date.parse(healed.expiresAt) - REFRESH_TOKEN_TTL * 1000)) / 1000)
+          : undefined,
+      });
       if (healed) [record] = await putRefreshRecords(env, [{ tokenHash, record: healed }]);
       if (!record) { expired.push(candidate.scope); continue; }
     }
