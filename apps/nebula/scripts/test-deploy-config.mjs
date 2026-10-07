@@ -20,13 +20,6 @@
  * 6. **`CERTIFICATE_ZONE_ID`** — the test zone's, so a test galaxy orders and deletes its certificate
  *    pack on `lumenize-test.dev` and never touches a production pack.
  *
- * One addition that is not a swap: **`NEBULA_AUTH_ACCESS_TOKEN_TTL`** is set to the shortest lifetime
- * the server mints without a warning, `RECOMMENDED_MIN_TTL_SECONDS` (120), as a local boot of the
- * token-lapse scenarios already sets it. A deployed sweep then waits two minutes for a lapse rather
- * than fifteen, and every deployed scenario renews its token every couple of minutes. The var can only
- * shorten (`accessTokenCeiling`), and `session-survives-token-lapse` asserts the deployed lifetime,
- * so this number and that constant cannot drift apart unnoticed.
- *
  * Throws when an input is missing or the config's shape has changed, rather than emitting a
  * config nobody reviewed. `scripts/test-deploy-config.selftest.mjs` checks every swap.
  *
@@ -93,7 +86,6 @@ export function deriveTestDeployConfig({ workerName, kvNamespaceId, zoneId, sour
     throw new Error('test-deploy-config: wrangler.jsonc has no vars.CERTIFICATE_ZONE_ID to swap');
   }
   cfg.vars.CERTIFICATE_ZONE_ID = zoneId;
-  cfg.vars.NEBULA_AUTH_ACCESS_TOKEN_TTL = '120';
 
   const kv = (cfg.kv_namespaces ?? []).find((b) => b.binding === 'REFRESH_TOKEN_KV');
   if (!kv) throw new Error('test-deploy-config: wrangler.jsonc has no REFRESH_TOKEN_KV binding to swap');

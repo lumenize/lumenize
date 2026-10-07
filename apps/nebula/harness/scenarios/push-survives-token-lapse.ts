@@ -17,8 +17,8 @@
  *     Mutation: drop the expiry check, and the push reaches the revoked socket.
  *
  * Both limbs run, with the verdict at the end (`live-scenarios.md`). `bootVars` sets the shortest
- * supported token lifetime, so the lapse takes about two minutes; the test deploy sets the same var
- * (`scripts/test-deploy-config.mjs`). The log halves need the local stack's
+ * supported token lifetime, so the lapse takes about two minutes locally; a deployed target keeps
+ * the full fifteen, because no boot sets the var there. The log halves need the local stack's
  * capture, so on a deployed target each says so. Real logins (ADR-009 rung 1).
  * `needsContainer = false`.
  */

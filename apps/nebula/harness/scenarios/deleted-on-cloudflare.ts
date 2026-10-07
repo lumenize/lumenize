@@ -17,13 +17,13 @@
  *     scenario tails the Worker while it creates the app and reads the Galaxy's id off the event that
  *     logs its own creation teardown. The `.dev` Star holds nothing after that teardown, so Cloudflare
  *     never lists it with data and there is nothing of it to see go; it runs the same `teardown`.
- *     Cloudflare's object listing trails the objects by six to eight minutes (measured 2026-10-03), so
+ *     Cloudflare's object listing trails the objects by minutes, six to 25 so far (see `LISTING_LAG_MS`), so
  *     the limb waits for the Galaxy to be listed holding data — the positive control — before it
  *     deletes, and for it to be listed without data after. The tail also shows the deletion's
  *     teardown of each object reading the abort's rejection as the reset it ordered, never as a
  *     failure. *Reds if teardown skips `deleteAll()`, or counts the abort's rejection a failure.*
  *     Dropping the macrotask yield before `ctx.abort()` did not red it on 2026-10-03. Slow by
- *     design: about a quarter of an hour, the listing's lag twice.
+ *     design: the listing's lag twice, a quarter of an hour on a quick day.
  *  5. **The account deleted with two apps leaves neither pack listed.**
  *
  * Deployed only. A local stack's `http` origin orders no pack, and miniflare's abort wipes storage
@@ -54,8 +54,11 @@ const PACK_DELETE_MS = 3 * 60_000;
 /** Statuses of a pack on its way out: a deleted active pack stays listed `pending_deletion` for
  *  ten minutes and more (2026-10-03), so it counts as gone. */
 const DELETING = new Set(['pending_deletion', 'deleted']);
-/** How long Cloudflare's object listing may trail what happened: twice the lag measured. */
-const LISTING_LAG_MS = 16 * 60_000;
+/** How long Cloudflare's object listing may trail what happened. Measured at six to eight minutes on
+ *  2026-10-03 and between 19 and 25 on 2026-10-07, when a 16-minute cap failed a deletion that had
+ *  landed: the object read `hasStoredData: false` once the listing caught up. Both waits poll, so a
+ *  long cap costs nothing on a quick day. */
+const LISTING_LAG_MS = 35 * 60_000;
 const WORKER = process.env.TEST_WORKER_NAME ?? 'test-nebula';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

@@ -84,6 +84,50 @@ export interface EmailSession {
 
 const BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
 
+/** A lock older than this is taken as abandoned: a round trip is a few seconds, its email wait 60 s. */
+const MAILBOX_LOCK_STALE_MS = 180_000;
+/** How long a sign-in waits for others to the same address before giving up. */
+const MAILBOX_LOCK_WAIT_MS = 300_000;
+
+/**
+ * Run one email round trip (arm the waiter, ask for the mail, consume its link) with no other round
+ * trip to the same address in flight on this machine. Two waiters on one address both resolve with
+ * the first mail, so two concurrent sign-ins as a shared address, such as a deployed sweep's shared
+ * app owner at `--concurrency=2`, click one link twice and the second gets `link_used` (2026-10-07).
+ * A lock directory per address under the OS temp dir serializes them across the sweep's processes.
+ * Inside workerd, which loads this file too, the round trip runs unlocked.
+ */
+async function withMailbox<T>(email: string, fn: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') return fn();
+  const { mkdirSync, rmSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { createHash } = await import('node:crypto');
+  const dir = join(tmpdir(), 'lumenize-mailbox-locks');
+  mkdirSync(dir, { recursive: true });
+  const lock = join(dir, createHash('sha256').update(email.toLowerCase()).digest('hex').slice(0, 24));
+  for (const started = Date.now(); ;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'EEXIST') throw e;
+      let age = 0;
+      try { age = Date.now() - statSync(lock).mtimeMs; } catch { continue; } // released meanwhile
+      if (age > MAILBOX_LOCK_STALE_MS) { rmSync(lock, { recursive: true, force: true }); continue; }
+      if (Date.now() - started > MAILBOX_LOCK_WAIT_MS) {
+        throw new Error(`waited ${MAILBOX_LOCK_WAIT_MS / 1000}s for another sign-in as ${email} to finish`);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+}
+
 /** Every refresh cookie's name: the prefix, then the membership's scope. */
 const REFRESH_COOKIE_PREFIX = '__Host-refresh-token.';
 
@@ -383,10 +427,10 @@ export async function provisionStarAdmin(
   // which is what it did, silently, for every already-claimed star. The unique recipient is the
   // discriminator here; `instance` was only ever a concurrency filter, and it cannot be applied
   // before the thing it filters on is known.
+  const session = await withMailbox(email, async (): Promise<EmailSession> => {
   const waiter = useEmail
     ? waitForEmail({ testToken, to: email, timeout: timeout ?? 60_000 })
     : undefined;
-  let session: EmailSession;
   try {
     const claimed = await requestStarClaim({
       baseUrl: origin, universeGalaxyStarId: scope, email, fetchImpl, bypassToken,
@@ -420,10 +464,11 @@ export async function provisionStarAdmin(
       );
     }
     await acceptMembership(origin, refreshToken, scope, fetchImpl);
-    session = { refreshToken, authScope: scope, email, savedAt: new Date().toISOString() };
+    return { refreshToken, authScope: scope, email, savedAt: new Date().toISOString() };
   } finally {
     waiter?.cleanup();
   }
+  });
 
   const { accessToken, sub } = await refreshAccessToken(origin, session, scope, fetchImpl);
   return { accessToken, sub, session };
@@ -451,6 +496,7 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
   // already-connected sockets and never replays stored mail.
   // ⚠️ `_scopeless`: the request names no scope, so its mail cannot be tagged with one. A waiter
   // filtered on `authScope` here hangs for its full timeout and reads as a slow boot.
+  return withMailbox(email, async () => {
   const waiter = waitForEmail({ testToken, instance: SCOPELESS_TAG, to: email, timeout });
   try {
     await requestMagicLink({ baseUrl: origin, email, fetchImpl, bypassToken });
@@ -477,6 +523,7 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
   } finally {
     waiter.cleanup();
   }
+  });
 }
 
 /**
@@ -541,18 +588,16 @@ export async function provisionAndLogin(
   // ⚠️ **No `instance` filter — see `provisionStarAdmin`'s waiter.** The claim tags its link with
   // the universe; the already-claimed fallback below sends a `_scopeless` one. The recipient is
   // unique, so it is the filter that actually discriminates.
+  // `usedLink` is returned to the caller, so a scenario can show the link is now spent: a link signs in once.
+  const { session, usedLink, claimedFresh } = await withMailbox(email, async () => {
   const waiter = useEmail
     ? waitForEmail({ testToken, to: email, timeout: timeout ?? 60_000 })
     : undefined;
-  let session: EmailSession;
-  // Returned to the caller, so a scenario can show the link is now spent: a link signs in once.
-  let usedLink!: string;
-  let claimedFresh = false;
   try {
     const claimed = await requestUniverseClaim({
       baseUrl: origin, universe, appSlug: galaxy ?? 'first', email, fetchImpl, bypassToken,
     });
-    claimedFresh = claimed !== null;
+    const claimedFresh = claimed !== null;
     let rawLink: string | undefined;
     if (claimed === null) {
       // Already claimed — fall through to an ordinary login for the existing identity.
@@ -572,7 +617,6 @@ export async function provisionAndLogin(
       }
       link = rawLink;
     }
-    usedLink = link;
     // The claim's page is its consent screen, so its Accept consumes and accepts; the plain-login
     // fallback places the cookie and Home's Accept takes it up (an already-accepted one is a no-op).
     const linkRes = await consumeLink(link, fetchImpl);
@@ -584,10 +628,12 @@ export async function provisionAndLogin(
       );
     }
     await acceptMembership(origin, refreshToken, universe, fetchImpl);
-    session = { refreshToken, authScope: universe, email, savedAt: new Date().toISOString() };
+    const session: EmailSession = { refreshToken, authScope: universe, email, savedAt: new Date().toISOString() };
+    return { session, usedLink: link, claimedFresh };
   } finally {
     waiter?.cleanup();
   }
+  });
 
   // 2. Token at the universe, used to authorize the scope creations below it.
   let { accessToken, sub } = await refreshAccessToken(origin, session, universe, fetchImpl);

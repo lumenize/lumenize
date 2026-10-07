@@ -16,14 +16,14 @@
  *     host, the shim's cookies riding, no body — and the call succeeded. *Reds if the client reuses
  *     the lapsed token, which its host node refuses.*
  *
- * ⚠️ **Slow by design: about three minutes in either venue.** The test deploy sets the same var
- * (`scripts/test-deploy-config.mjs`). The wait is the test.
+ * ⚠️ **Slow by design: about three minutes locally, sixteen against a deployed target**, which
+ * keeps the full lifetime because no boot sets the var there. The wait is the test.
  *
  * `needsContainer = false` — auth and one mesh call.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
-import { RECOMMENDED_MIN_TTL_SECONDS } from '@lumenize/nebula-auth/claims';
+import { ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from '@lumenize/nebula-auth/claims';
 import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
@@ -34,8 +34,8 @@ import { sharedApp } from '../lib/shared-app';
 export const needsContainer = false;
 
 /** The shortest lifetime the server mints without warning that a token is born nearly due. */
-const LIFETIME = RECOMMENDED_MIN_TTL_SECONDS;
-export const bootVars = { NEBULA_AUTH_ACCESS_TOKEN_TTL: String(LIFETIME) };
+const LOCAL_LIFETIME = RECOMMENDED_MIN_TTL_SECONDS;
+export const bootVars = { NEBULA_AUTH_ACCESS_TOKEN_TTL: String(LOCAL_LIFETIME) };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
@@ -69,10 +69,10 @@ export async function run(stack: DevStack): Promise<void> {
     const { exp: firstExp, iat } = client.claims as unknown as { exp: number; iat: number };
     const before = refreshes.length;
     assert.ok(before >= 1, 'the client must have got its first token from the platform host — the positive control');
-    // Mutation: mint to the constant again, or deploy without the var, and the token lives fifteen
-    // minutes → reds here.
+    // Mutation: mint to the constant again, and the local token lives fifteen minutes → reds here.
     const lifetime = firstExp - iat;
-    assert.equal(lifetime, LIFETIME, `the first token must live ${LIFETIME}s, the lifetime both venues mint`);
+    const expected = process.env.HARNESS_TARGET_URL ? ACCESS_TOKEN_TTL : LOCAL_LIFETIME;
+    assert.equal(lifetime, expected, `the first token must live ${expected}s, the lifetime this venue mints`);
 
     const waitMs = (lifetime + 30) * 1000;
     console.error(`[session-survives-token-lapse] waiting ${waitMs / 1000}s for the token to lapse, socket open…`);
