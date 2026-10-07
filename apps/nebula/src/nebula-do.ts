@@ -306,15 +306,12 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
   }
 
   /**
-   * Accept a Client only under an id that begins with its token's `sub`: Alice's tab is
-   * `alice.9f2c41aa`. The Worker refuses the same upgrade before routing.
+   * Accept every upgrade that reaches the node, with its token's claims. The Worker's
+   * `hostedUpgrade` already verified the token and checked that its `aud` is this host's scope and
+   * that the id begins with its `sub`, and nothing else reaches this path. The node only decodes
+   * the token, so a check here would compare against a `sub` anyone bypassing the Worker could forge.
    */
-  onBeforeAccept(instanceName: string, sub: string): Response | undefined {
-    const id = instanceName.slice(instanceName.indexOf('/') + 1);
-    const dot = id.indexOf('.');
-    if (dot === -1 || id.slice(0, dot) !== sub) {
-      return new Response('Forbidden: identity mismatch', { status: 403 });
-    }
+  onBeforeAccept(): undefined {
     return undefined;
   }
 

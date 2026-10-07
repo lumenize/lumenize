@@ -208,7 +208,7 @@ Every `NebulaClient` connection passes through four security layers before any `
 sequenceDiagram
     participant C as NebulaClient
     participant EP as Entrypoint<br/>(hostedUpgrade)
-    participant GW as Host node<br/>(onBeforeAccept)
+    participant GW as Host node<br/>(ClientGateway)
     participant DO as NebulaDO<br/>(onBeforeCall)
     participant M as mesh guard<br/>(e.g. requireDominionHere)
 
@@ -224,7 +224,7 @@ sequenceDiagram
     rect rgba(220, 220, 255, 0.3)
         Note over EP,GW: Layer 2 — the node the host names binds the tab to its token
         EP->>GW: Forward WebSocket
-        Note over GW: onBeforeAccept:<br/>the instance name starts with the token's sub
+        Note over GW: holds the socket under the Client's id<br/>with the claims the Worker verified
         GW-->>C: WebSocket accepted
     end
 

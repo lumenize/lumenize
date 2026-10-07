@@ -412,8 +412,8 @@ context: `callChain` is the topology, and `originAuth` — the verified `sub` pl
 including the `act` chain — is the identity, inherited **unchanged at every hop** and never re-derived. So
 any node, however many hops deep, can answer *who is this on behalf of* without a lookup and without anyone
 threading it by hand; that is what lets Resources build the `actingToken` record from context alone. At a client origin the
-identity is even present in the topology element, since a client's id begins with its `sub` and its host
-node checks that against the JWT before accepting the socket. **Attribution needs both halves, and
+identity is even present in the topology element, since a client's id begins with its `sub` and the
+Worker checks that against the verified JWT before routing the socket to its host node. **Attribution needs both halves, and
 both are already present** — what is missing is somewhere to put them (below), not the data itself.
 
 **Every `callChain` entry is framework-built.** The client's server-side half builds `callChain[0]` from

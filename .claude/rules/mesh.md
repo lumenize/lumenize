@@ -45,8 +45,8 @@ The framework populates a node's persistent identity — `this.lmz.bindingName` 
 A client's `instanceName` is its id on the node that hosts it, the one path segment after
 `/gateway/`. The Worker's `hostedUpgrade` (`apps/nebula/src/entrypoint.ts`) refuses the upgrade before
 routing unless the id has a `.` and `id.substring(0, indexOf('.'))` equals the `sub` of the
-**verified JWT** (403 *"identity mismatch"*), and `NebulaDO.onBeforeAccept` refuses the same id
-again at the node.
+**verified JWT** (403 *"identity mismatch"*). The node does not check again: it only decodes the
+token, so it could not tell a forged `sub` from a real one.
 
 ⇒ **The subject's `sub` comes FIRST; everything after the first `.` is free.** Put a tab id, a scope,
 or anything else in the leading segment and you get a 403 that reads as a *token* problem — the
