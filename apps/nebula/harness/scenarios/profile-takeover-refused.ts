@@ -16,7 +16,7 @@
  * mutation reddens one limb and not the other; that is what lets each be checked on its own.
  *
  * This drives the whole chain against a running server: two real email logins, a real invite, a real
- * client with a real token, the profile reached through the real Gateway, and the mint reached
+ * client with a real token, the profile reached through the real host node, and the mint reached
  * through the production client capability, `impersonate()`.
  *
  * ⚠️ **Why this exists when two in-lane tests already cover it.** They cover it on **stacked

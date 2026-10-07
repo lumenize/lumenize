@@ -18,7 +18,7 @@
  * baseline limb reds if the subscriptions were never live in the first place.
  *
  * **One login, many tabs — not a fixture.** All the subscribers are one real person
- * (ADR-009 rung 1) on many connections, which is what the Gateway's own instance-name rule
+ * (ADR-009 rung 1) on many connections, which is what the host node's instance-name rule
  * describes: the verified `sub` leads and everything after the first `.` is free
  * (`.claude/rules/mesh.md`). `connectDriver` already mints exactly that per driver. The server
  * decides every claim here; nothing about the fan-out is constructed on this side.
@@ -36,8 +36,8 @@ export const needsContainer = false;
 
 /**
  * Above the hundred a rebuilt tier's cutoff would sit near (the header says why), with margin for
- * the originator being excluded from its own push. Every one of these is a real WebSocket on its
- * own Gateway DO, so the count is also what makes the boot worth its seconds — a smaller number
+ * the originator being excluded from its own push. Every one of these is a real WebSocket, every one
+ * held by the one Galaxy, so the count is also what makes the boot worth its seconds — a smaller number
  * would exercise the loop the two-client vitest tests already cover.
  */
 const SUBSCRIBER_COUNT = 120;
@@ -83,7 +83,7 @@ export async function run(stack: DevStack): Promise<void> {
       queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: chatId,
     };
 
-    // ── SUBSCRIBERS: one person, many tabs, each its own Gateway DO ──
+    // ── SUBSCRIBERS: one person, many tabs, all held by the Galaxy ──
     for (let i = 0; i < SUBSCRIBER_COUNT; i += CONNECT_BATCH) {
       const batch = await Promise.all(
         Array.from({ length: Math.min(CONNECT_BATCH, SUBSCRIBER_COUNT - i) }, () =>

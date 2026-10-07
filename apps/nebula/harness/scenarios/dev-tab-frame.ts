@@ -21,7 +21,7 @@
  *     `frame-ancestors` stamp is dropped: the Home frame renders.*
  *  2. **A change Studio makes to the dev Star reaches the dev tab as a push, with no reload.** A node
  *     created in the dev Star from the galaxy's page appears in the frame, whose window keeps a mark
- *     set before the change. *Reds if the Gateway refuses the push into the tab.*
+ *     set before the change. *Reds if the tab's host node refuses the push into the tab.*
  *  3. **Studio reads a message only from the frame it created, at the origin it framed**, each check
  *     on its own: a second frame of the dev tab inside Studio posts from the right origin and the
  *     wrong window, and Studio's own frame, navigated to a `data:` page, posts from the right window

@@ -7,18 +7,18 @@
  * what changed and nothing identifying which target answered. Two things keep a reply from deciding
  * a reap:
  *  1. **The reaper takes *who died* from `callContext.callee`**, the fire-back's last hop, which
- *     the tab's Gateway writes — the fix `tasks/archive/mesh-entry-and-walk-gaps.md` § *R2* made,
+ *     the tab's host node writes — the fix `tasks/archive/mesh-entry-and-walk-gaps.md` § *R2* made,
  *     after a `ClientDisconnectedError` whose `clientInstanceName` named anyone the replying client
  *     liked was the only source.
- *  2. **The Gateway renames a tab's own `ClientDisconnectedError`**, so a reply cannot get even the
- *     tab that sent it reaped. Only the Gateway says a tab is gone.
+ *  2. **A tab's host node renames the tab's own `ClientDisconnectedError`**, so a reply cannot get even the
+ *     tab that sent it reaped. Only a tab's host node says it is gone.
  * The limbs below show a forged reply reaps nobody.
  *
  * ⚠️ **The harm is what this asserts, not a proxy for it.** A reaped subscriber stops receiving
  * pushes and its UI silently goes stale, so each limb changes the resource again and asks who still
  * hears about it. Reading a roster instead would prove less: the roster carries `{ sub, profileId }`
  * by design and two tabs of one person are indistinguishable in it, while the DELETE is exact-match
- * on `(resourceId, clientId)`.
+ * on `(resourceId, clientAddress)`.
  *
  * ⚠️ **A `Chat`, deliberately, and never a `Message`.** A committed human `Message` is a prompt —
  * `Galaxy`'s post-commit observer starts a real codegen turn on one — so a scenario that fanned out
@@ -26,7 +26,7 @@
  * noise. Renaming a `Chat` fans out through the same broadcast and starts nothing.
  *
  * ⚠️ **Nothing here is forged except what an attacker really controls.** Every connection is the
- * same REAL login on its own tab (ADR-009 rung 1, the shape the Gateway's own instance-name rule
+ * same REAL login on its own tab (ADR-009 rung 1, the shape the host node's instance-name rule
  * describes), and the only hostile thing is the push handler one of them runs — which is exactly
  * the hand-written client code § *R2* says the attack needs. No token is constructed.
  *
@@ -56,7 +56,7 @@ const PUSH_TIMEOUT_MS = 8_000;
 
 /**
  * A tab that COUNTS the pushes it receives, and can be armed to answer one with a forged death
- * notice naming somebody else in a field of its own. The Gateway renames it before the reaper sees
+ * notice naming somebody else in a field of its own. The host node renames it before the reaper sees
  * it, so the reaper's name guard does not match, and the reaper never reads that field anyway.
  *
  * ⚠️ **Armed, not hostile from birth.** The initial snapshot arrives through this same handler, so a
@@ -85,7 +85,7 @@ class ProbeClient extends NebulaClient {
 
 /**
  * ⚠️ **An override is a NEW function, and the mark lives on the function value — so it does not
- * inherit.** Without this line the Gateway's push reaches the client executor, fails its
+ * inherit.** Without this line the host node's push reaches the client executor, fails its
  * member-level check, and the subscription's initial snapshot never arrives: the scenario hangs
  * with no subscriber at all. Production spells the decorator `@mesh()`; this file runs under `tsx`,
  * which does not transform TC39 decorators, so it sets the same flag the decorator sets.

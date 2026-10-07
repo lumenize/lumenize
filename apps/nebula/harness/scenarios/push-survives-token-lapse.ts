@@ -4,7 +4,7 @@
  *
  * Two tabs of the app's owner, each signed in through its own cookie jar, subscribe to one Chat and
  * then make no call while their tokens lapse on open sockets. The second tab's session is revoked
- * first, by the logout its page would send. A third tab then renames the Chat, and the Gateway finds
+ * first, by the logout its page would send. A third tab then renames the Chat, and the tab's host node finds
  * each subscriber's token expired: it closes the socket with 4401 and holds the push, in the grace
  * period that close starts, for the Client to come back with a fresh token.
  *
@@ -12,8 +12,8 @@
  *     reconnected inside the grace period, and re-subscribed nothing, counted on the host's
  *     subscribe marker, so the value came by the push and not by a snapshot. Mutation: answer at
  *     once, and the push is lost.
- *  2. **The revoked tab never receives it.** It cannot refresh, so it never comes back, and the
- *     Gateway answers `ClientDisconnectedError` when the grace period ends, which reaps its row.
+ *  2. **The revoked tab never receives it.** It cannot refresh, so it never comes back, and its
+ *     host node answers `ClientDisconnectedError` when the grace period ends, which reaps its row.
  *     Mutation: drop the expiry check, and the push reaches the revoked socket.
  *
  * Both limbs run, with the verdict at the end (`live-scenarios.md`). `bootVars` sets the shortest

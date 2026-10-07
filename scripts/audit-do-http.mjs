@@ -20,8 +20,8 @@
  *      its stub inside mesh — so an inline `getByName(…).teardown()` that skips the entry fails here.
  *
  * The named forwards: the page track (`forwardPage`), nebula-auth's Registry forward (`forwardRaw`),
- * and two outside this scan — `routeDORequest` in `@lumenize/routing`, whose `/gateway/` upgrades
- * check 2 bounds, to the client Gateway and to the scope's node a host spells, and
+ * and two outside this scan — `routeDORequest` in `@lumenize/routing`, whose `/gateway/` upgrade to
+ * the scope's node a host spells check 2 bounds, and
  * `@cloudflare/computer`'s `WorkspaceProxy`, which dials the Galaxy's `/api`.
  *
  * It prints what it checked on every run, so an empty failure list is never the only output.

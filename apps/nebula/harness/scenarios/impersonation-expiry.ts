@@ -135,7 +135,7 @@ export async function run(stack: DevStack): Promise<void> {
   // since ontologies install only by lazy pull (2026-08-30) a fresh Star has none, so ANY resource
   // read is refused as `OntologyStaleError` before the lookup — a refusal this scenario could not
   // see while the transport bug it exists for (2026-09-03: a post-lapse call sent on the stale
-  // socket, dropped at the Gateway) was timing it out first. `getStarConfig` is a read a subject
+  // socket, dropped at its host node) was timing it out first. `getStarConfig` is a read a subject
   // themselves can make — `@mesh()` with no dominion guard, ontology-free, no seeded data — and it
   // rides the very same refresh-then-send path.
   const config = await child.lmz.callAsync('STAR', star, child.ctn<Star>().getStarConfig());

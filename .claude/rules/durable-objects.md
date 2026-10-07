@@ -84,10 +84,9 @@ A DO is billed for elapsed time whenever it is actively working: `await`ing I/O,
 - **`locationHint` names a region, not a city.** `apac` landed in Singapore, Tokyo and Hong Kong, and `oc` in Brisbane, Sydney and Melbourne. A name or an id buys no placement either.
 
 So whoever touches a scope first decides where it lives:
-- **A scope MUST be first touched from the Worker serving the person it belongs near**, as a Star's founder's Accept does with its own teardown (`docs/vision/auth.md` § *Founding a Star*).
+- **A scope MUST be first touched from the Worker serving the person it belongs near**, as a Star's founder's Accept does with its own teardown (`docs/vision/auth.md` § *Founding a Star*). **The one exception is a creation relayed through a node, which lands beside that node.** A creator's tab is hosted by its Universe's node, so a Galaxy created from the account page lands beside the Universe. That is accepted, since nearly every app is created by its Universe's founder.
 - **The first touch MUST NOT come from the Registry**, a global singleton sitting wherever it was first touched, or from anything placed beside it. That is why the scope hooks run in the Worker and the facade, never in the Registry.
 - **Smart Placement MUST stay off the Worker.** It runs a Worker near the backends it calls rather than near the person, and the Registry is one of them.
-- **A creation relayed through a node lands beside that node.** Once a creator's tab is hosted by its Universe's node, a Galaxy created from the account page lands beside the Universe. That is accepted, since nearly every app is created by its Universe's founder.
 
 ## Dynamic Worker Loader cache
 `env.LOADER.get(bundleId, ...)` caches by `bundleId` **per-Worker-project**, not per-DO. Multiple DO instances in the same Worker project share the cache, so identical `bundleId` values silently collide on the first cached entry. `bundleId` MUST be scoped by something globally unique (include a tenant identifier or equivalent). The DO's cross-tenant guards don't intervene — the loader binding is shared infrastructure.

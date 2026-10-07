@@ -149,9 +149,11 @@ export class StarTest extends Star {
   }
 
   /** Test-only: a Star named `*.explode` fails its teardown before it wipes anything — the
-   *  failure the scope lifecycle hooks must log by name while the other targets still wipe. */
+   *  failure the scope lifecycle hooks must log by name while the other targets still wipe. One
+   *  named `*.slow` waits a second before it wipes, as a Galaxy waits on its certificate order. */
   protected override async beforeTeardown(): Promise<void> {
     if (this.lmz.instanceName?.endsWith('.explode')) throw new Error('injected teardown failure (test)');
+    if (this.lmz.instanceName?.endsWith('.slow')) await new Promise((r) => setTimeout(r, 1000));
     await super.beforeTeardown();
   }
 

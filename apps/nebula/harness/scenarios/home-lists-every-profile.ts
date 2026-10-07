@@ -59,7 +59,7 @@ export async function run(stack: DevStack): Promise<void> {
     // Home in a new tab of X, recording every request the page makes that is not a page load.
     const home = await x.page.context().newPage();
     const sent: string[] = [];
-    // A WebSocket handshake never fires `request`, only `websocket`. Only the Gateway's counts: the
+    // A WebSocket handshake never fires `request`, only `websocket`. Only the Client's socket counts: the
     // local stack's vite also opens its hot-reload socket on every page it serves.
     home.on('websocket', (ws) => {
       const path = new URL(ws.url()).pathname;

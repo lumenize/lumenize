@@ -59,8 +59,6 @@ Awaiting a network result is not banned outright. What the decision forbids is h
   
   So `client.lmz.callAsync()` is a Promise **wrapper over that same one-way-fire + re-resolvable delivery** — sugar over send-plus-delivery, not a held cross-hop channel. It is still bounded: a default timeout composed with an optional `AbortSignal`, where abort cancels the *wait*, not the callee's *operation*. DOs and Workers get no awaitable; they use `call()` + a fire-back handler.
 
-> **Today's code differs.** A client's host node is a Durable Object of its own, its Gateway, named `{sub}.{tabId}`, so the client's address is the Gateway's. `tasks/nebula-clients-connect-to-their-scope.md` Phase 5 moves every Nebula page's socket onto the node its host spells, such as the Star in the flow above.
-
 ## Alternatives considered
 
 | Approach | Why rejected |

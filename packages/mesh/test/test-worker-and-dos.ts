@@ -1739,12 +1739,12 @@ export class EchoDO extends LumenizeDO<Env> {
 }
 
 /**
- * A node that hosts Clients, the way a scope's node does: it composes `ClientGateway` in host-node
- * mode and hands it its socket events and every message addressed to one of its Clients. A Client
+ * A node that hosts Clients, the way a scope's node does: it composes `ClientGateway` with no
+ * options and hands it its socket events and every message addressed to one of its Clients. A Client
  * on `h1` is `h1/{sub}.{tabId}` under `CLIENT_HOST_DO`.
  */
 export class ClientHostDO extends LumenizeDO<Env> implements ClientGatewayHost {
-  #clientGateway = new ClientGateway(this.ctx, this.env, this, { hostNode: true });
+  #clientGateway = new ClientGateway(this.ctx, this.env, this);
 
   override get __clientGateway(): ClientGateway {
     return this.#clientGateway;

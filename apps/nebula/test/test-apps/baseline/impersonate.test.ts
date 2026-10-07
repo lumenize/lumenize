@@ -20,6 +20,7 @@ import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject, browserLogin, ORIGIN, pageOf } from '../../test-helpers';
 import { ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown } from '../../../src/impersonation';
 import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { NebulaClient } from '@lumenize/nebula';
 
 /** Comfortably outside the client's 30s refresh-ahead window, so construction does not re-mint. */
 const SAFE_TTL = 300;
@@ -205,6 +206,24 @@ describe('impersonate() — two children coexist', () => {
     const c2 = await admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(c2.connectionState).toBe('connected'));
     c2.disconnect(); admin.disconnect();
+  });
+
+  // A double click: both calls start before either child exists, so the check has to hold while the
+  // first one's mint is in flight.
+  it('one subject twice at once from one parent opens one child', async () => {
+    const { admin, member } = await adminAndMember();
+    // Mutation: release the claim before the mint, and both calls mint and open a child.
+    const [first, second] = await Promise.allSettled([
+      admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL }),
+      admin.impersonate(member.sub, { ttlSeconds: SAFE_TTL }),
+    ]);
+    const opened = [first, second].filter((r) => r.status === 'fulfilled');
+    const refused = [first, second].filter((r) => r.status === 'rejected');
+    expect(opened).toHaveLength(1);
+    expect(refused.map((r) => (r as PromiseRejectedResult).reason?.name)).toEqual(['ImpersonationAlreadyOpenError']);
+    const child = (opened[0] as PromiseFulfilledResult<NebulaClient>).value;
+    expect(childrenOf(admin)).toEqual([child]);
+    child.disconnect(); admin.disconnect();
   });
 
 });

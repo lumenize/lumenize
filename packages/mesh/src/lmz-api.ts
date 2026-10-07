@@ -93,7 +93,7 @@ export function extractCallChains(
     throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
   }
   // The answer is filled into the handler's final call, so a handler ending anywhere else would
-  // never hear it. A Client's Gateway refuses such a frame too, as the trust boundary.
+  // never hear it. A Client's server-side half refuses such a frame too, as the trust boundary.
   if (handlerChain.at(-1)?.type !== 'apply') {
     throw new Error('Invalid handlerContinuation: it must end in a call, which its answer is filled into');
   }
@@ -138,7 +138,7 @@ export function buildOutgoingCallContext(
   // ⚠️ `callee` is PER-HOP, and is named here precisely BECAUSE the comment above says an unnamed
   // field rides through — which is right for every other field and wrong for this one.
   // ⓘ Honestly: no test reds without this line, and none can. Every receiver overwrites the field
-  // unconditionally (`executeEnvelope`), and the Gateway forwards a call to a client with an
+  // unconditionally (`executeEnvelope`), and a Client's server-side half forwards a call to it with an
   // explicit two-field list (`#forwardToClient`), so an inherited value is discarded before anything
   // reads it. What the line
   // buys is that the next per-hop field added here is added deliberately rather than by omission.
@@ -230,6 +230,7 @@ async function dispatchEnvelope(
   calleeInstanceName: string | undefined,
   envelope: CallEnvelope,
   handlerChain: OperationChain,
+  remoteChain: OperationChain,
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.dispatchEnvelope');
 
@@ -237,7 +238,9 @@ async function dispatchEnvelope(
   try {
     if (isOwnHostedClient(nodeInstance, calleeBindingName, calleeInstanceName)) {
       // A push to a Client this node hosts reaches its socket through the node's own door.
-      log.debug('delivered in place', { bindingName: calleeBindingName, instanceName: calleeInstanceName });
+      log.debug('delivered in place', {
+        bindingName: calleeBindingName, instanceName: calleeInstanceName, method: methodOf(remoteChain),
+      });
       ack = await nodeInstance.__executeOperation(envelope);
     } else {
       ack = await resolveStub(env, calleeBindingName, calleeInstanceName).__executeOperation(envelope);
@@ -295,7 +298,7 @@ async function dispatchEnvelope(
  * keeps an ephemeral `LumenizeWorker` alive at any compatibility date, and a DO/Container only
  * from 2026-10-01 (`durable_object_io_tasks_prevent_eviction`) — before that it is a **no-op**
  * on a DO, which the hop's few milliseconds make harmless. (The browser `LumenizeClient` does
- * NOT use this — it sends its handler with the call through its Gateway, via its own `#call`.)
+ * NOT use this — it sends its handler with the call through its host node, via its own `#call`.)
  *
  * @internal
  */
@@ -351,7 +354,7 @@ function callShared(
   };
 
   // 6. Dispatch the one early-acking transport hop.
-  const dispatchPromise = dispatchEnvelope(env, nodeInstance, calleeBindingName, calleeInstanceName, envelope, handlerChain);
+  const dispatchPromise = dispatchEnvelope(env, nodeInstance, calleeBindingName, calleeInstanceName, envelope, handlerChain, remoteChain);
 
   // Keep the node alive across the short ack hop so the outbound RPC completes even if the
   // invocation that fired the call is about to return. An ephemeral `LumenizeWorker` needs this at
@@ -368,7 +371,7 @@ function callShared(
  *
  * Present ⇒ the callee, **after its early ack**, runs the chain under `ctx.waitUntil`, fills
  * `handler` with the outcome, and fires it one-way to `returnAddr.__handleResponse` (run there at
- * `requireMeshDecorator:false`). The caller answers the same way whoever it is: a Client's Gateway
+ * `requireMeshDecorator:false`). The caller answers the same way whoever it is: a Client's server-side half
  * wrote this descriptor for it, with the Client as `returnAddr`, and hands the fire-back down.
  *
  * `onErrorOnly` (N6) is evaluated **callee-side**: the success fire-back is skipped. `callId` and
@@ -861,9 +864,15 @@ function unencodableResult(outcome: unknown, callee: string, encodeError: unknow
 }
 
 // `TEST_DO.remoteEcho()`: the callee's binding and the method its chain ended in.
-function describeCallee(node: EnvelopeExecutorNode, chain: OperationChain): string {
+/** The member a chain names last, such as `handleStreamChunk`, or `undefined` for a chain with none. */
+function methodOf(chain: OperationChain): string | undefined {
   let method: string | undefined;
   for (const op of chain) if (op.type === 'get') method = String(op.key);
+  return method;
+}
+
+function describeCallee(node: EnvelopeExecutorNode, chain: OperationChain): string {
+  const method = methodOf(chain);
   const name = node.lmz.bindingName ?? node.lmz.type;
   return method === undefined ? name : `${name}.${method}()`;
 }
@@ -871,13 +880,14 @@ function describeCallee(node: EnvelopeExecutorNode, chain: OperationChain): stri
 /**
  * Fill + fire a `call()`'s response back to its origin (the post-ack half of the
  * traveling-handler model), as `answerer`, which becomes the fire-back's last hop. A node runs
- * it inside its `runWithCallContext` scope, under `ctx.waitUntil`; a Client's Gateway runs it
+ * it inside its `runWithCallContext` scope, under `ctx.waitUntil`; a Client's server-side half runs it
  * as its Client, which is why it is exported (ADR-007). Never rejects — every failure is
  * logged, so a bad handler or a rejected response leg can never crash the answering side or
  * become an unhandled rejection.
  *
  * - Fill the traveling handler and fire it one-way to `returnAddr.__handleResponse`: a node's
- *   own fire-back door, or a Client's Gateway, which hands it down. The sink's ack carries
+ *   own fire-back door, which for a Client's answer is its host's, whose server-side half hands it
+ *   down. The sink's ack carries
  *   `{ $error }` only if the response leg was **rejected at admission** (e.g. the response-leg
  *   scope gate, `requirePassage`) — logged here; a handler that throws *post-ack at the sink*
  *   (N8) is logged on the sink itself.
@@ -968,7 +978,7 @@ export async function fireResponse(
 
 /**
  * Fill a result handler continuation with a call's outcome — the code every fire-back uses,
- * exported so a Client's Gateway, which extends `DurableObject` rather than composing the mesh
+ * exported so a Client's server-side half, `ClientGateway`, which is no node and composes no mesh
  * core, fills a continuation the same way (ADR-007). `handler` arrives preprocessed and the filled
  * chain leaves preprocessed. A result that cannot be encoded is replaced by a `DataCloneError`
  * naming `callee`, so the handler still runs.

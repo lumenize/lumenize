@@ -4,9 +4,10 @@
  * The tab connects at `/gateway/{id}` on its Star's host, so the Star holds its socket as
  * `{star}/{id}`, and every push to it arrives at the Star's own doors.
  *
- * In-lane rather than `/live`, because a Star or a Galaxy calling a tab is a call only our own code
- * makes (`testing.md`); the test subclasses' `callClientReporting` keeps a refusal so it can be
- * matched by message. The tab's holder is a plain member of their Star, whose token's `aud` is that
+ * In-lane rather than `/live`, because no production path makes one Star push to another Star's
+ * member, so the lateral refusal is reachable only through the test subclasses' `callClientReporting`,
+ * which keeps a refusal so it can be matched by message. A Galaxy's push to a hosted tab is driven
+ * live by `scope-hosts-its-clients`. The tab's holder is a plain member of their Star, whose token's `aud` is that
  * Star's host, so passage reaches up to the Galaxy and never across to a sibling.
  * A Profile push reaching a tab in another universe is `profile-subscribe.test.ts`'s HEADLINE, and
  * every kind of fresh-chain update arriving is `update-identity.test.ts`'s.

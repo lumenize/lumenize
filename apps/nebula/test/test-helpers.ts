@@ -15,7 +15,6 @@ import {
   requestUniverseClaim, requestStarClaim, requestMagicLink, createGalaxyViaFacade, consumeLink,
 } from './lib/email-login';
 
-/** The deployment this lane's Worker serves — `LUMENIZE_ORIGIN` in its `wrangler.jsonc`. */
 /**
  * A Client's address as a subscription row stores it: its host node's binding and scope, then its
  * id, such as `STAR/acme.crm.tenant1/alice.9f2c41aa`. The host is the page's scope, which is the
@@ -28,6 +27,7 @@ export function addressOfClient(client: { claims: { aud?: string } | null; lmz: 
   return `${binding}/${scope}/${client.lmz.instanceName}`;
 }
 
+/** The deployment this lane's Worker serves — `LUMENIZE_ORIGIN` in its `wrangler.jsonc`. */
 export const DEPLOYMENT = 'http://lumenize.localhost';
 /**
  * The platform host: every session's routes and the pages that sign a person in. Under

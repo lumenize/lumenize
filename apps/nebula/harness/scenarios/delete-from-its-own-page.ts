@@ -140,8 +140,16 @@ export async function run(stack: DevStack): Promise<void> {
     limb('limb 2 — a page on the deleted app is told, and stops', toldOnce && dClient.connectionState === 'disconnected',
       `told ${JSON.stringify(told)}; state ${dClient.connectionState}`);
     if (stack.logs) {
+      // The stack's stdio arrives late and in bursts, and wrangler logs a request after the Worker's
+      // own output, so once a request sent now has its line here, a start before it would be here too.
+      const barrier = `/barrier-${crypto.randomUUID()}`;
+      await fetch(`${stack.baseUrl.replace(/\/$/, '')}${barrier}`).then((r) => r.body?.cancel());
+      const arrived = await eventually(() => (stack.logs?.() ?? '').includes(barrier));
       const rebuilt = t1Starts() - startsBefore;
-      limb('limb 2 — nothing builds the deleted Star again', rebuilt === 0, `the Star ${t1} was constructed ${rebuilt} time(s) after its deletion`);
+      // D's own connect built t1 before the deletion, so a count that never moved off zero means the
+      // namespace or its field changed and this half could not see a rebuild.
+      limb('limb 2 — nothing builds the deleted Star again', arrived && startsBefore > 0 && rebuilt === 0,
+        `the barrier line arrived: ${arrived}; ${t1} started ${startsBefore} time(s) before the deletion and ${rebuilt} after`);
     } else {
       console.log('  · whether the Star was rebuilt is not observable on a deployed target');
     }

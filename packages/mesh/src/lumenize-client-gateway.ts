@@ -60,7 +60,7 @@ export type {
  * Subclasses customize it through the three hooks below.
  */
 export class LumenizeClientGateway extends DurableObject<any> implements ClientGatewayHost {
-  #clientGateway = new ClientGateway(this.ctx, this.env, this);
+  #clientGateway = new ClientGateway(this.ctx, this.env, this, { singleClient: true });
 
   // ============================================
   // Extension Points (subclass overrides)

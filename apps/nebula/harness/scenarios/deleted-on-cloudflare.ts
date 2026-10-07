@@ -242,7 +242,8 @@ export async function run(stack: DevStack): Promise<void> {
     for (let t = Date.now(); (await packsNaming(`${universe}.second`)).length === 0; await sleep(5_000)) {
       if (Date.now() - t > 120_000) throw new Error(`no pack ever named ${hostOf(`${universe}.second`)}`);
     }
-    await scopes.delete(universe);
+    // This client stands on the account's page, so its socket closes before the answer arrives.
+    await scopes.delete(universe).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
     await sleep(PAST_THE_ALARM_MS);
     for (const app of [first, `${universe}.second`]) {
       assert.deepEqual(await packsLeft(app), [], `deleting the account must delete ${app}'s pack`);

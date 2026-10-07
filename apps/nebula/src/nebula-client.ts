@@ -481,6 +481,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #fetchFn: typeof fetch;
   /** Exactly what a child from `impersonate()` inherits — see {@link impersonate}. */
   #childConfigBase!: ChildConfigBase;
+  /** The ids of children `impersonate()` is minting, claimed until each is registered. */
+  #childrenOpening = new Set<string>();
   /**
    * The parent this client was minted from, when it IS an impersonated child; `undefined` on an
    * ordinary client. Post-construction users only (the child's `logout()` branch and deregistration)
@@ -1026,11 +1028,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // A second child of one subject from this tab would share the first's id, and its host node
     // would close the first's socket on the second's upgrade, so it is refused before any mint.
     const instanceName = childInstanceName(sub, parentTabIdFrom(this.lmz.instanceName), activeScope);
-    if (childrenOf(this).some((c) => (c as NebulaClient).lmz.instanceName === instanceName)) {
+    if (this.#childrenOpening.has(instanceName)
+      || childrenOf(this).some((c) => (c as NebulaClient).lmz.instanceName === instanceName)) {
       throw new ImpersonationAlreadyOpenError(
         `This tab is already impersonating ${sub}; dispose that client before opening another.`,
       );
     }
+    // Claimed before the mint's await, so a second call made meanwhile, a double click, is refused
+    // too. Released once the mint settles: the child is constructed and registered after it with
+    // no await between, so from then on `childrenOf` holds it.
     // Assigned immediately after construction; see the TDZ note in the terminal branch below.
     let childRef: NebulaClient | undefined;
     const mint = async () => {
@@ -1048,7 +1054,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // MINT FIRST, then seed. Doing it the other way round — constructing tokenless and letting the
     // child's own connect be the single mint — moves this failure inside `super()`, where it becomes
     // a scheduled reconnect and the caller gets no error at all.
-    const minted = await mint();
+    this.#childrenOpening.add(instanceName);
+    let minted: Awaited<ReturnType<typeof mint>>;
+    try {
+      minted = await mint();
+    } finally {
+      this.#childrenOpening.delete(instanceName);
+    }
 
     const child = new NebulaClient({
       ...this.#childConfigBase,

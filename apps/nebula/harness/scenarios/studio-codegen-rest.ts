@@ -116,7 +116,8 @@ export async function run(stack: DevStack): Promise<void> {
     } else {
       // The stdio reaches this process late and in bursts, so the count waits for it to catch up.
       const inPlaceCount = () => debugLines(stack.logs!()).filter((e) => e.message === 'delivered in place'
-        && e.data.bindingName === 'GALAXY' && e.data.instanceName === address).length;
+        && e.data.bindingName === 'GALAXY' && e.data.instanceName === address
+        && e.data.method === 'handleStreamChunk').length;
       const caughtUp = Date.now() + 15_000;
       while (inPlaceCount() < chunks && Date.now() < caughtUp) await new Promise((r) => setTimeout(r, 200));
       const inPlace = inPlaceCount();

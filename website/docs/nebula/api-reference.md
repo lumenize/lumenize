@@ -65,7 +65,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 
 ### Config
 
-`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. **No field names a scope**: the client takes its scope from its first token's `aud`, which the platform host's refresh mints for the page's host, and a call made before that token arrives waits for it. In a browser **every field auto-detects** from the page; they stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no page.
+`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh`, `gatewayBindingName` and `hostFromHostname`) with these additional fields. **No field names a scope**: the client takes its scope from its first token's `aud`, which the platform host's refresh mints for the page's host, and a call made before that token arrives waits for it. In a browser **every field auto-detects** from the page; they stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no page.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |

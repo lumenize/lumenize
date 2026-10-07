@@ -27,7 +27,7 @@
  *     universe's cookie name, gets 401. *Reds if the name decides — Manny's token is minted.*
  *  5. **Manny's id is a name-based GUID no person's can equal.** It is the `sub` and the
  *     `profileId`, carries version 5, and is the same from O's browser and C's. Positive control:
- *     Manny's tab opens a socket and makes a call, so the Gateway accepts the id.
+ *     Manny's tab opens a socket and makes a call, so the `.dev` Star accepts the id.
  *
  * Limb 3 reads the stack's stdio, which a deployed target does not capture; it says so there.
  *

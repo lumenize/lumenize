@@ -191,6 +191,16 @@ describe('parseId', () => {
     ])('%s does not parse', (_label, name) => {
       expect(() => parseId(name)).toThrow();
     });
+
+    // A full id also breaks the slug length and the segment count, so these short ids are what
+    // shows the `/` alone refused.
+    it.each([
+      ['on a Universe', 'acme/x', 1],
+      ['on a Galaxy', 'acme.crm/x', 2],
+      ['on a Star', 'acme.crm.tenant1/x', 3],
+    ])('a short id %s is refused for its /', (_label, name, position) => {
+      expect(() => parseId(name)).toThrow(`Invalid slug at position ${position}`);
+    });
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * What an ordinary browser session reaches past `@mesh` — driven end to end, through the Gateway.
+ * What an ordinary browser session reaches past `@mesh` — driven end to end, through the page's host node.
  *
  * `tasks/archive/mesh-entry-and-walk-gaps.md` measured every hole below against the executor directly. What
  * nobody had done was drive one from a REAL logged-in session to a REAL DO, which is the question

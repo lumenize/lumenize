@@ -1,5 +1,5 @@
 /**
- * **A Client re-subscribes exactly when the Gateway says it lost something** — never on a blip, a
+ * **A Client re-subscribes exactly when its host node says it lost something** — never on a blip, a
  * supersede or a token rotation inside the grace period.
  *
  * Seven limbs, all run, with the verdict at the end (`live-scenarios.md`). Each drives a product
@@ -8,7 +8,7 @@
  * reconnect the network holds back. ⚠️ CDP's `Page.setWebLifecycleState: frozen` is NOT a freeze
  * here: measured 2026-10-05, a page so frozen kept answering every push over its socket, so limb 1
  * passed with no 4408 close at all. `Debugger.pause` stops the page's script until it resumes.
- *  1. **Studio, frozen past the Gateway's 30 s wait, is closed with 4408**, wakes inside the grace
+ *  1. **Studio, frozen past its host node's 30 s wait, is closed with 4408**, wakes inside the grace
  *     period, re-subscribes, and renders the next message. Mutation: no 4408 close.
  *  2. **A token rotation re-subscribes nothing**, counted on the host's subscribe marker, and the
  *     next write arrives. Mutation: restore the blanket re-subscribe on reconnect.
@@ -107,7 +107,7 @@ function socketFor(log: SocketLog): typeof WebSocket {
     }
     /**
      * Lose the connection as a network does: the Client hears an abnormal close at once, and the
-     * real socket is closed so the Gateway sees it go. Its own close event, if one ever comes, is
+     * real socket is closed so the host node sees it go. Its own close event, if one ever comes, is
      * not passed on a second time.
      */
     drop(): void {
@@ -330,7 +330,7 @@ export async function run(stack: DevStack): Promise<void> {
         `the second was told ${log.statuses[0]}; the next push ${second.pushes > pushesBefore ? 'arrived on it' : 'never arrived'}`);
     }
 
-    // ── LIMB 1: Studio, frozen past the Gateway's 30 s wait ──────────────────────────────────────
+    // ── LIMB 1: Studio, frozen past its host node's 30 s wait ──────────────────────────────────────
     await (async () => {
       const universe = testSlug('resub');
       const scope = `${universe}.app`;
@@ -364,7 +364,7 @@ export async function run(stack: DevStack): Promise<void> {
         await cdp.send('Debugger.enable');
         await cdp.send('Debugger.pause');
         const first = `frozen-${Date.now()}`;
-        // Resumed as soon as the Gateway gives up on the page, seen as the reap of its row, so it
+        // Resumed as soon as the host node gives up on the page, seen as the reap of its row, so it
         // reconnects inside the grace period and only a signal of the loss makes it re-subscribe.
         // A deployed target has no capture to watch, so it waits past the 30 s and the grace period.
         const isReap = (l: { message: string; data: Record<string, unknown> }) => l.message === 'update not delivered'
@@ -379,7 +379,7 @@ export async function run(stack: DevStack): Promise<void> {
         await cdp.send('Debugger.resume');
         await cdp.send('Debugger.disable');
 
-        // Awake: the 4408 close makes it reconnect, and the Gateway tells that connection the
+        // Awake: the 4408 close makes it reconnect, and the host node tells that connection the
         // subscriptions may be gone, so the next message renders.
         await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
         await new Promise((r) => setTimeout(r, 3_000));

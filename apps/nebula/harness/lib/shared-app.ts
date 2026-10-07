@@ -95,7 +95,8 @@ export async function deleteClaimedUniverses(stack: DevStack, testToken: string,
       }
       const owner = await connectDriver(stack, { scope: universe, session });
       try {
-        await owner.client.scopes.delete(universe);
+        // The owner stands on the account's page, so its socket closes before the answer arrives.
+        await owner.client.scopes.delete(universe).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
         report(`deleted ${universe}`);
       } finally {
         owner.dispose();

@@ -1,8 +1,8 @@
 /**
  * The page track into a Durable Object's `fetch` — the one forward a page request takes.
  *
- * A node's `fetch` hears from three kinds of caller: pages, our own code, and the node's own
- * container. Each keeps a track of its own, so a page can reach only what a page may: its path is
+ * A node's `fetch` hears from four kinds of caller: pages, a Client's upgrade, our own code, and
+ * the node's own container. Each keeps a track of its own, so a page can reach only what a page may: its path is
  * rewritten under `/_public/`, which no other caller produces, and every `x-lumenize-*` header it
  * sent is stripped before this module sets its own. `https://dev.crm.acme.lumenize.dev/assets/app.js`
  * arrives as `/_public/assets/app.js`, named for the Galaxy the page step chose, carrying the scope

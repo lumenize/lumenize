@@ -59,7 +59,7 @@ class WatchingClient extends NebulaClient {
 /**
  * ⚠️ **An override is a NEW function, and the mark lives on the function value — so it does not
  * inherit.** Production spells the decorator `@mesh()`; this file runs under `tsx`, which does not
- * transform TC39 decorators, so it sets the same flag the decorator sets. Without it the Gateway's
+ * transform TC39 decorators, so it sets the same flag the decorator sets. Without it the host node's
  * push is refused at the client and the subscription's snapshot never arrives.
  */
 (WatchingClient.prototype.handleResourceUpdate as any)[Symbol.for('lumenize.mesh.callable')] = true;

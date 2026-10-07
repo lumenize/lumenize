@@ -97,9 +97,11 @@ const TIER_BINDING = { universe: 'UNIVERSE', galaxy: 'GALAXY', star: 'STAR' } as
  * the Star `acme.crm.tenant1` as `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`. A persona's host
  * spells its `.dev` Star.
  *
- * Every refusal comes before routing, so a refused upgrade wakes no node: not an upgrade (426), not
- * exactly one id segment (400), no token or one that does not verify (401, 403), a token whose `aud`
- * is not the host's scope (403), and an id that does not begin with the token's `sub` (403). The
+ * These refusals come before routing, so no upgrade reaches a node without a valid token for its
+ * host whose `sub` begins the id: not an upgrade (426), not exactly one id segment (400), no token
+ * or one that does not verify (401, 403), a token whose `aud` is not the host's scope (403), and an
+ * id that does not begin with the token's `sub` (403). The node refuses a few more once it wakes,
+ * such as a tag over 256 characters. The
  * `aud` check is what keeps a token for one tenant's host from holding a socket on another's. Every
  * client-sent `x-lumenize-*` header is dropped, since mesh stamps a node's name from them.
  */

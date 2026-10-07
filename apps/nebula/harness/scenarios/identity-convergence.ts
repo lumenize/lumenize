@@ -63,7 +63,7 @@ export async function run(stack: DevStack): Promise<void> {
   });
   let inviteHtml: string;
   try {
-    // The ONE production surface: NebulaClient.invite → Gateway → facade (there is no HTTP route).
+    // The ONE production surface: NebulaClient.invite → its host node → facade (there is no HTTP route).
     const summary = await inviteViaMesh(stack, otherAdmin, otherUniverse, [{ email: person }]);
     assert.equal(summary.errors.length, 0, `invite failed: ${JSON.stringify(summary.errors)}`);
     assert.equal(summary.results[0]?.outcome, 'invited', 'the mint outcome must be `invited`');

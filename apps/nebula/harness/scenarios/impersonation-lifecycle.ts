@@ -83,7 +83,7 @@ async function inviteAndLogin(
   // waiting listener.
   const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
   try {
-    // The ONE production surface: NebulaClient.invite → Gateway → facade (there is no HTTP route).
+    // The ONE production surface: NebulaClient.invite → its host node → facade (there is no HTTP route).
     const summary = await inviteViaMesh(stack, adminSession, scope, [{ email }]);
     assert.equal(summary.errors.length, 0, `invite to ${scope} failed: ${JSON.stringify(summary.errors)}`);
     const email_ = await waiter.emailPromise;

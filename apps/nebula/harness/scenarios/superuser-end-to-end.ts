@@ -203,7 +203,7 @@ export async function run(stack: DevStack): Promise<void> {
   // Profile's platform short-circuit answers only the agent's own Profile, so this write reads the
   // registry and asks `hasDominionOver` per scope the stranger holds, from the page's host,
   // `someUniverse`, which sits above all of them. A real server-minted platform token traverses the
-  // whole chain — Gateway, mesh boundary, Profile DO, authz — and is admitted on a *global* object
+  // whole chain — host node, mesh boundary, Profile DO, authz — and is admitted on a *global* object
   // owned by someone else. It is limb 7's positive control.
   const strangerProfileId = (parseJwtUnsafe(stranger.accessToken)!.payload as any).profileId as string;
   assert.ok(strangerProfileId, 'the stranger login carried no profileId claim');

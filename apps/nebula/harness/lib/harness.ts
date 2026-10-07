@@ -394,7 +394,7 @@ export async function connectDriver(
 }
 
 /**
- * Invite through the ONE production surface — `NebulaClient.invite` → Gateway →
+ * Invite through the ONE production surface — `NebulaClient.invite` → its host node →
  * `NEBULA_AUTH_FACADE` — as a session that has already logged in by a real path. Constructs a
  * short-lived client from the session's token (a handed token on a client of the SAME identity —
  * the sanctioned shape; renewal never runs inside this one-call lifetime), invites, disposes.

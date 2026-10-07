@@ -9,7 +9,7 @@
  *
  * Two limbs, both run, with the verdict at the end (`live-scenarios.md`):
  *  1. **`'PROFILE'`: refused at the early ack.** The Profile refuses to run under the galaxy's
- *     name, so the Gateway hands the refusal straight back.
+ *     name, so the host node hands the refusal straight back.
  *     Mutation: drop the subscribe's handler, and the refusal arrives only at the 30 s timer.
  *  2. **`'UNIVERSE'`: refused after the ack.** The Universe admits the call, then finds no member
  *     named `resources`, and the refusal rides the fire-back.

@@ -74,8 +74,9 @@ interface GracePeriod {
 }
 
 /**
- * What `ClientGateway` needs from the Durable Object that hosts it: the three hooks a host may
- * override. `LumenizeClientGateway` is the first host, and its JSDoc documents each hook.
+ * What `ClientGateway` needs from the Durable Object that hosts it: the three hooks every host
+ * implements, and a node's own request door. Nebula's `NebulaDO` and Mesh's
+ * `LumenizeClientGateway` are hosts, and the latter's JSDoc documents each hook.
  */
 export interface ClientGatewayHost {
   onBeforeAccept(
@@ -95,19 +96,23 @@ export interface ClientGatewayHost {
 /** How a `ClientGateway` is composed. */
 export interface ClientGatewayOptions {
   /**
-   * The host is a node that hosts many Clients, such as the Star `acme.crm.tenant1`, rather than a
-   * Durable Object of one Client's own. Each Client's id is then the one path segment after the
-   * host's instance name, `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`, and its name is
+   * The host is a Durable Object of one Client's own, named by the Client, as
+   * `LumenizeClientGateway` is. Never set it on a mesh node: the node's doors would take that
+   * Client's traffic for the node's own, and run its answers as the node's own chain.
+   *
+   * Without it, the host is a node that hosts many Clients, such as the Star `acme.crm.tenant1`.
+   * Each Client's id is the one path segment after the host's instance name,
+   * `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`, and its name is
    * `acme.crm.tenant1/alice.9f2c41aa`. An upgrade naming no id, or more than one, is refused, so no
-   * Client is ever named by its host's own name. A Client's call to its host runs in place.
+   * Client is named by its host's own name, and a Client's call to its host runs in place.
    */
-  hostNode?: boolean;
+  singleClient?: boolean;
 }
 
 /**
  * ClientGateway — a Client's server-side half, as code a Durable Object composes.
  *
- * A Client and its Gateway together are the equivalent of a server-side mesh node: this half holds
+ * A Client and this half together are the equivalent of a server-side mesh node: this half holds
  * whatever must not depend on the browser's honesty. It accepts and supersedes a Client's socket,
  * builds the whole `callContext` of every call the Client makes from the socket's verified
  * attachment, acks a node's call to the Client and fills that node's continuation with the
@@ -132,13 +137,17 @@ export class ClientGateway {
   /** Each Client's grace period, by `instanceName`, from its socket's close to its reconnect */
   #gracePeriods = new Map<string, GracePeriod>();
 
+  /** The host is a node that hosts many Clients, not a Durable Object of one Client's own. */
   #hostNode: boolean;
+
+  /** The close every Client gets from now on, once the host has called {@link closeAll}. */
+  #closedWith: { code: number; reason: string } | undefined;
 
   constructor(ctx: DurableObjectState, env: any, host: ClientGatewayHost, options?: ClientGatewayOptions) {
     this.#ctx = ctx;
     this.#env = env;
     this.#host = host;
-    this.#hostNode = options?.hostNode === true;
+    this.#hostNode = options?.singleClient !== true;
   }
 
   get #gracePeriodMs(): number {
@@ -243,6 +252,16 @@ export class ClientGateway {
 
     if (hookResult instanceof Response) {
       return hookResult;
+    }
+
+    // The host has closed every Client for good, as a host being deleted does: this one is told the
+    // same at once. Accepted outside hibernation, so its close starts no grace period on the host.
+    if (this.#closedWith) {
+      const closing = new WebSocketPair();
+      closing[1].accept();
+      closing[1].close(this.#closedWith.code, this.#closedWith.reason);
+      log.info('WebSocket closed at once: the host has closed every Client', { instanceName, code: this.#closedWith.code });
+      return new Response(null, { status: 101, webSocket: closing[0], headers: { 'Sec-WebSocket-Protocol': WS_PROTOCOL } });
     }
 
     // Auto-include all JWT payload fields; hook result (if Record) merges on top
@@ -395,8 +414,14 @@ export class ClientGateway {
    * Close every Client socket the host holds with `code`, as a host about to be deleted does with
    * `WS_CLOSE_GONE`, so each Client hears why rather than seeing its socket drop. A socket is a
    * Client's when it carries the Client's name as its tag, which every socket this half accepts does.
+   *
+   * Until the object resets, every upgrade accepted after this is closed with the same code at
+   * once, so a page that loads while its host is still being torn down hears it too, rather than
+   * being dropped by the reset and reconnecting into whatever the reset builds. The record is in
+   * memory, so the reset that ends a deletion clears it with everything else.
    */
   closeAll(code: number, reason: string): void {
+    this.#closedWith = { code, reason };
     for (const ws of this.#ctx.getWebSockets()) {
       if (this.#ctx.getTags(ws)[0] === undefined) continue;
       try { ws.close(code, reason); } catch { /* already closing */ }
@@ -453,7 +478,7 @@ export class ClientGateway {
     // back on the node's chain, under the node's claims.
     await fireResponse(
       answerer, this.#env, envelope.callContext, envelope.response, outcome, isError,
-      'LumenizeClientGateway', `${answerer.bindingName}/${answerer.instanceName}`,
+      'ClientGateway', `${answerer.bindingName}/${answerer.instanceName}`,
     );
   }
 
@@ -589,9 +614,9 @@ export class ClientGateway {
 
     // Build callContext - the chain is the verified origin ALONE. A client's frame carries no
     // chain (`CallMessage` has no field for one), and one a hostile frame adds is never read. A
-    // receiver reads `callChain.at(-1)` as the node that called it: a subscribe stores its binding
-    // as the address to push to, and `LumenizeClient.onBeforeCall` refuses a push whose last hop
-    // is another client. A hop a client could append would be a caller it chose.
+    // receiver reads the chain to know who called: a subscribe stores `addressOf(callChain[0])` as
+    // the address to push to, and `LumenizeClient.onBeforeCall` refuses a push whose last hop is
+    // another client. A hop a client could append would be a caller it chose.
     // originRequest comes from the ATTACHMENT (snapshotted at upgrade), never from the client's
     // message — the same trust rule as originAuth: the Gateway is the boundary.
     const baseContext: CallContext = {
@@ -675,8 +700,8 @@ export class ClientGateway {
 
   /**
    * Whether a Client's call to (`binding`, `instance`) is for the node hosting it, its own name or
-   * another Client's on it. Only a host node composed with `hostNode` and given its own request door
-   * runs a call in place.
+   * another Client's on it. Only a host that hosts many Clients and has its own request door runs a
+   * call in place.
    */
   #isHostNode(binding: string, instance: string | undefined, attachment: GatewayConnectionInfo): boolean {
     return this.#hostNode && instance !== undefined && typeof this.#host.__executeOperation === 'function'

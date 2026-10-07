@@ -34,8 +34,6 @@ Two things named throughout this document are not mesh nodes at all, so neither 
 
 **The host node stays a node in its own right.** Its own calls pass its own guard. A message addressed to one of its clients goes to that client's half instead, and runs nothing on the node.
 
-> **Today's code differs.** A client's server-side half runs in a Durable Object of the client's own, its Gateway (`NebulaClientGateway`), named `{sub}.{tabId}`, so a client's address is the Gateway's. `tasks/nebula-clients-connect-to-their-scope.md` composes the half into the host node, and its Phase 5 moves every page there.
-
 ## The layers a call passes
 
 We use **defense in depth** and **zero trust** throughout.

@@ -16,7 +16,7 @@ Look at the file you're editing:
 3. **Drives DOs without defining one?** (a harness that wraps user DOs, e.g. `@lumenize/testing`) → follow the comm file for *how* it talks; raw DO RPC → [raw-comm.md](raw-comm.md).
 4. **None of the above?** → utility / Worker code; none of the three DO files apply.
 
-**Sub-layer** (only needed to pick framework vs library vs platform) is by location: `packages/mesh` = **framework** (defines the Mesh surface *and* raw internals like the Gateway); `apps/nebula` = **platform** (never raw); any other Mesh-layer package = **library**; any other raw-DO package = **infrastructure**.
+**Sub-layer** (only needed to pick framework vs library vs platform) is by location: `packages/mesh` = **framework** (defines the Mesh surface *and* raw internals like `ClientGateway`); `apps/nebula` = **platform** (never raw); any other Mesh-layer package = **library**; any other raw-DO package = **infrastructure**.
 
 ⚠️ **Base class / usage beats name.** `nebula-auth` `extends DurableObject` → raw-DO infra despite "nebula." The never-raw rule is about the platform business logic (Galaxy/Star/Universe/Resources), not everything with "nebula" in the path.
 

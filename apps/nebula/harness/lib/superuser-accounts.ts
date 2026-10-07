@@ -52,7 +52,8 @@ export async function superuserAccounts(stack: DevStack, testToken: string): Pro
     async delete(universe) {
       const driver = await connectDriver(stack, { scope: universe, session: await refreshAccessToken(origin, session, universe) });
       try {
-        await driver.client.scopes.delete(universe);
+        // The client stands on the account's page, so its socket closes before the answer arrives.
+        await driver.client.scopes.delete(universe).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
       } finally {
         driver.dispose();
       }

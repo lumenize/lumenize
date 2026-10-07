@@ -515,6 +515,12 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #instanceName: string | null = null;
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
+
+  /**
+   * Stopped on purpose, by this Client's own `disconnect()` or by its host's deletion. A browser
+   * wake-up does not reconnect it; only `connect()` does.
+   */
+  #stoppedOnPurpose = false;
   #accessToken: string | null = null;
   #claims: Readonly<TClaims> | null = null;
   #refreshInFlight: Promise<void> | null = null;
@@ -724,6 +730,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     if (this.#connectionState === 'connected' || this.#connectionState === 'connecting') {
       return;
     }
+    this.#stoppedOnPurpose = false;
 
     // Clear any pending reconnect
     this.#clearReconnectTimeout();
@@ -736,6 +743,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * Close connection and clean up
    */
   disconnect(): void {
+    this.#stoppedOnPurpose = true;
     // Clear reconnect timer
     this.#clearReconnectTimeout();
     this.#stopHeartbeat();
@@ -1031,6 +1039,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       // The node hosting this Client was deleted. Reconnecting would build an empty object at the
       // deleted name, so the Client stops and says why.
       const error = new HostDeletedError(`The node hosting this client was deleted${reason ? `: ${reason}` : ''}`);
+      this.#stoppedOnPurpose = true;
       this.#clearReconnectTimeout();
       this.#stop(error);
       this.#config.onHostDeleted?.(error);
@@ -1116,7 +1125,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
     // Online event
     window.addEventListener('online', () => {
-      if (this.#connectionState === 'reconnecting' || this.#connectionState === 'disconnected') {
+      const down = this.#connectionState === 'reconnecting' || this.#connectionState === 'disconnected';
+      if (down && !this.#stoppedOnPurpose) {
         this.#reconnectNow();
       }
     });

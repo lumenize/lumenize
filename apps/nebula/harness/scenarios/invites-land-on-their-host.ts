@@ -3,7 +3,7 @@
  * the consent they still owe, rather than a login that would bring them back to the same 401.**
  *
  * Every invite here is sent from the inviter's page on vite's port, the way a person sends one from
- * Studio, so the Gateway stamps that page's origin and every link the invite composes names the
+ * Studio, so the page's host node stamps its origin and every link the invite composes names the
  * page a person would be on.
  *
  * The cast: **O** owns the account. **M** is a member already, invited again. **P** was invited and

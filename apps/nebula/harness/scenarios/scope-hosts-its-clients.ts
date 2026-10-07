@@ -35,11 +35,11 @@
  *     those holding the tag, and Dana's socket closes too.
  *  7. **Founding `S` drops the tab without 4410, and the tab is told to re-subscribe; deleting `S`
  *     closes it with 4410.** Founding `S` tears down the object the tab is on, as any reset would,
- *     so the tab reconnects; deleting it tells the tab why. Mutation: drop the close before the
- *     wipe, or send 4410 whatever the cause.
+ *     so the tab reconnects; deleting it tells the tab why. Mutation: drop the close, or send 4410
+ *     whatever the cause.
  *
  * Real logins (ADR-009 rung 1): the run's shared app's owner, signed in by email, whose refresh
- * on each host mints that host's token. Limbs 1, 2 and 4 read the stack's stdio, which a deployed
+ * on each host mints that host's token. Limbs 1, 2, 4 and 5 read the stack's stdio, which a deployed
  * target does not capture, and say so there. `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
@@ -233,7 +233,9 @@ export async function run(stack: DevStack): Promise<void> {
     const alice = socketLog();
     const tab = await hostedTab(starHost, star, onStar.accessToken, onStar.sub, alice);
     const tabName = `${star}/${tab.lmz.instanceName}`;
-    if (stdio() !== undefined) {
+    if (stdio() === undefined) {
+      console.log('  · which node started, and the name it holds the socket under, are not observable on a deployed target');
+    } else {
       limb('limb 2 — the upgrade starts the Star', await eventually(starStarted), `no start was logged for ${star}`);
       limb('limb 2 — the Star holds the socket under {S}/{id}', await eventually(() => accepted(tabName)),
         `no accept line names ${tabName}`);
@@ -268,8 +270,10 @@ export async function run(stack: DevStack): Promise<void> {
     const persona = await personaRefresh.json() as { access_token: string; sub: string };
     const personaTab = await hostedTab(personaUrl, `${app.galaxy}.dev`, persona.access_token, persona.sub, socketLog());
     const personaName = `${app.galaxy}.dev/${personaTab.lmz.instanceName}`;
+    // A host builds its Clients' addresses from its own name, so a push reaches the tab wherever it
+    // is held: only the accept line says which node holds it.
     if (stdio() === undefined) {
-      limb('limb 4 — a persona\'s tab connects on its host', personaTab.connectionState === 'connected', 'not connected');
+      console.log('  · which node holds the persona\'s socket is not observable on a deployed target');
     } else {
       limb('limb 4 — a persona\'s tab is held by the .dev Star', await eventually(() => accepted(personaName)),
         `no accept line names ${personaName}`);
@@ -280,7 +284,9 @@ export async function run(stack: DevStack): Promise<void> {
     const config = await tab.lmz.callAsync('GALAXY', app.galaxy, tab.ctn<Galaxy>().getGalaxyConfig());
     limb('limb 5 — the save and the Galaxy read both answer', typeof config === 'object' && config !== null,
       `the Galaxy answered ${JSON.stringify(config)}`);
-    if (stdio() !== undefined) {
+    if (stdio() === undefined) {
+      console.log('  · whether the save ran in place is not observable on a deployed target');
+    } else {
       limb('limb 5 — the save ran in place on the Star', await eventually(() => entries().some((e) =>
         e.namespace === 'lmz.mesh.ClientGateway.handleClientCall' && e.message === 'ran in place' && e.data.instance === star)),
       `no \`ran in place\` line names ${star}`);

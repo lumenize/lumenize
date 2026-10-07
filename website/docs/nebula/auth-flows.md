@@ -207,7 +207,7 @@ Every `NebulaClient` connection passes through four security layers before any `
 ```mermaid
 sequenceDiagram
     participant C as NebulaClient
-    participant EP as Entrypoint<br/>(onBeforeConnect)
+    participant EP as Entrypoint<br/>(hostedUpgrade)
     participant GW as Host node<br/>(onBeforeAccept)
     participant DO as NebulaDO<br/>(onBeforeCall)
     participant M as mesh guard<br/>(e.g. requireDominionHere)
@@ -215,7 +215,7 @@ sequenceDiagram
     rect rgba(200, 220, 240, 0.3)
         Note over C,EP: Layer 1 — Entrypoint JWT verification
         C->>EP: WebSocket upgrade<br/>(JWT in subprotocol)
-        Note over EP: verifyNebulaAccessToken:<br/>signature and issuer<br/>aud at or below authScope<br/>a plain membership's aud equals its authScope
+        Note over EP: verifyNebulaAccessToken:<br/>signature and issuer<br/>aud at or below authScope<br/>a plain membership's aud equals its authScope<br/>then aud is the scope this host spells<br/>and the id begins with the token's sub
         alt Invalid JWT
             EP-->>C: 401/403 (no DO instantiated)
         end

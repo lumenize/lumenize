@@ -14,7 +14,7 @@
  *  1. **The call after the lapse lands, on a token the platform host renewed.** The first token is
  *     past its `exp`; the client renewed with a refresh from the galaxy's page — `Origin` naming that
  *     host, the shim's cookies riding, no body — and the call succeeded. *Reds if the client reuses
- *     the lapsed token, which the Gateway refuses.*
+ *     the lapsed token, which its host node refuses.*
  *
  * ⚠️ **Slow by design: about three minutes locally, sixteen against a deployed target**, which
  * keeps the full lifetime because no boot sets the var there. The wait is the test.
@@ -58,7 +58,7 @@ export async function run(stack: DevStack): Promise<void> {
   };
   const client = new NebulaClient({
     baseUrl: page, platformOrigin: stack.baseUrl, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
-    // The Gateway accepts a client only under its own `sub` (mesh.md).
+    // A host node accepts a client only under its own `sub` (mesh.md).
     instanceName: `${login.sub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: observed, sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
   });

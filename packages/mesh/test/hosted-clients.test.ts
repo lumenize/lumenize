@@ -169,6 +169,29 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     expect(alice.connectionState).toBe('disconnected');
   });
 
+  it('tells a Client that connects after its host closed every Client with 4410 the same', async () => {
+    using alice = await connect('h9');
+    await alice.lmz.callAsync('CLIENT_HOST_DO', 'h9', alice.ctn<ClientHostDO>().closeEveryClient(WS_CLOSE_GONE))
+      .catch(() => undefined);
+
+    // A page that loads while its host is still being torn down, before the reset.
+    const told: string[] = [];
+    const sub = crypto.randomUUID();
+    const browser = new Browser();
+    const late = new HostedClient({
+      instanceName: `${sub}.tab1`,
+      baseUrl: 'https://h9.hosted.test',
+      hostFromHostname: true,
+      refresh: createTestRefreshFunction({ sub }),
+      fetch: browser.fetch,
+      WebSocket: browser.WebSocket,
+      onHostDeleted: (e) => told.push(e.name),
+    });
+    await vi.waitFor(() => expect(told).toEqual(['HostDeletedError']), { timeout: 10000 });
+    expect(late.connectionState).toBe('disconnected');
+    late.disconnect();
+  });
+
   it('refuses a Client\'s call to another Client, on the same host and on another', async () => {
     using alice = await connect('h5');
     using dana = await connect('h5');
@@ -207,6 +230,16 @@ describe('a message addressed to a Client stamps no node\'s name', () => {
     })).toEqual({ $ack: true });
     await runInDurableObject(host, (instance: ClientHostDO) => expect(instance.lmz.instanceName).toBe(hostName));
   });
+
+  it('at the fire-back door of a never-stamped host, where an answer runs nothing on the host', async () => {
+    // The one state where a branch taken after the stamp would name the host after the Client and
+    // run the Client's continuation there: no earlier entry has named the host.
+    const hostName = `fresh-host-${crypto.randomUUID()}`;
+    const host = env.CLIENT_HOST_DO.getByName(hostName) as any;
+    await host.__handleResponse(callTo(`${hostName}/x.tab1`, [{ type: 'get', key: 'receive' }, { type: 'apply', args: ['answer'] }]));
+    await runInDurableObject(host, (instance: ClientHostDO) => expect(instance.lmz.instanceName).toBeUndefined());
+    expect(marked('host admitted a call', (d) => d.origin === 'pusher')).toHaveLength(0);
+  });
 });
 
 describe('a host node\'s upgrade names exactly one Client', () => {
@@ -216,6 +249,13 @@ describe('a host node\'s upgrade names exactly one Client', () => {
     expect((await upgrade('h7', `/gateway/CLIENT_HOST_DO/h7/${sub}.tab1/more`, sub)).status).toBe(400);
     expect((await upgrade('h7', `/gateway/CLIENT_HOST_DO/h7/${sub}.${'t'.repeat(256)}`, sub)).status).toBe(400);
     expect((await upgrade('h7', `/gateway/CLIENT_HOST_DO/h7/${sub}.tab1`, sub)).status).toBe(101);
+  });
+
+  it('accepts a name of exactly 256 characters and refuses one of 257', async () => {
+    // `h7/` is 3 characters and `{sub}.` 37, so 216 more make the tag 256.
+    const sub = crypto.randomUUID();
+    expect((await upgrade('h7', `/gateway/CLIENT_HOST_DO/h7/${sub}.${'t'.repeat(216)}`, sub)).status).toBe(101);
+    expect((await upgrade('h7', `/gateway/CLIENT_HOST_DO/h7/${sub}.${'t'.repeat(217)}`, sub)).status).toBe(400);
   });
 
   it('refuses an id that does not start with the token\'s sub', async () => {

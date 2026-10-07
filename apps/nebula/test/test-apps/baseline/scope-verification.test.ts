@@ -46,9 +46,13 @@ async function craftJwt(options: {
 describe('entrypoint auth-scope verification (e2e)', () => {
   it('rejects JWT where authScope does not cover aud', async () => {
     // JWT with aud = "acme.app.tenant-a" but authScope = "acme.app.tenant-b"
+    // `sub: 'test'` begins the id, so the identity check passes, and the admin bit lifts the plain
+    // membership's `aud`-equals-`authScope` rule, so only the containment check can refuse.
     const token = await craftJwt({
       authScope: 'acme.app.tenant-b',
       aud: 'acme.app.tenant-a',
+      scopeAdmin: true,
+      sub: 'test',
     });
 
     // Attempt a Client's upgrade on the page of the token's `aud`
@@ -60,6 +64,8 @@ describe('entrypoint auth-scope verification (e2e)', () => {
       },
     });
     expect(resp.status).toBe(403);
+    // By message: an identity mismatch is also a 403.
+    expect(await resp.text()).toBe('Forbidden: invalid JWT');
   });
 
   // A plain membership mints on its own host alone, so a token whose `aud` sits below its
