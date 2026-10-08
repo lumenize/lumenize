@@ -70,6 +70,14 @@ export class Alarms {
   #sql: ReturnType<typeof sqlType>;
   #storage: DurableObjectStorage;
   #log: DebugLogger;
+  /**
+   * The ids whose alarm is running now, each `true` once a `schedule` has re-armed it during the
+   * run: from the handler itself, as a poll re-arms under its own id, or from another call while
+   * the handler awaits. The run then keeps the row rather than deleting the re-arm with the alarm
+   * that fired. Coordination for one run, not data: an eviction loses the run, and the row is
+   * whichever was last written.
+   */
+  #firing = new Map<string, boolean>();
 
   constructor(doInstance: any) {
     this.#doInstance = doInstance;
@@ -82,7 +90,10 @@ export class Alarms {
     this.#sql = doInstance.svc.sql;
     this.#log = debug('lmz.alarms.Alarms');
 
-    // Create table synchronously (idempotent)
+    // Create table synchronously (idempotent).
+    // ⚠️ `time` and `created_at` are epoch seconds, an exception to ADR-011's ISO 8601 text: they
+    // stay as they are until alarms are refactored, which revisits both, and the table's retry
+    // columns with them.
     this.#storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS __lmz_alarms (
         id TEXT PRIMARY KEY NOT NULL,
@@ -185,6 +196,7 @@ export class Alarms {
     extra: { delayInSeconds?: number; cron?: string }
   ): void {
     const serialized = JSON.stringify(preprocess(operationChain));
+    if (this.#firing.has(id)) this.#firing.set(id, true);
 
     if (type === 'scheduled') {
       this.#sql`
@@ -301,6 +313,7 @@ export class Alarms {
       if (result.length === 0) break;
 
       const row = result[0];
+      this.#firing.set(row.id, false);
 
       try {
         // Use local chain executor that allows skipping @mesh decorator check
@@ -316,10 +329,13 @@ export class Alarms {
         });
       }
 
-      if (row.type === 'cron') {
+      // A row re-armed during the run is the re-arm's, not the alarm that fired, so it stays.
+      const rearmed = this.#firing.get(row.id);
+      this.#firing.delete(row.id);
+      if (!rearmed && row.type === 'cron') {
         const nextTimestamp = Math.floor(getNextCronTime(row.cron).getTime() / 1000);
         this.#sql`UPDATE __lmz_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}`;
-      } else {
+      } else if (!rearmed) {
         this.#sql`DELETE FROM __lmz_alarms WHERE id = ${row.id}`;
       }
     }
@@ -328,7 +344,7 @@ export class Alarms {
     return executedIds;
   }
 
-  /** Alarm handler - called by LumenizeDO's alarm() lifecycle method */
+  /** Alarm handler - called by MeshDO's alarm() lifecycle method */
   readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
     const now = Math.floor(Date.now() / 1000);
     const overdueResult = this.#sql`SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}`;
@@ -338,13 +354,21 @@ export class Alarms {
     }
   };
 
+  /**
+   * Point the Durable Object's one alarm at the earliest stored job, overdue ones included. A job
+   * due now — `schedule(0, …)`, or a `Date` already past — stores the current second, and an overdue
+   * row a restart left behind must fire too. The time is clamped to just after now, as the `agents`
+   * SDK's scheduler clamps it, rather than handing `setAlarm` a time already past, whose handling
+   * Cloudflare does not document.
+   *
+   * ⚠️ Never filter to rows later than now. The `cloudflare/actors` code this file was adapted from
+   * does, and here it left every zero-delay job unarmed until a later schedule happened to arm the
+   * alarm: a Galaxy's certificate order waited for its own deletion.
+   */
   #scheduleNextAlarm(): void {
-    const result = this.#sql`
-      SELECT time FROM __lmz_alarms WHERE time > ${Math.floor(Date.now() / 1000)}
-      ORDER BY time ASC, id ASC LIMIT 1
-    `;
+    const result = this.#sql`SELECT time FROM __lmz_alarms ORDER BY time ASC, id ASC LIMIT 1`;
     if (result.length > 0) {
-      this.#storage.setAlarm((result[0].time as number) * 1000);
+      this.#storage.setAlarm(Math.max((result[0].time as number) * 1000, Date.now() + 1));
     }
   }
 }

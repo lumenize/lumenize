@@ -6,8 +6,8 @@
  *   1. boot — Worker boots and serves a non-5xx. Catches the
  *      ts-runtime-parser-validator deps-bundle crash regression.
  *   2. auth — Real magic-link flow via deployed email-test Worker.
- *      Exercises Cloudflare Email Sending → Email Routing → WebSocket push
- *      → Browser cookie jar → /auth/<scope>/refresh-token.
+ *      Exercises Resend → Email Routing → WebSocket push
+ *      → Browser cookie jar → the platform host's refresh, from the scope's page.
  *   3. round-trip — NebulaClient → Gateway → Star → result callback. Uses the
  *      real magic-link flow, then installs an ontology version directly on the
  *      Star (the post-Phase-4 dev apply path) and fires a transaction on Star.
@@ -15,7 +15,7 @@
  * Why split: when a failure happens, the per-`it` boundary tells you whether
  * the bundle, auth, or mesh path broke without reading the stack trace.
  *
- * About `WebSocket`: the config omits `WebSocket`, so LumenizeClient falls
+ * About `WebSocket`: the config omits `WebSocket`, so MeshClient falls
  * back to `globalThis.WebSocket` (Node 22's native). Browser's WebSocket
  * shim won't work here — its fetch-based upgrade relies on the Cloudflare
  * Workers / miniflare convention where the response carries a `webSocket`
@@ -27,10 +27,11 @@
 
 import { describe, it, expect, inject, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { scopeOriginFrom } from '../lib/email-login';
+import { uniqueTestEmail } from '@lumenize/email-test/client';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
+import { bootstrapStarAdmin } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
@@ -72,10 +73,12 @@ class HarnessNebulaClient extends NebulaClient {
     this.callCompleted = true;
   }
 
-  // Install a compiled ontology directly on the Star — the post-Phase-4 dev
-  // apply path. `StarTest.applyOntologyForTest` compiles server-side because
-  // this Node-side client can't import the Worker-only `compileOntologyVersion`.
-  callStarApplyOntology(starInstanceName: string, versionConfig: { version: string; types: string }): void {
+  // Install an ontology directly on the Star through the test-app door.
+  // `StarTest.applyOntologyForTest` takes SOURCE and compiles inside the test
+  // Worker because the Star's `resourcesResults` gate is deliberately not `@mesh` — no remote
+  // caller hands a Star a compiled row. This Node-side client could import the
+  // compiler; it just has no door to send the row through.
+  callStarInstallOntology(starInstanceName: string, versionConfig: { version: string; types: string }): void {
     this.resetResults();
     const remote = (this.ctn() as any).applyOntologyForTest(versionConfig);
     this.lmz.call('STAR', starInstanceName, remote, (this.ctn() as any).handleResult(remote));
@@ -87,8 +90,10 @@ describe('browser harness', () => {
     const baseUrl = inject('wranglerBaseUrl');
     expect(baseUrl).toMatch(/^https:\/\//);
 
+    // `/_version` answers on every host; the platform host's root is the auth app, which this lane
+    // never builds, so it would answer 503 whatever the Worker's health.
     const browser = new Browser();
-    const response = await browser.fetch(baseUrl);
+    const response = await browser.fetch(`${baseUrl}/_version`);
     expect(response.status).toBeLessThan(500);
   });
 
@@ -98,18 +103,13 @@ describe('browser harness', () => {
     const browser = new Browser();
     const scope = uniqueStar();
 
-    await bootstrapAdmin({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
+    await bootstrapStarAdmin({ browser, baseUrl, scope, email: uniqueTestEmail(), testToken });
 
-    expect(browser.getCookie('refresh-token'), 'refresh cookie should be set').toBeDefined();
+    expect(browser.getCookie(`__Host-refresh-token.${scope}`), 'refresh cookie should be set').toBeDefined();
 
-    const refreshResponse = await browser.fetch(
-      `${baseUrl}/auth/${scope}/refresh-token`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: scope }),
-      },
-    );
+    const refreshResponse = await browser.context(scopeOriginFrom(baseUrl, scope)).fetch(`${baseUrl}/auth/refresh-token`, {
+    method: 'POST', credentials: 'include',
+  });
     expect(refreshResponse.status).toBe(200);
     const tokenBody = await refreshResponse.json() as { access_token: string; sub: string; token_type: string };
     expect(tokenBody.token_type).toBe('Bearer');
@@ -123,18 +123,17 @@ describe('browser harness', () => {
     const scope = uniqueStar();
 
     // 1. Bootstrap admin via real magic-link → cookie captured
-    await bootstrapAdmin({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
+    await bootstrapStarAdmin({ browser, baseUrl, scope, email: uniqueTestEmail(), testToken });
 
     // 2. Construct NebulaClient — its internal refresh() uses browser.fetch
     //    (carries the cookie) to mint access JWTs. WebSocket comes from
     //    globalThis.WebSocket (Node native) — see file header.
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, scope));
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: scope,
-      activeScope: scope,
-      appVersion: 'v1',
-      fetch: browser.fetch,
+      baseUrl: scopeOriginFrom(baseUrl, scope),
+      platformOrigin: baseUrl,
+      ontologyVersion: 'v1',
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -145,14 +144,13 @@ describe('browser harness', () => {
         expect(client.connectionState).toBe('connected');
       });
 
-      // 4. Install an ontology version directly on the Star — the post-Phase-4
-      //    dev apply path (Decision 9). Phase 4 removed the Star's Galaxy
-      //    lazy-pull, so a transaction at version 'v1' would hit OntologyStaleError
-      //    on a cache miss; the compiled validator must be PUSHED via setOntology.
-      //    `StarTest.applyOntologyForTest` compiles server-side (this Node-side
-      //    client can't import the Worker-only `compileOntologyVersion`). Bootstrap
-      //    admin (founder at first instance) satisfies the requireAdmin gate.
-      client.callStarApplyOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      // 4. Install an ontology version directly on the Star. A Star gets its
+      //    ontology by pulling from its Galaxy's registry, and this test registers
+      //    nothing there, so without this step the transaction below answers
+      //    `ontology-stale`. `StarTest.applyOntologyForTest` takes the SOURCE and
+      //    compiles it inside the test Worker; its JSDoc says why the compile is
+      //    server-side. The Star's own admin satisfies the requireDominionHere gate.
+      client.callStarInstallOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await vi.waitFor(() => {
         expect(client.callCompleted).toBe(true);
       });

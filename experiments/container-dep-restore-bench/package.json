@@ -1,0 +1,10 @@
+{
+  "name": "container-dep-restore-bench",
+  "private": true,
+  "version": "0.0.0",
+  "//": "Spike: what is the cheapest way to get a per-tenant node_modules onto a fresh CF container? Measures INCREMENTAL npm install (baked tree + one user dep) against restore-style alternatives (tar.gz / tar.zst / squashfs overlay). Point-in-time; see RESULTS.md.",
+  "scripts": {
+    "bench:install": "./bench-install.sh",
+    "bench:restore": "./bench-restore.sh"
+  }
+}

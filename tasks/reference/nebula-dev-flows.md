@@ -27,7 +27,7 @@
 1. **`DevStudio`** names the codegen engine (server DO). The browser chat app is **"Studio UI"**; the running generated app is the **"Preview app"**; the product/experience is **"Studio"** (reserved for prose). `Dev*` = dev-loop-only classes → `DevStudio` + `DevContainer`; `Star` is the cross-cutting one.
 2. **No `DevStar` class.** Collapse to one `Star` on one `STAR` binding; the dev Star is the `{u}.{g}.dev` instance (own SQLite → already isolated from prod). `compileSFC` is deleted anyway (vite owns compile); only **`resetDevData`** (the wipe) is **hard-guarded to the `.dev` STAR-tier instance** — segment-precise, not a suffix test: `const s = instanceName.split('.'); if (!(s.length === 3 && s[2] === 'dev')) throw` (a bare `endsWith('.dev')` would also admit a galaxy-tier `acme.dev`) — setting the current ontology is a general Star op (Decision 11). The `DEV_STAR` binding + its smart-match guard disappear; `#starBinding()` collapses to always `STAR`.
 3. **Studio UI is served from Workers Assets** — closes the open hosting question; same-origin with `/auth`, `/gateway`, `/dev-container`.
-4. **Publish is DevStudio-orchestrated** (`Studio UI → DevStudio → DevContainer → Galaxy`). Studio UI talks only to DevStudio, so command-auth (`requireAdmin`) lives in one place; publish is a *fast command*, not a file push (DevContainer already holds the live checkout). The big artifact bytes go `DevContainer → Galaxy` directly.
+4. **Publish is DevStudio-orchestrated** (`Studio UI → DevStudio → DevContainer → Galaxy`). Studio UI talks only to DevStudio, so command-auth (`requireDominionHere`) lives in one place; publish is a *fast command*, not a file push (DevContainer already holds the live checkout). The big artifact bytes go `DevContainer → Galaxy` directly.
 5. **DevStudio is the sole writer of source and the durable source-of-truth** (its shell `Workspace` + local git). LLM turns read/write *locally* against it (the hot, latency-sensitive path stays local). The container is a disposable **working copy** that DevStudio pushes changed source to (**`applyChanges`**). *Rejected Option 1 (truth in DevContainer DO):* it makes DevStudio pull its own writes back every turn and couples durable state to the disposable container.
 6. **`@cloudflare/shell` IS the implementation — NOT gated on Artifacts** (proven end-to-end 2026-06-19, `experiments/interim-dev-loop`). DevStudio's shell `Workspace` (SQLite+R2) is the source-of-truth with **real local git** (isomorphic-git: commit/log/branch; **"checkpoint" = a git tag** via raw `isomorphic-git`, user-facing term unchanged). DevStudio **pushes** changed source to DevContainer (`applyChanges`, mesh). This is the **shipping design — no external service.** **Artifacts is an OPTIONAL future optimization** behind the same (free) seam (`createGit` already has `remote()`/`push()`/`pull()`): it would let the container `git pull` *incrementally* from a remote decoupled from DevStudio. Adopt if/when it helps (large repos / export / resilience) — **we don't care when, or if.** Depend on `@cloudflare/shell` (codemode transitive dep accepted).
 7. **Convergence — one source home.** This supersedes the **three conflicting source-durability designs** scattered across the task files: (a) Galaxy dual-write, (b) DevContainer DO store, (c) `file`-resources on the dev Star. All collapse into **DevStudio's shell `Workspace`** (local git). The realignment must purge (a)/(b)/(c).
@@ -36,7 +36,11 @@
 10. **"checkpoint"** is the user-facing term for a named saved state — a **git tag** under the covers if/when Artifacts lands (CONFIRMED 2026-06-19).
 11. **Ontology-change lifecycle — `.dev` Star ≡ regular Star, except an optional wipe.** Setting the current ontology (the compiled validator) is a **general** Star op — DevStudio pushes it to the `.dev` Star on save; prod gets it via the published app-version — and it touches **no data**. **Additive** changes leave existing data valid; **breaking** changes (removed/renamed fields, or added-without-default) make it look corrupted to the new ontology. *Now* (no lazy migration), DevStudio does **not** try to detect breaking-ness — on **any** ontology `.d.ts` change it prompts the user via Studio UI (*"ontology changed — wipe `.dev` data? (wipe if your change is breaking)"*) and the user decides. If they keep it and the preview then misbehaves, a **standalone Studio-UI "Wipe `.dev` data" button** lets them wipe anytime. Both paths call the `.dev`-guarded **`resetDevData`**; the prompt itself is a direct **server→client mesh call** (see Flow 1b), and when an ontology change is part of a save the **source-push gates** on the wipe decision (callback-paused, not a held await) so the preview never renders new code on stale data. *Later*, lazy migration lands on **both** Stars (lockstep), demoting the wipe to a rare clean-slate; it rides the existing per-resource ontology-version stamp + version-on-request (`OntologyStaleError`); the runner/transforms are deferred.
 
-12. **Live dev-loop version contract — the preview speaks the *prod* contract, not a `.dev` shortcut** (2026-06-21; resolves the Phase-4 `appVersion:'dev'` gap — Flow 1d). The serving layer injects the **real, content-hashed** current version into the `nebula-scope` meta (dev: `DevContainer.fetch()` reads it from its DO `kv`, set by DevStudio's `setAppVersion`; prod: the static-serve injects the published app-version — **same meta, same client code**). The client sends it on every op; Handler-1 gates on it. **Version = `hashBlob(ontology source)`** — *idempotent* (re-applying unchanged source is a no-op — no Worker-Loader recompile) and **dev/prod label-pinned** (same source → same label in DevStudio and Galaxy); a GUID would lose both. (The Worker Loader does **not** content-address — the id is caller-chosen and the loaded-worker cache is *ephemeral*, so the validator bundle lives on the Star, fed to `loader.get`'s callback on cold isolates — verified against the CF Worker Loader API ref. Hence we supply the content-addressing by hashing.) An ontology change re-syncs the live preview over the **kept reload channel**, **triggered from `Star.#installState` on `isNewVersion`** — so dev (`setOntology` push) and prod (Galaxy lazy-pull) share **one** trigger; **no new `@mesh` surface, no `.dev` branch in any hot path** (Decision 11 holds). The reload subscription is **dev-preview-only** for now (gate on the `.dev` scope in the bootstrap — env detection, not a hot-path branch; the prod publish→reload UX is Flow 2). **Ordering invariant:** `setAppVersion` (+ the source push) run **before** the install, so the reloaded preview reads the new version. **No client lock needed** — `OntologyStaleError` (Handler-1) is a forward-only interlock: a version-skewed op is rejected *before* any validator runs (ADR-005), so the worst case mid-swap is a transient reload, never corruption. **Method rename:** DevStudio's `applyOntology` → **`compileAndInstallOntology`** (reads the `.d.ts`, compiles the validator, optionally wipes, installs on the `.dev` Star). `resetDevData` **preserves `ReloadSubscribers`** across its `deleteAll` (live-connection state, not dev data) so the post-wipe reload still reaches the preview.
+12. **Live dev-loop version contract — the preview speaks the *prod* contract, not a `.dev` shortcut** (2026-06-21; resolves the Phase-4 `appVersion:'dev'` gap — Flow 1d). The serving layer injects the **real, content-hashed** current version into the `nebula-scope` meta (dev: `DevContainer.fetch()` reads it from its DO `kv`, set by DevStudio's `setAppVersion`; prod: the static-serve injects the published app-version — **same meta, same client code**). The client sends it on every op; Handler-1 gates on it. **No new `@mesh` surface, no `.dev` branch in any hot path** (Decision 11 holds).
+    - **Version = `hashBlob(ontology source)`** — *idempotent* (re-applying unchanged source is a no-op — no Worker-Loader recompile) and **dev/prod label-pinned** (same source → same label in DevStudio and Galaxy); a GUID would lose both. The Worker Loader does **not** content-address — the id is caller-chosen and the loaded-worker cache is *ephemeral*, so the validator bundle lives on the Star, fed to `loader.get`'s callback on cold isolates (verified against the CF Worker Loader API ref). Hence we supply the content-addressing by hashing.
+    - **An ontology change re-syncs the live preview without a reload channel** (the channel this decision first named was deleted 2026-09-28, [nebula-data-plane-owns-its-guards.md](../archive/nebula-data-plane-owns-its-guards.md) D17). The preview's next op at the old version is answered `OntologyStaleError`, which fires the client's `onShouldRefreshUI` — whose default reloads the page once per session, so a second change in the same session reloads only through the build reply — and a build answers the client that asked for it (`handlePreviewReady`).
+    - **Ordering invariant:** `setAppVersion` (+ the source push) run **before** the install, so the reloaded preview reads the new version. **No client lock needed** — `OntologyStaleError` (Handler-1) is a forward-only interlock: a version-skewed op is rejected *before* any validator runs (ADR-005), so the worst case mid-swap is a transient reload, never corruption.
+    - **Method rename:** DevStudio's `installOntology` → **`compileAndInstallOntology`** (reads the `.d.ts`, compiles the validator, optionally wipes, installs on the `.dev` Star).
 
 ---
 
@@ -87,7 +91,7 @@ sequenceDiagram
 
     Note over UI,ST: A · session start / wake (DevStudio-driven)
     UI->>STU: open session {u}.{g}.dev (chat WS)
-    STU->>DC: ensureUp + applyChanges(full tree) (mesh, @mesh requireAdmin)
+    STU->>DC: ensureUp + applyChanges(full tree) (mesh, @mesh requireDominionHere)
     Note over DC: boot from image + write source → vite serves (deps baked — see Flow 1c)
     STU-->>UI: ready
     PV->>DC: GET /dev-container/{u}.{g}.dev/ (same-origin)
@@ -104,7 +108,7 @@ sequenceDiagram
     opt ontology .d.ts changed — gate FIRST (Flow 1b)
         Note over STU,ST: compile validator + Flow 1b (prompt, WAIT for wipe decision via callback, set ontology) — gates the push so the preview never lands new code on stale data
     end
-    STU->>DC: applyChanges(changed files) (mesh, @mesh requireAdmin)
+    STU->>DC: applyChanges(changed files) (mesh, @mesh requireDominionHere)
     Note over DC: update working tree → vite HMR
     DC-->>PV: HMR js-update — patch in place (data reshapes via the subscription if ontology changed)
     STU-->>UI: turn complete (read-only code shown in chat if asked)
@@ -145,7 +149,7 @@ sequenceDiagram
     STU->>ST: resetDevData() (.dev-guarded)
 ```
 
-> **The point of this diagram:** DevStudio calls **Studio UI's `NebulaClient` directly** — in Lumenize mesh, *any node can call any other, including the browser client* (continuations name their destination; the client is a mesh node via its Gateway). No polling/subscription needed, unlike a normal web app. And since the human may take a while, the prompt is **fire-and-forget + a callback** (the client calls `wipeDecision` back when the user answers), not a blocking await — so DevStudio isn't billed waiting. **Segment A gates the save's source-push in Flow 1:** DevStudio pauses the save until `wipeDecision` arrives, so the preview never updates code onto stale data — the pause is that callback, not a held await. We prompt on **any** ontology change (the user judges breaking-ness — no detection logic); the standalone button (B) is the safety net if they declined and the preview then misbehaves. After the wipe the new version is re-installed and the preview is reloaded over the kept reload channel — `resetDevData` **preserves `ReloadSubscribers`** across its `deleteAll` so that reload still reaches it (Decision 12 / Flow 1d).
+> **The point of this diagram:** DevStudio calls **Studio UI's `NebulaClient` directly** — in Lumenize mesh, *any node can call any other, including the browser client* (continuations name their destination; the client is a mesh node via its Gateway). No polling/subscription needed, unlike a normal web app. And since the human may take a while, the prompt is **fire-and-forget + a callback** (the client calls `wipeDecision` back when the user answers), not a blocking await — so DevStudio isn't billed waiting. **Segment A gates the save's source-push in Flow 1:** DevStudio pauses the save until `wipeDecision` arrives, so the preview never updates code onto stale data — the pause is that callback, not a held await. We prompt on **any** ontology change (the user judges breaking-ness — no detection logic); the standalone button (B) is the safety net if they declined and the preview then misbehaves. After the wipe the new version is re-installed, and the preview's next op meets the version gate (Decision 12 / Flow 1d).
 
 ---
 
@@ -200,8 +204,6 @@ sequenceDiagram
     PV->>ST: read / subscribe (appVersion H)
     Note over ST: Handler-1 isCachedVersion(H)<br/>ok → dispatch
     ST-->>PV: snapshot
-    PV->>ST: subscribeReload() (dev preview only)
-    Note over ST: register clientId in ReloadSubscribers
 ```
 
 ### 1d-ii — ontology change → reload (the critical ordering)
@@ -222,9 +224,10 @@ sequenceDiagram
     STU->>DC: syncToDevContainer(source)
     Note over DC: vite HMR (.d.ts is types-only → no patch)
     STU->>ST: compileAndInstallOntology(Hnew)
-    Note over ST: setOntology → #installState<br/>current = Hnew (isNewVersion)<br/>→ broadcastReload()
-    ST-->>PV: handleReload()
-    Note over PV: onReload() → location.reload()
+    Note over ST: setOntology installs Hnew
+    PV->>ST: op at OLD version
+    ST-->>PV: OntologyStaleError
+    Note over PV: onShouldRefreshUI() → location.reload(), once per session
     PV->>DC: GET (re-fetch shell)
     DC-->>PV: shell + meta (appVersion Hnew)
     PV->>ST: ops at Hnew
@@ -232,15 +235,15 @@ sequenceDiagram
     ST-->>PV: result
 ```
 
-> **Ordering & why no lock.** `setAppVersion` + the source push run **before** the install
-> (which fires the reload), so the reloaded preview reads `Hnew`. Correctness needs **no
+> **Ordering & why no lock.** `setAppVersion` + the source push run **before** the install,
+> so the preview that reloads on its stale answer reads `Hnew`. Correctness needs **no
 > client lock**: Handler-1's version check is a forward-only interlock — a version-skewed op
 > (the preview still at OLD after the install, or a fresh load caught in the gap between
 > `setAppVersion` and the install) is rejected with `OntologyStaleError` *before* any
 > validator runs (ADR-005), so the worst case is a transient extra reload, never corruption
 > or wrong-validator execution. The race window is the gap between two awaited mesh calls
-> (low-ms). The wipe variant (Flow 1b) works the same — `resetDevData` preserves
-> `ReloadSubscribers` across its `deleteAll`, so `broadcastReload` still reaches the preview.
+> (low-ms). The wipe variant (Flow 1b) works the same — the wiped Star's next op at the old
+> version meets the same gate.
 
 ---
 
@@ -256,7 +259,7 @@ sequenceDiagram
 
     Note over UI,G: Publish (deliberate user action — a fast command, not a file push)
     UI->>STU: publish {u}.{g}.dev
-    STU->>DC: build & publish (viteControl, @mesh requireAdmin)
+    STU->>DC: build & publish (viteControl, @mesh requireDominionHere)
     Note over DC: vite build from the current checkout (already at HEAD via push)
     DC->>DC: vite build (~4.7 s) → built bundle + ~2 kB gz CSS
     DC->>G: push built app-version (bundle + assets → R2 asset set)
@@ -299,7 +302,7 @@ In the flows, **DevContainer is one unit**. Inside, it's a **persistent DO super
 ```mermaid
 flowchart LR
     PV["Preview app<br/>(public · ungated)"]
-    STU["DevStudio<br/>(mesh · requireAdmin)"]
+    STU["DevStudio<br/>(mesh · requireDominionHere)"]
 
     subgraph DO["DevContainer DO — persists (identity, no durable source)"]
         F["fetch() proxy<br/>strips cf-container-target-port"]
@@ -327,7 +330,7 @@ flowchart LR
 | Mode | Port | Runs | Entered via | Reachable by |
 |---|---|---|---|---|
 | **Preview** | `:5173` vite | app shell + HMR | DO `fetch()` proxy (header stripped, scope injected) | **public / ungated** (browsers) |
-| **Command** | `:9000` command-server | `exec` / `writeFile` / `viteControl` (+ git) | DO `containerFetch` from `@mesh(requireAdmin)` methods | **host DO-only** (the container's own DevContainer DO) — never the public surface |
+| **Command** | `:9000` command-server | `exec` / `writeFile` / `viteControl` (+ git) | DO `containerFetch` from `@mesh(requireDominionHere)` methods | **host DO-only** (the container's own DevContainer DO) — never the public surface |
 
 **Persistence:** the **DO persists** (identity + the `applyChanges`/`fetch()` machinery) but holds **no durable source**; the **container is ephemeral** (disk reverts to the image on cold boot, repopulated by DevStudio's **push**); the **source-of-truth is DevStudio**. Neither layer here is durable source — which is why DevStudio holds it.
 
@@ -339,7 +342,7 @@ All of DevStudio's source handling goes through one small interface, so Artifact
 
 **The interface (two halves; method names proven in `experiments/interim-dev-loop`):**
 - **DevStudio side** — `writeSource(path, content)` (write working copy + `git commit`), `readSource(path)` (local read — the LLM hot path), `head()`, and it **pushes** changed files to the container (**`applyChanges(files)`**). Plus `git push` to the Artifacts remote in the optional target.
-- **DevContainer side** — **`applyChanges(files)` (`@mesh(requireAdmin)`)**: the container writes DevStudio's pushed files into the working tree (no git in the container). *(The optional Artifacts path swaps this for `pull()` — a real `git pull` from the remote.)*
+- **DevContainer side** — **`applyChanges(files)` (`@mesh(requireDominionHere)`)**: the container writes DevStudio's pushed files into the working tree (no git in the container). *(The optional Artifacts path swaps this for `pull()` — a real `git pull` from the remote.)*
 
 **The remote is the only swap point:**
 
@@ -386,7 +389,8 @@ The source seam (shell `FileSystem` + `createGit` on DevStudio) is the same eith
 Two external capabilities would change the cold-start / source-transfer story. We are **not** reworking the primary design for either until it lands — captured here only so we don't re-derive them.
 
 - **More efficient source transfer (if Artifacts never lands or we skip it).** The shell path pushes the **full tree on every cold boot** — fine for dev-sized apps, but if Artifacts never earns its keep we may want a lighter incremental push (e.g. a `git log`-based changed-paths record; the interim experiment notes this is bespoke). Deps are **baked** today (Flow 1c — no `npm install` on boot); that cost returns only if we decide we can't fully bake deps (apps pulling arbitrary packages), itself an open question. Artifacts' incremental `git pull` solves the transfer side natively (Findings above).
-- **Cloudflare Container snapshots** (announced ~April 2026, "in the coming weeks"; **not yet available as of 2026-06-20**). Snapshots would let a cold container **restore a disk that already has source + installed deps + a warm vite**, instead of reverting to the baseline image and re-populating — erasing *both* the full-tree push *and* any `npm install`, and skipping vite cold-start. That fundamentally changes the "ephemeral disk + push-on-boot" model. **Deliberately not worked out now** (unlike the Artifacts swap): the right design depends on **timing relative to Artifacts** — snapshots-first vs Artifacts-first imply different architectures — so we hold this primary design until we have access to whichever lands (ideally both), then reassess.
+- **Cloudflare Container snapshots** (announced ~April 2026, "in the coming weeks"; **still not available as of 2026-07-20** — three months on, and the Containers changelog shows nothing). Snapshots would let a cold container **restore a disk that already has source + installed deps + a warm vite**, instead of reverting to the baseline image and re-populating — erasing *both* the full-tree push *and* any `npm install`, and skipping vite cold-start. That fundamentally changes the "ephemeral disk + push-on-boot" model. **Deliberately not worked out now** (unlike the Artifacts swap): the right design depends on **timing relative to Artifacts** — snapshots-first vs Artifacts-first imply different architectures — so we hold this primary design until we have access to whichever lands (ideally both), then reassess.
+  - ⚠️ **2026-07-20 — the prize is smaller than this bullet implies; don't over-invest on arrival.** Measured **on real CF** ([experiments/container-cold-start-probe](../../experiments/container-cold-start-probe/RESULTS.md)): the whole cold→dist sequence is **8–10 s** baked / **11–33 s** with a user dep, and the `vite build` is **70–90 %** of it. Cold start is only **0.3–1.6 s**; the source push is ~30 ms; deps are 0 s when baked and 2–6 s when installed. Locally ([container-dep-restore-bench](../../experiments/container-dep-restore-bench/RESULTS.md)) *every* viable way of getting `node_modules` onto a fresh container tied baked-into-the-image within ~1 s (squashfs+COW overlay 0.0 s, tar.zst 0.4 s, tar.gz 1.0 s) — ⚠️ those local absolutes ran 3–5× optimistic vs CF, but the ordering held. **So snapshots buy the cold start and maybe the install — not the build.** The stopgap CF offers meanwhile ([`createBackup`/`restoreBackup`](https://developers.cloudflare.com/sandbox/guides/backup-restore/)) was **evaluated and declined** — see [backlog.md](../backlog.md) — partly because `createBackup()` measured **50.7 s** to build the archive.
 
 ---
 
@@ -407,4 +411,4 @@ This doc is the **canonical source of truth** for the dev-loop architecture. The
 - **Archived** (built/ran records, frozen in `tasks/archive/`): `nebula-container-dev-loop`, `dev-star`, `nebula-devcontainer-node-type`, `nebula-do-scope-isolation`, `nebula-self-hosted-assets`, `nebula-studio-compile-pipeline`, `kimi-ui-gen-viability`, `container-vite-spike`, `spike-container-agent-channel`, `nebula-file-storage-backend`, `nebula-lazy-schema-migrations`.
 - **Deleted** (never-built; salvage folded into the survivors): `nebula-app-versioning`, `nebula-studio-llm-strategy`, `nebula-resource-metadata`, `preview-iframe-spike`, `vibesdk-llm-patterns`.
 
-**No ADR change** (all 7 conform). The one binding decision: `DEV_STAR` collapses into `STAR` (Decision 2; `#starBinding()` → always `STAR`). Residual `DevStar`→`Star@.dev` term-swaps in still-parked on-hold files (`nebula-skills`, `nebula-studio-eval-suite`, `nebula-5.5-schema-evolution`) are deferred to their un-park.
+**No ADR change** (all 7 conform). The one binding decision: `DEV_STAR` collapses into `STAR` (Decision 2; `#starBinding()` → always `STAR`). Residual `DevStar`→`Star@.dev` term-swaps in still-parked on-hold files (`nebula-skills`, `nebula-5.5-schema-evolution`) are deferred to their un-park.

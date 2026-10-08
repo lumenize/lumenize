@@ -31,7 +31,7 @@ The [invite endpoint](/docs/auth/subject-management#invite-subjects) supports th
 ```javascript @skip-check-approved('config')
 // vitest.config.js
 import { defineConfig } from 'vitest/config';
-import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
 
 export default defineConfig({
   plugins: [
@@ -121,7 +121,7 @@ const { accessToken, sub } = await testLoginWithMagicLink(aliceBrowser, 'alice@t
 
 Most auth testing should use [test mode](#test-mode) — it bypasses email entirely and is deterministic, fast, and CI-safe. But if you specifically need to verify templates, domain configuration, or end-to-end delivery, you have two paths:
 
-- **Resend.** Resend is a plain HTTPS API, so vitest-pool-workers' built-in `fetch` hits it directly. No special configuration — the e2e test looks the same as any other integration test.
+- **Resend.** Resend is a plain HTTPS API, so `@cloudflare/vitest-plugin`'s built-in `fetch` hits it directly. No special configuration — the e2e test looks the same as any other integration test.
 - **Cloudflare Email Sending.** Miniflare's `send_email` binding is a local stub by default — it accepts the call and writes to a temp file, but no email is actually sent. To exercise the real service from vitest, add `"remote": true` to the binding:
   ```jsonc
   "send_email": [

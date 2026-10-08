@@ -196,7 +196,7 @@ For richer status UI (color-coded badges, "last connected X minutes ago" tooltip
 
 ## Current user (`client.claims`)
 
-The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by nebula-auth), `aud` (audience), `access` (the user's scope grant — `{ authScopePattern, admin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
+The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by Mesh's auth layer), `aud` (the scope of this page's host, which is what the token can act from), `access` (the membership the token rests on — `{ authScope, scopeAdmin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
 
 `client.claims` is `null` until the client's first token refresh completes, and `client` is not reactive — a `v-if` gated on it never re-evaluates. Studio-generated apps never see that window: the bootstrap top-level-awaits the factory's `ready` promise before the app mounts, so claims are populated before any component renders. That contract is pinned at [API reference § client.claims](./api-reference.md#clientclaims); the examples below rely on it. Outside a Studio bootstrap (admin tools, scripts), guard with `client.claims?.`.
 
@@ -212,17 +212,17 @@ The same `client.claims.sub` keying works in script too — the [Forms](#forms-e
 "Admin" has **two** independent sources, and admin-only UI checks both:
 
 - **App admin** — a user holding `admin` on the relevant org-tree node. App-wide admin is `admin` on the root node; per-area admin is `admin` (directly or cascaded) on that area's node. This lives in the reactive tree at `store.lmz.orgTree`, so the UI tracks grants as they change.
-- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.admin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
+- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.scopeAdmin`. They have effective admin over this page's scope and everything beneath it, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
 
 A `computed` that covers both:
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 import { computed } from 'vue';
-import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources/frontend';
 import { store, client } from './nebula';
 
 const isAppAdmin = computed(() =>
-  client.claims.access.admin ||                                     // Galaxy/Universe scope admin
+  client.claims.access.scopeAdmin ||                                     // Galaxy/Universe scope admin
   store.lmz.orgTree?.value?.permissions
     .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
 );
@@ -232,9 +232,9 @@ const isAppAdmin = computed(() =>
 <button v-if="isAppAdmin" class="btn">Admin settings</button>
 ```
 
-`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; the JWT `aud`-lock on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
+`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; passage and dominion, read from the page's host, on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
 
-`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: LumenizeClient](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
+`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: the Client](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
 
 ## Subscription lifecycle
 
@@ -320,12 +320,12 @@ The container is keyed per user — `('todoList', client.claims.sub)` — so eac
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // nebula.ts (after `await ready`)
-import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources/frontend';
 const sub = client.claims.sub;
 
 // Create the list under a node the user can write to. This demo signs in as
-// the Star's founder, who holds `admin` on the root node (granted when the
-// Star was created), so resources attach under ROOT_NODE_ID. In a multi-user
+// the Star's admin, who may write anywhere in the Star's tree without a grant of
+// their own, so resources attach under ROOT_NODE_ID. In a multi-user
 // app, attach under whatever node the user was granted — see "Mutating the
 // org/permission tree" for how access is granted.
 if (await client.resources.read('todoList', sub) === null) {
@@ -346,7 +346,7 @@ if (await client.resources.read('todoList', sub) === null) {
 }
 ```
 
-(A node the user can write to is the only prerequisite; the founder gets one — `admin` on root — at Star creation. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
+(A node the user can write to is the only prerequisite; the Star's own admin gets one — `admin` on root — on first touch. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
 
 By contrast, a field whose elements are **inline objects** — composition *within* this one resource, e.g. a todo's `checklist: { text, done }[]` — iterates the same way but without auto-subscribing per item; the fields are right there in the value. The distinction is by type: a field typed as **another ontology type** (e.g. `assignees: User[]`) is a *relationship*, stored by id and read like `items` above — one auto-subscribe per id — never an embedded object; nesting is for inline composition only (see [Resources](./resources.md)).
 
@@ -500,11 +500,11 @@ await client.orgTree.setPermission(nodeId, bobsSub, 'read');
 // Revoke. Idempotent — no-op if `sub` has no grant on this node.
 await client.orgTree.revokePermission(nodeId, bobsSub);
 
-// Create a child node (slug rules and return shape: see API reference).
-// Caller must hold `write` on `parentNodeId`.
-const listShoppingId = await client.orgTree.createNode(
-  userAliceNodeId, 'list-shopping', 'Shopping',
-);
+// Create a child node — YOU supply the id (a UUID), so you have it immediately
+// (no round-trip) and a retry with the same id is idempotent. Caller must hold
+// `write` on `parentNodeId`.
+const listShoppingId = crypto.randomUUID();
+await client.orgTree.createNode(listShoppingId, userAliceNodeId, 'list-shopping', 'Shopping');
 
 // Co-ownership sharing — the two-party share-accept flow from Resources §
 // Access control. Step 1, owner offers (runs as Alice): grant Bob admin on
@@ -531,11 +531,11 @@ The full surface (`reparentNode`, `deleteNode`, `undeleteNode`, `renameNode`, `r
 
 **Every Nebula app receives the same built-in org/permission tree** — the structure that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.lmz.orgTree.value` — structure *and* the full permissions table (opaque-ID-keyed; see [Resources § Access control](./access-control.md) for what that exposes and why). Visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape locally, to grey out inaccessible nodes and resolve who to ask for access. Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
 
-The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./access-control.md) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
+The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<string, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./access-control.md) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
 
 ### The tree shape
 
-`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<number, { slug, label, deleted }>`), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/nebula/frontend`); the `tree.ts` helpers below use it.
+`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<string, { slug, label, deleted }>`, keyed by the node's UUID), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/resources/frontend`); the `tree.ts` helpers below use it.
 
 The tree is subscribed once on connect and kept current at `store.lmz.orgTree`; every server-side mutation broadcasts a fresh snapshot to all connected clients (the actor included — `client.orgTree.*` has no optimistic local write, so the broadcast echo is what updates your own store). The delivery is tagged `new-in-v3` — see [API reference § OrgTreeState](./api-reference.md#orgtreestate).
 
@@ -543,13 +543,13 @@ The framework reserves the `lmz` resourceType for its own resources (mirrors the
 
 **Multi-parent rendering**: a node with parents `[A, B]` renders once under each. The derivation walks every parent edge; each rendered position is its own `OrgTreeNode` instance with independent per-instance state automatically.
 
-**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. Real tree nodes have integer `nodeId`, so the derived `TreeNodeData.id` — `String(nodeId)` — is all digits for every real node; the underscore-prefixed virtual IDs can't collide with anything real.
+**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. Real tree nodes have a UUID `nodeId`, so the derived `TreeNodeData.id` — `String(nodeId)` — is a hyphenated hex UUID for every real node; the underscore-prefixed virtual IDs can't collide with a UUID.
 
 ### Derivation helpers (`tree.ts`)
 
 ```typescript @skip-check
 // tree.ts — shape + derivation helpers used by App.vue and OrgTreeNode.vue.
-import { ROOT_NODE_ID, buildOrgTreeView, type OrgTreeState } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID, buildOrgTreeView, type OrgTreeState } from '@lumenize/resources/frontend';
 
 export interface TreeNodeData {
   id: string;                                       // String(nodeId) for real nodes; '__deleted__' / '__orphaned__' for virtuals
@@ -559,7 +559,7 @@ export interface TreeNodeData {
   children: TreeNodeData[];
 }
 
-// Walks from ROOT_NODE_ID through `dag.nodes`, rendering a node under each of
+// Walks from ROOT_NODE_ID through `orgTree.nodes`, rendering a node under each of
 // its parents. Skips deleted nodes during the main walk; collects them into a
 // __deleted__ subtree. Computes orphaned (nodes not reachable from root via
 // undeleted edges) into __orphaned__. When `query` is non-empty, splits each
@@ -633,7 +633,7 @@ watch(
 <!-- App.vue — search input + tree derivation + provide auto-expand set. -->
 <script setup lang="ts">
 import { computed, provide, onMounted } from 'vue';
-import type { OrgTreeState } from '@lumenize/nebula/frontend';
+import type { OrgTreeState } from '@lumenize/resources/frontend';
 import { store } from './nebula';
 import OrgTreeNode from './OrgTreeNode.vue';
 import { deriveTreeWithVirtuals, walkAndCollectAncestorsOfMatches,

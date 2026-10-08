@@ -1,0 +1,227 @@
+/**
+ * org-ops — Pure functions on OrgTreeState
+ *
+ * Shared between server (OrgTree class) and client (pre-validation, permission checks, traversal).
+ * No storage, no CallContext dependency — operates entirely on the in-memory OrgTreeState.
+ */
+
+import { isValidSlug, MAX_SLUG_LENGTH } from '@lumenize/mesh/client'
+
+/**
+ * Reserved sentinel id for the root orgTree node. A v4-shaped UUID (matching
+ * `DEFAULT_CHAT_ID`'s convention in `chat-constants.ts`) so it lives in the
+ * same id space as every client-supplied nodeId — distinct from the virtual
+ * `__deleted__`/`__orphaned__` tree sentinels (those are underscore-prefixed,
+ * a UUID can never equal them). Seeded server-side by `OrgTree.#ensureRoot`,
+ * never via `createNode`.
+ */
+export const ROOT_NODE_ID = '00000000-0000-4000-8000-000000000000'
+
+export type PermissionTier = 'admin' | 'write' | 'read'
+
+/** Canonical edge key form for `OrgTreeState.edges`. nodeIds are UUIDs (no `:`), so `:` is an unambiguous separator. */
+export type EdgeKey = `${string}:${string}`
+
+export function makeEdgeKey(parentNodeId: string, childNodeId: string): EdgeKey {
+  return `${parentNodeId}:${childNodeId}` as EdgeKey
+}
+
+export interface OrgTreeNodeData {
+  slug: string;
+  label: string;
+  deleted: boolean;
+}
+
+export interface OrgTreeState {
+  nodes: Map<string, OrgTreeNodeData>;
+  edges: Set<EdgeKey>;
+  permissions: Map<string, Map<string, PermissionTier>>; // nodeId → { sub → tier }
+}
+
+/**
+ * Read-only adjacency-indexed view of an `OrgTreeState`.
+ *
+ * `state` is the canonical, wire-shippable form. `parentsByChild` and
+ * `childrenByParent` are O(1) lookup indexes derived from `state.edges`,
+ * built once per state rebuild so traversal/permission/cycle queries stay
+ * fast.
+ *
+ * Build a fresh view from a state via `buildOrgTreeView(state)`; consumers
+ * that mutate state must rebuild the view (or invalidate it) afterward.
+ */
+export interface OrgTreeView {
+  readonly state: OrgTreeState;
+  readonly parentsByChild: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly childrenByParent: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+const EMPTY_SET: ReadonlySet<string> = new Set<string>()
+
+/** Build an `OrgTreeView` from an `OrgTreeState`. O(E) over edges. */
+export function buildOrgTreeView(state: OrgTreeState): OrgTreeView {
+  const parentsByChild = new Map<string, Set<string>>()
+  const childrenByParent = new Map<string, Set<string>>()
+  for (const edge of state.edges) {
+    const colon = edge.indexOf(':')
+    const parentId = edge.slice(0, colon)
+    const childId = edge.slice(colon + 1)
+    let kids = childrenByParent.get(parentId)
+    if (!kids) { kids = new Set(); childrenByParent.set(parentId, kids) }
+    kids.add(childId)
+    let pars = parentsByChild.get(childId)
+    if (!pars) { pars = new Set(); parentsByChild.set(childId, pars) }
+    pars.add(parentId)
+  }
+  return { state, parentsByChild, childrenByParent }
+}
+
+/** v4 UUID shape (what `crypto.randomUUID()` produces). */
+const NODE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+const TIER_RANK: Record<PermissionTier, number> = { read: 1, write: 2, admin: 3 }
+
+// ─── Validation ────────────────────────────────────────────────────
+
+/** Reject a client-supplied nodeId that isn't a v4 UUID — the server must not trust the client to send a well-formed id (guards virtual-sentinel collision). */
+export function validateNodeId(nodeId: string): void {
+  if (!NODE_ID_REGEX.test(nodeId)) {
+    throw new Error(`Invalid nodeId '${nodeId}': must be a v4 UUID (crypto.randomUUID())`)
+  }
+}
+
+/** An org-tree node's slug follows the scope grammar: it rides a URL segment or query parameter as a
+ *  scope's does, and two grammars would drift. */
+export function validateSlug(slug: string): void {
+  if (!slug) throw new Error('Slug must not be empty')
+  if (!isValidSlug(slug)) {
+    throw new Error(
+      `Slug must be ${MAX_SLUG_LENGTH} characters or fewer, using only lowercase letters, numbers, and ` +
+      'single hyphens, with no leading or trailing hyphen',
+    )
+  }
+}
+
+export function checkSlugUniqueness(view: OrgTreeView, parentNodeId: string, slug: string, excludeNodeId?: string): void {
+  const parent = view.state.nodes.get(parentNodeId)
+  if (!parent) throw new Error(`Node ${parentNodeId} not found`)
+  const children = view.childrenByParent.get(parentNodeId) ?? EMPTY_SET
+  for (const childId of children) {
+    if (excludeNodeId !== undefined && childId === excludeNodeId) continue
+    const child = view.state.nodes.get(childId)
+    if (child && child.slug === slug) {
+      throw new Error(`Slug '${slug}' already exists under parent ${parentNodeId}`)
+    }
+  }
+}
+
+export function detectCycle(view: OrgTreeView, parentNodeId: string, childNodeId: string): void {
+  // If adding parent→child would create a cycle, parent must be a descendant of child.
+  // Walk up from parent via parentsByChild; if we find child, it's a cycle.
+  const visited = new Set<string>()
+  const queue = [parentNodeId]
+  while (queue.length > 0) {
+    const current = queue.pop()!
+    if (current === childNodeId) {
+      throw new Error('Adding this edge would create a cycle')
+    }
+    if (visited.has(current)) continue
+    visited.add(current)
+    const parents = view.parentsByChild.get(current) ?? EMPTY_SET
+    for (const pid of parents) {
+      if (!visited.has(pid)) queue.push(pid)
+    }
+  }
+}
+
+// ─── Permission Resolution ─────────────────────────────────────────
+
+/**
+ * Check if `sub` has at least `requiredTier` on `nodeId` via ancestor rolldown.
+ * Climbs all ancestor paths; returns true if any path grants sufficient permission.
+ * Deleted nodes are climbed through and their grants are considered normally.
+ */
+export function resolvePermission(
+  view: OrgTreeView,
+  sub: string,
+  nodeId: string,
+  requiredTier: PermissionTier,
+): boolean {
+  const effective = getEffectivePermission(view, sub, nodeId)
+  if (!effective) return false
+  return TIER_RANK[effective] >= TIER_RANK[requiredTier]
+}
+
+/**
+ * Get the highest effective permission for `sub` on `nodeId` by climbing all ancestor paths.
+ * Returns null if no grant found on any ancestor.
+ */
+export function getEffectivePermission(
+  view: OrgTreeView,
+  sub: string,
+  nodeId: string,
+): PermissionTier | null {
+  let best: PermissionTier | null = null
+  const visited = new Set<string>()
+  const queue = [nodeId]
+
+  while (queue.length > 0) {
+    const current = queue.pop()!
+    if (visited.has(current)) continue
+    visited.add(current)
+
+    // Check direct grant on this node
+    const nodePerms = view.state.permissions.get(current)
+    if (nodePerms) {
+      const grant = nodePerms.get(sub)
+      if (grant) {
+        if (!best || TIER_RANK[grant] > TIER_RANK[best]) {
+          best = grant
+        }
+        // If we already found admin, no need to keep searching
+        if (best === 'admin') return best
+      }
+    }
+
+    // Climb to parents
+    const parents = view.parentsByChild.get(current) ?? EMPTY_SET
+    for (const pid of parents) {
+      if (!visited.has(pid)) queue.push(pid)
+    }
+  }
+
+  return best
+}
+
+// ─── Traversal ──────────────────────────────────────────────────────
+
+/** Get all ancestor nodeIds (excludes the starting node). */
+export function getNodeAncestors(view: OrgTreeView, nodeId: string): Set<string> {
+  const ancestors = new Set<string>()
+  const queue: string[] = []
+  for (const pid of view.parentsByChild.get(nodeId) ?? EMPTY_SET) queue.push(pid)
+  while (queue.length > 0) {
+    const current = queue.pop()!
+    if (ancestors.has(current)) continue
+    ancestors.add(current)
+    for (const pid of view.parentsByChild.get(current) ?? EMPTY_SET) {
+      if (!ancestors.has(pid)) queue.push(pid)
+    }
+  }
+  return ancestors
+}
+
+/** Get all descendant nodeIds (excludes the starting node). */
+export function getNodeDescendants(view: OrgTreeView, nodeId: string): Set<string> {
+  const descendants = new Set<string>()
+  const queue: string[] = []
+  for (const cid of view.childrenByParent.get(nodeId) ?? EMPTY_SET) queue.push(cid)
+  while (queue.length > 0) {
+    const current = queue.pop()!
+    if (descendants.has(current)) continue
+    descendants.add(current)
+    for (const cid of view.childrenByParent.get(current) ?? EMPTY_SET) {
+      if (!descendants.has(cid)) queue.push(cid)
+    }
+  }
+  return descendants
+}

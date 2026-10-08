@@ -2,23 +2,28 @@
   "name": "nebula-studio-ui",
   "private": true,
   "type": "module",
-  "//": "The Studio UI (chat-first authoring SPA). DEV: runs via its own vite dev server + a same-origin proxy to `wrangler dev` (see vite.config.ts + README.md). Deps mirror container/app (no new project deps) + @lumenize/nebula for the mesh client. A workspace member so @lumenize/* resolve. PROD serving (Workers Assets, Decision 3) is a later step.",
+  "//": "The Studio UI (chat-first authoring SPA). DEV: runs via its own vite dev server + a same-origin proxy to `wrangler dev` (see vite.config.ts + README.md). Deps mirror container/app (no new project deps) + @lumenize/nebula for Studio's client, on @lumenize/resources and @lumenize/mesh. A workspace member so @lumenize/* resolve. PROD serving (Workers Assets, Decision 3) is a later step.",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build"
+    "dev": "vite --configLoader runner",
+    "build": "vite build --configLoader runner",
+    "audit:classes": "vite build --configLoader runner --logLevel silent && node scripts/audit-classes.mjs",
+    "audit:urls": "node scripts/audit-urls.mjs"
   },
   "dependencies": {
+    "@lumenize/mesh": "*",
     "@lumenize/nebula": "*",
+    "@lumenize/resources": "*",
     "daisyui": "^5.0.0",
     "lucide-vue-next": "^0.469.0",
-    "vue": "^3.5.13"
+    "vue": "3.6.0-rc.10"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
-    "@vitejs/plugin-vue": "^5.2.1",
-    "tailwindcss": "^4.0.0",
+    "@swc/core": "^1.13.5",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.2",
-    "unplugin-swc": "^1.5.9",
-    "vite": "^6.0.7"
+    "unplugin-swc": "^1.5.10",
+    "vite": "^8.2.0"
   }
 }

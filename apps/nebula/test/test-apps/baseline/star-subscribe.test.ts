@@ -4,28 +4,32 @@
  * Tests `@mesh() subscribe()` on Star, the Subscriptions class's idempotent
  * row insertion, and error-as-data delivery through `handleResourceUpdate`.
  * Fanout on mutation (Phase 5.3.2) is NOT covered here.
+ *
+ * A subscriber who cannot read the resource is told, not refused (ADR-008): it gets a row and the
+ * frame `{ deniedNodes: [nodeId] }`. A missing resource, a wrong type and an unauthenticated caller
+ * are still refused, and a refusal writes no row. The denied tests read the RAW frame the baseline
+ * override captures (`lastResourceResult`), because the client drops keys it does not read.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/resources';
+import { adminClientAt, createInvitedClient, foundAndLogin, createSubject, ownerOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function adminClient(star: string) {
   const browser = new Browser();
-  const result = await createAuthenticatedClient(NebulaClientTest, browser, star, star, 'admin@example.com');
+  const result = await adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  result.client.callStarApplyOntology(star, {
+  result.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
@@ -36,10 +40,10 @@ async function adminClient(star: string) {
 
 async function userClient(star: string, adminToken: string, email = 'user@example.com') {
   const adminBrowser = new Browser();
-  const { accessToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+  const { accessToken } = await foundAndLogin(adminBrowser, star, ownerOf('admin@example.com'));
   const userBrowser = new Browser();
   await createSubject(adminBrowser, star, accessToken, email);
-  return createAuthenticatedClient(NebulaClientTest, userBrowser, star, star, email);
+  return createInvitedClient(NebulaClientTest, userBrowser, star, star, email);
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -81,7 +85,7 @@ describe('star-subscribe', () => {
   it('subscribe to existing resource delivers initial snapshot via handleResourceUpdate', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(client, star, resourceId, 'Hello');
 
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -103,12 +107,17 @@ describe('star-subscribe', () => {
   it('subscribe to non-existent resource returns error', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const missingId = generateUuid();
+    const missingId = crypto.randomUUID();
 
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', missingId);
     const err = await waitForError(client);
     expect(err).toContain('not found');
     expect(err).toContain('subscribe before create');
+
+    // A refusal writes no row.
+    client.callStarInspectSubscribers(star);
+    const rows = await waitForSuccess(client) as SubscriberRow[];
+    expect(rows).toHaveLength(0);
 
     client[Symbol.dispose]();
   });
@@ -116,12 +125,12 @@ describe('star-subscribe', () => {
   it('subscribe with stale ontology version returns mismatch error', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(client, star, resourceId);
 
     // Register a newer ontology version on Galaxy so v1 becomes stale
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    client.callStarApplyOntology(star, {
+    client.callStarInstallOntology(star, {
       version: 'v2',
       types: TEST_TYPES,
     });
@@ -139,24 +148,59 @@ describe('star-subscribe', () => {
     client[Symbol.dispose]();
   });
 
-  it('subscribe without read permission returns permission error', async () => {
+  it('subscribe without read permission registers, and is told exactly the node it cannot read', async () => {
     const star = uniqueStar();
     const { client: admin, accessToken } = await adminClient(star);
 
     // Admin creates a private node + resource there
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await waitForResult(admin);
-    const nodeId = admin.lastResult as number;
+    const nodeId = admin.lastResult as string;
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(admin, star, resourceId, 'Secret', nodeId);
 
     // Non-admin user with no permission
     const { client: user } = await userClient(star, accessToken);
 
     user.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
+    await waitForResult(user);
+    // The whole frame, exactly: the node and nothing from the snapshot. Mutations: send the
+    // denial as an Error, or attach the snapshot to it → red.
+    expect(user.lastResourceResult).toEqual({ deniedNodes: [nodeId] });
+    expect(user.lastError).toBeUndefined();
+
+    // …and it registered, so the next update tells it again.
+    admin.callStarInspectSubscribers(star);
+    const rows = await waitForSuccess(admin) as SubscriberRow[];
+    expect(rows.filter((r) => r.clientAddress === addressOfClient(user) && r.resourceId === resourceId)).toHaveLength(1);
+
+    admin[Symbol.dispose]();
+    user[Symbol.dispose]();
+  });
+
+  it('a no-read subscriber that names the wrong type is refused naming only the type it asked for, and writes no row', async () => {
+    const star = uniqueStar();
+    const { client: admin, accessToken } = await adminClient(star);
+    admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
+    await waitForResult(admin);
+    const nodeId = admin.lastResult as string;
+    const resourceId = crypto.randomUUID();
+    await createResource(admin, star, resourceId, 'Secret', nodeId);
+    const { client: user } = await userClient(star, accessToken);
+
+    user.callStarSubscribe(star, ONTOLOGY_VERSION, 'WrongType', resourceId);
     const err = await waitForError(user);
-    expect(err).toContain('read permission required');
+    // The permission verdict runs before the type check, so the refusal names only what the
+    // caller asked for. Mutation: check the type before the permission verdict → the message
+    // names the real type → red.
+    expect(err).toContain('WrongType');
+    expect(err).not.toContain('TestResource');
+    expect((user.lastResourceResult as Error).message).not.toContain('TestResource');
+
+    admin.callStarInspectSubscribers(star);
+    const rows = await waitForSuccess(admin) as SubscriberRow[];
+    expect(rows.filter((r) => r.clientAddress === addressOfClient(user))).toHaveLength(0);
 
     admin[Symbol.dispose]();
     user[Symbol.dispose]();
@@ -165,7 +209,7 @@ describe('star-subscribe', () => {
   it('re-subscribe is idempotent: single row, fresh initial push each call', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(client, star, resourceId);
 
     // First subscribe
@@ -174,7 +218,7 @@ describe('star-subscribe', () => {
     expect(client.lastResourceUpdate).toBeDefined();
     expect(client.resourceUpdateCount).toBe(1);
 
-    // Second subscribe (same clientId, rt, rid)
+    // Second subscribe (same client, rt, rid)
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForResult(client);
     expect(client.lastResourceUpdate).toBeDefined();
@@ -188,8 +232,7 @@ describe('star-subscribe', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].resourceId).toBe(resourceId);
     expect(rows[0].sub).toBeDefined();
-    expect(rows[0].clientId).toBeDefined();
-    expect(rows[0].subscriberBinding).toBe('NEBULA_CLIENT_GATEWAY');
+    expect(rows[0].clientAddress).toBe(addressOfClient(client));
     expect(rows[0].subscribedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     client[Symbol.dispose]();
@@ -198,7 +241,7 @@ describe('star-subscribe', () => {
   it('subscribe with mismatched resourceType returns type-mismatch error', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(client, star, resourceId);
 
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'WrongType', resourceId);

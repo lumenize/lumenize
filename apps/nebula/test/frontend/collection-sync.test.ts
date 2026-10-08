@@ -6,7 +6,7 @@
  * `bindStore`. Each `it` maps to one item of the spec's checklist.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createNebulaStore } from '../../src/frontend/create-nebula-client';
+import { createNebulaStore } from '../../../../packages/resources/src/frontend/create-nebula-client';
 import { MockClient } from './mock-client';
 
 function setup(value: Record<string, any>) {

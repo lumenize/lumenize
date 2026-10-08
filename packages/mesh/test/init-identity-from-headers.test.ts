@@ -1,8 +1,6 @@
 /**
- * initIdentityFromHeaders — the fetch()-path identity stamp shared by
- * LumenizeDO.__initFromHeaders and LumenizeContainer.fetch() (the B1 fix;
- * ADR-007 identity-on-every-entry-path). Pure function, so unit-testable here
- * even though LumenizeContainer itself can't construct under pool-workers.
+ * initIdentityFromHeaders — the fetch()-path identity stamp LumenizeDO.__initFromHeaders
+ * composes (ADR-007 identity-on-every-entry-path). Pure function, so unit-testable here.
  */
 import { describe, it, expect } from 'vitest';
 import { initIdentityFromHeaders } from '../src/lmz-api';
@@ -30,11 +28,11 @@ describe('initIdentityFromHeaders', () => {
     const r = initIdentityFromHeaders(
       headers({ 'x-lumenize-do-instance-name-or-id': '0'.repeat(64) }),
       lmz,
-      'LumenizeContainer',
+      'MyNode',
     );
     expect(r).toBeInstanceOf(Response);
     expect(r!.status).toBe(400);
-    expect(await r!.text()).toContain('LumenizeContainer requires instanceName');
+    expect(await r!.text()).toContain('MyNode requires instanceName');
     expect(called).toBe(false);
   });
 

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    // ESNext.Disposable brings Symbol.dispose / Symbol.asyncDispose + Disposable/AsyncDisposable
+    // so the `using` / `await using` probes type-check.
+    "lib": ["ES2022", "ESNext.Disposable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["@cloudflare/vitest-pool-workers"]
+  },
+  "include": ["src/**/*", "test/**/*", "worker-configuration.d.ts", "cloudflare-test-env.d.ts"]
+}

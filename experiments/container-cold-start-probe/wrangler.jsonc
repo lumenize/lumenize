@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "container-cold-start-probe",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // Declarative DO registry (NOT a `migrations` array — see durable-objects.md).
+  "exports": {
+    "ProbeContainer": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "ProbeContainer" }]
+  },
+
+  // Reuses Nebula's REAL DevContainer image rather than a copy, so the numbers are
+  // about the image we actually ship. The build context must be the Dockerfile's own
+  // directory (it COPYs `app/` and `command-server.mjs` relative to itself).
+  "containers": [
+    {
+      "class_name": "ProbeContainer",
+      "image": "../../apps/nebula/container/Dockerfile",
+      "image_build_context": "../../apps/nebula/container",
+      "instance_type": "standard-4",
+      "max_instances": 5
+    }
+  ]
+}

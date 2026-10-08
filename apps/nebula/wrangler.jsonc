@@ -1,141 +1,209 @@
 {
   "name": "nebula",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-04-01",
-  // nodejs_compat is REQUIRED: DevStudio (bound below) transitively imports
-  // isomorphic-git + @cloudflare/shell, which import `node:` builtins (buffer/crypto/
-  // path/os). Use plain `nodejs_compat` (NOT the legacy `nodejs_compat_v2` flag-name):
+  "compatibility_date": "2026-10-01",
+  // nodejs_compat is REQUIRED: Galaxy transitively imports isomorphic-git +
+  // @cloudflare/computer, which import `node:` builtins (buffer/crypto/path/zlib).
+  // Use plain `nodejs_compat` (NOT the legacy `nodejs_compat_v2` flag-name):
   // with our compat_date it already gives v2 semantics, AND it actually resolves
   // `node:` builtins in real `wrangler dev` (4.x). The bare `nodejs_compat_v2` flag
   // does NOT — a `node:os`/etc. import crashes startup with `No such module`
-  // (vitest-pool-workers masks this with its own polyfills, but prod deploy + the
+  // (vitest-plugin masks this with its own polyfills, but prod deploy + the
   // real-browser harnesses run real workerd). Must match every other wrangler that
   // loads apps/nebula DOs (test/, baseline, browser) — a flag mismatch lets a green
   // test validate under a different runtime than prod.
   // (Phase 4 retired the old rationale — the @vue/compiler-sfc SFC compiler + vendored
   // tsc bundle were deleted with the in-DO serve path; the flag now survives for
-  // DevStudio's isomorphic-git/@cloudflare/shell.)
+  // Galaxy's isomorphic-git/@cloudflare/computer.)
   "compatibility_flags": ["nodejs_compat"],
-  // Branded custom domain. Cloudflare auto-provisions the proxied DNS record + edge cert for this
-  // hostname on the `lumenize.com` zone (active on this account) at `wrangler deploy`. Magic-link
-  // URLs follow the request origin, so hitting this domain brands them; the JWT issuer
-  // (NEBULA_AUTH_ISSUER) is independently `https://nebula.lumenize.com` regardless.
+  // Every host under `lumenize.dev`, and its apex (ADR-021): the Worker reads which scope a request
+  // is for from its host, against `LUMENIZE_ORIGIN` in `vars` below.
+  // ⚠️ NEVER boot `wrangler dev` on this file directly: it infers the local upstream host from the
+  // FIRST route, so the Worker would see THIS hostname and email every local magic link to
+  // production (bit 2026-09-02). `npm run dev` and the /live harness boot a derived copy with
+  // `routes` stripped — `scripts/local-config.mjs` carries the why.
   "routes": [
-    { "pattern": "nebula.lumenize.com", "custom_domain": true }
+    { "pattern": "lumenize.dev", "custom_domain": true },
+    { "pattern": "*.lumenize.dev/*", "zone_name": "lumenize.dev" }
   ],
-  // Keep the `*.workers.dev` URL enabled ALONGSIDE the custom domain. Adding `routes` flips
-  // wrangler's default to DISABLE workers.dev, so this must be explicit — it's a stable fallback
-  // while the custom-domain cert provisions, and keeps `nebula.transformation.workers.dev` live.
-  "workers_dev": true,
+  // No `workers.dev` host: it sits outside `lumenize.dev`, so no scope can be read from it, and
+  // every host the Worker answers must be one `parseHost` knows.
+  "workers_dev": false,
   "worker_loaders": [{ "binding": "LOADER" }],
-  // Workers AI — DevStudio's codegen engine runs the model through this binding (the
-  // model id is a swappable constant in dev-studio.ts; Studio is model-agnostic). In
-  // local `wrangler dev` this proxies to the account's Workers AI (needs network + the
-  // CLOUDFLARE_* creds already in .dev.vars).
-  "ai": { "binding": "AI" },
-  // Magic-link / invite email. NebulaAuth → AUTH_EMAIL_SENDER (self-ref service binding
-  // → the NebulaEmailSender WorkerEntrypoint re-exported from src/worker.ts) → the EMAIL
-  // send_email binding (Cloudflare Email Sending). `remote: true` is a LOCAL-DEV directive
-  // (proxy to the real CF Email Sending service during `wrangler dev`); it is inert on a
-  // deployed worker, which sends directly. The from-address is env-configurable via
-  // AUTH_EMAIL_FROM (default auth@nebula.lumenize.com); test/dev harnesses override it to a
-  // VERIFIED domain (test@lumenize.io) — CF silently drops mail from an unverified sender.
+  // Workers AI — Galaxy's codegen engine runs the model through this binding (the
+  // model id is a swappable constant in galaxy.ts; Studio is model-agnostic). There is
+  // no local Workers AI, so `wrangler dev` always proxies this binding to the account's;
+  // `remote: true` says so, and silences the warning wrangler prints when it is left
+  // implicit. The proxy authenticates with the `wrangler login` session, or with
+  // CLOUDFLARE_API_TOKEN in the environment — not with anything in .dev.vars.
+  "ai": { "binding": "AI", "remote": true },
+  // Magic-link / invite email. Registry/facade → AUTH_EMAIL_SENDER (self-ref service binding
+  // → the AuthEmailSender WorkerEntrypoint re-exported from src/worker.ts) → the provider
+  // `@lumenize/email` selects from env: Resend, by EMAIL_PROVIDER in `vars` below, in every lane.
+  // Production chose it for deliverability (2026-08-09). The local and test lanes send there too
+  // because a `send_email` binding send to a per-run test address counts against Cloudflare's daily
+  // sending quota (experiments/email-quota-probe/RESULTS.md); Resend's mail still lands in the
+  // `*@lumenize-test.dev` catch-all the email-test Worker reads. So the Worker declares no
+  // `send_email` binding.
+  // The from-address comes from AUTH_EMAIL_FROM in `vars` below, and a lane that overrides it must
+  // still name a sender Resend has verified, or Resend rejects the send.
   "services": [
-    { "binding": "AUTH_EMAIL_SENDER", "service": "nebula", "entrypoint": "NebulaEmailSender" }
-  ],
-  "send_email": [
-    { "name": "EMAIL", "remote": true }
+    { "binding": "AUTH_EMAIL_SENDER", "service": "nebula", "entrypoint": "AuthEmailSender" },
+    // The mesh-speaking facade for authenticated-session Registry mutations (invites). Clients and
+    // platform nodes reach it with an ordinary `lmz.call('AUTH_FACADE', undefined, …)` — a
+    // service binding with no instance name routes as a MeshWorker; the one raw Registry hop
+    // lives inside the facade (@lumenize/mesh/auth/facade, re-exported from src/worker.ts).
+    { "binding": "AUTH_FACADE", "service": "nebula", "entrypoint": "NebulaAuthFacade" },
+    // The platform host's own routes — login, Home, a link's page, acceptance, logout and the
+    // refresh — as an app of its own, which the default fetch reaches for `/` and `/auth/*` on
+    // `platform.lumenize.dev` (src/platform-host.ts, re-exported from src/worker.ts).
+    { "binding": "PLATFORM_HOST", "service": "nebula", "entrypoint": "PlatformHost" }
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "Star" },
-      { "name": "DEV_STUDIO", "class_name": "DevStudio" },
-      { "name": "DEV_CONTAINER", "class_name": "DevContainer" },
-      { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
+      { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
+      { "name": "PROFILE", "class_name": "Profile" }
     ]
   },
-  // DevContainer runs the dev-loop vite preview (5173 public) + command-server
-  // (9000, host-DO-only). standard-1 (½ vCPU) clears the `vite build` starvation
-  // bar (Phase-3 sizing). Image is baked (deps + framework skeleton) → 0 npm
-  // install on cold boot. Deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
+  // Workers KV — the ONE hot refresh-token record (`refresh:{tokenHash}`), written by the registry and
+  // read at the edge by the Worker on refresh (tasks/archive/nebula-auth-surrogate-sub.md). The
+  // per-scope NebulaAuth DO is dissolved.
+  // ✅ Provisioned 2026-08-28 (`nebula-refresh-token-kv`), replacing a literal
+  // `REPLACE_WITH_REAL_KV_NAMESPACE_ID_AT_PHASE_4` placeholder that had made this config
+  // UNDEPLOYABLE — every `wrangler deploy` died on `KV namespace ... is not valid [code: 10042]`.
+  // Nobody had noticed because prod has not been redeployed since 2026-07-04, which predates the
+  // binding; the first deploy attempt after it landed is what surfaced it. This is production's
+  // namespace: `scripts/test-deploy-config.mjs` swaps in the test target's own, since the two sign
+  // with different key pairs and a shared namespace would put the test target's sessions here.
+  "kv_namespaces": [
+    { "binding": "REFRESH_TOKEN_KV", "id": "fab894998be745fe80d4f75c1c9a92a3" }
+  ],
+  // The auth layer's rate limiter, keyed on `CF-Connecting-IP` for the routes that present no token
+  // (forged-cookie / open-route faucets). Without it the guard silently no-ops (it allows when
+  // unbound) — the Registry's constructor logs `debug.error` when it is absent. The limit is a
+  // DELIBERATELY loose placeholder (bound abuse, never legitimate traffic); picking a real number
+  // is a backlog row. No mesh call is rate limited, the facade's included.
+  "ratelimits": [
+    { "name": "AUTH_CONNECTION_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } }
+  ],
+  // Galaxy's EPHEMERAL build-box (one fresh container per build; Phase 3 of the collapse
+  // rewires the image to computerd + `vite build` — until then the image is the retired
+  // vite-dev-server one, started by nothing). Deps baked on ext4 (never the FUSE mount);
+  // deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
+  //
+  // instance_type = standard-2 (1 vCPU / 6 GiB). ⚠️ Do NOT drop back to standard-1
+  // (½ vCPU): the old "standard-1 clears the `vite build` starvation bar" sizing held
+  // only for the trivial seed App.vue.
+  //
+  // Measured ON REAL CF 2026-07-20 (experiments/container-cold-start-probe — trust these
+  // over the LOCAL-Docker figures in container-dep-restore-bench, which proved 3–5×
+  // optimistic). Building a small app with one charting lib, holding colo constant:
+  // standard-1 ≈ 21–26 s vs standard-4 ≈ 7.7–8.7 s — roughly 2.7× for sizing up. Cost
+  // partly follows: CF bills per vCPU-second while RUNNING, so a shorter build claws
+  // back much of the higher rate.
+  //
+  // ⚠️ But sizing is NOT the dominant term, and standard-2 is a hedge, not an optimum:
+  //   - COLO dominates. Containers do NOT run where the caller enters (entry was IAD on
+  //     every probe run; containers landed in MIA/EWR/CMH/YYZ). One colo (EWR) built in
+  //     ~28 s at BOTH standard-1 and standard-4 — sizing bought nothing there. Picking
+  //     DO ids/names cannot buy local placement.
+  //   - The evidence is n=3–5 per cell with colo uncontrolled; the sizing result rests on
+  //     3 colo-matched pairs. Directionally sound, not powered. standard-4 may well be
+  //     better; resolving it needs many samples per (instance_type × colo) cell.
+  // Revisit with a powered experiment before spending more here.
+  // R2 — the platform's ONE blob bucket (nebula-pre-alpha-fast-follow § blob storage: a uniform
+  // capability, never per-app infrastructure). First tenant: profile pictures, keyed
+  // `profile-pictures/{uuid}.{ext}` (`src/profile-pictures.ts`). Local `wrangler dev` serves it from
+  // miniflare's R2 — no remote, no credential; deployed, `scripts/deploy.sh` creates it if missing.
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "nebula-blobs" }],
   "containers": [
     {
       "max_instances": 10,
-      "class_name": "DevContainer",
+      "class_name": "Galaxy",
       "image": "./container/Dockerfile",
-      "instance_type": "standard-1"
+      // Atomic image rollout — the DEFAULT is staged (a deploy leaves old-image
+      // instances serving for a window), which made a freshly-deployed job change
+      // invisible to the very drive run to verify it (2026-08-29). Ephemeral
+      // build-boxes hold no in-flight work worth a graceful window pre-alpha; the
+      // computer-vfs-build experiment pinned the same pair.
+      "rollout_step_percentage": [100],
+      "rollout_active_grace_period": 0,
+      // Repo root — the Dockerfile's compiler stages COPY
+      // packages/ts-runtime-parser-validator (outside this config's directory), so a
+      // config-dir context cannot build the image. The root `.dockerignore` allowlists
+      // what the COPYs need; the Dockerfile header carries the rationale.
+      "image_build_context": "../../",
+      "instance_type": "standard-2"
     }
   ],
-  // Serve the Studio SPA from Workers Assets (declarative routing — no Worker code).
-  // `directory` is the `vite build` output of apps/nebula-studio-ui (gitignored; built
-  // by deploy.sh BEFORE `wrangler deploy` so the upload sees it). `run_worker_first` is a
-  // ROUTE LIST, not `true`: the Worker runs first ONLY for these API prefixes + /_version;
-  // every other path is served directly by the assets layer (SPA index.html for /, /app,
-  // and any unmatched path) WITHOUT invoking the Worker — so the shared entrypoint.ts is
-  // untouched and never references env.ASSETS (no binding read in code; no terminal guard).
-  //   - `*` is DEEP-matching: "glob patterns with * for deep matching" — it matches zero or
-  //     more of ANY character, crossing path segments AND dots (CF docs / 2025-06-17 advanced
-  //     -routing changelog; the `/api/*` example matches the multi-segment `/api/docs/*`). So
-  //     `/dev-container/*` matches the deep dotted preview sub-assets
-  //     (`/dev-container/acme.app.dev/assets/index-<hash>.js`) → Worker-served, not shadowed
-  //     by the SPA. `!`-negation is also supported (negative patterns take precedence); unused
-  //     here. Verified against the CF docs at build time (nebula-release-process.md, m-3).
-  //   - PROD config ONLY — NOT the baseline test-app, NOT the bench worker (their wranglers
-  //     have no assets layer by design). `binding` is declared for convention/forward-compat
-  //     but no code reads env.ASSETS, so no `npm run types` regen is required.
-  //   - ⚠️ wrangler HARD-ERRORS if `directory` is ABSENT (an EMPTY dir is fine — reads 0
-  //     files). `dist` is gitignored (built by deploy.sh before `wrangler deploy`), so the
-  //     `wrangler dev` lanes that load THIS config (the `dev` npm script + the ui-smoke
-  //     global-setup) `mkdir -p ../nebula-studio-ui/dist` first — zero-build, keeps a fresh
-  //     checkout's dev loop working. The empty assets layer is inert under `wrangler dev`:
-  //     the browser hits vite (:5174); only the run_worker_first API prefixes reach here.
+  // The Studio and auth-app builds, served by the Worker's page step (src/entrypoint.ts).
+  // `directory` is the `vite build` output of apps/nebula-studio-ui (gitignored; built by deploy.sh
+  // BEFORE `wrangler deploy` so the upload sees it).
+  //   - `run_worker_first: true`, because the HOST decides what a page is: a Star's host serves its
+  //     galaxy's built app, a galaxy's host Studio, the platform host the auth app. Workers Assets
+  //     answers by path alone, so a path list would hand every host Studio's `index.html`, and a
+  //     negation list cannot name hosts either. The Worker forwards to `env.ASSETS` for the hosts
+  //     that serve a build from this directory.
+  //   - ⚠️ wrangler HARD-ERRORS if `directory` is ABSENT (an EMPTY dir is fine — reads 0 files).
+  //     `dist` is gitignored, so the `wrangler dev` lanes that load THIS config (the `dev` npm script
+  //     + the ui-smoke global-setup) `mkdir -p ../nebula-studio-ui/dist` first. The empty assets
+  //     layer is inert under `wrangler dev`: the browser hits vite, which serves the pages.
   "assets": {
     "directory": "../nebula-studio-ui/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/auth/*", "/gateway/*", "/dev-container/*", "/_version"]
+    "run_worker_first": true
   },
-  // FIRST migrations block (apps/nebula has never deployed). DO class registry, NOT
-  // SQL migration. Every class is `new_sqlite_classes` — all use sync storage
-  // (LumenizeContainer persists identity in ctx.storage.kv; `new_classes` would make
-  // sync storage throw → hard deploy failure). Append-only across future deploys.
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "NebulaClientGateway",
-        "Universe",
-        "Galaxy",
-        "Star",
-        "DevStudio",
-        "DevContainer",
-        "NebulaAuth",
-        "NebulaAuthRegistry"
-      ]
-    }
-  ],
+  // Declarative DO class registry — `exports` (NOT SQL migration; replaced the old `migrations` array,
+  // tasks/archive/do-exports-and-toolchain-upgrade.md). Every class is `storage: "sqlite"` — all use sync storage
+  // (every mesh node persists identity in ctx.storage.kv; `storage: "legacy-kv"` would make sync
+  // storage throw → hard deploy failure, so the audit-migrations.mjs preflight reds on any non-sqlite).
+  // ⚠️ DEPLOY COUPLING — do NOT just `wrangler deploy`. Prod IS live (deployed 2026-07-04, on the host
+  // the wipe retires) and was last deployed under the `migrations` model. Switching a live worker `migrations`→`exports`
+  // via a plain incremental `wrangler deploy` may be rejected. This conversion lands ONLY via the frozen
+  // wipe runbook — a full CF-DASHBOARD worker-delete (clears all DO storage + registry history —
+  // [[wrangler-delete-leaves-do-data]]) then a FRESH deploy, at which point this `exports` map is the
+  // clean starting state. Runbook: Phase 4 of the frozen archive tasks/archive/nebula-auth-surrogate-sub.md
+  // (reached via nebula-pre-alpha.md:88) — its `migrations`-shaped steps are superseded by the exports-aware
+  // audit; follow do-exports-and-toolchain-upgrade.md Phase 4, not the frozen narration.
+  "exports": {
+    // Retired: each scope's node hosts its pages' Clients. The tombstone stays while any deployed
+    // worker still holds the class; a fresh deploy after a wipe emits no tombstones.
+    "NebulaClientGateway": { "type": "durable-object", "state": "deleted" },
+    // Renamed AuthRegistry. Deleted rather than renamed: the wipe starts the Registry empty.
+    "NebulaAuthRegistry": { "type": "durable-object", "state": "deleted" },
+    "Universe": { "type": "durable-object", "storage": "sqlite" },
+    "Galaxy": { "type": "durable-object", "storage": "sqlite" },
+    "Star": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "Profile": { "type": "durable-object", "storage": "sqlite" }
+  },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app",
+    // The deployment's origin, named once: every host parses against it and the JWT issuer
+    // (`https://platform.lumenize.dev`) derives from it (`@lumenize/mesh/auth`'s `hosts.ts`).
+    // `scripts/local-config.mjs` rewrites it for a local stack, `scripts/test-deploy-config.mjs`
+    // for the deployed test target.
+    "LUMENIZE_ORIGIN": "https://lumenize.dev",
+    // The zone whose certificate packs a galaxy orders and deletes (`src/certificate.ts`), with the
+    // `CERTIFICATE_API_TOKEN` secret scoped to its SSL and Certificates. Only an `https` origin
+    // orders, so a local stack never reads it; `scripts/test-deploy-config.mjs` swaps in the test
+    // zone's.
+    "CERTIFICATE_ZONE_ID": "a51d7f6e6e135c8edc9bb94466fc75c4",
     // Pre-alpha observability — @lumenize/debug gates ALL output (even errors) on this, so prod is
     // otherwise silent. SAFE to leave ON for pre-alpha (incl. real F&F) because no log statement may
     // emit a secret (security.md § Never log secrets — audited clean 2026-06-26: identifiers +
     // pathnames only, never tokens/JWTs/links/full-URLs). Revisit at alpha/public for log volume +
     // cost, and to scope it down. Emails/subs are identifiers (not secrets) and may be logged.
     "DEBUG": "auth,nebula-auth,nebula,mesh,routing",
-    // Magic-link / invite from-address. MUST be a CF-verified Email Sending sender or CF SILENTLY
-    // DROPS the mail. The shared nebula-auth code default (`auth@nebula.lumenize.com`) is NOT
-    // verified; `lumenize.io` IS, so send from it (no DNS work). The app ORIGIN + JWT issuer stay
-    // `nebula.lumenize.com`; only the email sender rides the verified `lumenize.io` until CF
-    // subdomain email support lands (→ tasks/backlog.md § Nebula Auth). B2, nebula-release-process.md.
+    // Magic-link / invite from-address — `lumenize.io` is the platform's own mail domain (ADR-021).
+    // It MUST stay verified on Resend, which rejects mail from an unverified sender. Same value as
+    // the auth layer's code default, so a lane that drops this var still sends.
     "AUTH_EMAIL_FROM": "noreply@lumenize.io",
-    // Comma-separated origins allowed to call this Worker from a browser.
-    // Empty = same-origin only (safe default for the single-origin lumenize.com deploy).
-    // Custom-domain deploys and real-browser test rigs override this per environment.
-    "LUMENIZE_APPROVED_ORIGINS": ""
+    // Every lane sends through Resend; the comment above `services` says why.
+    "EMAIL_PROVIDER": "resend"
   }
 }

@@ -1,231 +1,324 @@
 /**
- * DevStudio node (Phase 3.5b) — the source-of-truth + compile-and-apply mechanism.
+ * Galaxy source-of-truth + compile-and-apply (the `dev-studio` project — its name
+ * predates the collapse of DevStudio into Galaxy).
  *
- * Driven via `__executeOperation` envelopes (no Gateway/JWT) carrying an admin claim
- * at the `{u}.{g}.dev` scope, so the real receive seam runs (onBeforeCall scope guard
- * + requireAdmin). Proves:
- *  - **source-of-truth round-trip** (the "testable now" half of success criterion #3):
- *    `writeSource` commits to the shell Workspace (distinct git oids), `readSource`
- *    returns the latest, `getSourceTree` returns the tracked tree + HEAD;
- *  - **compile-and-apply** (replaces `DevStar.deployToDev`'s Galaxy pull, Decision 9):
- *    `compileAndInstallOntology` compiles the ontology `.d.ts` and installs it on the `.dev` Star;
+ * Driven via `__executeOperation` envelopes (no client/JWT), so the real receive seam
+ * runs (onBeforeCall passage guard + requireDominionHere). Proves:
+ *  - **append + lazy-pull**: `applyOntology` compiles the Workspace's ontology
+ *    `.d.ts` into the Galaxy's registry (no downward push exists), and a Star data op
+ *    naming that version — under a plain MEMBER's claims — pulls + installs it, honoring
+ *    the row's `wipeOnInstall`;
  *  - the version is **content-addressed** (the Worker Loader `bundleId` cache guard);
- *  - the command surface is **admin-gated**.
+ *  - the command surface is **admin-gated** (the guard's operands, tested pure).
  *
- * The container-push (`ensureUp`/`syncToDevContainer`) needs a live DEV_CONTAINER (`extends
- * Container` can't construct under pool-workers) — that behavior is now covered top-down by the
- * `ui-smoke` lane (`test/ui-smoke/smoke.test.ts`), not by an `it.skip` placeholder here.
- *
- * @see tasks/nebula-studio.md § DevStudio node
- * @see experiments/interim-dev-loop/RESULTS.md — the proven shell+git mechanism
+ * The source-of-truth git round-trip (writeSource distinct oids / readSource latest) is
+ * exercised as a fixture step here and end-to-end by the codegen-loop integration tests.
  */
-import { describe, it, expect } from 'vitest';
-import { env } from 'cloudflare:test';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { describe, it, expect, vi } from 'vitest';
+import { env, runInDurableObject } from 'cloudflare:test';
+import { preprocess } from '@lumenize/structured-clone';
+import { requireDominionHere } from '@lumenize/mesh';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
 const TODO_V2 = `interface Todo { title: string; done: boolean; priority: string; }`;
 const OID_RE = /^[0-9a-f]{40}$/;
 
-// A DevStudio sandbox is addressed by a parseId-valid {u}.{g}.dev star-tier id.
-const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
+// The Galaxy is addressed by a parseId-valid {u}.{g} galaxy-tier id; its workspace
+// Star is the derived {u}.{g}.dev.
+const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
 
-function envelope(
-  bindingName: string,
-  instanceName: string,
-  method: string,
+// Direct in-DO call — returns the method's result. For LOCAL methods (no cross-DO): the mesh
+// early-ack path returns {$ack}, not the result, and these methods read only this.ctx/this.env
+// (no callContext), so a direct in-DO call is faithful and gets the return value.
+const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
+  (runInDurableObject as any)(binding.getByName(instance), fn);
+
+// Fire a method through the REAL early-ack receive path (claims injected in the envelope, the
+// isolated-DO norm) so its cross-DO `lmz.call` effects PROPAGATE callContext. Returns the {$ack};
+// the result travels via fire-back, so observe the durable cross-DO EFFECT with `inDO` + vi.waitFor.
+// This is the @lumenize/mesh feasibility-test pattern (drive → {$ack} → poll the effect).
+// ⚠️ Every such poll passes an explicit `{ timeout: 15000 }`. vitest's 1s default loses to
+// full-suite parallel load (85 files sharing the box), and the symptom is a MOVING failure — a
+// different one of these times out each run, which reads as an unrelated flake. Raising the
+// ceiling weakens nothing: an effect that never lands still reds, just later.
+// ⚠️ `authScope` is REQUIRED in the default claims, not decoration: `requireDominionHere` confines
+// the admin bit to the callee node (`hasDominionOver`), so a pattern-less admin claim is denied —
+// and because `fire`'s envelopes carry no `response` and its callers do not read the ack, that
+// denial is SILENT (it surfaces as a missing downstream effect, e.g. `expected +0 to be 1`, not as
+// an error). The value mirrors the real caller
+// that reaches a Galaxy: a universe admin, whose pattern is `{universe}.*`.
+// `method` is a name, or a PATH through a gate — `['resources', 'read']` reaches the plane's `read`
+// through the host's `resources` door, one `get` per segment, as a client's chain does.
+// `callChain` names the call's origin — a client's, for an op the door derives a client id from.
+const fire = (
+  binding: any, bindingName: string, instance: string, method: string | string[],
   args: unknown[] = [],
-  claims: Record<string, unknown> = { aud: instanceName, access: { admin: true } },
-) {
-  const chain = [
-    { type: 'get', key: method },
-    { type: 'apply', args },
-  ];
-  return {
+  claims: any = {
+    aud: instance,
+    profileId: 'p-admin',
+    access: { scopeAdmin: true, authScope: `${instance.split('.')[0]}` },
+  },
+  callChain: unknown[] = [],
+) =>
+  binding.getByName(instance).__executeOperation({
     version: 1,
-    chain: preprocess(chain),
-    callContext: { callChain: [], state: {}, originAuth: { sub: 'admin', claims } } as any,
-    metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName } },
-  };
-}
-
-const unwrap = (r: any) => {
-  if (r?.$error) throw postprocess(r.$error);
-  return r?.$result;
-};
-
-async function callStudio(instance: string, method: string, args: unknown[] = []) {
-  const stub = (env as any).DEV_STUDIO.getByName(instance);
-  return unwrap(await stub.__executeOperation(envelope('DEV_STUDIO', instance, method, args)));
-}
-async function callDevStar(instance: string, method: string, args: unknown[] = []) {
-  // The dev Star is the STAR binding at a {u}.{g}.dev instance (post-collapse, Decision 2).
-  const stub = (env as any).STAR.getByName(instance);
-  return unwrap(await stub.__executeOperation(envelope('STAR', instance, method, args)));
-}
-// The Galaxy ({u}.{g}) is this sandbox's turn-recorder store. recordTurn/getTurns carry the
-// DEV-star aud ({u}.{g}.dev) — the real DevStudio→Galaxy path — which the Galaxy's `{u}.{g}.*`
-// scope pattern covers.
-async function callGalaxy(instance: string, method: string, args: unknown[] = [], claims?: Record<string, unknown>) {
-  const stub = (env as any).GALAXY.getByName(instance);
-  return unwrap(await stub.__executeOperation(envelope('GALAXY', instance, method, args, claims)));
-}
-
-describe('DevStudio source-of-truth (shell Workspace + isomorphic-git)', () => {
-  it('writeSource commits distinct oids; readSource returns the latest; getSourceTree tracks the tree + HEAD', async () => {
-    const dev = uniqueDevScope();
-    const e1 = await callStudio(dev, 'writeSource', ['src/App.vue', '<template>a</template>']);
-    expect(e1.oid).toMatch(OID_RE);
-    expect(e1.path).toBe('src/App.vue');
-
-    // A second edit is a DISTINCT commit (real git history in the DO's SQL).
-    const e2 = await callStudio(dev, 'writeSource', ['src/App.vue', '<template>b</template>']);
-    expect(e2.oid).toMatch(OID_RE);
-    expect(e2.oid).not.toBe(e1.oid);
-
-    // readSource returns the LATEST content.
-    expect(await callStudio(dev, 'readSource', ['src/App.vue'])).toBe('<template>b</template>');
-
-    // getSourceTree = tracked files + HEAD (what a cold DevContainer is re-pushed).
-    await callStudio(dev, 'writeSource', ['ontology.d.ts', TODO_V1]);
-    const tree = await callStudio(dev, 'getSourceTree');
-    expect(tree.head).toBe((await callStudio(dev, 'getSourceTree')).head); // stable HEAD
-    expect(tree.head).toMatch(OID_RE);
-    const appFile = tree.files.find((f: any) => f.path === 'src/App.vue');
-    expect(appFile?.content).toBe('<template>b</template>');
-    expect(tree.files.some((f: any) => f.path === 'ontology.d.ts')).toBe(true);
-  });
-});
-
-describe('DevStudio compile-and-apply to the .dev Star (replaces deployToDev)', () => {
-  it('compileAndInstallOntology compiles the ontology .d.ts and installs the version on the .dev Star', async () => {
-    const dev = uniqueDevScope();
-    await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V1]);
-
-    const { version } = await callStudio(dev, 'compileAndInstallOntology', [{}]);
-    expect(version).toMatch(OID_RE);
-
-    // Installed on the .dev Star (cross-DO mesh callRaw → setOntology → #installState).
-    // Capable-of-failing: if compileAndInstallOntology didn't reach the Star, the index is empty.
-    const index = await callDevStar(dev, 'inspectOntologyIndex');
-    expect(index).toContain(version);
+    chain: preprocess([...[method].flat().map((key) => ({ type: 'get', key })), { type: 'apply', args }]),
+    callContext: { callChain, originAuth: { sub: 'admin', claims } } as any,
+    metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName: instance } },
   });
 
-  it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version (Worker Loader cache guard)', async () => {
-    const dev = uniqueDevScope();
-    await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V1]);
-    const r1 = await callStudio(dev, 'compileAndInstallOntology', [{}]);
-
-    // Edit the ontology → a DIFFERENT compiled version (git.hashBlob of the source).
-    // A constant label (e.g. 'dev') would silently reuse the cached validator bundle.
-    await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V2]);
-    const r2 = await callStudio(dev, 'compileAndInstallOntology', [{}]);
-    expect(r2.version).not.toBe(r1.version);
-
-    const index = await callDevStar(dev, 'inspectOntologyIndex');
-    expect(index).toContain(r2.version);
+describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)', () => {
+  // The dev apply is APPEND-ONLY on the Galaxy's registry; a Star acquires a version by
+  // pulling it on a data op whose expected version it doesn't hold — under the asking
+  // member's OWN claims (upward passage), which is the auth story the eager downward
+  // push never had.
+  it('applyOntology appends a content-addressed version to the REGISTRY — no Star involvement', async () => {
+    const galaxy = uniqueGalaxyScope();
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    await vi.waitFor(async () => {
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(1);
+      expect(versions[0]).toMatch(OID_RE);
+    }, { timeout: 15000 });
+    // Capable-of-failing on the DELETED push: the .dev Star holds nothing until it pulls.
+    expect(await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
   });
 
-  it('compileAndInstallOntology({ wipe: true }) wipes the .dev Star BEFORE installing (Flow 1b wipe path)', async () => {
-    const dev = uniqueDevScope();
-    // Install an initial ontology (no wipe) so the .dev Star already carries state.
-    await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V1]);
-    const { version: vA } = await callStudio(dev, 'compileAndInstallOntology', [{}]);
-    expect(await callDevStar(dev, 'inspectOntologyIndex')).toContain(vA);
-
-    // Change the ontology + apply WITH wipe. resetDevData (deleteAll) must run BEFORE
-    // setOntology, so the prior version is gone and only the new one remains.
-    await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V2]);
-    const { version: vB } = await callStudio(dev, 'compileAndInstallOntology', [{ wipe: true }]);
-    expect(vB).not.toBe(vA);
-
-    const index = await callDevStar(dev, 'inspectOntologyIndex');
-    // Capable-of-failing on the WIPE: if resetDevData were a no-op (or ran AFTER
-    // setOntology), setOntology would APPEND → index = [vA, vB]. The wipe-before-
-    // install guarantee means the old version is gone (the new validator lands on a
-    // clean Star). The source (ontology .d.ts) survives — it lives in DevStudio, not
-    // the wiped Star.
-    expect(index).toContain(vB);
-    expect(index).not.toContain(vA);
-  });
-});
-
-describe('DevStudio command surface is admin-gated', () => {
-  it('a non-admin (valid scope, no admin claim) is rejected — writes nothing', async () => {
-    const dev = uniqueDevScope();
-    const stub = (env as any).DEV_STUDIO.getByName(dev);
-    const r = await stub.__executeOperation(
-      envelope('DEV_STUDIO', dev, 'writeSource', ['src/App.vue', 'x'], { aud: dev }),
-    );
-    expect(postprocess(r.$error).message).toContain('Admin access required');
-    // Capable-of-failing: nothing was committed — getSourceTree (as admin) is empty.
-    const tree = await callStudio(dev, 'getSourceTree');
-    expect(tree.files.length).toBe(0);
-    expect(tree.head).toBeNull();
-  });
-});
-
-describe('DevStudio turn recorder → Galaxy SQLite (persistence layer)', () => {
-  // The half that needs `wrangler dev` is chat() firing recordTurn (needs the AI binding + container);
-  // here we exercise the pool-workers-testable persistence: Galaxy.recordTurn / getTurns.
-  const uniqueGalaxy = () => `${crypto.randomUUID()}.app`; // {u}.{g}
-  const adminAtDev = (galaxy: string) => ({ aud: `${galaxy}.dev`, access: { admin: true } });
-  const turn = (o: Record<string, unknown> = {}) => ({
-    id: crypto.randomUUID(), createdAt: Date.now(), instance: '', model: 'kimi',
-    systemPrompt: 'sys', userMessage: 'make a todo app', currentSource: '',
-    output: '```vue\n<template/>\n```', reasoning: '', toolCalls: [], applied: true,
-    appliedPath: 'src/App.vue', ...o,
+  // getCurrentOntology is FILE-FIRST (the ontology IS the workspace file — the version is
+  // derived by reading + hashing it, never a stored pointer), with the last APPLIED row as
+  // the fallback while the file is a mid-draft whose hash has no row yet. Both arms:
+  // mutation for arm 1 = answer from the applied index without reading the file → the
+  // applied-and-current case still passes but proves nothing; the DRAFT case below is what
+  // pins file-reading + fallback apart (skip the file read → null; skip the fallback → null).
+  it('getCurrentOntology: the applied file version answers; a mid-draft file falls back to the last APPLIED row', async () => {
+    const galaxy = uniqueGalaxyScope();
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
+    }, { timeout: 15000 });
+    const applied = ((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[])[0];
+    // Arm 1 — file == applied head: the row comes back keyed by the FILE's hash.
+    const current = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
+    expect(current?.version).toBe(applied);
+    // Arm 2 — edit the file WITHOUT applying: its hash has no row, so the last applied
+    // row still answers (tenants run applied versions; the draft is Studio's alone).
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
+    const drafted = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
+    expect(drafted?.version).toBe(applied);
+    // Arm 3 — the DISCRIMINATOR (arms 1–2 pass under an index-head-only impl too): apply
+    // v2, then revert the FILE to v1's content without applying. File-first answers v1's
+    // row — the file IS the ontology — where an index-head read would answer v2.
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
+    }, { timeout: 15000 });
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    const reverted = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
+    expect(reverted?.version).toBe(applied);
+    // The version sanitize is LOAD-BEARING, not hygiene: a version is a filename under
+    // `.nebula/ontology/`, `getOntologyVersion` is @mesh (remote input), and the job's
+    // pending row sits one directory up at ROW_PATH — so without the oid check,
+    // '../ontology-row' resolves to it and serves the UNAPPLIED draft as if applied
+    // (a Star would install it). Mutation: drop VERSION_RE → this returns the row → red.
+    expect(await inDO(env.GALAXY, galaxy, (s) => s.getOntologyVersion('../ontology-row'))).toBeNull();
   });
 
-  it('recordTurn persists a turn; getTurns returns the full record (round-trip)', async () => {
-    const galaxy = uniqueGalaxy();
-    const claims = adminAtDev(galaxy);
-    const rec = turn({ instance: `${galaxy}.dev`, userMessage: 'build a kanban', reasoning: 'planning columns' });
-    await callGalaxy(galaxy, 'recordTurn', [rec], claims);
+  it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version; unchanged is a no-op', async () => {
+    const galaxy = uniqueGalaxyScope();
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
+    }, { timeout: 15000 });
+    // Unchanged source re-applied → already appended → still 1.
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
+    // Edit → a DIFFERENT content hash → a second version appended.
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    await vi.waitFor(async () => {
+      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
+    }, { timeout: 15000 });
+  });
 
-    const turns = await callGalaxy(galaxy, 'getTurns', [{}], claims);
-    expect(turns.length).toBe(1);
-    // The stored JSON payload IS the eval fixture — every field round-trips.
-    expect(turns[0]).toMatchObject({
-      id: rec.id, instance: `${galaxy}.dev`, userMessage: 'build a kanban',
-      reasoning: 'planning columns', applied: true, appliedPath: 'src/App.vue', toolCalls: [],
+  it('LAZY-PULL: a data op with the appended version, under NON-ADMIN claims, installs it on the Star', async () => {
+    const galaxy = uniqueGalaxyScope();
+    const star = `${galaxy}.dev`;
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    let version = '';
+    await vi.waitFor(async () => {
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(1);
+      version = versions[0];
+    }, { timeout: 15000 });
+    // A data op naming the new version, from a plain MEMBER at the star — no `scopeAdmin`
+    // anywhere in the claims. The pull is an upward call under these same claims, so it
+    // works for every member (the auth story the deleted eager push never had). The op
+    // itself answers `installing`-stale (a cross-node pull cannot be awaited, ADR-003);
+    // the traveling handler installs, which is the durable effect asserted here.
+    await fire(env.STAR, 'STAR', star, ['resources', 'read'], [version, crypto.randomUUID()],
+      { aud: star, access: { authScope: star } });
+    await vi.waitFor(async () => {
+      const index = (await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[];
+      expect(index).toContain(version);
+    }, { timeout: 15000 });
+  });
+
+  it('wipeOnInstall: a version appended with { wipe: true } wipes the OLDER install first; a plain append does not', async () => {
+    const galaxy = uniqueGalaxyScope();
+    const star = `${galaxy}.dev`;
+    const member = { aud: star, access: { authScope: star } };
+    // V1 → pull-install on the star.
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
+    let v1 = '';
+    await vi.waitFor(async () => {
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(1);
+      v1 = versions[0];
+    }, { timeout: 15000 });
+    await fire(env.STAR, 'STAR', star, ['resources', 'read'], [v1, crypto.randomUUID()], member);
+    await vi.waitFor(async () => {
+      expect((await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[]).toContain(v1);
+    }, { timeout: 15000 });
+    // A v1 write warms v1's validator, so a facet that outlived the install would judge the v2
+    // writes below.
+    const client = [{ type: 'LumenizeClient', bindingName: 'STAR', instanceName: `${star}/admin.tab` }];
+    const admin = { aud: star, profileId: 'p-admin', access: { scopeAdmin: true, authScope: galaxy.split('.')[0] } };
+    const rows = (rid: string) => inDO(env.STAR, star, (s) =>
+      s.ctx.storage.sql.exec('SELECT COUNT(*) AS n FROM Snapshots WHERE resourceId = ?', rid).toArray()[0].n) as Promise<number>;
+    const todo = (value: object) => ({ op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value });
+    const warm = crypto.randomUUID();
+    await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
+      [v1, crypto.randomUUID(), { [warm]: todo({ title: 'v1', done: false }) }], admin, client);
+    await vi.waitFor(async () => expect(await rows(warm)).toBe(1), { timeout: 15000 });
+    // V2 appended WITH the wipe decision → the pull wipes before installing, so ONLY v2
+    // remains. Capable-of-failing on the WIPE: a no-wipe install yields [v1, v2].
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
+    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{ wipe: true }]);
+    let v2 = '';
+    await vi.waitFor(async () => {
+      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
+      expect(versions.length).toBe(2);
+      v2 = versions[1];
+    }, { timeout: 15000 });
+    await fire(env.STAR, 'STAR', star, ['resources', 'read'], [v2, crypto.randomUUID()], member);
+    await vi.waitFor(async () => {
+      const index = (await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[];
+      expect(index).toContain(v2);
+      expect(index).not.toContain(v1); // the wipe cleared the older install
+    }, { timeout: 15000 });
+
+    // What the replacement plane SERVES, not only what its index says: v2's validator judges a
+    // v2 write — the create lacking v2's required `priority` is refused and the one carrying it
+    // lands — and an op pinned to v1 is answered stale.
+    const lacking = crypto.randomUUID();
+    const carrying = crypto.randomUUID();
+    await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
+      [v2, crypto.randomUUID(), { [lacking]: todo({ title: 'a', done: false }) }], admin, client);
+    await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
+      [v2, crypto.randomUUID(), { [carrying]: todo({ title: 'b', done: false, priority: 'high' }) }], admin, client);
+    await vi.waitFor(async () => expect(await rows(carrying)).toBe(1), { timeout: 15000 });
+    expect(await rows(lacking)).toBe(0);
+    const pinnedToV1 = await inDO(env.STAR, star, (s) => {
+      try { s.resources.read(v1, crypto.randomUUID()); return null; } catch (e) { return (e as Error).name; }
     });
-  });
-
-  it('getTurns orders by createdAt and honors since + limit', async () => {
-    const galaxy = uniqueGalaxy();
-    const claims = adminAtDev(galaxy);
-    const base = Date.now();
-    for (let i = 0; i < 3; i++) {
-      await callGalaxy(galaxy, 'recordTurn',
-        [turn({ id: `t${i}`, createdAt: base + i, instance: `${galaxy}.dev` })], claims);
-    }
-    const all = await callGalaxy(galaxy, 'getTurns', [{}], claims);
-    expect(all.map((t: any) => t.id)).toEqual(['t0', 't1', 't2']); // oldest → newest
-    const since = await callGalaxy(galaxy, 'getTurns', [{ since: base + 1 }], claims);
-    expect(since.map((t: any) => t.id)).toEqual(['t1', 't2']);
-    const limited = await callGalaxy(galaxy, 'getTurns', [{ limit: 1 }], claims);
-    expect(limited.map((t: any) => t.id)).toEqual(['t0']);
-  });
-
-  it('recordTurn is admin-gated — a non-admin (valid dev scope) is rejected; nothing persists', async () => {
-    const galaxy = uniqueGalaxy();
-    const stub = (env as any).GALAXY.getByName(galaxy);
-    const r = await stub.__executeOperation(
-      envelope('GALAXY', galaxy, 'recordTurn', [turn({ instance: `${galaxy}.dev` })], { aud: `${galaxy}.dev` }),
-    );
-    expect(postprocess(r.$error).message).toContain('Admin access required');
-    // Capable-of-failing: the corpus is empty — the rejected write never landed.
-    const turns = await callGalaxy(galaxy, 'getTurns', [{}], adminAtDev(galaxy));
-    expect(turns.length).toBe(0);
+    expect(pinnedToV1).toBe('OntologyStaleError');
   });
 });
 
-// The assembled-container + live-`chat()` behaviors (ensureUp/syncToDevContainer push,
-// applyOntologyChange ordering, a chat turn self-correcting + recording a TurnRecord, the
-// non-blank SFC mount) are now covered top-down by the `ui-smoke` lane
-// (`test/ui-smoke/smoke.test.ts`) — and the container-free halves (loop driver, gates,
-// recorder round-trip, self-correction, reload channel) are covered deterministically in
-// codegen-loop.test.ts / codegen-gate.test.ts / baseline/reload-version-contract.test.ts.
-// So no `it.skip` placeholders remain here.
+describe('Galaxy command surface is admin-gated (requireDominionHere)', () => {
+  // The @mesh(requireDominionHere) guard, tested PURE (the guard function directly). WIRING — which
+  // methods carry requireDominionHere (writeSource/compileAndInstallOntology/chat/…) — is the static
+  // frozen-surface test in devstudio-resource-surface.test.ts ("codegen/source methods stay
+  // requireDominionHere"); the framework invoking a wired guard is covered in @lumenize/mesh.
+  // The guard has THREE independent operands; each gets its own probe so a mutation to one reds a
+  // distinct test (testing.md § compound conditions). Node under test: the galaxy `u.y`.
+  const NODE = 'u.y';
+  // ⚠️ Two builders, NOT one with a defaulted param: passing `undefined` explicitly to a parameter
+  // that has a default triggers the default, so `guard(claims, undefined)` would silently test the
+  // named node instead of the absent-name path — a test that cannot fail.
+  const guard = (claims: unknown) =>
+    () => requireDominionHere({ lmz: { callContext: { originAuth: { claims } }, instanceName: NODE } } as any);
+  const guardNoName = (claims: unknown) =>
+    () => requireDominionHere({ lmz: { callContext: { originAuth: { claims } } } } as any);
+
+  it('operand 1 — rejects a non-admin claim', () => {
+    expect(guard({ aud: NODE })).toThrow('Admin access required');
+  });
+
+  it('operand 2 — rejects an admin whose host does NOT cover this node, naming the host and membership', () => {
+    // A galaxy-scoped admin reaching a SIBLING node: admin bit set, the host's scope misses.
+    // This is the escalation the confinement closes; pre-fix it returned silently.
+    const foreign = { aud: 'u.other', access: { scopeAdmin: true, authScope: 'u.other' } };
+    expect(guard(foreign)).toThrow(`Admin access required for ${NODE}`);
+    expect(guard(foreign)).toThrow("the calling host's scope is u.other"); // distinct from operand 1
+  });
+
+  it("operand 2, the host rule — a membership covering this node is not dominion from a host that misses it", () => {
+    // A universe admin whose token was minted on a sibling's host: the membership covers NODE, the
+    // host does not, and the message names both, so the refusal does not read as a missing role.
+    const fromSibling = { aud: 'u.other', access: { scopeAdmin: true, authScope: 'u' } };
+    expect(guard(fromSibling)).toThrow(
+      `Admin access required for ${NODE} — the calling host's scope is u.other, and the token rests on the membership at u`);
+    expect(guard({ aud: NODE, access: { scopeAdmin: true, authScope: 'u' } })).not.toThrow();
+  });
+
+  it('operand 3 — fails CLOSED when the callee instance name is absent', () => {
+    // Permanently undefined on a MeshWorker; must never coerce (`?? ''` would deny every
+    // scoped admin, `!` would open the hole).
+    const admin = { access: { scopeAdmin: true, authScope: 'u' } };
+    expect(guardNoName(admin)).toThrow('missing callee instance name');
+  });
+
+  it('admits an admin whose pattern covers this node (exact and wildcard)', () => {
+    expect(guard({ aud: 'u', access: { scopeAdmin: true, authScope: 'u' } })).not.toThrow();
+    expect(guard({ aud: 'u.y', access: { scopeAdmin: true, authScope: 'u.y' } })).not.toThrow();
+    // A superuser on the universe's host — the membership is the platform root, the host is `u`.
+    expect(guard({ aud: 'u', access: { scopeAdmin: true, authScope: '_platform' } })).not.toThrow();
+  });
+
+  it('a pattern-less admin claim is DENIED, not a TypeError (the predicate guard)', () => {
+    // a hand-rolled compare on an absent claim would throw; `hasDominionOver` returns false so
+    // the caller gets the clean scope-naming denial. Mutation: drop the truthiness guard in
+    // `hasDominionOver` → this reds with a TypeError instead.
+    expect(guard({ access: { scopeAdmin: true } })).toThrow('Admin access required for');
+  });
+});
+
+// (The `Turns` recorder describe that lived here is DELETED with the apparatus — an agent
+// `Message` IS a codegen turn; the corpus folds into its `codegen` value object, per
+// tasks/archive/nebula-galaxy-collapse-and-chat.md.)
+
+describe('Galaxy turn runner — single-flight latch + generation deadline', () => {
+  // The criterion the deadline exists for: a NEVER-RESOLVING model call must not wedge the
+  // core loop with every suite green — the latch would refuse every later message forever.
+  // Driven through the REAL early-ack envelope path; the probe captures commits + timings
+  // in storage, polled here.
+  it('a hung generation is deadline-released, the latch refuses DURING it, and a post-deadline fresh trigger generates', async () => {
+    const scope = uniqueGalaxyScope();
+    await fire(env.GALAXY_DEADLINE, 'GALAXY_DEADLINE', scope, 'chatDeadlineScenario');
+    const outcome = await vi.waitFor(async () => {
+      const o = await inDO(env.GALAXY_DEADLINE, scope,
+        (inst: any) => inst.ctx.storage.kv.get('probe:scenario'));
+      expect(o).toBeTruthy();
+      return o as { busyMs: number; hungMs: number; committed: { messageId: string; content: string; replyTo: string }[] };
+    }, { timeout: 15000 });
+
+    // (2) The single-flight refusal returned AT ONCE (no model round, no deadline wait).
+    expect(outcome.busyMs).toBeLessThan(300);
+    // (3) The hung turn released at the deadline (~800ms), not at the model (never).
+    expect(outcome.hungMs).toBeGreaterThanOrEqual(700);
+    expect(outcome.hungMs).toBeLessThan(5000);
+    // (4) THE CRITERION: exactly ONE durable commit — the fresh post-deadline turn's.
+    // The hung turn (never completed) and the busy turn (refused) committed nothing.
+    expect(outcome.committed).toHaveLength(1);
+    expect(outcome.committed[0]).toMatchObject({ content: 'fresh turn ran', replyTo: 'm-fresh' });
+  });
+});

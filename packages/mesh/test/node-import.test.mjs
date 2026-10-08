@@ -1,7 +1,7 @@
 /**
  * Node.js runtime smoke test for `@lumenize/mesh/client`.
  *
- * Runs under Node's built-in `node:test` runner (NOT vitest-pool-workers).
+ * Runs under Node's built-in `node:test` runner (NOT vitest-plugin).
  * This is specifically the test that would have caught the original
  * `cloudflare:workers` import failure — the whole mesh test suite runs
  * inside the Workers runtime, so it can never surface Node-side import
@@ -17,12 +17,21 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-test('LumenizeClient imports cleanly from @lumenize/mesh/client', async () => {
+test('MeshClient imports cleanly from @lumenize/mesh/client', async () => {
   const mod = await import('@lumenize/mesh/client');
-  assert.ok(mod.LumenizeClient, 'LumenizeClient exported');
-  assert.equal(typeof mod.LumenizeClient, 'function', 'LumenizeClient is a class');
+  assert.ok(mod.MeshClient, 'MeshClient exported');
+  assert.equal(typeof mod.MeshClient, 'function', 'MeshClient is a class');
+  assert.equal(mod.LumenizeClient, undefined, 'LumenizeClient is gone: the class is MeshClient');
+  // The session MeshClient holds loads in Node too: what it reads of a token and a host, the wait
+  // its subscribes share, and what impersonation throws.
+  for (const name of ['parseHost', 'hostOrigin', 'hasPassageInto', 'hasDominionOver', 'awaitFirstPush']) {
+    assert.equal(typeof mod[name], 'function', `${name} exported`);
+  }
+  for (const name of ['ImpersonationChainError', 'ImpersonationAlreadyOpenError', 'ImpersonationMintError']) {
+    assert.equal(new mod[name]('test').name, name, `${name} exported, an Error named for itself`);
+  }
   assert.equal(typeof mod.mesh, 'function', 'mesh() decorator exported');
-  assert.equal(typeof mod.meshFn, 'function', 'meshFn() helper exported');
+  assert.equal(mod.meshFn, undefined, 'meshFn() is GONE from the client barrel — a marked function reached through gets is what the entry rule refuses');
   assert.ok(mod.GatewayMessageType, 'GatewayMessageType exported');
   assert.equal(mod.GatewayMessageType.CALL, 'call', 'GatewayMessageType.CALL value correct');
   assert.ok(mod.ClientDisconnectedError, 'ClientDisconnectedError exported');
@@ -38,7 +47,7 @@ test('LumenizeClient imports cleanly from @lumenize/mesh/client', async () => {
 });
 
 test('main @lumenize/mesh barrel correctly fails to load in Node (by design)', async () => {
-  // The main barrel re-exports LumenizeDO / LumenizeWorker / LumenizeClientGateway,
+  // The main barrel re-exports ScopedMeshDO / MeshWorker / ClientGateway,
   // which transitively `import { DurableObject } from "cloudflare:workers"`.
   // Node can't resolve that, so the barrel must throw at module load.
   //

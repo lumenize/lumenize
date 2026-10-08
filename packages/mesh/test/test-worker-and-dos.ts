@@ -1,45 +1,47 @@
-import { LumenizeDO } from '../src/lumenize-do';
-import { LumenizeWorker } from '../src/lumenize-worker';
+import { UnscopedMeshDO } from '../src/unscoped-mesh-do';
+import { ScopedMeshDO, requireDominionHere } from '../src/scoped-mesh-do';
+import { MeshWorker } from '../src/mesh-worker';
 import { mesh } from '../src/mesh-decorator';
+import { rawRpc } from '../src/raw-rpc-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '../src/alarms';
-import { getOperationChain } from '../src/ocan/index.js';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
+import { continuationFromChain } from './continuation-from-chain.js';
+import { preprocess, postprocess, stringify } from '@lumenize/structured-clone';
+import { debug } from '@lumenize/debug';
 
-// Export LumenizeClientGateway for testing
-export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
-
-import { LumenizeClientGateway } from '../src/lumenize-client-gateway';
-import type { GatewayConnectionInfo } from '../src/lumenize-client-gateway';
+import type { GatewayConnectionInfo } from '../src/gateway-messages';
 import type { CallContext } from '../src/types';
+import { authFacadeFor, meshTestFetch } from './support/test-auth';
+
+// Mesh's own auth, which every Client here logs in through (test/support/login.ts).
+export { AuthRegistry, Profile } from './support/test-auth';
+
+/** The binding each tier of scope lives under: every scope's node here is a `ClientHostDO`. */
+const TIERS = { universe: 'CLIENT_HOST_DO', galaxy: 'CLIENT_HOST_DO', star: 'CLIENT_HOST_DO' } as const;
+
+/** The facade, bound as `AUTH_FACADE`, whose deletions tear down `ClientHostDO`s. */
+export const AuthFacade = authFacadeFor(TIERS);
 
 /**
- * Custom Gateway subclass for testing hook overrides.
+ * A host node overriding the hooks `ClientGateway` calls on its host, for the hook tests in
+ * `client-gateway.test.ts`.
  *
  * - onBeforeAccept: rejects if role is 'blocked'; no additional claims (JWT auto-included)
- * - onBeforeCallToMesh: injects claims into callContext.state under `_auth`
- * - onBeforeCallToClient: rejects calls from binding 'BLOCKED_BINDING'
+ * - onBeforeCallToMesh: stamps the connection's identity onto the context as a top-level `_auth`
+ * - onBeforeCallToClient: rejects calls from binding 'BLOCKED_BINDING', and calls from
+ *   'ADMINS_ONLY_BINDING' to a connection whose claims lack `admin: true`
  */
-export class CustomGateway extends LumenizeClientGateway {
+export class CustomHostDO extends ScopedMeshDO<Env> {
   override onBeforeAccept(
     instanceName: string,
     sub: string,
     jwtPayload: Record<string, unknown>
   ): Response | Record<string, unknown> | undefined {
-    // Validate format: must contain '.'
-    const dotIndex = instanceName.indexOf('.');
-    if (dotIndex === -1) {
-      return new Response('Custom: invalid format', { status: 403 });
-    }
-    if (instanceName.substring(0, dotIndex) !== sub) {
-      return new Response('Custom: identity mismatch', { status: 403 });
-    }
-
     // Reject if role is 'blocked'
     if (jwtPayload.role === 'blocked') {
       return new Response('Custom: blocked role', { status: 403 });
     }
-
     // Accept with JWT claims only (role, org already included from JWT)
     return undefined;
   }
@@ -48,37 +50,61 @@ export class CustomGateway extends LumenizeClientGateway {
     baseContext: CallContext,
     connectionInfo: GatewayConnectionInfo
   ): CallContext {
-    // Inject claims into state under `_auth` key
-    return {
+    // A top-level field rides every onward hop: buildOutgoingCallContext spreads the inbound context.
+    const enriched = {
       ...baseContext,
-      state: {
-        ...baseContext.state,
-        _auth: {
-          sub: connectionInfo.sub,
-          claims: connectionInfo.claims,
-        },
+      _auth: {
+        sub: connectionInfo.sub,
+        claims: connectionInfo.claims,
       },
     };
+    return enriched;
   }
 
-  override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+  override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined {
     // Reject calls from a blocked binding
     if (envelope.metadata?.caller?.bindingName === 'BLOCKED_BINDING') {
       throw new Error('Custom: calls from BLOCKED_BINDING are not allowed');
     }
+    // A rule that reads the connection's claims, so a test can tell which socket's were checked.
+    if (envelope.metadata?.caller?.bindingName === 'ADMINS_ONLY_BINDING' && connectionInfo.claims.admin !== true) {
+      throw new Error('Custom: calls from ADMINS_ONLY_BINDING reach admins only');
+    }
+    return undefined;
   }
 }
 
 // Export documentation example DOs
-export { UsersDO, NotificationsDO } from './for-docs/lumenize-do/basic-usage.test';
+export { UsersDO, NotificationsDO } from './for-docs/lumenize-do/example-dos';
 
 // Export alarms documentation example DOs
-export { TaskSchedulerDO } from './for-docs/alarms/basic-usage.test';
+export { TaskSchedulerDO } from './for-docs/alarms/task-scheduler-do';
 
 // Export test DO for NadisPlugin tests
 export { NadisPluginTestDO } from './nadis-plugin-test-do';
 
-export class TestDO extends LumenizeDO<Env> {
+/** One outcome a broadcast's `onResult` handler received — see broadcast.test.ts. */
+export interface BroadcastOutcome {
+  name: string;
+  message: string;
+  /** The `callContext.callee` the framework stamped for the handler. */
+  callee?: string;
+}
+
+// The test nodes below are `UnscopedMeshDO`s, so a test names each by an id the scope grammar
+// refuses: `caller_3`, never `caller-3`, which parses as the Universe `caller-3` and is refused.
+export class TestDO extends UnscopedMeshDO<Env> {
+  // The `@rawRpc()` entry's subjects (raw-rpc.test.ts): one decorated method that reports the
+  // identity the entry stamped, one undecorated method, and the getter every node has.
+  @rawRpc()
+  rawRpcEcho(value: string): { value: string; bindingName?: string; instanceName?: string } {
+    return { value, bindingName: this.lmz.bindingName, instanceName: this.lmz.instanceName };
+  }
+
+  notRawRpc(): string {
+    return 'reached';
+  }
+
   /** @internal - for tests only */
   executedAlarms: Array<{ payload: any; schedule: Schedule | null }> = [];
 
@@ -186,35 +212,16 @@ export class TestDO extends LumenizeDO<Env> {
     this.lmz.__init(options ?? {});
   }
 
-  // Test helpers for this.lmz.callRaw()
-  async testCallRawWithContinuation(
-    calleeBindingName: string,
-    calleeInstanceName: string | undefined,
-    value: string
-  ) {
-    return await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().remoteEcho(value)
-    );
-  }
-
-  async testCallRawWithOperationChain(
-    calleeBindingName: string,
-    calleeInstanceName: string | undefined,
-    chain: any
-  ) {
-    return await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      chain
-    );
-  }
-
   // Remote method that can be called via RPC
   @mesh()
   remoteEcho(value: string): string {
     return `echo: ${value}`;
+  }
+
+  // Returns what the wire refuses, for the fire-back encode-failure tests
+  @mesh()
+  returnUnencodable(kind: 'weakmap' | 'response'): unknown {
+    return kind === 'weakmap' ? new WeakMap() : new Response('stays home');
   }
 
   // Remote method that returns caller identity
@@ -323,6 +330,373 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // ============================================
+  // Continuation-only feasibility: long callee, early-ack + fire-back,
+  // interleaved-call isolation. Proves DurableObjectState.waitUntil keeps a DO alive
+  // for a long post-ack fire-back and ALS isolation across early-ack.
+  // ============================================
+
+  // Long-running callee: early-acks, THEN does REAL multi-second post-ack work under
+  // ctx.waitUntil before returning. Writes an observable completion marker AFTER the delay,
+  // so a test can prove the ack returned BEFORE the chain finished (early-ack), and that the
+  // DO stayed alive for the whole post-ack tail. If the DO isn't kept alive, neither lands.
+  @mesh()
+  async slowEcho(value: string, delayMs: number): Promise<string> {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    this.ctx.storage.kv.put('slow_done', value);
+    return `echo: ${value}`;
+  }
+
+  async getSlowDone() {
+    return this.ctx.storage.kv.get('slow_done');
+  }
+
+  // Initiator: 4-arg call to a (possibly slow) callee; the handler stores the result in KV
+  // AND records the depth of the callContext it ran under (ALS survived the fire-back).
+  testCallSlow(
+    calleeBindingName: string,
+    calleeInstanceName: string | undefined,
+    value: string,
+    delayMs: number,
+  ): void {
+    const remote = this.ctn<TestDO>().slowEcho(value, delayMs);
+    this.lmz.call(calleeBindingName, calleeInstanceName, remote, this.ctn().handleResultWithContext(remote));
+  }
+
+  // Handler (non-@mesh — runs at __handleResponse with requireMeshDecorator:false) that
+  // captures the result plus the callContext it observed (proves ALS across the detached fire-back).
+  handleResultWithContext(result: any): void {
+    this.ctx.storage.kv.put('last_call_result', result);
+    const cc = this.lmz.callContext;
+    this.ctx.storage.kv.put('last_handler_callchain_len', cc?.callChain?.length ?? 0);
+    this.ctx.storage.kv.put('last_handler_origin', cc?.callChain?.[0]?.instanceName ?? null);
+  }
+
+  async getLastHandlerCallChainLen() {
+    return this.ctx.storage.kv.get('last_handler_callchain_len');
+  }
+
+  // Initiator: fire N concurrent 4-arg calls; each handler records its OWN result, so we can
+  // prove interleaved early-ack calls don't cross-contaminate (ALS/result isolation).
+  testCallMany(
+    calleeBindingName: string,
+    calleeInstanceName: string | undefined,
+    values: string[],
+    delayMs: number,
+  ): void {
+    for (const value of values) {
+      const remote = this.ctn<TestDO>().slowEcho(value, delayMs);
+      this.lmz.call(calleeBindingName, calleeInstanceName, remote, this.ctn().recordManyResult(value, remote));
+    }
+  }
+
+  // Handler for testCallMany: append {expected, actual, matches} to a KV array. The
+  // read-modify-write is synchronous (atomic within one __handleResponse invocation).
+  recordManyResult(expected: string, actual: any): void {
+    const existing = (this.ctx.storage.kv.get('many_results') as any[]) ?? [];
+    existing.push({ expected, actual, matches: actual === `echo: ${expected}` });
+    this.ctx.storage.kv.put('many_results', existing);
+  }
+
+  async getManyResults(): Promise<any[]> {
+    return (this.ctx.storage.kv.get('many_results') as any[]) ?? [];
+  }
+
+  // ============================================
+  // Continuation-only migration helpers: callee-side capture + outcome capture.
+  // Replaces the awaited-callRaw pattern for asserting callContext propagation, callChain,
+  // @mesh/guard gating, and multi-hop — all through the real call()+fire-back path.
+  // ============================================
+
+  // Callee-side capture: store the callContext + own identity THIS callee observed, so a test
+  // can read it after a one-way call (no awaited result needed).
+  @mesh()
+  captureContext(): void {
+    this.ctx.storage.kv.put('observed_context', this.lmz.callContext);
+    this.ctx.storage.kv.put('observed_identity', {
+      bindingName: this.lmz.bindingName,
+      instanceName: this.lmz.instanceName,
+    });
+  }
+
+  async getObservedContext(): Promise<any> {
+    return this.ctx.storage.kv.get('observed_context');
+  }
+
+  async getObservedIdentity(): Promise<any> {
+    return this.ctx.storage.kv.get('observed_identity');
+  }
+
+  // Multi-hop: capture MY context, then fire an onward call so the next hop captures too.
+  @mesh()
+  captureAndForward(nextBinding: string, nextInstance: string | undefined): void {
+    this.ctx.storage.kv.put('observed_context', this.lmz.callContext);
+    this.lmz.call(nextBinding, nextInstance, this.ctn<TestDO>().captureContext(),
+      this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
+  }
+
+  // Fire a call to build `this.ctn()[method](...args)` on the target, keeping only a refusal.
+  fireCall(binding: string, instance: string | undefined, method: string, args: any[] = []): void {
+    const remote = (this.ctn() as any)[method](...args);
+    this.lmz.call(binding, instance, remote, this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
+  }
+
+  /** The result handler for a one-way fixture call, sent `onErrorOnly`: keeps any refusal. */
+  recordCallFailure(result?: unknown): void {
+    if (!(result instanceof Error)) return;
+    const failures = (this.ctx.storage.kv.get('call_failures') as string[] | undefined) ?? [];
+    failures.push(result.message);
+    this.ctx.storage.kv.put('call_failures', failures);
+  }
+
+  async getCallFailures(): Promise<string[]> {
+    return (this.ctx.storage.kv.get('call_failures') as string[] | undefined) ?? [];
+  }
+
+  /**
+   * A result handler that keeps what it received under `tag`, with what the framework says about
+   * where it came from. Kept `stringify`-encoded, so a test reads back a Map, a cycle or an Error's
+   * own fields exactly as this handler saw them.
+   */
+  recordOutcome(tag: string, result?: unknown): void {
+    const { callee, callChain, originAuth } = this.lmz.callContext;
+    const key = `outcome:${tag}`;
+    const kept = (this.ctx.storage.kv.get(key) as string[] | undefined) ?? [];
+    kept.push(stringify({ result, callee, callChain, originAuth }));
+    this.ctx.storage.kv.put(key, kept);
+  }
+
+  async getOutcomes(tag: string): Promise<string[]> {
+    return (this.ctx.storage.kv.get(`outcome:${tag}`) as string[] | undefined) ?? [];
+  }
+
+  /** Call a Client's `method` through its Gateway, keeping the answer under `tag`. */
+  callClient(gatewayBinding: string, client: string, method: string, args: unknown[], tag: string, onErrorOnly = false): void {
+    const remote = (this.ctn() as any)[method](...args);
+    this.lmz.call(gatewayBinding, client, remote, this.ctn<TestDO>().recordOutcome(tag), { onErrorOnly });
+  }
+
+  // ALS stability across awaits WITHIN one post-ack @mesh invocation (the crux of the ALS spike):
+  // the chain runs in a DETACHED task re-bound via runWithCallContext, so callContext must survive
+  // multiple awaits (sequential AND concurrent) inside it. Records callChain[0] at three points.
+  @mesh()
+  async testAlsStability(): Promise<void> {
+    const origin = () => this.lmz.callContext?.callChain?.[0]?.instanceName ?? 'unknown';
+    const seen: string[] = [origin()];
+    await new Promise((r) => setTimeout(r, 5));
+    seen.push(origin());
+    await Promise.all([new Promise((r) => setTimeout(r, 5)), new Promise((r) => setTimeout(r, 5))]);
+    seen.push(origin());
+    this.ctx.storage.kv.put('als_stability', seen);
+  }
+
+  async getAlsStability(): Promise<string[] | undefined> {
+    return this.ctx.storage.kv.get('als_stability') as string[] | undefined;
+  }
+
+  // 4-arg call to an arbitrary @mesh method, capturing the delivered outcome (value OR Error).
+  callForOutcome(
+    binding: string,
+    instance: string | undefined,
+    method: string,
+    args: any[] = [],
+  ): void {
+    const remote = (this.ctn() as any)[method](...args);
+    this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote));
+  }
+
+  // Combined result/error handler (runs at __handleResponse, requireMeshDecorator:false).
+  // The handler always receives handler($result), where $result is the value OR the Error.
+  // Captures the Error's name, and the per-hop `callee` the framework stamped — the two things
+  // drop-on-failed-broadcast keys on. The error itself carries no identity: who failed comes from
+  // the framework, never from anything the far side's code writes.
+  handleOutcome(resultOrError: any): void {
+    if (resultOrError instanceof Error) {
+      this.ctx.storage.kv.put('last_call_error', resultOrError.message);
+      this.ctx.storage.kv.put('last_call_error_name', resultOrError.name);
+      const cin = this.lmz.callContext.callee?.instanceName;
+      if (cin !== undefined) this.ctx.storage.kv.put('last_call_error_client', cin);
+    } else {
+      this.ctx.storage.kv.put('last_call_result', resultOrError);
+    }
+  }
+
+  async getLastCallErrorName() {
+    return this.ctx.storage.kv.get('last_call_error_name');
+  }
+
+  async getLastCallErrorClient() {
+    return this.ctx.storage.kv.get('last_call_error_client');
+  }
+
+  // N8: a 4-arg handler that THROWS when it runs at the sink. Must be caught + logged, never crash
+  // the caller node. Writes a marker first so a test can confirm the handler actually ran.
+  throwAtSink(_result: any): void {
+    this.ctx.storage.kv.put('sink_handler_ran', true);
+    throw new Error('handler threw at the sink');
+  }
+  testCallThrowingHandler(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().remoteEcho('x');
+    this.lmz.call(binding, instance, remote, this.ctn().throwAtSink(remote));
+  }
+  async getSinkHandlerRan() {
+    return this.ctx.storage.kv.get('sink_handler_ran');
+  }
+
+  // A plain @mesh method for admission-reject tests (the callee's onBeforeCall does the rejecting).
+  @mesh()
+  ping(): string {
+    return 'pong';
+  }
+  // Initiator: 4-arg call to a callee that rejects at admission — the caller's handler must run
+  // LOCALLY with the Error (the early-ack reject path).
+  testCallToRejecter(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().ping();
+    this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote));
+  }
+
+  // Initiator: a call to a DISCONNECTED client via the Gateway, which acks and then fires
+  // ClientDisconnectedError back to this node's fire-back door, naming the Client as last hop (the
+  // mesh side of the broadcast-to-disconnected drop).
+  testCallToDisconnectedClient(gatewayBinding: string, clientInstance: string): void {
+    const remote = (this.ctn() as any).clientMethod();
+    this.lmz.call(gatewayBinding, clientInstance, remote, this.ctn().handleOutcome(remote));
+  }
+
+  /**
+   * The same onResult handler, UNDECORATED — the limb that shows a broadcast result needs no
+   * `@mesh()`. Each target fires its filled handler back to this node's fire-back door, the only
+   * door that knows it is holding a filled chain, and that door does not check for `@mesh()`.
+   */
+  captureUndecoratedBroadcastResult(result?: unknown): void {
+    if (result instanceof Error) {
+      this.ctx.storage.kv.put('undecorated_broadcast_error', result.message);
+    }
+  }
+
+  testBroadcastToThrowerUndecorated(targetInstance: string): void {
+    this.lmz.broadcast(
+      [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
+      this.ctn<TestDO>().throwError(),
+      { onResult: this.ctn<TestDO>().captureUndecoratedBroadcastResult() },
+    );
+  }
+
+  async getUndecoratedBroadcastError(): Promise<string | undefined> {
+    return this.ctx.storage.kv.get('undecorated_broadcast_error') as string | undefined;
+  }
+
+  // Broadcast to one erroring target. The target acks, throws, and fires the filled onResult
+  // handler back to this origin with the Error appended — the path every broadcast result takes.
+  testBroadcastToThrower(targetInstance: string): void {
+    this.lmz.broadcast(
+      [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
+      this.ctn<TestDO>().throwError(),
+      { onResult: this.ctn<TestDO>().captureBroadcastResult() },
+    );
+  }
+
+  // onResult handler — each target's fire-back lands here with its Error appended. ⚠️ The `@mesh()`
+  // does not earn its keep: the fire-back lands at `__handleResponse`, where the member-level check
+  // is off. Kept because shedding reaper decorators is a separate piece of work;
+  // `captureUndecoratedBroadcastResult` above is what proves `@mesh()` is not required.
+  @mesh()
+  captureBroadcastResult(result?: unknown): void {
+    if (result instanceof Error) {
+      this.ctx.storage.kv.put('broadcast_error_name', result.name);
+      this.ctx.storage.kv.put('broadcast_error_msg', result.message);
+    }
+  }
+
+  async getBroadcastErrorName() {
+    return this.ctx.storage.kv.get('broadcast_error_name');
+  }
+  async getBroadcastErrorMsg() {
+    return this.ctx.storage.kv.get('broadcast_error_msg');
+  }
+
+  // ============================================
+  // lmz.broadcast from a DO — driven by broadcast.test.ts
+  // ============================================
+
+  // Broadcast `this.ctn()[method](...args)` to TEST_DO targets, recording every outcome.
+  broadcastCall(targets: string[], method: string, args: unknown[] = []): void {
+    this.lmz.broadcast(
+      targets.map((instanceName) => ({ bindingName: 'TEST_DO', instanceName })),
+      (this.ctn() as any)[method](...args),
+      { onResult: this.ctn<TestDO>().recordBroadcastOutcome() },
+    );
+  }
+
+  // Broadcast to never-connected client Gateways. Each Gateway acks, then fires its
+  // ClientDisconnectedError back, so each outcome runs `recordBroadcastOutcome` at this node's fire-back door.
+  broadcastToClients(clientInstances: string[]): void {
+    this.lmz.broadcast(
+      clientInstances.map((instanceName) => ({ bindingName: 'CLIENT_HOST_DO', instanceName })),
+      (this.ctn() as any).clientMethod(),
+      { onResult: this.ctn<TestDO>().recordBroadcastOutcome() },
+    );
+  }
+
+  // Broadcast a success to `target`, then send the same target a plain 4-arg call whose handler
+  // marks a barrier. Once the barrier lands, a success the broadcast reported would have landed too.
+  broadcastThenBarrier(target: string): void {
+    this.broadcastCall([target], 'remoteEcho', ['broadcast']);
+    const barrier = this.ctn<TestDO>().remoteEcho('barrier');
+    this.lmz.call('TEST_DO', target, barrier, this.ctn<TestDO>().markBroadcastBarrier(barrier));
+  }
+
+  markBroadcastBarrier(_result?: unknown): void {
+    this.ctx.storage.kv.put('broadcast_barrier', true);
+  }
+
+  async getBroadcastBarrier(): Promise<boolean> {
+    return this.ctx.storage.kv.get('broadcast_barrier') === true;
+  }
+
+  // Broadcast `captureContext` with the given options. Reached from a client, so a chain inherited
+  // with `newChain: false` has a client origin and that client's `originAuth`.
+  @mesh()
+  broadcastCaptureContext(targets: string[], options: { newChain?: boolean }): void {
+    this.lmz.broadcast(
+      targets.map((instanceName) => ({ bindingName: 'TEST_DO', instanceName })),
+      this.ctn<TestDO>().captureContext(),
+      { ...options, onResult: this.ctn<TestDO>().recordCallFailure() },
+    );
+  }
+
+  // Throws only at the named instance, so one broadcast can succeed at one target and fail at another.
+  @mesh()
+  throwIfNamed(name: string): string {
+    if (this.lmz.instanceName === name) throw new Error(`refused by ${name}`);
+    return 'ok';
+  }
+
+  // The `onResult` handler: records the outcome and the `callee` the framework stamped for it.
+  recordBroadcastOutcome(result?: unknown): void {
+    this.#pushBroadcastOutcome({
+      name: result instanceof Error ? result.name : 'success',
+      message: result instanceof Error ? result.message : String(result),
+      callee: this.lmz.callContext.callee?.instanceName,
+    });
+  }
+
+  // Where a Worker's `onResult` handler reports, since a Worker has no storage of its own.
+  @mesh()
+  storeBroadcastOutcome(outcome: BroadcastOutcome): void {
+    this.#pushBroadcastOutcome(outcome);
+  }
+
+  #pushBroadcastOutcome(outcome: BroadcastOutcome): void {
+    const outcomes = (this.ctx.storage.kv.get('broadcast_outcomes') as BroadcastOutcome[] | undefined) ?? [];
+    outcomes.push(outcome);
+    this.ctx.storage.kv.put('broadcast_outcomes', outcomes);
+  }
+
+  async getBroadcastOutcomes(): Promise<BroadcastOutcome[]> {
+    return (this.ctx.storage.kv.get('broadcast_outcomes') as BroadcastOutcome[] | undefined) ?? [];
+  }
+
+  // ============================================
   // Forwarded result storage (for Worker→DO→store pattern)
   // ============================================
 
@@ -363,103 +737,6 @@ export class TestDO extends LumenizeDO<Env> {
     );
   }
 
-  // ============================================
-  // CallContext capture in handlers test helpers
-  // ============================================
-
-  // Test that callContext.state is captured and restored in handlers
-  // Sets a unique marker in state before calling, then verifies handler sees it
-  @mesh()
-  testContextCaptureInHandler(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    stateMarker: string
-  ): void {
-    // Modify the current callContext.state with a unique marker
-    if (this.lmz.callContext) {
-      this.lmz.callContext.state['captureTest'] = stateMarker;
-    }
-
-    // Fire-and-forget call with a handler that will check the context
-    const remote = this.ctn<TestDO>().remoteEcho('capture-test');
-    this.lmz.call(
-      calleeBindingName,
-      calleeInstanceName,
-      remote,
-      // Pass the expected marker as a parameter so handler can compare
-      this.ctn().verifyCapturedContext(stateMarker, remote)
-    );
-  }
-
-  // Handler that verifies capturedContext.state matches expected marker
-  @mesh()
-  verifyCapturedContext(expectedMarker: string, _remoteResult: any): void {
-    const actualMarker = this.lmz.callContext?.state?.['captureTest'];
-    const matches = actualMarker === expectedMarker;
-
-    // Store verification result
-    this.ctx.storage.kv.put('context_capture_verification', {
-      expectedMarker,
-      actualMarker,
-      matches,
-      fullContext: this.lmz.callContext
-    });
-  }
-
-  // Get context capture verification result
-  async getContextCaptureVerification() {
-    return this.ctx.storage.kv.get('context_capture_verification');
-  }
-
-  // Test interleaved calls with different markers
-  @mesh()
-  testInterleavedContextCapture(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    markers: string[]
-  ): void {
-    // Make multiple calls with different markers
-    for (const marker of markers) {
-      // Each call gets its own marker in state
-      if (this.lmz.callContext) {
-        this.lmz.callContext.state['captureTest'] = marker;
-      }
-
-      const remote = this.ctn<TestDO>().remoteEcho(`interleaved-${marker}`);
-      this.lmz.call(
-        calleeBindingName,
-        calleeInstanceName,
-        remote,
-        this.ctn().recordInterleavedResult(marker, remote)
-      );
-    }
-  }
-
-  // Handler that records both expected marker and actual context marker
-  @mesh()
-  recordInterleavedResult(expectedMarker: string, _remoteResult: any): void {
-    const actualMarker = this.lmz.callContext?.state?.['captureTest'];
-
-    // Append to array of results
-    const existing = this.ctx.storage.kv.get('interleaved_results') as any[] || [];
-    existing.push({
-      expectedMarker,
-      actualMarker,
-      matches: actualMarker === expectedMarker
-    });
-    this.ctx.storage.kv.put('interleaved_results', existing);
-  }
-
-  // Get interleaved results
-  async getInterleavedResults() {
-    return this.ctx.storage.kv.get('interleaved_results');
-  }
-
-  // Clear interleaved results
-  async clearInterleavedResults() {
-    this.ctx.storage.kv.delete('interleaved_results');
-  }
-
   // Remote method that throws an error
   @mesh()
   throwError(): never {
@@ -494,6 +771,12 @@ export class TestDO extends LumenizeDO<Env> {
     );
   }
 
+  async testLmzCallWithPropertyHandler(): Promise<void> {
+    // A handler ending in a property access has no call to fill its answer into.
+    const remote = this.ctn<TestDO>().remoteEcho('test');
+    this.lmz.call('TEST_DO', 'callee', remote, (this.ctn() as any).lastResult);
+  }
+
   // ============================================
   // CallContext test helpers
   // ============================================
@@ -502,13 +785,6 @@ export class TestDO extends LumenizeDO<Env> {
   @mesh()
   getCallContext() {
     return this.lmz.callContext;
-  }
-
-  // Remote method that returns the computed caller (callChain.at(-1))
-  @mesh()
-  getCaller() {
-    const { callChain } = this.lmz.callContext;
-    return callChain.at(-1);
   }
 
   // Remote method that returns callee identity from this.lmz
@@ -520,70 +796,6 @@ export class TestDO extends LumenizeDO<Env> {
     };
   }
 
-  // Remote method that modifies state and returns the context
-  @mesh()
-  modifyStateAndGetContext(key: string, value: unknown) {
-    if (this.lmz.callContext) {
-      this.lmz.callContext.state[key] = value;
-    }
-    return this.lmz.callContext;
-  }
-
-  // Remote method that calls another DO and returns combined info
-  @mesh()
-  async callAndReturnContext(
-    calleeBindingName: string,
-    calleeInstanceName: string
-  ) {
-    const myContext = this.lmz.callContext;
-    const remoteContext = await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().getCallContext()
-    );
-    return {
-      myContext,
-      remoteContext
-    };
-  }
-
-  // Test state propagation through call chain
-  @mesh()
-  async testStatePropagation(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    stateKey: string,
-    stateValue: unknown
-  ) {
-    // Modify state before calling
-    if (this.lmz.callContext) {
-      this.lmz.callContext.state[stateKey] = stateValue;
-    }
-
-    // Call remote and get its context (which should have our state modification)
-    const remoteContext = await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().getCallContext()
-    );
-
-    return {
-      stateBeforeCall: this.lmz.callContext?.state,
-      remoteState: remoteContext?.state
-    };
-  }
-
-  // Handler that stores received callContext for inspection
-  @mesh()
-  storeCallContext(): void {
-    this.ctx.storage.kv.put('last_call_context', this.lmz.callContext);
-  }
-
-  // Get stored callContext
-  async getStoredCallContext() {
-    return this.ctx.storage.kv.get('last_call_context');
-  }
-
   // Method without @mesh decorator for testing security
   nonMeshMethod(): string {
     return 'should not be callable remotely';
@@ -593,10 +805,11 @@ export class TestDO extends LumenizeDO<Env> {
   // @mesh(guard) test helpers
   // ============================================
 
-  // Method with guard that checks for 'admin' role in callContext.state
+  // Method with guard that admits only a chain an "admin_" node started — a stand-in role read
+  // from the caller's own address, which the mesh stamps and no caller writes.
   @mesh((instance: TestDO) => {
-    const role = instance.lmz.callContext?.state?.['role'];
-    if (role !== 'admin') {
+    const origin = instance.lmz.callContext?.callChain?.[0]?.instanceName;
+    if (!origin?.startsWith('admin_')) {
       throw new Error('Guard: admin role required');
     }
   })
@@ -606,7 +819,7 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Method with guard that checks for any authenticated user
   @mesh((instance: TestDO) => {
-    const userId = instance.lmz.callContext?.state?.['userId'];
+    const userId = instance.lmz.callContext?.originAuth?.sub;
     if (!userId) {
       throw new Error('Guard: authentication required');
     }
@@ -617,112 +830,13 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Method with synchronous guard
   @mesh((instance: TestDO) => {
-    const token = instance.lmz.callContext?.state?.['token'];
+    const token = instance.lmz.callContext?.originAuth?.claims?.['token'];
     if (token !== 'valid-token') {
       throw new Error('Guard: valid token required');
     }
   })
   guardedMethod(): string {
     return 'guard-passed';
-  }
-
-  // Method that sets state before calling a guarded method
-  @mesh()
-  async callGuardedWithState(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    stateToSet: Record<string, unknown>
-  ): Promise<any> {
-    // Set state values before calling
-    if (this.lmz.callContext) {
-      Object.assign(this.lmz.callContext.state, stateToSet);
-    }
-
-    // Call the guarded method
-    return await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().guardedAdminMethod()
-    );
-  }
-
-  // Test deep interleaving of async operations within a single call
-  // This verifies ALS isolation when a single request makes multiple nested async calls
-  @mesh()
-  async testDeepInterleavingContext(
-    targetBindingName: string,
-    instancePrefix: string
-  ) {
-    const results: { position: string; origin: string; expectedOrigin: string }[] = [];
-    // Origin is now callChain[0]
-    const myOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-
-    // Record context at start
-    results.push({
-      position: 'start',
-      origin: myOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    // Make multiple concurrent calls - each should preserve our callContext
-    const promises = [
-      this.lmz.callRaw(
-        targetBindingName,
-        `${instancePrefix}-target-1`,
-        this.ctn<TestDO>().getCallContext()
-      ),
-      this.lmz.callRaw(
-        targetBindingName,
-        `${instancePrefix}-target-2`,
-        this.ctn<TestDO>().getCallContext()
-      ),
-      this.lmz.callRaw(
-        targetBindingName,
-        `${instancePrefix}-target-3`,
-        this.ctn<TestDO>().getCallContext()
-      )
-    ];
-
-    // Check context mid-execution (after promises started but before awaited)
-    const midOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-    results.push({
-      position: 'mid-execution',
-      origin: midOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    // Await all and check context after each await point
-    const remoteContexts = await Promise.all(promises);
-
-    // Check context after await
-    const postAwaitOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-    results.push({
-      position: 'post-await',
-      origin: postAwaitOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    // All remote contexts should show us as their origin (callChain[0])
-    for (let i = 0; i < remoteContexts.length; i++) {
-      results.push({
-        position: `remote-${i + 1}-saw-origin`,
-        origin: remoteContexts[i]?.callChain[0]?.instanceName || 'unknown',
-        expectedOrigin: myOrigin
-      });
-    }
-
-    // Final context check
-    const finalOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-    results.push({
-      position: 'final',
-      origin: finalOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    return {
-      allContextsMatch: results.every(r => r.origin === r.expectedOrigin),
-      results
-    };
   }
 
   // ============================================
@@ -740,34 +854,34 @@ export class TestDO extends LumenizeDO<Env> {
    * 2. Target receives, then calls back to Origin's receiveCallback method
    * 3. Origin stores the callback's callContext for verification
    */
-  @mesh()
-  async initiateTwoOneWayCall(
+  initiateTwoOneWayCall(
     targetBindingName: string,
     targetInstanceName: string,
     marker: string
-  ): Promise<void> {
-    // Call target, asking it to call us back
-    // We pass our identity so Target knows where to call back
-    await this.lmz.callRaw(
+  ): void {
+    // Fire a one-way call to target, asking it to call us back (we pass our identity).
+    this.lmz.call(
       targetBindingName,
       targetInstanceName,
       this.ctn<TestDO>().handleAndCallback(
         this.lmz.bindingName!,
         this.lmz.instanceName!,
         marker
-      )
+      ),
+      this.ctn<TestDO>().recordCallFailure(),
+      { onErrorOnly: true },
     );
   }
 
   /**
-   * Target receives this call, then independently calls back to Origin
+   * Target receives this call, then independently fires a one-way callback to Origin.
    */
   @mesh()
-  async handleAndCallback(
+  handleAndCallback(
     callerBindingName: string,
     callerInstanceName: string,
     marker: string
-  ): Promise<string> {
+  ): void {
     // Store my callContext when I received this call
     const { callChain } = this.lmz.callContext;
     const myIncomingContext = {
@@ -775,16 +889,15 @@ export class TestDO extends LumenizeDO<Env> {
       caller: callChain.at(-1),
     };
 
-    // Now call back to the original caller
-    // This is an INDEPENDENT call, not a return value
-    // The callback's callContext should preserve the original origin
-    await this.lmz.callRaw(
+    // Fire an INDEPENDENT one-way callback to the original caller (not a return value).
+    // The callback's callContext preserves the original origin (callChain[0]).
+    this.lmz.call(
       callerBindingName,
       callerInstanceName,
-      this.ctn<TestDO>().receiveCallback(marker, myIncomingContext)
+      this.ctn<TestDO>().receiveCallback(marker, myIncomingContext),
+      this.ctn<TestDO>().recordCallFailure(),
+      { onErrorOnly: true },
     );
-
-    return 'callback-sent';
   }
 
   /**
@@ -817,10 +930,280 @@ export class TestDO extends LumenizeDO<Env> {
     this.#twoOneWayCallbackContext = null;
     this.ctx.storage.kv.delete('two_one_way_result');
   }
+
+  // ─── A reply the FAR SIDE authored, re-read as a chain ──────────────────────────────────
+  // The members below back `test/filled-chain-is-data.test.ts`. They exist because the defect is
+  // a property of the framework's own substitution sites, so the node under test has to be one
+  // the framework calls — a stand-in object cannot reach `fireResponse` or `dispatchEnvelope`.
+
+  /**
+   * Hand back a value this node PARSED rather than one its caller composed. A JSON string crosses
+   * the request leg as a string, so nothing resolves it on the way in — which is the point: the
+   * shape reached here is the one that matters: attacker data stored earlier and read back later.
+   */
+  @mesh()
+  replyFromStoredJson(json: string): unknown {
+    return JSON.parse(json);
+  }
+
+  /**
+   * What an injected chain names. UNDECORATED deliberately: a filled handler chain runs at
+   * `requireMeshDecorator: false`, so the absence of `@mesh()` is not what would stop it — only
+   * refusing to resolve the value at all is.
+   */
+  recordInjected(tag: string): string {
+    const seen = (this.ctx.storage.kv.get('injected_ran') as string[] | undefined) ?? [];
+    seen.push(tag);
+    this.ctx.storage.kv.put('injected_ran', seen);
+    return 'injected ran';
+  }
+
+  /** A handler spelling an explicit `$result` marker — the REPLACEMENT branch of the substitution. */
+  handleReply(result: unknown): void {
+    this.ctx.storage.kv.put('handler_received', result);
+  }
+
+  /**
+   * A REAPER-shaped handler: no `$result` marker anywhere, so the framework APPENDS the result as
+   * a last argument. This is the branch production actually uses (`onQueryBroadcastResult`), and a
+   * fix written against the `$result` repro alone leaves it open.
+   */
+  handleAppended(queryHash: string, result?: unknown): void {
+    this.ctx.storage.kv.put('handler_received', result);
+    this.ctx.storage.kv.put('handler_received_hash', queryHash);
+  }
+
+  /**
+   * Fire an arbitrary chain at ANOTHER binding over a real `lmz.call`, and keep the outcome.
+   * The outcome lands in `handler_received` via {@link handleReply}, so `getHandlerReceived`
+   * reads back either the value or the refusal Error.
+   */
+  testWireChainAt(binding: string, instance: string, chain: OperationChain): void {
+    const remote = continuationFromChain<any>(chain);
+    this.lmz.call(binding, instance, remote, this.ctn().handleReply(remote));
+  }
+
+  /**
+   * THE CARVE-OUT, driven: a handler the NODE authored may root anywhere, including `ctx`.
+   *
+   * `this.ctn().ctx.storage.kv.put('cache', remote)` is the example on
+   * `replaceNestedOperationMarkers`'s own JSDoc, and until now it appeared only there — nothing
+   * exercised it. It is the case the entry rule would miss if the carve-out were keyed on anything
+   * but the flag: `ctx` is a constructor-assigned OWN property, so the descriptor walk finds it
+   * and finds it not mesh-callable, exactly as it does for `env`.
+   */
+  testCtxRootedHandler(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().remoteEcho('rooted-at-ctx');
+    this.lmz.call(binding, instance, remote, (this.ctn() as any).ctx.storage.kv.put('cache', remote));
+  }
+
+  async getCtxRootedCache(): Promise<unknown> {
+    return this.ctx.storage.kv.get('cache');
+  }
+
+  // ─── who the framework says the call was addressed to ──────────────────────────────────
+
+  /** A 4-arg handler that records the per-hop `callee` rather than the result. */
+  recordCallee(_result: unknown): void {
+    this.ctx.storage.kv.put('seen_callee', this.lmz.callContext.callee ?? null);
+  }
+
+  /** Path 1 — `dispatchEnvelope`: the callee rejects at admission, so the handler runs HERE. */
+  testCalleeOnLocalHandler(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().ping();
+    this.lmz.call(binding, instance, remote, this.ctn().recordCallee(remote));
+  }
+
+  /** Path 3 — `fireResponse`: the callee admits, runs, and fires the handler back. */
+  testCalleeOnFireBack(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().remoteEcho('callee');
+    this.lmz.call(binding, instance, remote, this.ctn().recordCallee(remote));
+  }
+
+  /**
+   * Path 2 — `executeEnvelope`: a method reading the field AT the receiving node.
+   * It STORES rather than returns, because `callContext` exists only during a mesh call and a
+   * plain RPC read of the return value would have to happen outside one.
+   */
+  @mesh()
+  reportCallee(): void {
+    const callee = this.lmz.callContext.callee;
+    this.ctx.storage.kv.put('received_callee', callee
+      ? { bindingName: callee.bindingName, instanceName: callee.instanceName }
+      : null);
+  }
+
+  async getReceivedCallee(): Promise<unknown> {
+    return this.ctx.storage.kv.get('received_callee');
+  }
+
+  async clearReceivedCallee(): Promise<void> {
+    this.ctx.storage.kv.delete('received_callee');
+  }
+
+  async getSeenCallee(): Promise<unknown> {
+    return this.ctx.storage.kv.get('seen_callee');
+  }
+
+  async clearSeenCallee(): Promise<void> {
+    this.ctx.storage.kv.delete('seen_callee');
+  }
+
+  /** 4-arg call whose reply is marker-shaped, with the handler spelling `$result`. */
+  testCallForMarkerReply(binding: string, instance: string | undefined, json: string): void {
+    const remote = this.ctn<TestDO>().replyFromStoredJson(json);
+    this.lmz.call(binding, instance, remote, this.ctn().handleReply(remote));
+  }
+
+  /** The same, with a reaper-shaped handler, so the result is APPENDED rather than substituted. */
+  testCallForMarkerReplyAppended(
+    binding: string, instance: string | undefined, json: string, queryHash: string,
+  ): void {
+    const remote = this.ctn<TestDO>().replyFromStoredJson(json);
+    this.lmz.call(binding, instance, remote, this.ctn().handleAppended(queryHash));
+  }
+
+  /** 4-arg call to a callee that rejects at ADMISSION with a marker-shaped Error — the local-handler path. */
+  testCallToMarkerRejecter(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().ping();
+    this.lmz.call(binding, instance, remote, this.ctn().handleReply(remote));
+  }
+
+  async getInjectedRan(): Promise<string[]> {
+    return (this.ctx.storage.kv.get('injected_ran') as string[] | undefined) ?? [];
+  }
+
+  async getHandlerReceived(): Promise<unknown> {
+    return this.ctx.storage.kv.get('handler_received');
+  }
+
+  /** Two `@mesh()` methods the positive control below nests, so both ops are legitimate entries. */
+  @mesh()
+  double(n: number): number {
+    return n * 2;
+  }
+
+  @mesh()
+  addTen(n: number): number {
+    return n + 10;
+  }
+
+  /**
+   * The POSITIVE CONTROL for the two entry points: a TEMPLATE chain whose final apply carries a genuine nested
+   * marker still resolves. An executor that simply stopped resolving would satisfy every refusal
+   * limb in `filled-chain-is-data.test.ts` and break this, which is what pins the two entry
+   * points apart.
+   */
+  async testNestedTemplate(): Promise<number> {
+    const c = this.ctn() as any;
+    const chain = getOperationChain(c.addTen(c.double(10)))!;
+    return await this.__localChainExecutor(chain);
+  }
+
+  /** Every stored continuation on this DO — what a wire-borne `svc.alarms` chain must not add to. */
+  async countSchedules(): Promise<number> {
+    return this.svc.alarms.getSchedules().length;
+  }
+
+  /**
+   * Run an arbitrary chain on THIS DO at the wire's flag setting, bounded.
+   *
+   * ⚠️ The bound is the assertion's mechanism, not impatience: § *Gotchas*, item 2 of
+   * `tasks/archive/mesh-entry-and-walk-gaps.md` measured that a wire-borne `svc.alarms.schedule` chain
+   * HANGS rather than being refused — `executeOperationChain` awaits every apply and a
+   * continuation proxy is a never-settling thenable — so a test that simply awaited it would hang
+   * with it, and one that only matched a message would assert against a refusal that never comes.
+   */
+  async testBoundedChain(chain: OperationChain, ms: number): Promise<string> {
+    try {
+      const outcome = await Promise.race([
+        this.__localChainExecutor(chain),
+        new Promise<string>((resolve) => setTimeout(() => resolve('__lmz_timed_out'), ms)),
+      ]);
+      return outcome === '__lmz_timed_out' ? 'NEVER SETTLED' : `PERMITTED: ${String(outcome)}`;
+    } catch (err) {
+      return `REFUSED: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  async clearMarkerProbe(): Promise<void> {
+    this.ctx.storage.kv.delete('injected_ran');
+    this.ctx.storage.kv.delete('handler_received');
+    this.ctx.storage.kv.delete('handler_received_hash');
+  }
+}
+
+/**
+ * The member kinds `@mesh()` ships, on a class built for them.
+ *
+ * Kept off `TestDO` deliberately: a `@mesh()`-decorated getter, an undecorated getter and a call
+ * recorder are the fixture, and putting them on the DO every other suite shares would make each of
+ * those suites carry a surface it never asked for.
+ */
+export class MemberKindDO extends UnscopedMeshDO<Env> {
+  /** Everything a getter body or a guard did, in order, read back THROUGH the mesh. */
+  #trace(entry: string): void {
+    const seen = (this.ctx.storage.kv.get('trace') as string[] | undefined) ?? [];
+    seen.push(entry);
+    this.ctx.storage.kv.put('trace', seen);
+  }
+
+  #facade = {
+    reached: (): string => 'facade reached',
+  };
+
+  /** A METHOD entry — the shape every entry took before getters shipped. */
+  @mesh()
+  decoratedMethod(value: string): string {
+    return `method reached: ${value}`;
+  }
+
+  /** A GETTER entry, ungated. The form for a gate: it returns a surface and does nothing else. */
+  @mesh()
+  get decoratedGate(): { reached: () => string } {
+    this.#trace('getter body');
+    return this.#facade;
+  }
+
+  /** A GETTER entry with a guard, so a test can see which of the two runs first. */
+  @mesh((instance: MemberKindDO) => { (instance as any).noteGuard(); })
+  get guardedGate(): { reached: () => string } {
+    this.#trace('guarded getter body');
+    return this.#facade;
+  }
+
+  /** @internal Reached by the guard above — guards take the instance, not a continuation. */
+  noteGuard(): void {
+    this.#trace('guard');
+  }
+
+  /**
+   * An UNDECORATED getter. The property the descriptor lookup exists for: a chain naming it is
+   * refused WITHOUT the body running, which reading `parent[key]` to make the decision could not do.
+   */
+  get undecoratedGate(): { reached: () => string } {
+    this.#trace('undecorated getter body RAN');
+    return this.#facade;
+  }
+
+  /** An `async` `@mesh()` getter — whether it works or is refused is a measurement, not a guess. */
+  @mesh()
+  get asyncGate(): Promise<{ reached: () => string }> {
+    this.#trace('async getter body');
+    return Promise.resolve(this.#facade);
+  }
+
+  async getTrace(): Promise<string[]> {
+    return (this.ctx.storage.kv.get('trace') as string[] | undefined) ?? [];
+  }
+
+  async clearTrace(): Promise<void> {
+    this.ctx.storage.kv.delete('trace');
+  }
 }
 
 // Test DO that implements onRequest() lifecycle hook
-export class OnRequestTestDO extends LumenizeDO<Env> {
+export class OnRequestTestDO extends UnscopedMeshDO<Env> {
   onRequest(request: Request): Response {
     const url = new URL(request.url);
 
@@ -840,7 +1223,7 @@ export class OnRequestTestDO extends LumenizeDO<Env> {
 }
 
 // Test DO that uses onStart() lifecycle hook
-export class OnStartTestDO extends LumenizeDO<Env> {
+export class OnStartTestDO extends UnscopedMeshDO<Env> {
   // Track whether onStart was called
   #onStartCalled = false;
 
@@ -882,7 +1265,7 @@ export class OnStartTestDO extends LumenizeDO<Env> {
 }
 
 // Test DO that throws in onStart()
-export class OnStartErrorDO extends LumenizeDO<Env> {
+export class OnStartErrorDO extends UnscopedMeshDO<Env> {
   async onStart() {
     throw new Error('Intentional onStart error for testing');
   }
@@ -894,7 +1277,7 @@ export class OnStartErrorDO extends LumenizeDO<Env> {
 }
 
 // Test Worker class for Worker-to-DO and Worker-to-Worker tests
-export class TestWorker extends LumenizeWorker<Env> {
+export class TestWorker extends MeshWorker<Env> {
   // Store last received envelope for inspection
   lastReceivedEnvelope: any = null;
 
@@ -1012,43 +1395,8 @@ export class TestWorker extends LumenizeWorker<Env> {
     };
   }
 
-  // Test helpers for Worker RPC calls (callRaw)
-  async testCallRawToDO(
-    doBindingName: string,
-    doInstanceName: string,
-    value: string
-  ): Promise<any> {
-    return await this.lmz.callRaw(
-      doBindingName,
-      doInstanceName,
-      this.ctn<TestDO>().remoteEcho(value)
-    );
-  }
-
-  async testCallRawToWorker(
-    workerBindingName: string,
-    value: string
-  ): Promise<any> {
-    return await this.lmz.callRaw(
-      workerBindingName,
-      undefined,
-      this.ctn<TestWorker>().workerEcho(value)
-    );
-  }
-
-  async testCallRawToDOThrowError(
-    doBindingName: string,
-    doInstanceName: string
-  ): Promise<any> {
-    return await this.lmz.callRaw(
-      doBindingName,
-      doInstanceName,
-      this.ctn<TestDO>().throwError()
-    );
-  }
-
   // ============================================
-  // Test helpers for Worker call() fire-and-forget
+  // Test helpers for Worker call()
   // ============================================
 
   // Worker calls DO remoteEcho, result handler forwards result to a storage DO
@@ -1085,41 +1433,72 @@ export class TestWorker extends LumenizeWorker<Env> {
     );
   }
 
-  // Worker calls DO remoteEcho without handler (fire-and-forget)
-  testCallFireAndForget(
+  // Worker calls another Worker; the result handler (on a fresh instance) forwards to a store DO.
+  testCallToWorker(value: string, resultStoreDOInstance: string): void {
+    this.lmz.__init({ bindingName: 'TEST_WORKER' });
+    const remote = this.ctn<TestWorker>().workerEcho(value);
+    this.lmz.call('TEST_WORKER', undefined, remote, this.ctn().forwardResultToDO(resultStoreDOInstance, remote));
+  }
+
+  // Worker calls DO remoteEcho with a handler that hears only a failure
+  testCallErrorsOnly(
     doBindingName: string,
     doInstanceName: string,
     value: string
   ): void {
     this.lmz.__init({ bindingName: 'TEST_WORKER' });
     const remote = this.ctn<TestDO>().remoteEcho(value);
-    this.lmz.call(doBindingName, doInstanceName, remote);
+    this.lmz.call(doBindingName, doInstanceName, remote, this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
   }
 
   // Worker calls call() without setting bindingName (should throw)
   testCallWithoutBindingName(): void {
     const remote = this.ctn<TestDO>().remoteEcho('test');
-    this.lmz.call('TEST_DO', 'some-instance', remote);
+    this.lmz.call('TEST_DO', 'some-instance', remote, this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
   }
 
-  // Result handler: forwards result to a DO for persistence (no @mesh needed)
-  async forwardResultToDO(resultStoreDOInstance: string, result: any): Promise<void> {
-    await this.lmz.callRaw(
+  // Result handler (runs on a fresh Worker instance via __handleResponse — the handler travels):
+  // fire a one-way call to persist the result on a DO.
+  forwardResultToDO(resultStoreDOInstance: string, result: any): void {
+    this.lmz.call('TEST_DO', resultStoreDOInstance, this.ctn<TestDO>().storeForwardedResult(result),
+      this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
+  }
+
+  // Error-path handler: fire a one-way call to persist the error message on a DO.
+  forwardErrorToDO(resultStoreDOInstance: string, error: any): void {
+    this.lmz.call(
       'TEST_DO',
       resultStoreDOInstance,
-      this.ctn<TestDO>().storeForwardedResult(result)
+      this.ctn<TestDO>().storeForwardedError(error instanceof Error ? error.message : String(error)),
+      this.ctn<TestWorker>().logCallFailure(),
+      { onErrorOnly: true },
     );
   }
 
-  // Result handler: forwards error to a DO for persistence (no @mesh needed)
-  async forwardErrorToDO(resultStoreDOInstance: string, error: any): Promise<void> {
-    await this.lmz.callRaw(
-      'TEST_DO',
-      resultStoreDOInstance,
-      this.ctn<TestDO>().storeForwardedError(
-        error instanceof Error ? error.message : String(error)
-      )
+  // lmz.broadcast from a Worker — driven by broadcast.test.ts. Each never-connected client's
+  // Gateway acks, then fires its outcome back, so each runs `forwardBroadcastOutcome` here.
+  broadcastToClients(clientInstances: string[], storeInstance: string): void {
+    this.lmz.__init({ bindingName: 'TEST_WORKER' });
+    this.lmz.broadcast(
+      clientInstances.map((instanceName) => ({ bindingName: 'CLIENT_HOST_DO', instanceName })),
+      (this.ctn() as any).clientMethod(),
+      { onResult: this.ctn<TestWorker>().forwardBroadcastOutcome(storeInstance) },
     );
+  }
+
+  // A Worker has no storage, so it hands each outcome, and the `callee` it saw, to a DO.
+  forwardBroadcastOutcome(storeInstance: string, result?: unknown): void {
+    this.lmz.call('TEST_DO', storeInstance, this.ctn<TestDO>().storeBroadcastOutcome({
+      name: result instanceof Error ? result.name : 'success',
+      message: result instanceof Error ? result.message : String(result),
+      callee: this.lmz.callContext.callee?.instanceName,
+    }), this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
+  }
+
+  /** The result handler for a one-way fixture call, sent `onErrorOnly`. A Worker keeps nothing,
+   *  so it logs. */
+  logCallFailure(result?: unknown): void {
+    if (result instanceof Error) console.warn('TestWorker call failed:', result.message);
   }
 
   // Remote methods that can be called via RPC
@@ -1153,38 +1532,27 @@ export class TestWorker extends LumenizeWorker<Env> {
     return this.lmz.callContext;
   }
 
+  // Worker hop for the DO→Worker→DO chain: fire a one-way call so the downstream DO captures
+  // the propagated callContext (which will show the Worker as callChain's last hop). The Worker
+  // is stateless, so it can't store its own view — the downstream DO's captured callChain proves
+  // the Worker propagated correctly.
   @mesh()
-  getCaller() {
-    const { callChain } = this.lmz.callContext;
-    return callChain.at(-1);
-  }
-
-  // Worker that forwards call to a DO and returns both contexts
-  @mesh()
-  async forwardToDO(
+  forwardCapture(
     doBindingName: string,
     doInstanceName: string
-  ) {
-    const myContext = this.lmz.callContext;
-    const doContext = await this.lmz.callRaw(
-      doBindingName,
-      doInstanceName,
-      this.ctn<TestDO>().getCallContext()
-    );
-    return {
-      workerContext: myContext,
-      doContext
-    };
+  ): void {
+    this.lmz.call(doBindingName, doInstanceName, this.ctn<TestDO>().captureContext(),
+      this.ctn<TestWorker>().logCallFailure(), { onErrorOnly: true });
   }
 
   // ============================================
   // @mesh(guard) test helpers for Worker
   // ============================================
 
-  // Method with guard that checks for 'admin' role in callContext.state
+  // Method with guard that admits only a chain an "admin-" node started (see TestDO's)
   @mesh((instance: TestWorker) => {
-    const role = instance.lmz.callContext?.state?.['role'];
-    if (role !== 'admin') {
+    const origin = instance.lmz.callContext?.callChain?.[0]?.instanceName;
+    if (!origin?.startsWith('admin-')) {
       throw new Error('Worker Guard: admin role required');
     }
   })
@@ -1194,7 +1562,7 @@ export class TestWorker extends LumenizeWorker<Env> {
 
   // Method with guard that checks for any authenticated user
   @mesh((instance: TestWorker) => {
-    const userId = instance.lmz.callContext?.state?.['userId'];
+    const userId = instance.lmz.callContext?.originAuth?.sub;
     if (!userId) {
       throw new Error('Worker Guard: authentication required');
     }
@@ -1205,7 +1573,7 @@ export class TestWorker extends LumenizeWorker<Env> {
 
   // Method with synchronous guard
   @mesh((instance: TestWorker) => {
-    const token = instance.lmz.callContext?.state?.['token'];
+    const token = instance.lmz.callContext?.originAuth?.claims?.['token'];
     if (token !== 'valid-token') {
       throw new Error('Worker Guard: valid token required');
     }
@@ -1216,7 +1584,7 @@ export class TestWorker extends LumenizeWorker<Env> {
 }
 
 // AlarmTestDO - comprehensive test DO for alarm functionality
-export class AlarmTestDO extends LumenizeDO<Env> {
+export class AlarmTestDO extends UnscopedMeshDO<Env> {
   executedAlarms: Array<{ payload: any }> = [];
 
   // Test helper: Schedule an alarm
@@ -1265,6 +1633,33 @@ export class AlarmTestDO extends LumenizeDO<Env> {
     return this.svc.alarms.schedule(when, this.ctn().handleThrowingAlarm(payload));
   }
 
+  // Test helper: an alarm under a caller-chosen id, whose handler re-arms it under that same id,
+  // as a poll does
+  scheduleRearmingAlarm(id: string) {
+    return this.svc.alarms.schedule(new Date(Date.now() + 10_000), this.ctn().handleRearmingAlarm(id), { id });
+  }
+
+  handleRearmingAlarm(id: string) {
+    this.executedAlarms.push({ payload: 'rearming' });
+    this.svc.alarms.schedule(60, this.ctn().handleAlarm('rearmed'), { id });
+  }
+
+  // Test helper: an alarm under a caller-chosen id whose handler awaits `ms`, so another call can
+  // land while it runs
+  scheduleSlowAlarm(id: string, ms: number) {
+    return this.svc.alarms.schedule(new Date(Date.now() + 10_000), this.ctn().handleSlowAlarm(ms), { id });
+  }
+
+  async handleSlowAlarm(ms: number) {
+    await new Promise((r) => setTimeout(r, ms));
+    this.executedAlarms.push({ payload: 'slow' });
+  }
+
+  // Test helper: schedule under a caller-chosen id
+  scheduleAlarmWithId(id: string, delaySeconds: number, payload?: any) {
+    return this.svc.alarms.schedule(delaySeconds, this.ctn().handleAlarm(payload), { id });
+  }
+
   // Test helper: Schedule alarm with invalid type
   scheduleAlarmWithInvalidType(when: any, payload?: any) {
     return this.svc.alarms.schedule(when, this.ctn().handleAlarm(payload));
@@ -1286,9 +1681,47 @@ export class AlarmTestDO extends LumenizeDO<Env> {
   }
 }
 
-// Simple EchoDO for testing LumenizeClientGateway
+// A DO that rejects EVERY incoming call at admission (its onBeforeCall throws). Used to exercise
+// the early-ack reject path: the caller's handler runs LOCALLY with the Error.
+export class RejectingDO extends UnscopedMeshDO<Env> {
+  override onBeforeCall(): void {
+    throw new Error('admission rejected by onBeforeCall');
+  }
+
+  @mesh()
+  ping(): string {
+    return 'should-never-run';
+  }
+}
+
+/**
+ * Rejects at admission with an Error carrying the two marker keys as OWN properties.
+ *
+ * Separate from {@link RejectingDO} on purpose: that one backs the plain dispatch-reject tests, and
+ * giving ITS error a chain would make those tests run one. Structured clone carries own keys across
+ * a hop, which is how an Error carries any own property it was given.
+ */
+export class MarkerRejectingDO extends UnscopedMeshDO<Env> {
+  override onBeforeCall(): void {
+    const err = Object.assign(new Error('admission rejected with a marker-shaped error'), {
+      __isNestedOperation: true,
+      __operationChain: [
+        { type: 'get', key: 'recordInjected' },
+        { type: 'apply', args: ['local-handler'] },
+      ],
+    });
+    throw err;
+  }
+
+  @mesh()
+  ping(): string {
+    return 'should-never-run';
+  }
+}
+
+// Echoes back the input with context info, for a Client's call to another node
 // Echoes back the input with context info
-export class EchoDO extends LumenizeDO<Env> {
+export class EchoDO extends UnscopedMeshDO<Env> {
   @mesh()
   echo(message: string): { message: string; callChain?: any; caller?: any } {
     const { callChain } = this.lmz.callContext;
@@ -1305,31 +1738,106 @@ export class EchoDO extends LumenizeDO<Env> {
   }
 }
 
-// Import routeDORequest for e2e testing with Browser.WebSocket
-import { env } from 'cloudflare:workers';
-import { routeDORequest } from '@lumenize/routing';
-import { createRouteDORequestAuthHooks } from '@lumenize/auth';
-
-// Create auth hooks once at module level (async — imports public keys from env)
-const authHooks = await createRouteDORequestAuthHooks(env);
-
-// Default export for worker - routes to DOs for e2e testing
-export default {
-  async fetch(request: Request, env: Env) {
-    // For e2e tests, we need to route WebSocket connections to the Gateway
-    // The routeDORequest function matches URLs like /gateway/LUMENIZE_CLIENT_GATEWAY/{instanceName}
-    // and routes them to the appropriate DO
-
-    const response = await routeDORequest(request, env, {
-      prefix: 'gateway',
-      ...authHooks,
+/**
+ * A node that hosts Clients, as a scope's node does: a `ScopedMeshDO`, which composes `ClientGateway`
+ * and checks passage on every call. A Client on `h-1a2b3c4d`'s host is `h-1a2b3c4d/{sub}.{tabId}`
+ * under `CLIENT_HOST_DO`, and every scope a test claims names one.
+ */
+export class ClientHostDO extends ScopedMeshDO<Env> {
+  /**
+   * The marker a test counts to see how many times this host admitted a call. It never calls
+   * `super`, which passage does not need: the base runs its passage step before this hook.
+   */
+  override onBeforeCall(): void {
+    debug('test.ClientHostDO.onBeforeCall').debug('host admitted a call', {
+      instanceName: this.lmz.instanceName,
+      origin: this.lmz.callContext.callChain[0]?.instanceName,
     });
+  }
 
-    if (response) {
-      return response;
-    }
+  @mesh()
+  echo(value: unknown): unknown {
+    return value;
+  }
 
-    return new Response('OK');
-  },
+  /** No `@mesh()`: a call naming it is refused, in place or over RPC. */
+  secret(): string {
+    return 'secret';
+  }
+
+  @mesh(() => { throw new Error('Guard: hosts only'); })
+  guarded(): string {
+    return 'guarded';
+  }
+
+  /** Runs only for a caller holding dominion over this node. */
+  @mesh(requireDominionHere)
+  adminOnly(): string {
+    return 'admin';
+  }
+
+  /** Push `value` to the Client named `clientName` on this host, keeping its answer under `tag`. */
+  @mesh()
+  pushTo(clientName: string, value: string, tag: string): void {
+    this.lmz.call('CLIENT_HOST_DO', clientName, this.ctn<HostedTestClientShape>().receive(value), this.ctn<ClientHostDO>().keepAnswer(tag));
+  }
+
+  keepAnswer(tag: string, result?: unknown): void {
+    this.ctx.storage.kv.put(`answer:${tag}`, result instanceof Error ? `Error: ${result.message}` : result);
+  }
+
+  @mesh()
+  answerFor(tag: string): unknown {
+    return this.ctx.storage.kv.get(`answer:${tag}`);
+  }
+
+  /**
+   * Start a claimless chain here, as an alarm or a `newChain` does, calling `echo` on the host node
+   * `target`; the answer, or the refusal, is kept under `tag`.
+   */
+  @rawRpc()
+  startChainTo(target: string, tag: string): void {
+    this.lmz.call('CLIENT_HOST_DO', target, this.ctn<ClientHostDO>().echo(tag), this.ctn<ClientHostDO>().keepAnswer(tag));
+  }
+
+  /** {@link pushTo}, reached by our own code rather than a Client, so the push starts here. */
+  @rawRpc()
+  pushFromHere(clientName: string, value: string, tag: string): void {
+    this.pushTo(clientName, value, tag);
+  }
+
+  /** Close every hosted Client's socket with `code`, as a host about to be deleted does. */
+  @mesh()
+  closeEveryClient(code: number): void {
+    this.__clientGateway.closeAll(code, 'test host closing');
+  }
+}
+
+/**
+ * An unscoped node whose `onBeforeCall` never calls `super`, for the refusal of a scope-shaped name
+ * at the identity stamp, which no override can skip.
+ */
+export class RoomDO extends UnscopedMeshDO<Env> {
+  override onBeforeCall(): void {}
+
+  @mesh()
+  whoAmI(): string | undefined {
+    return this.lmz.instanceName;
+  }
+
+  @rawRpc()
+  rawWhoAmI(): string | undefined {
+    return this.lmz.instanceName;
+  }
+}
+
+/** The shape of the hosted test Client's push handler, which `ClientHostDO.pushTo` names. */
+interface HostedTestClientShape {
+  receive(value: string): string;
+}
+
+// The Worker: Mesh's auth routes, and a Client's upgrade on a scope's host, which reaches the
+// `ClientHostDO` that host spells.
+export default {
+  fetch: meshTestFetch(TIERS),
 };
-

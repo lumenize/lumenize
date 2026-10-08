@@ -3,25 +3,27 @@
  * extend (per-type conflict resolvers, first-run resource bootstrap). Components
  * import `{ client, store }` from here; NebulaClient never appears in component code.
  *
- * Scope is SERVER-DERIVED: DevContainer.fetch() injects `<meta name="nebula-scope">`
- * into the shell at serve time (activeScope/authScope/appVersion from the routed
- * instance identity — never request-supplied; the wrong-Star footgun guard). The
- * prod static-serve injects the same meta. We read it here, never a URL/query value.
+ * The page names no scope: the client takes it from its first token, which the platform host's
+ * refresh mints for this page's host. The Galaxy's serve injects `<meta name="nebula-scope">` into
+ * the shell (the ontology version this app was built against, whether it is the dev Star, and the
+ * Studio origin a framed page reports to) and `<meta name="lumenize-origin">`; the factory reads
+ * the second itself.
  *
- * ⚠️ Assembled-image wiring: `@lumenize/nebula/frontend` is a private workspace package
+ * ⚠️ Assembled-image wiring: `@lumenize/resources/frontend` is a private workspace package
  * (not on npm), so it is VENDORED into the container image at image build — the seed
  * App.vue boots standalone (doesn't import this file) so the image self-validates
- * vite+HMR without the factory; DevStudio's first `applyChanges` pushes an App.vue
- * that imports `{ client, store }` from here once the frontend is vendored. The
- * assembled preview (factory + live Star) rides the e2e run with `wrangler dev` + Docker Desktop (task Phase 3.5).
+ * vite+HMR without the factory; the Galaxy seeds an App.vue into its own source tree
+ * at git-init that imports `{ client, store }` from here, and the container's
+ * `/workspace` IS that tree (a FUSE mount of the DO's VFS — there is no push step).
+ * The assembled preview (factory + live Star) rides the e2e run with `wrangler dev` + Docker Desktop.
  */
 // @ts-expect-error — vendored at deploy build (see header); unresolved in the baked tree.
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 
 interface NebulaScope {
-  activeScope: string; // {u}.{g}.dev in dev; the deployed star in prod
-  authScope: string;   // parent galaxy {u}.{g}
-  appVersion: string;
+  // ABSENT until an ontology is applied. An app with no resources never needs one and boots
+  // without it; the resource plane refuses per op with NoOntologyInstalledError.
+  ontologyVersion?: string;
 }
 
 function readInjectedScope(): NebulaScope {
@@ -32,25 +34,10 @@ function readInjectedScope(): NebulaScope {
   return JSON.parse(content) as NebulaScope;
 }
 
-const { activeScope, authScope, appVersion } = readInjectedScope();
+const { ontologyVersion } = readInjectedScope();
 
-// Dev preview only: enable the live reload channel so an ontology change re-syncs this
-// preview onto the new version (Decision 12 / Flow 1d). Segment-precise `.dev` check
-// (env detection — NOT a hot-path branch); prod previews leave `onReload` unset and
-// rely on the once-per-session `onShouldRefreshUI` backstop. Setting `onReload` is what
-// makes NebulaClient subscribe to the Star's reload channel on connect.
-const segs = activeScope.split('.');
-const isDevPreview = segs.length === 3 && segs[2] === 'dev';
+// With no session, the factory sends a top-level page to log in and brings it back here, and a
+// page framed in Studio tells Studio instead; `ready` rejects either way.
+export const { client, store, ready } = createNebulaClient({ ontologyVersion });
 
-export const { client, store, ready } = createNebulaClient({
-  appVersion,
-  authScope,
-  activeScope,
-  ...(isDevPreview ? { onReload: () => window.location.reload() } : {}),
-});
-
-try {
-  await ready;
-} catch {
-  window.location.assign('/login');
-}
+await ready.catch(() => { /* the factory has already acted on it */ });

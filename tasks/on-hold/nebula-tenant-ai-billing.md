@@ -23,6 +23,25 @@ Attribute Cloudflare costs to individual Nebula tenants (= scopes; **one Star DO
 ### AI token cost — self-owned, billing-grade
 Don't rely on AI Gateway's cost number for billing — Cloudflare explicitly calls it *"best-effort estimation… refer to your provider's dashboard for exact billing."* We already capture **exact** per-turn token usage in-process and multiply by a known rate table (`cost.ts`). That's the source of truth: provider-agnostic, exact, no dependency on AIG.
 
+> ⚠️ **Updated 2026-08-07 — Cloudflare merged Workers AI and AI Gateway into one control plane**
+> ([blog](https://blog.cloudflare.com/workers-ai-gateway-unification/)). Read this before the two
+> subsections below; it changes their *setup cost* and one of their *criteria*, not their conclusion.
+> - **The ledger conclusion SURVIVES.** Cloudflare still documents the gateway cost metric as an
+>   estimation and points at the provider's dashboard for accuracy, so the self-owned in-process
+>   ledger stays the source of truth. Nothing in § *AI token cost — self-owned, billing-grade* moves.
+> - **Instrumentation setup collapsed to zero.** Passing `default` as the gateway id creates the
+>   gateway on first authenticated request — no dashboard step, so the § *Binding-only* claim now
+>   holds for provisioning too, not just runtime. The unified REST entry point takes the gateway as a
+>   `cf-aig-gateway-id` header on the ordinary `/ai/run/{model}` URL, so the metadata/tagging path is
+>   identical on the binding lane and the REST lane instead of diverging by base URL.
+> - **A criterion this file never had: unified billing now covers Workers AI**, and buys elevated
+>   rate limits on Workers AI models — i.e. throughput headroom on the model Studio actually runs,
+>   not just a payment convenience. Terms are unchanged otherwise (5% on credit *purchase*, provider
+>   per-token rates passed through). See the amended bullet in § *AI Gateway vs Analytics Engine*.
+> - **Verified locally 2026-08-07:** the `WORKERS_AI_TOKEN` we ship for the hosted lane is
+>   inference-scoped — it 403s on `/accounts/{id}/ai-gateway/gateways`. So adopting a gateway on that
+>   lane needs no new token, but *creating or reading* one is dashboard / broader-token work.
+
 ### AI Gateway custom metadata — runtime guardrail, NOT the ledger
 `GatewayOptions.metadata` (the `cf-aig-metadata` header) tags each call with `{ tenantId: scope }`. One-line change in the Think arm's `getModel()`. What it buys:
 - **Per-tenant spend limits** (added 2026-06-05): cost-based budgets scoped by metadata dimension → auto-`429` *or* auto-fallback to a cheaper model (Opus→Kimi) on breach. Genuinely useful for the high-volume in-app context.
@@ -67,6 +86,7 @@ Inside the DO the clock is dead (clock-trap), so you can't time CPU/wall in-isol
 
 ### AI Gateway vs Analytics Engine — settled: not either/or, and cost isn't the axis
 - AIG **core is free** (we'd skip the paid bits: Guardrails, Logpush export, Unified Billing's 5% markup). AE is free-now + tiny future per-M. **Neither has meaningful marginal cost at our scale** → cost is not the discriminator.
+  - ⚠️ **The Unified Billing half of that parenthetical is stale as of 2026-08-07 and MUST be re-priced, not re-cited.** It was decided when unified billing reached only third-party providers, so the only thing on offer was paying for someone else's tokens through Cloudflare — pure convenience, easy to skip at 5%. It now covers **Workers AI**, and carries elevated rate limits on Workers AI models. That puts *throughput on our own generator model* on the buy side of the ledger, which is a different question from the one that got answered. Skipping it may still be right; it is no longer right *for the stated reason*.
 - AIG can *only* see AI calls — blind to requests/CPU/wall/storage. You need a unified ledger for those regardless. So: **self-owned ledger = source of truth; AIG = optional runtime guardrail.**
 
 ## Proxy-metering fallback (shared costs + reconciliation)
@@ -86,7 +106,9 @@ With the Tail Worker path making most dimensions *directly* attributable, the fa
 ## Open questions / next steps
 - [ ] Verify `durableObjectId` populated on Star trace events + maps to scope.
 - [ ] Tail Worker setup; ledger schema (DO vs D1); per-tenant-per-window aggregation.
-- [ ] Wire `gateway.metadata = { tenantId }` in the agent's `getModel()`; configure per-tenant spend limits.
+- [ ] Wire `gateway.metadata = { tenantId }` in the agent's `getModel()`; configure per-tenant spend limits. **Now also covers `apps/nebula/src/dev-studio.ts` `callModel`/`#callModelRest`** — post-unification both lanes take the same gateway id + metadata (binding option vs `cf-aig-gateway-id` header), which also collapses that method's two-base-URL branch into one URL.
+- [ ] **Decide what the gateway is allowed to STORE, separately from what it meters.** Enabling a gateway logs full request *and response* payloads by default — for Studio that is user-developer prompts and generated source, and for in-app AI it will be tenants' end-user prompts, all in our account's logs. `cf-aig-collect-log-payload: false` keeps the metadata this file needs (tokens, cost, duration) while dropping the bodies. ⚠️ **The two goals genuinely disagree and neither is wrong** — billing needs metadata only, while `docs/vision/self-improving-platform.md` names AI Gateway as the outcome/telemetry harvest layer and therefore *wants* the bodies. Decide it as a policy per surface, not as a default inherited from whoever wires the gateway first.
+- [ ] Re-price unified billing against Workers AI rate-limit headroom (see § *AI Gateway vs Analytics Engine*).
 - [ ] Decide customer-facing pricing model + which dimensions/units to expose.
 - [ ] Decide markup factor / margin.
 - [ ] If CMA is ever used (recommendation is Think/Kimi): route Anthropic through AIG-as-provider for tagging.

@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { effect, effectScope } from '@vue/reactivity';
-import { createNebulaStore } from '../../src/frontend/create-nebula-client';
+import { createNebulaStore } from '../../../../packages/resources/src/frontend/create-nebula-client';
 import { MockClient } from './mock-client';
 
 function setup(initialState: Record<string, any> = {}) {
@@ -419,5 +419,19 @@ describe('server fanout', () => {
     // Different — should fire
     client.simulateFanout('todo', 'task-1', { value: { title: 'y' }, meta: { eTag: 'e2' } });
     expect(fires).toBe(2);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// `ResourceStoreEntry.deniedNodes` is required, and an entry no subscription has answered for yet
+// still carries it — `[]`, since whoever painted the value holds it.
+// ──────────────────────────────────────────────────────────────────────────
+describe('store entry access', () => {
+  it('a transaction-painted create carries `deniedNodes: []` before any subscription answers', async () => {
+    const { store, client } = setup({});
+    const done = client.transactionOps({ 'task-9': { rt: 'todo', op: 'create', value: { title: 'new' } } as any });
+    expect(store.resources.todo['task-9'].value).toEqual({ title: 'new' });
+    expect(store.resources.todo['task-9'].deniedNodes).toEqual([]);
+    await done;
   });
 });

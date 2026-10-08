@@ -1,240 +1,463 @@
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
-import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
-import { createNebulaClient } from "@lumenize/nebula/frontend";
+import { viewState, navigate, leaveTo, pageScope, scopeUrl, platformUrl } from "./view-state";
+import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { Send, RotateCw, Eraser, Loader2, User, UserRound, LogOut, Home, Mail, Settings } from "lucide-vue-next";
+import UniverseView from "./UniverseView.vue";
+import AppSettings from "./AppSettings.vue";
+import ConfirmDelete from "./ConfirmDelete.vue";
+import HostWait from "./HostWait.vue";
+import { needsFreshLogin } from "./auth/home-logic";
+import { createNebulaClient } from "@lumenize/resources/frontend";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/client";
+import type { FactoryResult } from "@lumenize/resources/frontend";
+import type { TurnLiveness } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
 
-// You build your hierarchy explicitly — claim a Universe, add a Galaxy, add a `.dev` Star, open it
-// to author. No magic first-run, no `?scope=` sidestep (tasks/nebula-release-process.md § B2 + the
-// hierarchy-builder sidebar). `authScope` = where you logged in (the refresh-cookie scope);
-// `activeScope` = the scope you're working IN (a `.dev` Star under your authority). They differ once
-// you "open" a Star: your Universe cookie mints a token whose admin pattern reaches the Star.
-const SCOPE_KEY = "nebula.authScope";
-// Scope comes from the path: `/app/{scope}` — the canonical, and ONLY, form the magic link redirects
-// to. There is deliberately NO `?scope=` fallback: a second way in is an interim that gets reached for
-// later (the unlearning tax). The single-page-application fallback serves index.html for `/app/*`
-// (prod Workers Assets; dev via the vite plugin), so the scope rides the path.
-const pathScope = location.pathname.match(/^\/app\/([^/?#]+)/)?.[1];
-const urlScope = pathScope ? decodeURIComponent(pathScope) : undefined;
-const authScope = ref<string | undefined>(urlScope ?? localStorage.getItem(SCOPE_KEY) ?? undefined);
-const activeScope = ref<string | undefined>(authScope.value);
+// The scope this Studio works in is its HOST's: `crm.acme.lumenize.dev` is the galaxy `acme.crm`,
+// and `acme.lumenize.dev` the universe `acme`, whose page lists its apps (ADR-021). Its tier picks
+// the view. The client names no scope: its token comes from the platform host's refresh, which reads
+// this page's host from `Origin` and answers with that host's scope as the token's `aud`.
+const activeScope = pageScope;
 
+// ── The URL, through src/view-state.ts only: `viewState` reads it, `navigate` / `leaveTo` write it ──
+const overlay = computed(() => viewState.value.overlay);
+
+// LOCAL notices only (login guidance, errors, nudges). The CONVERSATION renders from the
+// durable Message subscription below — never from a local echo (D-echo: the sender sees
+// its own message via the fanout, like everyone else).
 type Msg = { role: "you" | "studio" | "error" | "thought"; text: string };
 const messages = ref<Msg[]>([]);
 const input = ref("");
 const connected = ref(false);
 const connecting = ref(false); // post-magic-link auto-connect in flight (shows "Signing you in…")
 const busy = ref(false);
-const thinking = ref(false);
-const previewSrc = ref("");
-const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
-// login
-const email = ref("");
-const sentTo = ref<string | null>(null);
-const needsClaim = ref(false);
-const sessionExpired = ref(false); // a mid-session terminal auth failure flipped us back to login
-const claimSlug = ref("");
+// ── The live thread (the durable `Message` subscription) ──
+// Membership rides the query subscription (ids only); content + meta auto-subscribe by
+// READING `store.resources.Message[id]` in the render, and every participant's display
+// name auto-subscribes by reading `store.lmz.profiles[profileId]` (refcounted; a name
+// set later back-fills every earlier message).
+const messageIds = ref<string[]>([]);
+type ChatSub = { resourceIds: string[]; setRenderWindow(ids: string[]): void; onChange(cb: () => void): void; ready: Promise<void> } & Disposable;
+let chatSub: ChatSub | null = null;
+/** The in-flight transient stream (best-effort animation; the durable Message is truth). */
+const streaming = ref<{ id: string; text: string } | null>(null);
+// ── The live transcript: a compact strip by default, the full text on request ──
+// Token streaming is an unreadable scroll at speed, so the thread shows only a pulse and the tail
+// of the latest text; clicking opens a modal with everything so far. The transcript survives the
+// stream's end while the modal is open — a reader mid-page is not interrupted by the durable
+// message landing — and is dropped on close.
+/** Open when the URL names a message's transcript; the text shown is the stream held for it. */
+const streamModalOpen = computed(() => overlay.value.transcript !== undefined);
+const streamTranscript = ref("");
+watch(() => streaming.value?.text, (text) => { if (text !== undefined) streamTranscript.value = text; });
+const streamTail = computed(() => {
+  const t = streaming.value?.text ?? "";
+  const tail = t.length > 80 ? `…${t.slice(-80)}` : t;
+  return tail.replace(/\s+/g, " ");
+});
+const transcriptEl = ref<HTMLPreElement | null>(null);
+watch(streamTranscript, async () => {
+  if (!streamModalOpen.value) return;
+  await nextTick();
+  transcriptEl.value?.scrollTo({ top: transcriptEl.value.scrollHeight });
+});
+function openStreamModal() {
+  if (streaming.value) navigate({ transcript: streaming.value.id });
+}
+function closeStreamModal() {
+  navigate({ transcript: undefined });
+  if (!streaming.value) streamTranscript.value = "";
+}
+/** The URL names a message whose stream this page never held (a shared link after the fact). */
+const transcriptMissing = computed(() =>
+  overlay.value.transcript !== undefined && streaming.value?.id !== overlay.value.transcript && !streamTranscript.value);
+/** The id of MY last posted message — "thinking" until an agent reply links back to it. */
+const lastPostedId = ref<string | null>(null);
+/** Liveness of MY in-flight turn (src/turn-liveness.ts): chunks are a hint, the durable
+ *  reply is truth, `failed` means re-send by hand — nothing retries automatically. */
+const turn = ref<TurnLiveness | null>(null);
+
+function openChatThread(client: { resources: { subscribeQuery(q: unknown): unknown } }) {
+  closeChatThread();
+  const sub = client.resources.subscribeQuery({
+    queryType: "parentChild", typeName: "Message", field: "chat", value: DEFAULT_CHAT_ID,
+  }) as ChatSub;
+  const sync = () => {
+    messageIds.value = [...sub.resourceIds];
+    sub.setRenderWindow(sub.resourceIds); // the pre-alpha thread is small — render it all
+    // A durable message supersedes its transient stream.
+    if (streaming.value && sub.resourceIds.includes(streaming.value.id)) streaming.value = null;
+  };
+  sub.onChange(sync);
+  sub.ready.then(sync).catch(() => { /* denied/failed — the thread just stays empty */ });
+  chatSub = sub;
+}
+function closeChatThread() {
+  try { chatSub?.[Symbol.dispose](); } catch { /* already released */ }
+  chatSub = null;
+  messageIds.value = [];
+  streaming.value = null;
+  lastPostedId.value = null;
+  turn.value = null;
+}
+
+/** One face on the avatar stack: the display name (its hover is the full name), the picture if
+ *  there is one, and the kind — a fallback initial stands in for a missing picture. */
+type Party = { name: string; title?: string; picture?: string; kind: "agent" | "human" };
+type ThreadMsg = {
+  id: string; kind: "agent" | "human"; mine: boolean; byline: string; title?: string;
+  /** Front-to-back. An act-bearing message stacks the ACTOR in front of the SUBJECT — the agent on top,
+   *  the person it ran for behind, offset just enough to stay hoverable. A plain message is one face. */
+  stack: Party[];
+  content: string; thought?: string;
+};
+/** What a hover reveals: the full name, when the person set one and it is not what the byline
+ *  already shows. A `title` rather than a hover-only widget, so assistive tech and keyboards get
+ *  it too — hover alone is invisible to both. */
+function participantTitle(p: { kind: "agent" | "human"; profileId?: string }): string | undefined {
+  const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
+  return prof?.name && prof.name !== participantName(p) ? prof.name : undefined;
+}
+function participantPicture(p: { kind: "agent" | "human"; profileId?: string }): string | undefined {
+  const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { picture?: string } }>)?.[p.profileId]?.value : undefined;
+  return prof?.picture || undefined;
+}
+function participantName(p: { kind: "agent" | "human"; profileId?: string }): string {
+  const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
+  return prof?.nickname || prof?.name || (p.kind === "agent" ? "Lumenize" : "Someone");
+}
+const thread = computed<ThreadMsg[]>(() => {
+  const store = nebula.value?.store;
+  if (!store) return [];
+  const mySub = (nebula.value?.client as { claims?: { sub?: string } } | undefined)?.claims?.sub;
+  const out: ThreadMsg[] = [];
+  for (const id of messageIds.value) {
+    const snap = (store.resources as Record<string, Record<string, { value?: Record<string, unknown>; meta?: { actingToken?: never } }>>).Message?.[id];
+    if (!snap?.value || !snap?.meta) continue; // content sub still loading
+    const at = (snap.meta as { actingToken: Parameters<typeof deriveParticipants>[0] }).actingToken;
+    const parties = deriveParticipants(at);
+    out.push({
+      id,
+      kind: parties[0]!.kind,
+      mine: at.sub === mySub && parties.length === 1,
+      // The WHOLE-chain byline, top-down: "Lumenize for {coach} for {user}" — every party
+      // resolved via its own Profile (the read IS the subscription).
+      byline: parties.map(participantName).join(" for "),
+      // The full names behind the byline, in the same order — shown on hover.
+      title: parties.map(participantTitle).filter(Boolean).join(" for ") || undefined,
+      stack: (parties.length > 1 ? [parties[0]!, parties[parties.length - 1]!] : [parties[0]!]).map((p) => ({
+        name: participantName(p), title: participantTitle(p), picture: participantPicture(p), kind: p.kind,
+      })),
+      content: String(snap.value.content ?? ""),
+      thought: typeof snap.value.thought === "string" ? snap.value.thought : undefined,
+    });
+  }
+  return out;
+});
+// ⚠️ **No profile-completion gate here, deliberately.** A nickname is collected ONCE, at the
+// consent modal every arrival passes through (`ConsentModal.vue` / `canAccept`), so by the time
+// anyone reaches a Studio or Universe surface they already have one. Re-introducing a blocking
+// modal on this screen would interrupt a person mid-task to ask a question that was answered
+// before they got here — and, when two dialogs were open at once, it made Save unclickable.
+// A person who somehow arrives without a nickname degrades to `participantName`'s "Someone".
+
+// The durable agent reply linking back to my last posted message — TRUTH (the
+// transient stream is only a hint). Settles the liveness reducer, clearing any
+// spurious `failed`, however late it lands (reconciliation).
+const replyLanded = computed(() => {
+  const posted = lastPostedId.value;
+  if (!posted) return false;
+  const store = nebula.value?.store;
+  if (!store) return false;
+  for (const id of messageIds.value) {
+    const v = (store.resources as Record<string, Record<string, { value?: { replyTo?: string } }>>).Message?.[id]?.value;
+    if (v?.replyTo === posted) return true;
+  }
+  return false;
+});
+watch(replyLanded, (landed) => {
+  if (landed && turn.value) turn.value = settleTurn(turn.value);
+});
+// Thinking: my message posted, no agent reply linking back to it yet (the template
+// shows the failed banner instead once the idle window lapses).
+const thinking = computed(() => !!lastPostedId.value && !replyLanded.value);
+// WHICH status bubble shows — derived, never template-order (see deriveTurnDisplay's
+// JSDoc: a `failed` turn must outrank a frozen partial stream, which nothing clears).
+const turnDisplay = computed(() => deriveTurnDisplay({
+  streaming: !!streaming.value && !messageIds.value.includes(streaming.value.id),
+  phase: turn.value?.phase,
+  awaitingReply: thinking.value,
+}));
+// The idle ticker: a coarse sweep is all the reducer needs (the window is 90s), and
+// a spurious `failed` self-heals on the durable reply.
+let turnTicker: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  turnTicker = setInterval(() => {
+    if (turn.value) turn.value = evaluateTurn(turn.value, Date.now());
+  }, 5_000);
+});
+onUnmounted(() => clearInterval(turnTicker));
+
+// ── Visible motion while the turn is silent ──
+// The model is called whole-response, so nothing CAN arrive from it for tens of seconds at a time
+// and the spinner is all a person has. An elapsed counter is truthful motion at 1 Hz, driven
+// locally from when the turn was posted — no server involvement, and no pretence of progress.
+// (Real cadence is token streaming, parked with the model-lane decision in backlog.md.)
+const turnStartedAt = ref<number | null>(null);
+const nowTick = ref(Date.now());
+let elapsedTicker: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  elapsedTicker = setInterval(() => { if (turn.value) nowTick.value = Date.now(); }, 1_000);
+});
+onUnmounted(() => clearInterval(elapsedTicker));
+const elapsedSec = computed(() =>
+  turnStartedAt.value === null ? 0 : Math.max(0, Math.floor((nowTick.value - turnStartedAt.value) / 1000)),
+);
+const previewSrc = ref("");
+const nebula = shallowRef<FactoryResult<StudioClient> | null>(null);
 
 // account / hierarchy
 const menuOpen = ref(false);
-const manageOpen = ref(false);
-const accountEmail = ref<string | null>(null);
-type Scope = { instanceName: string; tier: string; isDev: boolean };
-const scopes = ref<Scope[]>([]);
-const addChildFor = ref<string | null>(null); // a Universe row whose "name a Galaxy" input is open
-const addChildSlug = ref("");
-type DeletionPlan = { affected: Scope[]; blockedBy: { instanceName: string; email: string }[] };
-const deleteTarget = ref<string | null>(null);
-const deletePlan = ref<DeletionPlan | null>(null);
+
+// ── My profile — the ONE place to change how I appear, reached from the avatar menu ──
+// The nickname is first collected at the consent modal every arrival passes through; this is where
+// it (and an optional full name) can be changed afterwards.
+const profileOpen = computed(() => overlay.value.profile && connected.value);
+const profileNickname = ref("");
+const profileFullName = ref("");
+const profileSaving = ref(false);
+/** The picture chosen in the editor this session: uploaded the moment it is picked (so the
+ *  preview is the real served object), written into the Profile on Save with the names. */
+const profilePicture = ref<string | undefined>();
+const pictureUploading = ref(false);
 
 const log = (role: Msg["role"], text: string) => messages.value.push({ role, text });
 
-const isDevStar = (s?: string) => !!s && s.split(".").length === 3 && s.endsWith(".dev");
-// Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (only when
-// you're inside a `.dev` Star) > the Universe/Galaxy/Star help (the default, incl. first use).
-const stageMode = computed<"manage" | "preview" | "help">(() =>
-  manageOpen.value ? "manage" : connected.value && isDevStar(activeScope.value) ? "preview" : "help",
+// Post-collapse Studio's WORKING scope is the app-level GALAXY ({u}.{g}); the preview it embeds
+// is per-STAR, composed as the galaxy + `.dev` — the one surface where the split is real.
+const isWorkspace = (s?: string) => !!s && s.split(".").length === 2;
+
+/** MY live public profile — the same slot every byline reads, so a save here re-renders them all. */
+const myProfile = computed<{ name?: string; nickname?: string; picture?: string } | undefined>(() => {
+  const pid = (nebula.value?.client as { claims?: { profileId?: string } } | undefined)?.claims?.profileId;
+  if (!pid) return undefined;
+  return (nebula.value?.store.lmz.profiles as
+    Record<string, { value?: { name?: string; nickname?: string; picture?: string } }> | undefined)?.[pid]?.value;
+});
+
+/** Seed the form from the live snapshot each time it opens — never from stale local refs. */
+function openProfile() {
+  menuOpen.value = false;
+  navigate({ profile: true });
+}
+function closeProfile() { navigate({ profile: false }); }
+// Seeded from the live profile while the editor is open and UNTOUCHED — whichever lands last, the
+// opening or the profile. Arriving by URL opens the editor the moment the socket connects, before
+// the profile subscription has delivered, so seeding once on open would seed from nothing; the
+// button path never saw that because the profile had long arrived.
+const profileDirty = ref(false);
+watch([profileOpen, myProfile], ([open, mine]) => {
+  if (!open) { profileDirty.value = false; return; }
+  if (profileDirty.value) return;
+  profileNickname.value = mine?.nickname ?? "";
+  profileFullName.value = mine?.name ?? "";
+  profilePicture.value = mine?.picture;
+}, { immediate: true });
+
+const canSaveProfile = computed(() => profileNickname.value.trim().length > 0 && !profileSaving.value);
+
+async function saveProfile() {
+  if (!canSaveProfile.value) return;
+  profileSaving.value = true;
+  try {
+    const name = profileFullName.value.trim();
+    // ⚠️ `writeProfile` REPLACES the whole public set — an omitted field is written as NULL, not
+    // left alone — so the picture always rides: the one just uploaded, else the one on file.
+    const picture = profilePicture.value ?? myProfile.value?.picture;
+    await nebula.value!.client.updateMyProfile({
+      nickname: profileNickname.value.trim(),
+      ...(name ? { name } : {}),
+      ...(picture ? { picture } : {}),
+    });
+    closeProfile();
+  } catch (e) {
+    log("error", `Could not save your profile: ${(e as Error).message}`);
+  } finally {
+    profileSaving.value = false;
+  }
+}
+
+/** Shrink to an avatar before upload — the server caps bytes, but a phone photo is 10× that and
+ *  nobody needs it at full size next to a chat bubble. Falls back to the original if decoding
+ *  fails (an odd container the browser cannot draw); the server still sniffs and bounds it. */
+async function downscaleImage(file: File, max = 512): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size <= 256 * 1024) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("could not encode the picture"))), "image/png"));
+  } catch {
+    return file;
+  }
+}
+
+async function onPictureChosen(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ""; // so picking the same file again still fires `change`
+  if (!file || !nebula.value) return;
+  pictureUploading.value = true;
+  try {
+    profilePicture.value = await nebula.value.client.uploadProfilePicture(await downscaleImage(file));
+  } catch (err) {
+    log("error", `Could not upload that picture: ${(err as Error).message}`);
+  } finally {
+    pictureUploading.value = false;
+  }
+}
+const previewStar = (s: string) => `${s}.dev`;
+// Chat lives at the GALAXY ({u}.{g}) post-collapse — one thread shared across the galaxy's
+// stars. A universe-only scope has no galaxy, so no chat pair is passed and the client's
+// #chatHost() throws loudly if a chat call is attempted there.
+const galaxyOf = (s?: string) => {
+  const parts = (s ?? "").split(".");
+  return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : undefined;
+};
+const chatPair = (s?: string) => {
+  const g = galaxyOf(s);
+  // Post-collapse Studio's DATA plane is the galaxy too: the thread subscription and its
+  // per-message content reads ride `client.resources.*`, so the RESOURCE pair must point
+  // at the GALAXY alongside the chat pair (the 'STAR' default stays for generated apps —
+  // Studio is a specific consumer choosing its plane, the same shape every baseline
+  // fixture and harness driver uses).
+  return g ? { resourceHostBinding: "GALAXY", chatHostBinding: "GALAXY", chatScope: g } : {};
+};
+// Stage content: the live preview (inside a workspace) > the Universe page (a one-segment account
+// scope, where you create and open apps). Until the client connects the stage says it is signing in;
+// with no session at all the client sends this page to log in and brings it back.
+const stageMode = computed<"preview" | "universe" | "connecting">(() =>
+  !connected.value ? "connecting"
+    : isWorkspace(activeScope) ? "preview"
+    : "universe",
 );
 
-// A session worth a "Log out" affordance even before the WS connects (e.g. a stale cookie that
-// failed to auto-connect, or a half-finished login) — so logout never vanishes when the avatar does.
-const hasSession = computed(() => !!(authScope.value || localStorage.getItem(SCOPE_KEY)));
+/** The dev Star's own host — the as-you dev tab this Studio frames, and the only page it frames. */
+const devTabUrl = (galaxy: string) => scopeUrl(previewStar(galaxy));
+const devTabOrigin = activeScope && isWorkspace(activeScope) ? new URL(devTabUrl(activeScope)).origin : undefined;
 
 function reloadPreview() {
-  if (activeScope.value) previewSrc.value = `/dev-container/${activeScope.value}/?t=${Date.now()}`;
+  if (activeScope && isWorkspace(activeScope)) previewSrc.value = `${devTabUrl(activeScope)}?t=${Date.now()}`;
 }
 
-// ── Universe-slug suggestion ─────────────────────────────────────────────────
-// Company domain → the domain (john@acme.com → acme-com); a common/shared personal domain → the
-// local part (cassidy.perkins@lumenize.com → cassidy-perkins). Sanitized to a valid slug.
-const COMMON_DOMAINS = new Set([
-  "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com", "aol.com", "live.com",
-  "msn.com", "proton.me", "protonmail.com", "me.com",
-  "maccherone.com", "lumenize.com", // alpha-user shared domains → treat like personal
-]);
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-+/g, "-");
-}
-function suggestUniverseSlug(emailAddr: string): string {
-  const [local, domain] = emailAddr.toLowerCase().split("@");
-  if (!domain) return slugify(local ?? "");
-  return COMMON_DOMAINS.has(domain) ? slugify(local ?? "") : slugify(domain);
+// ── session ──────────────────────────────────────────────────────────────────
+// ⚠️ **There is deliberately no login code here.** Signing in lives on the platform host, which
+// serves every tier — a Tenant who never sees Studio needs the same front door. Studio only ever
+// ARRIVES authenticated: with no session, the client sends this page to log in, naming it in
+// `return_to`, and the login brings the person back.
+
+/** Back to Home to pick a different Account, App or Tenant. */
+function goHome() {
+  menuOpen.value = false;
+  leaveTo(platformUrl("/"));
 }
 
-// ── login ────────────────────────────────────────────────────────────────────
-async function discover(emailAddr: string): Promise<{ instanceName: string; isAdmin: boolean }[]> {
-  const res = await fetch(`/auth/discover`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: emailAddr }),
-  });
-  if (!res.ok) throw new Error(`discover ${res.status}: ${await res.text().catch(() => "")}`);
-  return (await res.json()) as { instanceName: string; isAdmin: boolean }[];
+/**
+ * What the dev tab inside this Studio says about its session. The frame's client posts when it has
+ * no token for the dev Star, or when someone logs out inside it; either way Studio's own session is
+ * untouched, and the stage says so. ⚠️ Only a message from the frame this page created, at the
+ * origin it framed, is read — any other page could post the same shape.
+ */
+const previewNotice = ref<string | undefined>();
+const previewFrame = ref<HTMLIFrameElement | null>(null);
+function onFrameMessage(e: MessageEvent) {
+  if (!devTabOrigin || e.origin !== devTabOrigin || e.source !== previewFrame.value?.contentWindow) return;
+  const type = (e.data as { type?: unknown } | null)?.type;
+  if (type === "lumenize:login-required") previewNotice.value = "The preview has no session for its workspace.";
+  else if (type === "lumenize:logout") previewNotice.value = "You logged out inside the preview. Your Studio session is unchanged.";
 }
-
-function rememberAuthScope(s: string) {
-  authScope.value = s;
-  activeScope.value = s;
-  localStorage.setItem(SCOPE_KEY, s);
-}
-
-async function sendMagicLink() {
-  const e = email.value.trim();
-  if (!e || busy.value) return;
-  busy.value = true;
-  try {
-    let target = urlScope; // an explicit `/app/{scope}` (the post-login redirect / ui-smoke) bypasses discovery
-    if (!target) {
-      const entries = await discover(e);
-      if (entries.length === 1) {
-        target = entries[0]!.instanceName;
-      } else if (entries.length === 0) {
-        claimSlug.value = suggestUniverseSlug(e); // prefill the suggestion
-        needsClaim.value = true;
-        return;
-      } else {
-        log("error", `${entries.length} workspaces for ${e} — the picker is a later feature. Open the per-workspace link for now.`);
-        return;
-      }
-    }
-    rememberAuthScope(target);
-    const res = await fetch(`/auth/${target}/email-magic-link`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email: e }),
-    });
-    if (!res.ok) throw new Error(`magic-link ${res.status}: ${await res.text().catch(() => "")}`);
-    sentTo.value = e;
-  } catch (err) {
-    log("error", `Login failed: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function claimUniverse() {
-  const slug = claimSlug.value.trim();
-  const e = email.value.trim();
-  if (!slug || !e || busy.value) return;
-  busy.value = true;
-  try {
-    const res = await fetch(`/auth/claim-universe`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ slug, email: e }),
-    });
-    if (!res.ok) throw new Error(`claim ${res.status}: ${await res.text().catch(() => "")}`);
-    rememberAuthScope(slug);
-    needsClaim.value = false;
-    sentTo.value = e;
-  } catch (err) {
-    log("error", `Claim failed: ${(err as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-/** A terminal auth failure (refresh token expired/invalid) on an ALREADY-connected tab — fired
- *  by the mesh client's onLoginRequired. A full reload re-runs connect() and falls back to the
- *  login form; an OPEN tab has no such path, so without this it stays stuck on a dead session
- *  ("warming up" forever). Mirror the reload: drop to the login view + tell the user why. */
-function onSessionExpired() {
-  connected.value = false;
-  busy.value = false;
-  connecting.value = false;
-  sessionExpired.value = true;
-}
+onMounted(() => window.addEventListener("message", onFrameMessage));
+onUnmounted(() => window.removeEventListener("message", onFrameMessage));
 
 async function connect() {
-  if (!authScope.value) throw new Error("no scope to connect to");
-  if (!activeScope.value) activeScope.value = authScope.value;
   const n = createNebulaClient({
-    authScope: authScope.value,
-    activeScope: activeScope.value,
-    appVersion: "studio-ui",
-    onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
-    onLoginRequired: onSessionExpired,
+    // Studio's own class: it posts to the build thread, uploads pictures, and hears build replies.
+    Client: StudioClient,
+    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+    ...chatPair(activeScope),
+    // The build reply lands here: the Galaxy answers whoever asked for the build. The
+    // initial load needs no cue — `dist/` serves from the Galaxy's VFS and the iframe
+    // source is set below before anything is asked.
+    onPreviewReady: (scope) => { if (scope === activeScope) reloadPreview(); },
+    // This page's own scope was deleted, from here or elsewhere, and the client has stopped: an
+    // app's page leaves as a delete of it does, and an account's page for Home.
+    onHostDeleted: () => (activeScope?.includes(".") ? onAppDeleted() : leaveTo(platformUrl("/"))),
   });
-  await n.ready; // throws if not authenticated
+  await n.ready; // rejects with no session, after the client has sent this page to log in
+  n.client.setOnStreamChunk((messageId, text, replyTo) => {
+      // Render EVERY chunk — the thread is shared, so watching another participant's
+      // reply appear is the product working. But only MY turn's chunks are liveness for
+      // MY idle window: a message the single-flight latch skipped is never answered, and
+      // re-arming it from someone else's running generation is a hang with no banner.
+      // ⚠️ A KEEPALIVE carries no text — the server beats through the WHOLE turn, whose model
+      // calls and builds are all silent (`turn-heartbeat.ts`). It re-arms the window below like a real
+      // chunk, but must not paint: with nothing accumulated yet it would turn "thinking…" into an
+      // empty bubble. Decided on the accumulated length, so a keepalive AFTER real chunks simply
+      // re-paints the same text.
+      if (text.length > 0) streaming.value = { id: messageId, text };
+      if (turn.value && replyTo === lastPostedId.value) {
+        turn.value = signalTurn(turn.value, Date.now());
+      }
+    });
   nebula.value = n;
   connected.value = true;
-  sessionExpired.value = false;
-  if (isDevStar(activeScope.value)) {
-    previewSrc.value = `/dev-container/${activeScope.value}/`; // cold waking page until ready…
-    n.client.warmPreview(); // …then auto-refresh when vite is serving (onPreviewReady push)
+  if (isWorkspace(activeScope)) {
+    previewSrc.value = devTabUrl(activeScope!); // render now; a build's reply refreshes it
+    openChatThread(n.client);
   }
-  localStorage.setItem(SCOPE_KEY, authScope.value);
   await nudgeNextStep();
 }
 
-/** Route a returning builder from the SERVER tree (not local state — the magic link opens a fresh
- *  tab). Already in a `.dev` workspace → ready to author. Otherwise, by app count: none → nudge to
- *  create the first (chat composer = "name your app", "B"); exactly one → drop them straight into
- *  developing it; several → open the scopes manager to choose. */
+/** After connecting, prepare the view for the scope the URL named.
+ *
+ *  ⚠️ **No auto-forward — the URL is the view (ADR-017).** An account's host, `acme.lumenize.dev`,
+ *  IS the Universe page: UniverseView renders the apps and the Create form, and *entering* an app is
+ *  a navigation the person makes (a click → `enterScope` → the app's host). Forwarding a lone-app
+ *  account into its Studio from here would show a view the address does not name; Home's
+ *  fast-forward does that before any host is chosen. All this does is load the app list for
+ *  UniverseView; a workspace just confirms it is ready. */
 async function nudgeNextStep() {
-  if (isDevStar(activeScope.value)) {
-    log("studio", "Connected. Describe the app you want to build.");
-    return;
-  }
-  let galaxies: Scope[] = [];
-  try {
-    const list = await nebula.value!.client.scopes.list();
-    scopes.value = list.sort((a, b) => a.instanceName.localeCompare(b.instanceName));
-    galaxies = list.filter((s) => s.tier === "galaxy");
-  } catch {
-    log("studio", "Welcome! Type a name for your first app below to get started.");
-    return;
-  }
-  if (galaxies.length === 0) {
-    log("studio", "Welcome! Let’s create your first app — type a name for it below and I’ll set it up for you.");
-  } else if (galaxies.length === 1) {
-    await develop(galaxies[0]!.instanceName); // one app → straight into building it
-  } else {
-    await openManage(); // several apps → choose in the scopes manager
-    log("studio", "Welcome back. Pick an app to develop, or type a name in the chat to create a new one.");
-  }
+  // A workspace is ready to chat. The empty-thread hint lives in the template (shown only
+  // while the conversation has no content), so there is nothing to log here.
+  if (isWorkspace(activeScope)) return;
+  await loadUniverseApps(); // an empty list opens the Create form
 }
 
 onMounted(() => {
-  if (!authScope.value) return;
+  if (!activeScope) return; // not a scope's host: nothing to connect to
   connecting.value = true;
   connect()
-    .catch(() => {
-      /* not authenticated — show the login form */
-    })
+    .catch(() => { /* no session — the client has already sent this page to log in */ })
     .finally(() => {
       connecting.value = false;
     });
 });
 
-// When the tab is backgrounded long enough for the dev container to idle-sleep (~5m), re-request the
-// preview on return so it wakes — the DevContainer serves a self-healing "waking" page until it's back
-// up. Gated on a long absence so quick tab-switches (container still warm) don't reload needlessly. The
-// mesh client reconnects its own gateway WS via its backoff; this covers the preview the client doesn't own.
+// Re-request the preview after a long absence. ⚠️ RE-DERIVED post-collapse: the original
+// reason (waking an idle-slept dev container, which served a self-healing "waking" page) is
+// GONE — the container is off the read path entirely and `dist` serves Galaxy-direct from
+// the DO's VFS, so there is nothing to wake. The behavior survives on a DIFFERENT reason: a
+// build that completes while this tab is hidden answers its requester with a direct push the
+// client may miss if its gateway WS dropped, and a build another tab asked for sends this tab
+// nothing, so on return the preview can be a version behind. Gated on a
+// long absence, since a quick tab-switch cannot have missed a build. The mesh client
+// reconnects its own WS via backoff; this covers the preview the client doesn't own.
 let hiddenAt = 0;
 function onVisibilityChange() {
   if (document.visibilityState === "hidden") {
@@ -243,7 +466,7 @@ function onVisibilityChange() {
   }
   const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
   hiddenAt = 0;
-  if (awayMs > 4 * 60_000 && connected.value && isDevStar(activeScope.value)) {
+  if (awayMs > 4 * 60_000 && connected.value && isWorkspace(activeScope)) {
     reloadPreview();
   }
 }
@@ -253,40 +476,36 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisibilityC
 async function send() {
   const msg = input.value.trim();
   if (!msg || !nebula.value || busy.value) return;
-  if (!isDevStar(activeScope.value)) {
-    // At a Universe — the composer creates an app (guided first-run "B") instead of chatting.
-    input.value = "";
-    await createApp(msg);
-    return;
-  }
-  log("you", msg);
+  // The composer only renders inside a workspace (a Universe shows UniverseView instead), so `send`
+  // is always a chat submit — no Universe branch to guard.
   input.value = "";
   busy.value = true;
-  thinking.value = true;
   try {
-    const client = nebula.value.client;
-    // Resilient delivery: client.chat() fires the turn one-way and resolves when the
-    // result is delivered back via onChatResult (direct delivery by instanceName), so a
-    // WS drop+reconnect mid-turn no longer strands the reply. NOT an awaited callRaw.
-    const reply = await client.chat(msg);
-    thinking.value = false;
-    if (reply.thought) log("thought", reply.thought);
-    log("studio", reply.reply);
-    reloadPreview();
+    // The COMMIT is the trigger (the collapse): postUserMessage writes the durable
+    // Message; the Galaxy's commit hook starts the turn under MY authority; the reply
+    // arrives on the Message subscription like everyone else's (no echo, no reply
+    // channel). The preview reloads on the build-completion push, not here.
+    lastPostedId.value = await nebula.value.client.postUserMessage(msg);
+    turn.value = startTurn(Date.now());
+    turnStartedAt.value = Date.now();
+    nowTick.value = turnStartedAt.value;
   } catch (e) {
-    log("error", `chat failed: ${(e as Error).message}`);
+    log("error", `send failed: ${(e as Error).message}`);
   } finally {
-    thinking.value = false;
     busy.value = false;
   }
 }
 
 async function wipe() {
-  if (!nebula.value || busy.value || !isDevStar(activeScope.value)) return;
+  if (!nebula.value || busy.value || !isWorkspace(activeScope)) return;
   busy.value = true;
   try {
     const client = nebula.value.client;
-    await client.lmz.callRaw("STAR", activeScope.value!, client.ctn<Star>().resetDevData());
+    // One-way under the continuation-only model (no awaited callRaw). The wipe's effect is
+    // reflected when the preview reloads; a refused wipe reaches `logRefusal`, so the
+    // confirmation log here is optimistic.
+    client.lmz.call("STAR", previewStar(activeScope!), client.ctn<Star>().resetDevData(),
+      client.ctn().logRefusal("resetDevData"), { onErrorOnly: true });
     log("studio", "Wiped the development test data.");
     reloadPreview();
   } catch (e) {
@@ -296,239 +515,209 @@ async function wipe() {
   }
 }
 
-// ── account + hierarchy ────────────────────────────────────────────────────────
-// The client (NebulaClient.scopes) owns EVERY authed registry call — the JWT never leaves it, so
-// there's no token plumbing in the view, a single auth authority, and no cookie-rotation race (the
-// 2026-06-26 back-to-back-refresh hang). App code just calls methods and reacts.
+// ── The Universe page (UniverseView) — create an app, or open an existing one ──────────────────
+const createError = ref<string | undefined>();
 
-async function loadScopes() {
+/** The apps under the account this page manages: the galaxies directly beneath this page's own
+ *  scope, read through `expand`, whose parent is the token's `aud`. Empty once an account's last app
+ *  is deleted — a claim writes the first — which is what makes the create modal open. */
+const universeApps = ref<{ scope: string }[]>([]);
+/** True once the list has loaded — distinct from an empty list, which UniverseView's empty state
+ *  depends on. */
+const universeAppsLoaded = ref(false);
+
+async function loadUniverseApps() {
   const client = nebula.value?.client;
   if (!client) return;
-  accountEmail.value = (client.claims as { email?: string } | null)?.email ?? accountEmail.value;
-  // Render order: parents before children, so the indent reads as a tree.
-  scopes.value = (await client.scopes.list()).sort((a, b) => a.instanceName.localeCompare(b.instanceName));
+  const apps: { scope: string }[] = [];
+  let after: string | undefined;
+  do {
+    const page = await client.scopes.expand(after);
+    apps.push(...page.children.filter((c) => c.tier === "galaxy").map((c) => ({ scope: c.scope })));
+    after = page.nextCursor;
+  } while (after);
+  universeApps.value = apps;
+  universeAppsLoaded.value = true;
 }
 
-async function openManage() {
-  menuOpen.value = false;
-  manageOpen.value = true;
-  deletePlan.value = null;
-  deleteTarget.value = null;
-  addChildFor.value = null;
+/** The scope's page this page is entering once its host answers (`HostWait`). */
+const waitingFor = ref<string | undefined>();
+
+/** Open a scope's own page — its Studio for an app, its account page for a universe — once its host
+ *  answers (`HostWait`): an app created moments ago may still be waiting for its certificate. A full
+ *  load on another host: a different scope is a different socket and token, and the host IS the
+ *  scope. */
+function enterScope(scope: string): void {
+  waitingFor.value = scopeUrl(scope);
+}
+
+/** Create the app, then NAVIGATE to its Studio, whose host a person can share (ADR-017), once that
+ *  host answers: creating it ordered its certificate, which takes minutes to issue. The scope to
+ *  open is the server's returned `instanceName`, not the typed slug, so the host can never disagree
+ *  with what was created. `busy` stays set while the page waits, so the form cannot submit again. */
+async function onCreateApp(slug: string) {
+  const universe = activeScope;
+  if (!universe || busy.value) return;
+  createError.value = undefined;
   busy.value = true;
+  let created: string;
   try {
-    await loadScopes();
+    ({ instanceName: created } = await nebula.value!.client.scopes.createGalaxy(universe, slug));
   } catch (e) {
-    log("error", `Could not load scopes: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-function closeManage() {
-  manageOpen.value = false;
-  deletePlan.value = null;
-  deleteTarget.value = null;
-  addChildFor.value = null;
-}
-
-/** Indent depth for the tree (universe 0, galaxy/app 1 — `.dev` workspaces aren't tree rows). */
-const depth = (s: Scope) => s.instanceName.split(".").length - 1;
-/** Whether a galaxy's `.dev` development workspace exists yet (created with the app; `develop`
- *  lazily creates it for any app made before that). */
-const hasDevStar = (galaxy: string) => scopes.value.some((s) => s.instanceName === `${galaxy}.dev`);
-/** Tree rows = the hierarchy WITHOUT the `.dev` development workspaces — those aren't tenants and
- *  aren't shown as rows; you reach one via a galaxy's "Develop" button. */
-const treeScopes = computed(() => scopes.value.filter((s) => !s.isDev));
-
-async function addGalaxy(universe: string) {
-  const slug = addChildSlug.value.trim();
-  if (!slug || busy.value) return;
-  busy.value = true;
-  try {
-    await nebula.value!.client.scopes.createGalaxy(universe, slug);
-    await nebula.value!.client.scopes.createStar(`${universe}.${slug}`); // its dev workspace, implicit
-    addChildFor.value = null;
-    addChildSlug.value = "";
-    await loadScopes();
-  } catch (e) {
-    log("error", `Could not add app: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-/** Open a galaxy's private `.dev` development workspace to author it: switch the working scope +
- *  reconnect (authScope/cookie unchanged; our admin token reaches it). The workspace is created with
- *  the app (lazily here for older apps); it is never shown or deleted from the tree — only wiped. */
-async function develop(galaxy: string) {
-  if (busy.value) return;
-  if (!hasDevStar(galaxy)) {
-    busy.value = true;
-    try {
-      await nebula.value!.client.scopes.createStar(galaxy);
-      await loadScopes();
-    } catch (e) {
-      log("error", `Could not start the development workspace: ${(e as Error).message}`);
-      busy.value = false;
-      return;
-    }
-    busy.value = false;
-  }
-  await openStar(`${galaxy}.dev`);
-}
-
-/** Enter a `.dev` Star to author: switch the working scope + reconnect (authScope/cookie unchanged;
- *  our admin token reaches it). */
-async function openStar(star: string) {
-  if (busy.value) return;
-  busy.value = true;
-  try {
-    try {
-      await (nebula.value?.client as { disconnect?: () => unknown } | undefined)?.disconnect?.();
-    } catch {
-      /* old WS best-effort */
-    }
-    activeScope.value = star;
-    const n = createNebulaClient({
-      authScope: authScope.value!,
-      activeScope: star,
-      appVersion: "studio-ui",
-      onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
-      onLoginRequired: onSessionExpired,
-    });
-    await n.ready;
-    nebula.value = n;
-    messages.value = [];
-    manageOpen.value = false;
-    previewSrc.value = `/dev-container/${star}/`; // render the stage NOW (waking page if the container is cold)
-    // Bring the (possibly cold) container up + push source, and auto-refresh the iframe when vite is
-    // actually serving — via the onPreviewReady push (event-driven, fire-and-forget). NEVER await here: a
-    // slow/stuck container must not hang the stage (the 2026-06-27 "main stage never refreshes" regression).
-    // The readiness signal is addressed by instanceName, so it survives a WS reconnect during the boot;
-    // the manual Reload button (top right) stays as the missed-signal fallback.
-    n.client.warmPreview();
-  } catch (e) {
-    log("error", `Could not open ${star}: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-/** Guided first-run ("B"): one app name → Galaxy + its `.dev` Star + open it, so a fresh user goes
- *  straight from their Universe to authoring without hunting through "Manage my scopes". The explicit
- *  per-row builder is still there for power users; this is the frictionless path. */
-async function createApp(name: string) {
-  const universe = authScope.value;
-  const slug = slugify(name);
-  if (!slug || !universe || busy.value) return;
-  busy.value = true;
-  try {
-    await nebula.value!.client.scopes.createGalaxy(universe, slug);
-    await nebula.value!.client.scopes.createStar(`${universe}.${slug}`);
-  } catch (e) {
-    log("error", `Could not create app: ${(e as Error).message}`);
+    createError.value = (e as Error).message || "Could not create the app.";
     busy.value = false;
     return;
   }
-  busy.value = false;
-  await openStar(`${universe}.${slug}.dev`); // reconnects + clears chat + manages its own busy
-  log("studio", `Your app “${slug}” is ready. Now describe what you want to build.`);
+  enterScope(created);
 }
 
-async function openDeleteConfirm(target: string) {
-  busy.value = true;
-  try {
-    deletePlan.value = await nebula.value!.client.scopes.deletePlan(target);
-    deleteTarget.value = target;
-  } catch (e) {
-    log("error", `Could not plan delete: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
+/** Open an existing app's Studio (the FLAVOUR-B list). */
+function onOpenApp(scope: string) {
+  enterScope(scope);
 }
 
-function cancelDelete() {
-  deletePlan.value = null;
-  deleteTarget.value = null;
-}
-
-async function confirmDelete() {
-  const target = deleteTarget.value;
-  const plan = deletePlan.value;
-  if (!target || !plan || plan.blockedBy.length > 0 || busy.value) return;
-  busy.value = true;
-  try {
-    const { affected } = await nebula.value!.client.scopes.delete(target);
-    // Fan out the platform-DO teardown via mesh (the registry cleared its own rows already).
-    const client = nebula.value?.client;
-    if (client) {
-      const ctnT = () => client.ctn<{ teardown(): Promise<void> }>().teardown();
-      for (const a of affected) {
-        const binding = a.tier === "universe" ? "UNIVERSE" : a.tier === "galaxy" ? "GALAXY" : "STAR";
-        await client.lmz.callRaw(binding, a.instanceName, ctnT()).catch(() => {});
-        if (a.isDev) {
-          await client.lmz.callRaw("DEV_STUDIO", a.instanceName, ctnT()).catch(() => {});
-          await client.lmz.callRaw("DEV_CONTAINER", a.instanceName, ctnT()).catch(() => {});
-        }
-      }
-    }
-    cancelDelete();
-    if (affected.some((a) => a.instanceName === authScope.value)) {
-      resetToLoggedOut(); // deleted the scope we logged in at → clean first-run
-    } else {
-      if (affected.some((a) => a.instanceName === activeScope.value)) activeScope.value = authScope.value;
-      await loadScopes();
-    }
-  } catch (e) {
-    log("error", `Delete failed: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-function resetToLoggedOut() {
-  localStorage.removeItem(SCOPE_KEY);
+/** Log out: the client sends this page to the platform host's logout page, which ends every
+ *  session this browser holds, with ending them on every device already chosen when `everywhere`. */
+async function logout(options: { everywhere?: boolean } = {}) {
   menuOpen.value = false;
-  manageOpen.value = false;
-  deletePlan.value = null;
-  deleteTarget.value = null;
-  connected.value = false;
-  nebula.value = null;
-  authScope.value = undefined;
-  activeScope.value = undefined;
-  previewSrc.value = "";
-  messages.value = [];
-  sentTo.value = null;
-  needsClaim.value = false;
-  accountEmail.value = null;
-  scopes.value = [];
+  closeChatThread();
+  const client = nebula.value?.client;
+  if (client) await client.logout(options);
+  else leaveTo(platformUrl(options.everywhere ? "/auth/logout?everywhere=1" : "/auth/logout"));
 }
 
-async function logout() {
-  menuOpen.value = false;
-  // Works whether or not the WS is up: connected → client.logout(); otherwise best-effort hit the
-  // logout endpoint for the remembered scope (clears the HttpOnly cookie a stale session left behind).
-  const client = nebula.value?.client as { logout?: () => Promise<void> } | undefined;
-  const scope = authScope.value ?? localStorage.getItem(SCOPE_KEY) ?? undefined;
-  try {
-    if (client?.logout) await client.logout();
-    else if (scope) await fetch(`/auth/${scope}/logout`, { method: "POST", credentials: "include" }).catch(() => {});
-  } catch {
-    /* best-effort */
-  }
-  resetToLoggedOut();
+// ── Deleting: an app from its Studio (`?app`), an account from its page ─────────────────────────
+// Each delete stands behind ConfirmDelete, which is component state and never the URL.
+
+/** The app's settings are open: its tenants and its own delete. A workspace's overlay only. */
+const appSettingsOpen = computed(() => overlay.value.app && connected.value && isWorkspace(activeScope));
+
+/**
+ * After this app is deleted, its account's page if the cookie behind this page's token opens it,
+ * otherwise Home. An app's admin who holds nothing at the account would only meet a login there.
+ */
+function onAppDeleted() {
+  const universe = activeScope!.split(".")[0];
+  const access = (nebula.value?.client as { claims?: { access?: { authScope?: string; scopeAdmin?: boolean } } } | undefined)
+    ?.claims?.access;
+  const opens = access?.authScope !== undefined && !needsFreshLogin(
+    { scope: universe, tier: "universe" }, [{ scope: access.authScope, scopeAdmin: access.scopeAdmin === true }]);
+  leaveTo(opens ? scopeUrl(universe) : platformUrl("/"));
 }
+
+/** "Delete this account" was pressed on the universe page; the confirmation is open. */
+const confirmingAccount = ref(false);
 </script>
 
 <template>
-  <div class="h-screen flex" data-theme="dark">
+  <div class="h-screen flex">
+    <!-- My profile — reached from the avatar menu, and the ONLY place these change after the
+         consent screen collected them. NOT a gate: it opens on request and closes on Cancel, so it
+         never stands between a person and their work the way the old completion modal did. -->
+    <dialog class="modal" :open="profileOpen">
+      <div class="modal-box">
+        <h3 class="text-lg font-bold">Your profile</h3>
+        <p class="py-2 text-sm opacity-80">How you appear to everyone you work with.</p>
+
+        <div class="flex items-start gap-4 py-2">
+          <div class="flex flex-col items-center gap-1 shrink-0">
+            <label class="btn btn-ghost btn-circle size-16 cursor-pointer" data-testid="profile-avatar">
+              <span class="sr-only">Change your picture</span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                class="hidden"
+                data-testid="profile-picture-input"
+                :disabled="pictureUploading || profileSaving"
+                @change="onPictureChosen"
+              />
+              <Loader2 v-if="pictureUploading" class="size-6 animate-spin" />
+              <img
+                v-else-if="profilePicture"
+                :src="profilePicture"
+                alt=""
+                class="size-14 rounded-full object-cover"
+                data-testid="profile-picture-img"
+              />
+              <span v-else class="size-14 rounded-full bg-neutral text-neutral-content grid place-items-center">
+                <UserRound class="size-8" />
+              </span>
+            </label>
+            <span class="text-xs opacity-60">Change</span>
+          </div>
+
+          <form class="flex-1 space-y-2" @submit.prevent="saveProfile">
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Nickname</legend>
+              <input
+                v-model="profileNickname"
+                type="text"
+                class="input w-full"
+                placeholder="Robin"
+                :disabled="profileSaving"
+                data-testid="profile-nickname"
+                @input="profileDirty = true"
+              />
+            </fieldset>
+
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Full name <span class="opacity-60">(optional)</span></legend>
+              <input
+                v-model="profileFullName"
+                type="text"
+                class="input w-full"
+                placeholder="Robin Fielding"
+                :disabled="profileSaving"
+                data-testid="profile-name"
+                @input="profileDirty = true"
+              />
+            </fieldset>
+          </form>
+        </div>
+
+        <button type="button" class="btn btn-link btn-sm px-0" data-testid="profile-logout-everywhere"
+          @click="logout({ everywhere: true })">
+          Log out on every device
+        </button>
+
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="profileSaving" @click="closeProfile">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm gap-2"
+            :disabled="!canSaveProfile"
+            data-testid="profile-save"
+            @click="saveProfile"
+          >
+            <Loader2 v-if="profileSaving" class="size-4 animate-spin" /> Save
+          </button>
+        </div>
+      </div>
+
+    </dialog>
+
+    <!-- The full live transcript — opened from the strip; scrolls with the stream. -->
+    <dialog class="modal" :open="streamModalOpen" @cancel.prevent="closeStreamModal">
+      <div class="modal-box max-w-3xl">
+        <h3 class="text-lg font-bold">What Lumenize is thinking</h3>
+        <p v-if="transcriptMissing" class="mt-3 text-sm opacity-70" data-testid="stream-transcript-missing">This page did not see that message being written.</p>
+        <pre v-else ref="transcriptEl" class="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-base-200 p-3 font-mono text-xs" data-testid="stream-transcript">{{ streamTranscript || "(nothing yet)" }}</pre>
+        <div class="modal-action">
+          <button type="button" class="btn btn-sm" data-testid="stream-transcript-close" @click="closeStreamModal">Close</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- Chat rail -->
-    <section class="w-[28rem] shrink-0 flex flex-col border-r border-base-300 bg-base-200">
+    <!-- The chat rail exists only inside a workspace on a live session. A Universe has no chat — it
+         renders UniverseView full-width in the stage — so it renders the stage alone. -->
+    <section v-if="connected && isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
-        <h1 class="text-lg font-bold">Nebula Studio</h1>
+        <h1 class="text-lg font-bold">Lumenize Studio</h1>
         <button
-          v-if="isDevStar(activeScope)"
+          v-if="isWorkspace(activeScope)"
           class="btn btn-sm btn-ghost"
           :disabled="busy || !connected"
           title="Wipe the development test data"
@@ -539,67 +728,90 @@ async function logout() {
       </header>
 
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-        <template v-for="(m, i) in messages" :key="i">
-          <details v-if="m.role === 'thought'" class="text-xs opacity-70">
-            <summary class="cursor-pointer select-none">💭 Studio's thought process</summary>
-            <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.text }}</pre>
-          </details>
-          <div v-else :class="['chat', m.role === 'you' ? 'chat-end' : 'chat-start']">
-            <div
-              :class="['chat-bubble', m.role === 'error' ? 'chat-bubble-error' : m.role === 'you' ? 'chat-bubble-primary' : '']"
-            >
-              {{ m.text }}
+        <!-- The DURABLE thread (the Message subscription) — every participant, live,
+             attributed by the whole-chain byline resolved through each party's Profile. -->
+        <template v-for="m in thread" :key="m.id">
+          <div :class="['chat', m.mine ? 'chat-end' : 'chat-start']">
+            <!-- The faces behind the byline. Rendered back-to-front so the actor paints on top; the
+                 subject sits offset by a third of its width, enough to read and to hover. -->
+            <div class="chat-image">
+              <div :class="['relative h-8', m.stack.length > 1 ? 'w-11' : 'w-8']" data-testid="party-stack" :data-parties="m.stack.length">
+                <span
+                  v-for="(p, i) in [...m.stack].reverse()"
+                  :key="i"
+                  :class="['absolute top-0', i === m.stack.length - 1 ? 'left-0 z-10' : 'left-3 z-0']"
+                  :title="p.title ?? p.name"
+                  data-testid="party-avatar"
+                  :data-name="p.name"
+                >
+                  <img v-if="p.picture" :src="p.picture" alt="" class="size-8 rounded-full object-cover ring-2 ring-base-200 bg-base-200" data-testid="party-avatar-img" />
+                  <span v-else :class="['size-8 rounded-full grid place-items-center text-xs font-semibold ring-2 ring-base-200', p.kind === 'agent' ? 'bg-primary text-primary-content' : 'bg-neutral text-neutral-content']">
+                    {{ (p.name.trim().charAt(0) || '?').toUpperCase() }}
+                  </span>
+                </span>
+              </div>
             </div>
+            <div class="chat-header text-xs opacity-60 mb-0.5" :title="m.title" data-testid="byline">{{ m.byline }}</div>
+            <div :class="['chat-bubble', m.mine ? 'chat-bubble-primary' : '']">{{ m.content }}</div>
+          </div>
+          <details v-if="m.thought" class="text-xs opacity-70 -mt-1">
+            <summary class="cursor-pointer select-none">💭 thought process</summary>
+            <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.thought }}</pre>
+          </details>
+        </template>
+        <!-- Empty-thread hint — shown only while the conversation has no content. It is not a
+             logged message, so the first turn that lands clears it for good (no stale bubble). -->
+        <div v-if="connected && isWorkspace(activeScope) && thread.length === 0 && turnDisplay === 'none'"
+             class="chat chat-start">
+          <div class="chat-bubble">Connected. Describe the app you want to build.</div>
+        </div>
+        <!-- ONE status bubble, chosen by `turnDisplay` — the branches are keyed on the
+             derived value, so precedence is the reducer's and not this list's order. -->
+        <div v-if="turnDisplay === 'streaming'" class="chat chat-start">
+          <div class="chat-header text-xs opacity-60 mb-0.5">Lumenize</div>
+          <!-- The strip: a pulse, the tail of what is being written, and a click to read it all. -->
+          <button
+            type="button"
+            class="chat-bubble flex items-center gap-2 text-left max-w-full"
+            data-testid="stream-strip"
+            title="Click to read the full transcript"
+            @click="openStreamModal"
+          >
+            <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+            <span class="shrink-0 text-xs opacity-70">Lumenize is thinking</span>
+            <span class="truncate font-mono text-xs opacity-80" data-testid="stream-tail">{{ streamTail }}</span>
+          </button>
+        </div>
+        <div v-else-if="turnDisplay === 'failed'" class="chat chat-start">
+          <div class="chat-bubble chat-bubble-error text-sm">
+            No reply arrived — this turn may have been lost. Re-send your message to try again.
+          </div>
+        </div>
+        <div v-else-if="turnDisplay === 'thinking'" class="chat chat-start">
+          <div class="chat-bubble flex items-center gap-2" data-testid="turn-thinking">
+            <Loader2 class="size-4 animate-spin" /> Studio is thinking… <span class="opacity-60 tabular-nums">{{ elapsedSec }}s</span>
+          </div>
+        </div>
+        <!-- Local notices (login guidance, nudges, errors) — never the conversation. -->
+        <template v-for="(m, i) in messages" :key="'n' + i">
+          <div :class="['chat', 'chat-start']">
+            <div :class="['chat-bubble', m.role === 'error' ? 'chat-bubble-error' : '']">{{ m.text }}</div>
           </div>
         </template>
-        <div v-if="thinking" class="chat chat-start">
-          <div class="chat-bubble flex items-center gap-2"><Loader2 class="size-4 animate-spin" /> Studio is thinking…</div>
-        </div>
       </div>
 
       <footer class="p-4 border-t border-base-300">
-        <!-- Unauthenticated: email magic-link login (+ a first-run Universe claim). -->
-        <div v-if="!connected" class="flex flex-col gap-2">
-          <!-- Post-magic-link auto-connect in flight — don't flash the login form. -->
-          <div v-if="connecting" class="flex items-center gap-2 text-sm opacity-80 py-2">
-            <Loader2 class="size-4 animate-spin" /> Signing you in…
-          </div>
-          <template v-else>
-            <p v-if="sessionExpired && !sentTo" class="text-sm text-warning">
-              Your session expired — please sign in again.
-            </p>
-            <p v-if="sentTo" class="text-sm opacity-80">
-              Magic link sent to <span class="font-mono">{{ sentTo }}</span> — check your email to finish signing in.
-            </p>
-            <template v-else>
-              <form v-if="!needsClaim" class="flex flex-col gap-2" @submit.prevent="sendMagicLink">
-                <input v-model="email" type="email" class="input input-bordered" placeholder="you@example.com" :disabled="busy" />
-                <button class="btn btn-primary" :disabled="busy || !email.trim()">
-                  <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Send magic link
-                </button>
-              </form>
-              <form v-else class="flex flex-col gap-2" @submit.prevent="claimUniverse">
-                <p class="text-sm opacity-80">Name your <span class="font-medium">Universe</span> (see the guide on the right):</p>
-                <input v-model="claimSlug" class="input input-bordered font-mono" placeholder="your-universe-slug" :disabled="busy" />
-                <button class="btn btn-primary" :disabled="busy || !claimSlug.trim()">
-                  <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Claim &amp; send magic link
-                </button>
-              </form>
-            </template>
-            <!-- Logout escape hatch even with no avatar (stale cookie / half-finished login). -->
-            <button v-if="hasSession" type="button" class="btn btn-ghost btn-xs self-start opacity-70" @click="logout">
-              <LogOut class="size-3.5" /> Log out
-            </button>
-          </template>
-        </div>
-        <!-- Authenticated: chat composer in a .dev Star, OR the guided "name your app" creator at a Universe. -->
-        <form v-else class="flex gap-2" @submit.prevent="send">
-          <input
+        <form class="flex gap-2 items-end" @submit.prevent="send">
+          <!-- Wrapping composer: a textarea wraps long input instead of scrolling sideways.
+               Enter sends; Shift+Enter inserts a newline. `field-sizing` auto-grows it. -->
+          <textarea
             v-model="input"
-            class="input input-bordered flex-1"
-            :placeholder="isDevStar(activeScope) ? 'Describe a change…' : 'Name your app to create it…'"
+            class="textarea flex-1 resize-none max-h-40 field-sizing-content"
+            rows="1"
+            placeholder="Describe a change…"
             :disabled="busy"
-          />
+            @keydown.enter.exact.prevent="send"
+          ></textarea>
           <button class="btn btn-primary" :disabled="busy || !input.trim()">
             <Loader2 v-if="busy" class="size-4 animate-spin" /><Send v-else class="size-4" />
           </button>
@@ -607,14 +819,14 @@ async function logout() {
       </footer>
     </section>
 
-    <!-- Stage: account bar + help / hierarchy manager / preview -->
+    <!-- Stage: account bar + the Universe page / preview -->
     <section class="flex-1 bg-base-100 flex flex-col min-w-0">
       <div v-if="connected" class="relative flex items-center justify-end gap-2 px-3 py-2 border-b border-base-300">
         <span v-if="busy" class="mr-auto flex items-center gap-1.5 text-xs opacity-70">
           <Loader2 class="size-3.5 animate-spin" /> Working…
         </span>
         <button
-          v-if="isDevStar(activeScope)"
+          v-if="isWorkspace(activeScope)"
           class="btn btn-sm btn-ghost btn-square"
           :disabled="busy"
           title="Reload preview"
@@ -623,107 +835,68 @@ async function logout() {
           <RotateCw class="size-4" />
         </button>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
-          <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
-          <span class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
+          <img v-if="myProfile?.picture" :src="myProfile.picture" :alt="myProfile?.name ?? ''" :title="myProfile?.name" class="size-7 rounded-full object-cover" data-testid="account-picture" />
+          <span v-else class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
         </button>
-        <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-52 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
-          <button class="btn btn-sm btn-ghost justify-start" @click="openManage">Manage my scopes</button>
-          <button class="btn btn-sm btn-ghost justify-start" @click="logout"><LogOut class="size-4" /> Log out</button>
+        <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
+          <button class="btn btn-sm btn-ghost justify-start" @click="goHome"><Home class="size-4" /> Home</button>
+          <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-profile" @click="openProfile"><UserRound class="size-4" /> Profile</button>
+          <button v-if="isWorkspace(activeScope)" class="btn btn-sm btn-ghost justify-start" data-testid="menu-app"
+            @click="menuOpen = false; navigate({ app: true })"><Settings class="size-4" /> App settings</button>
+          <a class="btn btn-sm btn-ghost justify-start" :href="platformUrl('/auth/emails')"><Mail class="size-4" /> Email addresses</a>
+          <div class="divider my-0"></div>
+          <!-- One logout: it ends every session this browser holds, on the platform host's logout
+               page, which also offers ending them on every device. -->
+          <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-logout" @click="logout"><LogOut class="size-4" /> Log out</button>
         </div>
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto">
-        <!-- Help / intro (default + first use). -->
-        <div v-if="stageMode === 'help'" class="p-8 max-w-2xl flex flex-col gap-5">
-          <h2 class="text-xl font-bold">Welcome to Nebula</h2>
-          <p class="opacity-80">You build inside a simple three-level hierarchy. You'll create it yourself, one level at a time.</p>
-          <div class="flex flex-col gap-4">
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">🌌 Universe — that's you</p>
-              <p class="text-sm opacity-80 mt-1">Your top-level space. If you have a company or a brand, that's probably the best choice for your Universe slug. If you're a solopreneur, you might use your name.</p>
-            </div>
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">✨ Galaxy — an app</p>
-              <p class="text-sm opacity-80 mt-1">Each app you build is a Galaxy in your Universe. You can have as many as you like.</p>
-            </div>
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">🧪 Development workspace — where you build</p>
-              <p class="text-sm opacity-80 mt-1">While you build an app it has a private development workspace: you describe changes, see them live, and fill it with throwaway test data.</p>
-            </div>
-            <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">⭐ Star — a tenant (later)</p>
-              <p class="text-sm opacity-80 mt-1">When your app goes live, each of your end-customers gets their own isolated Star — their private copy of the app with their own data. You don't create these by hand; they arrive via sign-up or invite.</p>
-            </div>
-          </div>
-          <p v-if="!connected" class="opacity-80">Claim your Universe on the left to get started.</p>
-          <p v-else class="opacity-80">Next: just type a name for your app in the chat on the left and I'll set it up — or open <span class="font-medium">Manage my scopes</span> (top right) to build it by hand.</p>
+        <!-- Deleting, behind confirmations that never ride the URL. Outside the chain below, whose
+             v-else belongs to the universe page's v-else-if. -->
+        <ConfirmDelete
+          v-if="confirmingAccount && stageMode === 'universe' && activeScope && nebula"
+          :target="activeScope"
+          what="this account"
+          :scopes="nebula.client.scopes"
+          @deleted="leaveTo(platformUrl('/'))"
+          @cancel="confirmingAccount = false"
+        />
+        <HostWait v-if="waitingFor" :url="waitingFor" />
+        <AppSettings
+          v-if="appSettingsOpen && activeScope && nebula"
+          :galaxy="activeScope"
+          :scopes="nebula.client.scopes"
+          @close="navigate({ app: false })"
+          @app-deleted="onAppDeleted"
+        />
+
+        <!-- Until the client connects. With no session it has already sent this page to log in. -->
+        <div v-if="stageMode === 'connecting'" class="p-8 flex items-center gap-2 text-sm opacity-80" data-testid="connecting">
+          <Loader2 class="size-4 animate-spin" /> Signing you in…
         </div>
 
-        <!-- Hierarchy manager. -->
-        <div v-else-if="stageMode === 'manage'" class="p-6 flex flex-col gap-4 max-w-2xl">
-          <div class="flex items-center justify-between">
-            <h2 class="text-lg font-bold">Manage my scopes</h2>
-            <button class="btn btn-sm btn-ghost" @click="closeManage"><ChevronLeft class="size-4" /> Back</button>
-          </div>
-          <p v-if="accountEmail" class="text-sm opacity-70">Signed in as <span class="font-mono">{{ accountEmail }}</span></p>
+        <!-- The Universe page: create an app, or open an existing one. -->
+        <UniverseView
+          v-else-if="stageMode === 'universe' && activeScope"
+          :universe="activeScope"
+          :apps="universeApps"
+          :ready="universeAppsLoaded"
+          :create="overlay.create"
+          :busy="busy"
+          :error="createError"
+          @create="onCreateApp"
+          @create-open="(auto) => navigate({ create: true }, { replace: auto })"
+          @create-close="navigate({ create: false })"
+          @open="onOpenApp"
+          @delete-account="confirmingAccount = true"
+        />
 
-          <!-- Destructive confirm. -->
-          <div v-if="deletePlan" class="border border-error/60 rounded-box p-4 flex flex-col gap-3">
-            <p class="font-medium">Delete <span class="font-mono">{{ deleteTarget }}</span>?</p>
-            <p class="text-sm opacity-80">Permanently wipes (no undo):</p>
-            <ul class="text-sm flex flex-col gap-1">
-              <li v-for="a in deletePlan.affected" :key="a.instanceName">
-                <span class="font-mono">{{ a.instanceName }}</span>
-                <span class="opacity-50">({{ a.tier }}{{ a.isDev ? " · dev" : "" }})</span>
-              </li>
-            </ul>
-            <p v-if="deletePlan.blockedBy.length" class="text-sm text-error">
-              Blocked — other users are attached to {{ deletePlan.blockedBy.map((b) => `${b.instanceName} (${b.email})`).join(", ") }}.
-            </p>
-            <p v-else class="text-sm text-success">No other users — safe to wipe.</p>
-            <div class="flex gap-2">
-              <button class="btn btn-sm" :disabled="busy" @click="cancelDelete">Cancel</button>
-              <button class="btn btn-sm btn-error" :disabled="busy || deletePlan.blockedBy.length > 0" @click="confirmDelete">
-                <Loader2 v-if="busy" class="size-4 animate-spin" /><Trash2 v-else class="size-4" /> Delete permanently
-              </button>
-            </div>
-          </div>
-
-          <!-- Hierarchy tree. -->
-          <div v-else class="flex flex-col gap-2">
-            <p v-if="busy && !scopes.length" class="text-sm opacity-60 flex items-center gap-2">
-              <Loader2 class="size-4 animate-spin" /> Loading your scopes…
-            </p>
-            <p v-else-if="!scopes.length" class="text-sm opacity-60">No scopes yet.</p>
-            <template v-for="s in treeScopes" :key="s.instanceName">
-              <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :style="{ marginLeft: depth(s) * 20 + 'px' }">
-                <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
-                <span class="text-xs opacity-40">{{ s.tier === "galaxy" ? "app" : s.tier }}</span>
-
-                <button v-if="s.tier === 'galaxy'" class="btn btn-xs btn-primary" :disabled="busy" @click="develop(s.instanceName)" title="Open this app's private development workspace to build &amp; test it">
-                  <Hammer class="size-3.5" /> Develop
-                </button>
-                <button v-else-if="s.tier === 'universe'" class="btn btn-xs btn-ghost" :disabled="busy" @click="addChildFor = addChildFor === s.instanceName ? null : s.instanceName">
-                  <Plus class="size-3.5" /> Galaxy
-                </button>
-
-                <button class="btn btn-xs btn-ghost text-error" :disabled="busy" title="Delete" @click="openDeleteConfirm(s.instanceName)">
-                  <Trash2 class="size-3.5" />
-                </button>
-              </div>
-              <!-- inline "name a Galaxy" input under a Universe row -->
-              <form v-if="addChildFor === s.instanceName" class="flex gap-2 items-center" :style="{ marginLeft: (depth(s) + 1) * 20 + 'px' }" @submit.prevent="addGalaxy(s.instanceName)">
-                <input v-model="addChildSlug" class="input input-bordered input-sm flex-1 font-mono" placeholder="galaxy-slug (your app)" :disabled="busy" />
-                <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">
-                  <Loader2 v-if="busy" class="size-3.5 animate-spin" /> Add
-                </button>
-              </form>
-            </template>
-          </div>
+        <!-- Live preview: the dev Star's own host, the one page this Studio frames. -->
+        <div v-else class="w-full h-full flex flex-col">
+          <p v-if="previewNotice" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ previewNotice }}</p>
+          <iframe ref="previewFrame" :src="previewSrc" class="w-full flex-1 border-0" title="Preview" />
         </div>
-
-        <!-- Live preview. -->
-        <iframe v-else :src="previewSrc" class="w-full h-full border-0" title="Preview" />
       </div>
     </section>
   </div>

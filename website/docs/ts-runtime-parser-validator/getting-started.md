@@ -18,7 +18,8 @@ Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for yo
 
 ```jsonc @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/wrangler.jsonc')
 {
-  "compatibility_date": "2026-04-01",
+  // ...
+  "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [
     { "binding": "LOADER" }
@@ -28,9 +29,9 @@ Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for yo
       { "name": "SUPERVISOR", "class_name": "SupervisorDO" }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SupervisorDO"] }
-  ]
+  "exports": {
+    "SupervisorDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 ```
 
@@ -58,7 +59,7 @@ interface User {
 Call `generateParseModule()` once per schema version with the raw source. Store the returned string keyed by a bundle ID (a content hash, a version number, or a tenant ID — whatever fits your lifecycle).
 
 ```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/index.test.ts')
-import { generateParseModule } from '@lumenize/ts-runtime-parser-validator';
+import { generateParseModule } from '@lumenize/ts-runtime-parser-validator/compile';
 import schemaTypes from './schema.d.ts?raw';
 
 const moduleSource = generateParseModule(schemaTypes);
@@ -76,7 +77,7 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   getParserValidatorFacet,
   type ParseResult,
-} from '@lumenize/ts-runtime-parser-validator';
+} from '@lumenize/ts-runtime-parser-validator/runtime';
 
 export class SupervisorDO extends DurableObject<Env> {
   async parse(bundleId: string, value: unknown, typeName: string): Promise<ParseResult> {

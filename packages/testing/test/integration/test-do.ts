@@ -2,6 +2,7 @@
  * Simple test Durable Object for validating createTestingClient
  */
 import { DurableObject } from 'cloudflare:workers';
+import { routeDORequest } from '@lumenize/routing';
 
 export class TestDO extends DurableObject {
   alarmFiredCount: number = 0;
@@ -110,8 +111,63 @@ export class TestDO extends DurableObject {
     if (url.pathname === '/test') {
       return new Response('Test endpoint');
     }
-    
+
     return new Response('Not found', { status: 404 });
   }
 }
+
+/**
+ * Installs its WebSocket handlers per instance in the constructor, as the Cloudflare Agents SDK
+ * does, and like that SDK skips any handler name the object already has. So a wrapper that defines
+ * the same names on its prototype hides these handlers — what browser-websocket.test.ts guards.
+ */
+export class InstanceHandlerDO extends DurableObject {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    const handlers = {
+      webSocketMessage: (_ws: WebSocket, message: string | ArrayBuffer) => {
+        const seen = this.ctx.storage.kv.get<string[]>('messages') ?? [];
+        this.ctx.storage.kv.put('messages', [...seen, String(message)]);
+      },
+      webSocketClose: (_ws: WebSocket, code: number) => {
+        this.ctx.storage.kv.put('closeCode', code);
+      },
+    };
+    for (const [name, handler] of Object.entries(handlers)) {
+      if (name in this) continue;
+      Object.defineProperty(this, name, { value: handler, configurable: true });
+    }
+  }
+
+  /**
+   * Accepts a WebSocket. `?close=<code>` has the server send one frame and then close, the way an
+   * Agent sends its identity frame before a user's `onConnect` can refuse the connection — the
+   * frame is what makes the runtime fire a trailing `error` on the client after the `close`.
+   */
+  fetch(request: Request): Response {
+    const pair = new WebSocketPair();
+    this.ctx.acceptWebSocket(pair[1]);
+    const close = new URL(request.url).searchParams.get('close');
+    if (close) {
+      pair[1].send('hello from the server');
+      pair[1].close(Number(close), 'closed by server');
+    }
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  messages(): string[] {
+    return this.ctx.storage.kv.get<string[]>('messages') ?? [];
+  }
+
+  closeCode(): number | undefined {
+    return this.ctx.storage.kv.get<number>('closeCode');
+  }
+}
+
+/** Routes `/{binding}/{instance}/…` to a DO's own `fetch`, for tests that open a plain WebSocket. */
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    return (await routeDORequest(request, env)) ?? new Response('Not found', { status: 404 });
+  },
+};
 

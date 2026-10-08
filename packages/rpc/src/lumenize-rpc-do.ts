@@ -375,18 +375,22 @@ function flattenPrototypeChains(obj: any, seen = new WeakMap<any, any>()): any {
   const hasPrototypeMethods = proto && proto !== Object.prototype && proto !== null;
   
   if (!hasPrototypeMethods) {
-    // Plain object - just recurse into properties
-    seen.set(obj, obj);
+    // Plain object - recurse into properties. Register the copy BEFORE
+    // recursing so a cycle back to this object resolves to the copy; seeding
+    // `seen` with the original left it, and any class instance reachable only
+    // through it, unflattened in the result.
     const flattened: any = {};
+    seen.set(obj, flattened);
     for (const [key, val] of Object.entries(obj)) {
       flattened[key] = flattenPrototypeChains(val, seen);
     }
-    // Check if anything changed
+    // A cycle through this object always registers as a change, so an
+    // unchanged object was never captured and can keep its identity.
     const hasChanges = Object.keys(flattened).some(k => flattened[k] !== obj[k]);
     if (!hasChanges) {
+      seen.set(obj, obj);
       return obj; // Preserve identity
     }
-    seen.set(obj, flattened);
     return flattened;
   }
   
@@ -546,6 +550,45 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
   class LumenizedDO extends (DOClass as T) {
     #log = debug('lmz.rpc.lumenizeRpcDO');
 
+    /**
+     * The WebSocket handlers are installed per instance, after the wrapped class has constructed,
+     * rather than defined on this prototype. A class may install its own handlers per instance and
+     * skip any name the object already has — the Cloudflare Agents SDK does exactly that — so a
+     * prototype method here would stop it installing them, and every message this wrapper does not
+     * handle would reach nothing. `fetch` stays on the prototype: the classes this wraps define it
+     * there, the Agents SDK's included.
+     */
+    constructor(...args: any[]) {
+      super(...args);
+      const innerMessage = (this as any).webSocketMessage;
+      const innerClose = (this as any).webSocketClose;
+
+      Object.defineProperty(this, 'webSocketMessage', {
+        configurable: true,
+        writable: true,
+        value: async (ws: WebSocket, message: string | ArrayBuffer): Promise<void> => {
+          const dispatch = async () => {
+            const wasHandled = await handleRpcMessage(ws, message, this, rpcConfig);
+            // Not RPC: hand it to the wrapped class's own handler, if it has one
+            if (!wasHandled && typeof innerMessage === 'function') {
+              return innerMessage.call(this, ws, message);
+            }
+          };
+          // Use blockConcurrencyWhile if configured, otherwise call directly
+          if (rpcConfig.blockConcurrency) await this.ctx.blockConcurrencyWhile(dispatch);
+          else await dispatch();
+        },
+      });
+
+      Object.defineProperty(this, 'webSocketClose', {
+        configurable: true,
+        writable: true,
+        value: (ws: WebSocket, code: number, reason: string, wasClean: boolean): void | Promise<void> => {
+          if (typeof innerClose === 'function') return innerClose.call(this, ws, code, reason, wasClean);
+        },
+      });
+    }
+
     async fetch(request: Request): Promise<Response> {
       this.#log.debug('RPC fetch handler', { url: request.url });
       
@@ -603,34 +646,6 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
         await handleRpcRequest(request, this, rpcConfig) ||
         super.fetch(request)
       );
-    }
-
-    async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-      // Use blockConcurrencyWhile if configured, otherwise call directly
-      if (rpcConfig.blockConcurrency) {
-        await this.ctx.blockConcurrencyWhile(async () => {
-          const wasHandled = await handleRpcMessage(ws, message, this, rpcConfig);
-          
-          // If not handled as RPC, call parent's webSocketMessage (if it exists)
-          if (!wasHandled && super.webSocketMessage) {
-            return super.webSocketMessage(ws, message);
-          }
-        });
-      } else {
-        const wasHandled = await handleRpcMessage(ws, message, this, rpcConfig);
-        
-        // If not handled as RPC, call parent's webSocketMessage (if it exists)
-        if (!wasHandled && super.webSocketMessage) {
-          return super.webSocketMessage(ws, message);
-        }
-      }
-    }
-
-    webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void | Promise<void> {
-      // Call parent's webSocketClose if it exists
-      if (super.webSocketClose) {
-        return super.webSocketClose(ws, code, reason, wasClean);
-      }
     }
   }
 

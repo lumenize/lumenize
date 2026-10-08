@@ -15,13 +15,9 @@
     "packages/ts-runtime-parser-validator/forks/typia/transform",
     "packages/ts-runtime-parser-validator/forks/typia/interface",
     "packages/ts-runtime-parser-validator/forks/typia/utils",
-    "experiments/structured-clone-object-format",
-    "experiments/onstart-repro",
-    "experiments/container-vite-spike",
-    "experiments/container-agent-channel",
-    "experiments/container-node-phase0",
-    "experiments/container-egress-catrust",
-    "experiments/interim-dev-loop"
+    "experiments/residency-hold",
+    "experiments/preview-self-binding",
+    "experiments/email-quota-probe"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
@@ -29,6 +25,12 @@
     "dev:studio": "./scripts/dev-studio.sh",
     "types": "./scripts/generate-types.sh",
     "audit:test-mode": "./scripts/audit-test-mode.sh",
+    "audit:prose": "node scripts/check-prose.mjs",
+    "audit:mesh-vocab": "node scripts/check-mesh-vocab.mjs",
+    "audit:ui-copy": "node scripts/check-ui-copy.mjs",
+    "audit:email-isolation": "node scripts/check-email-isolation.mjs",
+    "audit:do-http": "node scripts/audit-do-http.mjs",
+    "audit:test-assertions": "node scripts/audit-test-assertions.mjs",
     "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",
@@ -40,18 +42,23 @@
     "release:dry-run": "./scripts/release-dry-run.sh",
     "release": "./scripts/release.sh",
     "deploy:nebula": "bash apps/nebula/scripts/deploy.sh",
-    "restore-dev-mode": "./scripts/restore-dev-mode.sh"
+    "restore-dev-mode": "./scripts/restore-dev-mode.sh",
+    "audit:dep-direction": "node scripts/audit-dep-direction.mjs"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.934.0",
-    "@cloudflare/workers-types": "^4.20251011.0",
-    "@types/node": "^25.5.0",
+    "@types/node": "^24.13.3",
     "@vitest/coverage-istanbul": "^4.1.4",
     "terser": "^5.44.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vue": "3.6.0-rc.10"
+  },
+  "//overrides": "Lets @vitejs/plugin-vue and lucide-vue-next, whose vue peer ranges admit no prerelease, accept the 3.6.0-rc.10 pinned above. $vue follows the root's own vue devDependency, which exists only for it, so a bump edits that entry and never this block. When Vue 3.6.0 ships, delete this block and that devDependency, then confirm npm install re-resolves.",
+  "overrides": {
+    "vue": "$vue"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "optionalDependencies": {
     "@esbuild/linux-arm64": "^0.27.3",

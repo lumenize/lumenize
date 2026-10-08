@@ -1,7 +1,7 @@
 /**
  * createNebulaClient `ready` — real-Star connection-lifecycle probes (§5.3.8 / P10).
  *
- * Exercises the factory's `ready` Promise against a REAL Star + REAL nebula-auth.
+ * Exercises the factory's `ready` Promise against a REAL Star + REAL Registry.
  * The jsdom factory tests drive a MockClient; this is the no-mock backing the
  * test-fidelity obligation requires (tasks/nebula-frontend.md §5.3.7-v3). Covers
  * the three §5.3.8 **first-connect** `ready` probes (the lifecycle-matrix items
@@ -18,38 +18,35 @@
  * path 5/6 and needs WS-disconnect tooling → §5.3.7-v4, not here.
  *
  * The reject probe is the no-mock proof that P9's first-connect classification works
- * for the REAL NebulaClient. NebulaClient supplies `refresh` as a *function* (so mesh's
- * string-endpoint classification in #refreshToken never runs); the function must itself
- * throw `LoginRequiredError` on 401/403 (nebula-client.ts) or #connectInternal swallows
- * the failure into unbounded reconnect and `ready` hangs forever. **Capable-of-failing:**
- * revert that nebula-client.ts classification and the reject probe times out (the client
- * goes 'reconnecting', `ready` never settles).
+ * for the REAL NebulaClient. NebulaClient refreshes through `MeshClient`'s default, the platform
+ * host's endpoint, whose `#refreshToken` throws `LoginRequiredError` on a 401/403
+ * (`mesh-client.ts`); without it #connectInternal swallows the failure into unbounded
+ * reconnect and `ready` hangs forever. **Capable-of-failing:** drop that 401/403
+ * classification and the reject probe times out (the client goes 'reconnecting', `ready`
+ * never settles).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import { LoginRequiredError } from '@lumenize/mesh/client';
-import { browserLogin, ORIGIN } from '../../test-helpers';
+import { foundAndLogin, ORIGIN, pageOf } from '../../test-helpers';
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', () => {
   it('resolves on first connect with claims populated + lmz.connection.state connected', async () => {
     const star = uniqueStar();
     const browser = new Browser();
-    await browserLogin(browser, star, 'admin@example.com', star);
-    const ctx = browser.context(ORIGIN);
+    await foundAndLogin(browser, star, 'admin@example.com', star);
+    const ctx = browser.context(pageOf(star));
 
     const { client, store, ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: star,
-      activeScope: star,
-      appVersion: 'v1',
-      fetch: browser.fetch,
-      WebSocket: browser.WebSocket,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
+      ontologyVersion: 'v1',
+      fetch: ctx.fetch,
+      WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},
@@ -69,16 +66,14 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
   it('REJECTS with LoginRequiredError on a first-connect terminal auth failure (logged-out → real 401)', async () => {
     const star = uniqueStar();
     const browser = new Browser(); // NOT logged in → no refresh cookie → real endpoint 401
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
     let loginErr: unknown = null;
 
     const { store, ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: star,
-      activeScope: star,
-      appVersion: 'v1',
-      fetch: browser.fetch,
-      WebSocket: browser.WebSocket,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
+      ontologyVersion: 'v1',
+      fetch: ctx.fetch,
+      WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},
@@ -103,7 +98,7 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
     // NebulaClient's embedded-refresh classification at this layer.
     const star = uniqueStar();
     const browser = new Browser();
-    const ctx = browser.context(ORIGIN);
+    const ctx = browser.context(pageOf(star));
     let loginErr: unknown = null;
 
     const forbiddenFetch = ((input: any, init?: any) => {
@@ -115,10 +110,8 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
     }) as typeof fetch;
 
     const { ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: star,
-      activeScope: star,
-      appVersion: 'v1',
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
+      ontologyVersion: 'v1',
       fetch: forbiddenFetch,
       WebSocket: browser.WebSocket,
       sessionStorage: ctx.sessionStorage,
@@ -136,11 +129,11 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
   it('stays pending across a transient first-connect failure (5xx), then resolves', async () => {
     const star = uniqueStar();
     const browser = new Browser();
-    await browserLogin(browser, star, 'admin@example.com', star);
-    const ctx = browser.context(ORIGIN);
+    await foundAndLogin(browser, star, 'admin@example.com', star);
+    const ctx = browser.context(pageOf(star));
 
-    // Fail the FIRST refresh with a 503 (transient), then delegate to the real
-    // browser fetch so the reconnect-backoff retry succeeds.
+    // Fail the FIRST refresh with a 503 (transient), then delegate to the page's real fetch —
+    // which names the page in `Origin` — so the reconnect-backoff retry succeeds.
     let refreshCalls = 0;
     const faultyFetch = ((input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.url;
@@ -150,17 +143,15 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
           return Promise.resolve(new Response('upstream error', { status: 503 }));
         }
       }
-      return browser.fetch(input, init);
+      return ctx.fetch(input, init);
     }) as typeof fetch;
 
     let rejected = false;
     const { store, ready, dispose } = createNebulaClient({
-      baseUrl: ORIGIN,
-      authScope: star,
-      activeScope: star,
-      appVersion: 'v1',
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
+      ontologyVersion: 'v1',
       fetch: faultyFetch,
-      WebSocket: browser.WebSocket,
+      WebSocket: ctx.WebSocket,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       onShouldRefreshUI: () => {},

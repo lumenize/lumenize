@@ -1,58 +1,40 @@
 /**
- * Shared real-chromium factory harness — bootstraps a real magic-link login
- * then constructs the `createNebulaClient` factory at a unique scope, against
- * the real wrangler-dev Star reached same-origin through the vite proxy.
+ * Shared real-chromium factory harness — constructs the `createNebulaClient` factory on this page's
+ * own host, `tenant-a.crm.acme.lumenize.localhost`, against a real wrangler-dev Star.
  *
- * Mirrors the connection config of the Node-side baseline e2e
- * (`create-nebula-client-ready.test.ts`) but with chromium natives — `fetch`,
- * `WebSocket`, `sessionStorage`, `BroadcastChannel` default to the real browser
- * globals, so callers pass only the overrides a probe needs (a recording
- * `WebSocket`, a faulty `fetch`, an `onLoginRequired`/`onConnectionStateChange`).
+ * The page is already signed in: the lane's global setup claimed {@link PAGE_STAR} as its own
+ * admin, followed the emailed link in Chromium, and every test's browser context starts from that
+ * browser's cookies. A client here names no scope. Its socket goes to this Star's host on Studio's
+ * vite port, which proxies `/gateway` to the Worker, and its refresh goes to the platform host
+ * there, carrying this page's `Origin` — so its token's `aud` is this page's Star, as in production.
+ *
+ * `fetch`, `WebSocket`, `sessionStorage` and `BroadcastChannel` default to the real browser
+ * globals, so callers pass only the overrides a probe needs (a recording `WebSocket`, a faulty
+ * `fetch`, an `onLoginRequired`/`onConnectionStateChange`).
  */
 import { inject } from 'vitest';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
-import type { CreateNebulaClientConfig, FactoryResult } from '@lumenize/nebula/frontend';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { createNebulaClient } from '@lumenize/resources/frontend';
+import type { CreateNebulaClientConfig, FactoryResult } from '@lumenize/resources/frontend';
+import { PAGE_STAR } from './page-star';
 
-export const ADMIN_EMAIL = 'test@lumenize.io';
+export { PAGE_STAR };
 
-/** Unique scope per test — Star DO state persists in .wrangler across runs. */
-export function uniqueStar(): string {
-  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
-}
-
-/** The same-origin proxy base URL resolved against the test page origin. */
-export function proxyBaseUrl(): string {
-  return globalThis.location!.origin + inject('wranglerBaseUrl');
-}
-
-export interface BootstrapFactoryResult extends FactoryResult {
-  scope: string;
-  baseUrl: string;
+/** Where a client on this page reaches the Worker: its own host's socket, and the platform host. */
+export function pageEndpoints(): { baseUrl: string; platformOrigin: string } {
+  return { baseUrl: inject('pageBaseUrl'), platformOrigin: inject('platformOrigin') };
 }
 
 /**
- * Real magic-link login + factory construction at `scope` (auto-generated if
- * omitted). Does NOT await `ready` — the caller decides (some probes assert on
- * the pre-connect/terminal phases). `extra` overrides/augments the factory
- * config (e.g. `{ WebSocket, fetch, onLoginRequired }`).
+ * Construct the factory on this page. Does NOT await `ready` — the caller decides (some probes
+ * assert on the pre-connect/terminal phases). `extra` overrides/augments the factory config (e.g.
+ * `{ WebSocket, fetch, onLoginRequired }`).
  */
-export async function bootstrapFactory(
-  extra: Partial<CreateNebulaClientConfig> = {},
-  scopeOverride?: string,
-): Promise<BootstrapFactoryResult> {
-  const scope = scopeOverride ?? uniqueStar();
-  const baseUrl = proxyBaseUrl();
-  const testToken = inject('emailTestToken');
-  await bootstrapAdmin({ baseUrl, scope, email: ADMIN_EMAIL, testToken });
-
+export function bootstrapFactory(extra: Partial<CreateNebulaClientConfig> = {}): FactoryResult & { scope: string } {
   const result = createNebulaClient({
-    baseUrl,
-    authScope: scope,
-    activeScope: scope,
-    appVersion: 'v1',
+    ...pageEndpoints(),
+    ontologyVersion: 'v1',
     onShouldRefreshUI: () => {},
     ...extra,
   });
-  return { scope, baseUrl, ...result };
+  return { scope: PAGE_STAR, ...result };
 }

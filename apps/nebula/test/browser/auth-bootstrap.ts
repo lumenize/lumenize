@@ -2,139 +2,21 @@
  * Auth bootstrap for the Nebula browser harness — drives a real magic-link
  * email round-trip end-to-end:
  *
- *   1. Test → wrangler-dev:  POST /auth/<scope>/email-magic-link
- *   2. wrangler-dev → Cloudflare Email Sending → SMTP
+ *   1. Test → wrangler-dev, on the platform host: a claim, or POST /auth/email-magic-link
+ *   2. wrangler-dev → Resend → SMTP
  *   3. Cloudflare Email Routing → deployed `email-test` Worker
  *   4. email-test Worker → WebSocket push back to test (waitForEmail)
- *   5. Test → wrangler-dev: GET <magic-link URL> (cookie captured)
- *   6. NebulaClient internally → POST /auth/<scope>/refresh-token (cookie sent,
- *      JWT returned)
+ *   5. Test → the link's page: its POST /auth/magic-link (cookies captured)
+ *   6. NebulaClient on a scope's page → POST /auth/refresh-token on the platform host, `Origin`
+ *      naming the page (cookies sent, JWT returned)
  *
  * No test-mode bypass — exercises the same code path a real user would
  * exercise. The audit-test-mode.sh script ensures no future change leaks
- * NEBULA_AUTH_TEST_MODE into wrangler configs / npm scripts / CI.
- *
- * The `waitForEmail` and `extractMagicLink` helpers below are copies of
- * `packages/auth/test/e2e-email/email-test-helpers.ts`. They could be
- * promoted to a shared package once a third consumer needs them — see
- * tasks/backlog.md (Testing & Quality section).
+ * AUTH_TEST_MODE into wrangler configs / npm scripts / CI.
  */
 
+import { provisionAndLogin, provisionStarAdmin } from '../lib/email-login';
 import type { Browser } from '@lumenize/testing';
-
-const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
-const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';
-
-/**
- * Minimal shape of a stored email returned by the email-test Worker.
- * Matches `@lumenize/email-test/types`'s `StoredEmail` — duplicated locally
- * to avoid pulling that package in just for one type.
- */
-interface StoredEmail {
-  subject?: string;
-  html?: string;
-  to?: Array<{ address: string }>;
-  from?: { address: string };
-}
-
-interface WaitForEmailOptions {
-  /** TEST_TOKEN for authenticating with the deployed email-test DO */
-  testToken: string;
-  /**
-   * Scope this listener to emails carrying `X-Lumenize-Auth-Instance: <instance>`.
-   * Required for concurrent test runs — without it, multiple tests share one
-   * email channel and race each other for the next-arriving email.
-   *
-   * Maps 1:1 to NebulaAuth's `instanceName` URL segment (a 1-3 dot-separated
-   * slug like `acme-abc.app.tenant-a`). `NebulaEmailSender.magicLinkHeaders`
-   * stamps the header on every magic-link email.
-   *
-   * Omit to subscribe to ALL emails (legacy single-tenant behavior).
-   */
-  instance?: string;
-  /** Timeout in ms before giving up. Default: 60000 (60s) — generous for cold-start
-   *  email latency on CI runners (the e2e-email-resend suites use 45–60s); a received
-   *  email resolves immediately, so the higher ceiling never slows the warm path. */
-  timeout?: number;
-}
-
-/**
- * Connect to the deployed email-test Worker via WebSocket, clear existing
- * emails, and wait for a new email to arrive. Returns the parsed email.
- *
- * Call this BEFORE triggering the action that sends the email.
- */
-export function waitForEmail(options: WaitForEmailOptions): {
-  emailPromise: Promise<StoredEmail>;
-  cleanup: () => void;
-} {
-  const { testToken, instance, timeout = 60_000 } = options;
-  const instanceParam = instance !== undefined ? `&instance=${encodeURIComponent(instance)}` : '';
-
-  let ws: WebSocket;
-  let cleanedUp = false;
-
-  const cleanup = () => {
-    if (!cleanedUp) {
-      cleanedUp = true;
-      try { ws?.close(); } catch { /* ignore */ }
-    }
-  };
-
-  const emailPromise = (async () => {
-    // Clear existing emails for this instance only (other concurrent tests'
-    // emails stay intact).
-    await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}${instanceParam}`, { method: 'POST' });
-
-    // Connect WebSocket — instance filter persists via serializeAttachment
-    // on the DO side, so concurrent subscribers see only their own emails.
-    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${instanceParam}`);
-
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener('open', () => resolve());
-      ws.addEventListener('error', () => reject(new Error('WebSocket connection to email-test Worker failed')));
-      setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
-    });
-
-    const email = await new Promise<StoredEmail>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error(`No email received within ${timeout}ms`));
-      }, timeout);
-
-      ws.addEventListener('message', (event) => {
-        clearTimeout(timer);
-        resolve(JSON.parse(event.data as string));
-      });
-
-      ws.addEventListener('close', () => {
-        clearTimeout(timer);
-        reject(new Error('WebSocket closed before email received'));
-      });
-    });
-
-    return email;
-  })();
-
-  return { emailPromise, cleanup };
-}
-
-/**
- * Extract the magic-link URL from a parsed email's HTML content.
- */
-export function extractMagicLink(email: StoredEmail): string {
-  const html = email.html;
-  if (!html) {
-    throw new Error('Email has no HTML content');
-  }
-
-  const hrefMatch = html.match(/href="([^"]*magic-link[^"]*one_time_token[^"]*)"/);
-  if (!hrefMatch) {
-    throw new Error(`No magic link found in email HTML. Subject: "${email.subject}"`);
-  }
-
-  return hrefMatch[1];
-}
 
 interface BootstrapAdminOptions {
   /** Browser instance to use for HTTP calls (cookies persist across calls). */
@@ -143,67 +25,45 @@ interface BootstrapAdminOptions {
   baseUrl: string;
   /** Scope (universeGalaxyStarId) to authenticate at — e.g. 'acme.app.tenant-a'. */
   scope: string;
-  /** Email to register / log in. Should be `test@lumenize.io` so the deployed email-test Worker receives it. */
+  /**
+   * Email to register / log in — any `*@lumenize-test.dev` address reaches the deployed email-test
+   * Worker. Prefer `uniqueTestEmail()`: mail to one much-used address queued for 17–114 s on
+   * 2026-10-03 while a fresh address arrived in about a second.
+   */
   email: string;
   /** TEST_TOKEN for authenticating with the deployed email-test DO. */
   testToken: string;
 }
 
 /**
- * End-to-end magic-link bootstrap. After this resolves, the Browser's cookie
- * jar holds the refresh cookie scoped to `/auth/${scope}/`, and the caller
- * can construct a `NebulaClient({ baseUrl, fetch: browser.fetch, ... })`
- * which will mint access JWTs via the real refresh-token flow.
+ * End-to-end bootstrap of an **exact-star** admin. After this resolves, the Browser's jar holds the
+ * platform host's refresh cookie named for `scope`, and a `NebulaClient` on that scope's page mints
+ * access JWTs from it through the real refresh.
  *
- * The first email registered at a NebulaAuth instance becomes that instance's
- * founder/admin (per #loginSubject). Combined with
- * `NEBULA_AUTH_BOOTSTRAP_EMAIL=test@lumenize.io` (set by globalSetup), the
- * resulting subject has admin permissions — sufficient for ontology
- * registration + transactions in the round-trip test.
+ * `provisionStarAdmin` walks the path a real tenant walks: the universe and galaxy are provisioned
+ * by their own admin, then the **open** `claim-star` mints this email as the star's admin and emails
+ * the claim link. ADR-009 rung 1 — a real send, received by the deployed `email-test` Worker, no
+ * test-mode bypass.
+ *
+ * ⚠️ The resulting identity is an exact-star admin, not a universe admin. That is deliberate and is
+ * the higher-fidelity fixture (a confinement assertion passes vacuously under a universe admin), but
+ * it means this helper cannot bootstrap a scope ABOVE the star, nor a reserved `{u}.{g}.dev` Star,
+ * which nobody founds. For those use {@link bootstrapUniverseAdmin}.
  */
-export async function bootstrapAdmin(options: BootstrapAdminOptions): Promise<void> {
+export async function bootstrapStarAdmin(options: BootstrapAdminOptions): Promise<void> {
   const { browser, baseUrl, scope, email, testToken } = options;
+  await provisionStarAdmin({ baseUrl, scope, email, testToken, fetchImpl: browser.fetch });
+}
 
-  // 1. Set up email listener BEFORE triggering the send.
-  //    `instance: scope` makes the email-test DO route only this test's
-  //    magic-link email to this listener (via the `X-Lumenize-Auth-Instance`
-  //    header that `NebulaEmailSender.magicLinkHeaders` stamps on every
-  //    magic-link email). Concurrent tests with different scopes don't collide.
-  const waiter = waitForEmail({ testToken, instance: scope });
-
-  try {
-    // 2. Request magic link
-    const magicLinkResponse = await browser.fetch(
-      `${baseUrl}/auth/${scope}/email-magic-link`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      },
-    );
-    if (!magicLinkResponse.ok) {
-      throw new Error(`email-magic-link request failed: ${magicLinkResponse.status} ${await magicLinkResponse.text()}`);
-    }
-
-    // 3. Wait for the email to arrive at the deployed email-test Worker
-    const receivedEmail = await waiter.emailPromise;
-    if (receivedEmail.to?.[0]?.address !== email) {
-      throw new Error(`Email recipient mismatch: expected '${email}', got '${receivedEmail.to?.[0]?.address}'`);
-    }
-
-    // 4. Extract magic link URL from the email HTML
-    const magicLinkUrl = extractMagicLink(receivedEmail);
-
-    // 5. Click the magic link — NebulaAuth sets the refresh cookie and 302s
-    //    to NEBULA_AUTH_REDIRECT (e.g. '/app'). We stop at the 302 because
-    //    `/app` is a frontend route that doesn't exist on wrangler-dev (the
-    //    real frontend would handle it). Browser captures Set-Cookie from
-    //    the 302 response itself, so the cookie jar is populated either way.
-    const clickResponse = await browser.fetch(magicLinkUrl, { redirect: 'manual' });
-    if (clickResponse.status !== 302) {
-      throw new Error(`Magic-link click expected 302, got ${clickResponse.status} for ${magicLinkUrl}`);
-    }
-  } finally {
-    waiter.cleanup();
-  }
+/**
+ * Bootstrap a **universe admin** and provision the tree down to `scope`, leaving the universe's
+ * refresh cookie in the Browser. Returns the universe scope. Its admin membership mints on every
+ * page beneath the universe, so a client on a galaxy's or Star's page acts there as the universe's
+ * admin — the shape production uses for anyone working across an account.
+ */
+export async function bootstrapUniverseAdmin(options: BootstrapAdminOptions): Promise<string> {
+  const { browser, baseUrl, scope, email, testToken } = options;
+  const universe = scope.split('.')[0];
+  await provisionAndLogin({ baseUrl, scope, email, testToken, fetchImpl: browser.fetch });
+  return universe;
 }

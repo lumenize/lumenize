@@ -1,0 +1,329 @@
+# Nebula Pre-Alpha Fast-Follow
+
+**Status**: Drafted, not started — the **parent index** for the reactive "next" horizon: platform capabilities the first real user-developer apps will demand beyond the core codegen + data + chat loop. Not a build commitment; each item is `/review-task`'d before "go" and picked up **as user demand surfaces**. Linked from [`nebula-pre-alpha.md`](nebula-pre-alpha.md). Real child task files are spun **one at a time** when an item goes active — never pre-created as stubs. (Item 3 already has its own file; Items 1–2 are homed here until they go active. Item 9 is a **defect** rather than a capability, and it says so at the top of the item.)
+
+**Provenance**: Items 1–2 surfaced 2026-07-02 from the first user-developer spec — Jennifer's [Luminize Almanac vision/requirements/data-model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and her companion [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit). Review lens was "what does this spec teach Nebula," not spec QA (see the `nebula-pitch-deck` memory for the full findings).
+
+## Objective
+
+Close the platform gaps that stand between the current live loop and real user-developer apps existing and thriving — picked up reactively, in demand order.
+
+## Item 1: User-app media storage (photos/blobs)
+
+> ⚠️ **Placement open — may be table-stakes, not fast-follow.** The Almanac's atomic unit (`Entry`) *requires* photos ("the app cannot exist without this"), so media may belong **earlier** — before the wipe, or with the data-bound work, in [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § *What remains* — rather than in this reactive post-core bucket. Decide at `/review-task`.
+
+**Goal**: A user-developer's generated app can accept, store, and serve end-user-uploaded media (photos first), governed by the same ReBAC/DAG access control as every other resource.
+
+**Why now-ish**: The Almanac's atomic unit (`Entry`) *requires* one or more photos — the app cannot exist without this. Media is likely table stakes for a large share of domain-expert apps (the persona thinks in photos, documents, and artifacts, not rows).
+
+**Shape (to be designed, not pinned)**:
+- R2-backed blob storage surfaced as a platform capability, not raw R2 access (homogeneity: no per-app infrastructure divergence).
+  - ✅ **First tenant landed 2026-09-03 — profile pictures.** One platform bucket (`nebula-blobs`, binding `BLOBS`; the test worker gets `nebula-blobs-test`), keyed `profile-pictures/{uuid}.{ext}`; `PUT /pictures` is bearer-gated and sniffs the bytes, `GET /pictures/{key}` is public and immutable because `picture` is a public field an `<img>` loads with no credential. `apps/nebula/src/profile-pictures.ts`. Not yet a capability an app can call — that is still this item.
+- ⚠️ **`BLOBS` never gets a public custom domain.** Public R2 access serves any object by key with no reader check, so one leaked key would read an access-controlled photo forever. Profile pictures are public by design and already go through the Worker's `/pictures/:key` route; if public blobs ever need direct serving, they move to a bucket of their own ([nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) § *Future state*).
+- Access control must ride the existing substrate — a photo is only readable by users who can read the resource that owns it (the sharing-circle semantics in Jennifer's spec map directly onto ReBAC).
+- Relationship to `resource-history-r2` outbox mechanics: same bucket family, different object class — check for shared plumbing before designing fresh.
+
+**Success criteria (sketch)**:
+- [ ] A generated app can round-trip an end-user photo upload → store → display.
+- [ ] An end user who lacks read permission on the owning resource cannot fetch the photo (direct URL included).
+- [ ] No per-app R2 configuration — the capability is uniform across all apps.
+
+## Item 2: App-branded AI persona
+
+**Goal**: The built-in end-user AI chat is presentable as *the app's own assistant* — per-app name, tone, and behavioral constraints — while remaining the same ReBAC-governed chat underneath (the "can never read what the asking user can't read" guarantee is untouched and non-overridable).
+
+**Why now-ish**: Jennifer named her app's AI layer ("Gigi Kaizen") *unprompted, in her first spec* — user-developers evidently think of the embedded AI as part of their product, not as Nebula's chat. Her spec also imposed behavioral values on it ("always gentle, never interruptive; no urgency language; no gamification") — tone/values constraints, not features.
+
+**Shape (to be designed, not pinned)**:
+- Per-app persona config: display name, voice/tone guidance, values constraints — data the platform's chat consumes, not code the app injects (no prompt-injection surface into the governed chat; constraints are additive style, never access-expanding).
+- Never surface the underlying model name (existing rule: model-agnostic naming).
+- The tone and values come from the app's `docs/vision.md`, the declared file the guidance task seeds ([nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md) § *Design intent*) — a second reader of one file, never a second store; the ReBAC floor on that chat is unchanged.
+
+**Success criteria (sketch)**:
+- [ ] A user-developer can name and style their app's assistant from the Studio.
+- [ ] Persona config cannot widen data access or override platform-level chat guards (capable-of-failing test: a persona instruction attempting to read out-of-scope data does nothing).
+- [ ] Behavioral constraints from the spec (tone, no-gamification-style rules) demonstrably shape chat output.
+
+## Item 3: Outside-world connectivity (`fetch` / email / search / webhooks / cron)
+
+**Full design + phased build plan lives in its own file**: [`nebula-outside-world.md`](nebula-outside-world.md).
+
+The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (secrets vault, app-server facet runtime, egress broker, ingress router, scheduler, security stdlib) and the Studio agent writes integrations (email, payments, Slack, search) as ordinary app code. Spikes proven + mutation-checked; gated on `/review-task`. Demand order **`fetch` → email → search → secrets-last**. Also homes the post-wipe inbound `claude@` email exercise noted in [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § *What remains*.
+
+## Item 4: The prod ontology install path
+
+**Placed here 2026-08-21**, out of [`nebula-galaxy-collapse-and-chat.md`](archive/nebula-galaxy-collapse-and-chat.md), which had deferred it *to itself* and then scheduled no phase for it. Not pre-alpha: the only Stars in the pre-alpha loop are `.dev` Stars, which already install through the lazy pull below, and a Star with real users exists only once an app is published — the publish path, which the staging ladder puts in **alpha**.
+
+**Demand trigger:** the first pre-alpha user who wants to show their app to someone.
+
+**Goal**: an ontology reaches a Star the Galaxy did not push to, without a bespoke per-Star install step.
+
+**Current state**: every Star pulls lazily. An op pinned to a version the Star has not installed asks its Galaxy for the current row with `getCurrentOntology()` and installs it, and [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) moved that install into the Resources plane, where the Galaxy's answer lands at `resourcesResults.onOntologyPulled` behind a getter that carries no `@mesh()`. What the Galaxy calls current is the applied row whose hash matches the Workspace's ontology file, else the most recently applied one — published or not, and reachable without an Apply, since reverting the file makes an earlier applied row current.
+
+⚠️ **The pull is built, so the open question has moved to what a tenant Star's source answers.** A push-on-append (Larry, 2026-07-25) lost to the pull for a reason that still holds: a Star converges only when a tab asks for a version it lacks, so a Star nobody is using costs nothing.
+
+**Two requirements, carried in from [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) (2026-09-28):**
+- **A tenant Star's source answers the PUBLISHED version**, never the Galaxy's current row as defined above, so an unpublished breaking row never reaches a tenant.
+- **A breaking version that reaches a non-`.dev` Star migrates; it is never wiped.** Until migrations exist, that file's D23 fences it: the install records nothing. This item replaces the fence.
+
+**A candidate shape, carried over intact** — it was reasoned out at length and should not be re-derived from scratch:
+
+- 💡 **Candidate shape — git as the transport (Larry, 2026-07-25).** Pull it into the container with **git** rather than shipping bundles: **commit per codegen turn**, the Galaxy's *shipped* version is a **tag**, and a **triggered pull** promotes the dev version into the `.dev` Star at the end of each LLM response. Deltas instead of whole artifacts, and "which version is live" becomes a git ref rather than bespoke state. Fits what is already here — `isomorphic-git`/Workspace ops are named as on-DO-thread work below, and `@cloudflare/shell` + isomorphic-git are proven to run under vitest-plugin ([[shell-isomorphic-git-pool-workers]]).
+  - **Repo-to-repo git, if we want it, is CONTAINER-side.** Real git on real Linux does local-path remotes, so `git clone /workspace/app /workspace/build` + `git -C /workspace/build pull ../app` needs nothing external. ⚠️ **Host-side `file://` is permitted but unproven** — `git/cli.ts`'s `isSupportedTransport` allows it and the docs claim it, but `git/network.ts` passes `http:` to isomorphic-git for every network op and **no test anywhere mentions `file://`**; upstream isomorphic-git has no local transport. Treat it as broken until measured. ⓘ **MOUNTS are BUILT, with one provider — corrected 2026-08-03 against the installed package.** `docs/01_vfs.md` marks the whole mount subsystem **(planned)**, but `@cloudflare/computer@0.1.1` ships `WorkspaceOptions.mounts`, `Workspace.mounts()` and `ensureMountsIndexed()`, and the vendor's own container example mounts a bucket at `/workspace/r2`. **`R2Bucket(binding)` is the only shipped provider** (read-only — writes under the root reject `EROFS`), plus a `MountFactory` seam for custom ones; there is no git/GitHub provider. ⚠️ **Their docs lag their code — verify against the installed `.d.ts`, not the doc.**
+  - ⏳ **What Artifacts would still buy (none on this task's critical path; open beta since 2026-10-01):** (1) history **off the DO** — the repo currently sits in Galaxy's SQLite, under ADR-018's 10 GB ceiling and the cold-start-scales-with-size worry below; moving it frees the Galaxy's storage but cannot raise one app's ceiling, because an Artifacts repo is capped lower ([1 GB on 2026-10-01](https://developers.cloudflare.com/artifacts/platform/limits/)); (2) a **real remote for BYO-agent** (`archive/nebula-studio.md` § *Enterprise BYO-agent*) — the one case that genuinely needs a git server; (3) **`fork`** on a repo handle, which makes scaffold provisioning a server-side op that carries the scaffold's *history*, so a later scaffold upgrade is a **merge** rather than a bespoke diff-and-patch (⚠️ **the open-beta docs still do not say whether `fork` is copy-on-write or a byte copy** — it decides whether N tenant forks each bill their full size; measure it by forking one repo and reading the storage metric); (4) **export** as a clone URL. Consistent with `reference/nebula-dev-flows.md` **Decision 6** (Artifacts as an optional future optimization behind the same free seam).
+  - ❓ **Still open:** the Star consumes a *compiled validator bundle*, not source — so decide whether git carries the source (Star or container rebuilds) or the built artifact.
+
+**Six tests are skipped on this, and they should NOT wait for it.** Five browser benchmarks plus `chromium/conflict-modal` fail only because a fresh `uniqueStar()` has no ontology installed — not because they need a *pull* specifically. Their skip comments say "Un-skip when the prod lazy-pull lands", which fused two different problems. The test app's `StarTest.applyOntologyForTest` already installs one **without a Galaxy round-trip**, handing a compiled row to `resourcesResults.onOntologyPulled` the way a pulled row arrives, and an admin-scoped caller reaches it — so their setup can install one directly. ⚠️ Confirm first that `conflict-modal` merely *needs* an ontology present rather than testing `ontology-stale` behaviour itself; its own comment says the verdict contract "is unaffected", which reads as the former. Tracked separately in [`backlog.md`](backlog.md) § *Testing & Quality*.
+
+
+## Item 5: The published-tier serve — shipped-tag `dist` for `/app/{u}.{g}.{s}/*`
+
+**Placed here 2026-08-24**, out of the collapse's § *Serving* route table (its one ⏭️ deferred row). **Never in doubt — only deferred.** The same Galaxy `fetch` handler and `serve.ts` that serve `.dev`'s working-tree `dist/` serve every other star **`dist-prod/`** — **one published copy for all tenant stars** (a star slug is a tenant, e.g. `acme.invoicing.northwind-co`; per-star staged rollout is deliberately NOT a thing). Publish **copies** `dist/` to `dist-prod/` and commits (Larry's split-`dist` shape, 2026-08-24), so the serve path never reads through git and both tiers ride the same `getFile` seam; **the publish commit — and the shipped ref pointing at it — is provenance, not the serving mechanism**. Nothing extra rides the copy: the artifact **self-describes** — the ontology label is baked into the build (`serve.ts` does no VERSION templating; its one serve-time rewrite is the `<base href>` injection above — addressing, not content), and publishing is deterministic Galaxy code, so no write-guard is needed on `dist-prod/` (the LLM's `write_file` scope is the app source — a different risk class from the ontology history file, which the LLM must edit). *(The earlier tag-lookup serve was superseded by this — reading blobs at a ref on every request was the complexity this deletes.)*
+
+✅ **RESOLVED before it could bite (Larry's catch + decision, hand review 2026-08-26): no baked base exists to be wrong.** The one-copy serve forbids a star-keyed vite `base`, so the collapse builds the target directly: the scaffold builds with `base: './'` and `serve.ts` injects `<base href>` for whatever prefix it is serving under (`HTMLRewriter`; the collapse's vite-base bullet carries the derivation). `dist-prod/` is therefore one copy valid at every star's prefix with nothing to re-bake at publish — and the custom-domain future below needs no rebuild either: at its own origin's root the injected value is simply `<base href="/">`.
+
+**Custom domains (further deferred, moved here from the collapse 2026-08-24):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
+
+**Demand trigger:** the same as Item 4's — the first pre-alpha user who wants to show their app to someone — and the two land together: a published Star needs its ontology (Item 4) and its `dist` (this) at the same moment.
+
+⚠️ **If user-dev source-privacy demand appears, the gate design restarts HERE, under two recorded constraints** (Larry, 2026-08-24): **no cookies**, and browsers send no `Authorization` on document or sub-asset loads — which together likely mean the serve itself is never gated (a published app's END USERS need `index.html` before they can log in), and privacy comes from something else if it comes at all.
+
+⚠️ **Publish sends no reload push, and one added later would need herd control** (Larry, 2026-08-26; the reload channel it would have ridden was deleted 2026-09-28, [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) D17). Prod stays lazy: the ontology version gate already guarantees correctness, and a code-only publish picked up on the next natural reload is ordinary web behavior. A push that reloaded every live client of a galaxy's stars at once would have each fetch `index.html` + assets from the one Galaxy DO, sent as O(N) calls from that same DO, so a later one ships with client-side jitter or a measurement, never blind. The dev loop has its own answer, which is not a fan-out: a build replies to the user-developer who asked for it.
+
+⚠️ The **scale** mechanisms — edge cache, the release herd, R2 as an escalation — are NOT this item's: they are decided by measured experience, and live in [backlog.md](backlog.md) § *Future bigger things*.
+
+## Item 6: Mid-generation chat UX — the two-stage arrival pipeline
+
+**Moved here from the backlog 2026-08-24** (it is near-term, with a demand trigger — not a someday row). Pre-alpha the codegen trigger is **single-flight** and a mid-generation post just sits in the thread (collapse Phase 4); Larry judges that unacceptable UX beyond pre-alpha.
+
+**Demand trigger:** the first multi-user session that hits the single-flight floor in anger.
+
+**Target sketch:** a **two-stage arrival pipeline**. Stage 1 — EVERY message runs the fast **discriminator** (the collapse's two-LLM-calls Decisions row) on arrival: cheap enough to block on, or its own short queue. Stage 2 — only a "Nebula must respond" verdict enters the **codegen queue**: empty → run; busy → prompt the author — *"interrupt Nebula's thinking, or queue this for after?"* **Cancel lives on the streaming response.**
+
+**Couplings:** the respond-or-not policy + `@`-mention control ride the same classifier and land with this; cancel must ride the container teardown order — let the sync bracket resolve, `destroy()`, tolerate the 1006 — and release the residency hold (both pinned in the collapse's Phase 3).
+
+**The respond-or-not policy — decided 2026-09-04 (Larry), deterministic first.** The classifier's *codegen* verdict no longer forks anything — the guidance task ([nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md) § *Design intent*) runs one assembly on every turn and keeps the cheap call only as a container-warm hint. What is still this item's is whether Nebula answers at all, and three of the four cases need no model:
+
+**2026-09-06 — the discriminator call is DELETED.** Its last job was a warm hint that fired the build box before the model's first write; five real turns measured every first-write to build interval above the 3.2 s cold start, so Larry dropped the call, and only the first write warms now. Stage 1 above would therefore be a NEW classifier call, decided when this item is picked up, not a survivor of the collapse's two-call design.
+
+1. **The agent tagged in the message → respond.** Needs a mention syntax, which does not exist today: `@` followed by a participant's display name, matched case-insensitively against the chat's participants.
+   - **The agent's tag (Larry, 2026-10-07).** Its display name stays "Lumenize", the name its Profile is seeded with, and the matcher also accepts two aliases for the agent alone: `luminize`, the common misspelling, and `agent`. So `@Lumenize`, `@luminize` and `@agent` all address it. The display name is configuration the app supplies ([mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md) D17 and D19), so it is Nebula's choice, not Mesh's.
+2. **Another participant tagged and the agent not → do not respond.** The message is for them.
+3. **Only the poster is present and no tag → respond.** "Present" is the chat query's live data-subscriber roster, a table the Galaxy already holds for presence — a synchronous local read. Key it by `sub`, not by client, so a person with two Studio tabs counts once. Personas never appear: they are logged into the app preview, not into Studio's chat.
+4. **Others present and no tag → the cheap model decides**, given the roster and the last six or so messages with their bylines, and failing open to *respond* — an unanswered request is the worse error in a building session. Draft prompt: *"A group chat in an app-building workspace. Nebula is the assistant. Given who is present and the last messages, reply with ONLY `{"respond": true}` if the newest message asks Nebula for something or continues an exchange with Nebula, and `{"respond": false}` if it is addressed to another person."*
+
+Single-flight sits before all four: a message during a generation is still skipped, and the queue this item builds is what changes that.
+
+**2026-09-20 — when case 4 is built, the classifier is Jev (Larry).** `typesafe/jev` is a Workers AI model that answers typed questions about one state and returns a calibrated probability instead of prose. Case 4 becomes a single `noul` question rather than a JSON parse of a chat model's reply. Shape is from [the Cloudflare model page](https://developers.cloudflare.com/ai/models/typesafe/jev/), read but not yet run here — re-check it against the docs at pickup:
+
+```ts
+const { respond } = await env.AI.run('typesafe/jev', {
+  state,  // the live subscriber roster + the last ~6 messages with bylines
+  questions: {
+    respond: {
+      type: 'noul',
+      instructions: 'A group chat in an app-building workspace. Nebula is the assistant.',
+      criteria: {
+        true: 'the newest message asks Nebula for something, or continues an exchange with it',
+        false: 'the newest message is addressed to another person',
+      },
+    },
+  },
+})
+// respond.noul is P(the message is for Nebula), 0-1 - branch on a threshold
+```
+
+- **Failing open becomes a threshold, not a catch block.** Case 4 above names the asymmetry; a probability is what makes it a number — respond unless P is decisively low.
+- **No dependency, no startup cost.** `env.AI` is already bound and already carries the codegen model, so this is a second model id on a binding we have.
+- **ADR-001 is not in play.** The `questions` object says what to ask about one state; it never describes the shape of our data. This is a model call, like the codegen call beside it.
+- **Measure the calibration before trusting a threshold.** "Calibrated" is the vendor's word, and `calibration.md` § 8 says a measurement survives an override where a label does not.
+
+
+**Consider — turn leases and wake-time reconciliation (2026-09-06, from the crash-only discussion).** Three ideas from the let-it-crash article, each prefixed "consider" on purpose: none is decided, and Larry's worry sits above all three. A fresh container does nothing for a half-finished Workspace, and a restart does nothing for a corrupt one. What makes the half-finished case survivable is that both histories are durable — the commits in the DO's git and the Messages in the chat — so the person can say "fix it" and the model sees what landed and what did not. Guidance for that grows over time, and LLM-driven testing, once it exists, makes such states obvious rather than discovered by hand.
+
+- **Consider a lease per turn.** The human Message is durable before the model runs; if the Galaxy is evicted mid-turn the turn dies, and today the person posts again. On wake, a Message with no reply and no turn in flight is a lease that expired: restart it once, from the durable state (the commits, the history bundle), never a blind rerun, because a turn is a multi-minute model job. The idempotency key already exists — one reply per Message — so a restart that finds the reply landed is a no-op.
+- **Consider an attempt cap with a parked reply.** Two attempts, then a reply that says what landed and that it stopped, where someone has to look. Without the cap a restart is the article's poison message retried forever; with it, a corrupt Workspace surfaces as a message rather than a loop.
+- **Consider reconciling on wake.** An eviction skips the turn's `finally`, so a build box can outlive its build. On wake, destroy any running container no build owns, and name the Workspace's state — uncommitted changes against the last commit — so the restarted turn, or the person, starts from something named.
+
+## Notes
+
+- A third finding from the same Jennifer analysis — **cross-document spec-drift detection** (her two docs contradict each other: photo-first-required vs text-first capture) — is deliberately *not* an item here: it's a Studio/coach-loop capability question that needs its own framing, and the coach loop covers it manually during alpha. Revisit when the Studio eval suite resumes.
+- None of these jump the queue: the active pre-alpha branch work (per [`nebula-pre-alpha.md`](nebula-pre-alpha.md)) remains the priority; these are picked up reactively on user demand.
+
+## Item 7: Multi-persona preview tabs — testing a permission model as several users at once
+
+⚠️ **ACTIVE since 2026-09-08 — its child file is [nebula-testing-with-personas.md](nebula-testing-with-personas.md), which is the authority.** It is also pre-alpha ② rather than fast-follow (`nebula-pre-alpha.md` § *What remains*), so this item is kept only for the provenance below and the two claims other files lean on. Design questions go to the child file, never here.
+
+**Larry's idea, 2026-08-28.** A user-developer cannot test their app's permission model with one login. Studio creates **test personas** on the `.dev` Star — synthetic users with real mailboxes on the `*@lumenize.io` catch-all already wired for the harness — grants each the permissions being tested, and renders **one preview iframe per persona, in tabs labeled with that persona's name**. Everything done in a tab happens AS that persona. Today the alternative is multiple browser profiles or incognito windows, which is why nobody tests permissions.
+
+- **It also dissolves an open piece the collapse carries.** [nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md) § *Costs / risks* leaves the collaborator's star-side browser SESSION open (the preview's data plane needs a `{u}.{g}.dev` token, so Austen would need a refresh cookie there). With personas **no real human ever needs a session in the preview** — a better answer than the one that was about to be designed. Watch what it does to the invite's `.dev` second half, which exists partly to give her preview access.
+- ⚠️ **It does NOT fix the same-origin escalation, and must not be recorded as if it does** (the collapse's accepted risk names the origin split, now [ADR-021](../docs/adr/021-every-scope-has-its-own-host.md), as that fix). A frame can reach `window.parent.document` on ORIGIN, not identity — app code running as a persona still drives the viewing admin's Studio DOM.
+- ⛔ **REVERSED 2026-09-09 — personas make the origin split HARDER, not cheaper.** This bullet argued the cross-origin fix got cheap because persona friction would land on "a developer setting up test users once per browser." The built design has no such step: a seat uses **no cookie at all** — the parent mints an impersonated token and hands `{ accessToken, refresh }` into the same-origin iframe ([nebula-testing-with-personas.md](nebula-testing-with-personas.md) § *Design intent*). The third-party-cookie obstacle therefore does not apply, and **same-origin becomes load-bearing** instead. ⚠️ The on-hold task that cited this claim for the Storage Access API was removed on 2026-09-15; [ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md) hands each frame a short-lived signed value instead, so Item 10's dependency needs re-deriving against it.
+- ⚠️ **That does not revive the `postMessage`-scoped-token candidate.** It was rejected as a *refresh*-credential handoff; a seat carries a short-lived access token plus a mint channel that dies with the parent. Different object — re-read the rejection against its own wording before reusing it either way.
+- ✅ **Answered — how a persona is minted.** The REAL login path, [ADR-009](../docs/adr/009-real-auth-path.md) rung 1: the persona is invited, our own inbound receiver takes the link off the mail, and the Galaxy follows it and POSTs the accept. The second branch this bullet offered — the Galaxy provisioning personas directly on `.dev` because "a synthetic identity has no human behind it and so no mailbox to prove" — was **rejected**, and the reasoning is in the child file rather than restated here. Do not re-decide it from this bullet.
+
+**Demand trigger:** the first user-developer whose app has more than one kind of user — which is most of them, so expect this early.
+
+## Item 8: Tell the OTHER collaborators a new build landed
+
+**Today:** a successful build replies to whoever asked for it (`Galaxy.announceBuildToRequester`
+→ the requester's `handlePreviewReady`). A second person with the same workspace open keeps the
+older UI until their own lazy path catches up — a refocus re-request, or the next thing they ask
+for. That is a deliberate staleness cost, not a correctness one: unchanged ontology leaves old
+code data-correct.
+
+**The change:** fan the same signal to every live Studio on the workspace instead of to one. After [mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md), `handlePreviewReady` is a method of `StudioClient`, a subclass of `NebulaClient` in `apps/nebula` (its D20), so the fan-out pushes to that class.
+
+**The roster already exists and nothing better is available** (settled with Larry 2026-08-28):
+the chat query's permitted subscribers — the targets the plane's `streamProgress` sends to — ARE "everyone with this workspace open", and any registry we
+invented would be no better maintained. Its accuracy rests on the mesh dropping a subscriber the
+first time delivery fails — which it does, via the `ClientDisconnectedError` fire-back — so a
+closed tab self-heals rather than accumulating.
+
+⚠️ **Check the drop LATENCY before relying on it.** The verdict is meant to come back in ~5 s;
+Larry recalls a possible bug making it 30 s. Between the disconnect and the drop, a fan-out
+addresses a dead socket — harmless for a reload cue, but confirm the number rather than
+inheriting it, and fix the delay if it is the bug rather than the design.
+
+⚠️ **Do not reintroduce an opt-in enrolment.** The design this replaced broke precisely because a
+client had to remember to subscribe and Studio did not, so the fan-out ran to an empty list for a
+whole build with every suite green. Whatever roster is used must be one Studio cannot forget to
+join.
+
+## Item 9: A connected client never re-checks its token
+
+⚠️ **A defect, not a capability — the only such item here.** It sits in this file rather than the
+backlog because a session that dies while the tab is still open is what a first real user-developer
+meets on an ordinary afternoon, and the fix is small.
+
+**Today:** `#needsTokenRefresh()` ([`lumenize-client.ts`](../packages/mesh/src/lumenize-client.ts),
+~:1112) is a sound predicate wired to exactly one caller — its own JSDoc says it exists to *"GATE
+the await in `#connectInternal`"*. Nothing re-evaluates it while a socket is up. A client that
+connects and then sits past its `exp` dispatches on the dead token, the Gateway refuses, and the
+refusal never comes back as a rejection. The caller waits out `callAsync`'s 30 s timeout and
+receives `TimeoutError`, which names neither the token nor the identity — the "thinking… forever"
+shape ADR-003 exists to kill, wearing an abort's costume.
+
+**How it shows:** `harness/scenarios/impersonation-expiry.ts` is the one red scenario in the
+registry (`drive.ts all`, 2026-09-01: 21 of 22 green). It mints a 45 s child, waits 50 s, reads —
+and both parent and child report `connectionState === 'connected'` across the lapse. Nothing in the
+client's own view of the world says anything is wrong.
+
+**Not impersonation-specific.** A child is only the fastest way to reach it: `ttlSeconds` makes the
+lapse observable in 45 s, where an ordinary session takes the full `ACCESS_TOKEN_TTL` of 15 minutes.
+Any idle tab crosses it.
+
+⚠️ **The in-lane twin is green and cannot see this.**
+`test-apps/baseline/impersonate-lifetime.test.ts` § *survives a GENUINE expiry* moves the clock with
+`vi.setSystemTime` and drives a path that re-enters the mint. It proves the server rejects a stale
+`exp` and that the re-mint works, never that a live socket notices its own token died — exactly the
+split `live.md` predicts. Provenance, checked rather than assumed: no commit in the login re-order
+touches `impersonation.ts`, `nebula-client.ts`, `lumenize-client.ts` or `mint-narrower-token.ts` on
+this path.
+
+**The change — two independent halves, and the second earns its keep whichever way the first goes:**
+
+- **Re-check before dispatch**, or on a timer, so a client refreshes rather than sending a token it
+  could have known was dead.
+- **Deliver the Gateway's refusal as a rejection**, so a stale token fails in milliseconds carrying
+  its own name instead of arriving as a timeout half a minute later.
+
+- [ ] A client connected across a real token lapse completes its next call — `impersonation-expiry`
+      goes green, on a clock nobody patched.
+- [ ] An unrecoverable refusal surfaces as itself within a second rather than as `TimeoutError` at
+      30 s (capable-of-failing test: suppress the re-check and assert the error's NAME, not merely
+      that something threw).
+
+## Item 10: Studio drives the preview — the model exercises the app it just wrote
+
+**Larry, 2026-09-09,** working the persona design: *"The LLM is eventually going to need to drive actual `.dev` Star usage at some point to check its own work."* Today the model's entire self-check is one `build` — `TOOL_CONTRACT` says *"check them all with ONE build; read its per-step report"* — whose steps are `ontology`, an explicitly advisory `typecheck`, `container` and `preview: { refreshed, why }`. **The model has never run the app.** It cannot see whether a button works, whether data loads, or whether a denial renders.
+
+### The topology, which is what makes this tractable
+
+Every well-known driver — Playwright, Puppeteer, Stagehand, browser-use — is **outside-in**: a Node or Python process driving a browser it owns over CDP. We are the opposite, and better placed than that sounds. Studio's page holds the user-developer's live client, the preview is a **same-origin** iframe, and a DO can already push to the page: `NebulaClient` carries about six `@mesh()` methods DOs call through the Gateway (`deliverPreviewReady`, `handleOrgTreeUpdate`, `handleProfileUpdate`). So the control channel exists, and **Studio's page is the browser panel** — the model reaches the DOM the way Claude Code reaches Chrome, with mesh where CDP would be.
+
+Same-origin also means **nothing is injected into the generated app**. `iframe.contentDocument` gives the parent `querySelector`, `.click()`, `.value =` and `dispatchEvent` outright. The missing piece is not access, it is *addressability*.
+
+### Buy, don't build — the engine is published
+
+⭐ **`@vitest/browser` exports `./locators`: Playwright's selector engine, MIT, packaged for in-page use** — and it is already a transitive devDependency here (`@vitest/browser@4.1.10`, pulled by `@vitest/browser-playwright`, which `apps/nebula` declares for its `chromium` project). Reading `dist/locators.d.ts`, the `Locator` class splits exactly along the seam we need:
+
+- **Synchronous, in-page:** `getByRole` / `getByLabelText` / `getByText` / `getByTestId` / `getByTitle` / `getByPlaceholder` / `getByAltText`, plus `filter` / `and` / `or` / `nth` / `first` / `last`, and `query()` / `element()` / `elements()` / `length`. The scope is a settable `protected _container?: Element` — which is how it points at `iframe.contentDocument.body`.
+- **`Promise<void>`, delegated to the provider (Playwright over vitest's socket):** `click`, `dblClick`, `fill`, `hover`, `selectOptions`, `upload`, `dropTo`, `wheel`, `clear`, `screenshot`.
+
+The module also exports `selectorEngine` (with `QueryContext { scope: Element | Document, pierceShadow }`), the `getBy*Selector` builders, and **`convertElementToCssSelector`** — element→stable-selector, which answers the ref problem in the reverse direction. The tell that the fit is real rather than a stretch: `getIframeScale` is in the exports, because vitest browser mode itself runs tests in a parent page driving an iframe. **Same topology.**
+
+Buying this also aligns the model with its training: it addresses elements as `role=button, name="Add todo"` — Playwright's and Testing Library's notation — instead of a tree format we invented.
+
+⚠️ **Take the engine, not `@vitest/browser`.** `locators.js` does `import "vitest/browser"; import "vitest/internal/browser"`, so it expects the runner's browser context; and it is pinned **exact** to the vitest version, which would make a vitest bump a *product* change — the toolchain-triple hazard in `.claude/rules/workflow.md` § *Toolchain bumps*, aimed at Studio's runtime. **`ivya` is the same Playwright engine published standalone**, without the runner coupling, and is the likely buy. It is not in our tree: license, size and transitive pins need verifying first. That is a spike, not a decision.
+
+### What is NOT free
+
+- **The action half.** Vitest's actions round-trip to Playwright, which we do not have in-page. Either hand-roll dispatch or take `@testing-library/user-event` (MIT) for realistic sequences — a naive `.click()` misses focus and pointer events and ignores `disabled`, which is the class of problem a testing-oriented dependency exists to have already solved.
+- **Quiescence.** *"Has this Vue app finished re-rendering?"* Playwright answers it with actionability checks (visible / stable / enabled / hit-target) that live provider-side. The in-page substitute is `@testing-library/dom`'s `waitFor` — MutationObserver polling, battle-tested. You cannot reach the child's `nextTick` from a parent realm.
+- **Screenshots.** `Locator.screenshot()` is provider-side. Page JS cannot rasterize a child document, so this needs `snapdom` / `modern-screenshot` / `html2canvas` (all MIT). Fidelity is approximate — they re-render from computed styles — so decide whether "blank screen" is answerable from structure alone before paying for it.
+- **The glue:** the mesh continuation, the loop tool and its guard, and the policy of what the model may address. ⚠️ The model wrote the app it would be driving, so this is a trust surface and not merely a capability.
+- ⛔ **axe-core is out** — MPL-2.0, off `workflow.md`'s permissive list. Ruled out before anyone proposes it.
+
+### Dependencies and dependents
+
+The concrete ask is **one engine (`ivya` or equivalent), optionally `user-event` and a rasterizer, plus `@medv/finder`-style selector generation** — which at well under 1000 SLOC is copy-with-attribution per `workflow.md`, not a dependency. All need Larry's approval. One budget note: `workflow.md`'s startup-cost rule governs the **Worker** bundle; this ships in Studio's browser bundle, a far more forgiving budget.
+
+⚠️ **Same-origin is load-bearing**, exactly as it is for the persona seat handoff — see Item 7's reversed bullet. If the preview moves cross-origin, both mechanisms need re-deriving together, not separately. [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) moved it to the dev Star's own host (decided 2026-09-16, built 2026-10-04), so this premise has ended; re-deriving this item waits for its own trigger.
+
+### Demand trigger — and the two cheaper things that may moot it
+
+**Do not build this until both of the following have shipped and a real gap remains.** Larry's motive splits, and most of it is answered more cheaply:
+
+- *Does the permission model behave?* — the **data plane**, already reachable browser-side once persona seats exist. The model can be told what a seat sees without any DOM work.
+- *Why is the screen blank?* — **`nebula-pre-alpha.md` § *③ Capture live*** already scopes it: `@lumenize/debug` gains a second, filtered, console-additive callback, the scaffold installs it, and *"a loop tool reads the tail — one entry in `LOOP_TOOL_ENTRIES`."* A runtime error log probably answers "blank" better than a click driver.
+
+If both land and the model still cannot close a loop it should be able to close, that is when this earns its keep — and by then real turns will say which addressing it actually needs.
+
+## Item 11: Snapshots replace the deps baked into the build-box image
+
+**Moved here 2026-09-30** from `tasks/backlog.md`, where it sat as a "don't adopt" verdict. Cloudflare shipped container snapshots that day on raw `ctx.container`, which is how the Galaxy already drives its build box, and the verdict's premises went with the announcement. **Until a child task file exists, the experiment is the authority:** [experiments/container-snapshot-deps/](../experiments/container-snapshot-deps/). Its `RESULTS.md` carries the measurements and an outline for the session that drafts the task file.
+
+**Goal:** the image stops carrying dependencies. One shared snapshot holds the scaffold's installed tree, a per-Galaxy snapshot holds a user-developer's extras, and the image changes only when the toolchain does.
+
+**What it buys:**
+- **No curated, baked dep set.** `apps/nebula/container/Dockerfile` stops installing the scaffold's libraries, and nobody maintains the list.
+- **Extras install once per lockfile change, not once per build.** On vite 8 the install is the largest term in a build with extras (`experiments/computer-vfs-build/RESULTS.md` § *ROUND 5*).
+- **The `@lumenize` frontend packages arrive through npm instead of a `COPY` into the image.** That needs no npmjs.org release: npm installs a tarball URL, and our own Worker can serve one.
+
+**What blocks it today:**
+- ✅ **`@cloudflare/computer` passes an image and a snapshot through `start()` — cleared 2026-10-02 by 0.4.0.** Its launch spec takes `name`, a key into `ctx.container.images` defaulting to `app`, or `containerSnapshot`, plus the rest of `start()`'s options. It does not wrap `snapshotContainer()`; the Galaxy calls that on its own `ctx.container`.
+- **From 0.4.0 computer's main container backend runs only under the `durable_object` policy.** A default-policy container needs `@cloudflare/computer/backends/container-legacy`, so moving past 0.3.x — we run 0.3.2 — is either this item or a switch to that import.
+- ✅ **The `durable_object` scheduling policy needs wrangler 4.135 or later — cleared 2026-10-04.** The move to `@cloudflare/vitest-plugin` 1.3.6 pins wrangler 4.147.0.
+- **A container application cannot change its scheduling policy in place**; switching creates a new one.
+
+The experiment turned up two more things any design has to handle: after a deploy a snapshot restores its own, older image, and `@swc/core` 1.16.12+ will not load under the new policy's filesystem. Both are in its `RESULTS.md` § *Findings*.
+
+**Demand trigger: fired 2026-10-02**, when computer 0.4.0 shipped the passthrough. The wipe gate is the cheap moment, because the new container application lands there and the vitest-plugin move already has.
+
+## Item 12: `cf` and `cloudflare.config.ts` replace `wrangler` and `wrangler.jsonc`
+
+**Not a capability: a toolchain move with a deadline, added 2026-10-08.** Cloudflare launched `cf` in open beta on 2026-09-28 ([launch post](https://blog.cloudflare.com/cloudflare-cf-cli-launch/)). When the beta ends, Cloudflare ships a final wrangler major that points at `cf`, then maintains wrangler for 18 months. **Until a child task file exists, `cf`'s source is the authority** (`cloudflare/cf`, `packages/cli/src/commands/`). The `test_bugs/` folder that listed its gaps was deleted on 2026-10-05 in cloudflare/cf#208, and two of those gaps were already stale on launch day; they are below.
+
+**Goal:** `apps/nebula` declares its Worker in a typed `cloudflare.config.ts`, and our scripts, the `/live` harness and the vitest-plugin lane all read that file instead of `wrangler.jsonc`.
+
+**What it buys:**
+- **`apps/nebula/scripts/local-config.mjs` goes away.** It builds the config a local stack boots from by commenting `routes`, and for a container-free boot `containers`, out of `wrangler.jsonc` with a regex. Inside `defineConfig(({ mode }) => …)` each is a check on `mode`.
+- **The config type-checks.** Bindings come from typed helpers such as `bindings.durableObject(…)`, so an agent editing the file gets the language server's errors. It is ADR-001's bet, applied to config.
+- **Every operation in Cloudflare's API becomes a command**, about 3,000 against wrangler's 280, with JSON output by default and `cf cli search` to find one from a sentence.
+
+**What blocks it today** (checked 2026-10-08 against `cf` 1.0.0-beta.13 and wrangler 4.147.0):
+- **Our `@mesh()`-decorated methods under the Vite build.** `cf` builds with the Cloudflare Vite plugin, and Rolldown passes TC39 decorators through untransformed while still exiting 0; Oxc's transform is still an open issue, oxc-project/oxc#9170. Both UI surfaces already carry `unplugin-swc` for this, but nobody has measured it on the Worker's own build. Until someone does, `cf` hands a Worker that needs esbuild back to wrangler for dev and deploy, which is the path the 18 months run out on.
+
+**What it costs:**
+- **The `/live` harness is built on `wrangler dev`.** `drive.ts` boots one per scenario, reads its output, and fingerprints the tree it reloads on save. A Vite dev server changes all three, so switching to `cf` ends with a `drive.ts all` sweep and a deployed pass.
+- **A second package pins `miniflare` exactly.** `cf` 1.0.0-beta.13 pins `5.20261006.0-alpha` and `@cloudflare/vitest-plugin` 1.3.6 pins `5.20261001.0-alpha`, so today they disagree. The two are chosen together from then on, or local dev and the vitest-plugin lane run different workerd builds (`packaging.md` § *Toolchain bumps*).
+- **`critical.md` is written against wrangler.** Its `Env` rule runs `wrangler types` into `worker-configuration.d.ts`, its compatibility-date rule is stated per `wrangler.jsonc`, and its secrets rule names `wrangler.jsonc` and its `vars`. Each changes with the format.
+
+**Not blockers, though both were reported as blockers on 2026-09-28:**
+- **Type generation.** `cf workers types` writes `.cloudflare/types/index.d.ts` from `cloudflare.config.ts` alone, with the runtime types included by default. It has been in `cf` since its first public commit, so `npm run types` has a direct replacement.
+- **Secrets.** `wrangler secret put` takes `--name <worker>` in place of reading a config, and `deploy-test.sh` already passes `--name test-nebula`; only the hint `deploy.sh` prints leaves it out. `cf` writes Worker secrets too: its generated `workers secrets update` and `bulk` commands call `PUT …/workers/scripts/{worker}/secrets`, added on launch day in cloudflare/cf#6.
+
+`cf` can list and query Durable Object namespaces but has no command to delete one, so `workflow.md` § *Experiments* keeps its dashboard-delete rule. That touches experiment cleanup, not adopting `cf`.
+
+**Trigger: a deadline, not demand.** The 18 months start when `cf`'s beta ends, and `cf` is moving fast: beta.13 shipped on 2026-10-07, ten days after launch. The first step is one spike, any time after pre-alpha: build `apps/nebula`'s Worker in `experiments/` with the Cloudflare Vite plugin and `unplugin-swc`, then call a `@mesh()`-decorated method on it. If the decorators survive, what is left is cost.

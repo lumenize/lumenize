@@ -9,6 +9,21 @@
  *
  * Dependencies (sessionStorage, BroadcastChannel) are injected so
  * tests can pass Context properties directly without mocking globals.
+ *
+ * ⚠️ **Why the id is PERSISTED rather than random per page load — the non-obvious part.**
+ * A client's `instanceName` (`${sub}.${tabId}`) is its id on the node that hosts it, the tag
+ * its socket carries there: `acme.crm.tenant1/alice.9f2c41aa` on the Star `acme.crm.tenant1`.
+ * Persisting the id in sessionStorage is what makes a reload come back under the *same* tag, so
+ * the host supersedes the old socket rather than holding both, and its grace period carries
+ * subscription continuity across the refresh. A random id per load would come back as a second
+ * Client: the old socket's grace period would run out unanswered, and every subscription would be
+ * set up again.
+ *
+ * ⇒ **Any new client-side `instanceName` must be DETERMINISTIC for a given (identity, tab),
+ * never random-per-construction.** If you need a *second* client in one tab (e.g. an impersonation
+ * session), derive its name from this tabId plus something stable that distinguishes it —
+ * do not generate a fresh one, and do not call this function from the second client, which
+ * would make it look like a duplicated tab and rewrite the stored id out from under the first.
  */
 
 /** Timeout for the duplicate-tab probe (ms) */

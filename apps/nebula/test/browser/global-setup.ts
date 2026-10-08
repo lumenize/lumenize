@@ -4,7 +4,7 @@
  * tests via `provide()`.
  *
  * Why this exists: browser tests need a real Worker isolate to talk to
- * (vitest-pool-workers' miniflare runs in-process, where Cloudflare's
+ * (vitest-plugin' miniflare runs in-process, where Cloudflare's
  * `performance.now()` pinning ruins timing). Spawning real wrangler dev
  * gives us a real Worker; timing happens client-side in Chromium where
  * the wall clock advances normally.
@@ -15,17 +15,21 @@
  * `ignoreHTTPSErrors` to accept it. This keeps the cookie path identical
  * to production — no test-mode bypasses.
  *
- * Why no NEBULA_AUTH_TEST_MODE: tests exercise the real magic-link email
+ * Why no AUTH_TEST_MODE: tests exercise the real magic-link email
  * flow via Cloudflare Email Sending → Email Routing → deployed
  * email-test Worker → WebSocket back to the test. Test mode in any
  * wrangler invocation is a leak risk.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { execSync } from 'node:child_process';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
+import { hostOrigin } from '@lumenize/mesh/client';
+
+/** The deployment this lane's Worker serves — `LUMENIZE_ORIGIN` in its `wrangler.jsonc`. */
+const DEPLOYMENT = 'https://lumenize.localhost';
 
 const WRANGLER_CONFIG = './test/browser/worker/wrangler.jsonc';
 
@@ -93,7 +97,7 @@ function readTestToken(): string {
 export default async function setup(project: TestProject) {
   const testToken = readTestToken();
 
-  // BENCH_BASE_URL override: point the bench at a deployed Worker instead of
+  // BENCH_BASE_URL override: point the bench at a deployed Worker's PLATFORM host instead of
   // spawning wrangler-dev. Used to capture publishable numbers from real
   // Cloudflare infrastructure. .dev.vars still supplies TEST_TOKEN for the
   // email-test WebSocket; everything else lives on the deployed Worker.
@@ -106,13 +110,22 @@ export default async function setup(project: TestProject) {
     return; // No wrangler-dev to tear down.
   }
 
+  // Start from a CLEAN DO store — the same wipe the `/live` harness and the ui-smoke lane
+  // already do, adopted here 2026-08-28 after this lane's absence of it cost two weeks.
+  // ⚠️ The persist dir is CONFIG-RELATIVE: a `--config test/browser/worker/wrangler.jsonc`
+  // boot persists under `test/browser/worker/.wrangler`, NOT the package root's — so wiping
+  // `apps/nebula/.wrangler` (the obvious target, and what an earlier diagnosis wiped) leaves
+  // this one untouched. A registry predating the `Emails.profileId` column survived here and
+  // 500'd every `claim-universe`, which read as a caller-vs-route mystery in the backlog.
+  // "Wipe, don't migrate" is the pre-alpha model; local persisted state has no claim on us.
+  rmSync(resolvePath(process.cwd(), 'test/browser/worker/.wrangler/state'), { recursive: true, force: true });
+
   const { baseUrl, cleanup } = await spawnWranglerDev({
     configPath: WRANGLER_CONFIG,
     extraArgs: [
       '--local-protocol', 'https',
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
+      '--var', 'AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
-      '--var', 'NEBULA_AUTH_REDIRECT:/app',
       // Enable debug logging so email-send failures and other auth-flow
       // issues surface in the wrangler-dev stdout buffer (otherwise they're
       // caught and silently swallowed by LumenizeAuth's #sendEmail try/catch).
@@ -122,7 +135,9 @@ export default async function setup(project: TestProject) {
   });
   cleanupWrangler = cleanup;
 
-  project.provide('wranglerBaseUrl', baseUrl);
+  // The tests' base is the platform host on wrangler's port: every session's routes live there, and
+  // a scope's page is spelled from it (`scopeOriginFrom` in `test/lib/email-login.ts`).
+  project.provide('wranglerBaseUrl', hostOrigin({ kind: 'platform' }, DEPLOYMENT, baseUrl));
   project.provide('emailTestToken', testToken);
 
   return async () => {

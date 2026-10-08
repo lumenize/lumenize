@@ -47,13 +47,15 @@ type AllowContinuationArgs<Args extends any[]> = {
  * Helper type that maps methods to return Continuation<ReturnType>.
  * Method arguments accept either the original type or a Continuation<T> that
  * resolves to that type, enabling nested continuation operations.
+ * A non-function member — a getter, say — follows its own type, so a chain that
+ * passes through a getter gate types the way it runs: `ctn<Host>().resources.transaction(...)`.
  * Only applied to object types (not primitives).
  */
 type ContinuationMethods<T> = T extends object
   ? {
       [K in keyof T]: T[K] extends (...args: infer A) => infer R
         ? (...args: AllowContinuationArgs<A>) => Continuation<R>
-        : never;
+        : Continuation<T[K]>;
     }
   : unknown;
 
@@ -69,7 +71,7 @@ type ContinuationMethods<T> = T extends object
  * ```typescript
  * // this.ctn<RemoteDO>().getData(id) returns Continuation<DataType>
  * const remote = this.ctn<RemoteDO>().getData(id);
- * this.lmz.call('REMOTE_DO', instanceId, remote);
+ * this.lmz.call('REMOTE_DO', instanceId, remote, this.ctn().handleData(remote));
  *
  * // Using $result placeholder for async results:
  * this.svc.fetch.proxy(url, this.ctn().handleResult(this.ctn().$result));
@@ -160,41 +162,19 @@ export interface OcanConfig {
   maxArgs?: number;
 
   /**
-   * Require entry point method to have `@mesh` decorator
+   * Require the chain's ENTRY OP to name a mesh-callable member.
    *
-   * When true, the first method accessed in the chain must be decorated
-   * with `@mesh`, otherwise an error is thrown. This enforces explicit
-   * security boundaries - only methods you explicitly mark as mesh-callable
-   * can be invoked remotely.
+   * When true, `operations[0]` must name a method or getter the host class decorated with
+   * `@mesh()`, looked up by descriptor so an undecorated getter is refused without running.
+   * That op is also where the member's guard runs.
+   *
+   * Set false only for a chain the NODE authored itself (a `$result` handler, a stored alarm
+   * continuation); those may root anywhere, including `ctx` and `svc`.
+   *
+   * ⚠️ It does NOT turn off the walk rules. `constructor`, `__proto__`, the four Annex-B accessors
+   * and anything resolving on `Function.prototype` are refused at every setting, on every leg.
    *
    * @default true (secure by default)
    */
   requireMeshDecorator?: boolean;
 }
-
-/**
- * Unwraps protected members (ctx, env) for use with continuation proxies.
- * 
- * When calling remote DOs or accessing protected members via `this.ctn<T>()`,
- * TypeScript complains about accessing protected ctx/env from a different class.
- * The continuation proxy system allows this at runtime, so use this type to
- * satisfy TypeScript.
- * 
- * @example
- * ```typescript
- * import type { Unprotected } from '@lumenize/debug';
- * 
- * // Instead of @ts-expect-error:
- * const op = this.ctn<RemoteDO>().ctx.storage.kv.get('key');
- * 
- * // Use Unprotected:
- * const op = this.ctn<Unprotected<RemoteDO>>().ctx.storage.kv.get('key');
- * ```
- * 
- * @typeParam T - The DO class type that extends a base class with protected ctx/env
- */
-export type Unprotected<T> = T & {
-  readonly ctx: DurableObjectState;
-  readonly env: any;
-};
-

@@ -4,9 +4,9 @@
  * Wraps the production Nebula entrypoint with bench-specific routes:
  *
  *   - `/bench/colo` — returns the Worker's own colo via `request.cf.colo`.
- *     The Gateway DO for this user's session is reliably in the same colo
- *     (DOs follow first-access placement; user is consistent), so this
- *     also identifies the Gateway colo.
+ *     The host node a test's client connects to is reliably in the same colo
+ *     when the test is first to touch it (DOs follow first-access placement),
+ *     so this also identifies the host node's colo.
  *   - `/bench/cross-region-star?jurisdiction=eu` — creates a Star DO via
  *     `newUniqueId({ jurisdiction })` and returns its hex ID. Used by
  *     `cross-region.test.ts` to deliberately place a Star outside the
@@ -24,43 +24,44 @@ import { env } from 'cloudflare:workers';
 import { routeAgentRequest } from 'agents';
 
 export { BenchAgent } from './bench-agent';
-export { BenchFanoutTier } from './bench-fanout-tier';
 
 export {
   Universe,
-  Galaxy,
+  NebulaAuthFacade,
+  PlatformHost,
 } from '@lumenize/nebula';
+// The consent route reaches a person's Profile through the `@rawRpc()` bridge.
+export { Profile } from '@lumenize/mesh/auth/profile';
 
-// Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,
-// re-exported under the `NebulaClientGateway` name so the wrangler.jsonc class
-// binding (and any prior migration history) stays unchanged.
-export { InstrumentedNebulaClientGateway as NebulaClientGateway } from './instrumented-nebula-client-gateway';
+// Bench Worker binds GALAXY and STAR to host nodes that emit the bench marker, re-exported under
+// the names the wrangler.jsonc class bindings already use.
+export { InstrumentedGalaxy as Galaxy, InstrumentedStar as StarTest } from './instrumented-hosts';
 
-export { NebulaAuth, NebulaAuthRegistry } from '@lumenize/nebula-auth';
+export { AuthRegistry } from '@lumenize/mesh/auth';
 
-export { StarTest } from '../../test-apps/baseline/index';
 
-import { NebulaEmailSender } from '@lumenize/nebula-auth';
+import { AuthEmailSender } from '@lumenize/mesh/auth';
 
 /**
- * Test-harness email sender — overrides production NebulaEmailSender's
- * `from` (`auth@nebula.lumenize.com`) to `auth@test.lumenize.com`.
+ * Test-harness email sender — overrides production AuthEmailSender's
+ * `from` (`noreply@lumenize.io`) to `test@lumenize.io`, the sender the other
+ * test lanes use.
  *
  * Why: this harness selects **Resend** (`EMAIL_PROVIDER: resend` in
  * wrangler.jsonc, no `send_email` binding), so the from-domain must be
- * verified on **Resend** — `test.lumenize.com` is (same setup as
- * packages/auth/test/e2e-email-resend, which sends from `auth@test.lumenize.com`).
- * The magic-link recipient stays `test@lumenize.io`, which Cloudflare Email
+ * verified on **Resend** — `lumenize.io` is (same setup as
+ * packages/auth/test/e2e-email-resend).
+ * The magic-link recipient stays `test@lumenize-test.dev`, which Cloudflare Email
  * Routing catches and forwards to the deployed email-test Worker → WebSocket
  * push back to the test. Selecting Resend lets this lane run with no CF creds
  * (incl. the secret-less Claude-hosted lane); the CF Email Sending path is
  * covered by packages/auth/test/e2e-email.
  *
- * This subclass is harness-only — production NebulaEmailSender ships
+ * This subclass is harness-only — production AuthEmailSender ships
  * unchanged with its real branded from-address.
  */
-export class TestNebulaEmailSender extends NebulaEmailSender {
-  override from = 'auth@test.lumenize.com';
+export class TestNebulaEmailSender extends AuthEmailSender {
+  override from = 'test@lumenize.io';
 }
 
 export default {
@@ -96,7 +97,7 @@ export default {
       return Response.json({ id: id.toString(), jurisdiction, colo });
     }
 
-    // FORWARD GUARD (Phase 1, nebula-release-process.md): the shared prod entrypoint's
+    // FORWARD GUARD (tasks/archive/nebula-release-process.md): the shared prod entrypoint's
     // `/_version` build-compare route is reached HERE via this trailing fallthrough — NOT as a
     // "first statement", so the entrypoint's can't-be-reordered defense doesn't hold on the bench
     // worker. Never add a catch-all route ABOVE this fallthrough that would shadow `/_version`

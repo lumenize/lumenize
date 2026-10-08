@@ -24,11 +24,11 @@
  * ```
  *
  * @example
- * With LumenizeDO (auto-available):
+ * With MeshDO (auto-available):
  * ```typescript
- * import { LumenizeDO } from '@lumenize/mesh';
+ * import { UnscopedMeshDO } from '@lumenize/mesh';
  *
- * class MyDO extends LumenizeDO<Env> {
+ * class MyDO extends UnscopedMeshDO<Env> {
  *   getUser(id: string) {
  *     const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
  *     return rows[0];
@@ -56,7 +56,7 @@ export function sql(doInstance: any) {
 
 // TypeScript declaration merging for type safety
 // This augments the global LumenizeServices interface so TypeScript knows
-// about this.svc.sql in LumenizeDO subclasses
+// about this.svc.sql in MeshDO subclasses
 declare global {
   interface LumenizeServices {
     sql: ReturnType<typeof sql>;

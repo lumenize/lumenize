@@ -1,6 +1,5 @@
 import type { sql } from './sql';
 import type { Alarms } from './alarms';
-import type { BroadcastFn } from './broadcast';
 
 // ============================================
 // Mesh Node Identity & Call Context
@@ -9,9 +8,9 @@ import type { BroadcastFn } from './broadcast';
 /**
  * Type of mesh node
  *
- * - `LumenizeDO` — Stateful Durable Object
- * - `LumenizeWorker` — Stateless Worker Entrypoint
- * - `LumenizeClient` — Browser/Node.js client
+ * - `MeshDO` — Stateful Durable Object
+ * - `MeshWorker` — Stateless Worker Entrypoint
+ * - `MeshClient` — Browser/Node.js client
  */
 export type NodeType = 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
 
@@ -33,6 +32,60 @@ export interface OriginAuth {
   claims?: Record<string, unknown>; // Additional JWT claims (roles, permissions, etc.)
 }
 
+/**
+ * Verbatim subset of Cloudflare's `request.cf` (`IncomingRequestCfProperties`).
+ *
+ * Split rule: everything under `cf` came from the runtime-added `cf` Request property; every flat
+ * {@link OriginRequest} field came from a header or the request URL. `isEUCountry` keeps CF's
+ * `"1"`-or-absent quirk and `latitude`/`longitude` stay strings — normalization lives in helpers,
+ * never in the wire shape. Excluded on purpose (additive if a consumer appears): `postalCode`,
+ * `asn`/`asOrganization`, `httpProtocol`/`tlsVersion`/`botManagement`.
+ */
+export type OriginCf = Pick<IncomingRequestCfProperties,
+  | 'continent' | 'country' | 'isEUCountry'   // placement hint + EU-jurisdiction suggestion
+  | 'latitude' | 'longitude'                  // hint-split inputs (strings, per CF)
+  | 'region' | 'regionCode' | 'city'          // audit/analytics display ("login from Austin, TX")
+  | 'colo'                                    // CF datacenter the connection hit — placement/latency debugging
+  | 'timezone'                                // display/scheduling
+>;
+
+/**
+ * HTTP-level facts from the request that originated this call chain.
+ *
+ * Captured by the Gateway at WebSocket upgrade — CONNECTION-scoped, so it is refreshed on each
+ * reconnect and may be minutes or hours old mid-session. `undefined` when the origin isn't a
+ * `MeshClient` (DO/Worker origins, `newChain: true`).
+ *
+ * **Server-side only.** It rides every hop between DOs and Workers, and never reaches a client:
+ * the Gateway leaves it out of every call it forwards down a socket, and a `MeshClient` types
+ * `this.lmz.callContext` as `Omit<CallContext, 'originRequest'>`, so reading it there fails to
+ * compile. These are the origin's IP, location and browser, and a push that inherits a writer's
+ * chain (`lmz.broadcast` with `{ newChain: false }`) would otherwise hand them to every subscriber.
+ * `originAuth` does reach the client.
+ *
+ * Trust, per field — this is what decides what each may be used for:
+ * - `cf` is set by the runtime at the edge and `ip` by the edge from the connection; external
+ *   clients cannot forge either (an intermediate Worker could via `new Request(req, { cf })`;
+ *   ours never do).
+ * - `origin` is the scheme + host the upgrade ARRIVED on — `new URL(request.url).origin`, i.e.
+ *   what routing delivered, never a client-supplied header. That is what makes it safe to build a
+ *   user-facing absolute URL from: an emailed link must echo the host the person is actually on.
+ * - `userAgent` / `acceptLanguage` are client-controlled — descriptive only, NEVER authorization
+ *   inputs.
+ */
+export interface OriginRequest {
+  /** Absent where the runtime doesn't populate it (previews). */
+  cf?: OriginCf;
+  /** `CF-Connecting-IP` — edge-set, unspoofable. */
+  ip?: string;
+  /** Scheme + host the upgrade arrived on — from the request URL, not from any client header. */
+  origin?: string;
+  /** `User-Agent` — client-controlled, descriptive only. */
+  userAgent?: string;
+  /** `Accept-Language` — client-controlled, descriptive only. */
+  acceptLanguage?: string;
+}
+
 /** Context for a mesh call, propagated through the entire call chain */
 export interface CallContext {
   // Immutable — full call path: [origin, hop1, hop2, ..., caller]
@@ -41,14 +94,33 @@ export interface CallContext {
   // Immutable — verified claims from origin's JWT (if authenticated)
   originAuth?: OriginAuth;
 
-  // Mutable — can be modified by onBeforeCall or any handler along the way
-  state: Record<string, unknown>;
+  // Immutable — HTTP facts of the originating upgrade, stamped by the Gateway (client-originated
+  // chains only). Tamper-evident like originAuth: NOT in callChain[0], which names the client.
+  // Server-side only: never sent to a client.
+  originRequest?: OriginRequest;
+
+  /**
+   * PER-HOP — the node the call was addressed to, stamped by the framework from a source the
+   * caller does not write. Unlike every other field here it does NOT ride through: each hop
+   * overwrites it, and a wire-supplied value is discarded.
+   *
+   * It exists because a handler otherwise has no unforgeable way to learn WHICH target answered.
+   * A fan-out gives every target the same handler chain, so a reply is the only thing that differs
+   * — and a reply is authored by the far side, which is how a client could name somebody else as
+   * the one that died and have their subscription reaped.
+   *
+   * **Three sources, none of which the caller writes.** On a local dispatch — a target that refused
+   * at admission — `dispatchEnvelope` sets it from the address the caller dispatched to. At a request door, `executeEnvelope` sets it from the
+   * receiving node's own identity. At the fire-back door, `__handleResponse`, `executeEnvelope`
+   * sets it from the fire-back's last hop, which the answering side's framework appended, or a
+   * Client's Gateway for its Client, so a result handler sees the target that answered. Each overwrites whatever arrived.
+   */
+  callee?: NodeIdentity;
 }
 
-/** Options for `this.lmz.call()` and `this.lmz.callRaw()` */
+/** Options for `this.lmz.call()` */
 export interface CallOptions {
   newChain?: boolean; // Start fresh call chain (this node becomes origin)
-  state?: Record<string, unknown>; // Initial or merged state for the call
   /**
    * Called synchronously with the generated `callId` immediately before the
    * call message is sent (or queued, when disconnected). Lets instrumentation
@@ -58,13 +130,13 @@ export interface CallOptions {
    */
   onSent?: (callId: string) => void;
   /**
-   * For 4-arg `lmz.call` (with handler continuation): if true, the handler
-   * is invoked ONLY when the remote call rejects (Error path). On success,
-   * the handler chain is never dispatched and the success result is dropped.
+   * If true, the handler continuation is invoked ONLY when the remote call
+   * rejects (Error path). On success, the handler chain is never dispatched
+   * and the success result is dropped.
    *
-   * Useful for fire-and-forget paths that want structured error handling
-   * (retry, cleanup, escalation) without paying the per-call success-path
-   * dispatch cost — e.g. `svc.broadcast`'s drop-on-failed-fanout, where
+   * For a call whose answer nobody needs: its handler still hears a failure
+   * (retry, cleanup, a log line) without paying the per-call success-path
+   * dispatch cost — e.g. `lmz.broadcast`'s drop-on-failed-fanout, where
    * the originator only cares about `ClientDisconnectedError`.
    *
    * Defaults to false — both success and error are dispatched.
@@ -89,9 +161,9 @@ export interface CallOptions {
  *
  * @example
  * ```typescript
- * import { LumenizeDO } from '@lumenize/mesh';
+ * import { UnscopedMeshDO } from '@lumenize/mesh';
  *
- * class MyDO extends LumenizeDO<Env> {
+ * class MyDO extends UnscopedMeshDO<Env> {
  *   example() {
  *     // Built-in - no import needed
  *     this.svc.sql`SELECT * FROM users`;
@@ -105,8 +177,6 @@ export interface LumenizeServices {
   sql: ReturnType<typeof sql>;
   /** Built-in alarm scheduling service for DO */
   alarms: Alarms;
-  /** Built-in broadcast service — dispatch a continuation to many targets with tree-fanout offloading at scale */
-  broadcast: BroadcastFn;
   // Additional services are added via declaration merging in their respective NADIS packages
 }
 
@@ -117,8 +187,6 @@ declare global {
     sql: ReturnType<typeof sql>;
     /** Built-in alarm scheduling service for DO */
     alarms: Alarms;
-    /** Built-in broadcast service — dispatch a continuation to many targets with tree-fanout offloading at scale */
-    broadcast: BroadcastFn;
     // Additional services are added via declaration merging in their respective NADIS packages
   }
 }

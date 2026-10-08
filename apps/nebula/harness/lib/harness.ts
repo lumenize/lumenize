@@ -1,0 +1,571 @@
+/**
+ * Live self-verification harness — reusable core.
+ *
+ * The standalone driver behind `tasks/archive/claude-live-verification.md`: boot a fresh local
+ * `wrangler dev`, obtain an identity for a sandbox scope via a REAL email login (rung 1, ADR-009 —
+ * `connectDriver`; the synthetic mint is now an explicit, justified opt-in), connect a real-WS
+ * `NebulaClient`, and drive/inspect arbitrary scenarios. Not a fixed vitest test — invoked from Bash via
+ * `tsx` (`harness/drive.ts`), so I can verify a change against a *running* system before
+ * reporting it done.
+ *
+ * Lifted from the ui-smoke lane (`test/ui-smoke/global-setup.ts`) + the bench harness
+ * (`test/browser/multi-client.ts`), generalized off vitest. Runs in plain Node: imports only
+ * the Node-safe entries (`@lumenize/nebula/client`, `@lumenize/resources/client`, `@lumenize/mesh/client`,
+ * `@lumenize/mesh/auth/testing`, `@lumenize/crypto`, `@lumenize/testing`) — none pull `cloudflare:workers`.
+ *
+ * Local `wrangler dev` needs Docker Desktop when the boot builds the container image — the
+ * harness probes it and fails loudly if absent. PROD driving is deliberately NOT here: prod tokens come
+ * via audited login / stored-refresh, never this local mint (Phase 3 security boundary).
+ */
+import { execSync } from 'node:child_process';
+import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnWranglerDev } from '@lumenize/testing/wrangler';
+import { Browser } from '@lumenize/testing';
+import { NebulaClient } from '@lumenize/resources/client';
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import type { NebulaClientConfig } from '@lumenize/resources/client';
+import type { InviteSummary, AuthClaims } from '@lumenize/mesh/auth/testing';
+import { hostOrigin, platformOrigin } from '@lumenize/mesh/client';
+import { provisionAndLogin } from '../../test/lib/email-login';
+import { waitForHost } from './wait-for-host';
+export { waitForHost, NEW_HOST_TIMEOUT_MS } from './wait-for-host';
+import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lumenize/crypto';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
+import { deriveLocalConfig, LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
+
+const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
+const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
+const STUDIO_UI_DIR = resolve(NEBULA_DIR, '../nebula-studio-ui');
+// The config a local boot uses is DERIVED from apps/nebula/wrangler.jsonc on every boot —
+// `routes` always stripped (otherwise wrangler presents the production Host and every emailed
+// magic link points at prod), `containers` stripped for scenarios that never touch
+// `ctx.container` (the only Docker-needing piece). `scripts/local-config.mjs` carries the
+// reasoning and is what `npm run dev` runs too, so the harness and a hand-driven stack boot the
+// SAME shape. Only the image build is removed — the `GALAXY` binding and class stay.
+
+/** A Docker daemon is reachable (`docker info` exits 0). Required for a with-container boot. */
+export const HAS_DOCKER: boolean = (() => {
+  try {
+    execSync('docker info', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+/** The harness's own superuser on a deployed target; its mail routes to the email-test Worker. */
+export const DEPLOYED_SUPERUSER = 'claude@lumenize.io';
+
+/**
+ * The superuser a scenario signs in as. Locally each scenario names its own and pins it with
+ * `bootVars`; a deployed target ignores `bootVars`, so there it is {@link DEPLOYED_SUPERUSER}, which
+ * the test target's `AUTH_BOOTSTRAP_EMAIL` lists.
+ */
+export function superuserEmail(local: string): string {
+  return process.env.HARNESS_TARGET_URL ? DEPLOYED_SUPERUSER : local;
+}
+
+/**
+ * Read one variable's value from `apps/nebula/.dev.vars` (symlinked from the repo root).
+ * Handles dotenv double-quoting + `\n` unescaping so a single-line quoted PEM
+ * (`JWT_PRIVATE_KEY_BLUE="-----BEGIN...\n...\n-----END...\n"`) reconstructs to a real PEM.
+ * NEVER log the return value for a key/secret name (security.md).
+ */
+export function readDevVar(name: string): string {
+  const path = resolve(NEBULA_DIR, '.dev.vars');
+  const contents = readFileSync(path, 'utf8');
+  const match = contents.match(new RegExp(`^${name}=(.*)$`, 'm'));
+  if (!match) throw new Error(`readDevVar: ${name} not found in ${path}`);
+  let value = match[1].trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  return value.replace(/\\n/g, '\n');
+}
+
+/** A booted local dev stack: the platform host's URL + the signing material + teardown. */
+export interface DevStack {
+  /**
+   * Which stack this is: a fresh value per local boot, whose storage starts empty, and one fixed
+   * value for a deployed target, whose state outlives every run. What a run shares is keyed on it
+   * (`lib/shared-app.ts`).
+   */
+  id: string;
+  /**
+   * The platform host's origin on this stack — `http://platform.lumenize.localhost:<port>` locally,
+   * `https://platform.lumenize-test.dev` deployed — where every session route answers. A page on a
+   * scope lives on that scope's own host instead ({@link scopeUrlOf}).
+   */
+  baseUrl: string;
+  /** The deployment's origin, its `LUMENIZE_ORIGIN`: every host and the JWT issuer derive from it. */
+  origin: string;
+  /** The Ed25519 private key PEM read from `.dev.vars` (never logged). */
+  signingKey: string;
+  /** The BLUE/GREEN selector this key belongs to (the JWT `kid`). */
+  activeKey: 'BLUE' | 'GREEN';
+  /** Kill `wrangler dev` + clean up. */
+  cleanup: () => Promise<void>;
+  /** The dev stack's stdio so far (the last few MB) — the Worker's own debug markers, for a
+   *  scenario that enabled them with `bootVars: { DEBUG: '…' }`. Absent on a deployed target. */
+  logs?: () => string;
+}
+
+/** A scope's own host on `stack`, at its port — where a page on that scope lives and its client
+ *  connects. */
+export function scopeUrlOf(stack: Pick<DevStack, 'baseUrl' | 'origin'>, scope: string): string {
+  return hostOrigin({ kind: 'scope', scope }, stack.origin, stack.baseUrl);
+}
+
+/**
+ * Boot a fresh local `wrangler dev` on the apps/nebula config. Wipes `.wrangler/state` first so
+ * every scope starts fresh (the ui-smoke "wipe, don't migrate" model — this IS the local wipe).
+ * `HARNESS_LOCAL=1` adds `--local`, which drops the remote AI binding. Signs with BLUE by
+ * default; pins `PRIMARY_JWT_KEY:BLUE` so the worker verifies BLUE-minted tokens.
+ */
+export async function bootDevStack(
+  opts: {
+    readyTimeoutMs?: number;
+    /**
+     * Whether this boot needs the build container image. Default `true` — the historical
+     * behaviour, and correct for anything driving a build.
+     *
+     * Pass `false` for a scenario that never touches `ctx.container` (auth, impersonation, resources,
+     * subscriptions): the image build is the ONLY thing in this stack that needs Docker, so skipping
+     * it removes the Docker requirement entirely — and with it a per-operation approval prompt on a
+     * machine where Docker is gated.
+     */
+    withContainer?: boolean;
+    /**
+     * Extra `--var NAME:VALUE` overrides for THIS boot only — never a `.dev.vars` mutation, so they
+     * auto-revert per boot. For a scenario whose subject is server configuration the identity path
+     * reads, e.g. `AUTH_BOOTSTRAP_EMAIL` (the superuser scenario points it at an address on
+     * the test catch-all, so the bootstrap login can be a REAL email round trip rather than a mint).
+     * A name the generated `Env` does not declare is refused, so a renamed one cannot boot unread.
+     */
+    vars?: Record<string, string>;
+  } = {},
+): Promise<DevStack> {
+  const withContainer = opts.withContainer ?? true;
+  if (withContainer && !HAS_DOCKER) {
+    throw new Error(
+      'bootDevStack: Docker Desktop is not reachable (`docker info` failed). The apps/nebula ' +
+        'container image builds at `wrangler dev` boot, so Docker is required. Start Docker Desktop and retry, ' +
+        'or pass `withContainer: false` if this scenario never touches `ctx.container`.',
+    );
+  }
+  const undeclared = Object.keys(opts.vars ?? {}).filter((name) => !declaredEnvNames().has(name));
+  if (undeclared.length > 0) {
+    throw new Error(
+      `bootDevStack: the generated Env declares no ${undeclared.join(', ')}, so the Worker would never ` +
+        'read it and the boot would carry on as if it were unset. A renamed variable? Add a new one to ' +
+        '`.dev.vars.example` or `wrangler.jsonc`, then run `npm run types`.',
+    );
+  }
+  const signingKey = readDevVar('JWT_PRIVATE_KEY_BLUE');
+
+  // Fresh DO store each run — `wrangler dev --local` persists `.wrangler/state`, and
+  // `CREATE TABLE IF NOT EXISTS` does NOT migrate a stale schema (onStart #ensureRoot throws
+  // SQLITE_MISMATCH). This wipe is the harness's local reset primitive.
+  rmSync(resolve(NEBULA_DIR, '.wrangler/state'), { recursive: true, force: true });
+  // wrangler HARD-ERRORS if the declared `assets.directory` (the Studio SPA dist) is absent;
+  // an empty dir satisfies it with zero build (the harness drives the API, not the SPA).
+  mkdirSync(resolve(STUDIO_UI_DIR, 'dist'), { recursive: true });
+
+  // Boot exactly like `npm run dev` — NO `--local` by default. `npm run dev` reaches "Ready on"
+  // using the wrangler OAuth session for the remote AI binding; forcing
+  // `--local` (an earlier auto-detect) made apps/nebula HANG after the container build (workerd up
+  // but never ready). `--local` is opt-in for a no-OAuth environment (CI/hosted w/ a token) via
+  // HARNESS_LOCAL=1. Keep boot args minimal (match the proven `npm run dev`); the only override is
+  // PRIMARY_JWT_KEY:BLUE so the worker verifies with the same key the local mint signs with. Broad
+  // `DEBUG` is opt-in (HARNESS_WORKER_DEBUG) — flooding every DO onStart slows startup.
+  const localMode = process.env.HARNESS_LOCAL === '1';
+  const configPath = deriveLocalConfig({ containers: withContainer });
+  const { baseUrl: workerUrl, cleanup } = await spawnWranglerDev({
+    configPath,
+    cwd: NEBULA_DIR,
+    // A cold container image build can be slow; give generous headroom.
+    readyTimeoutMs: opts.readyTimeoutMs ?? 300_000,
+    extraArgs: [
+      ...(localMode ? ['--local'] : []),
+      '--var', 'PRIMARY_JWT_KEY:BLUE',
+      ...(process.env.HARNESS_WORKER_DEBUG ? ['--var', `DEBUG:${process.env.HARNESS_WORKER_DEBUG}`] : []),
+      // Turnstile is OFF in local dev by default (no secret → checkTurnstile skips). The
+      // turnstile-canary scenario turns it ON for ONE boot by injecting a Turnstile *test* secret
+      // (`1x0000…AA` = always-passes) via --var — no `.dev.vars` mutation, auto-reverts per boot.
+      ...(process.env.HARNESS_TURNSTILE_SECRET
+        ? ['--var', `TURNSTILE_SECRET_KEY:${process.env.HARNESS_TURNSTILE_SECRET}`]
+        : []),
+      ...Object.entries(opts.vars ?? {}).flatMap(([k, v]) => ['--var', `${k}:${v}`]),
+      '--log-level', 'info',
+    ],
+    onStdio: (chunk) => {
+      if (process.env.HARNESS_DEBUG) process.stderr.write(chunk);
+      // Kept for scenarios that read the Worker's own markers (a scenario that sets
+      // `bootVars: { DEBUG: '<namespaces>' }` gets those namespaces' debug lines here).
+      // Bounded from the tail: the interesting lines are the recent ones.
+      captured += chunk;
+      if (captured.length > STDIO_KEEP) captured = captured.slice(-STDIO_KEEP);
+    },
+  });
+
+  // Every host answers on the one port wrangler bound; the platform host is the one sessions use.
+  const baseUrl = hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, workerUrl);
+  return { id: crypto.randomUUID(), baseUrl, origin: LOCAL_ORIGIN, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
+}
+
+/**
+ * The names the generated `Env` declares (`worker-configuration.d.ts`, from `wrangler.jsonc` and
+ * `.dev.vars.example`). A boot variable outside it is one the Worker never reads.
+ */
+function declaredEnvNames(): Set<string> {
+  const generated = readFileSync(resolve(NEBULA_DIR, 'worker-configuration.d.ts'), 'utf8');
+  const body = generated.match(/interface __BaseEnv_Env \{([\s\S]*?)\n\}/)?.[1];
+  if (!body) throw new Error('bootDevStack: no Env in apps/nebula/worker-configuration.d.ts; run `npm run types`');
+  return new Set([...body.matchAll(/^\s*([A-Z][A-Z0-9_]*)\??:/gm)].map((m) => m[1]));
+}
+
+/** How much of the dev stack's stdio a scenario can read back — the last ~4 MB. */
+const STDIO_KEEP = 4 * 1024 * 1024;
+let captured = '';
+
+/** A connected driver: the real-WS client + its identity + lifecycle helpers.
+ *
+ *  There is deliberately NO `accessToken` field: production keeps the JWT inside the client
+ *  (`client.scopes.*` / `client.invite` / `authedFetch`), so a scenario that hand-builds an
+ *  `Authorization` header proves an endpoint works while skipping the code that reaches it in
+ *  production — the exact divergence this tier exists to close. The last consumer (`/invite`,
+ *  which had no client method) died when invites moved onto `NebulaClient.invite`. A scenario
+ *  that genuinely needs a bearer holds the SESSION it logged in with (`EmailSession.accessToken`),
+ *  which is a snapshot with the same staleness caveat. */
+export interface Driver<C extends NebulaClient = NebulaClient> {
+  client: C;
+  /** The subject UUID the mint assigned this identity. */
+  sub: string;
+  /** The scope whose host this driver's client connects from, and so its token's `aud`. */
+  scope: string;
+  /**
+   * The browser whose cookies this driver's login set. A second client on a context of it is a
+   * second tab of the same signed-in person.
+   */
+  browser: Browser;
+  /**
+   * Fire the `.dev` sandbox wipe (`Star.resetDevData`, one-way — mirrors the Studio's Wipe
+   * button). Best-effort; the deterministic local reset is {@link bootDevStack}'s fresh boot.
+   */
+  wipe: () => void;
+  dispose: () => void;
+}
+
+/**
+ * The resource pair for a client at `scope`: resources live on the DO that OWNS the scope
+ * (3 segments = a Star, 2 = a Galaxy). A scenario exercising a different plane overrides it.
+ */
+export function constructionPairs(scope: string): { resourceHostBinding: string } {
+  return { resourceHostBinding: scope.split('.').length >= 3 ? 'STAR' : 'GALAXY' };
+}
+
+/**
+ * The chat pair a `StudioClient` at `scope` posts through: chat always lives at the covering Galaxy
+ * (`{u}.{g}`). A universe-tier scope gets none, so a post there throws loudly rather than
+ * misrouting, by design.
+ */
+export function chatPairOf(scope: string): { chatHostBinding?: string; chatScope?: string } {
+  const parts = scope.split('.');
+  return parts.length >= 2 ? { chatHostBinding: 'GALAXY', chatScope: `${parts[0]}.${parts[1]}` } : {};
+}
+
+/** Poll until the client reaches `connected`, or throw on timeout. */
+async function waitForConnected(client: NebulaClient, timeoutMs: number): Promise<void> {
+  const start = Date.now();
+  while (client.connectionState !== 'connected') {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(
+        `waitForConnected: not connected within ${timeoutMs}ms (state=${client.connectionState})`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/**
+ * Connect a real-WS `NebulaClient` for `scope`, with the post-collapse construction pairs derived
+ * from the scope's tier (see {@link constructionPairs}). Resolves once connected.
+ *
+ * ⚠️ **Identity comes from a REAL email login by default** (rung 1, ADR-009). This harness is the
+ * artifact the ADR names as *"the path design reasoning grounds on"*, so running it on a synthetic
+ * identity was the exact mis-grounding the ADR was written about, sitting inside the ADR's own
+ * instrument. Cost is not the obstacle: the loop is ~1.4 s and boot dwarfs it.
+ *
+ * Pass `session` when a scenario has ALREADY obtained a real server token by some other real path
+ * — `provisionStarAdmin`, say, which is the only way to get a member whose `authScope` is a Star
+ * rather than the universe above it; or an invitee's `acceptInviteAndLogin` + `refreshAccessToken`,
+ * which is the only way to get a genuine NON-admin. That is still rung 1: the claim is the
+ * server's either way, and this only spares a second login for an identity that already exists.
+ *
+ * ⚠️ There is deliberately NO mint entry. One existed (rung 3, `createTestToken`, with a
+ * per-site `reason`) and was deleted 2026-09-02 when its last two callers turned out to be
+ * constructible by real paths — one of them under a justification that was simply stale. A
+ * synthetic identity here is a fixture that happens to be a function, which is what `live.md`
+ * § *A `/live` scenario MUST NOT compensate for its environment* forbids; the negative controls
+ * that genuinely need a WRONG-shaped token use {@link mintDegradedToken} (rung 4), which is not a
+ * login and never reaches `connectDriver`.
+ */
+export async function connectDriver<C extends NebulaClient = NebulaClient>(
+  stack: DevStack,
+  opts: {
+    scope: string;
+    /**
+     * The class to build, `NebulaClient` by default — the class a generated app's page builds. A
+     * scenario that posts to chat or uploads a picture passes `StudioClient`, as Studio's page does,
+     * and gets the chat pair for its scope.
+     */
+    Client?: new (config: NebulaClientConfig) => C;
+    /** Login identity. Defaults to a fresh `test-<uuid>@lumenize-test.dev` (routed by the catch-all). */
+    email?: string;
+    /**
+     * The INSTALLED ontology version this driver's resource ops ride (the host enforces it —
+     * `OntologyStaleError` on a mismatch). Default: the platform chat version, right for the
+     * galaxy chat plane; a Star-plane scenario that installs its own version passes it here.
+     */
+    ontologyVersion?: string;
+    connectTimeoutMs?: number;
+    /**
+     * An access token this scenario already obtained from the SERVER by a real login. Still rung 1
+     * — the claim was minted by the running system, not constructed here — and it exists because
+     * the default path (`provisionAndLogin`) always climbs from the universe, so it cannot produce
+     * a member whose own scope is a Star, nor a non-admin (those arrive by invite).
+     *
+     * ⚠️ A driver connected this way cannot renew: its cookie jar holds no refresh cookie, so once
+     * the token's fifteen minutes pass, its next call waits out the call's timeout. A scenario that
+     * idles longer lets the driver sign in itself, by passing no `session`.
+     */
+    session?: { accessToken: string; sub: string };
+  },
+): Promise<Driver<C>> {
+  const scope = opts.scope;
+  const browser = new Browser();
+
+  // Obtain the first token upfront and pass `accessToken` + `instanceName`, so the client connects at
+  // once; its later refreshes go to the platform host from this scope's page, as a browser's do.
+  let access_token: string;
+  let sub: string;
+  if (opts.session) {
+    ({ accessToken: access_token, sub } = opts.session);
+  } else {
+    // provisionAndLogin, not a bare login: a fresh boot has no scopes at all, and login
+    // never mints an identity. It claims the universe (the one open admin-minting entry),
+    // logs in there for real, then creates the galaxy/star beneath with that admin's token.
+    const result = await provisionAndLogin({
+      baseUrl: stack.baseUrl,
+      scope,
+      email: opts.email,
+      testToken: readDevVar('TEST_TOKEN'),
+      fetchImpl: browser.fetch,
+      // No bypassToken: Turnstile is OFF in local dev (no secret → checkTurnstile skips). The
+      // turnstile-canary scenario, which turns it ON, drives the endpoint directly.
+    });
+    access_token = result.accessToken;
+    sub = result.sub;
+  }
+
+  // A page on the scope's own host: its socket connects there, and its refresh names it in `Origin`.
+  // A deployed app's host fails its handshake until the app's certificate is issued.
+  await waitForHost(scopeUrlOf(stack, scope));
+  const ctx = browser.context(scopeUrlOf(stack, scope));
+  const Client = opts.Client ?? (NebulaClient as unknown as new (config: NebulaClientConfig) => C);
+  const studio = (Client as unknown) === StudioClient || Client.prototype instanceof StudioClient;
+  const client = new Client({
+    baseUrl: scopeUrlOf(stack, scope),
+    platformOrigin: stack.baseUrl,
+    ontologyVersion: opts.ontologyVersion ?? CHAT_MESSAGE_ONTOLOGY_VERSION,
+    ...constructionPairs(scope),
+    ...(studio ? chatPairOf(scope) : {}),
+    accessToken: access_token,
+    instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
+    fetch: ctx.fetch,
+    sessionStorage: ctx.sessionStorage,
+    BroadcastChannel: ctx.BroadcastChannel,
+  });
+
+  await waitForConnected(client, opts.connectTimeoutMs ?? 30_000);
+
+  return {
+    client,
+    sub,
+    scope,
+    browser,
+    wipe: () => {
+      // `resetDevData` lives on the `.dev` Star and throws off it, so only a star-tier driver
+      // has a wipe target; elsewhere the deterministic reset is the fresh boot.
+      if (scope.split('.').length < 3) return;
+      try {
+        // One-way under the continuation-only model (mirrors nebula-studio-ui App.vue).
+        client.lmz.call('STAR', scope, (client.ctn() as any).resetDevData(),
+          client.ctn().logRefusal('resetDevData'), { onErrorOnly: true });
+      } catch {
+        /* best-effort — the deterministic local reset is the fresh boot */
+      }
+    },
+    dispose: () => {
+      try {
+        client[Symbol.dispose]();
+      } catch {
+        /* already disposed */
+      }
+      ctx.close();
+    },
+  };
+}
+
+/**
+ * Invite through the ONE production surface — `NebulaClient.invite` → its host node →
+ * `AUTH_FACADE` — as a session that has already logged in by a real path. Constructs a
+ * short-lived client from the session's token (a handed token on a client of the SAME identity —
+ * the sanctioned shape; renewal never runs inside this one-call lifetime), invites, disposes.
+ *
+ * For a scenario that already holds a connected {@link Driver}, prefer `driver.client.invite(...)`
+ * directly; this exists for the sites whose inviter is an `EmailSession` with no client.
+ *
+ * The invite's links name the port of the page the inviter's client is on. By default that is the
+ * Worker's own; a browser scenario passes vite's, through `page`, so the links open the pages vite
+ * serves, as they would for a person inviting from Studio.
+ */
+export async function inviteViaMesh(
+  stack: Pick<DevStack, 'baseUrl' | 'origin'>,
+  session: { accessToken: string; sub: string },
+  targetScope: string,
+  invitees: Array<{ email: string; scopeAdmin?: boolean }>,
+  /** Sender-supplied display name — what the invitee's consent modal attributes to them. */
+  inviterName?: string,
+  page: { scopeUrl: (scope: string) => string; platformOrigin: string } =
+    { scopeUrl: (scope) => scopeUrlOf(stack, scope), platformOrigin: stack.baseUrl },
+): Promise<InviteSummary> {
+  const claims = parseJwtUnsafe(session.accessToken)!.payload as unknown as AuthClaims;
+  await waitForHost(page.scopeUrl(claims.aud));
+  const browser = new Browser();
+  const ctx = browser.context(page.scopeUrl(claims.aud));
+  const client = new NebulaClient({
+    baseUrl: page.scopeUrl(claims.aud),
+    platformOrigin: page.platformOrigin,
+    // Inert here — this client lives for one `invite()` call and never touches resources.
+    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+    accessToken: session.accessToken,
+    instanceName: `${session.sub}.${crypto.randomUUID().slice(0, 8)}`,
+    fetch: ctx.fetch,
+    sessionStorage: ctx.sessionStorage,
+    BroadcastChannel: ctx.BroadcastChannel,
+  });
+  try {
+    await waitForConnected(client, 30_000);
+    return await client.invite(targetScope, invitees, inviterName);
+  } finally {
+    try { client[Symbol.dispose](); } catch { /* already disposed */ }
+    ctx.close();
+  }
+}
+
+/**
+ * Mint a DELIBERATELY-DEGRADED token for the negative control.
+ * - `'base'`  → the base `@lumenize/auth` shape: flat `scopeAdmin`, NO `access` claim, base issuer. This is the exact "wrong shape for Nebula" the task names.
+ *   ⚠️ The `scopeAdmin`/`emailVerified`/`adminApproved` flags are passed as `customClaims` but land
+ *   FLAT on the token — `createJwtPayload` spreads the bag — so this really is the flat base shape,
+ *   not a nested one. That flatness is the point of the control; a nested bag would degrade the
+ *   token for a second, uninteresting reason and stop isolating the missing `access` claim.
+ * - `'no-access'` → nebula issuer + valid `aud`/`sub`/`email` but STILL no `access` claim. Isolates
+ *   `access.authScope` (router.ts) as the *sole* discriminator — the strongest control.
+ *
+ * Both must be rejected at the gateway; if either connected, the positive result would prove
+ * nothing about the `access` claim being load-bearing.
+ */
+export async function mintDegradedToken(
+  stack: DevStack,
+  opts: { scope: string; kind: 'base' | 'no-access'; email?: string },
+): Promise<string> {
+  const privateKey = await importPrivateKey(stack.signingKey);
+  const email = opts.email ?? 'claude@lumenize.io';
+  const sub = crypto.randomUUID();
+  if (opts.kind === 'base') {
+    const payload = createJwtPayload({
+      issuer: 'https://lumenize.local',
+      audience: opts.scope,
+      subject: sub,
+      expiresInSeconds: 900,
+      customClaims: { emailVerified: true, adminApproved: true, scopeAdmin: true },
+    });
+    return signJwt(payload as any, privateKey, stack.activeKey);
+  }
+  // 'no-access': nebula-shaped EXCEPT the access claim is absent — the stack's own issuer, so the
+  // missing claim is the one thing wrong with it.
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: platformOrigin(stack.origin),
+    aud: opts.scope,
+    sub,
+    exp: now + 900,
+    iat: now,
+    jti: crypto.randomUUID(),
+    email,
+    adminApproved: true,
+    // no `access` — the discriminator under test
+  };
+  return signJwt(payload as any, privateKey, stack.activeKey);
+}
+
+/**
+ * Assert a degraded token is REJECTED at the gateway: a client whose `refresh` returns it must
+ * NOT reach `connected` within `windowMs`, and should surface a terminal auth failure
+ * (`onLoginRequired`). Resolves on confirmed rejection; throws if it connects (control failed).
+ */
+export async function assertTokenRejected(
+  stack: DevStack,
+  opts: { scope: string; token: string; windowMs?: number },
+): Promise<void> {
+  const windowMs = opts.windowMs ?? 8000;
+  const browser = new Browser();
+  const ctx = browser.context(scopeUrlOf(stack, opts.scope));
+  let loginRequired = false;
+  const client = new NebulaClient({
+    baseUrl: scopeUrlOf(stack, opts.scope),
+    platformOrigin: stack.baseUrl,
+    // Inert here — the whole point is that this client never connects, let alone reads.
+    ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+    accessToken: opts.token,
+    instanceName: `neg-control.${crypto.randomUUID().slice(0, 8)}`,
+    fetch: ctx.fetch,
+    sessionStorage: ctx.sessionStorage,
+    BroadcastChannel: ctx.BroadcastChannel,
+    onLoginRequired: () => {
+      loginRequired = true;
+    },
+  });
+  try {
+    const start = Date.now();
+    while (Date.now() - start < windowMs) {
+      if (client.connectionState === 'connected') {
+        throw new Error(
+          'assertTokenRejected: a degraded token REACHED connected — the gateway accepted the ' +
+            'wrong shape, so the positive round-trip proves nothing about the access claim.',
+        );
+      }
+      if (loginRequired) return; // terminal auth failure observed — rejected as expected
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // Never connected within the window and never terminal — still "not accepted", but assert
+    // we didn't silently sit in a retry loop that a real token would have cleared.
+    if (client.connectionState === 'connected') {
+      throw new Error('assertTokenRejected: connected after the window elapsed');
+    }
+  } finally {
+    try {
+      client[Symbol.dispose]();
+    } catch {
+      /* ignore */
+    }
+    ctx.close();
+  }
+}

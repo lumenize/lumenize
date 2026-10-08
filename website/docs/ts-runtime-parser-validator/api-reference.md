@@ -40,7 +40,7 @@ interface Todo {
 ```
 
 ```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
-import { generateParseModule } from '@lumenize/ts-runtime-parser-validator';
+import { generateParseModule } from '@lumenize/ts-runtime-parser-validator/compile';
 import todoTypes from './todo.d.ts?raw';
 
 const moduleSource = generateParseModule(todoTypes);
@@ -90,7 +90,7 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   getParserValidatorFacet,
   type ParseResult,
-} from '@lumenize/ts-runtime-parser-validator';
+} from '@lumenize/ts-runtime-parser-validator/runtime';
 
 export class SupervisorDO extends DurableObject<Env> {
   async parse(bundleId: string, value: unknown, typeName: string): Promise<ParseResult> {
@@ -336,7 +336,7 @@ expect(ok.valid).toBe(true);
 import {
   extractTypeMetadata,
   generateParseModule,
-} from '@lumenize/ts-runtime-parser-validator';
+} from '@lumenize/ts-runtime-parser-validator/compile';
 import types from './schema.d.ts?raw';
 
 const md = extractTypeMetadata(types);

@@ -1,0 +1,354 @@
+import { DurableObject } from 'cloudflare:workers';
+import {
+  newContinuation,
+  executeOperationChain,
+  type OperationChain,
+  type Continuation,
+  type AnyContinuation,
+} from './ocan/index.js';
+import { parse } from '@lumenize/structured-clone';
+import { ComposedMeshDO, initIdentityFromHeaders } from './lmz-api.js';
+import { debug } from '@lumenize/debug';
+import { ClientDisconnectedError } from './gateway-messages.js';
+
+// Re-export continuation types from ocan for convenience
+export type { Continuation, AnyContinuation };
+
+// Register ClientDisconnectedError on globalThis for proper structured-clone serialization
+// This ensures a Mesh Durable Object can deserialize this error type when received from a Client's host
+(globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
+
+/**
+ * MeshDO — what every Mesh Durable Object shares, under the two bases an app extends:
+ * `ScopedMeshDO`, a node named by a scope, which checks passage and hosts the Clients on its
+ * scope's pages, and `UnscopedMeshDO`, a node named by an id. Internal: neither an app nor a test
+ * extends it directly.
+ *
+ * Provides automatic dependency injection for built-in and NADIS services via `this.svc.*`
+ *
+ * **Built-in services** (always available):
+ * - `this.svc.sql` - SQL template literal tag for DO storage
+ * - `this.svc.alarms` - Alarm scheduling with OCAN continuations
+ *
+ * **NADIS plugins** (import to enable):
+ * - Import NADIS packages and access them via `this.svc`
+ * - Full TypeScript autocomplete via declaration merging
+ * - Lazy loading - services only instantiated when accessed
+ *
+ * @example
+ * Basic usage:
+ * ```typescript
+ * import { UnscopedMeshDO } from '@lumenize/mesh';
+ *
+ * class MyDO extends UnscopedMeshDO<Env> {
+ *   async getUser(id: string) {
+ *     const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
+ *     return rows[0];
+ *   }
+ *
+ *   scheduleTask() {
+ *     // No import needed - alarms is built-in!
+ *     this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
+ *   }
+ *
+ *   handleTask(payload: any) {
+ *     console.log('Task executed:', payload);
+ *   }
+ * }
+ * ```
+ */
+export abstract class MeshDO<Env = any> extends ComposedMeshDO(DurableObject, 'LumenizeDO') {
+  #serviceCache = new Map<string, any>();
+  #svcProxy: LumenizeServices | null = null;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    // `env as Cloudflare.Env`: ComposedMeshDO erases DurableObject's env generic (the base is
+    // applied unparameterized), so the generic `Env` must be asserted to the base's env type.
+    super(ctx, env as Cloudflare.Env);
+
+    ctx.blockConcurrencyWhile(async () => {
+      if (this.onStart) {
+        await this.onStart();
+      }
+
+      // Recover orphaned alarms: if the __lmz_alarms table has overdue rows
+      // (e.g., native alarm lost after 6 failed retries), set a native alarm
+      // to process them. Runs on every instantiation so recovery happens
+      // regardless of what triggered the DO (fetch, alarm, RPC).
+      try {
+        const rows = ctx.storage.sql.exec(
+          `SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='__lmz_alarms'`
+        );
+        if ((rows.one() as any).c > 0) {
+          const overdue = ctx.storage.sql.exec(
+            `SELECT count(*) as c FROM __lmz_alarms WHERE time <= unixepoch()`
+          );
+          if ((overdue.one() as any).c > 0) {
+            ctx.storage.setAlarm(Date.now());
+          }
+        }
+      } catch { /* table doesn't exist yet — nothing to recover */ }
+    }).catch((error) => {
+      const log = debug('lmz.mesh.LumenizeDO.onStart');
+      log.error('onStart() failed', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+    });
+  }
+
+  /**
+   * Optional initialization hook (sync or async)
+   *
+   * Override to perform initialization before the DO handles any requests.
+   * Automatically wrapped in `blockConcurrencyWhile`.
+   *
+   * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
+   */
+  onStart?(): Promise<void> | void;
+
+  /**
+   * Alarm lifecycle handler - delegates to built-in alarms service
+   *
+   * This method is called by Cloudflare when a scheduled alarm fires.
+   * It automatically delegates to `this.svc.alarms.alarm()` to execute
+   * any pending scheduled tasks.
+   *
+   * **No override needed** — the base handles alarm scheduling automatically.
+   * Just use `this.svc.alarms.schedule()` to schedule tasks.
+   *
+   * @param alarmInfo - Cloudflare alarm invocation info
+   *
+   * @example
+   * ```typescript
+   * class MyDO extends UnscopedMeshDO<Env> {
+   *   scheduleTask() {
+   *     // Schedule a task - alarm() handles execution automatically
+   *     this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
+   *   }
+   *
+   *   handleTask(payload: { data: string }) {
+   *     console.log('Task executed:', payload);
+   *   }
+   * }
+   * ```
+   */
+  async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    await this.svc.alarms.alarm(alarmInfo);
+  }
+
+  /**
+   * Optional synchronous HTTP request handler
+   *
+   * Override this to handle HTTP requests routed to this DO. Called after
+   * identity initialization (`__initFromHeaders`), so `this.lmz.instanceName`
+   * and `this.lmz.bindingName` are available. May be async — a handler that
+   * reads storage (e.g. a static serve off a VFS) returns a Promise; prefer
+   * continuations for anything that leaves the node.
+   *
+   * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
+   */
+  onRequest?(request: Request): Response | Promise<Response>;
+
+  /**
+   * Fetch lifecycle — initializes identity, then delegates to `onRequest`
+   *
+   * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
+   */
+  async fetch(request: Request): Promise<Response> {
+    // Initialize from headers - returns Response on error, undefined on success
+    const initError = this.__initFromHeaders(request.headers);
+    if (initError) {
+      return initError;
+    }
+
+    // Delegate to onRequest if subclass implements it
+    if (this.onRequest) {
+      return this.onRequest(request);
+    }
+
+    return new Response('Not Implemented: override onRequest() to handle HTTP requests', { status: 501 });
+  }
+
+  /**
+   * Initialize DO metadata from request headers
+   *
+   * Reads `x-lumenize-do-binding-name` and `x-lumenize-do-instance-name-or-id`
+   * headers and calls `this.lmz.__init()` if present. These headers are automatically
+   * set by `routeDORequest` in @lumenize/routing.
+   *
+   * **Validation**: If the instance header contains a Durable Object ID (64-char hex string)
+   * instead of a name, returns an HTTP 400 error. A Mesh Durable Object requires instance names for
+   * proper mesh addressing.
+   *
+   * This is called automatically by the default `fetch()` handler. If you
+   * override `fetch()` and don't call `super.fetch()`, you can call this
+   * method directly:
+   *
+   * @param headers - HTTP headers from the request
+   * @returns Response with HTTP 400 error if validation fails, undefined on success
+   *
+   * @example
+   * ```typescript
+   * class MyDO extends UnscopedMeshDO<Env> {
+   *   async fetch(request: Request) {
+   *     // Manual initialization (alternative to super.fetch())
+   *     const error = this.__initFromHeaders(request.headers);
+   *     if (error) return error;
+   *
+   *     // Handle request
+   *     return new Response('Hello');
+   *   }
+   * }
+   * ```
+   */
+  __initFromHeaders(headers: Headers): Response | undefined {
+    // Composes the shared header-init helper
+    // — ADR-007's identity-on-every-entry-path requirement; not reimplemented per type.
+    return initIdentityFromHeaders(headers, this.lmz, 'LumenizeDO');
+  }
+
+  /**
+   * Create an OCAN continuation proxy that records a method chain to run later (alarms, `call`
+   * result handlers). Without a type param it is typed to the concrete subclass; with one
+   * (`ctn<RemoteDO>()`) to that remote type.
+   *
+   * Stays per-class (not on {@link ComposedMeshDO}) — its `Continuation<this>` return can't cross
+   * the mixin boundary cleanly, because `this` concretizes `DurableObject`'s optional `alarm`.
+   *
+   * @see https://lumenize.com/docs/mesh/calls — Complete tested examples
+   */
+  ctn(): Continuation<this>;
+  ctn<T>(): Continuation<T>;
+  ctn(): Continuation<unknown> {
+    return newContinuation() as Continuation<unknown>;
+  }
+
+  /**
+   * Execute an operation chain locally with configurable options
+   *
+   * This is a TRUE PRIVATE method (using #) so it cannot be called via RPC.
+   * Used by internal services that need to execute continuations without
+   * requiring @mesh decorator:
+   * - Alarms service (local timer callbacks)
+   * - lmz.call() handler callbacks
+   *
+   * @param chain - The operation chain to execute
+   * @param options - Configuration options
+   * @returns The result of executing the operation chain
+   */
+  #executeChainLocal(chain: OperationChain, options?: { requireMeshDecorator?: boolean }): Promise<any> {
+    return executeOperationChain(chain, this, options);
+  }
+
+  /**
+   * Get the local chain executor for internal use
+   *
+   * This method provides access to the private #executeChainLocal method
+   * for trusted internal code (like lmz.call() handlers and alarms).
+   *
+   * **Security**: This returns a function bound to this instance. The returned
+   * function can bypass @mesh checks, but the method itself just returns a
+   * function reference - it doesn't execute anything. Attackers calling this
+   * via RPC would get a function they can't actually use (it won't serialize
+   * over RPC boundaries).
+   *
+   * @internal
+   */
+  get __localChainExecutor(): (chain: OperationChain, options?: { requireMeshDecorator?: boolean }) => Promise<any> {
+    return this.#executeChainLocal.bind(this);
+  }
+
+  /**
+   * Access NADIS services via this.svc.*
+   *
+   * Services are auto-discovered from the global LumenizeServices interface
+   * and lazily instantiated on first access.
+   */
+  get svc(): LumenizeServices {
+    if (this.#svcProxy) {
+      return this.#svcProxy;
+    }
+
+    this.#svcProxy = new Proxy({} as LumenizeServices, {
+      get: (_target, prop: string) => {
+        // Return cached instance if available
+        if (this.#serviceCache.has(prop)) {
+          return this.#serviceCache.get(prop);
+        }
+
+        // Try to resolve the service from module scope
+        const service = this.#resolveService(prop);
+
+        if (service) {
+          this.#serviceCache.set(prop, service);
+          return service;
+        }
+
+        const log = debug('lmz.mesh.LumenizeDO.svc');
+        const error = new Error(
+          `Service '${prop}' not found. Did you import the NADIS package? ` +
+          `Example: import '@lumenize/${prop}';`
+        );
+        log.error('NADIS service not found', {
+          service: prop,
+          hint: `import '@lumenize/${prop}';`,
+        });
+        throw error;
+      },
+    }) as LumenizeServices;
+
+    return this.#svcProxy;
+  }
+
+  /**
+   * Resolve a service by name from the global registry
+   *
+   * Handles both stateless (functions) and stateful (classes) services:
+   * - Stateless: Call function with `this` (e.g., sql(this))
+   * - Stateful: Instantiate class with ctx, this, and dependencies
+   */
+  #resolveService(name: string): any {
+    const registry = (globalThis as any).__lumenizeServiceRegistry;
+
+    if (!registry) {
+      return null;
+    }
+
+    const serviceFactory = registry[name];
+
+    if (!serviceFactory) {
+      return null;
+    }
+
+    // Call the factory with DO instance and let it handle instantiation
+    return serviceFactory(this);
+  }
+}
+
+// Initialize global service registry
+if (!(globalThis as any).__lumenizeServiceRegistry) {
+  (globalThis as any).__lumenizeServiceRegistry = {};
+}
+
+// Initialize global work handlers registry
+if (!(globalThis as any).__lumenizeWorkHandlers) {
+  (globalThis as any).__lumenizeWorkHandlers = {};
+}
+
+// Initialize global result handlers registry
+if (!(globalThis as any).__lumenizeResultHandlers) {
+  (globalThis as any).__lumenizeResultHandlers = {};
+}
+
+// Re-export the global LumenizeServices interface for convenience
+export type { LumenizeServices } from './types';
+
+// Register built-in sql service (always available on this.svc.sql for every Mesh Durable Object)
+import { sql } from './sql';
+(globalThis as any).__lumenizeServiceRegistry['sql'] = (doInstance: any) => sql(doInstance);
+
+// Register built-in alarms service (always available on this.svc.alarms for every Mesh Durable Object)
+import { Alarms } from './alarms';
+(globalThis as any).__lumenizeServiceRegistry['alarms'] = (doInstance: any) => new Alarms(doInstance);
+

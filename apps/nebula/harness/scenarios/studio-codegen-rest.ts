@@ -1,0 +1,146 @@
+/**
+ * Drive ONE real codegen turn through the shipping Workers-AI REST transport — via the
+ * POST-COLLAPSE trigger: `postUserMessage` commits the human `Message`, the Galaxy's
+ * commit hook starts the turn (one assembly with every guidance layer and the full tool
+ * set, under the poster's own authority; the first write warms the build box), and
+ * completion is OBSERVED ON THE `Message` SUBSCRIPTION — the same way the product
+ * observes it, with no reply channel at all.
+ *
+ * The subject is `Galaxy#callModelRest` — specifically that gateway routing is a
+ * `cf-aig-gateway-id` header on the ordinary `/ai/run/{model}` URL rather than a second
+ * origin, so there is one URL for every configuration. A wrong URL, a stale envelope shape,
+ * or an auth regression all land here as a failed turn.
+ *
+ * ⚠️ **A broken model call HANGS rather than rejecting**, which is why the deadline below
+ * is the real assertion and not a nicety: the triggered turn runs detached server-side, so
+ * a throwing transport just means NO agent `Message` ever lands — silence, not an error.
+ * Bounding the subscription wait converts that silence into a loud failure. (Same trap
+ * `live.md` warns about: a hang reads as a slow boot.)
+ *
+ * ⚠️ **Deliberately asserts TRANSPORT, not model quality.** Whether the model wrote good Vue
+ * is a different question with a different failure mode. What is asserted is that a
+ * well-formed agent reply landed durably, `replyTo`-linked to the posted message.
+ * Generation quality is reported, not gated.
+ *
+ * It also asserts where the turn's stream chunks go: the poster's tab is hosted by the Galaxy
+ * running the turn, so each chunk reaches it in place, as the Galaxy's `delivered in place` line
+ * says, and never by a Workers RPC to the Galaxy itself. Mutation: route a push to a Client this
+ * node hosts through a stub; the line is missing though the chunks still arrive.
+ *
+ * Requires the `env.AI`-free REST lane: `WORKERS_AI_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in
+ * `.dev.vars` (`runModel` prefers REST whenever the token is present). `CF_AI_GATEWAY` is
+ * OPTIONAL and unset by default — see `#callModelRest`'s JSDoc for why that default is a
+ * decision rather than an omission.
+ */
+import assert from 'node:assert/strict';
+import { DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
+import type { Snapshot } from '@lumenize/resources/client';
+import type { DevStack } from '../lib/harness';
+import { connectDriver, readDevVar } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
+import { debugLines } from '../lib/stdio';
+
+export const bootVars = { DEBUG: 'lmz.mesh.lmzApi.dispatchEnvelope' };
+
+/** A galaxy scope of this scenario's own (never shared — codegen writes source).
+ *  Per-run unique for the same reason as `build-box.ts`: a deployed target's state is
+ *  durable, so a fixed scope replays an already-claimed universe and a stale magic-link
+ *  email on the second run. */
+const SCOPE = `${testSlug('codegen')}.codegen`;
+
+/** A cold model turn lives inside this budget. */
+const TURN_TIMEOUT_MS = 900_000; // tracks the server's 14 min generation deadline plus margin (32-round cap)
+
+export async function run(stack: DevStack): Promise<void> {
+  // Fail on the PRECONDITION rather than silently proving the binding lane instead. Without a
+  // token `runModel` falls through to `env.AI`, which would pass this scenario green while
+  // exercising none of the code it exists to cover.
+  const optionalDevVar = (name: string): string | undefined => {
+    try { return readDevVar(name); } catch { return undefined; }
+  };
+  const token = optionalDevVar('WORKERS_AI_TOKEN');
+  const account = optionalDevVar('CLOUDFLARE_ACCOUNT_ID');
+  assert.ok(token && account,
+    'this scenario covers the REST lane — WORKERS_AI_TOKEN + CLOUDFLARE_ACCOUNT_ID must be in .dev.vars');
+  const gateway = optionalDevVar('CF_AI_GATEWAY');
+  console.error(`[studio-codegen-rest] gateway routing: ${gateway ? `cf-aig-gateway-id: ${gateway}` : 'off (no CF_AI_GATEWAY)'}`);
+
+  const driver = await connectDriver(stack, { scope: SCOPE, Client: StudioClient });
+  try {
+    // Subscribe FIRST (the product's shape), then post — the reply arrives on the query.
+    using sub = driver.client.resources.subscribeQuery({
+      queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+    });
+    await sub.ready;
+
+    // Every chunk of this turn that reaches the poster's own tab.
+    let chunks = 0;
+    let replyTo: string | undefined;
+    driver.client.setOnStreamChunk((_messageId, _text, chunkReplyTo) => { if (chunkReplyTo === replyTo) chunks += 1; });
+
+    const t0 = Date.now();
+    const userMessageId = await driver.client.postUserMessage(
+      'Add a button labelled Ping that appends the word pong to a list.',
+    );
+    replyTo = userMessageId;
+
+    // The completion observation: a SECOND Message appears whose replyTo is the posted id.
+    const deadline = Date.now() + TURN_TIMEOUT_MS;
+    let agent: Snapshot | undefined;
+    while (Date.now() < deadline && !agent) {
+      for (const id of sub.resourceIds) {
+        if (id === userMessageId) continue;
+        const snap = await driver.client.resources.read('Message', id) as Snapshot | null;
+        if (snap && (snap.value as { replyTo?: string }).replyTo === userMessageId) { agent = snap; break; }
+      }
+      if (!agent) await new Promise((r) => setTimeout(r, 2000));
+    }
+    assert.ok(agent,
+      `no agent reply landed within ${TURN_TIMEOUT_MS / 1000}s — the triggered turn runs detached, ` +
+      `so a broken REST transport is SILENCE here, and this deadline is what makes it loud`);
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+
+    // The transport assertions: a real, well-formed durable reply.
+    const v = agent.value as { content?: string; thought?: string; status?: string };
+    assert.ok((v.content ?? '').length > 0, 'agent reply must carry non-empty content');
+    assert.equal(v.status, 'complete', `agent reply status should be complete, got ${v.status}`);
+    assert.ok((v.thought ?? '').length > 0,
+      'thought must be non-empty — it is assembled from the parsed model turn, so an empty one means ' +
+      'nothing came back from the model even though a Message landed');
+
+    // The chunks: the Galaxy hosts the poster's tab, so it delivers each one in place.
+    assert.ok(chunks > 0, 'no stream chunk of the turn reached the poster\'s tab');
+    const address = `${SCOPE}/${driver.client.lmz.instanceName}`;
+    if (stack.logs === undefined) {
+      console.error('[studio-codegen-rest] in-place delivery is not observable on a deployed target');
+    } else {
+      // The stdio reaches this process late and in bursts, so the count waits for it to catch up.
+      const inPlaceCount = () => debugLines(stack.logs!()).filter((e) => e.message === 'delivered in place'
+        && e.data.bindingName === 'GALAXY' && e.data.instanceName === address
+        && e.data.method === 'handleStreamChunk').length;
+      const caughtUp = Date.now() + 15_000;
+      while (inPlaceCount() < chunks && Date.now() < caughtUp) await new Promise((r) => setTimeout(r, 200));
+      const inPlace = inPlaceCount();
+      assert.ok(inPlace >= chunks,
+        `${chunks} chunk(s) reached the tab, but the Galaxy logged ${inPlace} in-place delivery(ies) to ${address}`);
+    }
+
+    console.error(`[studio-codegen-rest] turn completed in ${elapsed}s`);
+    console.error(`[studio-codegen-rest] reply: ${v.content}`);
+    // Reported, NOT asserted — model quality is a separate failure mode (see the header).
+    console.error(`[studio-codegen-rest] thought (${(v.thought ?? '').length} chars): ${(v.thought ?? '').slice(0, 400)}`);
+    // The codegen record's loop economics — REPORTED for the compilers-move task's
+    // per-round cost bookkeeping (rounds; build tool calls = container cycles; the
+    // build-granularity check record). Never gated: a threshold invented before anyone
+    // has felt loop latency is a number to argue with, not evidence.
+    const cg = (agent.value as { codegen?: { rounds?: number; toolCalls?: Array<{ name: string }>; build?: { checked: string[]; findings: string[] } } }).codegen;
+    if (cg) {
+      const buildCalls = (cg.toolCalls ?? []).filter((t) => t.name === 'build').length;
+      console.error(`[studio-codegen-rest] rounds=${cg.rounds} buildCycles=${buildCalls} ` +
+        `checked=${JSON.stringify(cg.build?.checked ?? [])} findings=${(cg.build?.findings ?? []).length}`);
+    }
+  } finally {
+    driver.wipe();
+    driver.dispose();
+  }
+}

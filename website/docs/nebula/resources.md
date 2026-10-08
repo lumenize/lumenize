@@ -327,7 +327,7 @@ This is the data race; debouncing and fanout-holding narrow it but don't resolve
 
 ```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // textMerge is a 3-way (LCS-based) merge helper
-import { textMerge } from '@lumenize/nebula/frontend';
+import { textMerge } from '@lumenize/resources/frontend';
 
 client.resources.onTransactionResourceResolution('doc', (rid, resolution) => {
   if (resolution.kind === 'conflict-pending') {

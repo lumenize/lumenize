@@ -1,22 +1,25 @@
 /**
  * Ontology integration tests
  *
- * Tests Galaxy ontology management, Star cache hit/miss, version mismatch,
- * validation integration, and the full continuation-based flow
- * (Client → Star → Galaxy → Star → Client).
+ * Tests Star cache hit/miss, version mismatch, and validation integration through
+ * `callStarInstallOntology` (test-Worker compile → `resourcesResults.onOntologyPulled`). The old
+ * "Galaxy ontology" registry block died with the Galaxy's test-install method
+ * (tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 3) — its duplicate-label /
+ * index-listing / latest-round-trip assertions covered that method's own behaviour
+ * and cannot outlive it; the surviving registry write path is the dev Apply
+ * (`applyOntology`), covered in the dev-studio project.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult, TransactionError, OntologyState } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionResult, TransactionError } from '@lumenize/resources';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function galaxyName(star: string): string {
@@ -41,9 +44,10 @@ async function waitForError(client: NebulaClientTest) {
   return client.lastError!;
 }
 
+/** A real STAR-scoped admin — exact-star pattern, inert at every ancestor. The default here. */
 async function adminClient(star: string) {
   const browser = new Browser();
-  return createAuthenticatedClient(NebulaClientTest, browser, star, star, 'admin@example.com');
+  return adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
 }
 
 const TODO_TYPES = `
@@ -61,104 +65,6 @@ const TODO_V2_TYPES = `
   interface Person { name: string; email: string; phone?: string; }
 `;
 
-// ─── Galaxy Ontology Management ──────────────────────────────────────
-
-describe('Galaxy ontology', () => {
-
-  it('appendOntologyVersion + getLatestOntologyVersion round-trip', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyGetLatestOntologyVersion(galaxy);
-    const state = await waitForSuccess(client) as OntologyState;
-    expect(state.row.version).toBe('v1');
-    expect(state.row.types).toBe(TODO_TYPES);
-    expect(typeof state.row.validatorBundle).toBe('string');
-    expect(state.row.validatorBundle.length).toBeGreaterThan(0);
-    expect(state.history).toEqual(['v1']);
-
-    client[Symbol.dispose]();
-  });
-
-  it('append-only enforcement — duplicate version label throws', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V2_TYPES });
-    const error = await waitForError(client);
-    expect(error).toContain('already exists');
-
-    // Index unchanged
-    client.callGalaxyListOntologyVersions(galaxy);
-    const versions = await waitForSuccess(client) as string[];
-    expect(versions).toEqual(['v1']);
-
-    client[Symbol.dispose]();
-  });
-
-  it('eager validation — unparseable TypeScript throws', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: 'interface Bad {' });
-    const error = await waitForError(client);
-    expect(error).toContain('parse');
-
-    client[Symbol.dispose]();
-  });
-
-  it('multiple versions appended in order', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_TYPES });
-    await waitForSuccess(client);
-
-    client.callGalaxyListOntologyVersions(galaxy);
-    const versions = await waitForSuccess(client) as string[];
-    expect(versions).toEqual(['v1', 'v2']);
-
-    // Latest is v2; history reflects both versions in order
-    client.callGalaxyGetLatestOntologyVersion(galaxy);
-    const latest = await waitForSuccess(client) as OntologyState;
-    expect(latest.row.version).toBe('v2');
-    expect(latest.history).toEqual(['v1', 'v2']);
-
-    client[Symbol.dispose]();
-  });
-
-  it('invalid version label rejected', async () => {
-    const star = uniqueStar();
-    const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
-
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'has spaces', types: TODO_TYPES });
-    const error = await waitForError(client);
-    expect(error).toContain('Invalid ontology version label');
-    expect(error).toContain('has spaces');
-
-    // Underscore-prefixed labels collide with reserved keys
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: '_index', types: TODO_TYPES });
-    const error2 = await waitForError(client);
-    expect(error2).toContain('Invalid ontology version label');
-
-    client[Symbol.dispose]();
-  });
-});
-
 // ─── Star Cache & Galaxy Fetch ───────────────────────────────────────
 
 describe('Star ontology cache', () => {
@@ -167,10 +73,10 @@ describe('Star ontology cache', () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     // Register ontology
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // First transaction — triggers Galaxy fetch (cache miss)
@@ -181,7 +87,7 @@ describe('Star ontology cache', () => {
     expect(r1.ok).toBe(true);
 
     // Second transaction — should use cache (no Galaxy fetch needed)
-    const r2Id = generateUuid();
+    const r2Id = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [r2Id]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Write docs', done: false } },
     });
@@ -196,13 +102,13 @@ describe('Star ontology cache', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Client tagged a version that doesn't exist on Galaxy. Star fetches latest
     // (v1) and rejects because the tag doesn't match.
     client.callStarTransaction(star, 'v999', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
     });
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
@@ -220,7 +126,7 @@ describe('Star ontology cache', () => {
     // versioned op against an ontology-less Star is a version mismatch (current = '')
     // rather than the old "not found" — the client is told to refresh.
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
     });
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
@@ -235,20 +141,20 @@ describe('Star ontology cache', () => {
     const { client } = await adminClient(star);
 
     // Register v1 and v2
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
-    client.callStarApplyOntology(star, { version: 'v2', types: TODO_V2_TYPES });
+    client.callStarInstallOntology(star, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
     // Force Star to fetch latest (v2) by sending v2 first
     client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false, priority: 'high' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false, priority: 'high' } },
     });
     await waitForSuccess(client);
 
     // Now send v1 — should get version mismatch
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Stale', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Stale', done: false } },
     });
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
@@ -267,11 +173,11 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix bug', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix bug', done: false } },
     });
     const result = await waitForSuccess(client) as TransactionResult;
     expect(result.ok).toBe(true);
@@ -284,12 +190,12 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Missing required field 'done', wrong type for 'title'
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 123 } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 123 } },
     });
     const result = await waitForSuccess(client) as TransactionResult;
     expect(result.ok).toBe(false);
@@ -310,13 +216,13 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, {
+    client.callStarInstallOntology(star, {
       version: 'v1',
       types: TODO_V2_TYPES,
     });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     // Omit 'priority' — `@default "medium"` JSDoc tag should fill it
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix bug', done: false } },
@@ -337,10 +243,10 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix', done: false } },
     });
@@ -362,10 +268,10 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'To delete', done: false } },
     });
@@ -386,11 +292,11 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const r1 = generateUuid();
-    const r2 = generateUuid();
+    const r1 = crypto.randomUUID();
+    const r2 = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [r1]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Valid', done: false } },
       [r2]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 123 } }, // invalid
@@ -416,10 +322,10 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Meta', done: false } },
     });
@@ -443,10 +349,10 @@ describe('read integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Read me', done: true } },
     });
@@ -465,16 +371,16 @@ describe('read integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Need at least one transaction to cache the ontology on the Star
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false } },
     });
     await waitForSuccess(client);
 
-    client.callStarRead(star, 'v1', generateUuid());
+    client.callStarRead(star, 'v1', crypto.randomUUID());
     const snap = await waitForSuccess(client);
     expect(snap).toBeNull();
 
@@ -487,19 +393,19 @@ describe('read integration', () => {
     const { client } = await adminClient(star);
 
     // Register v1 and v2
-    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
+    client.callStarInstallOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
-    client.callStarApplyOntology(star, { version: 'v2', types: TODO_V2_TYPES });
+    client.callStarInstallOntology(star, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
     // Force Star to fetch v2
     client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false, priority: 'high' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false, priority: 'high' } },
     });
     await waitForSuccess(client);
 
     // Read with stale version
-    client.callStarRead(star, 'v1', generateUuid());
+    client.callStarRead(star, 'v1', crypto.randomUUID());
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
 

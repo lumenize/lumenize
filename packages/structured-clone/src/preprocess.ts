@@ -22,7 +22,7 @@
  *     references (`refCount`); the second walk emits the wire form.
  *
  * Special-type tags emitted:
- *   undefined, bigint, number-special (NaN/Infinity/-Infinity),
+ *   undefined, bigint, number-special (NaN/Infinity/-Infinity/-0),
  *   date, regexp, map, set, error, headers, url, arraybuffer (covers
  *   ArrayBuffer/DataView/TypedArray), boolean-object, number-object,
  *   string-object, bigint-object, request-sync, response-sync, function.
@@ -110,6 +110,28 @@ function escapeKey(k: string): string {
   return k.startsWith('$') ? '$' + k : k;
 }
 
+// Writes an own data property. Assigning `__proto__` calls Object.prototype's
+// setter, which replaces the target's prototype instead, so that one key is
+// defined: it travels as the own key native structuredClone() keeps, and a
+// payload naming it cannot hand the decoded object a prototype.
+export function setOwn(target: Record<string, any>, key: string, value: unknown): void {
+  if (key === '__proto__') {
+    Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
+  } else {
+    target[key] = value;
+  }
+}
+
+// Renders a path as `session.keys[0]` for error messages.
+function formatPath(path: PathElement[]): string {
+  let out = '';
+  for (const step of path) {
+    if (step.type === 'index') out += `[${step.key}]`;
+    else out += out ? `.${step.key}` : String(step.key);
+  }
+  return out;
+}
+
 /**
  * Preprocesses complex values to a format that can be stringified to JSON.
  *
@@ -128,6 +150,9 @@ function escapeKey(k: string): string {
  * @param options - Optional preprocessing options including custom transform hooks.
  * @returns Intermediate format `{ json, meta }`.
  * @throws TypeError if value contains symbols.
+ * @throws DOMException named `DataCloneError` for an object with no encoder
+ *   that isn't a plain object or class instance (CryptoKey, Blob, streams, …),
+ *   naming its type and path.
  */
 export function preprocess(data: any, options?: PreprocessOptions): LmzIntermediate {
   const transform = options?.transform;
@@ -168,11 +193,7 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
           countRefs((value as any)[key]);
         }
       }
-    } else if (
-      value.constructor?.name === 'ArrayBuffer' ||
-      value.constructor?.name === 'DataView' ||
-      (value.constructor && /Array$/.test(value.constructor.name) && (value as any).buffer)
-    ) {
+    } else if (value.constructor?.name === 'ArrayBuffer' || ArrayBuffer.isView(value)) {
       // Atomic.
     } else if (
       value.constructor?.name === 'RequestSync' ||
@@ -228,6 +249,9 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       if (Number.isNaN(value)) return { $type: 'number-special', value: 'NaN' };
       if (value === Infinity) return { $type: 'number-special', value: 'Infinity' };
       if (value === -Infinity) return { $type: 'number-special', value: '-Infinity' };
+      // JSON writes -0 as 0. The decoder's `Number(value)` fallback already
+      // reads the tag back, so a receiver that predates it gets -0 too.
+      if (Object.is(value, -0)) return { $type: 'number-special', value: '-0' };
       return value;
     }
     if (typeof value === 'bigint') return { $type: 'bigint', value: value.toString() };
@@ -296,10 +320,10 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       for (const key of Object.getOwnPropertyNames(value)) {
         if (!['name', 'message', 'stack', 'cause'].includes(key)) {
           try {
-            errorData[escapeKey(key)] = encodeRoot(
+            setOwn(errorData, escapeKey(key), encodeRoot(
               (value as any)[key],
               [...path, { type: 'get', key }],
-            );
+            ));
           } catch {
             // skip un-encodable props
           }
@@ -338,6 +362,7 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       if (Number.isNaN(num)) v = 'NaN';
       else if (num === Infinity) v = 'Infinity';
       else if (num === -Infinity) v = '-Infinity';
+      else if (Object.is(num, -0)) v = '-0';
       return { $type: 'number-object', value: v };
     }
     if (value instanceof String) {
@@ -352,39 +377,57 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       return { $type: 'bigint-object', value: (value as any).valueOf().toString() };
     }
     // ArrayBuffer / TypedArray / DataView
-    if ((value as any).constructor) {
-      const ctorName = (value as any).constructor.name;
-      if (ctorName === 'ArrayBuffer') {
+    if ((value as any).constructor?.name === 'ArrayBuffer') {
+      return {
+        $type: 'arraybuffer',
+        subtype: 'ArrayBuffer',
+        data: Array.from(new Uint8Array(value as ArrayBuffer)),
+      };
+    }
+    if (ArrayBuffer.isView(value)) {
+      // The tag names the built-in view even for a subclass, so Node's Buffer
+      // travels as the Uint8Array it is rather than under a constructor name
+      // that exists nowhere else.
+      const subtype = Object.prototype.toString.call(value).slice(8, -1);
+      if (subtype === 'DataView') {
         return {
           $type: 'arraybuffer',
-          subtype: 'ArrayBuffer',
-          data: Array.from(new Uint8Array(value as ArrayBuffer)),
-        };
-      }
-      if (ctorName === 'DataView') {
-        return {
-          $type: 'arraybuffer',
-          subtype: 'DataView',
+          subtype,
           data: Array.from(new Uint8Array((value as DataView).buffer)),
           byteOffset: (value as DataView).byteOffset,
           byteLength: (value as DataView).byteLength,
         };
       }
-      if (ctorName.includes('Array') && (value as any).buffer) {
-        return {
-          $type: 'arraybuffer',
-          subtype: ctorName,
-          data: Array.from(value as ArrayLike<number>),
-        };
-      }
+      // Each element takes the primitive encoding, so NaN, ±Infinity and a
+      // BigInt64Array's bigints carry their tags: JSON would write the first
+      // three as `null` and throw on the last.
+      return {
+        $type: 'arraybuffer',
+        subtype,
+        data: Array.from(value as unknown as ArrayLike<number | bigint>, (el) => encodeBody(el, path)),
+      };
+    }
+    // Copying own keys is right only for a plain object or a class instance.
+    // Anything else reaching here is a host object (CryptoKey, Blob,
+    // ReadableStream, WeakMap, …) whose state lives in internal slots, so the
+    // copy would arrive as an impostor. Refuse it with the DataCloneError that
+    // native structuredClone() throws for what it can't clone.
+    const tag = Object.prototype.toString.call(value);
+    if (tag !== '[object Object]') {
+      const where = path.length > 0 ? ` at ${formatPath(path)}` : '';
+      throw new DOMException(
+        `Could not serialize object of type "${tag.slice(8, -1)}"${where}. `
+          + 'Convert it to a plain value first.',
+        'DataCloneError',
+      );
     }
     // Plain object
     const out: Record<string, any> = {};
     for (const key of Object.keys(value)) {
-      out[escapeKey(key)] = encodeRoot(
+      setOwn(out, escapeKey(key), encodeRoot(
         (value as any)[key],
         [...path, { type: 'get', key }],
-      );
+      ));
     }
     return out;
   }

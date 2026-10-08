@@ -4,14 +4,14 @@
  * Note: Alarms is now a built-in service in LumenizeDO - no separate import needed.
  * Uses triggerAlarms() instead of flaky testing package alarm simulation.
  */
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import type { DelayedAlarm, CronAlarm, Schedule } from '../src/alarms';
 
 describe('Alarms', () => {
   describe('One-time Scheduled Alarms', () => {
     test('schedules alarm for specific date', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('scheduled-date-test');
+      const stub = env.ALARM_TEST_DO.getByName('scheduled_date_test');
 
       const futureDate = new Date(Date.now() + 1000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'test-task' });
@@ -23,7 +23,7 @@ describe('Alarms', () => {
     });
 
     test('executes scheduled alarm at specified time', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('scheduled-execute-test');
+      const stub = env.ALARM_TEST_DO.getByName('scheduled_execute_test');
 
       const futureDate = new Date(Date.now() + 10000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'execute-me' });
@@ -38,8 +38,29 @@ describe('Alarms', () => {
       expect(executed[0].payload).toEqual({ task: 'execute-me' });
     });
 
+    test('an alarm its own handler re-arms under its own id survives the run', async () => {
+      const stub = env.ALARM_TEST_DO.getByName('rearm_self_test');
+      await stub.scheduleRearmingAlarm('poll');
+      expect(await stub.triggerAlarms(1)).toEqual(['poll']);
+      const after = await stub.getSchedule('poll');
+      expect(after?.type).toBe('delayed');
+      // The row is the re-arm's: firing it runs the handler the re-arm named.
+      await stub.triggerAlarms(1);
+      expect((await stub.getExecutedAlarms() as Array<{ payload: any }>).map((a) => a.payload)).toEqual(['rearming', 'rearmed']);
+    });
+
+    test('an alarm another call re-arms while the handler runs survives the run', async () => {
+      const stub = env.ALARM_TEST_DO.getByName('rearm_concurrent_test');
+      await stub.scheduleSlowAlarm('poll', 200);
+      const firing = stub.triggerAlarms(1);
+      await new Promise((r) => setTimeout(r, 50)); // the handler is now awaiting
+      await stub.scheduleAlarmWithId('poll', 60, 'armed meanwhile');
+      expect(await firing).toEqual(['poll']);
+      expect((await stub.getSchedule('poll'))?.type).toBe('delayed');
+    });
+
     test('removes one-time alarm after execution', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('scheduled-remove-test');
+      const stub = env.ALARM_TEST_DO.getByName('scheduled_remove_test');
 
       const futureDate = new Date(Date.now() + 10000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'remove-after' });
@@ -60,7 +81,7 @@ describe('Alarms', () => {
 
   describe('Delayed Alarms', () => {
     test('schedules alarm with delay in seconds', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('delayed-test');
+      const stub = env.ALARM_TEST_DO.getByName('delayed_test');
 
       const schedule = await stub.scheduleDelayedAlarm(5, { task: 'delayed-task' });
 
@@ -70,7 +91,7 @@ describe('Alarms', () => {
     });
 
     test('executes delayed alarm', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('delayed-execute-test');
+      const stub = env.ALARM_TEST_DO.getByName('delayed_execute_test');
 
       await stub.scheduleDelayedAlarm(10, { task: 'delayed-task' });
 
@@ -85,7 +106,7 @@ describe('Alarms', () => {
 
   describe('Cron Alarms', () => {
     test('schedules recurring cron alarm', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('cron-test');
+      const stub = env.ALARM_TEST_DO.getByName('cron_test');
 
       const schedule = await stub.scheduleCronAlarm('* * * * *', { task: 'recurring' });
 
@@ -95,7 +116,7 @@ describe('Alarms', () => {
     });
 
     test('cron alarm is rescheduled after execution', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('cron-reschedule-test');
+      const stub = env.ALARM_TEST_DO.getByName('cron_reschedule_test');
 
       const schedule = await stub.scheduleCronAlarm('* * * * *', { task: 'reschedule' });
       const originalTime = schedule.time;
@@ -119,7 +140,7 @@ describe('Alarms', () => {
 
   describe('Alarm Management', () => {
     test('retrieves schedule by ID', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('get-schedule-test');
+      const stub = env.ALARM_TEST_DO.getByName('get_schedule_test');
 
       const futureDate = new Date(Date.now() + 5000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'get-me' });
@@ -131,14 +152,14 @@ describe('Alarms', () => {
     });
 
     test('returns undefined for non-existent schedule', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('get-missing-test');
+      const stub = env.ALARM_TEST_DO.getByName('get_missing_test');
 
       const retrieved = await stub.getSchedule('non-existent-id');
       expect(retrieved).toBeUndefined();
     });
 
     test('cancels scheduled alarm', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('cancel-test');
+      const stub = env.ALARM_TEST_DO.getByName('cancel_test');
 
       const futureDate = new Date(Date.now() + 5000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'cancel-me' });
@@ -153,7 +174,7 @@ describe('Alarms', () => {
     });
 
     test('lists all schedules', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('list-all-test');
+      const stub = env.ALARM_TEST_DO.getByName('list_all_test');
 
       // Deadlines are far enough in the future that none of these alarms can
       // fire during the test, even under CPU contention from parallel workers.
@@ -169,13 +190,19 @@ describe('Alarms', () => {
     });
 
     test('filters schedules by type', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('filter-type-test');
+      const stub = env.ALARM_TEST_DO.getByName('filter_type_test');
 
       await stub.scheduleAlarm(new Date(Date.now() + 1000), { task: 'scheduled' });
       await stub.scheduleDelayedAlarm(5, { task: 'delayed' });
       await stub.scheduleCronAlarm('* * * * *', { task: 'cron' });
 
       const scheduledOnly = await stub.getSchedules({ type: 'scheduled' });
+      // TS2589 (excessively deep): comparing `Schedule` with a LumenizeDO stub's mapped return
+      // type trips it the first time TypeScript does it, and the result is cached for every later
+      // comparison, so it lands here because this file is checked first. If it moves, the
+      // directive below goes unused and type-check fails: move it to the new site.
+      // tasks/backlog.md tracks the cause.
+      // @ts-expect-error TS2589, explained above
       expect(scheduledOnly.every((s: Schedule) => s.type === 'scheduled')).toBe(true);
 
       const delayedOnly = await stub.getSchedules({ type: 'delayed' });
@@ -188,16 +215,13 @@ describe('Alarms', () => {
 
   describe('Multiple Alarms', () => {
     test('executes multiple alarms in order', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('multiple-order-test');
+      const stub = env.ALARM_TEST_DO.getByName('multiple_order_test');
 
-      // Schedule three alarms in the past (all overdue)
-      const past1 = new Date(Date.now() - 3000);
-      const past2 = new Date(Date.now() - 2000);
-      const past3 = new Date(Date.now() - 1000);
-
-      await stub.scheduleAlarm(past1, { order: 1 });
-      await stub.scheduleAlarm(past2, { order: 2 });
-      await stub.scheduleAlarm(past3, { order: 3 });
+      // A minute out, so the runtime does not deliver them first: `triggerAlarms` with a count runs
+      // the earliest jobs whatever their time.
+      await stub.scheduleAlarm(new Date(Date.now() + 61_000), { order: 1 });
+      await stub.scheduleAlarm(new Date(Date.now() + 62_000), { order: 2 });
+      await stub.scheduleAlarm(new Date(Date.now() + 63_000), { order: 3 });
 
       // Trigger all alarms
       const executedIds = await stub.triggerAlarms(3);
@@ -211,11 +235,12 @@ describe('Alarms', () => {
     });
 
     test('triggerAlarms with explicit count respects limit', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('count-limit-test');
+      const stub = env.ALARM_TEST_DO.getByName('count_limit_test');
 
-      await stub.scheduleAlarm(new Date(Date.now() - 3000), { order: 1 });
-      await stub.scheduleAlarm(new Date(Date.now() - 2000), { order: 2 });
-      await stub.scheduleAlarm(new Date(Date.now() - 1000), { order: 3 });
+      // A minute out, as above, so the runtime does not deliver them first.
+      await stub.scheduleAlarm(new Date(Date.now() + 61_000), { order: 1 });
+      await stub.scheduleAlarm(new Date(Date.now() + 62_000), { order: 2 });
+      await stub.scheduleAlarm(new Date(Date.now() + 63_000), { order: 3 });
 
       // Trigger only 2 alarms
       const executedIds = await stub.triggerAlarms(2);
@@ -227,7 +252,7 @@ describe('Alarms', () => {
     });
 
     test('triggerAlarms returns empty array when no alarms exist', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('no-alarms-test');
+      const stub = env.ALARM_TEST_DO.getByName('no_alarms_test');
 
       const executedIds = await stub.triggerAlarms();
       expect(executedIds.length).toBe(0);
@@ -236,7 +261,7 @@ describe('Alarms', () => {
 
   describe('Error Handling', () => {
     test('throws error for invalid schedule type', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('invalid-type-test');
+      const stub = env.ALARM_TEST_DO.getByName('invalid_type_test');
 
       await expect(
         stub.scheduleAlarmWithInvalidType({ not: 'valid' }, { task: 'test' })
@@ -244,7 +269,7 @@ describe('Alarms', () => {
     });
 
     test('handles callback errors during execution gracefully', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('throwing-callback-test');
+      const stub = env.ALARM_TEST_DO.getByName('throwing_callback_test');
 
       const past1 = new Date(Date.now() - 2000);
       const past2 = new Date(Date.now() - 1000);
@@ -261,7 +286,7 @@ describe('Alarms', () => {
     });
 
     test('handles invalid cron expression', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('invalid-cron-test');
+      const stub = env.ALARM_TEST_DO.getByName('invalid_cron_test');
 
       await expect(
         stub.scheduleCronAlarm('not a valid cron', { task: 'invalid' })
@@ -271,7 +296,7 @@ describe('Alarms', () => {
 
   describe('Edge Cases', () => {
     test('handles zero delay (immediate execution)', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('zero-delay-test');
+      const stub = env.ALARM_TEST_DO.getByName('zero_delay_test');
 
       await stub.clearExecutedAlarms();
 
@@ -287,8 +312,26 @@ describe('Alarms', () => {
       expect(executedAlarms[0].payload.task).toBe('immediate');
     });
 
+    // The test above fires its job by hand, so it could not see that nothing set the Durable
+    // Object's alarm. Here the runtime delivers it, and `triggerAlarms` is never called.
+    test.each([
+      ['a zero delay', 0],
+      ['a Date already past', -5],
+    ])('%s is delivered by the runtime, with no trigger', async (label, seconds) => {
+      const stub = env.ALARM_TEST_DO.getByName(`delivered-${seconds}`);
+      await stub.clearExecutedAlarms();
+      if (seconds === 0) await stub.scheduleDelayedAlarm(0, { task: label });
+      else await stub.scheduleAlarm(new Date(Date.now() + seconds * 1000), { task: label });
+      // Delivery waits on the runtime's alarm, which contention slows (`testing.md`), so the test's
+      // own budget is past the project's two seconds.
+      await vi.waitFor(async () => {
+        const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
+        expect(executed.map((a) => a.payload.task)).toEqual([label]);
+      }, { timeout: 15_000, interval: 200 });
+    }, 20_000);
+
     test('handles very large delay', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('large-delay-test');
+      const stub = env.ALARM_TEST_DO.getByName('large_delay_test');
 
       // Schedule with very large delay (1 year)
       const schedule = await stub.scheduleDelayedAlarm(31536000, { task: 'distant-future' });
@@ -299,7 +342,7 @@ describe('Alarms', () => {
     });
 
     test('handles concurrent schedule operations', async () => {
-      const stub = env.ALARM_TEST_DO.getByName('concurrent-test');
+      const stub = env.ALARM_TEST_DO.getByName('concurrent_test');
 
       const promises = [];
       for (let i = 0; i < 10; i++) {

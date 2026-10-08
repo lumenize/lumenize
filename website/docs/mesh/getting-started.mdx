@@ -72,7 +72,9 @@ export class DocumentDO extends LumenizeDO<Env> {
       this.lmz.call(
         'SPELLCHECK_WORKER',
         undefined,  // Workers have no instance name
-        this.ctn<SpellCheckWorker>().check(content, clientId, documentId)
+        this.ctn<SpellCheckWorker>().check(content, clientId, documentId),
+        this.ctn().handleCallFailed('spell check'),
+        { onErrorOnly: true }  // no answer is wanted, only a failure
       );
     }
   }
@@ -102,10 +104,16 @@ export class DocumentDO extends LumenizeDO<Env> {
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
         remote,
-        undefined,
-        { newChain: true }  // so clients won't see who initiated the update
+        this.ctn().handleCallFailed('content update'),
+        { newChain: true, onErrorOnly: true }  // so clients won't see who initiated the update
       );
     }
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }
 ```
@@ -113,7 +121,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 **Features demonstrated:**
 - [`@mesh(guard)`](./security#method-level-meshguard) enforces fine-grained access control at the method level — only subscribers can edit
 - `@mesh()` without a guard exposes methods with no additional checks
-- `this.lmz.call()` makes fire-and-forget or request/response calls
+- `this.lmz.call()` makes a one-way call whose outcome reaches a result handler; `{ onErrorOnly: true }` keeps only failures
 - `this.ctn<T>()` builds type-safe continuations for remote methods
 - `{ newChain: true }` starts a fresh call chain for server-initiated pushes
 
@@ -155,14 +163,22 @@ export class SpellCheckWorker extends LumenizeWorker<Env> {
       position += word.length + 1;
     }
 
-    // Send results directly to the originating client (fire-and-forget)
+    // Send results directly to the originating client (one-way)
     if (findings.length > 0) {
       this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
-        this.ctn<EditorClient>().handleSpellFindings(documentId, findings)
+        this.ctn<EditorClient>().handleSpellFindings(documentId, findings),
+        this.ctn().handleCallFailed('spell findings'),
+        { onErrorOnly: true }
       );
     }
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }
 ```
@@ -223,7 +239,9 @@ export class EditorClient extends LumenizeClient {
         this.lmz.call(
           'DOCUMENT_DO',
           documentId,
-          this.ctn<DocumentDO>().update(content)
+          this.ctn<DocumentDO>().update(content),
+          this.ctn().handleCallFailed('save'),
+          { onErrorOnly: true }
         );
       },
       close: () => {
@@ -242,13 +260,13 @@ export class EditorClient extends LumenizeClient {
     );
   }
 
-  // Called on every connection (except reconnects within 5s grace period)
-  onSubscriptionRequired = () => {
+  // Called when subscriptions may have been lost; an ordinary reconnect skips it
+  override onSubscriptionRequired(): void {
     // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }
-  };
+  }
 
   // Response handler for subscribe - receives initial content or Error
   // No @mesh needed - framework trusts your own continuations
@@ -276,12 +294,18 @@ export class EditorClient extends LumenizeClient {
   handleSpellFindings(documentId: string, findings: SpellFinding[]) {
     this.#documents.get(documentId)?.onSpellFindings?.(findings);
   }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
+  }
 }
 ```
 
 **Key patterns:**
 - Unlike for DOs, instance variables are fine
-- `onSubscriptionRequired` handles (re)subscription. Fires on every connection except reconnects within the 5-second grace period
+- `onSubscriptionRequired` handles (re)subscription. It fires whenever subscriptions may have been lost, and not on an ordinary reconnect within the 5-second grace period
 - The client can call any mesh node using the same `this.lmz.call()` API
 - Results can be `Error` — always check before using
 
@@ -406,7 +430,7 @@ export default {
 {
   "name": "mesh-getting-started",
   "main": "index.ts",
-  "compatibility_date": "2025-09-12",
+  "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [
       {
@@ -440,12 +464,11 @@ export default {
       "name": "EMAIL"
     }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO", "LumenizeAuth"]
-    }
-  ],
+  "exports": {
+    "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "DocumentDO": { "type": "durable-object", "storage": "sqlite" },
+    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" }
+  },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     // ...

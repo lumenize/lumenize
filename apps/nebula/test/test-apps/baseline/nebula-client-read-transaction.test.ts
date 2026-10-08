@@ -20,17 +20,16 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionOutcome } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionOutcome } from '@lumenize/resources';
+import { adminClientAt, createInvitedClient, foundAndLogin, createSubject, ownerOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 /** Pull the committed eTag for `rid` out of a committed outcome. */
@@ -50,9 +49,9 @@ function useServerSnapshot(outcome: TransactionOutcome, rid: string): Snapshot {
 }
 
 async function setupAdminClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, {
+  a.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
@@ -64,10 +63,10 @@ async function setupAdminClient(star: string) {
 
 async function setupUserClient(star: string, adminAccessToken: string, email = 'user@example.com') {
   const adminBrowser = new Browser();
-  await browserLogin(adminBrowser, star, 'admin@example.com', star);
+  await foundAndLogin(adminBrowser, star, ownerOf('admin@example.com'));
   const userBrowser = new Browser();
   await createSubject(adminBrowser, star, adminAccessToken, email);
-  return createAuthenticatedClient(NebulaClientTest, userBrowser, star, star, email);
+  return createInvitedClient(NebulaClientTest, userBrowser, star, star, email);
 }
 
 describe('nebula-client.resources.read (v3)', () => {
@@ -75,7 +74,7 @@ describe('nebula-client.resources.read (v3)', () => {
   it('read() resolves with the snapshot for an existing resource', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Read me' } },
@@ -94,7 +93,7 @@ describe('nebula-client.resources.read (v3)', () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
 
-    const snap = await client.resources.read('TestResource', generateUuid());
+    const snap = await client.resources.read('TestResource', crypto.randomUUID());
     expect(snap).toBeNull();
 
     client[Symbol.dispose]();
@@ -103,7 +102,7 @@ describe('nebula-client.resources.read (v3)', () => {
   it('concurrent read() calls to the same resource are independently correlated', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Concurrent' } },
@@ -124,10 +123,40 @@ describe('nebula-client.resources.read (v3)', () => {
 
 describe('nebula-client.resources.transaction (v3)', () => {
 
+  it('retired submit-gate (D7/M2): two transactions to DIFFERENT resources are concurrently in-flight', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+    const ridA = crypto.randomUUID();
+    const ridB = crypto.randomUUID();
+
+    // Fire two transactions to DISTINCT resources WITHOUT awaiting. With the submit-gate RETIRED (D7),
+    // both submit immediately, so both `callAsync` Promises sit in `#pendingAsyncCalls` at once. This
+    // asserts the TRANSIENT surface (M2), not a self-healing "both committed" end-state. Capable-of-
+    // failing: re-add a serial client gate (or the old #inFlightSubmit) and the 2nd transaction queues →
+    // the count never reaches 2 → this `vi.waitFor` times out.
+    const pA = client.resources.transaction({
+      [ridA]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'A' } },
+    });
+    const pB = client.resources.transaction({
+      [ridB]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'B' } },
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getPendingAsyncCallCount()).toBeGreaterThanOrEqual(2);
+    }, { timeout: 3000 });
+
+    const [oA, oB] = await Promise.all([pA, pB]);
+    expect(oA.kind).toBe('committed');
+    expect(oB.kind).toBe('committed');
+    expect(client.getPendingAsyncCallCount()).toBe(0); // both settled + cleaned up (no leak)
+
+    client[Symbol.dispose]();
+  });
+
   it('committed: happy-path create resolves top-level committed + per-resource eTag', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     const outcome = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Hi' } },
@@ -145,7 +174,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('validation-failed: bad value resolves rejected + per-resource validation-failed', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     // title must be string per TEST_TYPES; pass a number instead
     const outcome = await client.resources.transaction({
@@ -162,7 +191,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('validation-failed: bad value on put resolves rejected + validation-failed', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Valid' } },
@@ -181,11 +210,11 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('permission-denied: non-admin user write resolves rejected + permission-denied', async () => {
     const star = uniqueStar();
     const { client: admin, accessToken } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await vi.waitFor(() => { expect(admin.callCompleted).toBe(true); }, { timeout: 5000 });
-    const nodeId = admin.lastResult as number;
+    const nodeId = admin.lastResult as string;
 
     const createOutcome = await admin.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'Secret' } },
@@ -206,11 +235,11 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('no-disclosure: unauthorized put with a WRONG eTag resolves permission-denied — never a snapshot', async () => {
     const star = uniqueStar();
     const { client: admin, accessToken } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await vi.waitFor(() => { expect(admin.callCompleted).toBe(true); }, { timeout: 5000 });
-    const nodeId = admin.lastResult as number;
+    const nodeId = admin.lastResult as string;
 
     const createOutcome = await admin.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'Secret-v1' } },
@@ -236,7 +265,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('conflict + invalid value co-occurring resolves committed via use-server, not validation-failed', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
@@ -264,7 +293,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('sequential transactions chain eTags in order', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Initial' } },
@@ -295,8 +324,8 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('default resolver: eTag conflict resolves committed via use-server (server value wins)', async () => {
     const star = uniqueStar();
     const { client: a, accessToken } = await setupAdminClient(star);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const resourceId = generateUuid();
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const resourceId = crypto.randomUUID();
 
     const created = await a.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
@@ -326,7 +355,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('auto-derives eTag from the local store when omitted on a put', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     // The committed create populates the client's local store (value + eTag).
     const created = await client.resources.transaction({
@@ -354,7 +383,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
     // or an opaque outcome.
     expect(() =>
       client.resources.transaction({
-        [generateUuid()]: { op: 'put', typeName: 'TestResource', value: { title: 'orphan' } },
+        [crypto.randomUUID()]: { op: 'put', typeName: 'TestResource', value: { title: 'orphan' } },
       }),
     ).toThrow(/can't auto-derive eTag/);
 
@@ -364,8 +393,8 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('explicit eTag bypasses auto-derive (works even when the resource is absent from the local store)', async () => {
     const star = uniqueStar();
     const { client: a } = await setupAdminClient(star);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const resourceId = generateUuid();
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const resourceId = crypto.randomUUID();
 
     const created = await a.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
@@ -386,8 +415,8 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('multi-resource batch mixes auto-derived and explicit eTags', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const ridAuto = generateUuid();
-    const ridExplicit = generateUuid();
+    const ridAuto = crypto.randomUUID();
+    const ridExplicit = crypto.randomUUID();
 
     const created = await client.resources.transaction({
       [ridAuto]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'A1' } },

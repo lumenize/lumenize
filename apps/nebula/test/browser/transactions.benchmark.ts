@@ -12,7 +12,7 @@
  * Each iteration captures three Node-side timestamps via `performance.now()`:
  *   - `sendTs`           — when the outbound CALL message is sent
  *   - `markerArrival`    — when the Gateway-emitted `bench_marker` arrives
- *   - `responseArrival`  — when the Promise settles (CALL_RESPONSE for delay,
+ *   - `responseArrival`  — when the Promise settles (the fire-back for delay,
  *                          mesh callback for transaction/ping)
  *
  * Three deltas:
@@ -30,11 +30,13 @@
  *   - ping    — `Star.ping()` no-op handler (mesh-callback pattern). WS-leg
  *               baseline; comparing this Gateway-onward to transaction's
  *               isolates the parse-validate work.
- *   - warm    — same Star across iterations, hot Handler 1 cache, no Galaxy
+ *   - warm    — same Star across iterations, hot installed-ontology cache, no Galaxy
  *               hop. Steady-state cost of one transaction on a hot DO.
- *   - cold    — fresh Star per iteration (varies tenant segment only).
- *               Galaxy + bundle stay warm; Star pays a cache miss + Galaxy
- *               hop. Common real-world cold path.
+ *   - cold    — fresh Star per iteration (varies tenant segment only), its
+ *               ontology pre-installed. Bundle stays warm; the measured op is
+ *               the Star's FIRST data transaction (install-state read + facet
+ *               mount). The old cache-miss + Galaxy-hop path is not seedable
+ *               from a bench since the Galaxy test-install was deleted.
  *
  * Replaces the old `transactions.bench.ts` (vi.bench-based, single-number
  * per block). Why the switch: vi.bench measures one number per `bench()`
@@ -52,13 +54,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { withCommitStamp } from './bench-commit-stamp';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
-import type { OperationDescriptor } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import type { OperationDescriptor } from '@lumenize/resources/client';
 import { HarnessNebulaClient, type DecomposedCallResult } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
@@ -190,7 +193,7 @@ function buildMarkdown(args: {
     ``,
     `### Cross-block readings`,
     ``,
-    `- Subtracting **ping**'s \`Gateway-onward\` from **warm transaction**'s \`Gateway-onward\` isolates the parse-validate transaction work (parse + DagTree permission check + storage write + result construction). Both blocks share the same WS path, the same Workers RPC × 2 to Star and back, and the same mesh-callback shape.`,
+    `- Subtracting **ping**'s \`Gateway-onward\` from **warm transaction**'s \`Gateway-onward\` isolates the parse-validate transaction work (parse + OrgTree permission check + storage write + result construction). Both blocks share the same WS path, the same Workers RPC × 2 to Star and back, and the same mesh-callback shape.`,
     `- Subtracting **warm**'s \`Gateway-onward\` from **cold**'s \`Gateway-onward\` isolates the cache-miss + Galaxy-hop overhead.`,
     `- The **WS hop** column is the same shape across all three blocks (it's the client↔Gateway round trip, independent of what the Gateway does next), so any drift is harness/network noise. Stable WS hop ↔ trustworthy decomposition.`,
     ``,
@@ -232,6 +235,11 @@ async function runSequentialBlock(
 }
 
 describe('transactions latency (decomposed)', () => {
+  // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
+  // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
+  // the Star's ontology source, asking its parent Galaxy), and this setup was reworked before that
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
+  // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('measures ping / warm / cold blocks with hop decomposition', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
@@ -243,15 +251,14 @@ describe('transactions latency (decomposed)', () => {
 
     console.log(`[transactions-bench] ${label} — ${baseUrl} — galaxy ${galaxyScope}`);
 
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: galaxyScope,
-      activeScope: galaxyScope,
-      appVersion: 'v1',
-      fetch: browser.fetch,
+      baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+      platformOrigin: baseUrl,
+      ontologyVersion: 'v1',
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -265,20 +272,19 @@ describe('transactions latency (decomposed)', () => {
         await new Promise((r) => globalThis.setTimeout(r, 25));
       }
 
-      // Register ontology and pre-warm bundle. Pre-warm pattern matches the
-      // throwaway tenant approach in the old transactions.bench.ts: hits
-      // any Star under the galaxy to populate Worker Loader cache for
-      // `<galaxy>/<version>` so cold-block iteration 1 doesn't pay the
-      // ~262 ms one-time bundle load.
-      console.log('[transactions-bench] registering ontology + pre-warming bundle');
-      await client.callGalaxyAppendOntologyVersion(galaxyScope, {
-        version: ONTOLOGY_VERSION,
-        types: TEST_TYPES,
-      });
-      await client.callStarTransaction(`${galaxyScope}.tenant-warmup`, ONTOLOGY_VERSION, createOp());
+      // Install the ontology on the Stars this bench drives and pre-warm the bundle.
+      // (The Galaxy registry write is workspace-only now — the test-install path is
+      // deleted — so each Star gets its row directly via applyOntologyForTest; the
+      // Worker Loader cache is keyed per bundle, so the warmup transaction still
+      // saves cold-block iteration 1 the ~262 ms one-time bundle load.)
+      console.log('[transactions-bench] installing ontology + pre-warming bundle');
+      const warmupStar = `${galaxyScope}.tenant-warmup`;
+      await client.callStarInstallOntology(warmupStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarInstallOntology(warmStar, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      await client.callStarTransaction(warmupStar, ONTOLOGY_VERSION, createOp());
 
       // Warmup iterations on the warm Star — gets the harness, the WS, and
-      // Handler 1's cache hot before measurement starts.
+      // the plane's installed-ontology cache hot before measurement starts.
       console.log(`[transactions-bench] warmup (${WARMUP_ITERATIONS} iterations)`);
       for (let i = 0; i < WARMUP_ITERATIONS; i++) {
         await client.callStarTransaction(warmStar, ONTOLOGY_VERSION, createOp());
@@ -294,16 +300,26 @@ describe('transactions latency (decomposed)', () => {
         client.callStarTransaction(warmStar, ONTOLOGY_VERSION, createOp()),
       );
 
+      // Cold block: each Star gets its ontology installed up front (the install is
+      // what CREATES the DO now, so "cold" measures a fresh Star's first data
+      // transaction — the plane's installed-ontology read + facet mount — with no Galaxy
+      // hop: the lazy-pull path needs a workspace-published registry row, which a
+      // bench can no longer seed).
       console.log(`[transactions-bench] cold block (${COLD_ITERATIONS} iterations, fresh Star per iter)`);
-      const coldSamples = await runSequentialBlock('cold', COLD_ITERATIONS, () => {
-        const star = `${galaxyScope}.tenant-cold-${crypto.randomUUID().slice(0, 8)}`;
-        return client.callStarTransaction(star, ONTOLOGY_VERSION, createOp());
-      });
+      const coldStars = Array.from({ length: COLD_ITERATIONS },
+        () => `${galaxyScope}.tenant-cold-${crypto.randomUUID().slice(0, 8)}`);
+      for (const star of coldStars) {
+        await client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      }
+      let coldIdx = 0;
+      const coldSamples = await runSequentialBlock('cold', COLD_ITERATIONS, () =>
+        client.callStarTransaction(coldStars[coldIdx++], ONTOLOGY_VERSION, createOp()),
+      );
 
       const blocks: BlockSummary[] = [
         summarizeBlock('ping (no-op handler)', pingSamples),
         summarizeBlock('warm transaction (hot Star)', warmSamples),
-        summarizeBlock('cold transaction (fresh Star, cache miss + Galaxy hop)', coldSamples),
+        summarizeBlock('cold transaction (fresh Star, first data op, ontology pre-installed)', coldSamples),
       ];
 
       console.log('\n==================== transactions-bench results ====================');

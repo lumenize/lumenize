@@ -1,284 +1,331 @@
 # Nebula — Pre-alpha (master plan)
 
-**Status**: **Active program** (started 2026-06-23) — the top goal now that the demo target is met.
-This is the **living master plan**: it holds the plan at design-detail **plus accumulated
-learnings/research as we go**. Lower-level (child) task files are written **ONE AT A TIME**, and on
-completion their important nuggets are extracted **up into this file** (or the next child) and the
-child is **archived** — never left in `tasks/` as reference, never pre-created as a stub. (We lost
-hours to stale pre-created stubs before the demo; not again.)
+**Status (2026-09-03):** prod `nebula.lumenize.com` still serves `ada3f31`, deployed 2026-07-04. Everything since is UNDEPLOYED behind the one batched wipe + redeploy (§ *⑥ The wipe*), so do not read prod as evidence of current behaviour. F&F invites stay paused until the wipe has landed, and the wipe waits on everything above it in § *What remains*.
 
-## Goal
+**Goal:** ~4–5 pre-alpha users — Larry's friends, family and business partners ("users," not "partners") — building their own data-bound, multi-user apps on a deployed Nebula, exercised through personas, with enough instrumentation for near-daily conversations as they build.
 
-Get **~4–5 pre-alpha users** (Larry's friends / family / business partners — "users," not
-"partners") building their own **data-bound, multi-user** apps on a **deployed** Nebula, evaluated
-via **impersonation / synthetic users**, with enough **instrumentation** to have **near-daily
-conversations** as they build — to generate valuable feedback and build stakeholder buy-in.
+**How to read this file.** § *What remains* is the plan, in order. The sections after it hold only what an item needs and has no task file for yet; once a child task file exists it is the authority and this file keeps one line. Built work is one line in § *Shipped*. Work deferred past pre-alpha is not tracked here — it lives in `tasks/on-hold/` and [backlog.md](backlog.md), each item with its own reasoning. Children are written one at a time and archived on completion ([[feedback_task_file_one_at_a_time]]).
 
-## Staging ladder (where pre-alpha sits — and what it deliberately is NOT)
+## What remains
 
-- **pre-alpha (THIS) = (iii-build):** dev-users *build* data-bound multi-user apps; *evaluated* by
-  them + us via **synthetic users + impersonation**. **No real third-party end-user signup.**
-  Pre-alpha sidesteps migration-testing entirely because users already have the **wipe** capability.
-- **alpha:** real-use publish path + **data migration**. Writing migration code is relatively easy;
-  **testing** migration code is the hard part and probably needs the on-hold **branching** work.
-- **beta:** **automated testing** capabilities → near-production-ready.
-- → production.
+**Three decisions first.** Each blocks a build below, and each costs hours of thinking rather than code:
 
-## Framing — two critical paths, one gate
+1. ✅ **Decided 2026-09-18 — a persona has no address, membership or cookie.** Its tab gets a plain token as the persona, with no `act`, from the cookie of whoever opened it, and only where that cookie's membership has dominion over the persona's Star ([ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md) § *A persona's host*). It replaces the 2026-09-07/08 decision that personas ride `impersonate()` as real `@lumenize.io` accounts. What that decision built stands on its own: the narrower-token mint refuses a subject whose membership is not accepted, and the Profile's owner branch has no `act` clause (§ *Shipped*).
+2. **Ontology — where compiled validators are stored**, tabled in [nebula-ontology-history-file.md](nebula-ontology-history-file.md). Blocks ⑤'s phases, and the Star-fetch path rides the mesh methods that task deletes.
+3. ✅ **Decided 2026-09-08, re-derived 2026-09-28 — yes, deliberate, and the merged registry keeps no register-time check.** A subscriber sees what it can read and is told which nodes it can't, on every kind of subscription (④'s D25). A refusal naming the missing nodes would also satisfy [ADR-008](../docs/adr/008-full-org-tree-visibility.md), but it would cost the subscriber everything it can read. So the method's guard is authentication plus the delivery-time evaluation, written as a guard rather than recorded as an absence. Larry's two push-path questions were answered with it — the stored dominion bit stays and gains its convergence statement, the per-push recheck stays because every alternative stores more — in [nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) § *The push path — what it stores, and what it rechecks*. ⚠️ The Profile was cut out of that file 2026-09-22 and now follows it in [on-hold/nebula-profile-storage.md](on-hold/nebula-profile-storage.md); the answer above is plane-general and stayed. ④'s phases are unblocked by THIS decision, and its other gate — [archive/mesh-entry-and-walk-gaps.md](archive/mesh-entry-and-walk-gaps.md) — cleared 2026-09-25, so Phase 7 has the reaper hole closed under it rather than owing the fix. ④'s Stage 2 ran 2026-09-27.
 
-- **Path to involvement** (users building): codegen loop *(DONE)* → capture-live → deploy → provision → invite.
-- **Path to valuable feedback:** capture *(shared gate)* → `claude@` email → digest → in-Studio feedback.
-- **THE GATE** = the turn-recorder capturing behavioral signals **live BEFORE the first invite** — else day-1 data is lost forever.
-- **Pre-alpha users are Universe admins** (Larry invites, pre-picks slug + name). This is the decision
-  that shrinks the security story: impersonating anyone isn't an escalation, so **scope-bounded
-  impersonation enforcement is DEFERRED** until the first non-Universe-admin user exists (returns then:
-  scope-bounded / audited / reversible, security-review-gated with capable-of-failing negative tests).
+**Then the builds, riskiest first.** *Gate* is what an item waits on: `data` needs the greenfield DB and is a migration if missed; `deploy` only needs to be in the bundle; `ungated` never rides the deploy.
 
-## What's already DONE / EXISTS — don't re-derive (verified against code 2026-06-23)
+| # | Item | Task file | Gate |
+|---|---|---|---|
+| — | ✅ **BUILT 2026-09-27 — Broadcast is core to every mesh node, and it delivers directly** — `lmz.broadcast` is on every node so any node can fan out, the broken tier branch is deleted rather than guarded, and the Gateway no longer forwards hops a client appended | [archive/mesh-broadcast-is-core-and-direct.md](archive/mesh-broadcast-is-core-and-direct.md) — five phases, built 2026-09-27 | deploy · **enables ④** (its D22) |
+| — | ✅ **BUILT 2026-10-04 — The test toolchain moves to `@cloudflare/vitest-plugin`, then every Worker to compatibility date 2026-10-01** — so a Galaxy turn stays in memory after the request that started it has answered | none — § *The test toolchain and the compatibility date*; built as `c2b04d2` (`vitest-plugin` 1.3.6: wrangler 4.147.0, miniflare 5.20261001.0-alpha) and `53f2e94`; deployed pass 51/54, the three failures environmental and two of them the leftover-account row in [backlog.md](backlog.md) § *Testing & Quality* | deploy |
+| — | ✅ **BUILT 2026-10-04 — The scope moves from a URL segment to a subdomain** — every scope its own host ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)), every session on the platform host ([ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md)), and the certificate wait shown on Galaxy create | [archive/nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) — sixteen phases, built 2026-10-04 | **data** · **enables ②** |
+| — | ✅ **BUILT 2026-10-06 — Calls to and from a Client behave like calls between nodes** — a Client's result handler travels with its call and a Gateway keeps the handler of a call it receives; a tab that misses an answer is closed with 4408 and re-subscribes, and an update meeting a lapsed token waits for the reconnect; and the three-argument `lmz.call` goes. The Gateway's half is built as code a Durable Object composes | [archive/mesh-calls-to-and-from-clients.md](archive/mesh-calls-to-and-from-clients.md) — ten phases, built 2026-10-05/06 | deploy |
+| — | ✅ **BUILT 2026-10-07 — A Client connects to its scope's node** — a `NebulaClient` opens its socket on the Durable Object its page's host spells, which hosts the Client's server-side half, so no Client needs a Gateway of its own; deleting a scope closes its pages' sockets with 4410, and they stop | [archive/nebula-clients-connect-to-their-scope.md](archive/nebula-clients-connect-to-their-scope.md) — six phases and a deployed pass, built 2026-10-06/07 | deploy |
+| — | ✅ **BUILT 2026-10-08 — Mesh is built on the scope tree** — `@lumenize/mesh` takes in what Nebula layered on it, all MIT: `NebulaDO` folded into `ScopedMeshDO`, `nebula-auth` became Mesh's `/auth` layer, and `NebulaClient`'s session half folded into `MeshClient`. Resources, and the Vue store built on it, ship beside it as `@lumenize/resources`, UNLICENSED. What risked a schema change landed before the wipe, among them the import path generated apps use and the agent's `sub`; docs and configuration wait for [mesh-1-alpha.md](mesh-1-alpha.md) | [archive/mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md) — eight phases and a deployed pass, built 2026-10-08 | **data** |
+| — | **The Gateway routes a Client's call, and a call it refuses wakes nothing** — the Gateway decides in one place where each call from a Client goes, so a call for a sibling Star, a scope nobody created or the Registry is refused at the Gateway before any other Durable Object or Worker is touched | [mesh-gateway-routes-client-calls.md](mesh-gateway-routes-client-calls.md) — Pass 2 written 2026-10-08; Stage 2 next | deploy |
+| — | **A person with no name is asked for one** — when a page's own profile answers as never written, Studio opens the profile form, with *Remind me later* | none — § *A person with no name is asked for one* | deploy |
+| — | **The build box moves to the `durable_object` scheduling policy** — `@cloudflare/computer` 0.3.2 → 0.4, a new container application, and deps still baked into the image | none — § *The build box moves to the `durable_object` policy* | deploy |
+| ② | **Personas** — synthetic users the LLM defines, each in its own preview tab | [nebula-testing-with-personas.md](nebula-testing-with-personas.md) — Pass 1 is mid-rewrite against [ADR-022](../docs/adr/022-every-session-lives-on-the-platform-host.md), which took away a persona's address, invite and accept; a quick pass on 2026-10-08 struck what that made obsolete and listed the questions the rewrite owes. The rewrite may start while the Gateway row builds | deploy |
+| — | ✅ **BUILT 2026-09-03 — Turn-liveness heartbeat** — a truthful server signal through the whole turn | none — § *Turn-liveness heartbeat* | deploy |
+| ③ | ⚠️ **THE GATE — capture live** | none — § *③ Capture live* | deploy |
+| — | **A remote caller reaches more than the `@mesh()`-decorated methods** — the member-level check catches only an undecorated first CALL, so reads, `svc` chains and nested markers get through, and the response leg runs with it off | ✅ **BUILT + ARCHIVED 2026-09-25** — [archive/mesh-entry-and-walk-gaps.md](archive/mesh-entry-and-walk-gaps.md), twelve phases | deploy · **④'s gate is CLEARED** |
+| ④ | ✅ **BUILT 2026-09-28 — Every Resources guard lives in the Resources plane** — one `@mesh()` door per host, a decorator-less results gate beside it, and every guard inside | [archive/nebula-data-plane-owns-its-guards.md](archive/nebula-data-plane-owns-its-guards.md) — eight phases, built 2026-09-28 | **data** |
+| — | **Denied access shows in the app** — a generated app shows what a partial query or a denied resource subscription is missing and who can grant it, and Studio's guidance steers the model to build that | none — § *Denied access in generated apps* | deploy |
+| — | **A `computed()` over the store can miss its subscription** — switching to a resource id the store has already seen never subscribes it, so the view goes stale with no error | none — § *A `computed()` misses its subscription* | deploy |
+| — | **Generated apps are pure Vapor** — the scaffold mounts with `createVaporApp`, every SFC is `<script setup vapor>`, and Lucide icons compile through `unplugin-icons` | none — § *Generated apps are pure Vapor* | deploy |
+| ⑤ | **The ontology history is one committed file** | [nebula-ontology-history-file.md](nebula-ontology-history-file.md) — design intent only; independent of ④, either order | **data** |
+| — | **Shared pages** — Universe Signup, Galaxy create and login: scope full names captured at claim, and per page whether an app forwards to ours or runs its own | none — § *Shared pages* | **data** |
+| ⑥ | **The wipe + redeploy** | § *⑥ The wipe* | — |
+| — | **Turn-log inspection v0** | none — § *Turn-log inspection v0* | ungated |
+| — | **The superuser → impersonate join scenario** (~¼ day) | none — § *The superuser join scenario* | ungated |
 
-- **Self-correcting codegen loop — DONE / archived** (`tasks/archive/nebula-codegen-loop.md`). Its live
-  `it.skip`s get validated by the first prod deploy.
-- **Recorder — generation capture DONE** (`Galaxy.recordTurn`/`getTurns`, `TurnRecord` JSON payload =
-  the replayable fixture). Behavioral *UI* events (undo / abandon / explicit feedback) are **not**
-  captured — that's the extension.
-- **Super-admin `*` — EXISTS.** Login at the reserved `nebula-platform` instance with
-  `NEBULA_AUTH_BOOTSTRAP_EMAIL` → `access { authScopePattern:'*', admin:true }`; `matchAccess('*', …)`
-  is always true; bootstrap admin is modify-protected. **Seed = set
-  `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.**
-- **Act-as / impersonation core — EXISTS.** `POST {prefix}/delegated-token` (RFC-8693 `act.sub`,
-  recursive chain, `actorsAuthorized`, audited). NEW piece = **synthetic-subject provisioning**.
-- **Enumerate-all-users — EXISTS.** `NebulaAuthRegistry` (singleton DO; global email→scope index;
-  `discover` / `claimUniverse` / `createGalaxy`) — "the nebula-auth DO that holds all of them."
-- **Root-admin Part 1 — done** (founder admin-on-`ROOT_NODE_ID`; `tasks/on-hold/nebula-star-root-admin.md`).
+**Why this order.** Risk — and here risk is unresolved design rather than hard implementation (Larry, 2026-09-02: *"I should favor doing the riskiest ones first"*). ① — the guidance file tree, now built (§ *Shipped*) — was the largest unknown and gated ②. ② carries the most design uncertainty, so it follows its prerequisites at once: ①, and the scope's move to a subdomain, since a persona tab needs a host of its own. ③ is small but irreversible: day-1 signal that was not captured is gone. ④ and ⑤ are the biggest and the best understood, and size is not risk when the shape is known. The toolchain row goes first because it changes the runtime under every pool test, which is cleaner between builds than inside one, and every build after it is then tested at the date production launches with. **Mesh, the Gateway and the build box go ahead of ②** (Larry, 2026-10-08). The Gateway's phases are written against the paths the Mesh build creates, so it follows that build directly. The build box needs no review, so it takes the Gateway's slot if that review is still running when the Mesh build lands. ②'s rewrite runs beside them as design work, and its build follows both. ⚠️ **"Before the wipe" orders nothing** — there is exactly ONE deploy, so every line of code here precedes it; only the `data` gate is real.
 
-## The one auth gap — ✅ DONE 2026-06-23 (Wave 1, first child)
+**After the wipe — invite, then the feedback loop:**
 
-`NebulaDO.onBeforeCall` matched **the DO's** scope pattern against **the caller's `aud`**, so a `*` /
-`{u}.*` admin couldn't reach a lower scope without re-minting `aud` per target. **Shipped fix:** a shared
-`enforceScopeReach(name, claims)` guard (one audit point per ADR-007, in `apps/nebula/src/nebula-do.ts`,
-delegated to by both `NebulaDO.onBeforeCall` and `NebulaContainer.onBeforeCall`) admits a caller whose
-`access.authScopePattern` covers the target — **gated on `access.admin`** (pattern-coverage alone is not
-authority, so a non-admin keeps today's aud-narrowed behavior; closes the latent non-admin-wildcard reach
-into the not-DAG-gated `subscribeTree`). `{u1}` still can't reach `{u2}`. This is what lets the inspection
-instrument + a Lumenize support engineer read/write/admin anywhere with one identity. Built + panel-verified;
-child archived at [`tasks/archive/nebula-onbeforecall-higher-admin-reach.md`](archive/nebula-onbeforecall-higher-admin-reach.md).
+- **Provision + invite ~4–5 users**, each with a tailored first-app idea (Sydney → secret-santa + wishlist). Involvement achieved; capture already live.
+- **Inbound `claude@lumenize.io` → durable store** (R2 or a DO, readable via the Cloudflare MCP) — the first real exercise of [nebula-outside-world.md](nebula-outside-world.md)'s inbound-email primitive.
+- **In-Studio feedback button v0** — dead simple ("this broke / I wish"), into the same store.
+- **Daily digest v1 (by 7:30am)** — cron → yesterday's turns + behavioural signals → judge scores → lands in the store → a scheduled morning Claude Code session writes the human digest and prompt-improvement suggestions, reviewed and never auto-applied, with a spend line. Build only after § *Turn-log inspection v0* shows what is worth automating.
+- **Data-bound generation (EXPLORATORY)** — the empirical prompt loop. Un-parks [on-hold/nebula-offline-prompt-harness.md](on-hold/nebula-offline-prompt-harness.md) and [on-hold/nebula-skills.md](on-hold/nebula-skills.md), and is the first rung of [on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) — Larry's stated next big track, gated on usage density. Notes in § *Data-bound generation*.
+- **Ontology annotations** (`@title` / `@description` / `@inverse`) — a data-bound prerequisite, additive to `extractTypeMetadata`.
 
-- **Nugget for the descendant children (inspection instrument + provisioning):** a `*` / `{u}.*` admin
-  *first-touching a fresh descendant Star* now also triggers `Star.onBeforeCall`'s root-admin seeding
-  (`star.ts:94` — it seeds the first scope-admin caller as `ROOT_NODE_ID` admin), which it couldn't before
-  (it couldn't reach the Star at all). Aligned with the reach intent + `nebula-star-root-admin` Part 1, but
-  those children should account for the seeding side effect when a support/inspection identity touches a
-  Star it hasn't before.
-- The original structural scope-isolation design is archived/frozen at
-  `tasks/archive/nebula-do-scope-isolation.md` (don't edit).
+**Cheap before invites, never gates.** Each has a backlog row carrying the reasoning; they are listed here only because the window closes once someone other than Larry reads the output:
 
-## Two kinds of EXPLORATORY (do not pretend these are pinned)
+- Typed errors from the scope/admin gates, so "it's broken" is distinguishable from "you were refused" → [backlog.md](backlog.md) § *Nebula*, the bare-`Error` row.
+- `@lumenize/structured-clone`'s error rehydration and its published doc caveat → [backlog.md](backlog.md) § *Lumenize Mesh*, the `globalThis` row.
+- A runtime verify step for the codegen loop → [backlog.md](backlog.md) § *Nebula*, the runtime-verify row.
 
-1. **Prompt-empirical** — *data-bound generation quality.* Iterate the system prompt against the
-   compile gate + (later) the GLM-5.2 judge. Driven by capture → inspection → the **un-parked replay
-   harness** (`tasks/on-hold/nebula-offline-prompt-harness.md`). NOT a transcribable spec — capable-of-
-   failing checks + captured findings (build-task exploratory rule).
-2. **UX-exploratory** — *the impersonation / persona UI.* Open and prototype-and-react, NOT pinnable
-   up front. The tight loop here is **Larry's own dogfooding of the UI** — pre-alpha users give
-   longer-cycle feedback (daily, sometimes sub-daily), not the fast UI-iteration signal:
-   - How does a dev-user grant Studio permission to act on their behalf, in the UI? (the
-     `delegated-token` consent UX)
-   - How does a dev-user switch personas?
-   - Do we encourage multi-tab use?
-   - Do we provide tabs in the preview panel, coupled to the impersonation UI?
+**Close-out, after pre-alpha ships:**
 
-## Iteration & deploy model
+- 👤 **Larry's hand-review of ADR-011 onward** — inputs in § *ADR hand-review*.
+- **Mesh 1.0.0-alpha.1 ships**, before the npm publish below: [mesh-1-alpha.md](mesh-1-alpha.md) holds what an adopter needs that Nebula does not, each item landing without changing what Nebula runs.
+- **npm publish** from merged `main` (`/release-workflow`); no package has been published yet.
+- **`pre-alpha` → `alpha`:** PR `pre-alpha` → `main`, release, branch `alpha` off `main`. Continuous CI comes from an open draft PR `pre-alpha` → `main`.
 
-- **Iterating the data-bound PROMPT must NOT require a deploy** (prompt = content, not code). Tight loop
-  = the offline replay harness (model + gate, **seconds**, no preview / no deploy); live checks = local
-  `wrangler dev` + Docker. Deploy is for: **(a)** retiring the one-way migrations-door risk, **(b)**
-  where pre-alpha **users** live (mandatory for invites), **(c)** realistic multi-tab / auth /
-  impersonation integration checks (**~1-min** cycles are fine — not run every iteration).
-- **The system prompt becomes a platform-owned FILE TREE, not a baked const.** `STUDIO_LOOP_SYSTEM_PROMPT`
-  is one string in source today; the target is a `NEBULA.md` (the `CLAUDE.md` analog) + `skills/*.md`
-  (workflows) + `rules/*.md` tree, served from a **dedicated `@cloudflare/shell`-backed registry DO**
-  whose shell/FS methods are exposed over mesh and **read per turn** during prompt assembly. Editing the
-  prompt = a git commit into that DO's Workspace (over mesh) — **no redeploy**. This answers
-  `nebula-skills.md`'s open integration-point-1 ("where do skills live"), is the delivery vehicle for its
-  three-tier prompt, and is the home for the D7 / Platform→Universe→Galaxy cascade. v0 = a single
-  platform-scoped tree (admin-gated, trusted content); the per-Universe/Galaxy cascade is later
-  (enterprise-gated). **Wave-2 substrate — stand it up before heavy data-bound iteration so iteration is
-  deploy-free from day one** (it also un-parks the [skills](nebula-skills.md) work).
-- **Lean: deploy early (Wave 1)** to retire the one-way-door risk + enable prod dogfooding; iterate
-  offline/local regardless of where the stack runs.
+---
 
-## Plan (waves — child task files written ONE AT A TIME, NOT pre-created)
+## The test toolchain and the compatibility date
 
-**Wave 1 — infra + the gate**
+Production should launch at compatibility date 2026-10-01, and our pinned test toolchain cannot run that date. So the toolchain moves first and the date follows, in two commits.
 
-*Resequenced 2026-06-24:* the first prod deploy can't be "usable by F&F" until the Studio UI is **served from
-the deployed Worker** — today it isn't (the `apps/nebula` Worker 404s the root; the Studio UI is a separate
-SPA, `apps/nebula-studio-ui`, served by a second vite terminal in dev). So two prerequisite tasks land **before**
-the (already-reviewed) deploy task. Written **one at a time** — Task ① has a file; Task ② is a bullet only until ① lands.
+- **Why 2026-10-01.** From that date `durable_object_io_tasks_prevent_eviction` is on by default ([changelog](https://developers.cloudflare.com/changelog/post/2026-10-01-pending-io-keep-alive/)). A pending binding call, DO RPC, `fetch()`, `ctx.waitUntil` promise or timer then keeps a DO in memory after its caller has gone, for up to 15 minutes per operation. The Galaxy needs it: `runTriggeredTurn` runs after the commit that triggered it has answered, and a deployed Galaxy calls the model through the `env.AI` binding, because neither the `nebula` nor the `test-nebula` worker has a `WORKERS_AI_TOKEN`. That shape was evicted at 08-15 and held at 10-01 ([experiments/residency-hold/RESULTS.md](../experiments/residency-hold/RESULTS.md) § *Round 2*).
+- **Why the toolchain goes first.** Our pinned workerd, 1.20260815.1, accepts dates only up to 2026-08-22 and does not know the flag by name. Given either, `wrangler dev` refuses to start the Worker, which takes `npm run dev` and every `/live` scenario down with it. Pool-workers is worse: it exits 0 having skipped every test file that runs inside workerd. `packages/structured-clone` ran 31 of its 46 files that way on 2026-10-01, so CI would have read green.
+- **The move is to `@cloudflare/vitest-plugin`, the v1 rename of `@cloudflare/vitest-pool-workers`.** The old name has had no release since 0.22.0 (2026-08-18), and npm does not mark it deprecated, so nothing in the tree tells you. On 2026-10-01 the newest `vitest-plugin` was 1.3.4, on wrangler 4.145.0 and miniflare 5.20260930.0-alpha (workerd 1.20260930.2). Whether that workerd accepts 2026-10-01 is not yet checked, so run one workspace at the new date before sweeping. The `-alpha` is a maturity label, not a reason to defer (`calibration.md` §8).
+  - **Rename and bump are one job.** No `vitest-plugin` release pins our wrangler — the first, 1.0.0, already moves it to 4.125.0 — so there is no rename-only step. Choose the version on the day and read its pair with `npm view @cloudflare/vitest-plugin@<version> dependencies`; 1.0.0 through 1.3.1 each pin a different wrangler.
+  - **Declare `vitest-plugin` exact, as we already do `wrangler`.** Our `^0.22.0` could only move within 0.22.x. A `^1` range floats across minors on the next full re-resolve, each minor brings its own wrangler, and the tree splits: the tests on the plugin's runtime, `wrangler dev` on ours. That is the split `workflow.md` § *Toolchain bumps* measured for a caret on `wrangler`. The codemod writes `^1.0.0`, so change the `devDependencies` entry by hand.
+  - **The runtime jump is smaller than it was.** The miniflare 4 → 5-alpha move landed in `0fb3ea2` (2026-08-30); what is left is six weeks inside one major. It still changes the workerd under every pool test, so budget the full suite, a `drive.ts all` sweep, and the deployed pass `live.md` § *Two venues, one registry* requires after a triple change. Treat an unexplained new failure as signal.
+  - **Published packages declare it in `peerDependencies`** — `@lumenize/mesh`, `@lumenize/testing` and others — so the rename reaches anyone who installs them. Renaming a peer is a breaking change: flag the next release (`workflow.md` § *Releases*).
+  - **The codemod is `npx @cloudflare/codemods vitest:pool-workers-to-vitest-plugin`, a text rename over JS, TS and JSON files.** It covers the dependency and peer entries, the `vitest.config.js` imports, the tsconfig `types` entries and `cloudflare-test-env.d.ts`'s reference. That is all the source needs: 0.22.0 already serves the `cloudflare:test` types from `./types`, as v1 does, and `cloudflareTest()` is unchanged, so no test bodies change. Three things it does not do:
+    - **Move our exact `wrangler` pins**, including those in the `workspaces` experiments that declare `wrangler` without the plugin — bump those or drop them from `workspaces` (`workflow.md` § *Experiments*).
+    - **Touch Markdown** — the rules that name the package, `workflow.md` § *Toolchain bumps* first (it calls the package the knob), and the `website/docs` pages that tell readers to `npm install` it.
+    - **Stay inside `workspaces`** — unrestricted, it also rewrites the spikes no longer listed there. Restrict it with `--files` to the `workspaces` entries and the root `cloudflare-test-env.d.ts`, then grep the bare old name (`workflow.md` § *Symbol renames*).
+  - ✅ **Decided (Larry, 2026-10-04): the in-workerd Vitest lane is "the vitest-plugin lane".** Not "the workerd lane", since `wrangler dev` runs workerd too, and not "the vitest lane", since Node, browser and jsdom projects run under Vitest as well.
+  - **This is also the first step toward `cf`** ([launch post](https://blog.cloudflare.com/cloudflare-cf-cli-launch/)). Tests can load `cloudflare.config.ts` through `vitest-plugin`'s `cloudflareTest({ experimental: { newConfig: true } })`; the old package cannot. It decides nothing about adopting `cf`.
+  - **Leave Vitest at 4.** `vitest-plugin` 1.3.4 still peers `vitest ^4.1.0`, so Vitest 5 waits for the plugin.
+- **Then the date, repo-wide, in its own commit.** Every workspace's `wrangler.jsonc` moves to 2026-10-01, along with what the 08-15 bump (`6041f17`) moved beside them: the floor in `critical.md` and `packaging.md`, the dates in the `website/docs` examples, and the regenerated `worker-configuration.d.ts` files. Experiments keep their dates. The same commit hands the turn `runTriggeredTurn` floats to `this.ctx.waitUntil`. On a DO that did nothing at 08-15, and at 10-01 it holds the whole turn from its start, which the 14-minute generation deadline keeps under the 15-minute cap.
+- **Check both commits by test-file count, never by exit code.** Record each workspace's `Test Files N passed` before the change and compare after. Add a check to `scripts/test-code.sh` that fails when workerd refuses a date or a flag, so the next bump cannot repeat the silent skip.
+- **Rewrite what the measurement falsified, in either commit.** Galaxy's comment in `runTriggeredTurn` says an open outbound connection holds the turn, but in production the model call is a binding call, which held nothing at 08-15. The comment above `executeEnvelope`'s `waitUntil` calls it a no-op on a DO, which stops being true at 10-01. `durable-objects.md`'s `setTimeout` bullet tells the reader to ride an open outbound connection. And `backlog.md`'s `keepAlive` row goes, because the platform now holds the DO itself.
+- **It also unblocks** the container-snapshot item in [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 11: Snapshots replace the deps baked into the build-box image*, which needs wrangler 4.135 or later.
 
-- ✅ **① Studio UI single-origin local serving (vite proxy + endpoint prefixes)** — **DONE 2026-06-24**, archived
-  child [`tasks/archive/nebula-studio-vite-proxy.md`](archive/nebula-studio-vite-proxy.md) (the frozen prefix
-  contract the deploy task ③ transcribes). The proxy already exists; this makes the
-  API-vs-SPA path split clean, exhaustive, and **prod-Assets-ready** (the same prefix rule the deploy task hands
-  to Workers Assets). Keep the two-terminal vite+`wrangler dev` setup; **avoid the CF Vite plugin** (workerd-in-vite
-  can't construct a `Container` → breaks the DevContainer preview). **`/review-task` ✅ DONE 2026-06-24 (both stages); `/build-task` ✅ deterministic slice DONE 2026-06-24** — spike settled **model A** (proxy carries vite-HMR + `/gateway` mesh + `/dev-container` preview WS together — proven live); landed the `npm run dev:studio` `ttab` launcher (confirmed working live) + a mutation-validated `entrypoint-routing-contract.test.ts` (5 green); model B not needed. **Build complete + verified; child archived → `tasks/archive/`.** Not yet committed.
-- ✅ **② Local UI smoke + `it.skip` cleanup** → archived child [`tasks/archive/nebula-local-smoke.md`](archive/nebula-local-smoke.md) —
-  **`/review-task` ✅ + `/build-task` ✅ Phases 1–2 DONE + GREEN on real infra 2026-06-24; Phase 3
-  RESOLVED — the codegen/Container `it.skip`s DELETED in favor of top-down coverage → **zero `it.skip` in all of
-  `apps/nebula`**; verifier fan-out clean. ② COMPLETE + ARCHIVED.** A Playwright **UI-level** smoke driving the *rendered*
-  Studio (**real-email login [identical local+prod, never test-mode]** → shell renders → prompt → preview updates →
-  wipe teardown) — the `ui-smoke` vitest project (raw Playwright + `wrangler dev` on the apps/nebula config + Docker +
-  programmatic vite; auto-detect `HAS_DOCKER`/`HAS_CF_CREDS` gating). **Phase 3 re-thought (with Larry):** the
-  codegen/Container `it.skip`s were empty placeholders written low-level only because pool-workers can't build a
-  `Container`/`env.AI` — so rather than port them, they were **deleted** in favor of top-down coverage (the smoke now
-  also asserts a **non-blank** preview render; a new focused **security** decoy test) + existing deterministic suites;
-  residual hardening (cold-boot, ordering, reset generation-counter, Wave-2 version-contract) → `backlog.md`. **Zero
-  `it.skip` in `apps/nebula`.** Scope clarified at draft: the **≥1 Resources hit + the real magic-link
-  loop already exist API-side** in `smoke.test.ts` (not re-done here); the full *manipulate-state-via-the-UI* journey
-  is **Wave 2** (Studio doesn't wire Resources yet); a **prod** UI smoke (re-target this lane at the deployed URL) is a
-  **backlog** item that ③ *unblocks* (by serving the Studio from the Worker — Decision-3 Assets), not a ③ deliverable;
-  ③'s pre-deploy gate is the local `ui-smoke` lane. Backlog origin: `tasks/backlog.md` § Testing & Quality.
-  - **Two prod-affecting build outcomes:** **(a)** `apps/nebula` had **no email-sender binding** → real magic-link
-    mail silently dropped; wired it into prod (Option C, Larry) — `services[AUTH_EMAIL_SENDER→NebulaEmailSender]` +
-    `send_email[EMAIL, remote:true]` in `wrangler.jsonc`, `NebulaEmailSender.from` env-configurable (`AUTH_EMAIL_FROM`).
-    **This shrinks ③** (prod email SENDING done; ③ verifies the from-domain is onboarded for CF Email Sending +
-    builds the login UI). **(b)** the review's `test--` scope marker is **invalid** at the `nebula-auth parse-id`
-    layer (rejects consecutive hyphens — a SECOND, stricter slug validator than `dag-ops`); corrected to single-hyphen
-    `test-u0.test-g0.dev`. Backlog item filed to converge the two validators.
-- **③ First prod deploy of `apps/nebula`** → child [`tasks/nebula-release-process.md`](nebula-release-process.md)
-  (first-prod-deploy + deploy-process — merged 2026-06-23). **`/review-task` ✅ FULLY REVIEWED (core 2026-06-24 +
-  focused Phase-0 re-review + whole-file conformance re-review 2026-06-25) — BUILD-READY. ⏭️ NEXT (fresh session):
-  `/build-task` BATCH 1 = B1 (Assets via `run_worker_first` route-list) + the migrations-audit script** (locally
-  verifiable, no deploy; B1 step 1 = the `vite build`-over-decorated-dep de-risk spike). **Batch 2** (with the deploy)
-  = Phases 1–3 + B2 (login swap) + first deploy; B2 held so local `dev:studio` keeps its one-click login while
-  iterating. After batch 1: a fresh session **reviews Phases 1–3 in detail** (they came back near-clean — quick).
-  Sequenced behind ①②. Phase 0 = first-deploy readiness, split
-  into **(A) one-time gates** (`migrations` AUDIT/FREEZE, super-admin seed,
-  concurrency, DevStudio durability, laptop+WARP) and **(B) two builds** — Workers-Assets serving of the Studio SPA
-  + the real magic-link login UI. **Re-review pins (2026-06-25):** the deployed Studio resolves each
-  actor's scope via **discovery** — **every actor (real users, tests, you) self-provisions one uniform way**, no
-  operator special-case, no hardcoded `acme.app.dev` (dead interim — see `interim-unlearning-tax`). Two **claiming**
-  flows (diagrammed in `nebula-release-process.md` B2): **Flow A** = the slug-claim primitive (Universe *or* Star) →
-  first-access founder-admin (first toucher, `star.ts:75`; NOT bootstrap-dependent); **Flow B** = a Universe admin's
-  *create-app* (`createGalaxy` + a `.dev`-`Star` slug-claim → a plain `.dev` `Star` + `DevStudio` + `DevContainer`).
-  Turnstile + email are the real gates (Turnstile **off** for pre-alpha — compute-abuse is the documented residual);
-  no scope to pin because discovery resolves it. Assets served via **`run_worker_first` as a route LIST** (not `true`) — so `entrypoint.ts` is
-  **unchanged** (no `env.ASSETS` in code → no guard, no type-cast, no test rewrite; bench/baseline harnesses
-  untouched), real SPA serving verified at the **prod URL**; **no dedicated bootstrap-email-in-`vars` guard**
-  (de-alarmed — it's an identifier, not a backdoor; convention + secret-preflight suffice) + the migrations
-  freeze is **scripted** in `deploy.sh` preflight; `vite build` over the decorated dep is an **early de-risk spike**.
-  **Prod email SENDING now wired by ② (2026-06-24)** — `apps/nebula` carries `AUTH_EMAIL_SENDER`/`send_email`, so ③
-  no longer wires email; it must **verify the prod from-domain is onboarded for CF Email Sending** (else invites
-  silently drop) + still build the real login UI + remove the `.dev.vars` test-mode flag.
-  Phases 1/2/3 = SHA-stamp + `/_version` (compare-not-disclose) + bench-staleness guard + `deploy.sh`. CI/headless +
-  npm-reproducibility deferred → `tasks/on-hold/nebula-release-hardening.md`.
-- ✅ **`onBeforeCall` higher-admin reach** — the auth gap above (DONE 2026-06-23; archived child).
-- **Capture confirm/extend (THE GATE)** — confirm generation-capture is live on deploy; extend with UI
-  events (undo / abandon / feedback), sharing the sink with the feedback button.
-- **Turn-log inspection v0 (manual)** — registry-resolve the user's `{u}` → super-admin (delegated)
-  token → fanout `Galaxy.getTurns` → local JSON corpus the assistant reads to answer Larry's questions.
-  *(Absorbs the dissolved offline-harness extraction. Fanout, not a central sink, is the accepted design
-  for the rare cross-Universe question.)*
-- **Data-use consent flag** — add `improveProductConsent` column to `NebulaAuthRegistry`'s `Instances`
-  table (`packages/nebula-auth/src/schemas.ts` `REGISTRY_SCHEMAS`). Generically named (consent to use
-  your data to improve the product — never `nebula`/`studio`-specific, so nebula-auth stays
-  product-agnostic). Surface a notice at the slug-pick prompt. **Assume `true` for now** (hard yes for
-  F&F testers). `SELECT instanceName FROM Instances WHERE improveProductConsent = 1` gives the corpus
-  pool. Home: the auth registry (self-signup is an auth feature; consent lives where the `claimUniverse`
-  call happens).
+## The build box moves to the `durable_object` policy
 
-**Wave 2 — the long pole (data-bound, exploratory)**
-- **Provision-a-subject-into-{scope, role}** — the unification: Universe-admin invite (pre-provisioned
-  slug+name + magic-link claim) **+** synthetic (impersonate-only, no claim) subjects **+** act-as
-  wiring. Generic on scope — but the typical case is **synthetic test users Star-scoped to the `.dev`
-  Star** (the dev app + dev data live there), impersonated to exercise multi-user behavior. The
-  Universe admin's `{u}.*` reach (the Wave-1 `onBeforeCall` change) is what lets them provision + grant
-  into `.dev` without re-minting a per-target token; impersonation downscopes automatically because DAG
-  checks key off the delegated token's `sub` (the test user), never `act` (the admin). This capability
-  is for **all Universe/Galaxy admins editing their apps going forward**, not just pre-alpha. This is the
-  **push** half; shares the subject/grant/scope core with `tasks/nebula-request-access.md` (the **pull**
-  half) — share it, don't fork.
-- **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to
-  `extractTypeMetadata` (engine roadmap item).
-- **Container vite swc** — Rung-2 runtime so data-bound apps (importing `{client, store}`) actually run
-  in preview (`unplugin-swc` for TC39 decorators + image rebuild; engine DX-backlog item). This is also when
-  the container first needs the **unpublished `@lumenize/nebula` source**: **vendor `src/` into the image**
-  (`file:`/workspace ref, the same bundle-from-`src/` move the rest of the deploy uses) — **not** a public-npm
-  publish (Nebula is `UNLICENSED`). See `nebula-release-process.md` Phase 3 § *Dependency resolution*.
-- **Data-bound generation (EXPLORATORY)** — the empirical prompt loop. **Un-parks** the replay harness
-  (`tasks/on-hold/nebula-offline-prompt-harness.md`) + the **skills** (`tasks/nebula-skills.md`).
-  Dogfood secret-santa-grade apps with synthetic users + impersonation. Includes the UX-exploratory UI
-  questions above.
-- **Query subscriptions → reactive AI chat** — `tasks/nebula-query-subscriptions.md` (subscribe to a query
-  across Resources; parent-child via FK; id-delta fanout + per-id permission recheck) is the **substrate**.
-  On it, a **`reactive-ai-chat` child task — write it once query-subscriptions lands, do NOT pre-create** —
-  models each **chat turn as a child Resource** (FK → the chat) so a single subscription delivers
-  **history-restore on refresh**, **completed-while-disconnected recovery**, and **multi-participant chat**
-  (a coach / UX designer now; teammates later). It also fixes a **known storage mistake**: chat is recorded
-  on **Galaxy** (`dev-studio.ts:455`) but belongs on the per-app **DevStudio** — relocate it here.
-  **Prereq DONE:** live turn-delivery shipped 2026-06-29 (`tasks/archive/resilient-turn-delivery.md`) — it
-  deliberately deferred all of the above to here.
+**The Galaxy's build box moves from `@cloudflare/computer` 0.3.2 to 0.4, and to the `durable_object` scheduling policy, still baking the scaffold's deps into the image.** From 0.4.0 computer's main container backend runs only under that policy, and container snapshots exist only there, so this is the step [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 11: Snapshots replace the deps baked into the build-box image* stands on. It was scoped on 2026-10-05 with no open design question, so it needs no task file; the measurements are in [experiments/container-snapshot-deps/RESULTS.md](../experiments/container-snapshot-deps/RESULTS.md).
 
-**Wave 3 — invite + scale the feedback loop**
-- **Provision real users + send ~4–5 personalized invites** (each a tailored first app idea, e.g.
-  Sydney → secret-santa + wishlist). *Involvement achieved; capture already live.*
-- **Inbound `claude@lumenize.io` → email Worker → durable store** (R2 or a DO; readable via Cloudflare
-  MCP). Doubles as the first real exercise of the `nebula-outside-world` inbound-email primitive.
-- **Automated daily digest v1 (by 7:30am)** — cron → fanout-aggregate yesterday's turns + behavioral
-  signals → in-system GLM-5.2 judge scores at scale → lands in the store via `claude@` → scheduled
-  morning Claude Code session synthesizes the human digest + prompt-improvement suggestions → emailed.
-  **Suggestions reviewed, not auto-applied**; each new failure mode feeds the eval-suite golden set
-  (digest *discovers*, eval suite *prevents regression*). Include a spend line. Morning cousin of the
-  12:30am `tasks/nebula-nightly-loop.md` (shared capture). *(v1 — build only after the v0 manual
-  inspection loop shows what's worth automating.)*
-- **In-Studio feedback button v0** — dead-simple ("this broke / I wish"), writes to the shared store.
+- **`galaxy.ts`:** 0.4 renames `CloudflareContainerBackend` to `ContainerBackend`, and its launch spec takes an image `name`, a key into `ctx.container.images`, beside the rest of `start()`'s options.
+- **`wrangler.jsonc`:** the container block gains the policy and an `images` map. `max_instances` goes, since the policy does not take it, and the rollout pins are re-derived.
+- **The image:** `chown 0:0 /` before the build, marked as an interim until Cloudflare owns `/` as root. Under the policy `/` belongs to uid 2346, and `@swc/core` 1.16.12 or later then refuses to load. Only a deployed container shows it.
+- **A new container application,** because a policy cannot change in place. `deploy-test.sh` and `test-nebula` take it now; production takes it at ⑥, which deletes the application it replaces (§ *⑥ The wipe*).
+- **Verification:** the container scenarios locally, a `drive.ts all` sweep, and the deployed pass `live.md` § *Two venues, one registry* requires after a change to the container image or `@cloudflare/computer`.
 
-## Caveats (stated once)
+**It lands before ⑥ because a deploy is where a new container application arrives.** At the wipe, production gets it with the fresh deploy instead of switching under users mid-build. It also lands before § *Generated apps are pure Vapor*, which edits the deps baked into the image.
 
-- Pre-alpha = all Universe admins → **does NOT exercise tenant isolation.** "Pre-alpha worked" ≠
-  "isolation proven" (validates codegen + in-app multi-user, not cross-Galaxy boundaries).
-- **Migrations one-way door** starts at the first prod deploy (DO-class add/rename/delete = a migration
-  forever).
-- **Synthetic users** use an RFC-reserved dead domain (`@example.com` / `*.test` / `*.invalid`),
-  **NEVER `@lumenize.io`** (collides with `claude@` routing + it's a domain we own). They're
-  impersonate-only (the fake email is just a label). The `synthetic:true` flag is **deferred (YAGNI)** —
-  add it only when the digest needs to filter test users out of real-activity metrics (a one-column add).
-- Cost ceiling is set; Larry watches the CF dashboard. A spend line in the digest is a nice-to-have.
+## A person with no name is asked for one
+
+**A page whose own profile answers as never written asks its person for a name.** [mesh-gateway-routes-client-calls.md](mesh-gateway-routes-client-calls.md) makes a Profile nobody has written answer with the empty profile and a fixed never-written `eTag` (its D5), and has a page watching it subscribe again once a name is written (its D7). Nothing yet tells the person their name is missing.
+
+- **Who reaches it:** a persona until its name is written; a programmatic accepter, since the harness's `provisionAndLogin` and `acceptInviteAndLogin` accept with no nickname; and a person whose display-name write at consent failed, which `settleAcceptance` logs and carries on past.
+- **What the harness does:** its accept sends a nickname, as the consent screen always does, so a Studio-driving scenario never meets the form. The form does not special-case tests.
+- **What Studio does:** on finding its own profile never written, it opens the profile form, with *Remind me later*, which asks again at a later visit. Saving it is the first write, which every page watching that profile then picks up.
+- **Generated apps:** whether a generated app does the same, through its guidance, is decided when this is picked up.
+
+It lands after the Gateway task, which builds the never-written answer.
+
+## ② Personas
+
+Its task file is the authority: [nebula-testing-with-personas.md](nebula-testing-with-personas.md). The inputs this section used to hold moved there on 2026-09-08 — the pins into its § *Pinned*, the disk facts into its § *Verified on disk*, and what was still to settle into its open-questions list, which `/review-task` Stage 1 cut to ten decisions the same day. Larry has since answered those and nine more over a Pass-1 review, and every verdict now sits in that file's § *Pinned* beside the alternative it beat.
+
+## Turn-liveness heartbeat
+
+✅ **BUILT 2026-09-03.** The server beats through the **whole turn** — [turn-heartbeat.ts](../apps/nebula/src/turn-heartbeat.ts), wrapped once at `Galaxy.#chatTurn` — with an empty transient chunk every quarter of the client's idle window (`TURN_HEARTBEAT_MS`, derived from `TURN_IDLE_MS` in [turn-liveness.ts](../apps/nebula/src/turn-liveness.ts) so the two cannot drift apart). The client treats an empty chunk as liveness only: it re-arms the window and paints nothing, so "thinking…" stays up instead of a blank bubble (`App.vue`'s stream hook).
+
+**Bounded, deliberately.** `callModel` has no timeout of its own; a hung model call runs until the 300 s generation deadline releases the latch. The heartbeat stops at that same deadline so it cannot mask the hang the window exists to catch — a dead turn still fails, one window later than before rather than never.
+
+**The lesson the build taught, worth keeping:** the first cut wrapped only the codegen loop's two awaits (model call, container build). `first-app-built`'s new live watch caught the banner painting *before codegen had started* — the discriminator and the entire plain-answer generation are silent model calls too. The turn is the unit of liveness, not any await inside it. That watch (limb 3: no banner mid-turn, no empty bubble, across a real 60–100 s turn) is what now locks the flash out.
+
+**Deliberately not here:** a per-call `callModel` timeout — it changes the model lane's failure semantics and is parked in [backlog.md](backlog.md) § *Other Nebula backlog*. Real token streaming, first parked beside it, was pulled forward and built the same day (`apps/nebula/src/model-stream.ts`, 2026-09-03): the thinking now arrives as it is written, so the heartbeat covers only the builds and the gaps between calls.
+
+## ③ Capture live
+
+Confirm generation capture is live on deploy, then extend it with UI events — undo, abandon, feedback — sharing the sink with the feedback button. Capture reads the agent `Message` Resources (the collapse's turn-as-Resource model; the old `Turns` side table is gone). The git-hash half is DONE — `codegen.sourceCommit` is captured before the loop writes, so a prompt replays from its exact starting code — the prerequisite for the nightly replay loop, which reads testers' turns cross-scope through the harness's `*` reach against the bench in [on-hold/nebula-offline-prompt-harness.md](on-hold/nebula-offline-prompt-harness.md). Its risk is not difficulty but being the thing squeezed at the end: everything else in the run is repairable in a later deploy, and this is not.
+
+- ⚠️ **A turn that dies at the deadline is never captured.** A handled failure does commit a reply — `done('error', …)` returns rather than throwing — but the deadline's `Promise.race` abandons the turn body, so nothing lands and *“how often does a turn hang?”* has no durable answer. `commitAgentMessage` hardcodes `status: 'complete'` at its one write site, which is where a terminal record would start meaning something.
+
+**`report_finding` — the model as a reporter (moved here 2026-09-03 from the guidance task, where it was a bad fit).** A codegen tool the model calls when a doc misled it or an API misbehaved; the result rides the turn's agent `Message` as structured capture — tenant-local, deduplicated at the digest, and read by a human before anything reaches a public tracker. Never a direct GitHub filing from inside a tenant's Galaxy: that crosses the tenant boundary carrying possibly injected content, and its natural failure is pasting a user-developer's ontology into a public issue. Three homes: the record field is capture and is ③'s; the human-gated filing is the digest's (Wave 3); the standing instruction that tells the model *when* to report is guidance and is [nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md)'s. A broken link in the platform tree is not this tool's job — that tree's generator resolves every link at build time and fails on a bad one. The same acceptance events — undo, abandon, feedback — have a second consumer: **scaffold-level learning**, where a corrected or abandoned turn feeds the platform's own guidance evolution ([on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) § *Part B*). The app-level retro needs no such signal — the transcript in the prompt lets the model see a correction as it arrives, so that one is a standing instruction in the guidance task.
+
+**The preview's error channel — folded in here 2026-09-09, and it may split into its own task file once ③ starts.** A user-developer says *"the preview screen is blank"* and the model's first move is to read the log tail. `@lumenize/debug` already has `setDebugSink`, but it is fenced test-only, **bypasses the DEBUG filter** and **REPLACES console output** — all three deliberate for tests. Production wants the opposite on the last two, so the package gains a **second callback**: filtered, and additive to console. Two slots rather than a flag, so neither semantics has to be re-derived at the call site and the filter is never duplicated in a sink function that may not even hold the filter value. The scaffold's `nebula.ts` installs it, entries land in this section's sink, and a loop tool reads the tail — one entry in `LOOP_TOOL_ENTRIES`, which sits at the chat floor. A later tool letting the model widen its own DEBUG filter is additive on top and is not owed now.
+
+- ⚠️ **Decide before the buffer is written: an entry carries the persona slug.** ② opens N previews at once, so an untagged tail is N interleaved streams and *"the preview"* is ambiguous. Tagging is cheap at write time and unrecoverable after.
+- ⚠️ **The scaffold half does not retrofit.** `nebula.ts` is seed — the model writes `App.vue` and components — so an app created before the sink lands keeps a copy without one, and nothing tells the model to go back. That is what puts this before the one deploy rather than in fast-follow.
+- **Its trigger and first consumer is ②** ([nebula-testing-with-personas.md](nebula-testing-with-personas.md)), where a denied persona tab and a broken one look identical without logs.
+
+## Turn-log inspection v0
+
+Manual: registry-resolve the user's `{u}` → a super-admin delegated token → fan out the user's `Message` Resources → a local JSON corpus the assistant reads to answer Larry's questions. Built once, inside the `/live` harness ([archive/claude-live-verification.md](archive/claude-live-verification.md)), so it is local tooling that never rides the deploy, and `Message` Resources already exist. Slot it anywhere, including after the invites.
+
+## The superuser join scenario
+
+Both halves are driven separately: the front door by `superuser-front-door.ts` (the platform membership mints at the consume, behind proof, so a superuser arrives through the ordinary scope-less login), impersonation by `impersonation-lifecycle.ts`. Unproven is that they compose — one scenario chaining superuser login → Home → the pre-alpha user's host → impersonate them there, which is exactly the coaching session. If it turns up gaps, that is when a child task file earns its existence, and not before.
+
+## Denied access in generated apps
+
+**Under ④'s D25, an app with no UI for what a subscriber can't read looks like it works.** Bob sees 20 of a project's 21 tasks, and nothing tells him one is missing unless he compares notes with a coworker. All-or-nothing would have failed loudly instead, and lost because it costs Bob all 20 when one task is out of his reach (Larry, 2026-09-28). So D25 is the better experience only once the app shows the missing part.
+
+This item settles two things:
+
+- **What a generated app shows.** A query handle already carries `deniedNodes`, and after ④ a resource handle carries them too, with its `.snapshot` resolving `null`. The app names what is missing and who can grant it. It needs no code for the grant arriving: a client watching the org tree re-subscribes whatever was denied at the next tree change (④'s D25), so once an admin grants access the missing task simply appears. Who that is when the climb finds no admin, and how the request reaches them, are [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md)'s open questions; this item needs only enough of them for the app to point somewhere.
+- **What Studio's guidance says.** The model builds that affordance by default, without being asked. Each piece lands in its home per `studio-guidance.md`: the convention in `apps/nebula/platform/AGENTS.md`, the procedure in a skill, and the reference in `api-reference.md`.
+
+## A `computed()` misses its subscription
+
+**A component's `computed()` that switches to a resource id the store already holds never subscribes it, and the view shows stale data with no error.** Take `computed(() => store.resources.Todo[selectedId.value])`. When `selectedId` changes, Vue re-runs the getter during the render's dirty check, where neither an effect scope nor a component instance is active, so `trackRead` in `packages/resources/src/frontend/create-nebula-client.ts` ties the read to nothing.
+
+- **Why it mostly works today.** A never-seen id is rescued by accident: the read writes `{}` into the store, that write runs the getter again inside the render, and there the read subscribes.
+- **When it fails.** The id was read once outside any scope, or read by a component that has since unmounted and let it go. Either way the store already holds it, nothing is written, and the getter does not run again.
+- **Evidence.** Found 2026-10-03, failing identically on Vue 3.5.34 and 3.6.0-rc.10: [experiments/vue-vapor-autosubscribe/RESULTS.md](../experiments/vue-vapor-autosubscribe/RESULTS.md) § *A pre-existing bug the spike surfaced*, whose `npm run test:revisit` reproduces it. A `watch` getter reading a new id after setup should miss the same way; that is not yet probed.
+
+It lands before § *Generated apps are pure Vapor*, so that item builds on a store whose every read subscribes.
+
+## Generated apps are pure Vapor
+
+**A generated app should be a pure Vapor app before the first user builds one, so that nobody's app needs migrating afterwards** (Larry, 2026-10-03). The repo is already on Vue 3.6.0-rc.10, and the store's auto-subscribe works inside a Vapor component, checked with a mutation in [experiments/vue-vapor-autosubscribe/RESULTS.md](../experiments/vue-vapor-autosubscribe/RESULTS.md). The one thing to avoid is mixing the two modes: a Vapor component inside an ordinary app ships both runtimes and roughly doubles the scaffold's bundle, while a pure Vapor app shrinks it (that file's § *Bundle size*).
+
+Four things change:
+
+- **Icons.** `lucide-vue-next`, the one import `apps/nebula/platform/AGENTS.md` allows, renders nothing at all in a pure Vapor app, with no error and a green build. So do its renamed successor `@lucide/vue` and `@iconify/vue`. `unplugin-icons` with `compiler: 'vue-vapor'` compiles Lucide's set into Vapor components at build time — `import House from '~icons/lucide/house'` — and replaces it in the scaffold's `vite.config.ts`, the image's baked dependencies, and that guidance line. Studio's own UI keeps `lucide-vue-next`; moving Studio is not part of this item.
+- **A check for what the compiler lets through.** Under `vapor`, `v-memo` compiles and is silently dropped, and `@vue:` events and `getCurrentInstance()` compile too; only the Options API fails. The guidance names all three, and a check over the generated source refuses each one loudly. Whether that check sits in `container/compiler/sfc-check.ts` or in the codegen loop is this item's call.
+- **The scaffold and the contract.** `main.ts` mounts with `createVaporApp`, `App.vue` takes `vapor`, `scaffold-seed.ts` is regenerated, and `TOOL_CONTRACT` in `codegen-loop.ts` and the Vue surface in `sfc-contract.ts` say Vapor.
+- **The docs.** `using-vue.md`'s CDN example compiles its templates in the browser, which Vapor cannot do, so it is marked as the ordinary mode or removed. `coding-your-ui.md`'s "render-function modules" stops being true.
+
+**The proof is `first-app-built` building a pure Vapor app whose icons render.** That needs a new limb checking that the `<svg>` is present, because a broken icon fails silently.
+
+**If Vue 3.6.0 has shipped by then, the pins move to it first.** Every `3.6.0-rc.10` pin becomes `3.6.0`, and both `"overrides": { "vue": "$vue" }` blocks go, in the root and the scaffold `package.json`. They exist only because no plugin's `vue` peer range admits a prerelease.
+
+## Shared pages
+
+**The pages several builds touch — Universe Signup, Galaxy create and login — are one item** (Larry, 2026-09-16). Universe Signup already asks for the account's slug and its first app's, since the claim writes both. This item captures scope full names on the first two, below. It also decides, page by page, whether a user-developer's app forwards to ours with `return_to`, which is the default, or runs a page of its own that posts what it collected to the platform host, gets a one-time token back, and navigates on with it to the platform host, which finishes the way login does. Which kind comes first is this item's call, and the custom kind may land after pre-alpha. [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) caps the slugs these pages collect at 30 characters, and names the one `POST` ADR-022 would need to admit for a custom page.
+
+### Scope full names
+
+`Scopes` is one column — `universeGalaxyStarId TEXT PRIMARY KEY` — so a Universe, Galaxy or Star has no human name anywhere, and its slug is doing two jobs at once. [nebula-upgrade-universe-with-a-data-plane.md](nebula-upgrade-universe-with-a-data-plane.md) stores each name as a scope-metadata resource on the scope's own host, never on `Scopes`, written where the scope is created: the two universe claims, which also write the first app, `claimStar`, and `createGalaxy` for every later app. **Two pages already exist and both gain the field: Universe Signup and Galaxy create** (Larry, 2026-09-11). Star signup is NOT pre-alpha — only the `.dev` Star is created in this cycle — so `claimStar`'s column is written without a page to type into yet. **It is `data`-gated for a reason no other item here has: the name is only knowable at the moment it is typed.** Nothing derives "Northwind Traders International" from `northwind-traders-intl`, so a claim path that never asked leaves nothing to backfill — and after the wipe the people being asked are real users, whose names would be discarded permanently rather than for a cycle.
+
+It also decides how the slug cap lands. [the domain-allocation record](archive/decision-domain-allocation.md) § *C — nested scope labels* caps every slug at 30 characters, because a persona and a Star share one 63-character DNS label. With a name captured beside it, signup reads *"Workspace name: Northwind Traders International → URL: `northwind-traders-intl`"* with the slug editable; without one, the same cap reads as "that name is too long" and the slug is all the user ever gets to say.
+
+**Capture only — the display surfaces are a separate question and gate nothing.** Whether a breadcrumb, the org tree, the scope picker or the Studio header shows the name or the slug has real answers on both sides, and an unread column misleads nobody while an uncaptured name is unrecoverable. ⚠️ **The name is display-only: never in a URL, never unique, never compared, never looked up, and nothing derives it from the slug or the slug from it after the claim.** Break any of those and a scope has two identifiers, which is what capping the slug rather than hashing it was chosen to avoid. It is the rule a persona name already follows — the slug is the identity, the name is a display attribute the model may edit freely.
+
+## The certificate wait
+
+Folded into [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) on 2026-09-15 (Larry) and built there: its § *Design intent, constraints, and future state* carries the wait on Galaxy create and its count-up, and a galaxy's teardown deletes its certificate pack before it wipes, so the soft-delete reaper has no certificate work.
+
+## ⑥ The wipe
+
+One CF-dashboard worker-delete + redeploy, deliberately one and not two. Greenfield means every DB is created fresh. Runbook: [archive/do-exports-and-toolchain-upgrade.md](archive/do-exports-and-toolchain-upgrade.md) § *Phase 4* — not the surrogate-sub file's older `migrations`-shaped narration, which the declarative `exports` conversion superseded.
+
+**The wipe is the closing window for free schema surgery**, and several built things already lean on it: the identity model's collapsed `REGISTRY_MIGRATIONS` baseline, `Snapshots.actingToken`, and `subscriptions.ts`'s in-place migration edit. The constraint they share, and that ④ and ⑤ inherit: **no deploy stands between those rewrites and the wipe.**
+
+**Ops at the deploy:**
+
+- **Secrets.** `deploy.sh`'s preflight refuses to deploy without `AUTH_BOOTSTRAP_EMAIL`, the JWT key pair and `RESEND_API_KEY` and `CERTIFICATE_API_TOKEN`, and prints the exact command. `AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com, claude@lumenize.io` seeds the two superusers: Larry, and Claude acting as itself (Larry, 2026-10-03). Claude acting on Larry's behalf waits for the consent-gated support session, `backlog.md` § *Other Nebula backlog*. ⚠️ **Production's JWT pair and its certificate token are production's own, set only as its secrets and never copied from `.dev.vars`.** That template already labels its keys *"test keys - not for production"*, and sharing them lets an admin token minted on the test target or a local stack verify here. `.dev.vars` also holds the test zone's certificate token, which would order packs on the wrong zone ([nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) § *Decisions*). The hint the preflight prints copies from `.dev.vars` today, so it changes for those values. Every other value still comes from that file; [backlog.md](backlog.md) § *Infrastructure* is where that stops being ad hoc. What stays open on email is in [backlog.md](backlog.md) § *Nebula Auth*, the Resend rows.
+- **DNS and certificates, after the worker-delete.** Production's `CERTIFICATE_ZONE_ID` var, and proxied `*.lumenize.dev` and apex records on `lumenize.dev`, whose Advanced Certificate Manager has been on since 2026-09-11. The same step gives `lumenize.dev` a null SPF record (`v=spf1 -all`) and a `p=reject` DMARC record, since the zone sends no mail and goes live here, and a DMARC record on the apex covers every host beneath it. Each step is outward-facing ([nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) § *Constraints* carries the test zone's matching list).
+- **`wrangler containers delete` the retired `nebula-devcontainer` application** (still listed on the account, 2026-09-03), **and the default-policy application** that § *The build box moves to the `durable_object` policy* replaces. A dashboard worker-delete removes DO namespaces, not container applications, and this cannot be a phase criterion because it fires after a deploy that happens long after `/build-task` ends.
+- **Smoke:** a real-CF KV login → refresh across colos. A KV miss falls back to the registry's `RefreshTokenIndex`, a deliberately live path.
+
+**Post-wipe cleanup — done early, 2026-10-03.** [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) deleted `develop()`'s repair, `/create-star` and `createDevWorkspace`, and `provisionAndLogin` now founds a tenant Star by `claim-star`. ⚠️ **A question died with the endpoint, so do not re-open it:** an admin-pre-created, member-less tenant Star was the one state a stranger could capture by claiming its slug, and nothing creates that state now; the only member-less star rows left are `.dev`, refused as a reserved name. The policy was remediation rather than prevention anyway (Larry, 2026-09-08): an admin above deletes any scope beneath them, members and all, which frees the slug for the real founder to claim ([ADR-015](../docs/adr/015-passage-and-dominion.md)).
+
+## Data-bound generation
+
+Two kinds of EXPLORATORY, neither pinnable up front:
+
+1. **Prompt-empirical** — data-bound generation quality. Iterate the system prompt against the compile gate and, later, a judge model, driven by capture → inspection → the replay harness. Capable-of-failing checks plus captured findings, never a transcribable spec.
+2. **UX-exploratory** — the persona UI. Prototype-and-react, and the tight loop is Larry's own dogfooding: persona switching, multi-tab use, and the preview tabs.
+
+Iterating the prompt must not require a deploy — the prompt is content, not code. Tight loop = the offline replay harness (model + gate, seconds, no preview); live checks = local `wrangler dev` + Docker; deploy only for where users live and for realistic multi-tab / auth / act-as checks, at ~1-minute cycles and not every iteration. The platform layer is `apps/nebula/platform/` — edit, run `node scripts/gen-platform.mjs`, and `wrangler dev` picks it up.
+
+### Findings — the model in the loop, observed
+
+One line per observation, appended, never edited: `date · limb · pass|fail · one sentence`. The limbs are the `/live` scenarios that watch the real model — `studio-guidance-loop` (a) (b) (c) (d) (f), `four-party-chat` (e), `first-app-built` (g) — each reported by the scenario and never gating a sweep; a fail is a finding for ③ and for the platform file's next edit. Un-parking this section's exploratory loop starts from the last line here.
+
+- 2026-09-05 · (a) · pass · asked for a wishlist, the model's `App.vue` reads and writes through `store` / `client.resources` — the 2026-09-03 hand-driven gap did NOT reproduce; the turn read `resources.md`, `coding-your-ui.md`, `ontology.md` and the `wire-a-view` skill first, and hit the round cap on container-free builds (8 rounds, 70 s)
+- 2026-09-05 · (b1) · pass · "no countdown timers", stated in turn one, was honoured by the next turn's output
+- 2026-09-05 · (b2) · pass · after ten further turns the rule is still in `AGENTS.md` (568 bytes)
+- 2026-09-05 · (c) · fail · the convention landed in `AGENTS.md` on the turn it was stated (`edit_file`, `applied=AGENTS.md`), but the reply did not name the file — the retro's "say so in one sentence" half is the platform file's next edit
+- 2026-09-05 · (d) · fail · a request naming data the app did not hold activated `wire-a-view`, not `define-ontology` — it wrote the ontology anyway, under the view skill; the two descriptions overlap on "data", and `define-ontology`'s trigger needs to win when the type is absent
+- 2026-09-05 · (f) · pass · asked what was requested first, the reply named the rule word for word
+- 2026-09-05 · (e) · pass · four-party "what does this app do so far?" — the reply named what the seed app has: the starter shell, the one `Item` type in the ontology, the placeholder page — and invented nothing
+- 2026-09-05 · (g) · pass · on the real `first-app-built` turn the first write landed 32.3 s before the `build` call (the hint had warmed 49.8 s ahead; the cycle then took 3.9 s) against a 3.2 s cold start — the write warm alone hides it, so the discriminator's hint is dead weight on this shape; n=1, so keep it through one more pass and drop it in ③'s edit if the second number agrees
+- 2026-09-05 · (g) · pass · second pass, same turn shape: the first write landed 7.5 s before the `build` call (the hint had warmed 52.9 s ahead; the cycle took 3.9 s) against the 3.2 s cold start — the second number agrees, so the hint is dead weight on this shape; n=2, and the drop goes in ③'s edit as the line above says
+- 2026-09-05 · (c) · pass · second pass: the convention landed in `AGENTS.md` and the reply named the file. The first pass's fail did not reproduce on an unchanged line of the platform file — variance, so the "say so" edit stays queued rather than urgent
+- 2026-09-05 · (a) · fail · second pass: no `App.vue` was written (stop=no-tool-calls, rounds=3). The turn read four platform files and the source, then replied without a write; the first pass wrote it. Variance, not the 09-03 shape — that one wrote user data outside resources
+- 2026-09-05 · (b1) · fail · second pass: not exercised — no `App.vue` this turn, which the limb now counts as a fail rather than a pass with nothing to judge
+- 2026-09-05 · (d) · fail · second pass: `wire-a-view` again, never `define-ontology` — reproduced. The two descriptions' split on "the type is absent" is the platform file's next edit, now with two runs behind it
+- 2026-09-05 · (b2) · pass · second pass: after ten further turns the rule is still in `AGENTS.md` (556 bytes)
+- 2026-09-05 · (f) · pass · second pass: the reply quoted the first request word for word
+- 2026-09-05 · (e) · pass · second pass: "a starter shell", then the one `Item` type with `title` and `done` — named what the seed has, invented nothing
+- 2026-09-05 · (g) · pass · third pass: the first write landed 31.7 s before the `build` call (the hint had warmed 56.2 s ahead; the cycle took 3.5 s) against the 3.2 s cold start — n=3, all three agree, the hint is dead weight on this shape
+- 2026-09-06 · (g) · pass · under the 32-round cap a turn ran two build cycles: write→build 21.0 s and 10.1 s (hint 38.2 s and 61.8 s ahead; cycles 9.0 s and 12.9 s) against 3.2 s — n=5 intervals, every one above the cold start
+- 2026-09-06 · (g) · resolved · the hint is deleted (Larry): five intervals from 7.5 s to 32.3 s, every one above the 3.2 s cold start, so the first-write warm is the only warm and the classifier call with it; limb (g) retired with its question
+- 2026-09-06 · (d) · pass · fixed: the two skill descriptions made disjoint and the Skills section naming the order, `define-ontology` was read first on both passes (2 of 2; 0 of 3 before). The skill itself now carries the ask-or-propose judgment — the prompt's shape, then the user-developer's preference once the profile holds it, then the conversation (Larry, 2026-09-06)
+- 2026-09-06 · (a) · asked · pass 1 under the new skill: the wishlist prompt names fields, and the model asked about the shape instead of building — the judgment the skill describes, so the limb now reports "asked" rather than fail; pass 2 built `App.vue` through the store
+- 2026-09-06 · (c) · pass · pass 2 under the new skill: the reply named `AGENTS.md`; pass 1 did not — still variance, one of two
+- 2026-09-25 · (g) · fail · the SCENARIO fails, for a non-model reason and a new one: making `ontologyVersion` optional let the preview app boot for the first time (2 WS upgrades against 0 before), and the newly-live client draws `subscribeTree` refused at the GALAXY — which `NebulaClientConfig`'s own JSDoc says does not host it, and which `constructionPairs` routes there for any galaxy-tier driver — plus four `refresh-token` 401s and a container `exit code: 137` that is not explained. Proven by stash: green without the change at 60.5 s, red with it at 152 s, twice on a cleaned Docker. Backlog row carries it; the limb itself was never reached
+
+
+## ADR hand-review
+
+After pre-alpha ships (Larry, 2026-09-02); the old trigger, "after the collapse", is retired. Reviewing is not ratifying — no ADR is ratified until after launch. ADR-010 was the last one carefully hand-reviewed, and Larry's standing read narrows the pass: **ADR-015 is rock solid** (two passage/dominion task files went by without changing it — keep it current as we go rather than deferring to this pass), **012 and 013 have solidified**, and the rest are what the pass is for. Inputs:
+
+- The best statement of the coarse-grained access model (`{u}.{g}.{s}`) is frozen at [archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md) § *The invariant* and § *Settled* — decide what lifts into an ADR or a rule, and whether ADR-012 shrinks back to visibility once an access ADR owns "a profile is never an authz input".
+- 008 / 012 / 013 / 015 each cover one facet of one model — four ADRs or one?
+- 008 / 009 / 013 carry dated amendment notes against `docs/adr/README.md`'s forward-facing discipline. Decide per file (009's may earn its place: it stops sessions citing a withdrawn latency figure) and write any carve-out into the README rather than leaving silent exceptions.
+
+---
+
+## Where pre-alpha sits
+
+- **pre-alpha (THIS):** user-developers build data-bound multi-user apps, evaluated by them and us through personas. No real third-party end-user signup, and no migration testing — users have the wipe.
+- **alpha:** the real-use publish path plus data migration. Writing migration code is easy; testing it is the hard part and probably needs Star branching (`tasks/icebox/nebula-branches.md`).
+- **beta:** automated testing → near-production-ready. Then production.
+
+**Two critical paths, one gate.** Involvement: codegen loop ✅ → capture live (③) → the wipe (⑥) → provision → invite. Feedback: capture → `claude@` email → digest → in-Studio feedback. THE GATE is capture live before the first invite.
+
+**Pre-alpha users are Universe admins** (Larry invites, pre-picks slug + name). This is the decision that shrinks the security story: acting-as anyone is not an escalation. The residual non-security cleanup (drop `AuthorizedActors` → admins-only) is [on-hold/delegation-hardening.md](on-hold/delegation-hardening.md).
+
+## Building blocks that exist
+
+Don't re-derive these; the code is the authority.
+
+- **Super-admin** is an ordinary membership at the reserved platform scope, `PLATFORM_SCOPE`, and that scope is the ROOT of the scope tree — so dominion everywhere is the downward rule applied from the top, one branch inside `isAtOrAbove` and never a special arm at a call site. Driven by `superuser-front-door.ts` and `superuser-end-to-end.ts`.
+- **Impersonation** is one mint endpoint (RFC-8693 `act.sub`, recursive chain, audited), reached from the client as `NebulaClient.impersonate`. Act-as downscopes automatically because DAG checks key off the delegated token's `sub`, never `act`.
+- **A galaxy-tier invite mints a membership at the galaxy itself, and a second at its `.dev` workspace.** The invitee authenticates at the galaxy, and one acceptance takes up both. The workspace membership's admin bit is the inviter's dominion verdict, so a peer's invite enrolls the invitee without it. `issueInvites` in `nebula-auth-registry.ts`; driven by `four-party-chat.ts`.
+- **Enumerate-all-users** is `NebulaAuthRegistry`, the singleton with the global email → scope index.
+- **The `onBeforeCall` passage guard** is `requirePassage(name, claims)` in `nebula-do.ts`, one audit point on every Nebula node — what lets the inspection instrument and a support engineer read, write and admin anywhere with one identity.
+
+## Caveats
+
+- All Universe admins ⇒ pre-alpha does NOT exercise tenant isolation. "Pre-alpha worked" validates codegen and in-app multi-user, not cross-Galaxy boundaries.
+- The migrations one-way door has been open since the first prod deploy (2026-06-26): a DO-class add, rename or delete is a migration forever.
+- The cost ceiling is set and Larry watches the CF dashboard; a spend line in the digest is a nice-to-have.
 
 ## Open decisions
 
-1. **Starter scaffold on invite** — does the Universe invite auto-provision a starter Galaxy/Star
-   (zero-click first build) vs. self-create as a Universe admin? *(Lean: auto-provision a starter — a
-   non-coder shouldn't hit a naming/collision wall on first login.)*
-2. **Digest phasing** — v0 manual inspection now + v1 automated digest later *(lean)*, or build the
-   7:30am pipeline up front? Hard constraint either way: **capture live before invite.**
-3. **Deploy timing** — deploy early (Wave 1) *(lean)*, confirmed reframe: deploy hosts users + retires
-   the one-way-door risk; it is NOT the iteration mechanism.
-
-## Process note
-
-This master = the living plan + accumulated learnings. **One lower-level task file at a time** (then
-`/review-task` → `/build-task`). On completion: **extract nuggets up here (or into the next child),
-then archive** — no completed files lingering in `tasks/`, no pre-created stubs. See
-[[feedback_task_file_one_at_a_time]].
+1. **Starter scaffold on invite** — does the Universe invite auto-provision a starter Galaxy/Star (zero-click first build), or does the user self-create as a Universe admin? Lean: auto-provision, since a non-coder should not hit a naming wall on first login.
+2. **Digest phasing** — v0 manual inspection now and v1 automated later (lean), or the 7:30am pipeline up front. Either way, capture is live before the invite.
+3. **A second wipe between pre-alpha and alpha** — an option kept open, not a plan (Larry, 2026-08-24). Stash each user's Workspace repo (self-contained under ⑤: code + ontology history + migrations, one artifact per app) AND the codegen corpus (the Galaxy's `Message`s with their `codegen` value objects — the harvest THE GATE exists for), wipe, restore. Their `.dev` data is lost and we say so up front; identities re-mint on re-invite and stamped attribution degrades to display-only. It relaxes the one-wipe squeeze on structural work without licensing deferral, because every wipe still spends user goodwill.
+4. ✅ **Decided 2026-10-05 — a Client connects to its scope's node, built in pre-alpha** (built 2026-10-07). [archive/nebula-clients-connect-to-their-scope.md](archive/nebula-clients-connect-to-their-scope.md) is the authority; its row in § *What remains* follows mesh-calls, which goes forward on Gateways and builds a Client's server-side half as code a Durable Object composes (its D23).
 
 ## Links
 
-- Engine design (reference, no sequencing): `tasks/reference/nebula-agentic-engine-design.md` — the *what-runs-when* for its work items lives in THIS file (Wave 2: ontology annotations, container vite swc, data-bound generation; the offline harness + eval suite un-park from here)
-- Dev/publish flows: `tasks/reference/nebula-dev-flows.md` · Studio node: `tasks/archive/nebula-studio.md`
-- Replay bench (parked, un-parks in Wave 2): `tasks/on-hold/nebula-offline-prompt-harness.md`
-- Skills (Wave 2): `tasks/nebula-skills.md`
-- Eval suite (parked; regression, later): `tasks/on-hold/nebula-studio-eval-suite.md`
-- Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-star-root-admin.md`
-- First prod deploy + release process (Wave 1, merged): `tasks/nebula-release-process.md` · deferred hardening: `tasks/on-hold/nebula-release-hardening.md`
-- Outside-world capabilities (reactive on user demand — `fetch` → email → search → secrets-last): design `tasks/nebula-outside-world.md` · build plan `tasks/nebula-outside-world-build.md` (incl. Wave 3 inbound email)
-- Resilient chat delivery (DONE 2026-06-29): `tasks/archive/resilient-turn-delivery.md` · preview auto-refresh (DONE 2026-06-29): `tasks/archive/preview-ready-autorefresh.md` · query subscriptions (Wave 2 substrate): `tasks/nebula-query-subscriptions.md` · reactive AI chat (future child — depends on query-subscriptions, turn = child Resource)
+- Engine design, reference only: `tasks/reference/nebula-agentic-engine-design.md`. Dev/publish flows: `tasks/reference/nebula-dev-flows.md`.
+- Fast-follow, demand-driven and post-core: [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md), the parent index — each item carries its own trigger. Outside-world connectivity has its own design file, [nebula-outside-world.md](nebula-outside-world.md).
+- Deferred out of pre-alpha: `tasks/on-hold/`. Each file's status line says why it waits and what would bring it back.
+- Live harness: local drive = `apps/nebula/harness/` (the `/live` skill and the always-loaded `live.md` rule); prod drive = `apps/nebula/harness/prod.ts`, with standing authorization to drive and read prod when Larry asks — writes and deploys stay deliberate. Turnstile is OFF in prod (`TURNSTILE_SECRET_KEY` unset); the `AUTH_TURNSTILE_BYPASS_TOKEN` header bypass exists for when it flips on. Findings: `apps/nebula/harness/FINDINGS.md`.
 
-## Branch / close-out (deferred until in a rhythm — Larry 2026-06-29)
-This phase's work lives on `feat/nebula-studio` (the `feat/` prefix is a misnomer — it's a milestone
-integration branch, not a single feature). **Close-out sequence when ready:** PR `feat/nebula-studio` →
-`main` → release all npm packages (`/release-workflow`) from merged main → branch the next phase off main.
-**Long-lived phase branches use the bare milestone name** (`pre-alpha`, then `alpha`/`beta`) — NOT a
-`feat/` prefix. Continuous CI on the phase branch comes from keeping a **draft PR → main** open (CI now
-runs on `pull_request → main` + `push → main` only; the non-main push trigger was dropped 2026-06-29).
-Deferred deliberately — early-phase detours (spikes, CI fixes) happen before the PR ceremony.
+## Shipped
+
+One line each. The archived file is the record and the code is the authority.
+
+- Profile access control — acceptance is enforced at the MINT. The owner branch drops its `act` clause, so an impersonated session owns its own profile → [archive/nebula-profile-access-control.md](archive/nebula-profile-access-control.md). What outlives it: [ADR-012](../docs/adr/012-global-profile-visibility.md), and `security.md` rules (1) and (2)
+- ① The guidance file tree — platform layer in code, Galaxy layer in the Workspace, both read every turn; `read_file` + `edit_file`; the chat history in the prompt; one assembly per turn → [nebula-guidance-file-tree.md](archive/nebula-guidance-file-tree.md) (archive on commit); the convention that outlives it is `.claude/rules/studio-guidance.md`
+- Self-correcting codegen loop → [archive/nebula-codegen-loop.md](archive/nebula-codegen-loop.md)
+- Generation capture, now the `codegen` value object on each agent `Message` (the `Turns` side table is gone) → [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)
+- `onBeforeCall` downward dominion → [archive/nebula-onbeforecall-higher-admin-reach.md](archive/nebula-onbeforecall-higher-admin-reach.md)
+- `/mint-narrower-token` escalation fix → [archive/rfc-act-chains.md](archive/rfc-act-chains.md); the delegation invariants are pinned in `security.md`
+- Studio UI single-origin serving → [archive/nebula-studio-vite-proxy.md](archive/nebula-studio-vite-proxy.md)
+- Local UI smoke, the `ui-smoke` Playwright lane → [archive/nebula-local-smoke.md](archive/nebula-local-smoke.md); its `it.skip`s are owned by [backlog.md](backlog.md) § *Testing & Quality*
+- First prod deploy, 2026-06-26 → [archive/nebula-release-process.md](archive/nebula-release-process.md)
+- DevStudio data-plane extraction → [archive/nebula-devstudio-data-plane.md](archive/nebula-devstudio-data-plane.md)
+- Parent-child query subscriptions → [archive/nebula-query-subscriptions.md](archive/nebula-query-subscriptions.md)
+- Reactive AI chat → [archive/nebula-reactive-ai-chat.md](archive/nebula-reactive-ai-chat.md); its one open deferral, the viewport window driver, is a [backlog.md](backlog.md) § *Nebula Studio UI* row
+- Data-use consent flag REMOVED — no consent column exists anywhere → [archive/nebula-consent-flag.md](archive/nebula-consent-flag.md); `@lumenize/sql-migrations` → [archive/sql-migrations.md](archive/sql-migrations.md)
+- DevContainer wakeup fix → [archive/nebula-container-wakeup-fix.md](archive/nebula-container-wakeup-fix.md)
+- Mesh continuation-only + `callAsync` → [archive/mesh-continuation-only-calls.md](archive/mesh-continuation-only-calls.md) · [archive/mesh-client-callasync.md](archive/mesh-client-callasync.md)
+- Auth foundation: surrogate `sub` → [archive/nebula-auth-surrogate-sub.md](archive/nebula-auth-surrogate-sub.md) · identity data model → [archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md) · dominion vocabulary → [archive/nebula-dominion-vocabulary-rename.md](archive/nebula-dominion-vocabulary-rename.md) · passage/dominion from scope → [archive/nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) · registry route guards → [archive/nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) · invite → [archive/nebula-invite.md](archive/nebula-invite.md)
+- `Snapshots.actingToken`, the ADR-016 record — `identityKey`'s JSDoc in `snapshots.ts` carries the argument
+- Compilers out of the Worker, and NO bundle split → [archive/nebula-move-compilers-out-of-the-worker.md](archive/nebula-move-compilers-out-of-the-worker.md); `check-worker-graph.mjs` is the standing tripwire
+- Galaxy collapse + chat history UI, preview survives redeploys, ontology installs only by lazy-pull → [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)
+- Container vite on rolldown with `unplugin-swc` for decorators, shipped with the collapse — `vite.config.ts` says why the plugin is required ([[rolldown-no-tc39-decorators]])
+- `createGalaxy` bundles `{galaxy}.dev` — its JSDoc carries the rationale
+- Login prove-then-choose + the data-use notice; `discover(email)` deleted → [archive/nebula-login-prove-then-choose.md](archive/nebula-login-prove-then-choose.md)
+- UI create-app flow coverage — `ui-smoke/smoke.test.ts` drives it

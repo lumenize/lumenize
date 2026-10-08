@@ -2,7 +2,7 @@
   "name": "@lumenize/nebula",
   "version": "0.24.0",
   "private": true,
-  "description": "Nebula application — multi-tenant Durable Objects with universe/galaxy/star hierarchy",
+  "description": "Nebula application \u2014 multi-tenant Durable Objects with universe/galaxy/star hierarchy",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -14,20 +14,16 @@
     "./client": {
       "import": "./src/client-index.ts",
       "types": "./src/client-index.ts"
-    },
-    "./frontend": {
-      "import": "./src/frontend-index.ts",
-      "types": "./src/frontend-index.ts"
     }
   },
   "files": [
     "src/**/*"
   ],
   "scripts": {
-    "dev": "mkdir -p ../nebula-studio-ui/dist && wrangler dev",
-    "test": "vitest --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
-    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
-    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
+    "dev": "node scripts/local-config.mjs > /dev/null && mkdir -p ../nebula-studio-ui/dist && wrangler dev --config wrangler.local.jsonc",
+    "test": "node scripts/gen-scaffold.mjs --check && node scripts/gen-platform.mjs --check && npx tsx scripts/gen-validator-seeds.ts --check && node scripts/check-worker-graph.mjs && node scripts/test-deploy-config.selftest.mjs && node scripts/required-secrets.selftest.mjs && vitest --run --project unit --project frontend --project baseline --project dev-studio --project browser",
+    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project dev-studio --project browser",
+    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project dev-studio --project browser",
     "bench": "vitest --run --project browser-bench transactions",
     "bench:throughput": "vitest --run --project browser-bench throughput.benchmark",
     "bench:multi": "vitest --run --project browser-bench throughput-multi",
@@ -35,6 +31,7 @@
     "bench:fanout:agents": "vitest --run --project browser-bench fanout-agents.benchmark",
     "bench:all": "vitest --run --project browser-bench",
     "deploy": "bash scripts/deploy.sh",
+    "deploy:test": "bash scripts/deploy-test.sh",
     "deploy:test-worker": "bash -c 'source scripts/git-stamp.sh && wrangler deploy --config test/browser/worker/wrangler.jsonc \"${WRANGLER_DEFINE_ARGS[@]}\"'",
     "types": "wrangler types",
     "audit:migrations": "node scripts/audit-migrations.mjs",
@@ -50,40 +47,42 @@
   "author": "Lumenize",
   "license": "UNLICENSED",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.15.1",
+    "@cloudflare/vitest-plugin": "1.3.6",
+    "@lumenize/email-test": "*",
     "@lumenize/testing": "*",
     "@types/jsdom": "^21.1.7",
-    "@vitest/browser": "4.1.4",
-    "@vitest/browser-playwright": "4.1.4",
-    "@vitest/coverage-istanbul": "4.1.4",
+    "@vitest/browser": "4.1.10",
+    "@vitest/browser-playwright": "4.1.10",
+    "@vitest/coverage-istanbul": "4.1.10",
+    "@vue/compiler-sfc": "3.6.0-rc.10",
     "agents": "^0.14.2",
     "daisyui": "5.5.23",
-    "http-proxy": "^1.18.1",
     "jsdom": "^25.0.1",
     "lucide-vue-next": "1.0.0",
     "playwright": "^1.48.2",
+    "typescript": "^5.9.2",
     "unplugin-swc": "^1.5.9",
-    "vitest": "4.1.4",
-    "wrangler": "^4.86.0"
+    "vitest": "4.1.10",
+    "vue": "3.6.0-rc.10",
+    "wrangler": "4.147.0"
   },
   "dependencies": {
-    "@cloudflare/shell": "^0.4.0",
-    "@lumenize/auth": "*",
+    "@cloudflare/computer": "0.3.2",
+    "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
-    "@lumenize/nebula-auth": "*",
+    "@lumenize/resources": "*",
     "@lumenize/routing": "*",
+    "@lumenize/sql-migrations": "*",
     "@lumenize/structured-clone": "*",
     "@lumenize/ts-runtime-parser-validator": "*",
-    "@vue/compiler-sfc": "^3.5.13",
-    "isomorphic-git": "^1.38.4",
-    "@vue/reactivity": "^3.5.13",
-    "@vue/runtime-core": "^3.5.13",
-    "typescript": "^5.9.2",
-    "vue": "^3.5.13"
+    "@platformatic/vfs": "^0.4.0",
+    "@vue/reactivity": "3.6.0-rc.10",
+    "@vue/runtime-core": "3.6.0-rc.10",
+    "isomorphic-git": "^1.38.4"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.15.1",
-    "vitest": "4.1.4"
+    "@cloudflare/vitest-plugin": "^1.3.6",
+    "vitest": "4.1.10"
   }
 }

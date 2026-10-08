@@ -18,14 +18,15 @@ import {
   type ServerBatchResponse,
   type ServerResourceResult,
   type Snapshot,
-} from '../../src/frontend/conflict-outcome';
-import type { NebulaStoreAdapter, ResourceSubscription } from '../../src/nebula-client';
-import type { StoreClient } from '../../src/frontend/types';
+} from '../../../../packages/resources/src/frontend/conflict-outcome';
+import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, ProfileSubscription, SubscriberListSubscription, SubscriberRosterDelivery } from '../../../../packages/resources/src/nebula-client';
+import type { QueryDescriptor, SubscriberEntry } from '../../../../packages/resources/src/query-hash';
+import type { StoreClient } from '../../../../packages/resources/src/frontend/types';
 import type { ConnectionState } from '@lumenize/mesh/client';
-import type { QueueSubmission } from '../../src/frontend/debounce';
-import type { Snapshot as WireSnapshot } from '../../src/resources';
+import type { QueueSubmission } from '../../../../packages/resources/src/frontend/debounce';
+import type { Snapshot as WireSnapshot } from '../../../../packages/resources/src/snapshots';
 
-/** Per-resource server fact (what `Star.transaction` resolves to per op). */
+/** Per-resource server fact (what `Star.resources.transaction` resolves to per op). */
 export type MockServerResult = ServerResourceResult;
 
 let etagCounter = 0;
@@ -36,6 +37,12 @@ export class MockClient implements StoreClient {
   txns: Array<{ rt: string; rid: string; eTag: string; value: unknown; newETag: string }> = [];
   subscribes: Array<{ rt: string; rid: string }> = [];
   unsubscribes: Array<{ rt: string; rid: string }> = [];
+  /** Dedicated global-Profile channel recorders (kept SEPARATE from `subscribes`, which are resources). */
+  profileSubscribes: Array<{ profileId: string }> = [];
+  profileUnsubscribes: Array<{ profileId: string }> = [];
+  /** Subscriber-list (roster) channel recorders. */
+  querySubscribersSubscribes: Array<{ query: QueryDescriptor }> = [];
+  querySubscribersUnsubscribes: Array<{ query: QueryDescriptor }> = [];
 
   /** Programmable per-submission server response. Default: commit with a fresh eTag. */
   txnResponder: (sub: QueueSubmission) => MockServerResult =
@@ -43,6 +50,8 @@ export class MockClient implements StoreClient {
 
   /** Programmable subscribe response (reject to exercise the auto-subscribe error path). */
   subscribeResponder: (rt: string, rid: string) => Promise<unknown> = async () => null;
+  /** Programmable profile-subscribe response. */
+  profileSubscribeResponder: (profileId: string) => Promise<unknown> = async () => null;
 
   connectionState: ConnectionState = 'disconnected';
 
@@ -50,6 +59,8 @@ export class MockClient implements StoreClient {
   #engine: ConflictOutcomeEngine;
   #connHandler: ((state: ConnectionState) => void) | null = null;
   #orgTreeHandler: ((state: unknown) => void) | null = null;
+  #profileHandler: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null = null;
+  #querySubscribersHandler: ((delivery: SubscriberRosterDelivery) => void) | null = null;
 
   constructor(opts: { quietMs?: number; maxWaitMs?: number; timeoutMs?: number } = {}) {
     // Mirror NebulaClient: instantiate the engine over the bound adapter +
@@ -85,12 +96,52 @@ export class MockClient implements StoreClient {
     this.#orgTreeHandler = handler;
   }
 
+  onProfileUpdate(handler: (profileId: string, snapshot: ProfileChannelSnapshot | null) => void): void {
+    this.#profileHandler = handler;
+  }
+
+  subscribeProfile(profileId: string): ProfileSubscription {
+    this.profileSubscribes.push({ profileId });
+    const snapshot = this.profileSubscribeResponder(profileId) as Promise<never>;
+    let disposed = false;
+    return {
+      snapshot,
+      [Symbol.dispose]: (): void => {
+        if (disposed) return;
+        disposed = true;
+        this.profileUnsubscribes.push({ profileId });
+      },
+    };
+  }
+
+  onQuerySubscribersUpdate(handler: (delivery: SubscriberRosterDelivery) => void): void {
+    this.#querySubscribersHandler = handler;
+  }
+
+  subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription {
+    this.querySubscribersSubscribes.push({ query });
+    let disposed = false;
+    return {
+      ready: Promise.resolve(),
+      [Symbol.dispose]: (): void => {
+        if (disposed) return;
+        disposed = true;
+        this.querySubscribersUnsubscribes.push({ query });
+      },
+    };
+  }
+
   flush(rt?: string, rid?: string): void {
     this.#engine.flush(rt, rid);
   }
 
   dispose(): Promise<void> {
     return this.#engine.dispose();
+  }
+
+  /** The engine's explicit-ops entry, which `client.resources.transaction(ops)` reaches. */
+  transactionOps(ops: Parameters<ConflictOutcomeEngine['transactionOps']>[0]) {
+    return this.#engine.transactionOps(ops);
   }
 
   readonly resources = {
@@ -103,6 +154,9 @@ export class MockClient implements StoreClient {
       let disposed = false;
       return {
         snapshot,
+        // The mock never denies; `nebula-client-denied.test.ts` drives the real client for that.
+        deniedNodes: [],
+        onChange: (): void => {},
         [Symbol.dispose]: (): void => {
           if (disposed) return;
           disposed = true;
@@ -112,7 +166,12 @@ export class MockClient implements StoreClient {
     },
   };
 
-  /** Test helper: simulate a server-side fanout push (drives hold-pending-fanouts). */
+  /**
+   * Test helper: simulate a server-side fanout push (drives hold-pending-fanouts). Unlike the real
+   * client's `handleResourceUpdate`, it records no read access first (`applyDenied`), so an entry it
+   * creates has no `deniedNodes`. A store default added only to make that entry whole serves the
+   * mock, not the product.
+   */
   simulateFanout(rt: string, rid: string, snapshot: Snapshot): void {
     this.#engine.notifyFanout(rt, rid, snapshot);
   }
@@ -129,6 +188,17 @@ export class MockClient implements StoreClient {
     this.#orgTreeHandler?.(state);
   }
 
+  /** Test helper: simulate a global-Profile delivery (subscribeProfile snapshot / fanout). */
+  simulateProfileFanout(profileId: string, snapshot: ProfileChannelSnapshot | null): void {
+    this.#profileHandler?.(profileId, snapshot);
+  }
+
+  /** Test helper: simulate a subscriber-list roster delivery (drives the store landing). */
+  simulateRoster(query: QueryDescriptor, roster: SubscriberEntry[]): void {
+    const queryHash = `${query.typeName}.${query.field}.${query.value}`;
+    this.#querySubscribersHandler?.({ queryHash, query, roster });
+  }
+
   #submit(subs: QueueSubmission[]): Promise<ServerBatchResponse> {
     for (const s of subs) {
       this.txns.push({ rt: s.rt, rid: s.rid, eTag: s.eTag, value: s.value, newETag: s.newETag });
@@ -140,5 +210,9 @@ export class MockClient implements StoreClient {
     this.txns = [];
     this.subscribes = [];
     this.unsubscribes = [];
+    this.profileSubscribes = [];
+    this.profileUnsubscribes = [];
+    this.querySubscribersSubscribes = [];
+    this.querySubscribersUnsubscribes = [];
   }
 }

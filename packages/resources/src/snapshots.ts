@@ -1,0 +1,703 @@
+/**
+ * Snapshots — temporal storage engine inside every host's resources plane
+ *
+ * Encapsulates Snodgrass-style snapshot storage for resources attached to
+ * org-tree nodes. Uses the host's SQLite and OrgTree's permission system.
+ * Follows the same constructor-injection pattern as OrgTree.
+ */
+
+import type { CallContext } from '@lumenize/mesh';
+import type { AuthClaims } from '@lumenize/mesh';
+// ⚠️ VALUE import from Mesh's `/client` subpath, NEVER its root: this module sits in the Node-safe
+// client value graph (`client-index.ts` re-exports `END_OF_TIME`), and Mesh's root exports
+// `ScopedMeshDO`, which pulls `cloudflare:workers`. `/client` is pure, and `projectActingToken` is
+// ADR-016's ONE shared projection; no site assembles its own record.
+import { projectActingToken, prependActor } from '@lumenize/mesh/client';
+import type { ActingTokenRecord } from '@lumenize/mesh/client';
+import { debug } from '@lumenize/debug';
+import { PermissionDeniedError, WipedMidTransactionError } from './errors';
+import type {
+  ParserValidator,
+  ParseRequest,
+  ValidationError,
+} from '@lumenize/ts-runtime-parser-validator/runtime';
+import { stringify, parse } from '@lumenize/structured-clone';
+import type { OrgTree } from './org-tree';
+import type { PermissionTier } from './org-ops';
+
+// ─── Constants ─────────────────────────────────────────────────────
+
+export const END_OF_TIME = '9999-01-01T00:00:00.000Z';
+
+// ─── Types ─────────────────────────────────────────────────────────
+
+/**
+ * The CLIENT-BOUND attribution projection of the stored ADR-016 record — an ALLOW-LIST (pick, never
+ * subtract): identity (`sub` + the complete `act` chain, actor `profileId`s included — display-only,
+ * public per ADR-012/013) plus the subject's `profileId`, and nothing else. The column stores the full
+ * `ActingTokenRecord` including the asserted `access`; `access` never rides a snapshot off the DO —
+ * a reader has no claim to the writer's asserted authority, and ADR-016 already forbids reading it
+ * back as an authz input. Allow-list so a field later added to the record stays withheld without
+ * anyone deciding (the same shape as ADR-012's private-by-default).
+ */
+export interface WireActingToken {
+  /** The token's SUBJECT. ⚠️ Under impersonation this is the person acted UPON; the actor is `act.sub`. */
+  sub: string;
+  act?: AuthClaims['act'];
+  profileId: string;
+}
+
+export interface SnapshotMeta {
+  nodeId: string;
+  typeName: string;
+  ontologyVersion: string;
+  eTag: string;
+  validFrom: string;
+  validTo: string;
+  actingToken: WireActingToken;
+  deleted: boolean;
+}
+
+export interface Snapshot {
+  value: any;
+  meta: SnapshotMeta;
+}
+
+export type OperationDescriptor =
+  | { op: 'create'; nodeId: string; typeName: string; value: any }
+  | { op: 'put';    eTag: string; value: any }
+  | { op: 'move';   eTag: string; nodeId: string }
+  | { op: 'delete'; eTag: string };
+
+export type TransactionError =
+  | { type: 'conflict'; currentSnapshot: Snapshot }
+  | { type: 'validation'; errors: ValidationError[] }
+  | { type: 'permission'; requiredTier: PermissionTier; nodeId: string };
+
+export type TransactionResult =
+  | { ok: true;  eTags: Record<string, string> }
+  | { ok: false; errors: Record<string, TransactionError> };
+
+/**
+ * Options for {@link Snapshots.transaction}.
+ *
+ * `actor` is the SERVER-COMPOSED delegation entry appended (RFC 8693 prepend — the new
+ * outermost `act`) onto the record projected from `callContext.originAuth` — how a Nebula
+ * reply runs under the TRIGGERING HUMAN's authority while recording Nebula as the actor.
+ * Chat-agnostic: the option IS the actor pair, nothing here names an agent. ⚠️ Both fields
+ * MUST be server-supplied (a reserved constant, or a verified claim) — nothing a wire caller
+ * reaches may accept or forward a client-supplied `actor` (the trust fence: a client could
+ * otherwise forge `act: { sub: NEBULA_SUB }` and dress its message as Nebula's). The door's
+ * `transaction` takes three arguments and the plane's `doTransaction` takes no options, so only
+ * the host-only `ensureResource` can supply one. ADR-016 blesses a server-composed actor inside a claims-shaped record.
+ */
+export interface TransactionOpts {
+  /** Post-commit hook, invoked with the written snapshots (fanout + query reruns). */
+  onMutations?: (mutations: Map<string, Snapshot>) => void;
+  /** Server-composed actor appended as the outermost `act` chain entry. */
+  actor?: { sub: string; profileId: string };
+  /** False once the plane that started this transaction has been wiped. Checked after
+   *  validation's `await`, the one place a commit can pause, so a commit that paused across a
+   *  wipe writes nothing into the rebuilt tables and throws {@link WipedMidTransactionError}. */
+  stillCurrent?: () => boolean;
+  /** The DOOR's verdict covers this commit: the caller was admitted at the post that
+   *  triggered a turn, and the turn finishes under the authority it started with — a
+   *  grant revoked or a token expired mid-turn does not refuse its reply (Larry,
+   *  2026-09-06). Step 8's per-op DAG check is skipped. SERVER-COMPOSED ONLY, the same
+   *  trust fence as `actor`: only the host-only `ensureResource` supplies it. */
+  pinnedAtPost?: true;
+}
+
+/** Allow-list pick for the wire — see {@link WireActingToken}. */
+function toWireActingToken(rec: ActingTokenRecord): WireActingToken {
+  return {
+    sub: rec.sub,
+    ...(rec.act && { act: rec.act }),
+    profileId: rec.profileId,
+  };
+}
+
+/** Structural walk shape for {@link identityKey} — both the stored record and the wire projection fit. */
+type ActChainLike = { sub: string; act?: ActChainLike };
+
+/**
+ * The same-actor coalesce key — IDENTITY ONLY: the subject's `sub` plus the `act` chain's `sub`s, in
+ * chain order. The stored record must NOT be the key: the coalesce window (1 h) spans several 15-min
+ * tokens, so keying on anything a re-mint or a mid-session event can change would stop an editing
+ * session coalescing and multiply rows on the highest-volume write path — `access` flips on a
+ * mid-window promotion, and a `profileId` (the subject's or an actor's) re-points on a future
+ * `sub`-unification. Identity is what "same actor" means.
+ */
+function identityKey(t: { sub: string; act?: ActChainLike }): string {
+  const subs: string[] = [t.sub];
+  for (let a = t.act; a; a = a.act) subs.push(a.sub);
+  return JSON.stringify(subs);
+}
+
+// ─── Snapshots Class ───────────────────────────────────────────────
+
+export class Snapshots {
+  #ctx: DurableObjectState;
+  #getCallContext: () => CallContext;
+  #orgTree: OrgTree;
+
+  constructor(
+    ctx: DurableObjectState,
+    getCallContext: () => CallContext,
+    orgTree: OrgTree,
+  ) {
+    this.#ctx = ctx;
+    this.#getCallContext = getCallContext;
+    this.#orgTree = orgTree;
+    this.#createSchema();
+    this.#bootstrapConfig();
+  }
+
+  // ─── Schema & Config ──────────────────────────────────────────────
+
+  #createSchema() {
+    this.#ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS Snapshots (
+        resourceId TEXT NOT NULL,
+        nodeId TEXT NOT NULL,
+        typeName TEXT NOT NULL,
+        ontologyVersion TEXT NOT NULL,
+        validFrom TEXT NOT NULL,
+        validTo TEXT NOT NULL DEFAULT '${END_OF_TIME}',
+        eTag TEXT NOT NULL,
+        actingToken TEXT NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+        value TEXT NOT NULL,
+        PRIMARY KEY (resourceId, validFrom),
+        FOREIGN KEY (nodeId) REFERENCES Nodes(nodeId)
+      ) WITHOUT ROWID;
+
+      CREATE INDEX IF NOT EXISTS idx_Snapshots_current
+        ON Snapshots(resourceId, validTo)
+        WHERE validTo = '${END_OF_TIME}';
+    `);
+  }
+
+  #bootstrapConfig() {
+    const config = this.#ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
+    let dirty = false;
+    if (!('coalesceWindowMs' in config)) { config.coalesceWindowMs = 3_600_000; dirty = true; }
+    if (dirty) this.#ctx.storage.kv.put('config', config);
+  }
+
+  // ─── Private Helpers ──────────────────────────────────────────────
+
+  #getCurrentSnapshot(resourceId: string): Snapshot | null {
+    const rows = this.#ctx.storage.sql.exec(
+      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, actingToken, deleted, value
+       FROM Snapshots
+       WHERE resourceId = ? AND validTo = ?`,
+      resourceId, END_OF_TIME,
+    ).toArray();
+
+    if (rows.length === 0) return null;
+
+    const row = rows[0];
+    return {
+      value: parse(row.value as string),
+      meta: {
+        nodeId: row.nodeId as string,
+        typeName: row.typeName as string,
+        ontologyVersion: row.ontologyVersion as string,
+        eTag: row.eTag as string,
+        validFrom: row.validFrom as string,
+        validTo: row.validTo as string,
+        // The ONE wire choke point: every outbound Snapshot — read(), a conflict's currentSnapshot,
+        // the post-write fanout capture — is built here, so the allow-list projection here is what
+        // keeps the stored `access` inside the column.
+        actingToken: toWireActingToken(JSON.parse(row.actingToken as string) as ActingTokenRecord),
+        deleted: Boolean(row.deleted),
+      },
+    };
+  }
+
+  /**
+   * Calculate validFrom for a transaction batch.
+   *
+   * Uses Date.now() as the starting timestamp, then checks all resources in the
+   * batch — if Date.now() is <= any existing snapshot's validFrom, it advances
+   * to prev + 1. This is intentional and correct for Cloudflare Workers where
+   * the clock doesn't advance during synchronous execution: for a multi-resource
+   * transaction, the result is always at least 1ms above the highest existing
+   * validFrom across all resources.
+   */
+  #calculateValidFrom(currentSnapshots: Map<string, Snapshot | null>): string {
+    let ts = Date.now();
+
+    for (const [, snap] of currentSnapshots) {
+      if (snap) {
+        const prev = new Date(snap.meta.validFrom).getTime();
+        if (ts <= prev) {
+          ts = prev + 1;
+        }
+      }
+    }
+
+    return new Date(ts).toISOString();
+  }
+
+  /** Project the caller's verified claims into the ADR-016 record; when a server-composed
+   *  `actor` is supplied, prepend it as the new OUTERMOST `act` entry via the ONE shared
+   *  `prependActor` helper (`@lumenize/mesh/client`) — preserving any pre-existing verified chain
+   *  beneath (an impersonated session's committed message triggering Nebula yields the
+   *  two-level chain; a flatten would drop the delegation). */
+  #buildActingToken(actor?: { sub: string; profileId: string }): ActingTokenRecord {
+    const cc = this.#getCallContext();
+    const payload = cc.originAuth?.claims as unknown as AuthClaims;
+    const record = projectActingToken(payload);
+    if (actor) return { ...record, act: prependActor(record.act, actor) };
+    return record;
+  }
+
+  #writeSnapshot(
+    resourceId: string,
+    current: Snapshot | null,
+    op: OperationDescriptor,
+    validFrom: string,
+    eTag: string,
+    actingToken: ActingTokenRecord,
+    typeName: string,
+    ontologyVersion: string,
+  ): void {
+    const config = this.#ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
+    const coalesceWindowMs = (config.coalesceWindowMs as number) ?? 3_600_000;
+
+    // Determine new values based on op type
+    let nodeId: string;
+    let value: string;
+    let deleted: boolean;
+
+    switch (op.op) {
+      case 'create':
+        nodeId = op.nodeId;
+        value = stringify(op.value);
+        deleted = false;
+        break;
+      case 'put':
+        nodeId = current!.meta.nodeId;
+        value = stringify(op.value);
+        deleted = current!.meta.deleted;
+        break;
+      case 'move':
+        // Move to same node — idempotent no-op handled by caller
+        nodeId = op.nodeId;
+        value = stringify(current!.value);
+        deleted = current!.meta.deleted;
+        break;
+      case 'delete':
+        nodeId = current!.meta.nodeId;
+        value = stringify(current!.value);
+        deleted = true;
+        break;
+    }
+
+    // The FULL record goes into the column (ADR-016: `sub` + complete `act` chain + `profileId` +
+    // asserted `access`); the wire copies are projected at #getCurrentSnapshot.
+    const actingTokenJson = JSON.stringify(actingToken);
+
+    // Coalesce check: same actor within window overwrites in place. "Same actor" is decided by
+    // identityKey — NEVER by comparing the stored records, which now carry claims a re-mint can
+    // change mid-window (see identityKey's JSDoc).
+    if (current && op.op !== 'create') {
+      const withinWindow = Date.now() - new Date(current.meta.validFrom).getTime() < coalesceWindowMs;
+      const sameActor = identityKey(current.meta.actingToken) === identityKey(actingToken);
+
+      if (withinWindow && sameActor) {
+        // Overwrite in place — same PK (resourceId, validFrom), new value/eTag
+        this.#ctx.storage.sql.exec(
+          `UPDATE Snapshots
+           SET nodeId = ?, typeName = ?, ontologyVersion = ?, eTag = ?, actingToken = ?, deleted = ?, value = ?
+           WHERE resourceId = ? AND validFrom = ?`,
+          nodeId, typeName, ontologyVersion, eTag, actingTokenJson, deleted ? 1 : 0, value,
+          resourceId, current.meta.validFrom,
+        );
+        return;
+      }
+
+      // New timeline entry: close current snapshot
+      this.#ctx.storage.sql.exec(
+        `UPDATE Snapshots SET validTo = ? WHERE resourceId = ? AND validFrom = ?`,
+        validFrom, resourceId, current.meta.validFrom,
+      );
+    }
+
+    // Insert new snapshot
+    this.#ctx.storage.sql.exec(
+      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, actingToken, deleted, value)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, eTag, actingTokenJson, deleted ? 1 : 0, value,
+    );
+  }
+
+  // ─── Public API ───────────────────────────────────────────────────
+
+  read(resourceId: string): Snapshot | null {
+    const snapshot = this.#getCurrentSnapshot(resourceId);
+    if (!snapshot) return null;
+
+    // Permission check — throws on failure
+    this.#orgTree.requirePermission(snapshot.meta.nodeId, 'read');
+    return snapshot;
+  }
+
+  /**
+   * The current type name of a resource, or `undefined` if it has no live snapshot — with NO
+   * permission check and nothing else from the snapshot. A resource subscribe denied on the node
+   * uses it to refuse a subscriber who named the wrong type without saying what the right one
+   * is; nothing reaches it from the wire.
+   */
+  currentTypeName(resourceId: string): string | undefined {
+    const row = this.#ctx.storage.sql.exec(
+      `SELECT typeName FROM Snapshots WHERE resourceId = ? AND validTo = ?`,
+      resourceId, END_OF_TIME,
+    ).toArray()[0];
+    return row ? (row.typeName as string) : undefined;
+  }
+
+  /**
+   * Enumerate the CURRENT resources of `typeName` whose to-one relationship
+   * `field` equals `fieldValue` — the v1 `parentChild` query primitive (Child 2,
+   * M1). Returns `{ resourceId, nodeId, validFrom }` ordered by
+   * `(validFrom, resourceId)` (D15 — `validFrom` is server-stamped/chronological,
+   * `resourceId` the deterministic tiebreaker for co-created rows).
+   *
+   * **No permission check here** — membership authorization happens at delivery
+   * (the per-target `evaluatePermissions` in the membership-delivery routine);
+   * each resource's CONTENT still requires a per-resource read on subscribe.
+   *
+   * The FK is extracted in **JS from the structured-clone value at scan time**,
+   * never `json_extract` over the blob — the query layer keys off the ontology
+   * semantic model, not the storage serialization. This is a full scan of the
+   * type's current snapshots (the deferred D8 index swaps the WHERE/source here,
+   * same signature); deleted + superseded rows are excluded.
+   */
+  enumerateCurrentByField(
+    typeName: string,
+    field: string,
+    fieldValue: string,
+  ): Array<{ resourceId: string; nodeId: string; validFrom: string }> {
+    const rows = this.#ctx.storage.sql.exec(
+      `SELECT resourceId, nodeId, validFrom, value
+       FROM Snapshots
+       WHERE typeName = ? AND validTo = ? AND deleted = 0
+       ORDER BY validFrom, resourceId`,
+      typeName, END_OF_TIME,
+    ).toArray();
+
+    const matches: Array<{ resourceId: string; nodeId: string; validFrom: string }> = [];
+    for (const row of rows) {
+      const value = parse(row.value as string);
+      if (value != null && value[field] === fieldValue) {
+        matches.push({
+          resourceId: row.resourceId as string,
+          nodeId: row.nodeId as string,
+          validFrom: row.validFrom as string,
+        });
+      }
+    }
+    return matches;
+  }
+
+  async transaction(
+    ops: Record<string, OperationDescriptor>,
+    ontologyVersion: string,
+    newETag: string,
+    facet: ParserValidator,
+    opts: TransactionOpts = {},
+  ): Promise<TransactionResult> {
+    const { onMutations, actor, pinnedAtPost, stillCurrent } = opts;
+    // Empty ops — no-op
+    const entries = Object.entries(ops);
+    if (entries.length === 0) return { ok: true, eTags: {} };
+
+    // Validate resourceIds
+    for (const [resourceId] of entries) {
+      if (!resourceId) throw new Error('resourceId must not be empty');
+    }
+
+    // Step 1: Read current snapshots outside transaction (for validFrom calculation)
+    const currentSnapshots = new Map<string, Snapshot | null>();
+    for (const [resourceId] of entries) {
+      currentSnapshots.set(resourceId, this.#getCurrentSnapshot(resourceId));
+    }
+
+    // Step 2: Calculate single validFrom
+    const validFrom = this.#calculateValidFrom(currentSnapshots);
+
+    // Step 3: Use the caller-supplied per-transaction eTag (one for the whole
+    // batch). The client generates this so it can also serve as the
+    // idempotency key — if a retry lands and every resource is already at
+    // this eTag, Step 9 short-circuits to a `committed` result without
+    // writing again.
+    const eTag = newETag;
+
+    // Step 4: Build the acting-token record from callContext (+ any server-composed actor)
+    const actingToken = this.#buildActingToken(actor);
+
+    // Step 4.5: Monotonic pre-checks (before the validator). Run against
+    // `currentSnapshots` (already read at Step 1 — no extra reads) so a doomed
+    // or already-applied transaction skips the ~1.4 ms validator facet call.
+    // They may ONLY act on a conclusion a concurrent commit can't reverse
+    // between the Step-1 read and the txn: a replay (commit is irreversible)
+    // and an eTag conflict (eTags are forward-only, so `current ≠ op.eTag`
+    // stays true). Op-existence and permissions are NOT monotonic (a
+    // concurrent create/grant could flip them), so they stay authoritative
+    // inside transactionSync. Everything here is re-decided authoritatively in
+    // the txn — optimization, not correctness. Only 4.5a may fast-fail
+    // (early-return), and it discloses nothing but eTags. 4.5b deliberately
+    // returns NOTHING to the caller: disclosing a snapshot must wait for the
+    // Step-8 permission gate (an early conflict return carrying
+    // `currentSnapshot` would hand any authenticated user a permission-free
+    // read via a wrong-eTag put). Idempotency MUST precede the conflict scan:
+    // a replay has `current.eTag === newETag` while `op.eTag` is the old
+    // baseline, which the conflict scan would otherwise mis-flag.
+
+    // Step 4.5a — Idempotency replay: any resource already at `newETag` means
+    // this exact transaction committed (newETag is a fresh per-attempt UUID
+    // written to the whole batch atomically at Step 10; `.some`, not `.every`,
+    // so a sibling since-mutated by a third party doesn't hide the replay).
+    if (entries.some(([resourceId]) => currentSnapshots.get(resourceId)?.meta.eTag === newETag)) {
+      const eTags: Record<string, string> = {};
+      for (const [resourceId] of entries) eTags[resourceId] = newETag;
+      return { ok: true, eTags };
+    }
+
+    // Step 4.5b — eTag-conflict validation skip (a hint, never a verdict): a
+    // present resource whose current eTag mismatches the op's baseline can't
+    // revert, so it WILL conflict at Step 9 — skip its validator work (on the
+    // use-this path the value gets superseded by the merge anyway). The
+    // conflict verdict — and the `currentSnapshot` disclosure — happens ONLY
+    // at Step 9, after the Step-8 permission gate. Skipping validation here is
+    // also what makes conflict win over an invalid value when both co-occur on
+    // one resource (its validation never runs). In a batch mixing a
+    // conflict-suspect with an invalid SIBLING, the sibling's validation
+    // failure still fails the batch first; the suspect's conflict surfaces on
+    // the retry. Absent `current` (not-found) is deferred to the authoritative
+    // Step 7; it isn't monotonic.
+    const conflictSuspects = new Set<string>();
+    for (const [resourceId, op] of entries) {
+      if (op.op === 'create') continue;
+      const current = currentSnapshots.get(resourceId);
+      if (current && current.meta.eTag !== (op as { eTag?: string }).eTag) {
+        conflictSuspects.add(resourceId);
+      }
+    }
+
+    // Step 5: Parse + validate via facet (one batch call). `parse()` fills
+    // `@default` values into a fresh object per item; on success we write
+    // `result.data` back so downstream Step 7+ sees the filled value.
+    // Skip ops where validation can't or shouldn't run — Step 7 catches them.
+    const requests = new Map<string, ParseRequest>();
+    for (const [resourceId, op] of entries) {
+      if (conflictSuspects.has(resourceId)) continue; // doomed to conflict at Step 9 — don't validate
+      if (op.op === 'create') {
+        if (op.value == null) continue;
+        requests.set(resourceId, { value: op.value, typeName: op.typeName });
+      } else if (op.op === 'put') {
+        if (op.value == null) continue;
+        const current = currentSnapshots.get(resourceId);
+        if (!current) continue;
+        requests.set(resourceId, { value: op.value, typeName: current.meta.typeName });
+      }
+      // delete and move — no validation needed
+    }
+
+    const validationErrors: Record<string, TransactionError> = {};
+    if (requests.size > 0) {
+      const log = debug('nebula.Snapshots.transaction');
+      let results;
+      try {
+        results = await facet.parseBatch(requests);
+      } catch (err) {
+        // Facet load failure (Worker Loader compile error), RPC transport
+        // failure, or unexpected internal error. Validation failures don't
+        // throw — they come back as `{ valid: false, errors }` in the result.
+        log.error('facet.parseBatch threw', {
+          ontologyVersion,
+          requestCount: requests.size,
+          typeNames: [...new Set([...requests.values()].map(r => r.typeName))],
+          error: err instanceof Error ? err.message : String(err),
+          name: err instanceof Error ? err.name : undefined,
+        });
+        throw err;
+      }
+      for (const [resourceId, result] of results) {
+        if (result.valid) {
+          const op = ops[resourceId];
+          if (op.op === 'create' || op.op === 'put') {
+            op.value = result.data;
+          }
+        } else {
+          validationErrors[resourceId] = { type: 'validation', errors: result.errors };
+        }
+      }
+      const failureCount = Object.keys(validationErrors).length;
+      if (failureCount > 0) {
+        log.warn('validation failures', {
+          ontologyVersion,
+          count: failureCount,
+          requestCount: requests.size,
+          sampleErrors: Object.entries(validationErrors).slice(0, 3).map(
+            ([id, e]) => ({ resourceId: id, errors: (e as { type: 'validation'; errors: ValidationError[] }).errors }),
+          ),
+        });
+      }
+    }
+    if (Object.keys(validationErrors).length > 0) {
+      return { ok: false, errors: validationErrors };
+    }
+    if (stillCurrent && !stillCurrent()) throw new WipedMidTransactionError();
+
+    // Steps 6–10: Atomic transaction
+    let result: TransactionResult = { ok: true, eTags: {} };
+    const writtenSnapshots = new Map<string, Snapshot>();
+
+    this.#ctx.storage.transactionSync(() => {
+      // Step 6: Re-read inside transaction (authoritative for eTag checking)
+      const authoritative = new Map<string, Snapshot | null>();
+      for (const [resourceId] of entries) {
+        authoritative.set(resourceId, this.#getCurrentSnapshot(resourceId));
+      }
+
+      // Step 6.5: Authoritative idempotency replay check. The Step-4.5a
+      // pre-check catches most replays before the validator, but two retries
+      // with the same newETag can interleave at the validator's await — the
+      // first commits between this retry's Step-1 read and its Step-6 re-read,
+      // so only the authoritative re-read here sees `newETag` and stops Step 7
+      // from throwing "already exists" on a legitimate retry. Must run before
+      // op-validation, permissions, and the eTag check (a landed write must not
+      // be retroactively denied/conflicted on replay).
+      if (entries.some(([resourceId]) => authoritative.get(resourceId)?.meta.eTag === newETag)) {
+        const eTags: Record<string, string> = {};
+        for (const [resourceId] of entries) eTags[resourceId] = newETag;
+        result = { ok: true, eTags };
+        return;
+      }
+
+      // Step 7: Validate operations
+      for (const [resourceId, op] of entries) {
+        const current = authoritative.get(resourceId)!;
+
+        if (op.op === 'create') {
+          if (current) {
+            throw new Error(`Resource '${resourceId}' already exists — use put instead`);
+          }
+          if (op.value == null) {
+            throw new Error(`Value must not be null or undefined for create on '${resourceId}'`);
+          }
+        } else {
+          // put, move, delete — resource must exist
+          if (!current) {
+            throw new Error(`Resource '${resourceId}' not found`);
+          }
+          if (op.op === 'put' && op.value == null) {
+            throw new Error(`Value must not be null or undefined for put on '${resourceId}'`);
+          }
+        }
+      }
+
+      // Step 8: Permission checks. Collect all failures into a typed
+      // `TransactionError` rather than throwing on the first denial — the
+      // client wants to know about every affected resource, not just the
+      // first one it happened to ask about.
+      const permErrors: Record<string, TransactionError> = {};
+      for (const [resourceId, op] of entries) {
+        const current = authoritative.get(resourceId) ?? null;
+        if (pinnedAtPost) continue; // the door decided at the post — see TransactionOpts
+        try {
+          switch (op.op) {
+            case 'create':
+              this.#orgTree.requirePermission(op.nodeId, 'write');
+              break;
+            case 'put':
+            case 'delete':
+              this.#orgTree.requirePermission(current!.meta.nodeId, 'write');
+              break;
+            case 'move':
+              this.#orgTree.requirePermission(current!.meta.nodeId, 'write');
+              this.#orgTree.requirePermission(op.nodeId, 'write');
+              break;
+          }
+        } catch (e) {
+          // Permission denial is collected into a typed `TransactionError` so
+          // the client learns about every affected resource, not just the
+          // first one it asked about. Anything else (`NodeNotFoundError`,
+          // "Authentication required", system errors) signals client misuse
+          // or system failure and propagates up to the Star @mesh handler.
+          if (!(e instanceof PermissionDeniedError)) {
+            throw e;
+          }
+          // For 'move' both the source and destination are checked — record
+          // the first failing nodeId (source checked first); good enough
+          // for demo, refine if mover-targets need disambiguation.
+          permErrors[resourceId] = { type: 'permission', requiredTier: e.tier, nodeId: e.nodeId };
+        }
+      }
+
+      if (Object.keys(permErrors).length > 0) {
+        result = { ok: false, errors: permErrors };
+        return;
+      }
+
+      // Step 9: Check eTags — conflicts produce { ok: false }. This is the
+      // ONLY place a conflict is decided or a `currentSnapshot` disclosed —
+      // deliberately AFTER the Step-8 permission gate (the Step-4.5b scan only
+      // skips doomed validator work; it returns nothing to the caller). Runs
+      // against the in-txn snapshot, so it also catches conflicts that
+      // appeared during the validator's await and returns the freshest
+      // currentSnapshot for the resolver. Idempotency replays already
+      // returned at Step 6.5, so no resource here is at `newETag`.
+      const errors: Record<string, TransactionError> = {};
+      for (const [resourceId, op] of entries) {
+        if (op.op === 'create') continue;
+        const current = authoritative.get(resourceId)!;
+        if (current.meta.eTag !== (op as any).eTag) {
+          errors[resourceId] = { type: 'conflict', currentSnapshot: current };
+        }
+      }
+
+      if (Object.keys(errors).length > 0) {
+        result = { ok: false, errors };
+        return; // Exit transactionSync — nothing written, automatic rollback
+      }
+
+      // Step 10: Write all changes
+      const eTags: Record<string, string> = {};
+      for (const [resourceId, op] of entries) {
+        const current = authoritative.get(resourceId) ?? null;
+
+        // Move to same node — idempotent no-op (no write, no fanout)
+        if (op.op === 'move' && current && op.nodeId === current.meta.nodeId) {
+          eTags[resourceId] = current.meta.eTag;
+          continue;
+        }
+
+        const typeName = op.op === 'create'
+          ? op.typeName
+          : authoritative.get(resourceId)!.meta.typeName;
+        this.#writeSnapshot(resourceId, current, op, validFrom, eTag, actingToken, typeName, ontologyVersion);
+        eTags[resourceId] = eTag;
+
+        // Capture the post-write snapshot for fanout. Re-read inside the
+        // transactionSync so the captured value matches what was actually
+        // committed. Soft-delete carries `meta.deleted: true` — we pass the
+        // real Snapshot, never null, per the user-facing decision in 5.3.1.
+        const written = this.#getCurrentSnapshot(resourceId);
+        if (written) writtenSnapshots.set(resourceId, written);
+      }
+
+      result = { ok: true, eTags };
+    });
+
+    if (result.ok && writtenSnapshots.size > 0 && onMutations) {
+      onMutations(writtenSnapshots);
+    }
+
+    return result;
+  }
+}

@@ -6,7 +6,7 @@ import { getWebSocketShim } from './websocket-shim';
  * Creates a testing-optimized RPC client for Cloudflare Durable Objects.
  * 
  * **Environment Requirement**: This function can only be used within Cloudflare Workers
- * test environment (vitest with @cloudflare/vitest-pool-workers). It imports from
+ * test environment (vitest with @cloudflare/vitest-plugin). It imports from
  * `cloudflare:test` which is only available in that environment.
  * 
  * This is a convenience wrapper around `createRpcClient` that automatically:
@@ -47,7 +47,7 @@ import { getWebSocketShim } from './websocket-shim';
  * @param config - Optional configuration for downstream messaging and connection handling
  * @returns A proxy client that supports both RPC calls and lifecycle management
  * 
- * @throws {Error} Will fail to import if used outside vitest-pool-workers environment
+ * @throws {Error} Will fail to import if used outside vitest-plugin environment
  */
 export function createTestingClient<T>(
   doBindingName: string,

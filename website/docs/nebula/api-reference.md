@@ -1,17 +1,17 @@
 ---
 title: API reference
-description: API surface for @lumenize/nebula/frontend and the NebulaClient resources namespace.
+description: API surface for @lumenize/resources/frontend and the NebulaClient resources namespace.
 ---
 
 # API reference
 
-This page is the contract for the `@lumenize/nebula/frontend` factory + NebulaClient `resources` namespace. Every signature mentioned in [Coding your UI](./coding-your-ui.md) resolves to a section here. Conceptual explanations live there; this page is the lookup.
+This page is the contract for the `@lumenize/resources/frontend` factory + NebulaClient `resources` namespace. Every signature mentioned in [Coding your UI](./coding-your-ui.md) resolves to a section here. Conceptual explanations live there; this page is the lookup.
 
 ## Status legend
 
-Each surface below carries one tag describing its provenance. The tags captured the **as-of-5.3.7-v1** state and the contract for what 5.3.7-v3 would implement; v3 has since shipped them — the surfaces below now live in `apps/nebula/src/frontend/` + NebulaClient (`apps/nebula/src/nebula-client.ts`).
+Each surface below carries one tag describing its provenance. The tags captured the **as-of-5.3.7-v1** state and the contract for what 5.3.7-v3 would implement; v3 has since shipped them — the surfaces below now live in `packages/resources/src/frontend/` + NebulaClient (`packages/resources/src/nebula-client.ts`).
 
-- **`implemented-in-spike`** — validated in the Vue-in-DOM spike, then ported to `apps/nebula/src/frontend/` in v3. (The spike — `apps/nebula/spike/vue-factory/` — was removed after the port, in 5.3.7/P11.)
+- **`implemented-in-spike`** — validated in the Vue-in-DOM spike, then ported to `packages/resources/src/frontend/` in v3. (The spike — `apps/nebula/spike/vue-factory/` — was removed after the port, in 5.3.7/P11.)
 - **`new-in-v3`** — the spike didn't cover this; v3 designed and implemented it.
 - **`deferred-post-5.3.7`** — referenced for completeness but explicitly NOT shipping in 5.3.7 (v4/post-demo). These do not exist yet.
 
@@ -23,6 +23,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `client.resources.subscribe(rt, rid)` | implemented-in-spike | [resources.subscribe](#resourcessubscribe) |
 | `client.resources.createAndSubscribe(rt, rid, nodeId, value)` | new-in-v3 | [resources.createAndSubscribe](#resourcescreateandsubscribe) |
 | `client.resources.unsubscribe(rt, rid)` | implemented-in-spike | [resources.unsubscribe](#resourcesunsubscribe) |
+| `client.resources.subscribeQuery(query, options?)` | new-in-v3 | [resources.subscribeQuery](#resourcessubscribequery) |
 | `client.resources.read(rt, rid, options?)` | implemented-in-spike | [resources.read](#resourcesread) |
 | `client.resources.transaction(ops, options?)` | implemented-in-spike (single-resource happy path); new-in-v3 (per-resource outcomes, infrastructure-error, multi-resource) | [resources.transaction](#resourcestransaction) |
 | `client.resources.onTransactionResourceResolution(rt, handler, options?)` | new-in-v3 (replaces shipped `onETagConflict`) | [resources.onTransactionResourceResolution](#resourcesontransactionresourceresolution) |
@@ -31,16 +32,20 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `client.logout()` | new-in-v3 | [client.logout](#clientlogout) |
 | `client.orgTree.*` (org/permission tree mutations) | new-in-v3 | [client.orgTree](#clientorgtree) |
 | org/permission tree at `store.lmz.orgTree` (dedicated channel, not a resource) | new-in-v3 | [OrgTreeState](#orgtreestate) |
-| `ROOT_NODE_ID` (`= 1`) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
+| `ROOT_NODE_ID` (sentinel UUID) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
 | Reserved state paths (`store.resources.*`, `store.lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
 | `store.lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
+| `client.subscribeProfile(id)` (+ auto-subscribe on read) | new-in-v3 | [subscribeProfile](#subscribeprofile) |
+| `store.lmz.profiles[profileId].value.{name, nickname, picture}` | new-in-v3 | [store.lmz.profiles](#lmzprofiles) |
+| `client.subscribeQuerySubscribers(query)` (+ auto-subscribe on read) | new-in-v3 | [subscribeQuerySubscribers](#subscribequerysubscribers) |
+| `store.lmz.querySubscribers.<typeName>.<field>[value]` (live roster) | new-in-v3 | [store.lmz.querySubscribers](#lmzquerysubscribers) |
 | `textMerge(server, local, base)` helper | new-in-v3 | [textMerge](#textmerge) |
 | Handler `context.bindings` arg | deferred-post-5.3.7 | [Handler bindings](#handler-bindings) |
 | `TransactionOutcome` discriminated union (top-level, what `transaction()` resolves with) | implemented-in-spike (`'committed'` shape only); new-in-v3 (kinds `'committed'` / `'rejected'` / `'timeout'` / `'infrastructure-error'` / `'ontology-stale'`, `retryable` flag on failures) | [TransactionOutcome](#transactionoutcome) |
 | `TransactionResourceResolution` discriminated union (per-resource, what the handler receives) | new-in-v3 | [TransactionResourceResolution](#transactionresourceresolution) |
 | `ConflictResolverVerdict` (what the handler returns for `'conflict-pending'`) | implemented-in-spike (under old `ConflictResolution` name) | [ConflictResolverVerdict](#conflictresolververdict) |
 | `Snapshot` / `SnapshotMeta` (what reads, subscribes, and store entries hold) | implemented-in-spike (`meta.mimeType` new-in-v3) | [Snapshot](#snapshot) |
-| `client.claims` (inherited JWT payload) | inherited from `LumenizeClient` | [client.claims](#clientclaims) |
+| `client.claims` (inherited JWT payload) | inherited from `MeshClient` | [client.claims](#clientclaims) |
 
 ## `createNebulaClient` {#createnebulaclient}
 
@@ -60,15 +65,15 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 
 ### Config
 
-`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. In a browser session that has completed the auth discovery flow, **only `appVersion` is required** — all other fields auto-detect from the environment. The remaining fields stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no browser cookie or no same-origin server.
+`NebulaClientConfig` extends [`MeshClientConfig`](/docs/mesh/lumenize-client) (minus `refresh`, with `platformOrigin` required) with these additional fields. **No field names a scope**: the client takes its scope from its first token's `aud`, which the platform host's refresh mints for the page's host, and a call made before that token arrives waits for it. In a browser **every field auto-detects** from the page; they stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no page.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `appVersion` | `string` | required | Client's app version (lock-step with the server's ontology version). Auto-attached to every `resources.*` call. Studio's bootstrap substitutes this at deploy time; that's the entire reason Studio's `nebula.ts` has substitution markup. |
-| `baseUrl` | `string` | `window.location.origin` | Origin of the back end. Default works whenever UI and API share an origin, which is Nebula's standard deployment shape (the tenant's Star serves both). Specify only for cross-origin admin/scripting use. |
-| `authScope` | `string` | from deployment URL | The scope whose per-scope refresh endpoint (`/auth/{authScope}/refresh-token`) and path-scoped cookie this client uses. A deployed app is pinned to one scope, taken from the deployment URL (`window.location`). NOT readable from the refresh cookie (it's HttpOnly). Specify only for cross-origin admin/scripting callers. |
-| `activeScope` | `string` | same as `authScope` | The scope a call's JWT is bound to (`aud`) — where you're currently working. Defaults to `authScope`. A wildcard-grant admin (Galaxy/Universe) sets it to any scope under their pattern to work in a child Star or back in the parent (see [Auth flows § Admin active-scope switching](./auth-flows.md#admin-active-scope-switching-within-a-wildcard-grant)). Sent in the refresh body; the server gates it with `matchAccess`. Differs from `authScope` by at least the active branch once branches exist. |
-| `onShouldRefreshUI?` | `(info: OntologyStaleInfo) => void` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale. The arg type **`OntologyStaleInfo`** (`{ clientVersion: string; currentVersion: string; reason: 'ontology-stale' }`) is exported from `@lumenize/nebula/frontend` — note its `reason` field is distinct from the `'ontology-stale'` **`TransactionOutcome`** variant's `kind` (different objects: the hook receives `OntologyStaleInfo`; the awaited transaction resolves `{ kind: 'ontology-stale', clientVersion, currentVersion }`). Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.). **To opt out, pass an explicit no-op `() => {}`; omitting it keeps the default reload** (a stray `null` is coerced to the default too — there is no "disable" sentinel, by design). The default reload is once-guarded (a `sessionStorage` sentinel) so an immediate re-stale after the reload shows nothing rather than looping. |
+| `ontologyVersion` | `string` | injected | The **applied** ontology version this client's resource ops ride (the server enforces the match). Auto-attached to every `resources.*` call. It arrives in the server-injected `<meta name="nebula-scope">`, which the scaffold reads — there is no build-time substitution. **Absent until someone runs Apply**, and that is fine: the client still connects, authenticates and renders, and only `resources.*` refuses, with `NoOntologyInstalledError`. An app that uses no resources never needs one. |
+| `baseUrl` | `string` | `window.location.origin` | The page whose host is the client's scope, e.g. `https://tenant-a.app.acme.lumenize.dev`; its socket connects at `/gateway/` there. Specify only for admin/scripting use. |
+| `platformOrigin` | `string` | from the page | The platform host, where the client refreshes: `POST {platformOrigin}/auth/refresh-token` with `credentials: 'include'` and no body. Defaults to the platform host of the deployment the page's `<meta name="lumenize-origin">` names, at the page's own port. |
+| `parentOrigin` | `string` | from the page, in a frame | Where a framed page reports that it needs a login, posting `lumenize:login-required` to its parent at this origin instead of navigating. Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`; with neither, a framed page posts nothing. |
+| `onShouldRefreshUI?` | `(info: OntologyStaleInfo) => void` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale. The arg type **`OntologyStaleInfo`** (`{ clientVersion: string; currentVersion: string; reason: 'ontology-stale' }`) is exported from `@lumenize/resources/frontend` — note its `reason` field is distinct from the `'ontology-stale'` **`TransactionOutcome`** variant's `kind` (different objects: the hook receives `OntologyStaleInfo`; the awaited transaction resolves `{ kind: 'ontology-stale', clientVersion, currentVersion }`). Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.). **To opt out, pass an explicit no-op `() => {}`; omitting it keeps the default reload** (a stray `null` is coerced to the default too — there is no "disable" sentinel, by design). The default reload is once-guarded (a `sessionStorage` sentinel) so an immediate re-stale after the reload shows nothing rather than looping. |
 | `unsubscribeGraceMs` | `number` | `2000` | Grace period (ms) between binding-refcount reaching zero and `client.resources.unsubscribe` firing. New bindings inside the window cancel the pending unsubscribe. |
 
 ### Return shape
@@ -76,45 +81,40 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 | Field | Type | Description |
 | --- | --- | --- |
 | `client` | `NebulaClient` | Lower-level API. Use for explicit subscriptions, reads, transactions, resolver registration. |
-| `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. Seeded with `resources`, `lmz.connection`, and empty `ui` / `app` objects. |
-| `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with a `LoginRequiredError` (mesh's existing terminal-auth signal, also delivered via the `onLoginRequired` hook — there is no separate `AuthRequiredError`) on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor); the bootstrap catches it and redirects to the login / auth-discovery flow. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
+| `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. Seeded with `resources`, `lmz` (`connection`, `orgTree`, `profiles`, `querySubscribers`), and empty `ui` / `app` objects. |
+| `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with a `LoginRequiredError` (mesh's existing terminal-auth signal, also delivered via the `onLoginRequired` hook — there is no separate `AuthRequiredError`) on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor). By then the factory's default `onLoginRequired` has acted: a top-level page goes to the platform host's login with `return_to` naming it, and a framed page posts to its parent instead. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
 | `use(middleware)` | `(mw: Middleware) => () => void` | Register an additional middleware. Returns a deregistration function. Synced-state middleware is always-on; user-supplied middleware layers on top. |
-| `dispose()` | `() => void` | Same as [`client.dispose()`](#clientdispose): flush pending debounced writes, clear refcount + pending-unsubscribe timers, dispose internal scopes, and disconnect the underlying `LumenizeClient` WebSocket. |
+| `dispose()` | `() => void` | Same as [`client.dispose()`](#clientdispose): flush pending debounced writes, clear refcount + pending-unsubscribe timers, dispose internal scopes, and disconnect the underlying `MeshClient` WebSocket. |
 
 ### Example
 
 The Studio-generated `nebula.ts` in a browser app:
 
-```typescript @skip-check
-// nebula.ts (Studio bootstrap)
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+```typescript @check-example('apps/nebula/container/app/src/nebula.ts')
+// nebula.ts (the scaffold). The page names no scope: the client takes it from its first
+// token. `ontologyVersion` arrives in the server-injected `<meta name="nebula-scope">`,
+// and is absent until an Apply has run — a resource-free app boots without one.
+const { ontologyVersion } = readInjectedScope();
 
-export const { client, store, ready } = createNebulaClient({
-  appVersion: __APP_VERSION__,   // Studio substitutes at deploy time
-});
+// With no session, the factory sends a top-level page to log in and brings it back here, and a
+// page framed in Studio tells Studio instead; `ready` rejects either way.
+export const { client, store, ready } = createNebulaClient({ ontologyVersion });
 
-// Top-level await: main.ts (and every component) imports this module, so the
-// app mounts only after the first connection — client.claims is populated
-// before any component renders. See § client.claims.
-try {
-  await ready;
-} catch {
-  // Terminal auth failure (logged-out visitor) — go authenticate. Transient
-  // failures don't reject; they keep retrying behind a loading state.
-  window.location.assign('/login');
-}
+// Top-level await: main.ts (and every component) imports this module, so the app mounts
+// only after the first connection — client.claims is populated before any component
+// renders. See § client.claims.
+await ready.catch(() => { /* the factory has already acted on it */ });
 ```
 
-All other fields auto-detect: `baseUrl` from `window.location.origin`, `authScope` from the deployment URL (`window.location`) with `activeScope` defaulting to it, `onShouldRefreshUI` from the default reload.
+All other fields auto-detect: `baseUrl` from `window.location.origin`, `platformOrigin` from the page's `lumenize-origin` meta, `parentOrigin` (in a frame) from `nebula-scope`, and `onShouldRefreshUI` from the default reload.
 
 Admin/scripting form with all overrides explicit:
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const { client, store } = createNebulaClient({
-  baseUrl: 'https://my-app.example.com',
-  authScope: 'acme.app.tenant-a',
-  activeScope: 'acme.app.tenant-a',
-  appVersion: 'v42',
+  baseUrl: 'https://tenant-a.app.acme.lumenize.dev',   // the page whose scope the client works in
+  platformOrigin: 'https://platform.lumenize.dev',     // where its session lives
+  ontologyVersion: 'v42',
   onShouldRefreshUI: () => {},    // opt out of auto-reload (null/undefined both KEEP the default reload)
 });
 ```
@@ -129,16 +129,26 @@ See [Coding your UI § Building your UI on top of Resources](./coding-your-ui.md
 subscribe(resourceType: string, resourceId: string): ResourceSubscription;
 
 interface ResourceSubscription extends Disposable {
-  /** Resolves with the initial snapshot on the first server-side `handleResourceUpdate`
-   *  for `(rt, rid)`. Subsequent fanout updates write through to bound state but
-   *  do not re-resolve this promise. */
+  /** Resolves on the first server answer for `(rt, rid)`: the snapshot, or `null` when you
+   *  cannot read the resource (see `deniedNodes`). Later updates write through to bound
+   *  state but do not re-resolve it. Rejects for a missing resource or a wrong type. */
   readonly snapshot: Promise<Snapshot | null>;
+  /** The node you cannot read the resource under — `[]` when you can. */
+  readonly deniedNodes: string[];
+  /** Fired when access is lost or gained. */
+  onChange(cb: () => void): void;
   /** Manual unsubscribe; equivalent to leaving a `using` scope. */
   [Symbol.dispose](): void;
 }
 ```
 
 Subscribes synchronously (registers the subscriber row immediately); the **initial snapshot** arrives asynchronously via `handleResourceUpdate` and is exposed on `.snapshot`.
+
+### When you cannot read it
+
+A subscriber without `read` on the resource's node is **told, not refused**. Its `.snapshot` resolves `null` and never rejects for permission, and `deniedNodes` names the node. The store entry says the same: `store.resources.<rt>[rid].deniedNodes` is that node, and the entry has no `value` or `meta`, so a `v-model` bound to it submits nothing — there is no `meta.eTag` to submit against. When you can read it, `deniedNodes` is `[]`.
+
+The subscription stays live either way. A revoked grant shows at the resource's next update: `deniedNodes` fills in, `value` and `meta` go, and `onChange` fires. A new grant shows without any write, because the client re-subscribes whatever was denied each time the org tree changes: the snapshot arrives, `deniedNodes` empties, and `onChange` fires. Show a request-access affordance while `deniedNodes` is non-empty, the same way as for a [query](#resourcessubscribequery).
 
 :::note[The resource must already exist]
 
@@ -180,12 +190,12 @@ client.resources.unsubscribe('todo', 'task-42');                // standalone AP
 createAndSubscribe(
   resourceType: string,
   resourceId: string,
-  nodeId: number,
+  nodeId: string,
   value: unknown,
 ): ResourceSubscription;
 ```
 
-The ergonomic form of the **create-then-subscribe** pattern: since [`subscribe`](#resourcessubscribe) requires the resource to already exist, this method sequences a `create` [transaction](#resourcestransaction) followed by a `subscribe`, client-side, so you get one call and a `using`-compatible handle. Returns the [`ResourceSubscription`](#resourcessubscribe) **synchronously** (refcount + `[Symbol.dispose]()` behave exactly as `subscribe`); the underlying server subscribe is deferred until the create commits, so `.snapshot` resolves with the **freshly-created snapshot**.
+The ergonomic form of the **create-then-subscribe** pattern: since [`subscribe`](#resourcessubscribe) requires the resource to already exist, this method sequences a `create` [transaction](#resourcestransaction) followed by a `subscribe`, client-side, so you get one call and a `using`-compatible handle. Returns the [`ResourceSubscription`](#resourcessubscribe) **synchronously** (refcount + `[Symbol.dispose]()` behave exactly as `subscribe`); the underlying server subscribe is deferred until the create commits, so `.snapshot` resolves with the **freshly-created snapshot**, and `deniedNodes` is `[]`.
 
 If the create does **not** commit (the resource already exists, or a permission / validation failure), `.snapshot` **rejects** — use plain `subscribe` for a resource that already exists. Disposing the handle before the create lands cancels the pending subscription (the already-submitted create is not unwound). It routes to the active scope's Star binding like every other resource call (so it works against a dev Star too).
 
@@ -208,6 +218,46 @@ Unsubscribe from a resource. Fire-and-forget. Server drops the subscriber row.
 
 Auto-subscribe handles the common case (component unmount → grace period → unsubscribe). Call explicitly only when you subscribed explicitly.
 
+## `client.resources.subscribeQuery` {#resourcessubscribequery}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+subscribeQuery(query: QueryDescriptor, options?: { renderGraceMs?: number }): QuerySubscription;
+```
+
+Subscribe to a **live query** — the ordered set of resource ids matching a relationship query, kept current as resources are created / deleted / re-parented. Fire-and-forget (the client computes the query's canonical hash locally and correlates pushes by it — ADR-003), so the initial membership arrives asynchronously: `await handle.ready`. Membership is REPLACED on every push (idempotent, self-healing — no delta merge).
+
+v1 supports exactly one query shape — equality on a single to-one relationship field:
+
+```typescript @skip-check
+interface QueryDescriptor {
+  queryType: 'parentChild';   // the only v1 queryType
+  typeName: string;           // the CHILD type being matched, e.g. 'Message'
+  field: string;              // its to-one relationship field, e.g. 'session'
+  value: string;              // the parent id that `field` must equal
+  orderBy?: 'validFrom';      // v1 only (default)
+}
+```
+
+The handle is a `using`-compatible `QuerySubscription`:
+
+```typescript @skip-check
+interface QuerySubscription extends Disposable {
+  readonly ready: Promise<void>;          // resolves on the first push; rejects if the query is rejected
+  readonly resourceIds: string[];         // current ordered membership — the ids you may read
+  readonly deniedNodes: string[];         // node ids you can't reach (drives request-access UI)
+  setRenderWindow(resourceIds: string[]): void;  // open content subs for exactly these ids
+  onChange(cb: () => void): void;          // fired on every membership / denied change
+}
+```
+
+**The query delivers ids, not content.** `resourceIds` is the ordered membership; read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
+
+`deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). A grant or a revoke writes no resource, so the membership changes at the next update to the query; a client watching the org tree, as every `createNebulaClient` client does, re-subscribes a query with denied nodes at each tree change, so a grant reaches it with no write. `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
+
+To watch **who is subscribed** to a query (its live roster) rather than its data, see [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
+
 ## `client.resources.read` {#resourcesread}
 
 **Tag**: `implemented-in-spike`
@@ -220,7 +270,7 @@ read(
 ): Promise<Snapshot | null>;
 
 interface ReadOptions {
-  appVersion?: string;   // override constructor's version for this call
+  ontologyVersion?: string;   // override constructor's version for this call
 }
 ```
 
@@ -251,9 +301,9 @@ Per-resource outcomes (commit, server-wins, conflict-pending, validation-failed,
 
 ```typescript @skip-check
 type OperationDescriptor =
-  | { op: 'create'; typeName: string; nodeId: number; value: any }
+  | { op: 'create'; typeName: string; nodeId: string; value: any }
   | { op: 'put';    typeName: string; value: any;       eTag?: string }
-  | { op: 'move';   typeName: string; nodeId: number;   eTag?: string }
+  | { op: 'move';   typeName: string; nodeId: string;   eTag?: string }
   | { op: 'delete'; typeName: string;                   eTag?: string };
 ```
 
@@ -267,7 +317,7 @@ Multi-resource transactions are atomic: every op commits or none do.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `appVersion` | `string` | constructor's `appVersion` | Override for admin/scripting calls. |
+| `ontologyVersion` | `string` | constructor's `ontologyVersion` | Override for admin/scripting calls. |
 | `newETag` | `string` | `crypto.randomUUID()` | One `newETag` shared across every op in the batch. Override for the idempotency-retry pattern (a dropped response is retried with the same `newETag` to avoid double-write). |
 | `onTransactionResourceResolution` | `Record<string, ResourceHandler>` | per-type registered, else framework default | Per-call handlers, **keyed by `resourceId`** — e.g. `{ 'task-42': handler }`. Each entry handles only its own resource; resources NOT in the map fall through to their per-type handler automatically (no defensive `rid` filtering needed). A listed resource's entry **layers in front of** its per-type handler — verdict-returning on `'conflict-pending'`, additive on terminal branches. See [Precedence](#precedence). |
 | `maxRetries` | `number` | per-call value, else min across involved per-type values, else `5` | **Batch-level** cap on the conflict resolve-and-resubmit loop. On exhaustion the batch lands at top-level `{ kind: 'rejected', retryable: true }` with that resource at `'retries-exhausted'`. The retry budget is client-side policy (the server stays stateless + `newETag`-idempotent). In a multi-type batch the per-call value wins, else the **min** across the involved per-type values. |
@@ -286,7 +336,7 @@ const outcome = await client.resources.transaction({
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const newId = crypto.randomUUID();
 const outcome = await client.resources.transaction({
-  [newId]: { op: 'create', typeName: 'todo', nodeId: 1,
+  [newId]: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID,
              value: { title, description: '', status: 'open' } },
   // per-user keying — see Coding your UI § Lists with v-for
   [client.claims.sub]: { op: 'put', typeName: 'todoList',
@@ -418,7 +468,7 @@ Tear down the factory:
 1. Flush every pending debounced write through the serial-per-resource queue.
 2. Clear refcount + pending-unsubscribe timers.
 3. Dispose internal effectScopes.
-4. Disconnect the underlying `LumenizeClient` WebSocket.
+4. Disconnect the underlying `MeshClient` WebSocket.
 
 After dispose, the store remains readable (Vue reactivity is independent) but writes no longer trigger transactions and no new subscribes fire. Typically called only in tests or at full page teardown.
 
@@ -430,13 +480,13 @@ After dispose, the store remains readable (Vue reactivity is independent) but wr
 client.logout(): Promise<void>;
 ```
 
-User-initiated **sign-out**: revokes + clears the (HttpOnly, path-scoped) refresh cookie via the auth logout endpoint, drops the in-memory access token, and sets `store.lmz.connection.state` to `'disconnected'`. The app then redirects to login — typically the same redirect the `ready` / `onLoginRequired` terminal-auth path uses.
+User-initiated **sign-out**, ending every session this browser holds: drops the in-memory access token, sets `store.lmz.connection.state` to `'disconnected'`, and sends the page to the platform host's logout page, which ends the sessions. Every session lives on the platform host, so a page cannot end one itself. A page framed inside Studio tells Studio instead, and a client from `impersonate()` only ends itself, since the session it would end is the admin's.
 
-Distinct from [`client.dispose()`](#clientdispose), which tears down the client/connection **without** revoking the session (a disposed client could reconnect with the same valid cookie; a logged-out one cannot). The server-side logout endpoint is a nebula-auth concern added alongside this method.
+Distinct from [`client.dispose()`](#clientdispose), which tears down the client/connection **without** ending the session (a disposed client could reconnect with the same valid cookie; a logged-out one cannot).
 
 ## `client.orgTree` {#clientorgtree}
 
-**Tag**: `new-in-v3`. The client-facing namespace is built in v3; the server-side methods it proxies already exist at [`apps/nebula/src/dag-tree.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/dag-tree.ts).
+**Tag**: `new-in-v3`. The client-facing namespace is built in v3; the server-side methods it proxies already exist at [`packages/resources/src/org-tree.ts`](https://github.com/lumenize/lumenize/blob/main/packages/resources/src/org-tree.ts).
 
 Mutations to the app's **org/permission tree** (the DAG that resources attach to for tenancy and access control). The conceptual model — cascading permissions, the two sharing approaches — is in [Resources § Access control](./access-control.md); the usage patterns and worked examples are in [Coding your UI § Mutating the org/permission tree](./coding-your-ui.md#mutating-the-orgpermission-tree).
 
@@ -446,14 +496,17 @@ Mutations to the app's **org/permission tree** (the DAG that resources attach to
 
 **While disconnected:** there is no connection-gating here (unlike the resource write path — tree mutations hold no optimistic store state to roll back, and the await-site handles the reject). A call issued while offline is queued and sent on reconnect (or rejects on timeout); a call already in flight when the socket drops is **not** auto-resubmitted — it times out and rejects.
 
-Every method requires the caller to hold a permission on the relevant node, resolved by the same cascading rules as resource access (`admin` on the node grants everything below it). Node ids are integers; `sub` is a JWT subject claim — a bare UUID as minted by nebula-auth (the current user's is `client.claims.sub`; grants are matched by exact string equality against the JWT `sub`). `nodeId === 1` (`ROOT_NODE_ID`) cannot be deleted, undeleted, or renamed. (One nuance: an **idempotent no-op** — adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one — short-circuits to success *before* the permission check, so it neither mutates nor requires permission. This short-circuit is non-disclosing **only because** the tree is universally visible (M7) — a caller can already see every edge/grant, so "exists" (success) vs "absent" (permission-checked) reveals nothing new. If tree visibility is ever scoped per-branch, these short-circuits must move *after* the permission check, or they become an existence oracle for unauthorized callers.)
+Every method requires the caller to hold a permission on the relevant node, resolved by the same cascading rules as resource access (`admin` on the node grants everything below it). Node ids are **client-supplied UUID strings** (`crypto.randomUUID()`); `sub` is a JWT subject claim — a bare UUID as minted by Mesh's auth layer (the current user's is `client.claims.sub`; grants are matched by exact string equality against the JWT `sub`). `ROOT_NODE_ID` (a reserved sentinel node) cannot be deleted, undeleted, or renamed. `createNode` is deliberately **not** one of the before-permission short-circuits below — its replay returns node content (slug/label), so it checks `write` on the parent *first*, then does the id-presence check. (One nuance: an **idempotent no-op** — adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one — short-circuits to success *before* the permission check, so it neither mutates nor requires permission. This short-circuit is non-disclosing **only because** the tree is universally visible (M7) — a caller can already see every edge/grant, so "exists" (success) vs "absent" (permission-checked) reveals nothing new. If tree visibility is ever scoped per-branch, these short-circuits must move *after* the permission check, or they become an existence oracle for unauthorized callers.)
 
 ### Structural mutations (require `write`)
 
 ```typescript @skip-check
-// Create a child node. `slug` must match /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/
-// and be unique among siblings. Returns the new node's integer id.
-createNode(parentNodeId: number, slug: string, label: string): Promise<number>;
+// Create a child node. `slug` follows the scope grammar — at most 30 characters of
+// lowercase letters, digits and single hyphens, with no leading or trailing hyphen —
+// and is unique among siblings. The CALLER supplies the node's id (a v4 UUID,
+// `crypto.randomUUID()`); createNode is idempotent — a retry with the same id
+// returns the same node (a reused id with a different slug throws loudly).
+createNode(nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string>;
 
 // Add a second parent edge (the co-ownership pattern — see Resources §
 // Access control for the two-party share-accept flow). Requires `write` on
@@ -461,65 +514,97 @@ createNode(parentNodeId: number, slug: string, label: string): Promise<number>;
 // grant in structural clothing (everyone with grants on/above the new parent
 // gains cascaded access to the child's subtree), so the child side demands
 // setPermission's tier. Idempotent; cycle- and sibling-slug-uniqueness-checked.
-addEdge(parentNodeId: number, childNodeId: number): Promise<void>;
+addEdge(parentNodeId: string, childNodeId: string): Promise<void>;
 
 // Remove a parent edge ("remove from my account"). Idempotent.
-removeEdge(parentNodeId: number, childNodeId: number): Promise<void>;
+removeEdge(parentNodeId: string, childNodeId: string): Promise<void>;
 
 // Move a node from one parent to another in one step. Requires `write` on BOTH
 // the old and the new parent, PLUS `admin` on the child — re-parenting adds a
 // parent edge, so it has addEdge's access-widening property (see addEdge above).
 // Cycle- and slug-uniqueness-checked.
-reparentNode(childNodeId: number, oldParentId: number, newParentId: number): Promise<void>;
+reparentNode(childNodeId: string, oldParentId: string, newParentId: string): Promise<void>;
 
 // Soft-delete (sets the node's `deleted` flag; the row survives). Idempotent.
-deleteNode(nodeId: number): Promise<void>;
+deleteNode(nodeId: string): Promise<void>;
 
 // Reverse a soft-delete. Idempotent.
-undeleteNode(nodeId: number): Promise<void>;
+undeleteNode(nodeId: string): Promise<void>;
 
 // Change the slug (the URL/path segment). Validated and re-checked for
 // uniqueness under every parent of the node.
-renameNode(nodeId: number, newSlug: string): Promise<void>;
+renameNode(nodeId: string, newSlug: string): Promise<void>;
 
 // Change the human-readable display label (non-empty, ≤ 500 chars).
-relabelNode(nodeId: number, newLabel: string): Promise<void>;
+relabelNode(nodeId: string, newLabel: string): Promise<void>;
 ```
 
 The `write` permission is checked on the node being changed — for `createNode`/`removeEdge` that's the parent; for the node-targeting methods it's the node itself. Both edge-*adding* operations also require **`admin` on the child** because they widen who has cascaded access to it: `addEdge` checks `write` on the new parent **plus `admin` on the child**, and `reparentNode` checks `write` on **both** parents **plus `admin` on the child** (see the comments above).
 
-**`createNode` is the one non-idempotent method** — it assigns a fresh server-side id, where the others are idempotent no-ops on replay. A same-slug replay *errors* on sibling-slug-uniqueness rather than creating a duplicate (no silent double-create), but an **ambiguous in-flight disconnect** (the create landed, the response was lost) rejects *without* returning the new id — the node exists and reappears in `store.lmz.orgTree` after the client reconnects. Until `createNode` becomes idempotent (a planned move to client-supplied node ids), treat a `createNode` rejection as "may or may not have landed — reload to re-sync" rather than blindly retrying (a retry with a *different* slug could duplicate).
+**`createNode` is idempotent** — the caller supplies the node's id (a v4 UUID), so a retry with the same id returns the same node rather than creating a duplicate. This closes the old ambiguous-disconnect gap: because the client already holds the id it minted, it can always address the node it may have created, even if the response was lost. A reused id with a *different* parent/slug throws a loud `NodeIdCollisionError` (never a silent no-op). One boundary remains: the client call is still an awaited request whose pending Promise is bound to the WebSocket, so an **in-session** WS drop leaves it hanging until timeout — that delivery strand is handled separately by the mesh continuation layer; interim recovery is reload → `store.lmz.orgTree` re-sync.
 
 ### Permission management (require `admin`)
 
 ```typescript @skip-check
 // Grant or upsert a permission tier for `sub` on `nodeId`. Cascades to all
 // descendants.
-setPermission(nodeId: number, sub: string, level: 'admin' | 'write' | 'read'): Promise<void>;
+setPermission(nodeId: string, sub: string, level: 'admin' | 'write' | 'read'): Promise<void>;
 
 // Revoke `sub`'s direct grant on `nodeId`. Idempotent — no-op if absent.
-revokePermission(nodeId: number, sub: string): Promise<void>;
+revokePermission(nodeId: string, sub: string): Promise<void>;
 ```
 
 `setPermission` only manages grants attached directly to `nodeId`; a user can still hold an effective permission via a grant on an ancestor. To narrow effective access, attach the resource deeper rather than revoking ancestor grants.
 
 ### `OrgTreeState` {#orgtreestate}
 
-**Tag**: `new-in-v3` — both the type export and the tree delivery. The tree is **not a resource**: it's delivered on a dedicated channel (server `DagTree.#onChanged` → broadcast to a `clientId`-keyed registry, synthesized from `dagTree.getState()`) to `store.lmz.orgTree`, and mutated via [`client.orgTree.*`](#clientorgtree) — never `transaction()`. It's universally visible by design (every connected client gets the full tree; see M7). Authoritative spec: the "Org/permission tree delivery (design B)" item in [tasks/archive/nebula-frontend.md § Phase 5.3.7-v3](https://github.com/lumenize/lumenize/blob/main/tasks/archive/nebula-frontend.md); the superseded design-space record is § DAG-tree-as-special-resource.
+**Tag**: `new-in-v3` — both the type export and the tree delivery. The tree is **not a resource**: it's delivered on a dedicated channel — a tree change makes the host's resource plane send `orgTree.getState()` to every tree subscriber it holds — to `store.lmz.orgTree`, and mutated via [`client.orgTree.*`](#clientorgtree) — never `transaction()`. It's visible by design to anyone with passage into the host (every client `createNebulaClient` builds subscribes on connect; see M7). Authoritative spec: the "Org/permission tree delivery (design B)" item in [tasks/archive/nebula-frontend.md § Phase 5.3.7-v3](https://github.com/lumenize/lumenize/blob/main/tasks/archive/nebula-frontend.md); the superseded design-space record is § DAG-tree-as-special-resource.
 
-The shape of the tree at `store.lmz.orgTree.value`. Exported from `@lumenize/nebula/frontend`.
+The shape of the tree at `store.lmz.orgTree.value`. Exported from `@lumenize/resources/frontend`.
 
 ```typescript @skip-check
 interface OrgTreeState {
-  nodes: Map<number, { slug: string; label: string; deleted: boolean }>;
-  edges: Set<`${number}:${number}`>;   // "parentId:childId" edge keys
-  permissions: Map<number, Map<string, 'admin' | 'write' | 'read'>>;
+  nodes: Map<string, { slug: string; label: string; deleted: boolean }>;
+  edges: Set<`${string}:${string}`>;   // "parentId:childId" edge keys (UUIDs)
+  permissions: Map<string, Map<string, 'admin' | 'write' | 'read'>>;
 }
 ```
 
-`edges` is the canonical, wire-shippable adjacency form. For O(1) parent/child lookups during a tree walk, build an `OrgTreeView` with `buildOrgTreeView(state)` (also exported from `@lumenize/nebula/frontend`) — it derives `childrenByParent` and `parentsByChild` indexes from `edges`. See [Coding your UI § Worked example: rendering the built-in tree](./coding-your-ui.md#worked-example-rendering-the-built-in-tree).
+`edges` is the canonical, wire-shippable adjacency form. For O(1) parent/child lookups during a tree walk, build an `OrgTreeView` with `buildOrgTreeView(state)` (also exported from `@lumenize/resources/frontend`) — it derives `childrenByParent` and `parentsByChild` indexes from `edges`. See [Coding your UI § Worked example: rendering the built-in tree](./coding-your-ui.md#worked-example-rendering-the-built-in-tree).
 
-`ROOT_NODE_ID` (`= 1`, the root node every Star is provisioned with) is also exported from `@lumenize/nebula/frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
+`ROOT_NODE_ID` (a reserved sentinel UUID, the root node every Star is provisioned with) is also exported from `@lumenize/resources/frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
+
+## `client.subscribeProfile` {#subscribeprofile}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+subscribeProfile(profileId: string): ProfileSubscription;
+```
+
+Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by their `profileId` — a global, cross-Star identity handle, delivered on a dedicated channel to [`store.lmz.profiles[profileId]`](#lmzprofiles). Returns a `using`-compatible `ProfileSubscription`: `.snapshot` resolves with the first snapshot (`{ value, meta: { eTag } }`, or `null` for a profile that does not exist), and `[Symbol.dispose]()` releases on the last handle. No permission ever denies a profile, so it has no `deniedNodes`.
+
+You rarely call this directly — **reading `store.lmz.profiles[profileId].value` inside a component auto-subscribes it** (refcounted, grace-period-aware, windowed), exactly like reading a resource. The common pattern is resolving display identity for ids you already hold (the current user's own `client.claims.profileId` for the app chrome, or each `profileId` in a roster).
+
+Profiles are read-only through the store; the owner edits their own profile via a separate write path. A profile is a **shape**, not a resource — it lives under `store.lmz.*` (never `store.resources.*`), so a dev-user ontology type named `Profile` does **not** collide with it.
+
+## `client.subscribeQuerySubscribers` {#subscribequerysubscribers}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription;
+```
+
+Subscribe to a query's **live subscriber-list roster** — the distinct-by-person set of everyone currently subscribed to that query's data — WITHOUT subscribing to the data itself. "Who's here / who's online" for a shared view. The roster is delivered to [`store.lmz.querySubscribers.<typeName>.<field>[value]`](#lmzquerysubscribers) as a reactive array of `{ sub, profileId }`, kept current as people join and leave.
+
+```typescript @skip-check
+interface SubscriberListSubscription extends Disposable {
+  readonly ready: Promise<void>;  // resolves on the first roster push; rejects if the query is rejected
+}
+```
+
+As with the other surfaces, you rarely call this directly — **reading the query-in-path `store.lmz.querySubscribers.<typeName>.<field>[value]` auto-subscribes the roster** (the path segments *are* the [`QueryDescriptor`](#resourcessubscribequery)). Resolve each entry's `profileId` to a display name/avatar by reading [`store.lmz.profiles[profileId]`](#lmzprofiles) — window it (subscribe only the profiles for rendered rows) exactly as you window a large query. The roster is advisory/display-only (reachability-gated, uniform — it carries no permission data).
 
 ## Reserved state paths
 
@@ -528,7 +613,7 @@ interface OrgTreeState {
 Two top-level prefixes on the store are framework-reserved — but "reserved" doesn't mean read-only. `store.resources.<rt>.<rid>.value.*` is the **primary write surface**: `v-model` and assignments there flow through the synced-state middleware → optimistic apply + transaction (see the `set`-trap note below). What's restricted is narrower: `meta.*` is server-owned (writes pass through but are warned in debug builds), and `store.lmz.*` is framework-written only (user writes dropped) — this prefix holds `store.lmz.connection.*` (connection state) and `store.lmz.orgTree` (the org/permission tree, delivered on its own channel and mutated via [`client.orgTree.*`](#clientorgtree), never by writing the store). For when to read off `store` vs when to call methods on `client`, see [Coding your UI § `store` vs `client`](./coding-your-ui.md#store-vs-client--what-goes-where).
 
 - **`store.resources.*`** — Synced resource snapshots, written by the framework on every server push. `store.resources.{type}.{id}.value` holds the resource value; `store.resources.{type}.{id}.meta` holds the eTag, change metadata, etc.
-- **`store.lmz.*`** — Other framework-owned state. Today: `store.lmz.connection.*` (see [below](#lmzconnection)) and `store.lmz.orgTree` (the org/permission tree — see [OrgTreeState](#orgtreestate)). Future framework-meta paths land under this prefix too.
+- **`store.lmz.*`** — Other framework-owned state, each on its own dedicated channel: `store.lmz.connection.*` (connection state — see [below](#lmzconnection)), `store.lmz.orgTree` (the org/permission tree — see [OrgTreeState](#orgtreestate)), `store.lmz.profiles[profileId]` (public profiles — see [store.lmz.profiles](#lmzprofiles)), and `store.lmz.querySubscribers.<typeName>.<field>[value]` (a query's live subscriber-list roster — see [store.lmz.querySubscribers](#lmzquerysubscribers)). Future framework-meta paths land under this prefix too.
 
 Every other top-level segment is yours. Common conventions:
 
@@ -544,7 +629,7 @@ The factory's `set` trap routes writes under `store.resources.<rt>.<rid>.value(\
 
 **Tag**: `implemented-in-spike`
 
-The factory mirrors the underlying `LumenizeClient` connection state to three reserved paths so the UI can bind declaratively without event listeners:
+The factory mirrors the underlying `MeshClient` connection state to three reserved paths so the UI can bind declaratively without event listeners:
 
 | Path | Type | Description |
 | --- | --- | --- |
@@ -554,36 +639,77 @@ The factory mirrors the underlying `LumenizeClient` connection state to three re
 
 The factory writes to these paths on every transition; user code never registers a connection-state listener. The initial seed values are intentional so first-paint reads never return `undefined`.
 
+## `store.lmz.profiles` {#lmzprofiles}
+
+**Tag**: `new-in-v3`
+
+Public profiles keyed by `profileId`, delivered on a dedicated channel (never `store.resources.*`). **Reading a path auto-subscribes** the profile (refcounted, grace-period-aware, windowed) — the same auto-subscribe as resources.
+
+| Path | Type | Notes |
+| --- | --- | --- |
+| `store.lmz.profiles[profileId].value.name` | `string \| undefined` | Full name (OIDC). |
+| `store.lmz.profiles[profileId].value.nickname` | `string \| undefined` | Display / casual name. |
+| `store.lmz.profiles[profileId].value.picture` | `string \| undefined` | Avatar image URL. |
+| `store.lmz.profiles[profileId].meta.eTag` | `string` | Forward-only version of the profile. |
+
+Read-only through the store. Resolve `profileId`s you already hold — `client.claims.profileId` for the current user, or the ids in a roster. See [`client.subscribeProfile`](#subscribeprofile).
+
+## `store.lmz.querySubscribers` {#lmzquerysubscribers}
+
+**Tag**: `new-in-v3`
+
+The live subscriber-list roster of a query, delivered on a dedicated channel. **Reading the query-in-path auto-subscribes** the roster (the path segments *are* the [`QueryDescriptor`](#resourcessubscribequery)).
+
+| Path | Type | Notes |
+| --- | --- | --- |
+| `store.lmz.querySubscribers.<typeName>.<field>[value]` | `{ sub: string; profileId: string }[]` | Distinct-by-person roster of everyone subscribed to that query's data, kept live. `v-for`-ready. |
+
+Advisory / display-only (carries no permission data). Resolve each entry's `profileId` via [`store.lmz.profiles`](#lmzprofiles), windowed to rendered rows. See [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
+
+Example — a "who's here" roster for a chat session, with each person's avatar + name:
+
+```vue @skip-check
+<template>
+  <li v-for="{ sub, profileId } in store.lmz.querySubscribers.Message.session[sessionId].slice(0, 25)" :key="sub">
+    <img :src="store.lmz.profiles[profileId].value.picture" />
+    <span>{{ store.lmz.profiles[profileId].value.name }}</span>
+  </li>
+</template>
+```
+
 ## `client.claims` {#clientclaims}
 
-**Tag**: inherited from `LumenizeClient`
+**Tag**: inherited from `MeshClient`
 
-NebulaClient extends [`LumenizeClient`](/docs/mesh/lumenize-client), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `access`, etc.) is available with no Nebula-specific wrapping. See [mesh: LumenizeClient § Client identity](/docs/mesh/lumenize-client#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`. For admin-only UI, gate on **both** `client.claims.access?.admin` (Galaxy/Universe scope admin) and an `admin` grant in the org-tree (app admin) — see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui).
+NebulaClient extends [`MeshClient`](/docs/mesh/lumenize-client), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `access`, etc.) is available with no Nebula-specific wrapping. See [mesh: the Client § Client identity](/docs/mesh/lumenize-client#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`. For admin-only UI, gate on **both** `client.claims.access?.scopeAdmin` (Galaxy/Universe scope admin) and an `admin` grant in the org-tree (app admin) — see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui).
 
-**Type — non-null on NebulaClient.** `LumenizeClient` is generic over its claims payload — `LumenizeClient<TClaims extends { sub: string } = JwtPayload>` with `get claims(): Readonly<TClaims> | null` (it has a genuine null window before first refresh). `NebulaClient extends LumenizeClient<NebulaJwtPayload>` and **re-declares the getter to drop the `| null`** — `get claims(): Readonly<NebulaJwtPayload>` — because the availability contract below guarantees it's populated by the time app code runs. The re-declaration is behaviorally neutral (the runtime getter is the inherited one; it only narrows the type). This is what lets the doc examples write `client.claims.sub` without a `!` or `?.` and still pass strict TypeScript.
+**Type — non-null on NebulaClient.** `MeshClient` is generic over its claims payload — `MeshClient<TClaims extends AuthClaims = AuthClaims>` with `get claims(): Readonly<TClaims> | null` (it has a genuine null window before first refresh). `NebulaClient extends MeshClient<AuthClaims>` and **re-declares the getter to drop the `| null`** — `get claims(): Readonly<AuthClaims>` — because the availability contract below guarantees it's populated by the time app code runs. The re-declaration is behaviorally neutral (the runtime getter is the inherited one; it only narrows the type). This is what lets the doc examples write `client.claims.sub` without a `!` or `?.` and still pass strict TypeScript.
 
-The fields app code relies on (full payload is minted by nebula-auth):
+The fields app code relies on (full payload is minted by Mesh's auth layer):
 
-```typescript @skip-check
-interface NebulaJwtPayload {
-  sub: string;        // subject UUID — keys per-user resources and org-tree grants
-  aud: string;        // the active universeGalaxyStarId this token is scoped to
-  email: string;
-  access: {
-    authScopePattern: string;   // scope or wildcard, e.g. "george-solopreneur.*"
-    admin?: boolean;            // true = Galaxy/Universe scope admin; omitted when false
-  };
-  // ...standard JWT claims (iss, exp, iat, jti) plus nebula-auth extras
+```typescript @check-example('packages/mesh/src/auth/types.ts')
+export interface AuthClaims {
+  iss: string;
+  aud: string;
+  sub: string;
+  exp: number;
+  iat: number;
+  jti: string;
+  access: AccessEntry;
+  profileId: string;
+  act?: ActClaim;
 }
 ```
 
+`access` carries `authScope` (the membership this token rests on, verbatim — e.g. `"george-solopreneur"` for a Universe-level member) and `scopeAdmin` (`true` for a Galaxy/Universe scope admin, omitted when false). `aud` is the scope of the page's host, and it is what the token acts from: with `scopeAdmin`, it administers that scope and everything beneath it, and every token reaches the scopes above it by passage alone. A scope covers itself and every scope beneath it, by whole dot-separated segment. `profileId` is the bearer's own public profile handle; `act` is present only under impersonation.
+
 **Availability contract (pinned).** Under the hood `claims` is `null` until the client's first token refresh completes, and `client` is not Vue-reactive — claims-gated bindings never re-evaluate on their own. Studio-generated apps close this window structurally: the bootstrap top-level-awaits the factory's [`ready`](#createnebulaclient) promise, so **`client.claims` is populated by the time any component renders** — which is exactly what makes the non-null narrowing sound. Code that runs *outside* that contract (admin tools, scripts, anything before `ready`) is the one place the narrowing over-promises: there, treat `claims` as possibly-null and guard with `?.`.
 
-`sub` is a bare UUID minted by nebula-auth — the same string that keys org/permission-tree grants (see [client.orgTree](#clientorgtree)).
+`sub` is a bare UUID minted by Mesh's auth layer — the same string that keys org/permission-tree grants (see [client.orgTree](#clientorgtree)).
 
 ## `Snapshot` and `SnapshotMeta` {#snapshot}
 
-**Tag**: `implemented-in-spike` (shape shipped server-side in [`apps/nebula/src/resources.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/resources.ts); `mimeType` lands new-in-v3 alongside files-as-resources)
+**Tag**: `implemented-in-spike` (shape shipped server-side in [`packages/resources/src/snapshots.ts`](https://github.com/lumenize/lumenize/blob/main/packages/resources/src/snapshots.ts); `mimeType` lands new-in-v3 alongside files-as-resources)
 
 What `resources.read` and `resources.subscribe` resolve with, and what every store entry holds: `store.resources.<rt>[<rid>].value` is `Snapshot.value`; `store.resources.<rt>[<rid>].meta` is `Snapshot.meta`.
 
@@ -606,7 +732,7 @@ interface SnapshotMeta {
 - **User code reads `meta`; only the framework writes it.** Writes to `meta.*` pass through middleware unchanged but are warned-on in debug builds.
 - **Tombstones are real snapshots.** A deleted resource keeps its last `value`; `meta.deleted: true` is the only deletion signal — check it *before* any `value` truthiness test (see [Coding your UI § Loading and first paint](./coding-your-ui.md#loading-and-first-paint)). A `null` from `read` means "never created", not "deleted".
 - `meta.nodeId` is how UI code attaches new resources next to existing ones — [Coding your UI § Atomic append](./coding-your-ui.md#atomic-append--adding-to-a-collection) creates a todo at the list's `meta.nodeId`.
-- Additional framework-owned fields (`validTo`, `changedBy`, `ontologyVersion`) exist server-side and may appear; treat `meta` as an open, read-only shape.
+- Additional framework-owned fields (`validTo`, `actingToken`, `ontologyVersion`) exist server-side and may appear; treat `meta` as an open, read-only shape.
 
 ## `textMerge` {#textmerge}
 
@@ -616,7 +742,7 @@ interface SnapshotMeta {
 function textMerge(server: string, local: string, base: string): string;
 ```
 
-Three-way merge helper (LCS-based) for long-form text fields, used inside a `'use-this'` resolver to preserve both the local user's edits and a concurrent server-side commit. Exported from `@lumenize/nebula/frontend`'s top level.
+Three-way merge helper (LCS-based) for long-form text fields, used inside a `'use-this'` resolver to preserve both the local user's edits and a concurrent server-side commit. Exported from `@lumenize/resources/frontend`'s top level.
 
 `base` is the **common ancestor** — the value both `local` and `server` diverged from — and it is required for the merge to preserve both sides: pass `resolution.base.value.<field>`, never `resolution.server.value.<field>`. (With `base === server` the server→base diff is empty and the merge collapses to "local wins," silently dropping the concurrent edit.) The `'conflict-pending'` resolution supplies `base` directly (see [TransactionResourceResolution](#transactionresourceresolution)) — your handler just reads `resolution.base.value`. The framework sources it client-side as the value the local edit was based on and keeps it current as that baseline advances (across a clean commit, and across a chained `'use-this'` re-conflict, where `base` becomes the previous conflict's `server` snapshot). It is never a server-side history lookup.
 

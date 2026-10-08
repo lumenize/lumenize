@@ -1,9 +1,9 @@
 # Mesh Overload & Retry Handling (CF `.overloaded` / `.retryable`)
 
-**Status**: On Hold — thinking settled (2026-06-09); Phase 3 (eTag replay-idempotency) verified present in `resources.ts` 2026-06-15, rest not started
+**Status**: On Hold — thinking settled (2026-06-09); Phase 3 (eTag replay-idempotency) verified present in `snapshots.ts` 2026-06-15, rest not started
 **Packages**: `packages/mesh/` (call boundary + WS upgrade), `apps/nebula/` (client UX + idempotency), `packages/structured-clone/` (only for the minted typed error)
 **Related**: `tasks/on-hold/mesh-resilience-testing.md` (how we'd test this), `tasks/nebula-tenant-ai-billing.md` (multi-tenant load is when this matters)
-**Relevant engine**: `packages/mesh/src/lmz-api.ts` (`callRaw` boundary, `lmz-api.ts:305`), `packages/mesh/src/lumenize-client.ts` (reconnect backoff `:824`, wake-up sensing `:840`), `packages/mesh/src/lumenize-worker.ts` (WS upgrade), `apps/nebula/src/nebula-client.ts` (serial txn queue `:751`, eTag idempotency / conflict retry `:1020`)
+**Relevant engine**: `packages/mesh/src/lmz-api.ts` (`callRaw` boundary, `lmz-api.ts:305`), `packages/mesh/src/lumenize-client.ts` (reconnect backoff `:824`, wake-up sensing `:840`), `packages/mesh/src/lumenize-worker.ts` (WS upgrade), `packages/resources/src/nebula-client.ts` (serial txn queue `:751`, eTag idempotency / conflict retry `:1020`)
 
 ## Goal
 
@@ -150,8 +150,8 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
       success-returning no-op (the "committed but response was lost" `.retryable` case) — not a
       double-apply and not a spurious conflict. **Retry is unsafe to ship until this holds.**
       - **VERIFIED 2026-06-15** (review pass on the Nebula Star path): two-layer replay detection, both
-        returning `{ ok: true }` → client `committed`: pre-validator fast path (`apps/nebula/src/resources.ts:314`)
-        + authoritative in-txn re-check (`resources.ts:424`, Step 6.5, ordered before the conflict scan, uses
+        returning `{ ok: true }` → client `committed`: pre-validator fast path (`packages/resources/src/snapshots.ts`)
+        + authoritative in-txn re-check (`snapshots.ts`, Step 6.5, ordered before the conflict scan, uses
         `.some` so a sibling mutation can't hide the replay). No double-apply, no spurious conflict. This
         lynchpin is satisfied on the Nebula path; a raw-mesh `callRaw` retry would still need its own check.
 

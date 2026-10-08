@@ -1,0 +1,34 @@
+{
+  // SPIKE: can container snapshots replace baking deps into Nebula's build-box image?
+  // `experiment-`-prefixed per workflow.md § Experiments.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-container-snapshot-deps",
+  "main": "src/worker.ts",
+  // What the scheduling-policy docs page pins; later than the repo floor (2026-08-15).
+  "compatibility_date": "2026-09-29",
+
+  "containers": [
+    {
+      "class_name": "Probe",
+      // Snapshots exist ONLY under this policy, and a policy cannot be changed in place —
+      // switching an existing app means creating a new container application.
+      "scheduling_policy": "durable_object",
+      // Picked per start() via ctx.container.images.<name>. No max_instances: the
+      // durable_object policy does not support it.
+      "images": {
+        "plain": { "dockerfile": "./image/Dockerfile", "build_vars": { "BAKE": "0", "MARK": "plain" } },
+        "plain2": { "dockerfile": "./image/Dockerfile", "build_vars": { "BAKE": "0", "MARK": "plain2" } },
+        "baked": { "dockerfile": "./image/Dockerfile", "build_vars": { "BAKE": "1", "MARK": "baked" } }
+      }
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "Probe" }]
+  },
+  "exports": {
+    "Probe": { "type": "durable-object", "storage": "sqlite" }
+  },
+
+  "observability": { "enabled": true }
+}

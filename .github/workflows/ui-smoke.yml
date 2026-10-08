@@ -3,13 +3,13 @@ name: UI smoke (container + AI + login)
 # The `apps/nebula` ui-smoke lane: a REAL Cloudflare Container (DevContainer image)
 # under `wrangler dev` on ubuntu-latest + vite + Playwright, driving the full Studio
 # loop (magic-link login → connected → AI codegen turn → preview rendered in the
-# container). `extends Container` can't construct under pool-workers
-# (packages/mesh/test/container/precheck.test.ts), so this is the only lane that
+# container). The vitest-plugin lane gives a Durable Object no `ctx.container`
+# (experiments/plain-do-container), so this is the only lane that
 # exercises a real container in CI. Proven viable on a headless GHA runner 2026-06-28
 # (tasks/nebula-in-ci.md Phase 1).
 #
 # Kept as its OWN job/runner (not folded into ci.yml) so the heavy ~2.5-min Docker build
-# runs ISOLATED — never concurrently with the CPU-bound pool-workers lanes in the packages
+# runs ISOLATED — never concurrently with the CPU-bound vitest-plugin lanes in the packages
 # job. The runner is 4 vCPUs; running ui-smoke's WS/Playwright-timing-sensitive flow
 # alongside those starves it (the hosted lane serializes `fileParallelism` for the same
 # reason), so isolation is the point. Runs on every push/PR (NOT path-filtered) so it's
@@ -36,7 +36,8 @@ jobs:
       # send_email remote:true binding the PROD apps/nebula config still carries) via
       # these. GHA has CF creds — this is the "ui-smoke in GHA" target, where the AI
       # half is still the binding (Phase 2's REST swap is for the hosted lane only).
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # The secret is named for its one use; wrangler reads it as CLOUDFLARE_API_TOKEN.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_REMOTE_BINDINGS_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout code
@@ -45,7 +46,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: ''
 
       - name: Confirm Docker is available (HAS_DOCKER probe = `docker info`)

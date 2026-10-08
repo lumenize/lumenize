@@ -41,9 +41,24 @@ DEBUG=
 
 # @lumenize/auth configuration
 # See https://lumenize.com/docs/auth/configuration#what-mustmight-be-in-env for all options
+#
+# Bootstrap-admin emails: the base @lumenize/auth DO and Mesh's auth Registry are SEPARATE DOs
+# with SEPARATE vars — this is NOT a duplicate/typo. Set BOTH; never rename or delete either.
+#   LUMENIZE_AUTH_BOOTSTRAP_EMAIL — base @lumenize/auth LumenizeAuth DO (lumenize-auth.ts).
+#   AUTH_BOOTSTRAP_EMAIL          — Mesh's AuthRegistry (packages/mesh/src/auth/auth-registry.ts);
+#                                   at the reserved _platform instance this email becomes a `*`
+#                                   super-admin.
+# First subject to log in with a bootstrap email is auto-promoted to admin. Both accept a
+# COMMA-SEPARATED list (`a@x.io, b@y.io`) — every listed email is promoted (whitespace/case are
+# normalized per entry). Privilege-granting, so in TESTS these belong in vitest miniflare.bindings,
+# and in PROD they are `wrangler secret put` secrets — NEVER a committed wrangler-config var.
 LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
+AUTH_BOOTSTRAP_EMAIL=you@example.com,teammate@example.com
 # Relative (/app) or absolute (https://example.com/app)
 LUMENIZE_AUTH_REDIRECT=/app
+# Access-token lifetime in seconds, honoured only when SHORTER than Mesh auth's 900. Leave it
+# empty: the /live scenario that waits out a real token lapse sets it for its own boot.
+AUTH_ACCESS_TOKEN_TTL=
 # LUMENIZE_AUTH_ISSUER=https://lumenize.local
 # LUMENIZE_AUTH_AUDIENCE=https://lumenize.local
 # LUMENIZE_AUTH_ACCESS_TOKEN_TTL=900
@@ -52,9 +67,19 @@ LUMENIZE_AUTH_REDIRECT=/app
 # LUMENIZE_AUTH_INVITE_TTL=604800
 # LUMENIZE_AUTH_PREFIX=/auth
 
-# Cloudflare Turnstile (required for magic link endpoint)
-# Get your secret key at: https://dash.cloudflare.com/turnstile
-TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
+# Cloudflare Turnstile (get your secret key at: https://dash.cloudflare.com/turnstile).
+# ⚠️ LEAVE UNSET for local dev + the test suites: an absent/empty key is the one sanctioned skip
+# (`checkTurnstile` no longer short-circuits on the test-mode binding). The vitest configs bind
+# TURNSTILE_SECRET_KEY='' explicitly so a value here cannot reach them, but `wrangler dev` reads
+# this file directly — a real key here sends every local login at a real `siteverify`.
+# TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
+
+# Turnstile BYPASS token — a high-entropy secret that lets the trusted `/live` prod-drive skip
+# Turnstile (nebula-auth router.checkTurnstile) by presenting it as the `x-lumenize-turnstile-bypass`
+# header. Turnstile stays ON for every request without it. Skips ONLY the anti-bot gate, never auth.
+# Generate: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+# Secret — set via `wrangler secret put AUTH_TURNSTILE_BYPASS_TOKEN`; NEVER a committed config.
+AUTH_TURNSTILE_BYPASS_TOKEN=generate-a-32-byte-base64url-token
 
 # JWT keys for @lumenize/auth (Ed25519)
 # Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"
@@ -75,6 +100,28 @@ JWT_PRIVATE_KEY_GREEN="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KE
 JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
 
 # PRIMARY_JWT_KEY (the BLUE/GREEN selector) lives in each worker's wrangler.jsonc "vars" — not here.
+# These keys sign for local stacks and the deployed test target. Production signs with a key pair of
+# its own, generated for it and set only as its Worker secrets, so a token minted here never verifies
+# there (apps/nebula/scripts/deploy.sh).
+
+# The deployed test target's own refresh-token KV namespace id (`wrangler kv namespace create`).
+# apps/nebula/scripts/deploy-test.sh refuses to run without it, since wrangler.jsonc names production's.
+# TEST_REFRESH_TOKEN_KV_ID=
+
+# The deployed test target's certificate zone, `lumenize-test.dev`: its zone id, which deploy-test.sh
+# writes into the test config and refuses to run without, and a token scoped to that zone's SSL and
+# Certificates, which is set as `test-nebula`'s CERTIFICATE_API_TOKEN secret (deploy-test.sh's header
+# shows how). A galaxy orders and deletes its certificate pack with them (apps/nebula/src/certificate.ts).
+# TEST_CERTIFICATE_ZONE_ID=
+# TEST_CERTIFICATE_API_TOKEN=
+
+# A deployed `https` Worker's own certificate token, set as its secret, never here: an `http` local
+# stack orders no certificate, so leave it empty. Named so the generated `Env` types it.
+CERTIFICATE_API_TOKEN=
+
+# A token with Account → Workers Scripts → Read, with which the deployed pass lists a test app's
+# Durable Objects to confirm a deletion wiped them (the `deleted-on-cloudflare` scenario).
+# CLOUDFLARE_WORKERS_READ_TOKEN=
 
 # Optional — only needed if you use ResendEmailSender (see https://lumenize.com/docs/auth/using-resend-instead).
 # CloudflareEmailSender (the default) uses the EMAIL binding and needs no secret.
@@ -84,7 +131,17 @@ RESEND_API_KEY="re_..."
 # Only needed where there's no `wrangler login` OAuth session (CI / cloud agents).
 # The remote-binding proxy (e2e-email / hono `send_email remote:true`) uses your
 # OAuth session locally, so these are NOT needed for local runs; in CI they come
-# from GitHub Secrets as job env. The secret-less Claude-hosted lane sets
+# from GitHub Secrets as job env, the token from the CLOUDFLARE_REMOTE_BINDINGS_TOKEN
+# secret (Workers Scripts Write + Account Settings Read on the account, User Details
+# Read + Memberships Read on the user). The secret-less Claude-hosted lane sets
 # LUMENIZE_NO_CF_REMOTE=1 instead (omits the CF-remote projects) and never gets the token.
 CLOUDFLARE_API_TOKEN=cfut_...
 CLOUDFLARE_ACCOUNT_ID=your-account-id
+
+# Nebula Studio codegen model (DevStudio.callModel — apps/nebula/src/dev-studio.ts)
+# WORKERS_AI_TOKEN: a scoped Workers-AI REST token. When present, DevStudio uses the REST
+# transport (works in every lane, incl. secret-less hosted where the `env.AI` binding can't
+# authenticate); when absent, it falls back to the `env.AI` binding (needs CF account creds).
+WORKERS_AI_TOKEN=your-workers-ai-rest-token
+# ANTHROPIC_API_KEY: declared secret binding (Anthropic model-provider path).
+ANTHROPIC_API_KEY=sk-ant-...

@@ -17,11 +17,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { OntologyStaleInfo, TransactionOutcome } from '@lumenize/nebula';
-import { isOntologyStaleError } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { OntologyStaleInfo, TransactionOutcome } from '@lumenize/resources';
+import { isOntologyStaleError } from '@lumenize/resources';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const TEST_TYPES = `interface TestResource { title: string; }`;
@@ -35,7 +34,7 @@ function committedETag(outcome: TransactionOutcome, rid: string): string {
 }
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 /**
@@ -48,18 +47,18 @@ async function setupStaleScenario() {
   const refreshHookSpy = vi.fn<(info: OntologyStaleInfo) => void>();
 
   // Construct the client with v1 + the hook
-  const a = await createAuthenticatedClient(
+  const a = await adminClientAt(
     NebulaClientTest, new Browser(), star, star, 'admin@example.com',
     'v1',
     { onShouldRefreshUI: refreshHookSpy },
   );
 
-  // Apply v1 to the Star (DevStudio's setOntology path replaced the Galaxy lazy-pull).
-  a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
+  // Install v1 on the Star (the test-app door onto the pulled-row path).
+  a.client.callStarInstallOntology(star, { version: 'v1', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
   // Create a resource at v1 so we have something to operate on
-  const resourceId = generateUuid();
+  const resourceId = crypto.randomUUID();
   const created = await a.client.resources.transaction({
     [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1-resource' } },
   });
@@ -67,9 +66,9 @@ async function setupStaleScenario() {
 
   // Advance the Star's cache to v2 (apply replaces the cached row). The v1-pinned
   // client's next op will now mismatch.
-  a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
+  a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
-  // refreshHookSpy hasn't fired — applyOntology is a server-side install, not a
+  // refreshHookSpy hasn't fired — installOntology is a server-side install, not a
   // client op that could detect a mismatch.
   expect(refreshHookSpy).not.toHaveBeenCalled();
 
@@ -154,22 +153,22 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     // Same setup but no hook
     const star = uniqueStar();
 
-    const a = await createAuthenticatedClient(
+    const a = await adminClientAt(
       NebulaClientTest, new Browser(), star, star, 'admin@example.com',
       'v1',
       // no onShouldRefreshUI
     );
 
-    a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: 'v1', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const created = await a.client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
     });
     const eTag = committedETag(created, resourceId);
 
-    a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
     // No hook registered — should still get the structured outcome without

@@ -2,7 +2,7 @@
 // Reconstruct a CI `.dev.vars` from GitHub Actions secrets (read from env) plus
 // generated ephemeral JWT test keys and non-secret test config. Run this BEFORE
 // `npm ci` so the postinstall symlink step links it into every package/test dir
-// that has a `wrangler.jsonc`, where pool-workers and spawned `wrangler dev`
+// that has a `wrangler.jsonc`, where vitest-plugin and spawned `wrangler dev`
 // workers read it as worker bindings.
 //
 // Secret values arrive via env (RESEND_API_KEY / TEST_TOKEN), set from

@@ -1,13 +1,7 @@
-/**
- * Actor claim for delegation per RFC 8693
- * Recursive: each layer records who delegated to whom
- */
-export interface ActClaim {
-  /** Actor ID (who is performing the action) */
-  sub: string;
-  /** Nested delegation chain */
-  act?: ActClaim;
-}
+// `ActClaim`, `JwtPayload` and `JwtHeader` moved to `@lumenize/crypto` (2026-07-31) — they are
+// generic JWT shapes carrying no auth policy. Imported here only to build `AuthJwtPayload`;
+// deliberately NOT re-exported, so there is exactly one home for them.
+import type { JwtPayload } from '@lumenize/crypto';
 
 /**
  * Subject record stored in the Auth DO
@@ -63,41 +57,35 @@ export interface RefreshToken {
 }
 
 /**
- * JWT payload claims
- * @see https://lumenize.com/docs/auth/#jwt-claims
+ * The custom claims `@lumenize/auth` itself mints and gates on — this package's own access
+ * policy, deliberately NOT part of {@link JwtPayload}.
+ *
+ * Both ends narrow through this one declaration: the mint site annotates the bag it hands to
+ * `createJwtPayload`, and `hooks.ts`'s access gate reads the verified token through
+ * {@link AuthJwtPayload}. Renaming a field here is therefore a compile error at both ends.
+ *
+ * ⚠️ **A `type` alias, not an `interface`, and that is load-bearing.** Only a type alias gets
+ * TypeScript's implicit index signature, which is what lets it be passed as
+ * `createJwtPayload`'s `customClaims: Record<string, unknown>`. An `interface` is open to
+ * declaration merging and so gets none — converting this back would break the mint site.
  */
-export interface JwtPayload {
-  /** Issuer */
-  iss: string;
-  /** Audience */
-  aud: string;
-  /** Subject (UUID of the principal) */
-  sub: string;
-  /** Expiration time (Unix timestamp) */
-  exp: number;
-  /** Issued at (Unix timestamp) */
-  iat: number;
-  /** JWT ID (unique identifier) */
-  jti: string;
+export type AuthClaims = {
   /** Subject has confirmed email */
   emailVerified: boolean;
   /** Admin has granted access */
   adminApproved: boolean;
-  /** Full admin access */
+  /** Full admin access (implicitly satisfies `adminApproved`) */
   isAdmin?: boolean;
-  /** Delegation chain per RFC 8693 */
-  act?: ActClaim;
-}
+};
 
 /**
- * JWT header
+ * A token minted by `@lumenize/auth`: registered claims plus this package's own
+ * {@link AuthClaims}, which arrive **flat** because `createJwtPayload` spreads the bag.
+ *
+ * The members are `Partial` because a token minted by another layer (or an older one) may
+ * carry none of them — which the access gate treats as "not approved".
  */
-export interface JwtHeader {
-  alg: 'EdDSA';
-  typ: 'JWT';
-  /** Key ID - identifies which key was used for signing */
-  kid: string;
-}
+export type AuthJwtPayload = JwtPayload & Partial<AuthClaims>;
 
 /**
  * Discriminated union for email messages sent by LumenizeAuth.

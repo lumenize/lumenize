@@ -1,7 +1,7 @@
 {
   "name": "lumenize-auth",
   "main": "test/test-worker-and-dos.ts",
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [
       {
@@ -10,14 +10,9 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "LumenizeAuth"
-      ]
-    }
-  ],
+  "exports": {
+    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" }
+  },
   "ratelimits": [
     {
       "name": "LUMENIZE_AUTH_RATE_LIMITER",

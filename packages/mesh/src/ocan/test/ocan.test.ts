@@ -1,6 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import { newContinuation, executeOperationChain, getOperationChain, validateOperationChain, isNestedOperationMarker } from '../index.js';
-import { mesh, meshFn } from '../../mesh-decorator.js';
+import { mesh, MESH_CALLABLE } from '../../mesh-decorator.js';
+
+/**
+ * Flag a standalone function as mesh-callable, LOCALLY, by setting the `MESH_CALLABLE` symbol that
+ * `@mesh()` sets on a method — a standalone function cannot be decorated.
+ *
+ * `meshFn` was exported for this and is gone: a mesh-callable function reached through a path of
+ * `get`s is exactly what the entry rule refuses, so a published helper whose whole purpose was to
+ * create one is a foot-gun. The MECHANISM is unchanged and still public (`MESH_CALLABLE`), and these
+ * tests need it to build the two shapes worth telling apart — a mesh-callable function reached AS
+ * op 0, which is a legitimate entry, and one reached through gets, which is not.
+ */
+function decorateFn<F extends (...args: any[]) => any>(fn: F): F {
+  (fn as any)[MESH_CALLABLE] = true;
+  return fn;
+}
 import type { OperationChain } from '../index.js';
 
 // Test target object with various methods - all methods decorated with @mesh()
@@ -41,7 +56,7 @@ class TestObject {
   // Nested objects with mesh-decorated method
   nested = {
     deep: {
-      method: meshFn((x: number) => x * 3)
+      method: decorateFn((x: number) => x * 3)
     }
   };
 }
@@ -180,7 +195,11 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       expect(result).toBe(100);
     });
     
-    it('should execute property access chains', async () => {
+    it('should REFUSE a chain that walks through plain fields to a mesh-callable function', async () => {
+      // Used to return 15. A mesh-callable function can sit in a plain object, and the old check
+      // fired at the first APPLY — so `c.nested.deep.method(5)` passed because `method` carried the
+      // `MESH_CALLABLE` flag, whatever it was reached through. Op 0 here is `get 'nested'`, a field,
+      // which can never carry `@mesh()`, and the entry rule reads THAT.
       const target = new TestObject();
       const operations: OperationChain = [
         { type: 'get', key: 'nested' },
@@ -188,8 +207,18 @@ describe('OCAN - Operation Chaining And Nesting', () => {
         { type: 'get', key: 'method' },
         { type: 'apply', args: [5] }
       ];
-      
-      const result = await executeOperationChain(operations, target);
+
+      await expect(executeOperationChain(operations, target))
+        .rejects.toThrow(/Member 'nested' is not mesh-callable/);
+    });
+
+    it('still reaches a mesh-callable function held as an own property of the target', async () => {
+      // The other side of the same rule, and the reason the lookup reads DESCRIPTORS rather than
+      // prototypes only: op 0 may name an own data property whose value is mesh-callable.
+      const target = { entry: decorateFn((x: number) => x * 3) };
+      const result = await executeOperationChain(
+        [{ type: 'get', key: 'entry' }, { type: 'apply', args: [5] }], target,
+      );
       expect(result).toBe(15);
     });
     
@@ -333,8 +362,16 @@ describe('OCAN - Operation Chaining And Nesting', () => {
         { type: 'get', key: 'value' }, // value is a number, not a function
         { type: 'apply', args: [] }
       ];
-      
-      await expect(executeOperationChain(operations, target)).rejects.toThrow('is not a function');
+
+      // On the REQUEST leg the entry rule now answers first: a data property is not mesh-callable,
+      // so the chain never reaches the arity check.
+      await expect(executeOperationChain(operations, target))
+        .rejects.toThrow(/Member 'value' is not mesh-callable/);
+
+      // The arity check still exists and still says so — reachable on a leg where the entry rule
+      // is off, which is where a node's own continuation runs.
+      await expect(executeOperationChain(operations, target, { requireMeshDecorator: false }))
+        .rejects.toThrow('is not a function');
     });
 
     it('should handle circular references in nested operations', async () => {
@@ -370,20 +407,23 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       expect(result).toBe(10);
     });
 
-    it('should handle direct function calls without property access', async () => {
+    it('should REFUSE an apply-first chain rather than calling the target', async () => {
+      // Used to return 10: an apply-first chain called the target directly. A chain whose first op
+      // is an apply is a shape the executor cannot mean, so it is a refusal now rather than a
+      // fall-through — on its own message, distinct from the fence's and the entry rule's.
       const target = (x: number) => x * 2;
-      
+
       const operations: OperationChain = [
         { type: 'apply', args: [5] }
       ];
-      
-      const result = await executeOperationChain(operations, target);
-      expect(result).toBe(10);
+
+      await expect(executeOperationChain(operations, target))
+        .rejects.toThrow(/first operation must be a get/);
     });
 
     it('should preserve identity when no nested markers exist', async () => {
       const target = {
-        checkIdentity: meshFn((obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr }))
+        checkIdentity: decorateFn((obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr }))
       };
 
       const testObj = { prop: 'value' };

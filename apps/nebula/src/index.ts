@@ -3,74 +3,34 @@
  */
 
 // DO classes
-export { NebulaDO, requireAdmin, enforceScopeReach } from './nebula-do';
-export { NebulaContainer } from './nebula-container';
-export { DevContainer } from './dev-container';
-export type { SourceFile } from './dev-container';
-export { DevStudio } from './dev-studio';
 export { Universe } from './universe';
-export { Galaxy } from './galaxy';
+export { Galaxy, requireChatWrite, assertModelPath, LOOP_TOOL_ENTRIES } from './galaxy';
 export { Star } from './star';
+// The session entry, with the hooks that wipe this Worker's Durable Objects on a deletion or creation.
+export { NebulaAuthFacade } from './nebula-auth-facade';
 
-// Ontology
-export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
-// Pure compile fn (`.d.ts` → validator row). Used by DevStudio (dev apply) + test
-// helpers that apply an ontology via `Star.setOntology` without a Galaxy round-trip.
-export { compileOntologyVersion } from './galaxy';
-
-// Resources
-export { Resources, END_OF_TIME } from './resources';
-export type { SnapshotMeta, Snapshot, TransactionResult, TransactionError } from './resources';
-// The server-internal wire op shape (eTag-required put/move/delete, no typeName
-// on those — the server reads it from the current snapshot). Distinct from the
-// public client `OperationDescriptor` (typeName on every op, eTag auto-derived).
-// Exposed for harnesses/tests that drive `Star.transaction` directly.
-export type { OperationDescriptor as WireOperationDescriptor } from './resources';
-
-// Subscriptions
-export { Subscriptions } from './subscriptions';
-export type { SubscriberRow } from './subscriptions';
-
-// Errors
+// The platform chat ontology: pure strings from the client-safe leaf; the compiled
+// seed row from the server-only module.
 export {
-  OntologyStaleError, isOntologyStaleError,
-  PermissionDeniedError, isPermissionDeniedError,
-  NodeNotFoundError, isNodeNotFoundError,
-} from './errors';
-
-// DAG tree
-export { DagTree } from './dag-tree';
-export type { PermissionTier, DagTreeState, DagTreeView, DagTreeNodeData, EdgeKey } from './dag-ops';
+  DEFAULT_CHAT_ID,
+  CHAT_NODE_ID,
+  CHAT_MESSAGE_ONTOLOGY_VERSION,
+  CHAT_MESSAGE_TYPES,
+} from './chat-constants';
+export { chatOntologySeedRow } from './chat-ontology';
+// Participant derivation — display identity from the stamped actingToken (client-safe).
+export { deriveKind, deriveParticipants } from './participants';
 export {
-  ROOT_NODE_ID,
-  validateSlug,
-  checkSlugUniqueness,
-  detectCycle,
-  resolvePermission,
-  getEffectivePermission,
-  getNodeAncestors,
-  getNodeDescendants,
-  buildDagTreeView,
-  makeEdgeKey,
-} from './dag-ops';
+  startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS, TURN_HEARTBEAT_MS,
+  type TurnLiveness, type TurnPhase, type TurnDisplay,
+} from './turn-liveness';
+export type { ParticipantKind, ParticipantRef } from './participants';
 
-// Gateway
-export { NebulaClientGateway } from './nebula-client-gateway';
-
-// Client
-export { NebulaClient } from './nebula-client';
-export type {
-  NebulaClientConfig,
-  OntologyStaleInfo,
-  TransactionOptions,
-  ReadOptions,
-  OperationDescriptor,
-  NebulaStoreAdapter,
-  TransactionOutcome,
-  TransactionResourceResolution,
-  ResourceHandler,
-  ConflictResolverVerdict,
-} from './nebula-client';
+// Studio's own Client — a generated app's `NebulaClient` is `@lumenize/resources`'s.
+export { StudioClient } from './studio-client';
+export type { StudioClientConfig } from './studio-client';
 
 // Entrypoint
 export { default as entrypoint } from './entrypoint';
+// The platform host's own routes — every Worker that runs the entrypoint binds it as `PLATFORM_HOST`.
+export { PlatformHost } from './platform-host';

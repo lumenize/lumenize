@@ -1,47 +1,83 @@
-# ADR-003: Continuation-Based Messaging — No Cross-Hop Request/Response
+# ADR-003: Continuation-Based Messaging — No Promises Long Held Across Hops
 
 **Date**: 2026-06-11 (records a commitment in force since Mesh's design)
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence / history**: `.claude/rules/mesh.md` (day-to-day enforcement), `website/docs/mesh/calls.mdx` § Direct Delivery, `packages/mesh/src/lmz-api.ts` (`callRawImpl`), `tasks/on-hold/mesh-overload-backpressure-handling.md`
+**Evidence**: `.claude/rules/mesh.md` (day-to-day enforcement), `website/docs/mesh/calls.mdx` (§ Direct Delivery, § Error Handling), `packages/mesh/src/lmz-api.ts` (`#dispatchEnvelope` — the early-acking transport), `packages/mesh/src/mesh-client.ts` (`callAsync`), `packages/fetch/` (a continuation persisted into an alarm), `tasks/on-hold/mesh-overload-backpressure-handling.md`
 
 ## Context
 
-A distributed flow touches many nodes: client → Gateway → Star → Worker → back to some node. Coupled request/response across that path means every intermediate holds state — and an open RPC stub, which bills wall-clock time — until the deepest call unwinds; it fights DO hibernation and eviction; and it simply doesn't exist on the WebSocket legs, where every frame is a one-way message. Mesh had to pick one messaging model that works identically across all legs.
+A distributed flow touches many nodes: client → Star → Worker → back to some node. The tempting model is to `await` each hop the way an in-process call returns a value — hold a Promise (or an open RPC stub) until the callee replies. But in this environment the thing that Promise is bound to routinely vanishes out from under it: **browser tabs sleep, WebSocket connections drop and reconnect, and Durable Objects hibernate or are evicted.** A Promise held across a hop for more than a moment is state bound to a transient channel. When the channel dies, the result is stranded and the caller can hang forever. Holding one costs, too: the caller DO stays resident on wall-clock billing while it waits, and an open stub can prevent hibernation. And on the WebSocket legs there is nothing to await at all — every frame is a one-way message.
+
+**Resiliency is the driver** — surviving sleep, reconnect, and hibernation — with the billing win a bonus. Mesh needs one messaging model that holds up under all of it and works as identically as possible from every node type.
 
 ## Decision
 
-**Mesh flows are one-way messages plus continuations; nothing in the architecture depends on request/response across hops.**
+**Mesh flows are one-way messages carrying continuations; no node holds a Promise (a reply channel) open across a hop for more than an instant.**
 
-- A call names its *final* destination via a continuation (`lmz.ctn()`); multi-hop flows hand off forward (client → Star → Worker → client) and never unwind back through intermediates (direct delivery).
-- Results are deliveries, not returns: the 4-arg `lmz.call` result handler, `svc.broadcast`'s `onResult`, and the client's `CALL_RESPONSE` message are all one-way deliveries to wherever the result is needed.
-- `callContext` (identity, provenance, state) rides every hop automatically — that, not a held channel, is what makes flows composable.
-- At the developer surface this is transparent: an awaited client call is sugar over send-plus-result-delivery, indistinguishable from two one-way calls. No user-developer code can observe, or couple to, a held cross-hop channel.
-- No session or pipelining RPC (RpcTarget, Cap'n Web): cross-node calls are independent, self-contained envelopes.
+A **continuation** (`ctn()`) is a *serializable description of work to be done in another place or time* — the property everything here rests on. Because a continuation is **data, not a live handle**, it can be sent, delivered, and stored rather than awaited:
 
-### The per-hop transport exception
+- A call specifies the work it wants done **on the callee** as a continuation.
+- Request/response is *simulated without a held channel*: the work the caller wants done **with the result** (the value, or an Error) is *also* a continuation. The callee fills it with the result and sends it back with another `call()`. The outcome is **delivered** as a fresh one-way message, never **returned** up a channel the caller would otherwise hold open.
+- Those deliveries take two concrete forms, each a one-way delivery to wherever the result is needed. One is the 4-arg `call` handler continuation, which travels with a client's call exactly as with a node's; the other is `lmz.broadcast`'s `onResult`.
+- Multi-hop flows hand off **forward** (client → Star → Worker → client), each hop naming only its own next node; they never unwind back through the intermediates (direct delivery).
+- `callContext` (identity and provenance) rides every hop automatically — that, not a held channel, is what makes flows composable.
+- Because a continuation is data, it can also be **persisted** — stashed in an alarm or in storage and re-executed later. That is a "Promise" that survives hibernation precisely because it stopped being one (`@lumenize/fetch` stringifies a continuation into an alarm as its delivery backstop).
+- Each cross-node call is an **independent, self-contained envelope** — no session, no live remote reference held across calls (the session-RPC approach we reject, below).
 
-Within a single DO/Worker hop, the transport *is* an awaited Workers RPC: `callRawImpl` does `await stub.__executeOperation(envelope)` and that hop's result or error rides back in the RPC response. The await spans exactly one hop — never a path. We have considered converting even this to two one-way calls; since no user-developer code could tell the difference, that remains an open mechanism choice (it would mainly relocate error/overload classification — see the backpressure design), not a revision of this decision. The WS legs have no such exception — there is nothing to await.
+The 4-argument `call` — a request plus a response handler — makes the shape concrete. Both the work and the handler are continuations (data); the caller is freed at the early ack and holds nothing. The result comes back as a **second, independent one-way message** rather than up a channel the caller held open:
 
-This exception also does **not** license an *awaited* call whose result must return across a **client connection**, nor one that spans **long-running** work: the client-side `callRaw` await is sugar bound to the originating socket, so a client-WS drop or a DO hibernation strands the result and the caller hangs forever (the Studio chat "thinking… forever" failure, 2026-06). Such flows use direct delivery — the client *fires*, and the result is delivered to a `@mesh()` handler on the client addressed by its `instanceName` — never an awaited `callRaw`. Everyday enforcement lives in `.claude/rules/mesh.md` (§ `callRaw` is mesh).
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U1 as caller user code
+    participant C as caller-side framework
+    participant E as callee-side framework
+    participant U2 as callee user code
+    U1->>C: call(work, handler) — both are continuations (data)
+    C->>E: one-way message across the network — work + handler continuation + return address
+    E-->>C: early ack — admitted, or rejected at admission (overload / guard / network glitch)
+    Note over U1,U2: caller now holds nothing — free to hibernate, and its tab may sleep
+    E->>U2: run the work
+    U2-->>E: a value — the callee never sees the handler
+    E->>C: one-way message across the network — the handler continuation, filled with the result
+    C->>U1: run handler(result)
+    Note over U1,U2: the result is DELIVERED as a fresh message, not RETURNED up a held channel — so nothing strands if the socket dropped or a node hibernated in between
+```
+
+## When awaiting is OK
+
+Awaiting a network result is not banned outright. What the decision forbids is holding a *reply channel* open **across a hop for more than an instant**. Two places await, deliberately, and neither does:
+
+- **Under the covers: one very-short hop.** A `call` from a DO, Worker, or Container is dispatched by a single awaited Workers RPC (`#dispatchEnvelope` → `await stub.__executeOperation`) that **acks early**. It returns the instant the callee is *admitted* (binding resolved, guards passed), **before** the callee runs the work. So the caller holds the Promise for admission only, never for the operation. That short hop is also where **admission-time failures** surface: a guard/scope rejection, **overload** back-pressure, or a **network/transport glitch** on the hop itself. So the caller learns *"did it even get accepted?"* promptly, on the ack rather than on a fire-back that might never come.
+- **Everything *after* admission arrives later as the one-way fire-back** — the result, or an error the callee's own code throws. Early-ack applies to every call, a call to a client included: the node hosting the client acks for it. It is pure transport (invisible to user-developer code), not the held channel the decision forbids.
+  - **A call to a client is the one bounded wait.** The node hosting the client waits up to 30 s, under `ctx.waitUntil`, for the client's answer frame, and fills the caller's continuation with it. The socket carries one-way frames, so no channel is held across a hop. A reset loses the wait, and the client's re-subscribe recovers what it carried.
+- **In user-land: only on the client — a browser tab or a longer-lived host like a Node process (`MeshClient` / `NebulaClient`), via `callAsync`.** The client alone may `await` a cross-node *result*, because its environment makes a held Promise safe where a DO's or Worker's does not:
+  
+  - **The heap is durable enough.** A browser tab's JS heap survives a freeze (sleep) *and* a WebSocket reconnect — only a full discard/reload clears it. A DO or Worker isolate loses its heap on hibernation/eviction, so a Promise parked there is bound to memory that routinely vanishes (the control-flow twin of the mutable instance field we forbid).
+  - **Delivery re-resolves.** The result fires back addressed to the client's stable address, its host node's name plus its own id; the host node routes it to whatever socket the client is on *now*, not the socket the call left on. The awaited Promise is thus not bound to the transient socket — the exact coupling that made a socket-bound await strand on reconnect.
+  
+  So `client.lmz.callAsync()` is a Promise **wrapper over that same one-way-fire + re-resolvable delivery** — sugar over send-plus-delivery, not a held cross-hop channel. It is still bounded: a default timeout composed with an optional `AbortSignal`, where abort cancels the *wait*, not the callee's *operation*. DOs and Workers get no awaitable; they use `call()` + a fire-back handler.
 
 ## Alternatives considered
 
 | Approach | Why rejected |
 |---|---|
-| Coupled request/response across hops (nested awaited RPC) | Every intermediate stays resident holding open stubs (wall-clock billing) until the deepest call returns; results backtrack through nodes that don't need them; impossible on the WS legs anyway. |
-| Promise-pipelined RPC sessions (RpcTarget, Cap'n Web) | Stateful sessions fight hibernation/eviction and have brittle stub lifecycles. Independent, self-contained calls survive all of that. |
+| **Hold a Promise across the hop** — a nested awaited RPC, or a `stub.call()` that returns the value to its caller | The core failure this ADR exists to prevent. The held Promise is transient state bound to a transient channel — a socket that drops and reconnects, or an isolate's memory that hibernates/evicts — so it strands and the caller hangs ("thinking… forever"), while any intermediate stays resident (wall-clock, no hibernation). Replaced by continuation-carried deliveries and — client-only, where the heap is durable enough — `callAsync`, a Promise over a re-resolvable delivery rather than over a socket. |
+| **Late-ack** transport — the awaited transport hop returns the callee's result instead of acking at admission | Re-holds the caller across the callee's *entire* operation — the long hold this ADR forbids. Early-ack frees the caller at admission and loses nothing, since the result travels one-way regardless. |
+| **Session / promise-pipelined RPC** (Cloudflare `RpcTarget`, Cap'n Web) | Gets *dependent calls in one round trip* — the **same goal as OCAN** — but via a **stateful session**: the caller holds a live remote reference (a stub, or an unresolved promise-for-a-capability) and *pipelines* further calls against it (invoking a method on a result that hasn't come back yet). Rejected **precisely because it holds a session** — the live reference keeps the callee resident (fighting hibernation/eviction) and binds to the connection (so it strands on a WS drop or a DO evict), with brittle stub lifecycles. OCAN reaches the same goal **statelessly**: the whole dependent program travels in one self-contained envelope and runs callee-side, nothing held across the wire — and its object-capability form (a gate returning a class instance) is the in-envelope analog of returning an `RpcTarget`, minus the session. |
 | Two models — request/response between DOs, one-way over WS | Two mental models and two error paths for the same flow, with the seam exactly where Nebula lives (client ↔ Star). |
 
 ## Consequences
 
 ### Positive
+- **Resilient by construction.** No result is bound to a transient channel, so nothing strands when one vanishes — the "thinking… forever" class of bug is gone by design.
 - Direct delivery: results go straight to their consumer (the canonical spell-check reports to the client, not back through the document DO).
 - DOs stay hibernation-friendly and avoid wall-clock billing across long flows; no node sits resident waiting on a deep call.
-- One model everywhere — client code and DO code compose the same way, and awaiting is always available as sugar on top.
-- Broadcast falls out of the same primitive: N one-way calls with optional result handlers.
+- One model everywhere — client and DO code compose the same way, and `callAsync` restores an awaitable ergonomic on the client **without** the coupling.
+- Broadcast falls out of the same primitive: N one-way calls, each with a result handler. And because continuations are data, alarm-backed and store-and-forward flows use the identical shape.
 
 ### Negative
-- "Did it land?" needs explicit machinery (4-arg result handlers, `onErrorOnly`) instead of an implicit await — a fire-and-forget error is silently lost unless a handler is attached.
+- "Did it land?" needs explicit machinery instead of an implicit return. Every call names a result handler, a fire-and-forget call one with `onErrorOnly`, and the client's `callAsync` wraps one in a Promise.
 - Flows are harder to trace than a call stack; `callContext.callChain` exists precisely to compensate.
 - Write retry/backpressure cannot lean on a transport response end-to-end; it must be designed at the outcome level (overload/backpressure design + ADR-005's replay idempotency).

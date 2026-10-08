@@ -1,9 +1,9 @@
 ---
-title: Using @lumenize/nebula/frontend with Vue
+title: Using @lumenize/resources/frontend with Vue
 description: How the factory + Vue fit together — the minimal single-file shape, the debounce knobs, and why production deploys pre-compile templates for a strict CSP.
 ---
 
-# Using `@lumenize/nebula/frontend` with Vue
+# Using `@lumenize/resources/frontend` with Vue
 
 `createNebulaClient` is a thin reactive bridge: it wraps a `NebulaClient` and returns a Vue-reactive `store` plus the `client` and a `ready` promise. Your components read and write `store.resources.*` like any reactive object; the factory handles auto-subscribe, optimistic writes, debouncing, and conflict resolution. The full surface is in [API reference § createNebulaClient](./api-reference.md#createnebulaclient); this page is about *setup* — how Vue is loaded and compiled, and the knobs that affect write timing.
 
@@ -11,7 +11,7 @@ In Nebula Studio you don't hand-write any of the shell below — Studio generate
 
 ## The minimal single-file shape
 
-The smallest thing that runs: load Vue, create the factory, mount an app whose template reads the store. Vue is loaded from a CDN; the `@lumenize/nebula/frontend` factory is served from your Nebula deployment (the `/frontend` subpath — it is not on a public CDN, since Nebula packages ship with your Star).
+The smallest thing that runs: load Vue, create the factory, mount an app whose template reads the store. Vue is loaded from a CDN; the `@lumenize/resources/frontend` factory is served from your Nebula deployment (the `/frontend` subpath — it is not on a public CDN, since Nebula packages ship with your Star).
 
 ```html @skip-check
 <!doctype html>
@@ -25,23 +25,23 @@ The smallest thing that runs: load Vue, create the factory, mount an app whose t
 {
   "imports": {
     "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.js",
-    "@lumenize/nebula/frontend": "/frontend/index.js"
+    "@lumenize/resources/frontend": "/frontend/index.js"
   }
 }
 </script>
 
 <script type="module">
   import { createApp } from 'vue';
-  import { createNebulaClient } from '@lumenize/nebula/frontend';
+  import { createNebulaClient } from '@lumenize/resources/frontend';
 
-  const { client, store, ready } = createNebulaClient({ appVersion: 'v1' });
+  const { client, store, ready } = createNebulaClient({ ontologyVersion: 'v1' });
   await ready;  // first connection complete → client.claims populated
 
   createApp({ setup: () => ({ store, id: 'todo-1' }) }).mount('#app');
 </script>
 ```
 
-`createNebulaClient({ appVersion: 'v1' })` is the whole config in a deployed browser session: `baseUrl`, `activeScope`, and `onShouldRefreshUI` auto-detect from the environment (`authScope` is currently required-in-practice — see the [config table](./api-reference.md#createnebulaclient)). `appVersion` is the one field Studio substitutes at deploy time.
+`createNebulaClient({ ontologyVersion: 'v1' })` is the whole config in a deployed browser session: `baseUrl`, `platformOrigin` and `onShouldRefreshUI` come from the page, and the client takes its scope from its first token (see the [config table](./api-reference.md#createnebulaclient)). `ontologyVersion` is not substituted at build time: the serving layer injects it into the app shell, and it is **absent until an Apply has run** — an app that uses no resources runs fine without one, and only `resources.*` refuses.
 
 This single-file shape uses **in-DOM templates** — the `v-model` markup lives in the HTML and is compiled in the browser by Vue's runtime compiler. That's the convenient path for a quick page, but it has a CSP cost (below) that production deploys avoid.
 

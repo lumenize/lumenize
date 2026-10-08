@@ -1,7 +1,7 @@
 /**
  * Phase 1 — Rung-1 compile gates (tasks/archive/nebula-codegen-loop.md). The container-free
  * self-correction signal: `compileSource(path, content)` dispatches by extension and
- * returns `{ ok, errorTail? }`. Runs under vitest-pool-workers — no container, no AI
+ * returns `{ ok, errorTail? }`. Runs under vitest-plugin — no container, no AI
  * binding (the `dev-studio` project carries `nodejs_compat` + the bundled `tsc`).
  *
  * Capable-of-failing proof for each gate: a known-good input returns `ok:true` and a
@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { compileTemplate, parse, compileScript } from '@vue/compiler-sfc';
-import { compileSource, compileVueSfc } from '../../../src/codegen-gate';
+import { compileSource, compileVueSfc } from '../../offline/codegen-gate';
 
 const ONTOLOGY_GOOD = `interface Todo { title: string; done: boolean; }`;
 // Missing field type — a parse/type error generateParseModule surfaces as a throw.
@@ -28,7 +28,7 @@ const count = computed(() => Object.keys(store.Todo ?? {}).length);
 function add() {
   const id = crypto.randomUUID();
   client.resources.transaction({
-    [id]: { op: 'create', typeName: 'Todo', nodeId: 1, value: { title: title.value, done: false } },
+    [id]: { op: 'create', typeName: 'Todo', nodeId: crypto.randomUUID(), value: { title: title.value, done: false } },
   });
 }
 </script>
@@ -53,7 +53,7 @@ const appWithOp = (op: string) => `<script setup lang="ts">
 import { client } from './nebula';
 function go() {
   client.resources.transaction({
-    a: { op: '${op}', typeName: 'Todo', nodeId: 1, value: {} },
+    a: { op: '${op}', typeName: 'Todo', nodeId: crypto.randomUUID(), value: {} },
   });
 }
 </script>

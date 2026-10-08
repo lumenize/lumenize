@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { playwright } from '@vitest/browser-playwright';
 import swc from 'unplugin-swc';
 
@@ -95,6 +95,13 @@ function dynamicEnvProxyPlugin({
 // Without this, `@mesh()` decorators survive Vite's default esbuild transform and V8 can't parse them.
 // See: https://github.com/evanw/esbuild/issues/104
 const swcPlugin = swc.vite({
+  // unplugin-swc's default filter is /\.m?[jt]sx?$/ — END-ANCHORED, so it skips
+  // any id carrying a query string. Coverage's uncovered-file pass requests
+  // `foo.ts?cache=…&vitest-uncovered-coverage=true`, which therefore bypasses
+  // SWC entirely; the decorator survives to istanbul's Babel instrumenter and
+  // the run dies with "Support for the experimental syntax 'decorators' isn't
+  // currently enabled". Tolerate the query so those ids transform too.
+  include: /\.m?[jt]sx?(\?.*)?$/,
   jsc: {
     parser: {
       syntax: 'typescript',
@@ -108,20 +115,25 @@ const swcPlugin = swc.vite({
 });
 
 // Bindings set on every project's miniflare instance. LUMENIZE_MESH_TEST_MODE
-// enables test-only behavior in @lumenize/mesh source (currently: longer
-// LumenizeClientGateway grace period to tolerate CPU contention from parallel
+// enables test-only behavior in @lumenize/mesh source (currently: a longer
+// ClientGateway grace period to tolerate CPU contention from parallel
 // miniflare workers). Never set in .dev.vars or a deployed wrangler.jsonc.
 const testModeBindings = {
   LUMENIZE_MESH_TEST_MODE: 'true',
+  // Mesh's Registry hands each magic link back instead of mailing it, so a test's Clients log in
+  // through the real routes without mail (ADR-009 rung 2, test/support/login.ts).
+  AUTH_TEST_MODE: 'true',
+  // ⚠️ Explicitly EMPTY: bindings win over `.dev.vars`, so this holds Turnstile off on any checkout,
+  // even one whose `.dev.vars` carries a real key.
+  TURNSTILE_SECRET_KEY: '',
 };
 
 // --- Opt-out gating for the secret-less lane (mirrors packages/auth/vitest.config.js) ---
 // The `browser` project's globalSetup spawns `wrangler dev` against
-// test/browser/worker, whose email binding is `remote: true` — that proxy
-// authenticates to Cloudflare at spawn time, and the project also needs a
-// Playwright chromium the secret-less Claude-hosted lane doesn't provide. A
-// remote/browser project can't be kept partly alive (the proxy + globalSetup run
-// for the whole project), so omit it wholesale in that lane. Signal = the OPT-OUT
+// test/browser/worker, and the project needs a Playwright chromium the
+// secret-less Claude-hosted lane doesn't provide. A browser project can't be
+// kept partly alive (globalSetup runs for the whole project), so omit it
+// wholesale in that lane. Signal = the OPT-OUT
 // flag LUMENIZE_NO_CF_REMOTE, set ONLY by the secret-less lane; local
 // (`wrangler login` OAuth) and CI (CLOUDFLARE_API_TOKEN job env) leave it unset,
 // so the browser canary runs there.
@@ -130,7 +142,7 @@ const includeCfRemote = !process.env.LUMENIZE_NO_CF_REMOTE;
 // SO — so a green run in the hosted / no-creds lane is never mistaken for full
 // coverage (incl. by an agent reporting "tests pass"). CI never sets the flag.
 if (!includeCfRemote) {
-  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING the `browser` project (real-browser + wrangler-dev remote-email path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
+  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING the `browser` project (real-browser + wrangler-dev email path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
 }
 
 export default defineConfig({
@@ -151,6 +163,7 @@ export default defineConfig({
       reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: [
         '**/src/**',
+        '**/test/auth/test-worker-and-dos.ts',
       ],
       exclude: [
         '**/node_modules/**',
@@ -186,16 +199,79 @@ export default defineConfig({
             'test/for-docs/alarms/index.test.ts',
             'test/for-docs/security/**/*.test.ts',
             'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
-            'test/container/**/*.test.ts', // Container node — run in the `container` project (needs its own containers-block wrangler)
+            'test/gateway-timing.test.ts', // Needs a short grace period — run in `gateway-timing`
+            'test/short-tokens.test.ts', // Needs a short token lifetime — run in `short-tokens`
+            'test/auth/**/*.test.ts', // Its own Worker and bindings — run in `auth`
           ],
+        },
+      },
+      {
+        // The auth layer — the Registry, its routes and token mints, the facade and the Profile — on
+        // its own test Worker (test/auth/wrangler.jsonc). Test mode: the Registry returns each magic
+        // link instead of mailing it (ADR-009 rung 2).
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/auth/wrangler.jsonc' },
+          miniflare: {
+            bindings: {
+              AUTH_TEST_MODE: 'true',
+              // ⚠️ Explicitly EMPTY, and load-bearing: bindings win over `.dev.vars`, so this holds
+              // Turnstile OFF for the suite on any checkout — even one whose `.dev.vars` carries a
+              // real key. `checkTurnstile` does not short-circuit on AUTH_TEST_MODE; the absent or
+              // empty secret is the one sanctioned skip. A test that wants gating ON passes a
+              // per-call env spread with the always-fail dummy secret.
+              TURNSTILE_SECRET_KEY: '',
+              // Comma-separated bootstrap-admin list. The first entry keeps every single-email test
+              // a member; the second — with a LEADING SPACE and MIXED CASE — exercises the getter's
+              // per-element trim+lowercase (auth-bootstrap-array.test.ts). A raw `String.includes` on
+              // this joined value, or a scalar index-0 getter, reds those array tests.
+              AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com, Second-Bootstrap@Example.com',
+              DEBUG: 'nebula-auth',
+            },
+          },
+        })],
+        test: {
+          name: 'auth',
+          include: ['test/auth/**/*.test.ts'],
+          testTimeout: 5000,
+        },
+      },
+      {
+        // Gateway tests that need its grace period or its call timeout to RUN OUT. Every other
+        // project keeps the 60 s test-mode grace period, which their reconnect tests rely on under
+        // contention, and the 30 s call timeout, since a missed answer now closes the socket with
+        // 4408. These run alone with short ones (test-mode only, never prod-reachable — security.md).
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './wrangler.jsonc' },
+          miniflare: { bindings: {
+            ...testModeBindings, LUMENIZE_MESH_GRACE_PERIOD_MS: '3000', LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS: '500',
+          } },
+        })],
+        test: {
+          name: 'gateway-timing',
+          include: ['test/gateway-timing.test.ts'],
+        },
+      },
+      {
+        // Clients whose every token is born inside the 30 s refresh-ahead window: the deployment's
+        // ceiling on an access token's lifetime is 20 s here, so the next call or request refreshes.
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './wrangler.jsonc' },
+          miniflare: { bindings: { ...testModeBindings, AUTH_ACCESS_TOKEN_TTL: '20' } },
+        })],
+        test: {
+          name: 'short-tokens',
+          include: ['test/short-tokens.test.ts'],
         },
       },
       ...(includeCfRemote ? [{
         // Real-browser tests: bundles @lumenize/mesh/client through Vite +
         // Playwright (chromium). Catches client-side imports that work in
-        // vitest-pool-workers but fail in a real browser bundle — e.g., the
+        // vitest-plugin but fail in a real browser bundle — e.g., the
         // `@lumenize/debug` regression where `await import('cloudflare:workers')`
-        // bundled fine under vitest-pool-workers but vite refused to resolve
+        // bundled fine under vitest-plugin but vite refused to resolve
         // it. See tasks/playwright-test-template.md.
         extends: true,
         plugins: [swcPlugin],
@@ -261,20 +337,6 @@ export default defineConfig({
         test: {
           name: 'security',
           include: ['test/for-docs/security/**/*.test.ts'],
-        },
-      },
-      {
-        // LumenizeContainer (4th node type) — isolated so a `containers`-block
-        // config quirk can't perturb the main suite's record. See
-        // tasks/nebula-devcontainer-node-type.md Phase 2.
-        extends: true,
-        plugins: [swcPlugin, cloudflareTest({
-          wrangler: { configPath: './test/container/wrangler.jsonc' },
-          miniflare: { bindings: testModeBindings },
-        })],
-        test: {
-          name: 'container',
-          include: ['test/container/**/*.test.ts'],
         },
       },
     ],

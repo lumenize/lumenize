@@ -7,8 +7,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import {
+  adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, createSubject, ownerOf,
+} from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 describe('guard enforcement', () => {
@@ -16,26 +17,26 @@ describe('guard enforcement', () => {
   describe('star-level guards', () => {
     it('non-admin cannot call setStarConfig, can call getStarConfig and whoAmI', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       // Bootstrap admin
-      const { accessToken: adminToken } = await browserLogin(browser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(browser, star, ownerOf('admin@example.com'));
 
       // Create non-admin subject
       const userBrowser = new Browser();
       await createSubject(browser, star, adminToken, 'user@example.com');
-      const { client: userClient } = await createAuthenticatedClient(
+      const { client: userClient } = await createInvitedClient(
         NebulaClientTest, userBrowser, star, star, 'user@example.com',
       );
 
-      // Non-admin calls setStarConfig → rejected by requireAdmin guard
+      // Non-admin calls setStarConfig → rejected by requireDominionHere guard
       userClient.callStarSetConfig(star, 'key', 'value');
       await vi.waitFor(() => {
         expect(userClient.lastError).toContain('Admin access required');
       });
 
       // Non-admin calls getStarConfig → succeeds (no guard beyond @mesh())
-      // Config bag may contain defaults bootstrapped by Resources (e.g., debounceMs)
+      // Config bag may contain defaults bootstrapped by Snapshots (e.g., coalesceWindowMs)
       userClient.callStarGetConfig(star);
       await vi.waitFor(() => {
         expect(userClient.lastResult).toBeDefined();
@@ -53,10 +54,10 @@ describe('guard enforcement', () => {
 
     it('star-level admin can call setStarConfig', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       // Bootstrap admin and create client
-      const { client: adminClient } = await createAuthenticatedClient(
+      const { client: adminClient } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
@@ -66,7 +67,7 @@ describe('guard enforcement', () => {
         expect(adminClient.callCompleted).toBe(true);
       });
 
-      // Read it back — config bag also contains defaults bootstrapped by Resources
+      // Read it back — config bag also contains defaults bootstrapped by Snapshots
       adminClient.callStarGetConfig(star);
       await vi.waitFor(() => {
         expect(adminClient.lastResult).toMatchObject({ theme: 'dark' });
@@ -75,15 +76,18 @@ describe('guard enforcement', () => {
       adminClient[Symbol.dispose]();
     });
 
+    // The second client holds aud = the UNIVERSE while calling a STAR DO, so admission comes from
+    // the *dominion* branch (its host's scope sits above the callee) rather than the tenant branch,
+    // which is what "universe admin reaches star-level admin methods" means.
     it('universe admin (wildcard) can call star-level setStarConfig', async () => {
       const browser = new Browser();
-      const universe = `uni-${generateUuid().slice(0, 8)}`;
+      const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
-      // First, bootstrap a star-level admin so the Star DO gets created
+      // Universe admin (pattern `{universe}.*`) at the star aud — creates the Star DO.
       const starBrowser = new Browser();
-      const { client: starClient } = await createAuthenticatedClient(
-        NebulaClientTest, starBrowser, star, star, 'star-admin@example.com',
+      const { client: starClient } = await adminClientAt(
+        NebulaClientTest, starBrowser, star, star, 'admin@example.com',
       );
       starClient.callStarSetConfig(star, 'initial', 'value');
       await vi.waitFor(() => {
@@ -91,10 +95,14 @@ describe('guard enforcement', () => {
       });
       starClient[Symbol.dispose]();
 
-      // Universe admin authenticates and connects to the star
-      const { client: universeAdmin } = await createAuthenticatedClient(
-        NebulaClientTest, browser, universe, star, 'universe-admin@example.com',
+      // The universe's own admin — who founded it above the star admin — with aud = the UNIVERSE,
+      // reaching down into the Star.
+      const { client: universeAdmin, payload } = await universeAdminClient(
+        NebulaClientTest, browser, universe, universe, ownerOf('admin@example.com'),
       );
+      // Guard the fixture: aud must be the universe, or this stops testing cross-tier dominion.
+      expect(payload.aud).toBe(universe);
+      expect(payload.access?.authScope).toBe(`${universe}`);
 
       // Universe admin calls star-level setStarConfig → succeeds (cross-admin access)
       universeAdmin.callStarSetConfig(star, 'cross', 'admin');
@@ -115,11 +123,11 @@ describe('guard enforcement', () => {
   describe('lifecycle ordering', () => {
     it('onBeforeCall rejects wrong active scope before guard runs', async () => {
       const browser = new Browser();
-      const starA = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
-      const starB = `acme-${generateUuid().slice(0, 8)}.app.tenant-b`;
+      const starA = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
+      const starB = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-b`;
 
       // Create Star A with admin
-      const { client: clientA } = await createAuthenticatedClient(
+      const { client: clientA } = await adminClientAt(
         NebulaClientTest, browser, starA, starA, 'admin@example.com',
       );
       clientA.callStarWhoAmI(starA); // Initialize Star A binding
@@ -130,7 +138,7 @@ describe('guard enforcement', () => {
 
       // Create client B with different active scope
       const browserB = new Browser();
-      const { client: clientB } = await createAuthenticatedClient(
+      const { client: clientB } = await adminClientAt(
         NebulaClientTest, browserB, starB, starB, 'bob@example.com',
       );
 
@@ -138,7 +146,7 @@ describe('guard enforcement', () => {
       // NOT by guard (whoAmI has no guard)
       clientB.callStarWhoAmI(starA);
       await vi.waitFor(() => {
-        expect(clientB.lastError).toContain('Active-scope mismatch');
+        expect(clientB.lastError).toContain('No passage from');
       });
 
       clientB[Symbol.dispose]();

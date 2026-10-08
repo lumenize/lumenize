@@ -1,46 +1,25 @@
 /**
  * Worker entry point for getting-started.mdx examples
  *
- * Re-exports DO classes for wrangler bindings and handles routing.
+ * Re-exports the classes its wrangler bindings name, and routes Mesh's auth and each Client's
+ * upgrade: a page on `acme.lumenize.localhost` connects to the `WorkspaceDO` named `acme`.
  */
 
-import { env } from 'cloudflare:workers';
-import { routeDORequest } from '@lumenize/routing';
-import {
-  LumenizeAuth,
-  createAuthRoutes,
-  createRouteDORequestAuthHooks
-} from '@lumenize/auth';
-import { LumenizeClientGateway } from '../../../src/index.js';
+import { ScopedMeshDO } from '../../../src/index.js';
+import { authFacadeFor, meshTestFetch } from '../../support/test-auth.js';
 
-// Re-export classes for wrangler bindings
-export { LumenizeClientGateway, LumenizeAuth };
+export { AuthRegistry, Profile } from '../../support/test-auth.js';
 export { DocumentDO } from './document-do.js';
 export { SpellCheckWorker, type SpellFinding } from './spell-check-worker.js';
-export { AuthEmailSender } from './auth-email-sender.js';
 
-// Create auth routes and hooks once at module level
-const authRoutes = createAuthRoutes(env);
-const authHooks = await createRouteDORequestAuthHooks(env);
+/** A workspace's node, named by its scope: it hosts the Clients on the workspace's pages. */
+export class WorkspaceDO extends ScopedMeshDO<Env> {}
 
-// Worker entry point
+/** Every tier of scope is a workspace here. */
+const TIERS = { universe: 'WORKSPACE_DO', galaxy: 'WORKSPACE_DO', star: 'WORKSPACE_DO' } as const;
+
+export const AuthFacade = authFacadeFor(TIERS);
+
 export default {
-  async fetch(request: Request) {
-    // Handle auth routes (/auth/email-magic-link, /auth/magic-link, /auth/refresh-token, /auth/logout)
-    const authResponse = await authRoutes(request);
-    if (authResponse) {
-      return authResponse;
-    }
-
-    const response = await routeDORequest(request, env, {
-      prefix: 'gateway',
-      ...authHooks,
-    });
-
-    if (response) {
-      return response;
-    }
-
-    return new Response('Not Found', { status: 404 });
-  },
+  fetch: meshTestFetch(TIERS),
 };

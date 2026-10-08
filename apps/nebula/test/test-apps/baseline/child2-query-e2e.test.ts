@@ -1,0 +1,168 @@
+/**
+ * Child 2 Phase 6 — client `subscribeQuery` handle + two-client e2e on the Galaxy chat host.
+ *
+ * Drives the PUBLIC `client.resources.subscribeQuery` (NOT a callXxx initiator —
+ * the unit under test is client-side membership / windowed content subs / grace,
+ * m7) over the full integration path (real JWTs, host node). Client A subscribes
+ * `Message where session == S`; client B creates / reparents / deletes Messages; A's
+ * `resourceIds` tracks the full ordered membership, content arrives via lazy
+ * per-resource subs for the rendered window ONLY, a resource A loses read on falls
+ * out at the next write, and a windowed id that leaves+returns within grace keeps
+ * its content sub.
+ */
+import { describe, it, expect, vi } from 'vitest';
+import { Browser } from '@lumenize/testing';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import type { Snapshot } from '@lumenize/resources';
+import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
+import { NebulaClientTest } from './index';
+
+const uniqueChatScope = () => `c2e-${crypto.randomUUID().slice(0, 8)}.app`;
+
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})
+  // post-collapse, and `adminClientAt` is star-tier only — the covering universe admin is how
+  // a galaxy is administered.
+function devClient(scope: string, email = 'admin@example.com') {
+  return universeAdminClient(
+    NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+    { resourceHostBinding: 'GALAXY' },
+  );
+}
+
+/** Expected (validFrom, resourceId) order via the public read path. */
+async function ordered(c: NebulaClientTest, ids: string[]): Promise<string[]> {
+  const vf: Record<string, string> = {};
+  for (const id of ids) {
+    const s = await c.resources.read('Message', id) as Snapshot;
+    vf[id] = s.meta.validFrom;
+  }
+  return [...ids].sort((x, y) => vf[x] < vf[y] ? -1 : vf[x] > vf[y] ? 1 : (x < y ? -1 : x > y ? 1 : 0));
+}
+
+describe('child2 query subscription e2e (Galaxy, public client.resources.subscribeQuery)', () => {
+  it('membership tracks create / reparent-out / delete in (validFrom, resourceId) order', async () => {
+    const scope = uniqueChatScope();
+    const { client: a } = await devClient(scope);
+    const { client: b } = await devClient(scope);
+    const S = crypto.randomUUID();
+    const Other = crypto.randomUUID();
+
+    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
+    await sub.ready;
+    expect(sub.resourceIds).toEqual([]);
+
+    // B creates t1, t2 (one txn → same validFrom → resourceId tiebreaker).
+    const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
+    const eTags = await b.resources.transaction({
+      [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't1' } },
+      [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't2' } },
+    });
+    await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([t1, t2].sort()));
+    expect(sub.resourceIds).toEqual([t1, t2].sort()); // co-created → resourceId order
+
+    // B creates t3 (later) belonging to S, and a noise Message of Other.
+    const t3 = crypto.randomUUID(), tn = crypto.randomUUID();
+    await b.resources.transaction({
+      [t3]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't3' } },
+      [tn]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: Other, content: 'noise' } },
+    });
+    await vi.waitFor(() => expect(sub.resourceIds).toContain(t3));
+    expect(sub.resourceIds).toEqual(await ordered(a, [t1, t2, t3]));
+    expect(sub.resourceIds).not.toContain(tn); // other session excluded
+
+    // reparent-out: edit t1.session away from S → leaves membership.
+    await b.resources.transaction({
+      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { chat: Other, content: 't1' } },
+    });
+    await vi.waitFor(() => expect(sub.resourceIds).not.toContain(t1));
+    expect(sub.resourceIds).toEqual(await ordered(a, [t2, t3]));
+
+    // delete t2 → leaves membership.
+    const t2snap = await a.resources.read('Message', t2) as Snapshot;
+    await b.resources.transaction({ [t2]: { op: 'delete', typeName: 'Message', eTag: t2snap.meta.eTag } });
+    await vi.waitFor(() => expect(sub.resourceIds).toEqual([t3]));
+
+    a[Symbol.dispose](); b[Symbol.dispose]();
+  });
+
+  it('windowed lazy content: content arrives for the rendered window ONLY', async () => {
+    const scope = uniqueChatScope();
+    const { client: a } = await devClient(scope);
+    const { client: b } = await devClient(scope);
+    const S = crypto.randomUUID();
+
+    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
+    await sub.ready;
+    const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
+    const eTags = await b.resources.transaction({
+      [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't1-v0' } },
+      [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't2-v0' } },
+    });
+    await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2));
+
+    // Render ONLY t1 → content sub opens for t1, A receives t1's content. t2 is in
+    // membership but NOT rendered → A never receives t2 content.
+    sub.setRenderWindow([t1]);
+    await vi.waitFor(() => {
+      expect(a.lastResourceUpdate?.resourceId).toBe(t1);
+      expect((a.lastResourceUpdate?.snapshot?.value as { content?: string })?.content).toBe('t1-v0');
+    });
+    // B mutates the windowed t1 → A receives the content update (sub is live).
+    await b.resources.transaction({
+      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { chat: S, content: 't1-v1' } },
+    });
+    await vi.waitFor(() =>
+      expect((a.lastResourceUpdate?.snapshot?.value as { content?: string })?.content).toBe('t1-v1'));
+    // B mutates the UNrendered t2 → A gets a query rerun (membership unchanged) but
+    // NO content push for t2; the last content A saw stays t1.
+    await b.resources.transaction({
+      [t2]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t2], value: { chat: S, content: 't2-v1' } },
+    });
+    await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2)); // rerun landed
+    expect(a.lastResourceUpdate?.resourceId).toBe(t1); // never t2 (unrendered)
+
+    a[Symbol.dispose](); b[Symbol.dispose]();
+  });
+
+  it('a resource A loses read on falls out of A\'s membership set at the next write', async () => {
+    const scope = uniqueChatScope();
+    const { client: admin, accessToken } = await devClient(scope);
+    const S = crypto.randomUUID();
+
+    // Two SIBLING nodes under ROOT (no inheritance between them), a Message of S on each.
+    const nodeA = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'a', 'A');
+    const nodeB = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
+    const tA = crypto.randomUUID(), tB = crypto.randomUUID();
+    await admin.resources.transaction({
+      [tA]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { chat: S, content: 'a' } },
+      [tB]: { op: 'create', typeName: 'Message', nodeId: nodeB, value: { chat: S, content: 'b' } },
+    });
+
+    // A non-admin user granted read on BOTH sibling nodes (so it initially sees both).
+    const adminBrowser = new Browser();
+    await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
+    const { client: user, payload } = await createInvitedClient(
+      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY' });
+    await admin.orgTree.setPermission(nodeA, payload.sub, 'read');
+    await admin.orgTree.setPermission(nodeB, payload.sub, 'read');
+
+    using sub = user.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
+    await sub.ready;
+    await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([tA, tB].sort()));
+    expect(sub.deniedNodes).toEqual([]);
+
+    // Revoke read on nodeB, then write. The server re-runs nothing on a permission change, so
+    // the loss shows at the next update to what the user watches: here, a new Message of S. It
+    // drops tB and names nodeB (no inheritance from the sibling nodeA grant).
+    await admin.orgTree.revokePermission(nodeB, payload.sub);
+    const tC = crypto.randomUUID();
+    await admin.resources.transaction({
+      [tC]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { chat: S, content: 'c' } },
+    });
+    await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([tA, tC].sort()));
+    expect(sub.deniedNodes).toEqual([nodeB]);
+
+    admin[Symbol.dispose](); user[Symbol.dispose]();
+  });
+});

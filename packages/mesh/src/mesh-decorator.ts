@@ -1,17 +1,17 @@
 /**
- * @mesh decorator for marking methods as mesh-callable
+ * The `@mesh()` decorator, which makes a method or getter mesh-callable
  *
- * Methods decorated with `@mesh()` can be called from remote mesh nodes.
- * Without this decorator, methods cannot be invoked via `this.lmz.call()` or `callRaw()`.
+ * Methods and getters decorated with `@mesh()` can be reached from remote mesh nodes.
+ * Without this decorator, methods cannot be invoked via `this.lmz.call()`.
  *
- * This provides an explicit security boundary - only methods you explicitly
- * mark as mesh-callable can be invoked remotely.
+ * This provides an explicit security boundary - only the methods and getters you
+ * explicitly decorate with `@mesh()` can be invoked remotely.
  *
  * Uses TC39 Stage 3 decorator format (TypeScript 5.0+, ES2022).
  */
 
 /**
- * Symbol used to mark methods as mesh-callable
+ * Symbol `@mesh()` sets on a method's or getter's function to flag it mesh-callable
  * @internal
  */
 export const MESH_CALLABLE = Symbol.for('lumenize.mesh.callable');
@@ -57,41 +57,31 @@ export function getMeshGuard<T>(method: any): MeshGuard<T> | undefined {
   return undefined;
 }
 
-/**
- * Mark a standalone function as mesh-callable.
- *
- * Use this for functions that aren't class methods but need to be mesh-callable,
- * such as functions stored in object properties.
- *
- * @example
- * ```typescript
- * const nested = {
- *   deep: {
- *     method: meshFn((x: number) => x * 3)
- *   }
- * };
- * ```
- *
- * @param fn - The function to mark as mesh-callable
- * @returns The same function, marked as mesh-callable
- */
-export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
-  (fn as any)[MESH_CALLABLE] = true;
-  return fn;
+export interface MeshDecorator<T> {
+  /** A METHOD entry — the default, and right for any entry that takes arguments. */
+  <This extends T, Args extends any[], Return>(
+    target: (this: This, ...args: Args) => Return,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
+  ): (this: This, ...args: Args) => Return;
+  /** A GETTER entry — the form for a GATE, which returns a capability surface and does nothing else. */
+  <This extends T, Return>(
+    target: (this: This) => Return,
+    context: ClassGetterDecoratorContext<This, Return>
+  ): (this: This) => Return;
 }
 
 /**
- * `@mesh()` decorator for marking methods as mesh-callable
+ * `@mesh()` decorator — makes a method or getter mesh-callable
  *
  * Use this decorator on methods that should be callable from remote mesh nodes.
- * Methods without this decorator cannot be invoked via `this.lmz.call()` or `callRaw()`.
+ * Methods without this decorator cannot be invoked via `this.lmz.call()`.
  *
  * Uses TC39 Stage 3 decorator format (TypeScript 5.0+, ES2022).
  *
  * @example
- * Basic usage - mark a method as mesh-callable:
+ * Basic usage - make a method mesh-callable:
  * ```typescript
- * class DocumentDO extends LumenizeDO<Env> {
+ * class DocumentDO extends UnscopedMeshDO<Env> {
  *   @mesh()
  *   getContent(): string {
  *     return this.svc.sql`SELECT content FROM documents LIMIT 1`[0]?.content ?? '';
@@ -107,7 +97,7 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  * @example
  * With guard function - add per-method authorization:
  * ```typescript
- * class SecureDocumentDO extends LumenizeDO<Env> {
+ * class SecureDocumentDO extends UnscopedMeshDO<Env> {
  *   @mesh((instance: SecureDocumentDO) => {
  *     // Guard runs before the method executes
  *     const { originAuth } = instance.lmz.callContext;
@@ -126,26 +116,25 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  * }
  * ```
  *
- * @param guard - Optional guard function called before method execution.
+ * @param guard - Optional guard function called at the chain's ENTRY op, before the member runs.
  *                Throw an error to reject the call, or return void to allow it.
- * @returns A decorator that marks the method as mesh-callable
+ * @returns A decorator that flags the method or getter as mesh-callable
  */
-export function mesh<T = any>(
-  guard?: MeshGuard<T>
-): <This, Args extends any[], Return>(
-  target: (this: This, ...args: Args) => Return,
-  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
-) => (this: This, ...args: Args) => Return {
-  return function <This, Args extends any[], Return>(
-    target: (this: This, ...args: Args) => Return,
-    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
-  ): (this: This, ...args: Args) => Return {
-    // Mark the method as mesh-callable
+export function mesh<T = any>(guard?: MeshGuard<T>): MeshDecorator<T> {
+  return function (target: any, _context: any): any {
+    // Flag the method or getter as mesh-callable. Both carry the flag on their FUNCTION value,
+    // which is what lets one decorator serve both.
+    //
+    // ⚠️ The guard is deliberate: an `accessor` hands the decorator `{ get, set }` and a field hands
+    // it `undefined`, and neither kind ships. Flagging the wrapper would make `isMeshCallable` answer
+    // false anyway, but silently — so nothing is flagged, and the entry rule refuses the chain at
+    // runtime. The signature above is what refuses them at COMPILE time, which is the primary net;
+    // this is what stops a compile-only check from being the only one.
+    if (typeof target !== 'function') return target;
     (target as any)[MESH_CALLABLE] = true;
-    // Store the guard if provided
     if (guard) {
       (target as any)[MESH_GUARD] = guard;
     }
     return target;
-  };
+  } as MeshDecorator<T>;
 }

@@ -104,6 +104,7 @@ function shouldNormalize(lang, strict) {
 /**
  * Languages that are automatically skipped (no verification needed)
  * These are non-code blocks like diagrams, shell commands, etc.
+ * An explicit `@check-example` on the fence overrides this, whatever the language.
  */
 const AUTO_SKIP_LANGUAGES = new Set([
   'bash',
@@ -219,8 +220,10 @@ function extractCodeBlocks(content, filePath, collectSkips = false) {
     if (codeBlockStart && !inCodeBlock) {
       const lang = codeBlockStart[1];
 
-      // Auto-skip non-verifiable languages (bash, mermaid, etc.)
-      if (AUTO_SKIP_LANGUAGES.has(lang.toLowerCase())) {
+      // Auto-skip non-verifiable languages (bash, mermaid, etc.) unless the fence asks
+      // for a check. Skipping an annotated block let a wrangler.jsonc example drift
+      // from its source while its @check-example read as verified.
+      if (AUTO_SKIP_LANGUAGES.has(lang.toLowerCase()) && !line.includes('@check-example')) {
         // Skip this block entirely - scan ahead to find the closing fence
         for (let j = i + 1; j < lines.length; j++) {
           if (lines[j].startsWith('```')) {

@@ -2,7 +2,7 @@ import { lumenizeRpcDO } from '@lumenize/rpc';
 import { routeDORequest } from '@lumenize/routing';
 
 // Import DurableObject base class for prototype chain walking.
-// Resolves in vitest-pool-workers; null in Node.js/Bun/browser.
+// Resolves in vitest-plugin; null in Node.js/Bun/browser.
 let DurableObjectBase: (abstract new (...args: any[]) => any) | null = null;
 try {
   // @ts-ignore — cloudflare:workers resolves in Workers-typed packages but not in testing's own tsconfig

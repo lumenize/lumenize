@@ -1,0 +1,29 @@
+=== Part 2: restore bake-off  (--cpus=0.5, arch=arm64, 2026-07-20T15:08:53Z) ===
+
+--- building images ---
+ok: depbench-baked / depbench-tools / depbench-bare
+
+--- [A] archive CREATION (the 'backup' half — paid once per dep-set change) ---
+artifact                 create     size
+raw node_modules         -          111MB / 4598 files / 308 dirs
+node_modules.tar.gz      3.8s       23MB
+node_modules.tar.zst     0.6s       20MB
+node_modules.sqsh        50.7s      21MB
+
+--- [B] END-TO-END: fresh container → node_modules → vite build ---
+method       restore      build        TOTAL        notes
+control      0.0s 6.1s 6.1s dist=112KB
+npm-cold     5.0s 6.4s 11.4s dist=112KB
+tar.gz       1.0s 6.2s 7.3s dist=112KB
+tar.zst      0.4s 6.6s 7.1s dist=112KB
+sqsh-ro      FAILED
+sqsh-ovl     FAILED
+sqshfuse     FAILED
+
+--- [C] second build in the same container (warm page cache) ---
+Exposes whether the lazy methods only pay page-in once.
+control      2nd build: 5.9s
+tar.zst      2nd build: 5.7s
+sqsh-ro      2nd build: FAILED
+
+raw output: /Users/larry/Projects/mcp/lumenize/experiments/container-dep-restore-bench/raw-restore.txt   artifacts: /Users/larry/Projects/mcp/lumenize/experiments/container-dep-restore-bench/artifacts

@@ -10,9 +10,24 @@
  * 6. Testing alarms with triggerAlarms()
  */
 
-import { it, expect } from 'vitest';
+import { it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestingClient } from '@lumenize/testing';
 import type { ReminderDO } from './reminder-do.js';
+
+// Pin the clock to noon UTC: `triggerAlarms(count)` pops soonest-first, and inside the
+// hour before midnight UTC the daily `0 0 * * *` digest's next fire is EARLIER than the
+// +1h scheduled reminder — worse, popping the cron re-arms it to that SAME pre-midnight
+// timestamp, so it wins every subsequent pop and starves the scheduled alarm at ANY
+// count. Unpinned, this test reds every day from 23:00 to 00:00 UTC (bit 2026-08-29,
+// masquerading as a toolchain-bump failure). Fake timers move the clock the Worker and
+// the DO both see (testing.md § You CAN make time pass under vitest-plugin).
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-06-15T12:00:00Z'));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // 20s timeout (vs the 2s global): real CF alarm scheduling + delivery is
 // contention-fragile and needs generous headroom on shared CI runners — see
@@ -23,7 +38,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'quick-start');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_quick_start');
 
     // Schedule a follow-up email for 60 seconds from now
     await client.scheduleFollowUp('user@example.com', 60);
@@ -41,7 +56,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'scheduling');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_scheduling');
 
     // Schedule delayed reminder (seconds from now)
     await client.scheduleDelayedReminder('Check document status', 60);
@@ -61,7 +76,8 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
     const types = schedules.map((s: any) => s.type).sort();
     expect(types).toEqual(['cron', 'delayed', 'scheduled']);
 
-    // Trigger delayed and scheduled alarms (they're overdue in test time)
+    // Trigger delayed and scheduled alarms — soonest-first, and with the clock pinned to
+    // noon UTC (top of file) the daily cron is hours behind both, so exactly these two pop.
     await client.triggerAlarmsForTest(2);
 
     // Verify reminders were recorded
@@ -75,7 +91,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'rich-context');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_rich_context');
 
     const testDate = new Date('2026-06-15T10:00:00Z');
     const testSet = new Set([1, 2, 3]);
@@ -94,7 +110,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'manage');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_manage');
 
     // Schedule returns schedule info
     const schedule = await client.scheduleAndReturnInfo('Important reminder', 300);
@@ -127,7 +143,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'retry');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_retry');
 
     // Configure to simulate failure
     await client.ctx.storage.kv.put('simulateFailure', true);
@@ -165,7 +181,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'testing');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_testing');
 
     // Schedule multiple alarms
     await client.scheduleDelayedReminder('Task 1', 10);
@@ -190,7 +206,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'filter-patterns');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_filter_patterns');
 
     // Schedule different types
     await client.scheduleDelayedReminder('Delayed task', 60);

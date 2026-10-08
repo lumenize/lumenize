@@ -1,13 +1,13 @@
 /**
  * EditorClient - Browser client implementation
  *
- * Example of a LumenizeClient from getting-started.mdx.
+ * Example of a MeshClient from getting-started.mdx.
  * Manages multiple open documents over a single WebSocket connection.
  * Uses event callbacks for UI integration - the same pattern works
  * in production (React state updates, DOM manipulation, etc.).
  */
 
-import { LumenizeClient, mesh, type CallContext } from '../../../src/index.js';
+import { MeshClient, mesh, type CallContext, type ConnectionState, type MeshClientConfig } from '../../../src/index.js';
 import { AdminAccessError, type DocumentDO, type AdminInterface } from './document-do.js';
 import type { SpellCheckWorker, SpellFinding } from './spell-check-worker.js';
 
@@ -20,6 +20,8 @@ export interface DocumentCallbacks {
   onContentUpdate?: (content: string) => void;
   // Called when spell check findings are received
   onSpellFindings?: (findings: SpellFinding[]) => void;
+  // Called when the document refuses the subscription, as one not shared with this user does
+  onSubscribeRefused?: (error: Error) => void;
   // Called with callContext when content update is received (for testing { newChain: true })
   onContentUpdateContext?: (context: CallContext) => void;
 }
@@ -32,9 +34,39 @@ export interface DocumentHandle {
   close(): void;
 }
 
-export class EditorClient extends LumenizeClient {
+export class EditorClient extends MeshClient {
   // Registry of open documents by documentId
   readonly #documents = new Map<string, DocumentCallbacks>();
+
+  /** Create a document owned by this Client's user, resolving once it exists. */
+  createDocument(documentId: string): Promise<void> {
+    return this.lmz.callAsync('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().create());
+  }
+
+  /** Share an owned document with the user whose `sub` is given. */
+  shareDocument(documentId: string, sub: string): Promise<void> {
+    return this.lmz.callAsync('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().share(sub));
+  }
+  // Documents whose subscribe has not answered yet. One sent just as a socket closed may never
+  // have arrived, so these are sent again on any reconnect.
+  readonly #awaitingSnapshot = new Set<string>();
+  #lastState: ConnectionState = 'connecting';
+
+  constructor(config: MeshClientConfig) {
+    super({
+      ...config,
+      onConnectionStateChange: (state) => {
+        if (this.#lastState === 'reconnecting' && state === 'connected') {
+          for (const documentId of this.#awaitingSnapshot) {
+            const callbacks = this.#documents.get(documentId);
+            if (callbacks) this.#subscribe(documentId, callbacks);
+          }
+        }
+        this.#lastState = state;
+        config.onConnectionStateChange?.(state);
+      },
+    });
+  }
 
   /**
    * Open a document for editing
@@ -55,7 +87,9 @@ export class EditorClient extends LumenizeClient {
         this.lmz.call(
           'DOCUMENT_DO',
           documentId,
-          this.ctn<DocumentDO>().update(content)
+          this.ctn<DocumentDO>().update(content),
+          this.ctn().handleCallFailed('save'),
+          { onErrorOnly: true }
         );
       },
       close: () => {
@@ -66,6 +100,7 @@ export class EditorClient extends LumenizeClient {
   }
 
   #subscribe(documentId: string, callbacks: DocumentCallbacks) {
+    this.#awaitingSnapshot.add(documentId);
     this.lmz.call(
       'DOCUMENT_DO',
       documentId,
@@ -74,22 +109,24 @@ export class EditorClient extends LumenizeClient {
     );
   }
 
-  // Called on every connection (except reconnects within 5s grace period)
-  onSubscriptionRequired = () => {
+  // Called when subscriptions may have been lost; an ordinary reconnect skips it
+  override onSubscriptionRequired(): void {
     // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }
-  };
+  }
 
   // Response handler for subscribe - receives initial content or Error
   handleSubscribeResult(documentId: string, result: string | Error, source: string) {
     console.log(`Subscribe from ${source}:`, result);
+    this.#awaitingSnapshot.delete(documentId);
     const callbacks = this.#documents.get(documentId);
     if (!callbacks) return; // Document was closed
 
     if (result instanceof Error) {
-      console.error(`Failed to subscribe to ${documentId}:`, result);
+      if (callbacks.onSubscribeRefused) callbacks.onSubscribeRefused(result);
+      else console.error(`Failed to subscribe to ${documentId}:`, result);
       return;
     }
     callbacks.onContentUpdate?.(result);
@@ -118,14 +155,33 @@ export class EditorClient extends LumenizeClient {
    * Request spell check directly from Worker (bypassing DO)
    *
    * Demonstrates client calling Worker directly. The Worker responds
-   * back to this client via handleSpellFindings.
+   * back to this client via handleSpellFindings, at the address its host stamped on the call.
    */
   requestSpellCheck(documentId: string, content: string) {
-    // Client passes its own instanceName so Worker knows where to respond
     this.lmz.call(
       'SPELLCHECK_WORKER',
       undefined,
-      this.ctn<SpellCheckWorker>().check(content, this.lmz.instanceName, documentId)
+      this.ctn<SpellCheckWorker>().check(content, documentId),
+      this.ctn().handleCallFailed('spell check'),
+      { onErrorOnly: true }
+    );
+  }
+
+  /**
+   * Fetch document stats on demand — a one-shot read that RETURNS a Promise via `callAsync`, the
+   * client's resilient awaitable. It keeps its settler in-heap keyed by callId, so the Promise
+   * survives a WebSocket reconnect / tab freeze (delivery re-resolves to the current socket) and is
+   * bounded by a built-in default timeout — it never strands the way the removed awaited `callRaw`
+   * did. The optional `AbortSignal` cancels the WAIT, not the server op — e.g. when the user
+   * navigates away mid-request. `callAsync` is client-only and the one sanctioned awaitable on
+   * `client.lmz`; prefer a subscription for live data and higher-level SDK methods where they exist.
+   */
+  async fetchContent(documentId: string, signal?: AbortSignal): Promise<string> {
+    return this.lmz.callAsync(
+      'DOCUMENT_DO',
+      documentId,
+      this.ctn<DocumentDO>().readContent(),
+      { signal },
     );
   }
 
@@ -167,5 +223,11 @@ export class EditorClient extends LumenizeClient {
       console.error('Admin operation failed:', result.message);
     }
     this.adminResults.push(result);
+  }
+
+  // The handler for a call whose answer nobody needs. It is sent with { onErrorOnly: true },
+  // so it runs only when the call fails, with the Error appended as its last argument.
+  handleCallFailed(what: string, error?: Error) {
+    console.error(`${what} failed:`, error);
   }
 }

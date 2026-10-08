@@ -6,7 +6,11 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
-    ".": {
+    "./runtime": {
+      "import": "./src/facet-helper.ts",
+      "types": "./src/facet-helper.ts"
+    },
+    "./compile": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
     }
@@ -17,7 +21,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "vitest --run",
+    "test": "node scripts/bundle-tsc.mjs --check && vitest --run",
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
     "types": "wrangler types",
@@ -54,13 +58,12 @@
     "access": "public"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.15.1",
+    "@cloudflare/vitest-plugin": "1.3.6",
     "@typia/transform": "*",
-    "@vitest/coverage-istanbul": "4.1.4",
+    "@vitest/coverage-istanbul": "4.1.10",
     "esbuild": "^0.24.0",
     "typescript": "^5.9.2",
-    "typia": "^12.0.2",
-    "vitest": "4.1.4",
-    "wrangler": "^4.86.0"
+    "vitest": "4.1.10",
+    "wrangler": "4.147.0"
   }
 }

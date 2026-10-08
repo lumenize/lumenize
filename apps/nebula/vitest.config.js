@@ -1,11 +1,21 @@
 import { defineConfig } from 'vitest/config';
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { playwright } from '@vitest/browser-playwright';
 import swc from 'unplugin-swc';
+import { installLocalhostLookup } from './harness/lib/localhost-lookup';
+
+// Every `*.lumenize.localhost` host resolves to loopback for this Node process, as it does on macOS
+// and in Chromium: global setup, the vite proxy and the chromium lane's server reach the local
+// stack's hosts by name (harness/lib/localhost-lookup.ts). Test files run in worker processes this
+// never reaches, so the Node projects that dial those hosts install it again from a setup file.
+installLocalhostLookup();
 
 // SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
 const swcPlugin = swc.vite({
-  include: [/\.tsx?$/],
+  // Coverage loads a file no test imports under an id carrying a query
+  // (`?cache=…&vitest-uncovered-coverage=true`), which a bare extension filter misses: istanbul
+  // then parsed raw TypeScript and failed the coverage job. The second pattern admits that pass only.
+  include: [/\.tsx?$/, /\.tsx?\?.*\bvitest-uncovered-coverage\b/],
   exclude: [/node_modules/],
   jsc: {
     parser: { syntax: 'typescript', decorators: true },
@@ -14,133 +24,7 @@ const swcPlugin = swc.vite({
   },
 });
 
-/**
- * Vite plugin that proxies `${prefix}/*` requests (HTTP + WebSocket) to an
- * upstream resolved per-request from `process.env[envVar]`. Copied verbatim
- * from `packages/mesh/vitest.config.js` — see that file's doc-comment and
- * `packages/mesh/test/browser/README.md` for the full rationale.
- *
- * Used by the real-chromium `chromium` project so the test page (served by
- * vite-browser) and the wrangler-dev worker share an origin: NebulaAuth's
- * `Secure; SameSite=Strict` refresh-token cookie then flows untouched, with no
- * CORS plumbing and no cert handling in chromium (the proxy terminates TLS
- * server-side with `secure: false`). The wrangler-dev URL is injected by
- * `test/chromium/global-setup.ts` after spawn and read here on every request.
- */
-function dynamicEnvProxyPlugin({
-  prefix = '/worker',
-  envVar = 'WRANGLER_PROXY_TARGET',
-  approvedOrigin,
-  // When false, forward the path verbatim instead of stripping `prefix`. Used by
-  // the self-hosted-assets Phase-1 preview proxy: `Star.onRequest` injects an
-  // absolute `<base href="/dev-star/{instance}/">` (it can't know a proxy
-  // prefix), so the iframe must reach the worker at that exact path — a
-  // path-preserving `/dev-star` proxy, not the `/worker`-stripping one. The
-  // static preview GET is ungated, so it needs none of the cookie/origin plumbing.
-  strip = true,
-} = {}) {
-  const stripPrefix = (path) => (strip ? path.replace(new RegExp(`^${prefix}`), '') || '/' : path);
-  return {
-    name: `dynamic-env-proxy:${prefix}`,
-    async configureServer(server) {
-      const httpProxy = (await import('http-proxy')).default;
-      const proxy = httpProxy.createProxyServer({
-        ws: true,
-        changeOrigin: true,
-        secure: false,
-      });
-      proxy.on('proxyReq', (proxyReq) => {
-        proxyReq.path = stripPrefix(proxyReq.path);
-        // NebulaAuth enforces an `LUMENIZE_APPROVED_ORIGINS` allow-list. The
-        // browser stamps the test page's (dynamic-port) Origin on every POST,
-        // even same-origin, and the proxy forwards it — so present an approved
-        // Origin instead. CORS is meaningless in this proxied same-origin
-        // setup; this just satisfies the server-side allow-list. Test-only.
-        if (approvedOrigin) proxyReq.setHeader('origin', approvedOrigin);
-      });
-      // NebulaAuth sets a PATH-SCOPED refresh cookie (`Path=/auth/{scope}`,
-      // unlike @lumenize/auth's `Path=/`). The worker sees the prefix-stripped
-      // path, so it sets `Path=/auth/{scope}` — which no longer matches the
-      // browser's proxied `${prefix}/auth/{scope}/...` request, so the cookie
-      // would never be sent back and refresh-token 401s. Re-prepend the prefix
-      // to the cookie Path (preserving the scope) so it rides the proxied
-      // requests. Test-only; mesh's harness needs none of this (Path=/).
-      proxy.on('proxyRes', (proxyRes) => {
-        const setCookie = proxyRes.headers['set-cookie'];
-        if (setCookie) {
-          proxyRes.headers['set-cookie'] = setCookie.map((c) =>
-            c.replace(/(;\s*Path=)\//i, `$1${prefix}/`),
-          );
-        }
-      });
-      proxy.on('error', (err, _req, res) => {
-        if (res && 'writeHead' in res && !res.headersSent) {
-          res.writeHead(502, { 'Content-Type': 'text/plain' });
-          res.end(`Proxy error: ${err.message}`);
-        }
-      });
-      // http-proxy doesn't attach error handlers to upstream sockets; raw
-      // socket errors (peer reset, etc.) become unhandled 'error' events that
-      // crash Node. Swallow them here.
-      proxy.on('proxyReqWs', (_proxyReq, _req, socket) => {
-        socket.on('error', () => { /* ignore */ });
-      });
-      proxy.on('open', (socket) => {
-        socket.on('error', () => { /* ignore */ });
-      });
-      server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith(prefix)) return next();
-        const target = process.env[envVar];
-        if (!target) {
-          res.writeHead(503, { 'Content-Type': 'text/plain' });
-          res.end(`Upstream not ready (${envVar} unset)`);
-          return;
-        }
-        proxy.web(req, res, { target });
-      });
-      server.httpServer?.on('upgrade', (req, socket, head) => {
-        if (!req.url?.startsWith(prefix)) return;
-        const target = process.env[envVar];
-        if (!target) {
-          socket.destroy();
-          return;
-        }
-        // proxyReq doesn't fire for WS — strip the prefix + rewrite Origin here.
-        req.url = stripPrefix(req.url);
-        if (approvedOrigin) req.headers.origin = approvedOrigin;
-        socket.on('error', () => { /* ignore — peer closed or reset */ });
-        proxy.ws(req, socket, head, { target });
-      });
-    },
-  };
-}
-
 export default defineConfig({
-  // Same-origin proxy for the real-chromium `chromium` project (inert for the
-  // pool-workers/jsdom projects — it only adds a vite dev-server middleware).
-  // `approvedOrigin` rewrites the forwarded Origin to a value in the test
-  // worker's LUMENIZE_APPROVED_ORIGINS (http://localhost:5173) so NebulaAuth's
-  // origin allow-list passes regardless of vitest-browser's dynamic port.
-  plugins: [
-    dynamicEnvProxyPlugin({
-      prefix: '/worker',
-      envVar: 'WRANGLER_PROXY_TARGET',
-      approvedOrigin: 'http://localhost:5173',
-    }),
-    // Path-preserving proxy so the self-hosted-assets Phase-1 chromium test can
-    // load a DevStar-served preview same-origin at the exact path its injected
-    // `<base href="/dev-star/{instance}/">` expects (see `strip` above).
-    // `approvedOrigin` rewrites the forwarded Origin to one in the worker's
-    // LUMENIZE_APPROVED_ORIGINS — module-script / dynamic-import requests carry an
-    // Origin header (the dynamic vitest-browser port, NOT same as the proxied
-    // worker host), which the entrypoint's CORS allowlist would otherwise 403.
-    dynamicEnvProxyPlugin({
-      prefix: '/dev-star',
-      envVar: 'WRANGLER_PROXY_TARGET',
-      strip: false,
-      approvedOrigin: 'http://localhost:5173',
-    }),
-  ],
   test: {
     testTimeout: 10000,
     globals: true,
@@ -148,7 +32,7 @@ export default defineConfig({
     // CPU-constrained-lane serialization. The `browser` project's real-WS e2e (an external
     // `wrangler dev` + WebSocket round-trips — magic-link auth, multi-client Gateway fan-out,
     // round-trip latency) is broadly wall-clock-sensitive: run concurrently with the CPU-bound
-    // pool-workers projects on the hosted sandbox's shared 4 vCPUs, *some* of them get starved
+    // vitest-plugin projects on the hosted sandbox's shared 4 vCPUs, *some* of them get starved
     // past their timeout every run (which one varies — the "isolation flips the result"
     // signature in testing.md). Empirically this is NOT localized to one test, so run files
     // serially when the hosted plaintext lane flag (LUMENIZE_NO_CF_REMOTE) is set, so no two
@@ -164,8 +48,14 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
-      include: ['**/src/**'],
+      // The Resources plane lives in packages/resources, outside this root, and is exercised here.
+      // `allowExternal` matches a loaded file's absolute path, so `src/**` alone would admit every
+      // workspace package this suite loads; the exclude below keeps Resources and drops the rest.
+      // `src/**` stays root-relative because the pass that lists never-loaded files reads it so.
+      allowExternal: true,
+      include: ['src/**', '**/packages/resources/src/**'],
       exclude: [
+        '**/packages/!(resources)/**',
         '**/node_modules/**',
         '**/dist/**',
         '**/*.config.*',
@@ -185,8 +75,11 @@ export default defineConfig({
           wrangler: { configPath: './test/wrangler.jsonc' },
           miniflare: {
             bindings: {
-              NEBULA_AUTH_TEST_MODE: 'true',
-              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              AUTH_TEST_MODE: 'true',
+              // Explicitly EMPTY (wins over .dev.vars): holds Turnstile OFF for this lane on any
+              // checkout — checkTurnstile no longer skips on AUTH_TEST_MODE.
+              TURNSTILE_SECRET_KEY: '',
+              AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'nebula',
             },
           },
@@ -197,9 +90,9 @@ export default defineConfig({
           exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**', 'test/ui-smoke/**'],
         },
       },
-      // Frontend project — the @lumenize/nebula/frontend layer (factory + the
+      // Frontend project — the @lumenize/resources/frontend layer (factory + the
       // ported pure-helper/engine suites: text-merge, deep-equals, debounce,
-      // conflict-outcome). jsdom env (NOT vitest-pool-workers) so Vue can mount
+      // conflict-outcome). jsdom env (NOT vitest-plugin) so Vue can mount
       // components for the v3/v4 component probes; pure-logic tests run fine in
       // jsdom too. swc for the @mesh() decorators NebulaClient carries.
       {
@@ -218,8 +111,11 @@ export default defineConfig({
           wrangler: { configPath: './test/test-apps/baseline/test/wrangler.jsonc' },
           miniflare: {
             bindings: {
-              NEBULA_AUTH_TEST_MODE: 'true',
-              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              AUTH_TEST_MODE: 'true',
+              // Explicitly EMPTY (wins over .dev.vars): holds Turnstile OFF for this lane on any
+              // checkout — checkTurnstile no longer skips on AUTH_TEST_MODE.
+              TURNSTILE_SECRET_KEY: '',
+              AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'nebula',
               // Phase 5.3.5: shorten the Gateway grace period so
               // drop-on-failed-fanout tests can observe ClientDisconnectedError
@@ -282,24 +178,9 @@ export default defineConfig({
           include: ['test/test-apps/egress-choke/**/*.test.ts'],
         },
       },
-      // NebulaContainer (4th node type, Phase 3) — structural scope-isolation
-      // guard verified against a harness that borrows NebulaContainer's real
-      // prototype methods (NebulaContainer itself can't construct under
-      // pool-workers; see tasks/nebula-devcontainer-node-type.md Phase 2/3).
-      // Not in `npm test`; run with `npx vitest run --project container`.
-      {
-        extends: true,
-        plugins: [swcPlugin, cloudflareTest({
-          wrangler: { configPath: './test/test-apps/container-node/test/wrangler.jsonc' },
-        })],
-        test: {
-          name: 'container',
-          include: ['test/test-apps/container-node/**/*.test.ts'],
-        },
-      },
       // DevStudio node (Phase 3.5b) — shell Workspace + isomorphic-git source-of-truth
-      // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends NebulaDO
-      // (constructable under pool-workers, unlike DevContainer). Own wrangler
+      // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends ScopedMeshDO
+      // (constructable under vitest-plugin, unlike DevContainer). Own wrangler
       // (DEV_STUDIO + STAR probe + LOADER). nodejs_compat for shell/isomorphic-git.
       {
         extends: true,
@@ -333,23 +214,27 @@ export default defineConfig({
           name: 'browser',
           include: ['test/browser/**/*.test.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
-          testTimeout: 30000,
+          setupFiles: ['./test/localhost-lookup-setup.ts'],
+          // Above two email waiters back to back (`provisionStarAdmin` sends the owner's mail, then the
+          // Star admin's, each waited on for 60 s), so a slow send reports as "No email received"
+          // from its waiter rather than a bare test timeout. `testing.md` § E2E with external services.
+          testTimeout: 150000,
           env: {
             NODE_TLS_REJECT_UNAUTHORIZED: '0',
           },
         },
       },
       // Chromium project — real-browser (vitest-browser + Playwright). The v4
-      // production-shape harness: runs the @lumenize/nebula/frontend factory +
-      // Vue in real chromium against a real wrangler-dev Star, reached
-      // same-origin via dynamicEnvProxyPlugin (so NebulaAuth's
-      // Secure;SameSite=Strict cookie flows with no CORS/cert dance). Catches
+      // production-shape harness: runs the @lumenize/resources/frontend factory +
+      // Vue in real chromium against a real wrangler-dev Star. The test page sits
+      // on a Star's host and is signed in as that Star's admin; global-setup.ts
+      // says how, and why each test's context starts from its cookies. Catches
       // browser-bundle regressions (a transitive cloudflare:workers /
       // node:async_hooks import in /frontend fails Vite resolution) and
       // real-browser divergence the jsdom `frontend` project can't see (IME
       // composition, focus/blur timing, paint scheduling, real WS reconnect).
       // global-setup spawns its OWN wrangler-dev (separate --persist-to) and
-      // sets WRANGLER_PROXY_TARGET. Distinct from the Node-side `browser`
+      // Studio's vite in front of it. Distinct from the Node-side `browser`
       // project above (which lives under test/browser/**). swc for the @mesh()
       // decorators NebulaClient carries.
       {
@@ -388,7 +273,16 @@ export default defineConfig({
           testTimeout: 30000,
           browser: {
             enabled: true,
-            provider: playwright(),
+            // The page's host spells `PAGE_STAR` (test/chromium/page-star.ts). A named host reads
+            // as network-exposed to vitest, which then turns off write and exec; `*.localhost` is
+            // loopback, so they stay on.
+            api: { host: 'tenant-a.crm.acme.lumenize.localhost', allowWrite: true, allowExec: true },
+            // The signed-in browser's cookies, written by global-setup before any page opens.
+            provider: playwright({
+              // The same wildcard Node takes above, for the browser, as `launchChromium` passes it.
+              launchOptions: { args: ['--host-resolver-rules=MAP *.lumenize.localhost 127.0.0.1, MAP lumenize.localhost 127.0.0.1'] },
+              contextOptions: { storageState: './test/chromium/.wrangler/storage-state.json' },
+            }),
             headless: true,
             instances: [{ browser: 'chromium' }],
           },
@@ -409,6 +303,7 @@ export default defineConfig({
           name: 'ui-smoke',
           include: ['test/ui-smoke/**/*.test.ts'],
           globalSetup: ['./test/ui-smoke/global-setup.ts'],
+          setupFiles: ['./test/localhost-lookup-setup.ts'],
           testTimeout: 120000,
         },
       },
@@ -434,6 +329,7 @@ export default defineConfig({
           name: 'browser-bench',
           include: ['test/browser/**/*.benchmark.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
+          setupFiles: ['./test/localhost-lookup-setup.ts'],
           testTimeout: 60000,
           env: {
             NODE_TLS_REJECT_UNAUTHORIZED: '0',

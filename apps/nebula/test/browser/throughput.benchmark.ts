@@ -29,11 +29,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { withCommitStamp } from './bench-commit-stamp';
 import { ThroughputHarnessClient } from './throughput-harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
@@ -257,6 +258,11 @@ function findKnee(steps: StepSummary[]): { N: number; throughput: number } | nul
 }
 
 describe('parse-validate throughput', () => {
+  // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
+  // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
+  // the Star's ontology source, asking its parent Galaxy), and this setup was reworked before that
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
+  // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('finds saturation', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
@@ -269,15 +275,14 @@ describe('parse-validate throughput', () => {
     console.log(`[throughput] ${label} — ${baseUrl} — galaxy ${galaxyScope}`);
 
     // 1. Bootstrap admin at galaxy scope.
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
     const client = new ThroughputHarnessClient({
-      baseUrl,
-      authScope: galaxyScope,
-      activeScope: galaxyScope,
-      appVersion: 'v1',
-      fetch: browser.fetch,
+      baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+      platformOrigin: baseUrl,
+      ontologyVersion: 'v1',
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -292,8 +297,9 @@ describe('parse-validate throughput', () => {
         await new Promise((r) => globalThis.setTimeout(r, 25));
       }
 
-      // 3. Register ontology.
-      await client.callGalaxyAppendOntologyVersion(galaxyScope, {
+      // 3. Install the ontology on the target Star (the Galaxy test-install path is
+      //    deleted — installs land per-Star via StarTest.applyOntologyForTest).
+      await client.callStarInstallOntology(warmStar, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

@@ -1,0 +1,427 @@
+/**
+ * Subscriptions — every subscription a host's plane holds, in one table.
+ *
+ * Four kinds share one delivery address — `clientAddress` · `subscribedAt` — and one key,
+ * `(kind, topic, clientAddress)`. A client's address is one string, its host node plus its id,
+ * such as `STAR/acme.crm.tenant1/alice.9f2c41aa`, which `addressOf` builds from `callChain[0]`:
+ *
+ *   | kind       | who                                   | topic                  |
+ *   |------------|---------------------------------------|------------------------|
+ *   | `resource` | a subscriber to one Resource          | its `resourceId`       |
+ *   | `query`    | a subscriber to a query's data        | the query's `queryHash` |
+ *   | `roster`   | a WATCHER of a query's subscriber list | the query's `queryHash` |
+ *   | `tree`     | a subscriber to the host's org tree   | `''` — one tree per host |
+ *
+ * A chat participant is a query subscriber AND a roster watcher of the same query, so two kinds
+ * share a topic, which is why `kind` is part of the key.
+ *
+ * **The kinds differ in AUTHORIZATION.** A resource or query row gets a permission evaluation on
+ * every update, so it carries the subscriber's `sub`, `profileId` and the stored dominion verdict;
+ * only a query row carries the stored `query` every re-run reads. The evaluation keys on the row's
+ * `kind`, never on whether a `sub` happens to be present, and the table's `CHECK` constraints make
+ * a row that breaks its kind unwritable.
+ *
+ * **Roster and tree rows carry no identity because seeing them changes nothing a caller can do.**
+ * The org tree and a query's roster are visible to anyone with passage into the host, on every
+ * host — a tenant reaching its Galaxy included. Every action is checked where it is taken, so
+ * seeing who is on the tree or watching a query buys a caller nothing to act on, and what they
+ * name leads only to profiles ADR-012 already opens by id. What a stranger learns is who is on an
+ * app's team and when they are present, which is low-sensitivity. That is ADR-008's visibility ≠
+ * capability carried up the hierarchy (ADR-015's *Deliberately open*), and it is why neither kind
+ * has a guard of its own: its subscribe needs authentication and passage, nothing else.
+ */
+
+import type { CallContext } from '@lumenize/mesh';
+import { hasDominionOver } from '@lumenize/mesh';
+import type { AuthClaims } from '@lumenize/mesh';
+import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
+import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
+import { stringify } from '@lumenize/structured-clone';
+import { PermissionDeniedError } from './errors';
+import { canonicalQueryHash } from './query-hash';
+import { END_OF_TIME } from './snapshots';
+import type { QueryDescriptor } from './query-hash';
+import type { Snapshots, Snapshot } from './snapshots';
+
+export type SubscriptionKind = 'resource' | 'query' | 'roster' | 'tree';
+
+/** A fresh marker: the merged table starts its own migration history at id 1, which is safe only
+ *  because this key has never recorded a high-water mark (`durable-objects.md` § *Initialization*). */
+const SUBSCRIPTIONS_MARKER_KEY = '__sql_migrations_Subscriptions';
+
+/**
+ * Append-only migration list for the `Subscriptions` table. **APPEND-ONLY** — never edit, reorder
+ * or reuse an applied id. The column rules are `CHECK` constraints written here, at creation,
+ * because SQLite has no `ALTER TABLE ADD CONSTRAINT`. Each rule is its own constraint so one can be
+ * read, and removed, without the others; each is written NULL-safe, since a `CHECK` that evaluates
+ * to NULL passes.
+ */
+const SUBSCRIPTIONS_MIGRATIONS: SQLSchemaMigration[] = [
+  {
+    idMonotonicInc: 1,
+    description: 'baseline: Subscriptions, one row per (kind, topic, client)',
+    sql: `CREATE TABLE IF NOT EXISTS Subscriptions (
+      kind TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      clientId TEXT NOT NULL,
+      subscriberBinding TEXT NOT NULL,
+      subscribedAt TEXT NOT NULL,
+      sub TEXT,
+      profileId TEXT,
+      dominionOverHostAtSubscribe INTEGER,
+      query TEXT,
+      PRIMARY KEY (kind, topic, clientId),
+      CHECK (kind IN ('resource', 'query', 'roster', 'tree')),
+      CHECK ((kind IN ('resource', 'query')) = (sub IS NOT NULL)),
+      CHECK ((kind IN ('resource', 'query')) = (profileId IS NOT NULL)),
+      CHECK (CASE WHEN kind IN ('resource', 'query')
+                  THEN dominionOverHostAtSubscribe IS NOT NULL AND dominionOverHostAtSubscribe IN (0, 1)
+                  ELSE dominionOverHostAtSubscribe IS NULL END),
+      CHECK ((kind = 'query') = (query IS NOT NULL)),
+      CHECK (kind <> 'tree' OR topic = '')
+    ) WITHOUT ROWID`,
+  },
+  {
+    idMonotonicInc: 2,
+    description: 'drop the table keyed on clientId; its rows are disposable, since every client re-subscribes',
+    sql: `DROP TABLE IF EXISTS Subscriptions`,
+  },
+  {
+    idMonotonicInc: 3,
+    description: 'Subscriptions keyed on (kind, topic, clientAddress), the one-string address',
+    sql: `CREATE TABLE IF NOT EXISTS Subscriptions (
+      kind TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      clientAddress TEXT NOT NULL,
+      subscribedAt TEXT NOT NULL,
+      sub TEXT,
+      profileId TEXT,
+      dominionOverHostAtSubscribe INTEGER,
+      query TEXT,
+      PRIMARY KEY (kind, topic, clientAddress),
+      CHECK (kind IN ('resource', 'query', 'roster', 'tree')),
+      CHECK ((kind IN ('resource', 'query')) = (sub IS NOT NULL)),
+      CHECK ((kind IN ('resource', 'query')) = (profileId IS NOT NULL)),
+      CHECK (CASE WHEN kind IN ('resource', 'query')
+                  THEN dominionOverHostAtSubscribe IS NOT NULL AND dominionOverHostAtSubscribe IN (0, 1)
+                  ELSE dominionOverHostAtSubscribe IS NULL END),
+      CHECK ((kind = 'query') = (query IS NOT NULL)),
+      CHECK (kind <> 'tree' OR topic = '')
+    ) WITHOUT ROWID`,
+  },
+];
+
+/** A subscriber to one Resource. */
+export type SubscriberRow = {
+  resourceId: string;
+  /** The subscriber's one-string address, such as `STAR/acme.crm.tenant1/alice.9f2c41aa`. */
+  clientAddress: string;
+  sub: string;
+  /** The subscriber's public `profileId` claim at subscribe time. */
+  profileId: string;
+  /**
+   * The **confined** scope-admin verdict at subscribe time (0/1) — `hasDominionOver(claims,
+   * <host instance name>)`, read from the subscribing tab's host scope (the host rule), NOT the raw
+   * `claims.access.scopeAdmin` bit. It replicates the Galaxy/Universe scope-admin bypass for the
+   * per-update recheck, since the update path holds no token; a Star DAG `admin` grant resolves
+   * through `resolvePermission` normally.
+   *
+   * Storing a verdict rather than the claim is what closes the push-path back door: the update
+   * path never re-reads the JWT, so confining only the live claim would leave this bypass
+   * unconfined. The stored value is **monotonically narrowing** — a strict conjunct-subset of the
+   * raw bit, and the host instance name is immutable for the DO's lifetime, so drift can only go
+   * 1→0 (under-privilege), never 0→1 (ADR-013). **It converges on a changed claim by
+   * re-subscription**: `NebulaClient` re-subscribes everything once a new token's `scopeAdmin`
+   * differs from the last one's, on the socket that token opens, which re-derives the bit.
+   */
+  dominionOverHostAtSubscribe: number;
+  subscribedAt: string;
+};
+
+/** A subscriber to a query's data. */
+export type QuerySubscriberRow = {
+  queryHash: string;
+  /** The full query object, structured-clone-stringified — parsed by every re-run. */
+  query: string;
+  clientAddress: string;
+  sub: string;
+  /** The subscriber's public `profileId` claim — the roster's display handle. */
+  profileId: string;
+  /** The confined dominion verdict — see {@link SubscriberRow.dominionOverHostAtSubscribe}. */
+  dominionOverHostAtSubscribe: number;
+  subscribedAt: string;
+};
+
+/** A roster watcher or a tree subscriber: the delivery address alone. */
+export type AddressRow = {
+  clientAddress: string;
+  subscribedAt: string;
+};
+
+/** The distinct delivery addresses a clear dropped — one notice per client, however many rows. */
+export type DroppedAddress = { clientAddress: string };
+
+/** A resource subscribe's answer: the snapshot a reader gets, or the node a denied subscriber is
+ *  told it cannot read. */
+export type ResourceSubscribeOutcome = { snapshot: Snapshot } | { deniedNodes: [string] };
+
+export class Subscriptions {
+  #ctx: DurableObjectState;
+  #getCallContext: () => CallContext;
+  #snapshots: Snapshots;
+  #getHostName: () => string | undefined;
+
+  /** @param getHostName - The host's instance name as a **thunk** (identity is not stamped at
+   *   `onStart()` time, when this is constructed) — the scope the stored verdict is confined to. */
+  constructor(
+    ctx: DurableObjectState,
+    getCallContext: () => CallContext,
+    snapshots: Snapshots,
+    getHostName: () => string | undefined,
+  ) {
+    this.#ctx = ctx;
+    this.#getCallContext = getCallContext;
+    this.#snapshots = snapshots;
+    this.#getHostName = getHostName;
+    new SQLSchemaMigrations({
+      doStorage: this.#ctx.storage,
+      markerKey: SUBSCRIPTIONS_MARKER_KEY,
+      migrations: SUBSCRIPTIONS_MIGRATIONS,
+    }).runAll();
+  }
+
+  /**
+   * The subscriber identity a resource or query row stores: `sub`, `profileId` and the CONFINED
+   * dominion verdict. ⚠️ `hasDominionOver(...)`, NOT `claims.access.scopeAdmin` — confinement
+   * point 2. The update path never re-reads the JWT, so storing the bare claim would leave a
+   * descendant-scope admin an unconfined bypass for the life of the subscription. Store time is
+   * the only option: at update time we hold neither the live claim nor the caller's scope. An
+   * absent host name grants no bypass (fail closed).
+   */
+  #identity(): { sub: string; profileId: string; dominion: 0 | 1 } {
+    const cc = this.#getCallContext();
+    const sub = cc.originAuth?.sub;
+    if (!sub) throw new Error('Authentication required');
+    const claims = cc.originAuth?.claims as unknown as AuthClaims;
+    const hostName = this.#getHostName();
+    return {
+      sub,
+      profileId: claims.profileId,
+      dominion: hostName && hasDominionOver(claims, hostName) ? 1 : 0,
+    };
+  }
+
+  // ─── resource ──────────────────────────────────────────────────────
+
+  /**
+   * Subscribe a client to a Resource, and say what it may see. Every permission outcome
+   * registers the row; nothing else does.
+   *
+   * In order: the resource must exist (a subscribe before its create is refused); then the caller's
+   * read permission decides; then the type the caller named must match. A reader gets the current
+   * snapshot. A caller who cannot read gets `{ deniedNodes: [nodeId] }` and a row, so the next
+   * update tells it again — and if it named the wrong type, it is refused with a message naming
+   * only the type it asked for, since the resource's real type is not its to read. An
+   * unauthenticated caller is refused. A refusal writes no row.
+   */
+  subscribeResource(
+    resourceType: string,
+    resourceId: string,
+    clientAddress: string,
+  ): ResourceSubscribeOutcome {
+    let snapshot: Snapshot | null;
+    try {
+      snapshot = this.#snapshots.read(resourceId);
+    } catch (e) {
+      if (!(e instanceof PermissionDeniedError)) throw e;
+      if (this.#snapshots.currentTypeName(resourceId) !== resourceType) {
+        throw new Error(`Resource '${resourceId}' is not a '${resourceType}'`);
+      }
+      this.#insertResource(resourceId, clientAddress);
+      return { deniedNodes: [e.nodeId] };
+    }
+    if (snapshot === null) {
+      throw new Error(`Resource '${resourceId}' not found — cannot subscribe before create`);
+    }
+    if (snapshot.meta.typeName !== resourceType) {
+      throw new Error(
+        `Resource type mismatch: '${resourceId}' is type '${snapshot.meta.typeName}', requested '${resourceType}'`,
+      );
+    }
+    this.#insertResource(resourceId, clientAddress);
+    return { snapshot };
+  }
+
+  #insertResource(resourceId: string, clientAddress: string): void {
+    const { sub, profileId, dominion } = this.#identity();
+    this.#ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO Subscriptions
+         (kind, topic, clientAddress, subscribedAt, sub, profileId, dominionOverHostAtSubscribe)
+       VALUES ('resource', ?, ?, ?, ?, ?, ?)`,
+      resourceId, clientAddress, new Date().toISOString(), sub, profileId, dominion,
+    );
+  }
+
+  /**
+   * Drop one resource row, on the host node's `ClientDisconnectedError` or an unsubscribe. Dropping is
+   * safe however soon the tab comes back: its host node tells its next connection
+   * `subscriptionRequired: true`, inside the grace period or past it, and closes a socket still open
+   * with 4408, so the tab re-subscribes either way.
+   *
+   * A reaper passes `sentAt`, the time its push was sent, and only a row subscribed at or before it
+   * goes. The tab's re-subscribe can land before the reaper does, and its row is newer than the push
+   * that failed, so it survives. An unsubscribe passes none and always deletes. Each `remove*` here
+   * takes `sentAt` the same way. PK-targeted: one billed write.
+   */
+  removeResource(resourceId: string, clientAddress: string, sentAt?: string): void {
+    this.#ctx.storage.sql.exec(
+      `DELETE FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientAddress = ? AND subscribedAt <= ?`,
+      resourceId, clientAddress, sentAt ?? END_OF_TIME,
+    );
+  }
+
+  /** Every subscriber to one Resource — the update's audience. PK-prefix scan. */
+  forResource(resourceId: string): SubscriberRow[] {
+    return this.#ctx.storage.sql.exec<SubscriberRow>(
+      `SELECT topic AS resourceId, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
+       FROM Subscriptions WHERE kind = 'resource' AND topic = ?`,
+      resourceId,
+    ).toArray();
+  }
+
+  // ─── query ─────────────────────────────────────────────────────────
+
+  /**
+   * Register a query subscriber. **Always registers** — authorization is at delivery, never here —
+   * so an authenticated caller always gets a row. `INSERT OR REPLACE` keyed by
+   * `(kind, queryHash, clientAddress)`: a re-subscribe reuses the row.
+   *
+   * `isNewSub` says whether this `sub` was ABSENT from the query's subscribers before — a
+   * distinct-by-`sub` gain. The roster goes to watchers only on one: `subscribeQuery` is
+   * idempotent, so the insert cannot tell a genuine join from a reconnect or a second tab.
+   */
+  registerQuery(
+    query: QueryDescriptor,
+    clientAddress: string,
+  ): { queryHash: string; row: QuerySubscriberRow; isNewSub: boolean } {
+    const { sub, profileId, dominion } = this.#identity();
+    const queryHash = canonicalQueryHash(query);
+    const queryBlob = stringify(query);
+    const subscribedAt = new Date().toISOString();
+    const isNewSub = !this.forQuery(queryHash).some((r) => r.sub === sub);
+    this.#ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO Subscriptions
+         (kind, topic, clientAddress, subscribedAt, sub, profileId, dominionOverHostAtSubscribe, query)
+       VALUES ('query', ?, ?, ?, ?, ?, ?, ?)`,
+      queryHash, clientAddress, subscribedAt, sub, profileId, dominion, queryBlob,
+    );
+    return {
+      queryHash,
+      row: { queryHash, query: queryBlob, clientAddress, sub, profileId, dominionOverHostAtSubscribe: dominion, subscribedAt },
+      isNewSub,
+    };
+  }
+
+  /** Drop one query row. Returns `rowsWritten` (0 on a no-op) so the roster goes to watchers only
+   *  on an actual removal — the mass-disconnect-storm guard. */
+  removeQuery(queryHash: string, clientAddress: string, sentAt?: string): number {
+    return this.#ctx.storage.sql.exec(
+      `DELETE FROM Subscriptions WHERE kind = 'query' AND topic = ? AND clientAddress = ? AND subscribedAt <= ?`,
+      queryHash, clientAddress, sentAt ?? END_OF_TIME,
+    ).rowsWritten;
+  }
+
+  /** Every subscriber of one query. */
+  forQuery(queryHash: string): QuerySubscriberRow[] {
+    return this.#ctx.storage.sql.exec<QuerySubscriberRow>(
+      `SELECT topic AS queryHash, query, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
+       FROM Subscriptions WHERE kind = 'query' AND topic = ?`,
+      queryHash,
+    ).toArray();
+  }
+
+  /** Every live query row — the commit re-run groups these by `queryHash`. */
+  allQueries(): QuerySubscriberRow[] {
+    return this.#ctx.storage.sql.exec<QuerySubscriberRow>(
+      `SELECT topic AS queryHash, query, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
+       FROM Subscriptions WHERE kind = 'query'`,
+    ).toArray();
+  }
+
+  // ─── roster ────────────────────────────────────────────────────────
+
+  /** Register a watcher of a query's roster. Idempotent per `(queryHash, clientAddress)`. */
+  registerRoster(queryHash: string, clientAddress: string): void {
+    this.#ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO Subscriptions (kind, topic, clientAddress, subscribedAt)
+       VALUES ('roster', ?, ?, ?)`,
+      queryHash, clientAddress, new Date().toISOString(),
+    );
+  }
+
+  /** Drop one watcher row — from the roster rows only, so a client that is also a data subscriber
+   *  of the query keeps that row. Returns `rowsWritten`. */
+  removeRoster(queryHash: string, clientAddress: string, sentAt?: string): number {
+    return this.#ctx.storage.sql.exec(
+      `DELETE FROM Subscriptions WHERE kind = 'roster' AND topic = ? AND clientAddress = ? AND subscribedAt <= ?`,
+      queryHash, clientAddress, sentAt ?? END_OF_TIME,
+    ).rowsWritten;
+  }
+
+  /** Every watcher of one query's roster — the roster update's audience. */
+  watchersOf(queryHash: string): AddressRow[] {
+    return this.#ctx.storage.sql.exec<AddressRow>(
+      `SELECT clientAddress, subscribedAt FROM Subscriptions WHERE kind = 'roster' AND topic = ?`,
+      queryHash,
+    ).toArray();
+  }
+
+  // ─── tree ──────────────────────────────────────────────────────────
+
+  /** Register a tree subscriber. Idempotent per `clientAddress` (the topic is always `''`). */
+  registerTree(clientAddress: string): void {
+    this.#ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO Subscriptions (kind, topic, clientAddress, subscribedAt)
+       VALUES ('tree', '', ?, ?)`,
+      clientAddress, new Date().toISOString(),
+    );
+  }
+
+  /** Drop one tree subscriber. */
+  removeTree(clientAddress: string, sentAt?: string): void {
+    this.#ctx.storage.sql.exec(
+      `DELETE FROM Subscriptions WHERE kind = 'tree' AND topic = '' AND clientAddress = ? AND subscribedAt <= ?`,
+      clientAddress, sentAt ?? END_OF_TIME,
+    );
+  }
+
+  /** Every tree subscriber — the tree update's audience. */
+  treeSubscribers(): AddressRow[] {
+    return this.#ctx.storage.sql.exec<AddressRow>(
+      `SELECT clientAddress, subscribedAt FROM Subscriptions WHERE kind = 'tree'`,
+    ).toArray();
+  }
+
+  // ─── clear by kind ─────────────────────────────────────────────────
+
+  /**
+   * Drop every row of the given kinds, and return the distinct addresses dropped — so the caller
+   * sends each client one notice however many rows it held. An ordinary ontology install clears
+   * `resource`, `query` and `roster` and leaves `tree` alone: the tree does not depend on the
+   * ontology.
+   *
+   * A per-row `DELETE`, billed per row. Each old registry dropped its own table and replayed its
+   * DDL, one billed write; one table cannot be dropped to clear some of its kinds without saving
+   * and restoring the rest, and an install is rare, so the per-row cost is the cheaper mistake.
+   */
+  clear(kinds: SubscriptionKind[]): DroppedAddress[] {
+    if (kinds.length === 0) return [];
+    const marks = kinds.map(() => '?').join(', ');
+    const dropped = this.#ctx.storage.sql.exec<DroppedAddress>(
+      `SELECT DISTINCT clientAddress FROM Subscriptions WHERE kind IN (${marks})`,
+      ...kinds,
+    ).toArray();
+    this.#ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind IN (${marks})`, ...kinds);
+    return dropped;
+  }
+}

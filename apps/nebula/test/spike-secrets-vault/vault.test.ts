@@ -1,6 +1,6 @@
 /**
  * Spike A Stage 1 — crypto round-trip + 3-mode resolver.
- * Runs in the `unit` pool-workers project (real workerd, faithful crypto.subtle).
+ * Runs in the `unit` vitest-plugin project (real workerd, faithful crypto.subtle).
  * See tasks/spike-outside-world-secrets.md.
  */
 import {

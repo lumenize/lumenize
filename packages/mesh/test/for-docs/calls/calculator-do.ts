@@ -5,9 +5,9 @@
  * in a single round trip with results feeding into outer operations.
  */
 
-import { LumenizeDO, mesh } from '../../../src/index.js';
+import { UnscopedMeshDO, mesh } from '../../../src/index.js';
 
-export class CalculatorDO extends LumenizeDO<Env> {
+export class CalculatorDO extends UnscopedMeshDO<Env> {
   // Require authentication for all mesh calls
   onBeforeCall(): void {
     super.onBeforeCall();

@@ -96,6 +96,31 @@ describe('Error Serialization - Subclasses', () => {
     expect(result).toBeInstanceOf(EvalError);
     expect(result.message).toBe('Eval failed');
   });
+
+  // These constructors take something other than the message first, so the
+  // decoder cannot hand it over by position.
+  it('handles AggregateError', async () => {
+    const error = new AggregateError([new Error('first'), new TypeError('second')], 'Several failed');
+    const result = parse(stringify(error));
+
+    expect(result).toBeInstanceOf(AggregateError);
+    expect(result.message).toBe('Several failed');
+    expect(result.errors.map((e: Error) => [e.constructor, e.message])).toEqual([
+      [Error, 'first'],
+      [TypeError, 'second'],
+    ]);
+  });
+
+  it.runIf(typeof (globalThis as any).SuppressedError === 'function')('handles SuppressedError', async () => {
+    const SuppressedError = (globalThis as any).SuppressedError;
+    const error = new SuppressedError(new Error('cleanup'), new TypeError('original'), 'Disposal failed');
+    const result = parse(stringify(error));
+
+    expect(result).toBeInstanceOf(SuppressedError);
+    expect(result.message).toBe('Disposal failed');
+    expect(result.error.message).toBe('cleanup');
+    expect(result.suppressed).toBeInstanceOf(TypeError);
+  });
 });
 
 describe('Error Serialization - Error Chaining (cause)', () => {

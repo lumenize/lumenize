@@ -91,6 +91,8 @@ HAVING n > 100 ORDER BY n DESC
 - **Iceberg schema for `data: any`**: how much schema to declare vs. land as a JSON column + extract on read. DuckDB/R2 SQL JSON-path keeps it flexible; Iceberg wants *some* schema.
 - **One dataset vs per-namespace**: partitioning strategy for R2 SQL scan cost.
 
+- **Consider rates, not events, as the first numbers (2026-09-06, from the crash-only discussion).** Every turn failure is loud one at a time now — the stop reason rides the reply, and a red scenario keeps its output. What has no home until this lands is the aggregate the article says is the only thing that catches a regression: turns per day by stop reason (`complete`, `max-depth`, `build-unavailable`, `error`), turn restarts once leases exist, dist-arrival misses, container-step failures. Four counters off markers that already exist; consider emitting them first.
+
 ## Relationship to the transport task (reconcile when either is picked up)
 [debug-production-transport.md](../icebox/debug-production-transport.md) proposes an **in-process** `addDebugTransport(fn)` push API. This task proposes **out-of-band** harvest via Tail Worker. They are complementary, not redundant:
 - **In-process transport** fits low-latency, fire-once forwarders where you want the entry *as it happens* (e.g. Sentry error capture) and are willing to pay the in-isolate cost.
