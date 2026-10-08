@@ -5,7 +5,7 @@
  *
  * `scripts/deploy-test.sh` writes it beside `wrangler.jsonc` and deploys from it; `local-config.mjs`
  * is the local twin. Derived from the real config on every run, never a second committed file, so
- * nothing else can drift. Six swaps, each one a way the test target used to reach production:
+ * nothing else can drift. Seven swaps, each one a way the test target used to reach production:
  *
  * 1. **`routes`** — production's hosts under `lumenize.dev` become the test target's under
  *    {@link TEST_ORIGIN}. A deploy under any name claims every route in its config, and custom
@@ -19,6 +19,11 @@
  * 5. **`r2_buckets`** — the blob bucket `nebula-blobs` becomes `nebula-blobs-test`.
  * 6. **`CERTIFICATE_ZONE_ID`** — the test zone's, so a test galaxy orders and deletes its certificate
  *    pack on `lumenize-test.dev` and never touches a production pack.
+ * 7. **`containers[].name`** — `test-nebula-galaxy`, not `nebula-galaxy`. A container application's
+ *    name defaults to the config's top-level `name` plus its class, and `--name` does not reach it,
+ *    so both targets would claim production's name. Under the `durable_object` scheduling policy an
+ *    application is keyed by its Durable Object namespace and must keep its name, so production's
+ *    first deploy would collide with the test target's.
  *
  * Throws when an input is missing or the config's shape has changed, rather than emitting a
  * config nobody reviewed. `scripts/test-deploy-config.selftest.mjs` checks every swap.
@@ -94,6 +99,8 @@ export function deriveTestDeployConfig({ workerName, kvNamespaceId, zoneId, sour
   for (const s of cfg.services ?? []) s.service = workerName;
 
   for (const b of cfg.r2_buckets ?? []) if (b.bucket_name === 'nebula-blobs') b.bucket_name = 'nebula-blobs-test';
+
+  for (const c of cfg.containers ?? []) c.name = `${workerName}-${String(c.class_name).toLowerCase()}`;
 
   return cfg;
 }

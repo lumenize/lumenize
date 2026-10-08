@@ -39,7 +39,7 @@ Three corollaries worth internalizing:
 - **Put the hub in the companion DO** and it's exactly **one hop** from the outside world and **one hop**
   from the container. That's the whole point.
 
-Vertical scale is available (`instance_type`) if one tenant ever needs it, so a tenant-sharded system
+Vertical scale is available (the instance size) if one tenant ever needs it, so a tenant-sharded system
 can comfortably let its single container do everything that isn't a good fit for JS/WASM.
 
 ## ⚠️ There is NO source-push step — the container's `/workspace` IS the DO's tree
@@ -203,6 +203,17 @@ stuck verdict; the build drive logs any match and expects zero ([[cf-container-s
   and eat the account's running-instance quota, which then blocks *new* containers from starting. They MUST
   be cleaned up with `wrangler containers list` / `wrangler containers delete <app-id>`.
 
+## The `durable_object` scheduling policy — the object starts its own container
+
+**Under `scheduling_policy: "durable_object"` the companion Durable Object starts the container itself, naming the image and the size in each `start()`.** The containers block declares the images in an `images` map, and code reads them as `ctx.container.images`. `apps/nebula` has run it since 2026-10-08: `BUILD_BOX_IMAGE` and `BUILD_BOX_INSTANCE` in `src/galaxy.ts`, passed through `@cloudflare/computer`'s `ContainerBackend`. What changes from the default policy:
+
+- **`start()` MUST name an `image` unless it restores a snapshot.** A start with neither does not throw; no container ever arrives, and the readiness probe reports *"There is no container instance that can be provided to this Durable Object"* deployed and *"Container ingress proxy is not running"* locally. `@cloudflare/computer` 0.3 sends none, so 0.4 is the first that runs here; its default backend runs only here, and a default-policy app needs `backends/container-legacy`.
+- **The containers block takes no `image`, `image_build_context`, `instance_type`, `max_instances` or rollout settings**, and wrangler 4.147 refuses them. The size moves to `start()`'s `instance`, and the build context to the image entry's `build_context`.
+- **Each object starts the image of the Worker version running it**, so a deploy never leaves new code driving an old image — what the default policy's `rollout_step_percentage: [100]` pin approximated.
+- **`/` is owned by uid 2346, not root, and only deployed.** `@swc/core` 1.16.12+ then refuses to load its native binding (`ERR_SWC_NATIVE_CACHE`), so a build green under `wrangler dev` fails deployed. `apps/nebula/container/compiler/job.ts` hands `/` back to root before `vite build`, marked TEMP.
+- **Container snapshots exist only under this policy, and a snapshot carries its image**: after a deploy it restores the old image without complaint. `experiments/container-snapshot-deps/RESULTS.md` has the measurements, and `tasks/nebula-pre-alpha-fast-follow.md` § *Item 11: Snapshots replace the deps baked into the build-box image* the plan.
+- **Local `wrangler dev` runs all of it, but delivers `start()`'s `entrypoint` as the container's CMD.** An image ENTRYPOINT that does not exec its arguments therefore swallows the override; computerd's is never overridden, so the build box is unaffected.
+
 ## The `Container` base is optional — drive raw `ctx.container`, steal the base's homework
 
 You do **not** have to `extends Container`. Any DO drives a container through raw `ctx.container`, and
@@ -252,5 +263,5 @@ trades idle cost against user-visible cold starts. **Cold start is image-depende
 (pre-warm speculatively) rather than fight it.
 A keep-warm DO is ≈ **$4/mo**. ⚠️ **Watch vCPU starvation:** on the default `basic` (¼ vCPU), a heavy build
 saturates the CPU and **starves the other ports** — a trivial command on the side channel degraded from
-~30 ms to seconds during a build, recovering only once idle. Size up (`instance_type`) before blaming the
+~30 ms to seconds during a build, recovering only once idle. Size up (the instance size) before blaming the
 channel.

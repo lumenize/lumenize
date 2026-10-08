@@ -29,7 +29,8 @@ import { addressOf, mesh, rawRpc, splitAddress } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
 import type { DurableObjectStorageLike } from '@cloudflare/computer';
-import { CloudflareContainerBackend, WorkspaceContainerAPI } from '@cloudflare/computer/backends/container';
+import { ContainerBackend, WorkspaceContainerAPI } from '@cloudflare/computer/backends/container';
+import type { ContainerLaunchSpec } from '@cloudflare/computer/backends/container';
 import { createGitClient } from '@cloudflare/computer/git';
 import git from 'isomorphic-git';
 import {
@@ -183,13 +184,31 @@ export function decidePreview(report: BuildReport, override?: boolean): BuildRep
   return { refreshed: true, why: 'clean build' };
 }
 
+/** The build box's image: its key in the `images` map of `wrangler.jsonc`'s containers block, which
+ *  the `durable_object` scheduling policy exposes as `ctx.container.images`. */
+const BUILD_BOX_IMAGE = 'build-box';
+
+/** The build box's size, chosen at each `start()` — the `durable_object` scheduling policy has no
+ *  `instance_type` in config. 1 vCPU / 6 GiB. Do not drop back to `standard-1` (½ vCPU): measured on
+ *  real Cloudflare 2026-07-20 (`experiments/container-cold-start-probe`), a small app with one
+ *  charting library built in 21–26 s on `standard-1` against 7.7–8.7 s on `standard-4`, colo held
+ *  constant. That is a hedge, not an optimum: colo dominated (one colo took ~28 s at both sizes), and
+ *  n was 3–5 per cell, so revisit with a powered experiment before spending more here. */
+const BUILD_BOX_INSTANCE = 'standard-2';
+
+/** The launch spec `ContainerBackend.connect()` passes with our options (no `containerPort`, no
+ *  `containerEnv`, no `egress`), so the warm and the backend's start agree and the container is
+ *  reused: computer relaunches a running container whose env, internet, image or size differ. */
+const BUILD_BOX_LAUNCH_SPEC: ContainerLaunchSpec = {
+  env: { PORT: '8080', MOUNT_POINT: '/workspace' },
+  enableInternet: false,
+  name: BUILD_BOX_IMAGE,
+  instance: BUILD_BOX_INSTANCE,
+};
+
 /** The env the in-container `vite build` runs under. Deps are baked at the image
  *  ROOT (never the FUSE mount — containers.md), so `vite` resolves from
  *  `/node_modules/.bin`; NODE_ENV pinned so rollup never takes a dev path. */
-/** The launch spec `CloudflareContainerBackend.connect()` passes with our options (no `containerPort`,
- *  no `containerEnv`, no `egress`), so the warm and the backend's start agree and the container is reused. */
-const BUILD_BOX_LAUNCH_SPEC = { env: { PORT: '8080', MOUNT_POINT: '/workspace' }, enableInternet: false };
-
 const BUILD_ENV = {
   PATH: '/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
   NODE_ENV: 'production',
@@ -365,7 +384,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // The container transport — the backend object is cheap coordination state (no
   // container starts until a build's exec connects); the API wrapper is constructed
   // LAZILY because its ctor throws where `ctx.container` is absent (vitest-plugin).
-  #buildBackend!: CloudflareContainerBackend;
+  #buildBackend!: ContainerBackend;
   #containerApi?: WorkspaceContainerAPI;
   // The promise-chain build latch — overlapping builds QUEUE on the one container
   // (never `blockConcurrencyWhile`, which would deafen the hub for the probe's
@@ -394,7 +413,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *  (durable-objects.md § Initialization).
    *
    *  ⚠️ **No git here.** A deletion constructs every Galaxy it tears down, and a teardown needs
-   *  nothing from the tree. `@cloudflare/computer` 0.3.2's bundled isomorphic-git serializes
+   *  nothing from the tree. The isomorphic-git `@cloudflare/computer` bundles (measured on 0.3.2) serializes
    *  index and ref writes through module-level locks keyed by path and ref name, so every Galaxy
    *  in one isolate shares them (`/workspace/.git/index`, `refs/heads/main`). With the seed here,
    *  deleting an account holding two cold apps seeded both at once under `wrangler dev`, and in
@@ -1056,7 +1075,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * over the same SQLite, so nothing else observes the swap.
    */
   #constructWorkspace(): void {
-    this.#buildBackend = new CloudflareContainerBackend({
+    this.#buildBackend = new ContainerBackend({
       // Lazy thunks all the way down: `WorkspaceContainerAPI`'s ctor throws where
       // `ctx.container` is absent (vitest-plugin), so nothing constructs it until the
       // backend actually connects for a build.
@@ -1064,6 +1083,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         getWorkspaceContainer: () => (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)),
       }),
       workspace: { binding: 'GALAXY', id: this.ctx.id.toString() },
+      name: BUILD_BOX_IMAGE,
+      instance: BUILD_BOX_INSTANCE,
     });
     this.#ws = new Workspace({
       storage: this.ctx.storage as unknown as DurableObjectStorageLike,

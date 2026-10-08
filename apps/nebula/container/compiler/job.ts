@@ -32,7 +32,7 @@
  * reads fluently).
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { chownSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { compileOntologyVersion } from '../../src/ontology-compile';
 // The report SHAPE + marker live in the shared leaf so the Worker side cannot drift.
@@ -132,6 +132,14 @@ export function runJob(workspace: string, opts: { ontologyVersion?: string; wipe
   // with the files on the container's disk). Without the empty, an unchanged file is a
   // no-op both sides and a changed one is a fresh write, which the pull has never missed.
   // The host prunes stale entries against `bundle.files` after arrival (galaxy.ts).
+  // TEMP → target: Cloudflare owns `/` as root under the `durable_object` scheduling policy.
+  // Under that policy `/` belongs to uid 2346 (it is root under the default policy and under
+  // `wrangler dev`), and `@swc/core` 1.16.12+ refuses to load its native binding when any
+  // ancestor of its cache is writable by another user without the sticky bit
+  // (`ERR_SWC_NATIVE_CACHE`), so the decorator transform fails deployed only. Handing `/` back
+  // to root fixes it; `SWC_NATIVE_BINDING_CACHE` cannot, since `/` is an ancestor of every
+  // path. Measured in experiments/container-snapshot-deps/RESULTS.md § *Findings*.
+  try { chownSync('/', 0, 0); } catch { /* not root: swc's own error reaches the bundle tail */ }
   const vite = spawnSync('vite', ['build', '--emptyOutDir=false'], {
     cwd: workspace,
     encoding: 'utf8',

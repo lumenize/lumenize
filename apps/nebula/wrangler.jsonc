@@ -89,54 +89,29 @@
   "ratelimits": [
     { "name": "AUTH_CONNECTION_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } }
   ],
-  // Galaxy's EPHEMERAL build-box (one fresh container per build; Phase 3 of the collapse
-  // rewires the image to computerd + `vite build` — until then the image is the retired
-  // vite-dev-server one, started by nothing). Deps baked on ext4 (never the FUSE mount);
-  // deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
-  //
-  // instance_type = standard-2 (1 vCPU / 6 GiB). ⚠️ Do NOT drop back to standard-1
-  // (½ vCPU): the old "standard-1 clears the `vite build` starvation bar" sizing held
-  // only for the trivial seed App.vue.
-  //
-  // Measured ON REAL CF 2026-07-20 (experiments/container-cold-start-probe — trust these
-  // over the LOCAL-Docker figures in container-dep-restore-bench, which proved 3–5×
-  // optimistic). Building a small app with one charting lib, holding colo constant:
-  // standard-1 ≈ 21–26 s vs standard-4 ≈ 7.7–8.7 s — roughly 2.7× for sizing up. Cost
-  // partly follows: CF bills per vCPU-second while RUNNING, so a shorter build claws
-  // back much of the higher rate.
-  //
-  // ⚠️ But sizing is NOT the dominant term, and standard-2 is a hedge, not an optimum:
-  //   - COLO dominates. Containers do NOT run where the caller enters (entry was IAD on
-  //     every probe run; containers landed in MIA/EWR/CMH/YYZ). One colo (EWR) built in
-  //     ~28 s at BOTH standard-1 and standard-4 — sizing bought nothing there. Picking
-  //     DO ids/names cannot buy local placement.
-  //   - The evidence is n=3–5 per cell with colo uncontrolled; the sizing result rests on
-  //     3 colo-matched pairs. Directionally sound, not powered. standard-4 may well be
-  //     better; resolving it needs many samples per (instance_type × colo) cell.
-  // Revisit with a powered experiment before spending more here.
   // R2 — the platform's ONE blob bucket (nebula-pre-alpha-fast-follow § blob storage: a uniform
   // capability, never per-app infrastructure). First tenant: profile pictures, keyed
   // `profile-pictures/{uuid}.{ext}` (`src/profile-pictures.ts`). Local `wrangler dev` serves it from
   // miniflare's R2 — no remote, no credential; deployed, `scripts/deploy.sh` creates it if missing.
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "nebula-blobs" }],
+  // Galaxy's EPHEMERAL build box: one fresh container per build, driven through
+  // `@cloudflare/computer` from the Galaxy (src/galaxy.ts). Deps are baked on ext4, never the
+  // FUSE mount; deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
   "containers": [
     {
-      "max_instances": 10,
       "class_name": "Galaxy",
-      "image": "./container/Dockerfile",
-      // Atomic image rollout — the DEFAULT is staged (a deploy leaves old-image
-      // instances serving for a window), which made a freshly-deployed job change
-      // invisible to the very drive run to verify it (2026-08-29). Ephemeral
-      // build-boxes hold no in-flight work worth a graceful window pre-alpha; the
-      // computer-vfs-build experiment pinned the same pair.
-      "rollout_step_percentage": [100],
-      "rollout_active_grace_period": 0,
-      // Repo root — the Dockerfile's compiler stages COPY
-      // packages/ts-runtime-parser-validator (outside this config's directory), so a
-      // config-dir context cannot build the image. The root `.dockerignore` allowlists
-      // what the COPYs need; the Dockerfile header carries the rationale.
-      "image_build_context": "../../",
-      "instance_type": "standard-2"
+      // The Durable Object schedules its own container: each `start()` names the image and the
+      // size (BUILD_BOX_IMAGE and BUILD_BOX_INSTANCE in src/galaxy.ts), each object starts the
+      // image of the Worker version running it, and container snapshots exist only under this
+      // policy. It takes no `instance_type`, `max_instances` or rollout settings, and an app
+      // cannot change policy in place: switching one means a new container application.
+      "scheduling_policy": "durable_object",
+      "images": {
+        // Repo-root context: the Dockerfile's compiler stages COPY
+        // packages/ts-runtime-parser-validator, outside this directory. The root
+        // `.dockerignore` allowlists what the COPYs need; the Dockerfile header says why.
+        "build-box": { "dockerfile": "./container/Dockerfile", "build_context": "../../" }
+      }
     }
   ],
   // The Studio and auth-app builds, served by the Worker's page step (src/entrypoint.ts).

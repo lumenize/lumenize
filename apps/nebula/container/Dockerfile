@@ -12,8 +12,13 @@
 # not the Node major.
 #
 # FUSE_MOUNT=auto: Cloudflare Containers expose /dev/fuse so the real kernel backend
-# mounts; `wrangler dev` does NOT and falls back to a userspace shim — which is why every
-# mount-dependent criterion is verified DEPLOYED, never locally (the shim measures itself).
+# mounts; `wrangler dev` does NOT, and computerd materializes the /workspace subtree onto
+# the container's disk instead — functionally equivalent for a build, so builds are
+# verified locally first (containers.md § There is NO source-push step).
+#
+# The computerd tag must equal the `@cloudflare/computer` version in apps/nebula's
+# package.json: the JS backend and this daemon speak one wire, and a skewed pair fails
+# at the first exec.
 #
 # Baked-deps placement (the containers.md pin — node_modules stays on ext4, never the
 # mount): deps are installed at the FILESYSTEM ROOT. Node resolution from /workspace walks
@@ -22,15 +27,16 @@
 # container/app/package.json — the scaffold's curated UI-lib set ("remove a lib" = stop
 # importing it; a NON-baked package is the only thing needing runtime egress).
 #
-# BUILD CONTEXT is the REPO ROOT (wrangler.jsonc `image_build_context`), not this
-# directory: the compiler stages below COPY packages/ts-runtime-parser-validator from
-# outside apps/nebula/container/, which a config-dir context cannot reach. Every COPY
+# BUILD CONTEXT is the REPO ROOT (the `build-box` image's `build_context` in
+# wrangler.jsonc), not this directory: the compiler stages below COPY
+# packages/ts-runtime-parser-validator from outside apps/nebula/container/, which a
+# config-dir context cannot reach. Every COPY
 # is therefore repo-root-relative, and the root `.dockerignore` allowlists exactly what
 # these COPYs need (staging a copy inside this dir instead would defeat the
 # layer-invalidation property the compiler stages exist for: a fork edit must rebundle
 # on the next image build with no manual step to forget).
 
-FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.3.2 AS computerd
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.4.1 AS computerd
 
 FROM debian:stable-slim
 

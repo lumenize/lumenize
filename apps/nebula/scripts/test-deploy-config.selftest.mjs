@@ -40,6 +40,12 @@ assert.ok(!cfg.r2_buckets.some((b) => b.bucket_name === 'nebula-blobs'), "the bl
 assert.equal(cfg.vars.CERTIFICATE_ZONE_ID, ZONE_ID, "CERTIFICATE_ZONE_ID must be the test zone's");
 assert.notEqual(cfg.vars.CERTIFICATE_ZONE_ID, prod.vars.CERTIFICATE_ZONE_ID, "CERTIFICATE_ZONE_ID must never be production's");
 
+// Its own container application, never one named like production's.
+assert.ok(cfg.containers.length > 0, 'the instrument needs a container to check');
+for (const c of cfg.containers) {
+  assert.equal(c.name, `test-nebula-${c.class_name.toLowerCase()}`, `container ${c.class_name} must name the test worker`);
+}
+
 // Refuses without a namespace id or a zone id.
 assert.throws(() => deriveTestDeployConfig({ workerName: 'test-nebula', kvNamespaceId: '', zoneId: ZONE_ID }), /namespace id/);
 assert.throws(() => deriveTestDeployConfig({ workerName: 'test-nebula', kvNamespaceId: KV_ID, zoneId: '' }), /zone id/);

@@ -22,8 +22,12 @@ resolves).
 
 ## Lifecycle (driven from `Galaxy`, raw `ctx.container`)
 
+The container app runs the `durable_object` scheduling policy, so the Galaxy starts its
+own container and names the image (`build-box`, from `wrangler.jsonc`'s `images` map) and
+the size at each start.
+
 One build = one container: the loop's `build` tool (or the admin `buildNow()`) runs
-`ws.runtime.exec('vite build')`; the `CloudflareContainerBackend` starts the container,
+the build job (`node /build/job.cjs`); computer's `ContainerBackend` starts the container,
 health-probes readiness, and attaches `ctx.container.monitor()` on every start (the
 containers.md homework, done by the vendor); the exec's own sync bracket lands `dist/`
 in the Galaxy's VFS; the container is destroyed after. Overlapping builds queue on the
@@ -33,7 +37,8 @@ cloud-only stuck state — that apparatus is designed away, not recovered from.
 ## Verify with `wrangler dev` + Docker Desktop
 
 `npx tsx apps/nebula/harness/drive.ts build-box` drives the whole contract (sequential
-builds, overlap, buildError vs retryable, the serve readback). ⚠️ Local runs prove the
-**drive**, never the **mount**: `wrangler dev` exposes no `/dev/fuse`, so computerd
-degrades to its userspace shim — mount-dependent criteria are verified DEPLOYED (an
-`experiment-*` Worker), per `containers.md`.
+builds, overlap, buildError vs retryable, the serve readback). Local `wrangler dev` has no
+`/dev/fuse`, so computerd materializes the `/workspace` subtree onto the container's disk
+instead, which is functionally equivalent for a build (`containers.md`). The deployed pass
+still catches what only the platform does: real kernel FUSE, image rollout, and the
+`durable_object` policy's ownership of `/`, which only a deployed build meets.
