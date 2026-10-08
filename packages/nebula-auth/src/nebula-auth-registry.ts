@@ -1115,8 +1115,7 @@ export class NebulaAuthRegistry extends DurableObject {
        LIMIT ?`,
       ...params, after ?? '', budget + 1,
     )];
-    // ⚠️ The platform root is excluded from its own children: its level pattern matches it too.
-    const direct = rows.map(r => r.scope as string).filter(s => !isPlatformScope(s));
+    const direct = rows.map(r => r.scope as string);
     const children = direct.slice(0, budget).map(scope => ({
       scope, tier: this.#tierOf(scope),
       ...(scope.split('.').length < 3 ? { childCount: this.#directChildCount(scope) } : {}),
@@ -1138,18 +1137,23 @@ export class NebulaAuthRegistry extends DurableObject {
     return [...this.ctx.storage.sql.exec(
       `SELECT universeGalaxyStarId AS scope FROM Scopes WHERE ${where} LIMIT ?`,
       ...params, SCOPE_TREE_NODE_BUDGET + 1,
-    )].map(r => r.scope as string).filter(s => !isPlatformScope(s)).length;
+    )].length;
   }
 
   /**
    * The `WHERE` clause matching exactly one level beneath `parent`: its direct children, never their
    * descendants. The depth bound has to be in SQL rather than a filter on the read, since the read
    * is `LIMIT`ed — a level of galaxies with a `.dev` Star each would otherwise spend half the limit
-   * on Stars and report no frontier. The root's children are the universes, which have no dot;
-   * anyone else's are the scopes in its {@link descendantRange} with no dot past its own.
+   * on Stars and report no frontier. The root's children are the universes, which have no dot, less
+   * the root's own row, which has none either; anyone else's are the scopes in its
+   * {@link descendantRange} with no dot past its own. ⚠️ The root's row is excluded HERE, not after
+   * the read: it sorts first, so a filter after `LIMIT budget + 1` spent the sentinel row on it and a
+   * platform holding a budget's worth of accounts read as complete (found deployed, 2026-10-07).
    */
   #levelClause(parent: string): { where: string; params: (string | number)[] } {
-    if (isPlatformScope(parent)) return { where: `instr(universeGalaxyStarId, '.') = 0`, params: [] };
+    if (isPlatformScope(parent)) {
+      return { where: `instr(universeGalaxyStarId, '.') = 0 AND universeGalaxyStarId <> ?`, params: [PLATFORM_SCOPE] };
+    }
     const { lo, hi } = descendantRange(parent);
     return {
       where: `universeGalaxyStarId >= ? AND universeGalaxyStarId < ?

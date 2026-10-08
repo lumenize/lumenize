@@ -20,10 +20,10 @@ import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import {
   foundUniverse, createGalaxy, issueInvitesAs, inviteAndLogin, registryStub, verifiedClaims, authUrl,
-  plainLogin, refreshCookie,
+  plainLogin, refreshCookie, platformLogin,
 } from './test-helpers';
 import { mintImpersonationToken } from '../src/worker-token';
-import { SCOPE_TREE_NODE_BUDGET } from '../src/types';
+import { SCOPE_TREE_NODE_BUDGET, PLATFORM_SCOPE } from '../src/types';
 
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 const addr = () => `p4-${crypto.randomUUID().slice(0, 8)}@example.com`;
@@ -146,6 +146,28 @@ describe('the summary is the whole picture, bounded', () => {
     // Generous headroom over the budget (the membership rows and each level's `LIMIT budget + 1`
     // probe all count) — what it forbids is the scan, which reads every scope in the table.
     expect(rowsRead).toBeLessThan(SCOPE_TREE_NODE_BUDGET * 4);
+  });
+
+  it("the platform root's level marks its frontier too, past a budget's worth of accounts", async () => {
+    // The root's own row matches its level's pattern and sorts first ('_' before any slug), so a
+    // read that spent its `LIMIT budget + 1` sentinel on it saw no truncation and handed a superuser
+    // a full-looking first page with no `childCount` (a deployed run holding ~50 accounts, 2026-10-07).
+    // Seeded directly, as the wide tree above is: only the row count matters to a frontier.
+    const { refreshToken } = await platformLogin(SELF);
+    await (runInDurableObject as any)(
+      env.NEBULA_AUTH_REGISTRY.getByName('registry'),
+      (_i: any, ctx: any) => {
+        for (let i = 0; i < SCOPE_TREE_NODE_BUDGET * 2; i++) {
+          ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', uni());
+        }
+      },
+    );
+    const summary = await summaryWith(refreshCookie(PLATFORM_SCOPE, refreshToken));
+    const root = allNodes(summary).find((n: any) => n.scope === PLATFORM_SCOPE);
+    expect(root.children.length).toBeGreaterThan(0);
+    expect(root.children.some((c: any) => c.scope === PLATFORM_SCOPE)).toBe(false);
+    // Mutation: drop the root's row from the SQL exclusion and leave only the JS filter → undefined.
+    expect(root.childCount).toBeGreaterThan(root.children.length);
   });
 
   it('past the budget, `expand` pages the remainder with a cursor rather than dead-ending', async () => {
