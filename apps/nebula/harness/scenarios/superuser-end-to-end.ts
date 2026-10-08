@@ -133,9 +133,10 @@ export async function run(stack: DevStack): Promise<void> {
   // their apps in sorted order until the budget runs out, a node past it arriving as a `childCount`.
   // So the universe is asserted here; on a target holding many accounts its app sits past the budget,
   // which Home reaches as this limb does, with the facade's `expandScope` from the universe's page.
-  // ⚠️ The universe level fills too once the target holds about fifty accounts, and then this reds.
-  // A deployed sweep deletes `test-` accounts older than two days before any scenario runs
-  // (`drive.ts`'s account sweep), so it reds only if the last two days' runs left fifty.
+  // The universe level fills too once the target holds about fifty accounts, which a deployed sweep
+  // at concurrency 4 reached on 2026-10-07. Then the root's node lists the first accounts in key order
+  // and counts the rest, so the universe is either listed or sorts past the last one listed with the
+  // root counting more than it lists. A superuser arm that stopped descending would list and count none.
   const scopesRes = await homeSummary(origin, refreshCookie(PLATFORM_SCOPE, refreshToken));
   assert.equal(scopesRes.status, 200, `Home's summary ${scopesRes.status} for a superuser`);
   type Node = { scope: string; children?: Node[]; childCount?: number };
@@ -143,11 +144,17 @@ export async function run(stack: DevStack): Promise<void> {
   const nodes = (n: Node): Node[] => [n, ...(n.children ?? []).flatMap(nodes)];
   const all = groups.flatMap((g) => (g.summary.emails ?? []).flatMap((e) => (e.memberships ?? []).flatMap(nodes)));
   const ids = all.map((n) => n.scope);
+  const root = all.find((n) => n.scope === PLATFORM_SCOPE);
+  const listedAccounts = (root?.children ?? []).map((c) => c.scope);
+  const countedPast = (root?.childCount ?? 0) > listedAccounts.length
+    && listedAccounts.length > 0 && someUniverse > listedAccounts[listedAccounts.length - 1]!;
   assert.ok(
-    ids.includes(someUniverse),
-    `the superuser did not enumerate "${someUniverse}" — a scope they hold no membership in. ` +
-    `Got ${ids.length} scope(s): ${ids.join(', ')}`,
+    ids.includes(someUniverse) || countedPast,
+    `the superuser did not enumerate "${someUniverse}" — a scope they hold no membership in — nor ` +
+    `count it past the budget. Got ${ids.length} scope(s), root childCount ${root?.childCount}: ${ids.join(', ')}`,
   );
+  // Which arm held: only a platform holding more accounts than the budget, a deployed one, runs the second.
+  console.error(`  · limb 4 — "${someUniverse}" ${ids.includes(someUniverse) ? 'listed' : `counted past the budget (${listedAccounts.length} listed of ${root?.childCount})`}`);
   // The summary fills the tree a level at a time under a node budget, so on a platform holding
   // dozens of accounts — a deployed sweep's — it can list every app and run out before any tenant.
   // Then the app's node counts the tenant it could not list, which is the truncation made visible.

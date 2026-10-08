@@ -162,8 +162,19 @@ export async function run(stack: DevStack): Promise<void> {
     const platformCookie = (await sContext.cookies()).find((c) => c.name === '__Host-refresh-token._platform');
     assert.ok(platformCookie, 'S must hold the platform cookie before the logout — the positive control');
     await logOut(sPage);
-    const after = await refreshFromPage(stack.baseUrl, own, refreshCookie('_platform', platformCookie.value));
-    assert.equal(after.status, 401, "after the logout, S's platform cookie must mint nothing");
+    // Within KV's propagation window, about 60 s (`security.md` § *Refresh tokens*): the Registry
+    // deletes the record from its own colo, and a refresh served from another reads its cached copy
+    // until then. Checked at once, it minted on a deployed sweep at concurrency 4 (2026-10-07). A
+    // logout that missed the platform session never turns 401.
+    const mintAfterLogout = () => refreshFromPage(stack.baseUrl, own, refreshCookie('_platform', platformCookie.value));
+    const loggedOutAt = Date.now();
+    let after = await mintAfterLogout();
+    while (after.status !== 401 && Date.now() - loggedOutAt < 75_000) {
+      await after.body?.cancel();
+      await new Promise((r) => setTimeout(r, 2_000));
+      after = await mintAfterLogout();
+    }
+    assert.equal(after.status, 401, "within 75 s of the logout, S's platform cookie must mint nothing");
     await sContext.close();
     console.error("  ✓ limb 3 — the logout ended S's platform session as well as the account's");
 

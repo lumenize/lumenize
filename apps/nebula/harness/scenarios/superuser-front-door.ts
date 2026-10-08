@@ -126,10 +126,17 @@ export async function run(stack: DevStack): Promise<void> {
   const nodes = groups.flatMap((g) => g.summary.emails.flatMap((e) => e.memberships.flatMap(walk)));
   const ids = nodes.map((n) => n.scope);
   assert.ok(ids.includes(PLATFORM), 'the platform root is missing from the superuser\'s own summary');
-  assert.ok(ids.includes(stranger),
-    `the superuser did not reach "${stranger}" — a scope they hold NO membership in. ` +
-    `Got ${ids.length}: ${ids.slice(0, 12).join(', ')}`);
-  console.error(`  ✓ limb 4 — the platform root descends into ${stranger}, held by someone else`);
+  // The root's level is budget-bounded: on a target holding about fifty accounts or more (a deployed
+  // sweep at concurrency 4 on 2026-10-07) it lists the first in key order and counts the rest. So the
+  // stranger is listed, or sorts past the last account listed while the root counts more than it lists.
+  const root = nodes.find((n) => n.scope === PLATFORM);
+  const listedAccounts = (root?.children ?? []).map((c) => c.scope);
+  const countedPast = (root?.childCount ?? 0) > listedAccounts.length
+    && listedAccounts.length > 0 && stranger > listedAccounts[listedAccounts.length - 1]!;
+  assert.ok(ids.includes(stranger) || countedPast,
+    `the superuser did not reach "${stranger}" — a scope they hold NO membership in — nor count it past ` +
+    `the budget. Got ${ids.length}, root childCount ${root?.childCount}: ${ids.slice(0, 12).join(', ')}`);
+  console.error(`  ✓ limb 4 — the platform root ${ids.includes(stranger) ? 'descends into' : `counts past the budget (${listedAccounts.length} listed of ${root?.childCount})`} ${stranger}, held by someone else`);
 
   // ── LIMB 5: and it stays bounded ───────────────────────────────────────────────────────────────
   // ⚠️ The frontier marker, not a row count: a small fixture is under the budget either way, so
