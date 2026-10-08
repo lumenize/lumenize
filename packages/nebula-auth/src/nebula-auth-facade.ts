@@ -68,14 +68,14 @@ import type {
   InviteMintResult, InviteSummary, InviteeRequest, NebulaJwtPayload, ScopeLifecycleHooks, ScopeNode,
   ScopeTarget,
 } from './types';
-import type { AffectedScope, NebulaAuthRegistry, ScopeDeletionPlan } from './nebula-auth-registry';
+import type { AffectedScope, AuthRegistry, ScopeDeletionPlan } from './nebula-auth-registry';
 import { sendInviteEmails, summarizeInvites } from './invite-entry';
 import { mintImpersonationToken, wakeCertificates } from './worker-token';
 
 /** The Registry methods this facade reaches, typed against the class so a rename reaches `tsc`. */
 type RegistryStub = {
   [K in 'createGalaxy' | 'expandScope' | 'planScopeDeletion' | 'executeScopeDeletion' | 'issueInvites' | 'checkSlugAvailable']:
-    (...args: Parameters<NebulaAuthRegistry[K]>) => Promise<Awaited<ReturnType<NebulaAuthRegistry[K]>>>;
+    (...args: Parameters<AuthRegistry[K]>) => Promise<Awaited<ReturnType<AuthRegistry[K]>>>;
 };
 
 export abstract class NebulaAuthFacade extends LumenizeWorker {
@@ -107,7 +107,7 @@ export abstract class NebulaAuthFacade extends LumenizeWorker {
   }
 
   #registry(): RegistryStub {
-    return (this.env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return (this.env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
   }
 
   /**
@@ -196,7 +196,7 @@ export abstract class NebulaAuthFacade extends LumenizeWorker {
       targetScope, capped as InviteeRequest[], origin, claims, cleanName,
     ) as InviteMintResult;
 
-    const testMode = (this.env as any).NEBULA_AUTH_TEST_MODE === 'true';
+    const testMode = (this.env as any).AUTH_TEST_MODE === 'true';
     if (!testMode) {
       // Post-return, under waitUntil: the summary never waits on provider I/O, and the helper
       // catches per-invitee (identifiers only), so this can never reject.

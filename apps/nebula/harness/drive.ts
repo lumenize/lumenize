@@ -321,7 +321,7 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
   }
   // One superuser scenario at a time on a deployed target: they share one inbox (see above).
   const signsInAsSuperuser = (name: string): boolean =>
-    deployed && SCENARIOS[name].bootVars?.NEBULA_AUTH_BOOTSTRAP_EMAIL !== undefined;
+    deployed && SCENARIOS[name].bootVars?.AUTH_BOOTSTRAP_EMAIL !== undefined;
   let superuserTurn: Promise<void> = Promise.resolve();
   const inSuperuserTurn = async (run: () => Promise<void>): Promise<void> => {
     const previous = superuserTurn;

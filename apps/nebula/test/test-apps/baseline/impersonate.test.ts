@@ -258,7 +258,7 @@ describe('impersonate() — the child acts on its parent\'s page', () => {
       NebulaClientTest, new Browser(), star, star, 'member@example.com',
     );
     const facade = admin.ctn<NebulaAuthFacade>() as any;
-    await expect(admin.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+    await expect(admin.lmz.callAsync('AUTH_FACADE', undefined,
       facade.impersonate(member.sub, { ttlSeconds: SAFE_TTL }, star)))
       .rejects.toThrow(`This page's scope "${galaxy}" is outside the subject's own scope`);
     admin.disconnect();

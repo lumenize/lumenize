@@ -37,7 +37,7 @@ export { Profile } from '@lumenize/nebula-auth/profile';
 // the names the wrangler.jsonc class bindings already use.
 export { InstrumentedGalaxy as Galaxy, InstrumentedStar as StarTest } from './instrumented-hosts';
 
-export { NebulaAuthRegistry } from '@lumenize/nebula-auth';
+export { AuthRegistry } from '@lumenize/nebula-auth';
 
 
 import { NebulaEmailSender } from '@lumenize/nebula-auth';

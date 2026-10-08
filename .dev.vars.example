@@ -45,19 +45,19 @@ DEBUG=
 # Bootstrap-admin emails: the base @lumenize/auth DO and the nebula-auth DO are SEPARATE DOs
 # with SEPARATE vars — this is NOT a duplicate/typo. Set BOTH; never rename or delete either.
 #   LUMENIZE_AUTH_BOOTSTRAP_EMAIL — base @lumenize/auth LumenizeAuth DO (lumenize-auth.ts).
-#   NEBULA_AUTH_BOOTSTRAP_EMAIL   — nebula-auth NebulaAuth DO (nebula-auth.ts); at the reserved
+#   AUTH_BOOTSTRAP_EMAIL   — nebula-auth NebulaAuth DO (nebula-auth.ts); at the reserved
 #                                   _platform instance this email becomes a `*` super-admin.
 # First subject to log in with a bootstrap email is auto-promoted to admin. Both accept a
 # COMMA-SEPARATED list (`a@x.io, b@y.io`) — every listed email is promoted (whitespace/case are
 # normalized per entry). Privilege-granting, so in TESTS these belong in vitest miniflare.bindings,
 # and in PROD they are `wrangler secret put` secrets — NEVER a committed wrangler-config var.
 LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
-NEBULA_AUTH_BOOTSTRAP_EMAIL=you@example.com,teammate@example.com
+AUTH_BOOTSTRAP_EMAIL=you@example.com,teammate@example.com
 # Relative (/app) or absolute (https://example.com/app)
 LUMENIZE_AUTH_REDIRECT=/app
 # Access-token lifetime in seconds, honoured only when SHORTER than nebula-auth's 900. Leave it
 # empty: the /live scenario that waits out a real token lapse sets it for its own boot.
-NEBULA_AUTH_ACCESS_TOKEN_TTL=
+AUTH_ACCESS_TOKEN_TTL=
 # LUMENIZE_AUTH_ISSUER=https://lumenize.local
 # LUMENIZE_AUTH_AUDIENCE=https://lumenize.local
 # LUMENIZE_AUTH_ACCESS_TOKEN_TTL=900
@@ -77,8 +77,8 @@ NEBULA_AUTH_ACCESS_TOKEN_TTL=
 # Turnstile (nebula-auth router.checkTurnstile) by presenting it as the `x-lumenize-turnstile-bypass`
 # header. Turnstile stays ON for every request without it. Skips ONLY the anti-bot gate, never auth.
 # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
-# Secret — set via `wrangler secret put NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`; NEVER a committed config.
-NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN=generate-a-32-byte-base64url-token
+# Secret — set via `wrangler secret put AUTH_TURNSTILE_BYPASS_TOKEN`; NEVER a committed config.
+AUTH_TURNSTILE_BYPASS_TOKEN=generate-a-32-byte-base64url-token
 
 # JWT keys for @lumenize/auth (Ed25519)
 # Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"

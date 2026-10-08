@@ -45,7 +45,7 @@ const SUPERUSER = superuserEmail('cap-superuser@lumenize-test.dev');
 const PLATFORM = '_platform';
 
 export const bootVars = {
-  NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER,
+  AUTH_BOOTSTRAP_EMAIL: SUPERUSER,
   DEBUG: 'nebula.scope.teardown,nebula-auth.facade,nebula-auth.Registry.identity.membershipAccepted,'
     + 'nebula.Galaxy.orderCertificate,nebula-auth.worker.acceptMembership',
 };

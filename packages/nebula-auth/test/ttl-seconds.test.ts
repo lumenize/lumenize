@@ -216,24 +216,24 @@ describe('the refresh takes no ttlSeconds', () => {
   });
 });
 
-describe('NEBULA_AUTH_ACCESS_TOKEN_TTL — the env var may only SHORTEN the lifetime', () => {
+describe('AUTH_ACCESS_TOKEN_TTL — the env var may only SHORTEN the lifetime', () => {
   // The parse is a pure function of one var, so it needs no running system;
   // `session-survives-token-lapse` is where a shortened ceiling reaches a real login's refresh.
   it.each([['120', 120], ['1', 1], [String(ACCESS_TOKEN_TTL - 1), ACCESS_TOKEN_TTL - 1]])(
     'honours %s', (value, expected) => {
-      expect(accessTokenCeiling({ NEBULA_AUTH_ACCESS_TOKEN_TTL: value })).toBe(expected);
+      expect(accessTokenCeiling({ AUTH_ACCESS_TOKEN_TTL: value })).toBe(expected);
     });
   // Mutation: drop the `< ACCESS_TOKEN_TTL` bound, and the longer values lengthen the token.
   it.each(['', '0', '-5', '90.5', 'abc', String(ACCESS_TOKEN_TTL), String(ACCESS_TOKEN_TTL * 4)])(
     'ignores %j', (value) => {
-      expect(accessTokenCeiling({ NEBULA_AUTH_ACCESS_TOKEN_TTL: value })).toBe(ACCESS_TOKEN_TTL);
+      expect(accessTokenCeiling({ AUTH_ACCESS_TOKEN_TTL: value })).toBe(ACCESS_TOKEN_TTL);
     });
 
   // Mutation: clamp to the constant in `mintAccessToken` again, and this mints 900.
   it('the mint honours a shortened ceiling', async () => {
     const scope = uni();
     const { accessToken, effectiveTtlSeconds } = await mintAccessToken(
-      { ...env, NEBULA_AUTH_ACCESS_TOKEN_TTL: String(RECOMMENDED_MIN_TTL_SECONDS) },
+      { ...env, AUTH_ACCESS_TOKEN_TTL: String(RECOMMENDED_MIN_TTL_SECONDS) },
       { sub: crypto.randomUUID(), universeGalaxyStarId: scope, scopeAdmin: false, activeScope: scope, profileId: crypto.randomUUID() },
     );
     expect(effectiveTtlSeconds).toBe(RECOMMENDED_MIN_TTL_SECONDS);

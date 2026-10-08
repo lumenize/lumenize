@@ -110,7 +110,7 @@ describe('the summary is the whole picture, bounded', () => {
     // not matter for a read-cost assertion, only the row count, so these go in as rows.
     const WIDE = 400;
     await (runInDurableObject as any)(
-      env.NEBULA_AUTH_REGISTRY.getByName('registry'),
+      env.AUTH_REGISTRY.getByName('registry'),
       (_i: any, ctx: any) => {
         for (let i = 0; i < WIDE; i++) {
           ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', `${u}.g${i}`);
@@ -129,7 +129,7 @@ describe('the summary is the whole picture, bounded', () => {
     // small answer. Count rows the DO actually read by wrapping its own `sql.exec`.
     const profileId = admin.parsed.profileId;
     const rowsRead = await (runInDurableObject as any)(
-      env.NEBULA_AUTH_REGISTRY.getByName('registry'),
+      env.AUTH_REGISTRY.getByName('registry'),
       (instance: any, ctx: any) => {
         const realExec = ctx.storage.sql.exec.bind(ctx.storage.sql);
         let total = 0;
@@ -155,7 +155,7 @@ describe('the summary is the whole picture, bounded', () => {
     // Seeded directly, as the wide tree above is: only the row count matters to a frontier.
     const { refreshToken } = await platformLogin(SELF);
     await (runInDurableObject as any)(
-      env.NEBULA_AUTH_REGISTRY.getByName('registry'),
+      env.AUTH_REGISTRY.getByName('registry'),
       (_i: any, ctx: any) => {
         for (let i = 0; i < SCOPE_TREE_NODE_BUDGET * 2; i++) {
           ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', uni());
@@ -177,7 +177,7 @@ describe('the summary is the whole picture, bounded', () => {
     // matter to a paging assertion, only that the level overflows the budget.
     const WIDE = SCOPE_TREE_NODE_BUDGET + 7;
     await (runInDurableObject as any)(
-      env.NEBULA_AUTH_REGISTRY.getByName('registry'),
+      env.AUTH_REGISTRY.getByName('registry'),
       (_i: any, ctx: any) => {
         for (let i = 0; i < WIDE; i++) {
           // Zero-padded so lexical order — which is what the keyset cursor walks — matches creation

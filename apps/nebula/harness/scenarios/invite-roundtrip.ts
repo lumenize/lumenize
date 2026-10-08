@@ -2,7 +2,7 @@
  * **The direct-invite slice, end to end on real infrastructure** — invite → real email through the
  * catch-all → click the delivered link → arrive with everything in place. The scenario the F&F
  * gate rides: nothing here is a fixture — the inviter logged in through a real claim, the invite
- * rides `NebulaClient.invite` → its host node → `NEBULA_AUTH_FACADE` (the ONE production surface; there
+ * rides `NebulaClient.invite` → its host node → `AUTH_FACADE` (the ONE production surface; there
  * is no HTTP route), the letter is the one that actually arrived, and every persisted effect is
  * read off a real-login JWT or the running Star (ADR-009 rung 1).
  *

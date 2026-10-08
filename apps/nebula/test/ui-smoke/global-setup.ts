@@ -95,7 +95,7 @@ export default async function setup(project: TestProject) {
   // EMPTY dir satisfies wrangler with zero build. mkdir it before spawning wrangler dev.
   mkdirSync(resolvePath(STUDIO_UI_DIR, 'dist'), { recursive: true });
 
-  // 1. wrangler dev on the apps/nebula config. `--var NEBULA_AUTH_BOOTSTRAP_EMAIL`
+  // 1. wrangler dev on the apps/nebula config. `--var AUTH_BOOTSTRAP_EMAIL`
   //    overrides the .dev.vars default (dev@example.com) to test@lumenize-test.dev — the
   //    address CF Email Routing forwards to the email-test Worker AND the bootstrap
   //    admin email (first login at a scope → admin). Container image build can be slow
@@ -121,7 +121,7 @@ export default async function setup(project: TestProject) {
     readyTimeoutMs: hostedLocalBoot ? 300_000 : 120_000,
     extraArgs: [
       ...(hostedLocalBoot ? ['--local'] : []),
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
+      '--var', 'AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
       // The magic link goes out through Resend (the config's EMAIL_PROVIDER) from a sender
       // Resend has verified; the deployed email-test Worker catches it at the recipient,
       // test@lumenize-test.dev. Mirrors packages/auth/test/e2e-email-resend.

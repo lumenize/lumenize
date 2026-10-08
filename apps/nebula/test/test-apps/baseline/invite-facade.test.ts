@@ -1,6 +1,6 @@
 /**
  * The invite facade — the mesh-speaking guarded entry (`NebulaAuthFacade.invite`, reached by a
- * client `lmz.callAsync('NEBULA_AUTH_FACADE', undefined, …)` through its host node; a service
+ * client `lmz.callAsync('AUTH_FACADE', undefined, …)` through its host node; a service
  * binding with no instance name routes as a LumenizeWorker).
  *
  * The rule under test, enforced once, at this facade:
@@ -34,7 +34,7 @@ function facadeInvite(
   client: NebulaClient, targetScope: string, invitees: unknown,
 ): Promise<InviteSummary> {
   return client.lmz.callAsync(
-    'NEBULA_AUTH_FACADE', undefined,
+    'AUTH_FACADE', undefined,
     client.ctn<NebulaAuthFacade>().invite(targetScope, invitees as any),
   );
 }
@@ -202,7 +202,7 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
     // A direct entrypoint RPC carries no mesh envelope, so no claims and no `onBeforeCall`; the
     // method's first read of `callContext` is what refuses it. Only our own code holds the binding.
     await expect(
-      (env as any).NEBULA_AUTH_FACADE.invite(uniqueStar(), [{ email: em('x') }]),
+      (env as any).AUTH_FACADE.invite(uniqueStar(), [{ email: em('x') }]),
     ).rejects.toThrow('Cannot access callContext outside of a mesh call');
   });
 

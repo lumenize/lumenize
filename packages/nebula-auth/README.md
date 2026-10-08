@@ -10,11 +10,11 @@ Multi-tenant authentication for Nebula — magic link login, JWT access tokens, 
 |-----------|-----------|---------|
 | `routeNebulaAuthRequest` (`router.ts` + `worker-token.ts`) | Edge (Cloudflare Workers), on the platform host | The same-origin rule, Turnstile, the connection-keyed rate limit, and the session flows themselves (the link page's lookup and consume, cookies, the refresh's JWT mint, Home's summary, logout) |
 | `NebulaAuthFacade` (`@lumenize/nebula-auth/facade`) | `LumenizeWorker` (service binding, mesh-reachable) | The mesh entry for what an authenticated SESSION does with the Registry — invites, listing an account's apps, creating an app, deleting a scope, and impersonation. Each method refuses on the verified claims before its one raw Registry hop; it owns the invite verdicts and bit cap, the impersonation mint, the ADR-016 projection, and the consumer-supplied lifecycle hooks that wipe Durable Objects only the consumer can name |
-| `NebulaAuthRegistry` (R) | Singleton (`registry`) | The single writer of all durable auth state: `Scopes`, `Identities`, the magic-link/invite login channel, and `RefreshTokenIndex` |
+| `AuthRegistry` (R) | Singleton (`registry`) | The single writer of all durable auth state: `Scopes`, `Identities`, the magic-link/invite login channel, and `RefreshTokenIndex` |
 | Workers KV (`REFRESH_TOKEN_KV`) | Edge | The one hot record — `refresh:{tokenHash}`, read at the edge on every refresh, never touching the DO |
 | `NebulaEmailSender` | `WorkerEntrypoint` (service binding) | Nebula-branded magic-link/invite email |
 
-**HTTP carries the session lifecycle; the mesh carries what a session does** (accepted `docs/vision/auth.md` § *The Registry*). So there is **no HTTP invite route**: issuance enters through the facade (`lmz.call('NEBULA_AUTH_FACADE', undefined, …)`), while an invite's link is a magic link like any other, opened by the link page on the router below.
+**HTTP carries the session lifecycle; the mesh carries what a session does** (accepted `docs/vision/auth.md` § *The Registry*). So there is **no HTTP invite route**: issuance enters through the facade (`lmz.call('AUTH_FACADE', undefined, …)`), while an invite's link is a magic link like any other, opened by the link page on the router below.
 
 The per-scope `NebulaAuth` DO **no longer exists** — it was dissolved by [`tasks/archive/nebula-auth-surrogate-sub.md`](../../tasks/archive/nebula-auth-surrogate-sub.md), which is the design of record for everything below. Its hot token state moved to Workers KV, its cold identity state moved into the registry, and its HTTP handling moved into the Worker.
 
@@ -100,7 +100,7 @@ The gate lands in three places depending on the surface:
 
 No route reads an access token: a credential under `/auth/` is a link, a cookie or a ticket, and a token authenticates a mesh call ("Cookie or token, never both"). The passage and dominion verdicts are the facade's.
 
-Turnstile is skipped in exactly two cases: no `TURNSTILE_SECRET_KEY` is configured (development and every vitest lane, which bind it `''` explicitly), or the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
+Turnstile is skipped in exactly two cases: no `TURNSTILE_SECRET_KEY` is configured (development and every vitest lane, which bind it `''` explicitly), or the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
 
 ---
 
@@ -141,7 +141,7 @@ Every path is matched against the route table's `URLPattern`s. A page names its 
 
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
-| `NebulaAuthFacade.invite(targetScope, invitees)` | mesh (`lmz.call`/`callAsync` on the `NEBULA_AUTH_FACADE` service binding, `instanceName: undefined`) | eligibility (exact-scope membership ∨ dominion) + the per-invitee bit cap, from `callContext.originAuth` | Facade | `invitees: [{ email, scopeAdmin? }]`. The registry mints per invitee (identity + a magic link that lives 7 days, promoting an existing non-admin member when the bit is requested under dominion) and answers per-invitee outcomes (`invited \| already-member \| promoted`); the facade dispatches the mail post-return under `ctx.waitUntil` (template by acceptance). **There is no HTTP invite route** — `POST /auth/{scope}/invite` is a 404 |
+| `NebulaAuthFacade.invite(targetScope, invitees)` | mesh (`lmz.call`/`callAsync` on the `AUTH_FACADE` service binding, `instanceName: undefined`) | eligibility (exact-scope membership ∨ dominion) + the per-invitee bit cap, from `callContext.originAuth` | Facade | `invitees: [{ email, scopeAdmin? }]`. The registry mints per invitee (identity + a magic link that lives 7 days, promoting an existing non-admin member when the bit is requested under dominion) and answers per-invitee outcomes (`invited \| already-member \| promoted`); the facade dispatches the mail post-return under `ctx.waitUntil` (template by acceptance). **There is no HTTP invite route** — `POST /auth/{scope}/invite` is a 404 |
 | `NebulaAuthFacade.expandScope({ after? })` | mesh | dominion over the caller's `aud`, else an empty level without a hop | Facade → registry RPC | One more level beneath the page's own scope, keyset-paged past the budget. No argument names the parent |
 | `NebulaAuthFacade.createGalaxy(universeGalaxyId)` | mesh | dominion over the parent universe, then the registry's own check | Facade → registry RPC | Writes the galaxy and its `.dev` Star, then tears both down through the consumer's hook before answering, so a re-used slug starts empty. A refusal such as `slug_taken` tears nothing down |
 | `NebulaAuthFacade.planScopeDeletion(target)` | mesh | dominion over `target`, then the registry's own check | Facade → registry RPC | Read-only cascade plan for the confirm screen |
@@ -172,7 +172,7 @@ Validation is a fail-fast prologue in this exact order, so a request failing sev
 
 ⚠️ **`slug_taken` is deliberately ambiguous.** When the slug is held by a claimer who never verified their email, that claimer is re-sent their claim link — but the response is **byte-identical** to an ordinary rejection, and the send is fired without being awaited. Answering a resume with a success (or awaiting only on that branch) would make this endpoint an email-confirmation oracle: probe a slug with `victim@corp.com` and a distinguishable answer proves the victim is that slug's unverified claimer. The resume adds a `MagicLinks` row and nothing else — never an `UPDATE Identities`, which would promote a pending invitee to star admin through an unauthenticated endpoint.
 
-⚠️ **`claim-star`'s row must carry `turnstileGuard`.** It presents no token, so the Turnstile step (behind the connection limiter) is the only human-presence bound on this open mutation endpoint. The regression is caught behaviourally: `checkTurnstile` no longer short-circuits under `NEBULA_AUTH_TEST_MODE`, so `turnstile-bypass.test.ts`'s gating sweep binds a non-empty secret per test and asserts each open row answers `403 turnstile_required` — a row that silently lost the step reds it.
+⚠️ **`claim-star`'s row must carry `turnstileGuard`.** It presents no token, so the Turnstile step (behind the connection limiter) is the only human-presence bound on this open mutation endpoint. The regression is caught behaviourally: `checkTurnstile` no longer short-circuits under `AUTH_TEST_MODE`, so `turnstile-bypass.test.ts`'s gating sweep binds a non-empty secret per test and asserts each open row answers `403 turnstile_required` — a row that silently lost the step reds it.
 
 ---
 
@@ -534,7 +534,7 @@ Three writers, all in the registry: the login funnel (`#recordRefreshToken`), th
 
 ## Platform Admin (bootstrap)
 
-`NEBULA_AUTH_BOOTSTRAP_EMAIL` holds a comma-separated list of platform super-admin emails (split, trimmed, lowercased, deduped — compared by array membership, never a substring match). Such an email authenticates through the normal magic-link flow at the reserved `_platform` scope.
+`AUTH_BOOTSTRAP_EMAIL` holds a comma-separated list of platform super-admin emails (split, trimmed, lowercased, deduped — compared by array membership, never a substring match). Such an email authenticates through the normal magic-link flow at the reserved `_platform` scope.
 
 That pairing is the **one** mint on the `email-magic-link` path, and it is gated on both factors: a configured bootstrap email **and** the reserved scope. A non-bootstrap email requesting a link for `_platform` gets no mint, so stranger-self-join stays closed. Because `_platform` is the ROOT of the scope tree, the resulting token holds dominion over every scope.
 
@@ -557,7 +557,7 @@ Admin-created child scopes stamp **no local admin** — the creating admin manag
 
 | Binding | Kind | Notes |
 |---|---|---|
-| `NEBULA_AUTH_REGISTRY` | Durable Object (`NebulaAuthRegistry`) | Required. Register the class in the `exports` map as `storage: "sqlite"` — it uses the synchronous storage API, which throws under `legacy-kv` |
+| `AUTH_REGISTRY` | Durable Object (`AuthRegistry`) | Required. Register the class in the `exports` map as `storage: "sqlite"` — it uses the synchronous storage API, which throws under `legacy-kv` |
 | `REFRESH_TOKEN_KV` | KV namespace | Required — the refresh hot path |
 | `AUTH_EMAIL_SENDER` | Service binding to the `NebulaEmailSender` entrypoint | Optional; absent means email is logged, not sent |
 | `PROFILE` | Durable Object (`Profile`) | Required only if you mount the `/profile` subpath |
@@ -570,12 +570,12 @@ Admin-created child scopes stamp **no local admin** — the creating admin manag
 | `JWT_PUBLIC_KEY_BLUE` / `JWT_PUBLIC_KEY_GREEN` | Ed25519 verification keys (secret); both present enables rotation |
 | `PRIMARY_JWT_KEY` | Active signing key, `'BLUE'` (default) or `'GREEN'` |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret (optional — absent skips the gate) |
-| `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN` | Authorized bypass token for the `x-lumenize-turnstile-bypass` header (optional, secret — never logged) |
-| `NEBULA_AUTH_BOOTSTRAP_EMAIL` | Comma-separated platform super-admin emails (optional) |
+| `AUTH_TURNSTILE_BYPASS_TOKEN` | Authorized bypass token for the `x-lumenize-turnstile-bypass` header (optional, secret — never logged) |
+| `AUTH_BOOTSTRAP_EMAIL` | Comma-separated platform super-admin emails (optional) |
 | `AUTH_EMAIL_FROM` | From-address for `NebulaEmailSender` (defaults to `noreply@lumenize.io`) |
-| `NEBULA_AUTH_TEST_MODE` | Returns raw magic-link/invite URLs instead of sending. It does NOT skip Turnstile — an absent/empty `TURNSTILE_SECRET_KEY` is what does (the vitest configs bind `''` explicitly). ⚠️ Set **only** in vitest `miniflare.bindings` — never in `wrangler.jsonc` or `.dev.vars` |
+| `AUTH_TEST_MODE` | Returns raw magic-link/invite URLs instead of sending. It does NOT skip Turnstile — an absent/empty `TURNSTILE_SECRET_KEY` is what does (the vitest configs bind `''` explicitly). ⚠️ Set **only** in vitest `miniflare.bindings` — never in `wrangler.jsonc` or `.dev.vars` |
 
-⚠️ `NEBULA_AUTH_TEST_MODE` has **no second factor** — unlike `@lumenize/auth`, the decision is made inside the registry DO with no request URL to sniff, so a leak on a deployed Worker would hand magic links to ordinary traffic. Its absence from every deployable surface *is* the control, enforced by `scripts/audit-test-mode.sh`.
+⚠️ `AUTH_TEST_MODE` has **no second factor** — unlike `@lumenize/auth`, the decision is made inside the registry DO with no request URL to sniff, so a leak on a deployed Worker would hand magic links to ordinary traffic. Its absence from every deployable surface *is* the control, enforced by `scripts/audit-test-mode.sh`.
 
 Email provider selection is delegated to `@lumenize/email` (the `EMAIL` binding selects Cloudflare; otherwise Resend).
 
@@ -599,7 +599,7 @@ Each deployment names its origin once, in the `LUMENIZE_ORIGIN` var (`https://lu
 
 ```typescript
 // The singleton registry DO (needed for wrangler bindings in consuming projects)
-export { NebulaAuthRegistry } from './nebula-auth-registry';
+export { AuthRegistry } from './nebula-auth-registry';
 
 // Router entry point — the primary export for composing into a parent Worker
 export { routeNebulaAuthRequest } from './router';
@@ -629,7 +629,7 @@ if (authResponse) return authResponse;
 ### Subpaths
 
 - **`@lumenize/nebula-auth/profile`** — the `Profile` DO. Deliberately *not* re-exported from the main index: it composes `@lumenize/mesh`, and pulling that chain through this widely-imported barrel breaks the transform of pure-unit consumers that import only light utilities.
-- **`@lumenize/nebula-auth/facade`** — `NebulaAuthFacade`, the mesh-speaking session entry (a `LumenizeWorker`). Kept off the main index for the same transform reason as `Profile`. It is abstract: a consumer subclasses it under the same name, supplies `hooks` (a `ScopeLifecycleHooks`), wires it as a self-referencing service binding (`NEBULA_AUTH_FACADE`) and exports the subclass from their worker entry.
+- **`@lumenize/nebula-auth/facade`** — `NebulaAuthFacade`, the mesh-speaking session entry (a `LumenizeWorker`). Kept off the main index for the same transform reason as `Profile`. It is abstract: a consumer subclasses it under the same name, supplies `hooks` (a `ScopeLifecycleHooks`), wires it as a self-referencing service binding (`AUTH_FACADE`) and exports the subclass from their worker entry.
 - **`@lumenize/nebula-auth/testing`** — the Node-safe surface (`createNebulaTestToken`, `buildNebulaJwtPayload`, the scope helpers, the invite wire types, types and constants). Free of `cloudflare:workers`, so a standalone `tsx` harness can import it. Per ADR-009, a client-side mint is the **last resort** — prefer the real email login path.
 
 ## License

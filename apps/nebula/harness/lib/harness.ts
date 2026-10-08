@@ -60,7 +60,7 @@ export const DEPLOYED_SUPERUSER = 'claude@lumenize.io';
 /**
  * The superuser a scenario signs in as. Locally each scenario names its own and pins it with
  * `bootVars`; a deployed target ignores `bootVars`, so there it is {@link DEPLOYED_SUPERUSER}, which
- * the test target's `NEBULA_AUTH_BOOTSTRAP_EMAIL` lists.
+ * the test target's `AUTH_BOOTSTRAP_EMAIL` lists.
  */
 export function superuserEmail(local: string): string {
   return process.env.HARNESS_TARGET_URL ? DEPLOYED_SUPERUSER : local;
@@ -142,8 +142,9 @@ export async function bootDevStack(
     /**
      * Extra `--var NAME:VALUE` overrides for THIS boot only — never a `.dev.vars` mutation, so they
      * auto-revert per boot. For a scenario whose subject is server configuration the identity path
-     * reads, e.g. `NEBULA_AUTH_BOOTSTRAP_EMAIL` (the superuser scenario points it at an address on
+     * reads, e.g. `AUTH_BOOTSTRAP_EMAIL` (the superuser scenario points it at an address on
      * the test catch-all, so the bootstrap login can be a REAL email round trip rather than a mint).
+     * A name the generated `Env` does not declare is refused, so a renamed one cannot boot unread.
      */
     vars?: Record<string, string>;
   } = {},
@@ -154,6 +155,14 @@ export async function bootDevStack(
       'bootDevStack: Docker Desktop is not reachable (`docker info` failed). The apps/nebula ' +
         'container image builds at `wrangler dev` boot, so Docker is required. Start Docker Desktop and retry, ' +
         'or pass `withContainer: false` if this scenario never touches `ctx.container`.',
+    );
+  }
+  const undeclared = Object.keys(opts.vars ?? {}).filter((name) => !declaredEnvNames().has(name));
+  if (undeclared.length > 0) {
+    throw new Error(
+      `bootDevStack: the generated Env declares no ${undeclared.join(', ')}, so the Worker would never ` +
+        'read it and the boot would carry on as if it were unset. A renamed variable? Add a new one to ' +
+        '`.dev.vars.example` or `wrangler.jsonc`, then run `npm run types`.',
     );
   }
   const signingKey = readDevVar('JWT_PRIVATE_KEY_BLUE');
@@ -206,6 +215,17 @@ export async function bootDevStack(
   // Every host answers on the one port wrangler bound; the platform host is the one sessions use.
   const baseUrl = hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, workerUrl);
   return { id: crypto.randomUUID(), baseUrl, origin: LOCAL_ORIGIN, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
+}
+
+/**
+ * The names the generated `Env` declares (`worker-configuration.d.ts`, from `wrangler.jsonc` and
+ * `.dev.vars.example`). A boot variable outside it is one the Worker never reads.
+ */
+function declaredEnvNames(): Set<string> {
+  const generated = readFileSync(resolve(NEBULA_DIR, 'worker-configuration.d.ts'), 'utf8');
+  const body = generated.match(/interface __BaseEnv_Env \{([\s\S]*?)\n\}/)?.[1];
+  if (!body) throw new Error('bootDevStack: no Env in apps/nebula/worker-configuration.d.ts; run `npm run types`');
+  return new Set([...body.matchAll(/^\s*([A-Z][A-Z0-9_]*)\??:/gm)].map((m) => m[1]));
 }
 
 /** How much of the dev stack's stdio a scenario can read back — the last ~4 MB. */
@@ -403,7 +423,7 @@ export async function connectDriver<C extends NebulaClient = NebulaClient>(
 
 /**
  * Invite through the ONE production surface — `NebulaClient.invite` → its host node →
- * `NEBULA_AUTH_FACADE` — as a session that has already logged in by a real path. Constructs a
+ * `AUTH_FACADE` — as a session that has already logged in by a real path. Constructs a
  * short-lived client from the session's token (a handed token on a client of the SAME identity —
  * the sanctioned shape; renewal never runs inside this one-call lifetime), invites, disposes.
  *

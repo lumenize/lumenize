@@ -10,7 +10,7 @@
  * time someone adds a field and forgets the deny-list.
  *
  * Layer: **raw-DO infrastructure that COMPOSES the mesh comms core** (`ComposedMeshDO`, ADR-007) — it
- * needs the client-facing mesh subscribe AND a raw-RPC read of the raw `NebulaAuthRegistry` (the
+ * needs the client-facing mesh subscribe AND a raw-RPC read of the raw `AuthRegistry` (the
  * scoped-admin authz check), which a `LumenizeDO` (Mesh-layer, never-raw) could not do. It takes ONLY
  * the comms core — no `onStart`, no `svc` (a raw composer has neither) — and fans updates out with
  * `lmz.broadcast`, which the core carries. Code home is `@lumenize/nebula-auth`; it RUNS in the one
@@ -133,7 +133,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * A Profile never runs under a name that parses as a scope, such as `acme.crm.bigco`.
    *
    * A Profile is named by a profile id: a UUID, a persona's version-5 UUID, or `NEBULA_SUB`
-   * (`'agent:nebula'`), none of which parses as a scope. Without this check a tab could bring a
+   * (`'agent:lumenize'`), none of which parses as a scope. Without this check a tab could bring a
    * Profile into existence at a Star's name. Passage reads a claimless chain's scope from the name
    * of the node that started it (`NebulaDO`'s `claimsForPassage`), which is sound only if every
    * object running under a scope-shaped name checks passage into that scope, and a Profile checks
@@ -465,7 +465,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    */
   protected async lookupProfileScopes(profileId: string): Promise<string[]> {
     type RegistryStub = { getScopesForProfile(id: string): Promise<string[]> };
-    const registry = (this.env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME) as RegistryStub;
+    const registry = (this.env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME) as RegistryStub;
     return await registry.getScopesForProfile(profileId);
   }
 }

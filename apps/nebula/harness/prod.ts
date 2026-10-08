@@ -5,7 +5,7 @@
  *
  *   npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod Universes (Home's summary)
  *
- * Needs `.dev.vars` with NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN + TEST_TOKEN. No Docker, no wrangler dev.
+ * Needs `.dev.vars` with AUTH_TURNSTILE_BYPASS_TOKEN + TEST_TOKEN. No Docker, no wrangler dev.
  * @see tasks/archive/claude-live-verification.md — Phase 3b/3d
  */
 import { PROD_URL, prodSession, prodEnumerate, prodEmailSpin } from './lib/prod-drive';

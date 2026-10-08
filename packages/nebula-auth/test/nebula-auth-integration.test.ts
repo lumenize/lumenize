@@ -16,7 +16,7 @@ import {
   issueInvitesAs, membershipsOf, registryStub, verifiedClaims, authUrl, scopeOrigin,
 } from './test-helpers';
 
-const getRegistry = (): any => env.NEBULA_AUTH_REGISTRY.getByName('registry');
+const getRegistry = (): any => env.AUTH_REGISTRY.getByName('registry');
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 
 /** Press a link page's button in `browser`, as the page's own same-origin `POST` does. */

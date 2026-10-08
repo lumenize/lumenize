@@ -21,7 +21,7 @@ import {
 
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 const addr = () => `spend-${crypto.randomUUID().slice(0, 8)}@example.com`;
-const registry = (): any => (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+const registry = (): any => (env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
 const USED = { error: 'link_used', error_description: 'This link was already used. Sign in again for a new one.' };
 
 async function loginLink(email: string): Promise<string> {
@@ -79,7 +79,7 @@ describe('a link signs in once', () => {
     // The Registry stub with `recordSessions` failing — the only way to make it fail, since no
     // running system does. Every other method is forwarded as a call: a stub's method is an RPC
     // proxy, so `.bind` on it would itself be sent as a method named `bind`.
-    const real = (env as any).NEBULA_AUTH_REGISTRY;
+    const real = (env as any).AUTH_REGISTRY;
     const reached: string[] = [];
     const failing = {
       getByName: (name: string) => {
@@ -96,7 +96,7 @@ describe('a link signs in once', () => {
       },
     };
     const failed = await routeNebulaAuthRequest(consumeRequest(link),
-      { ...(env as any), NEBULA_AUTH_REGISTRY: failing } as Env, { hooks: recordingHooks });
+      { ...(env as any), AUTH_REGISTRY: failing } as Env, { hooks: recordingHooks });
     // Positive control: the failing consume got as far as the write that fails, past the consume.
     expect(reached).toEqual(['consumeLink', 'recordSessions']);
     expect(failed!.status).toBe(500);

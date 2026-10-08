@@ -1,5 +1,5 @@
 /**
- * SQL schema definitions for the NebulaAuthRegistry (the ONE singleton DO that owns all auth state).
+ * SQL schema definitions for the AuthRegistry (the ONE singleton DO that owns all auth state).
  *
  * Six registry tables:
  *   Scopes            — scope-existence registry. Existence is INDEPENDENT of membership.
@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS InviteTokens (
 
 /**
  * The registry's schema as an ordered, append-only migration list, run by `@lumenize/sql-migrations`
- * in the `NebulaAuthRegistry` constructor (id-gated, atomic).
+ * in the `AuthRegistry` constructor (id-gated, atomic).
  *
  * **This is a COLLAPSED BASELINE.** It replaces a longer list whose accumulated create-then-alter pairs
  * described the same end state less clearly. Collapsing is licensed only because a full system wipe

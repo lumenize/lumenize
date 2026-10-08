@@ -5,14 +5,14 @@
  * a three-tier hierarchy: Universe > Galaxy > Star.
  *
  * The per-scope `NebulaAuth` DO was dissolved (tasks/archive/nebula-auth-surrogate-sub.md): the singleton
- * `NebulaAuthRegistry` owns all durable state, token/login flows run in the Worker (`router.ts` +
+ * `AuthRegistry` owns all durable state, token/login flows run in the Worker (`router.ts` +
  * `worker-token.ts`) over Workers KV, and identity is keyed by a registry-minted surrogate `sub`.
  *
  * @see tasks/archive/nebula-auth-surrogate-sub.md for architecture details
  */
 
 // The singleton registry DO (needed for wrangler bindings in consuming projects).
-export { NebulaAuthRegistry } from './nebula-auth-registry';
+export { AuthRegistry } from './nebula-auth-registry';
 
 // NOTE: the `Profile` DO is deliberately NOT re-exported here — it composes `@lumenize/mesh`, and
 // pulling that whole chain through this (widely-imported) index breaks the transform of pure-unit

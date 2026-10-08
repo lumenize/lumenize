@@ -478,3 +478,19 @@ Each row records who decided it and when; § *Design intent* carries the reasons
 - An orphaned `wrangler dev` from 20:06, parented by launchd, was still up from the earlier session's run and was killed before the sweep.
 
 **Close-out notes:** no backlog row or sibling line changes in this phase.
+
+### Phase 2 — the names a deployed worker, a built app and a stored row hold
+
+**For the human:**
+- **The rename criterion's grep finds one thing besides `NEBULA_AUTH_PREFIX`: the old name inside `required-secrets.selftest.mjs`.** That selftest is the next criterion, and it needs the old literal to prove a secret set under it does not count. The two criteria pull against each other; the probe keeps the literal.
+- **`bootDevStack` checks only a scenario's `bootVars` against the generated `Env`.** The harness's own `--var`s pass unchecked, because `TURNSTILE_SECRET_KEY`, which `turnstile-canary` sets, is not in the generated `Env`: the Worker reads it through a cast in `checkTurnstile`.
+- **`tasks/backlog.md`'s rows now name the new bindings, variables and class** (nine binding or variable mentions, three of the class), and the second-factor row records that the binding and the audit moved together. `tasks/reference/nebula-dev-flows.md` was left alone: it carries uncommitted edits that are not this build's.
+- **The Registry's superseded-claims record writes the literal `'agent:lumenize'`,** as the phase says, rather than reading `NEBULA_SUB`.
+
+**Retro notes:**
+- The renamed audit patterns are unanchored, so a committed `NEBULA_AUTH_TEST_MODE` still matches `AUTH_TEST_MODE`; the old spellings stay caught for free.
+- **Gate, as run:** each of the three variables, committed alone to `apps/nebula/wrangler.jsonc`, reddened `audit:test-mode`, and the audit with the old patterns stayed green on all three. `scope-teardown`'s limb 8 passed and reddened when only `router.ts` kept the old limiter name. The selftest reddened when `required-secrets.mjs` kept the old name, and a scenario booting with `NEBULA_AUTH_BOOTSTRAP_EMAIL` stopped before the boot. `audit:do-http`'s counts are unchanged.
+- The local `.dev.vars` had two keys to rename, `AUTH_BOOTSTRAP_EMAIL` and `AUTH_TURNSTILE_BYPASS_TOKEN`.
+- **Suites:** `nebula-auth` 34 files, 496 tests passed and 4 skipped, its 15 unhandled rejections the typed `RegistryError` refusals its tests assert; `apps/nebula` 119 files and 1032 tests, unchanged from Phase 1; `drive.ts all --fast` 53 of 53.
+
+**Close-out notes:** the backlog's *DECIDE: does `nebula-auth`'s test-mode gate get a second factor?* row records the move, as § *Relationships* says.

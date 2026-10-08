@@ -59,7 +59,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       }
       /** Rows the registry singleton holds for a scope — the observable "nothing was written" check. */
       async function rowsFor(scope: string): Promise<{ scopes: number; links: number }> {
-        const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+        const stub = env.AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
         return (runInDurableObject as any)(stub, (_i: any, ctx: any) => ({
           scopes: [...ctx.storage.sql.exec('SELECT 1 FROM Scopes WHERE universeGalaxyStarId = ?', scope)].length,
           links: [...ctx.storage.sql.exec('SELECT 1 FROM MagicLinks WHERE universeGalaxyStarId = ?', scope)].length,
@@ -171,7 +171,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         const starAdmin = 'star-admin-2@example.com';
         expect((await claimStar(SELF, star, starAdmin)).status).toBe(200);
 
-        const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+        const stub = env.AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
         const readIdentity = async (email: string) => (runInDurableObject as any)(stub, (_i: any, ctx: any) =>
           [...ctx.storage.sql.exec(
             `SELECT m.sub AS sub, e.profileId AS profileId, m.scopeAdmin AS scopeAdmin, m.acceptedAt AS acceptedAt
@@ -333,7 +333,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       // straight to it, carrying a forged subject, is not answered with that subject's summary.
       const u = uni();
       const admin = await foundUniverse(SELF, u, `forged-${u}@example.com`);
-      const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+      const stub = env.AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
       const resp = await stub.fetch(new Request(authUrl('scope-summary'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ verifiedProfileId: admin.parsed.profileId, verifiedSub: admin.parsed.sub }),

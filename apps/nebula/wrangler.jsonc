@@ -50,10 +50,10 @@
   "services": [
     { "binding": "AUTH_EMAIL_SENDER", "service": "nebula", "entrypoint": "NebulaEmailSender" },
     // The mesh-speaking facade for authenticated-session Registry mutations (invites). Clients and
-    // platform nodes reach it with an ordinary `lmz.call('NEBULA_AUTH_FACADE', undefined, …)` — a
+    // platform nodes reach it with an ordinary `lmz.call('AUTH_FACADE', undefined, …)` — a
     // service binding with no instance name routes as a LumenizeWorker; the one raw Registry hop
     // lives inside the facade (@lumenize/nebula-auth/facade, re-exported from src/worker.ts).
-    { "binding": "NEBULA_AUTH_FACADE", "service": "nebula", "entrypoint": "NebulaAuthFacade" },
+    { "binding": "AUTH_FACADE", "service": "nebula", "entrypoint": "NebulaAuthFacade" },
     // The platform host's own routes — login, Home, a link's page, acceptance, logout and the
     // refresh — as an app of its own, which the default fetch reaches for `/` and `/auth/*` on
     // `platform.lumenize.dev` (src/platform-host.ts, re-exported from src/worker.ts).
@@ -64,7 +64,7 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "Star" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
       { "name": "PROFILE", "class_name": "Profile" }
     ]
   },
@@ -87,7 +87,7 @@
   // DELIBERATELY loose placeholder (bound abuse, never legitimate traffic); picking a real number
   // is a backlog row. No mesh call is rate limited, the facade's included.
   "ratelimits": [
-    { "name": "NEBULA_AUTH_CONNECTION_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } }
+    { "name": "AUTH_CONNECTION_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } }
   ],
   // Galaxy's EPHEMERAL build-box (one fresh container per build; Phase 3 of the collapse
   // rewires the image to computerd + `vite build` — until then the image is the retired
@@ -173,10 +173,12 @@
     // Retired: each scope's node hosts its pages' Clients. The tombstone stays while any deployed
     // worker still holds the class; a fresh deploy after a wipe emits no tombstones.
     "NebulaClientGateway": { "type": "durable-object", "state": "deleted" },
+    // Renamed AuthRegistry. Deleted rather than renamed: the wipe starts the Registry empty.
+    "NebulaAuthRegistry": { "type": "durable-object", "state": "deleted" },
     "Universe": { "type": "durable-object", "storage": "sqlite" },
     "Galaxy": { "type": "durable-object", "storage": "sqlite" },
     "Star": { "type": "durable-object", "storage": "sqlite" },
-    "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "Profile": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {

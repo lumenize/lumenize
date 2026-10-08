@@ -47,7 +47,7 @@ const SUPERUSER = superuserEmail('logout-superuser@lumenize-test.dev');
 
 export const needsContainer = false;
 export const bootVars = {
-  NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER,
+  AUTH_BOOTSTRAP_EMAIL: SUPERUSER,
   DEBUG: 'nebula-auth.worker.logout,nebula-auth.worker.homeSummary,nebula-auth.Registry.token.revoked',
 };
 

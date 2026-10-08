@@ -55,7 +55,7 @@ describe('NebulaClient re-subscribes when something was lost', () => {
     expect((await resourceRows(star)).map((r) => r.dominion)).toEqual([1]);
 
     const claims = a.claims!;
-    await (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).setIdentityAdmin(claims.sub, false, claims);
+    await (env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).setIdentityAdmin(claims.sub, false, claims);
 
     // The token lapses, so the next call rotates the socket on a freshly minted one.
     vi.useFakeTimers({ shouldAdvanceTime: true });

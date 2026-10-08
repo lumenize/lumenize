@@ -6,7 +6,7 @@
  * shim, connects a client on a galaxy's own host, makes a call, then waits out that token's
  * lifetime with the socket open, and makes another. Nothing short of a real lapse proves a session
  * survives one (`calibration.md` §13): a token born expired would prove only that the renewal path
- * runs. A local boot shortens the lifetime to two minutes through `NEBULA_AUTH_ACCESS_TOKEN_TTL`,
+ * runs. A local boot shortens the lifetime to two minutes through `AUTH_ACCESS_TOKEN_TTL`,
  * which may only shorten it; the lapse is just as real, and the mechanism the same as at fifteen.
  *
  * One limb, isolated (`live.md`):
@@ -35,7 +35,7 @@ export const needsContainer = false;
 
 /** The shortest lifetime the server mints without warning that a token is born nearly due. */
 const LOCAL_LIFETIME = RECOMMENDED_MIN_TTL_SECONDS;
-export const bootVars = { NEBULA_AUTH_ACCESS_TOKEN_TTL: String(LOCAL_LIFETIME) };
+export const bootVars = { AUTH_ACCESS_TOKEN_TTL: String(LOCAL_LIFETIME) };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');

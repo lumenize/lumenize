@@ -15,7 +15,7 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
       { "name": "PROFILE", "class_name": "Profile" },
       { "name": "BenchAgent", "class_name": "BenchAgent" }
     ]
@@ -39,7 +39,7 @@
     "Universe": { "type": "durable-object", "storage": "sqlite" },
     "Galaxy": { "type": "durable-object", "storage": "sqlite" },
     "StarTest": { "type": "durable-object", "storage": "sqlite" },
-    "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "Profile": { "type": "durable-object", "storage": "sqlite" },
     "BenchAgent": { "type": "durable-object", "storage": "sqlite" },
     // Tombstones (2026-07-22): the previous deploy predated the migrations->exports switch and the
@@ -47,7 +47,9 @@
     // per wrangler's reconciliation (throwaway harness, no durable state worth keeping). Alternative
     // per the note above: dashboard-delete the worker + redeploy, then drop these two lines.
     "NebulaAuth": { "type": "durable-object", "state": "deleted" },
-    "ResourceHistory": { "type": "durable-object", "state": "deleted" }
+    "ResourceHistory": { "type": "durable-object", "state": "deleted" },
+    // Renamed AuthRegistry (2026-10-08); the deployed harness still holds the old class.
+    "NebulaAuthRegistry": { "type": "durable-object", "state": "deleted" }
   },
   "services": [
     {
@@ -58,7 +60,7 @@
     // What a session does — creating and deleting apps, among them — enters through the facade,
     // which wipes the Durable Objects a deletion or creation touches.
     {
-      "binding": "NEBULA_AUTH_FACADE",
+      "binding": "AUTH_FACADE",
       "service": "nebula-browser-test",
       "entrypoint": "NebulaAuthFacade"
     },

@@ -23,11 +23,11 @@ import { requestMagicLink, foundUniverse, issueInvitesAs, createGalaxy, consumeL
 // lane has no decorator-aware transform, so importing its source is a parse error (facade-subpath.test.ts).
 import { PLATFORM_SCOPE, INVITER_NAME_MAX, sanitizeInviterName } from '../src/types';
 
-const BOOTSTRAP = 'bootstrap-admin@example.com'; // vitest.config's NEBULA_AUTH_BOOTSTRAP_EMAIL, entry 0
+const BOOTSTRAP = 'bootstrap-admin@example.com'; // vitest.config's AUTH_BOOTSTRAP_EMAIL, entry 0
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function addr(): string { return `p1-${crypto.randomUUID().slice(0, 8)}@example.com`; }
-function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
+function getRegistry(): any { return env.AUTH_REGISTRY.getByName('registry'); }
 
 /** Read membership rows for an address straight out of the DO — the only probe that can see an
  *  UNACCEPTED row, which is the state every assertion here is about (`getScopesForProfile` filters

@@ -21,7 +21,7 @@ import { mintImpersonationToken } from '../src/worker-token';
 const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: '_platform', scopeAdmin: true } }) as any;
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
-function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
+function getRegistry(): any { return env.AUTH_REGISTRY.getByName('registry'); }
 async function kvRecord(refreshToken: string): Promise<any> {
   const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${await hashString(refreshToken)}`);
   return raw ? JSON.parse(raw) : null;

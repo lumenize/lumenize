@@ -245,7 +245,7 @@ export async function bootstrapAdmin(
 /**
  * Create a subject via admin invite + magic link flow.
  *
- * The invite rides the MESH — `NebulaClient.invite` → its host node → `NEBULA_AUTH_FACADE` — the one
+ * The invite rides the MESH — `NebulaClient.invite` → its host node → `AUTH_FACADE` — the one
  * production surface (there is no HTTP invite route). The admin token this helper is handed backs
  * a short-lived client for exactly that call: a handed token on a client of the SAME identity is
  * the sanctioned shape (testing.md — renewal never runs inside this one-call lifetime), and it
@@ -340,14 +340,14 @@ export async function browserLogin(
   email: string,
   activeScope?: string,
 ): Promise<{ accessToken: string; payload: NebulaJwtPayload }> {
-  // Request the magic link. Test mode is decided ENTIRELY by the `NEBULA_AUTH_TEST_MODE`
+  // Request the magic link. Test mode is decided ENTIRELY by the `AUTH_TEST_MODE`
   // binding — there is no per-request opt-in here, so no `?_test=true`.
   //
   // ⚠️ Don't copy that param over from `@lumenize/auth`, where it IS load-bearing:
   // `lumenize-auth.ts` gates on `#isTestMode && searchParams.get('_test') === 'true'`, so the
   // binding alone does nothing there. nebula-auth can't do the same because the decision is
   // made inside the registry DO, reached by RPC with no request URL to read. Consequence worth
-  // knowing: a leaked `NEBULA_AUTH_TEST_MODE` in a deployed worker would return magic links to
+  // knowing: a leaked `AUTH_TEST_MODE` in a deployed worker would return magic links to
   // ORDINARY traffic, where the same leak in @lumenize/auth would only affect requests that
   // deliberately asked. The control that actually holds this line is `audit-test-mode.sh`.
   const magicLinkUrl = await requestMagicLink({
@@ -575,7 +575,7 @@ export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
  * **no DAG grant** in any Star's tree, as no admin does — which is exactly the shape the stored-bypass
  * fixtures need ("`access.scopeAdmin` with no DAG grant of its own").
  *
- * ⚠️ Only usable where `NEBULA_AUTH_BOOTSTRAP_EMAIL` is bound (baseline project). Without it, login
+ * ⚠️ Only usable where `AUTH_BOOTSTRAP_EMAIL` is bound (baseline project). Without it, login
  * succeeds but the first authed route 403s.
  */
 export async function createPlatformAdminClient<T extends NebulaClient, C extends NebulaClientConfig = NebulaClientConfig>(

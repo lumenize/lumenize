@@ -53,7 +53,7 @@ const PLATFORM = '_platform';
 /** A stable address for this boot, pinned as the bootstrap identity below. */
 const SUPERUSER = superuserEmail('front-door-superuser@lumenize-test.dev');
 
-export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
+export const bootVars = { AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');

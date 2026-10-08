@@ -1,5 +1,5 @@
 /**
- * Bootstrap-ARRAY (the `_platform` superuser) — the comma-separated `NEBULA_AUTH_BOOTSTRAP_EMAIL` list.
+ * Bootstrap-ARRAY (the `_platform` superuser) — the comma-separated `AUTH_BOOTSTRAP_EMAIL` list.
  *
  * Bootstrap membership is minted at CONSUME by the shared registry consume — behind mailbox proof,
  * gated on the ADDRESS being configured, and left UNACCEPTED. The link REQUEST mints nothing at all,
@@ -9,7 +9,7 @@
  * the config, is recognized ONLY because the getter normalizes PER ELEMENT — a raw `String.includes`
  * on the joined value, or a scalar index-0 getter, reds these.
  *
- * vitest.config sets `NEBULA_AUTH_BOOTSTRAP_EMAIL='bootstrap-admin@example.com, Second-Bootstrap@Example.com'`.
+ * vitest.config sets `AUTH_BOOTSTRAP_EMAIL='bootstrap-admin@example.com, Second-Bootstrap@Example.com'`.
  */
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';

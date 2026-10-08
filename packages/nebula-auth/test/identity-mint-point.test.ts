@@ -15,7 +15,7 @@ import {
   membershipsOf,
 } from './test-helpers';
 
-/** vitest.config's `NEBULA_AUTH_BOOTSTRAP_EMAIL`, entry 0. */
+/** vitest.config's `AUTH_BOOTSTRAP_EMAIL`, entry 0. */
 const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
@@ -23,7 +23,7 @@ const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: '_platform', scopeAdmin: true } }) as any;
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
-function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
+function getRegistry(): any { return env.AUTH_REGISTRY.getByName('registry'); }
 async function kvRecord(refreshToken: string): Promise<any> {
   const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${await hashString(refreshToken)}`);
   return raw ? JSON.parse(raw) : null;

@@ -47,7 +47,7 @@ Scenarios (`apps/nebula/harness/scenarios/`, registered in `drive.ts`):
   claim in lockstep with the scope, so it could not produce a denial at all.)
 - **`superuser-end-to-end`** — a REAL bootstrap-email login at `_platform`: verify → refresh into a
   foreign Star → enumerate → refuse an ungrammatical scope → pass the Profile gate. Re-points
-  `NEBULA_AUTH_BOOTSTRAP_EMAIL` at the test catch-all for that boot only.
+  `AUTH_BOOTSTRAP_EMAIL` at the test catch-all for that boot only.
 - **`passage-not-dominion`** — upward passage RETURNS while upward dominion REFUSES, over named methods
   (`Galaxy.getCurrentOntology` vs `Galaxy.setGalaxyConfig`), plus a galaxy non-admin refused at a
   Star beneath it. Each refusal matches its MESSAGE, since a boundary refusal and a dominion refusal
@@ -74,7 +74,7 @@ move fast, and explicitly accepted the security tradeoff. This standing OK is **
 *writes* / deploys / secret changes stay deliberate + rare (not covered by it).
 
 How it works: a one-time login on the platform host, as a superuser at `_platform`, uses the
-**Turnstile-bypass token** (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN` in `.dev.vars`, sent as the
+**Turnstile-bypass token** (`AUTH_TURNSTILE_BYPASS_TOKEN` in `.dev.vars`, sent as the
 `x-lumenize-turnstile-bypass` header) to get past prod's Turnstile, then stores the platform host's
 refresh cookies in a gitignored **cookie jar** (`harness/.prod-session.json`); later runs refresh
 headlessly (~2.5s, no email), from the page of whichever scope they read (`prodRefresh(browser,

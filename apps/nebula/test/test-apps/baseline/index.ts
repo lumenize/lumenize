@@ -19,7 +19,7 @@ export {
 } from '@lumenize/nebula';
 
 // Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
-export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
+export { AuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
 import { Profile } from '@lumenize/nebula-auth/profile';
 
 /** A profileId that forces `Profile`'s scoped-admin registry read to throw — the fail-closed probe. */
@@ -212,7 +212,7 @@ export class StarTest extends Star {
   callFacadeFreshChain(method: string, ...args: any[]): void {
     this.ctx.storage.kv.delete('facade_call_outcome');
     const facade = this.ctn<NebulaAuthFacade>() as any;
-    this.lmz.call('NEBULA_AUTH_FACADE', undefined, facade[method](...args),
+    this.lmz.call('AUTH_FACADE', undefined, facade[method](...args),
       (this.ctn() as any).recordFacadeCallOutcome(), { newChain: true });
   }
 

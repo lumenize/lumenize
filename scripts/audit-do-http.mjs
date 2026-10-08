@@ -170,7 +170,7 @@ for (const file of sourceFiles()) {
         || (method === 'get' && node.arguments.some((a) => /\b(idFromName|idFromString|newUniqueId)\(/.test(a.getText())));
       if (makesStub) {
         counts.stubs++;
-        const registry = inNebulaAuth && node.expression.expression.getText().includes('NEBULA_AUTH_REGISTRY');
+        const registry = inNebulaAuth && node.expression.expression.getText().includes('AUTH_REGISTRY');
         if (!registry && !isNamedForward(file, fn)) {
           fail(file, node, `a Durable Object stub made in \`${fn ?? '(module scope)'}\` — call a node over the mesh, or a \`@rawRpc()\` method through \`rawRpcStub\``);
         }

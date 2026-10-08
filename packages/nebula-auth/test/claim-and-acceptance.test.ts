@@ -33,7 +33,7 @@ import {
 
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 const addr = () => `claim-${crypto.randomUUID().slice(0, 8)}@example.com`;
-const registry = (): any => (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+const registry = (): any => (env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
 const kv = (): KVNamespace => (env as any).REFRESH_TOKEN_KV;
 
 /** Which of `scopes` have a `Scopes` row. */

@@ -45,10 +45,10 @@ export default defineConfig({
           wrangler: { configPath: './test/wrangler.jsonc' },
           miniflare: {
             bindings: {
-              NEBULA_AUTH_TEST_MODE: 'true',
+              AUTH_TEST_MODE: 'true',
               // ⚠️ Explicitly EMPTY, and load-bearing: bindings win over `.dev.vars`, so this holds
               // Turnstile OFF for the suite on any checkout — even one whose `.dev.vars` carries a
-              // real key. `checkTurnstile` no longer short-circuits on NEBULA_AUTH_TEST_MODE (that
+              // real key. `checkTurnstile` no longer short-circuits on AUTH_TEST_MODE (that
               // coupling let every test that wanted links also silently disable gating); the
               // absent/empty secret is the one sanctioned skip. A test that wants gating ON passes
               // a per-call env spread with the always-fail dummy secret.
@@ -58,7 +58,7 @@ export default defineConfig({
               // MIXED CASE — exercises the getter's per-element trim+lowercase (nebula-auth-bootstrap-array
               // .test.ts). A raw `String.includes` on this joined value, or a scalar index-0 getter,
               // reds those array tests. (miniflare.bindings is the sanctioned home — never a prod config.)
-              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com, Second-Bootstrap@Example.com',
+              AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com, Second-Bootstrap@Example.com',
               DEBUG: 'nebula-auth',
             },
           },

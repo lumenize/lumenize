@@ -34,7 +34,7 @@ import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
 export const bootVars = {
-  NEBULA_AUTH_ACCESS_TOKEN_TTL: String(RECOMMENDED_MIN_TTL_SECONDS),
+  AUTH_ACCESS_TOKEN_TTL: String(RECOMMENDED_MIN_TTL_SECONDS),
   DEBUG: 'nebula.Resources.subscribers,nebula.Resources.reap',
 };
 

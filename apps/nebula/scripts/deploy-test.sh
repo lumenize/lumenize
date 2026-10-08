@@ -31,7 +31,7 @@
 #
 # ⚠️ SECRETS ARE PER-WORKER. A fresh test worker has none, so login mints nothing and the
 # SPA bounces. Set them from the gitignored root `.dev.vars` — never echo a value:
-#   for s in NEBULA_AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE RESEND_API_KEY; do
+#   for s in AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE RESEND_API_KEY; do
 #     V=$(grep "^$s=" .dev.vars | sed 's/^[^=]*=//; s/^"//; s/"$//')
 #     printf '%b' "$V" | wrangler secret put "$s" --name test-nebula
 #   done

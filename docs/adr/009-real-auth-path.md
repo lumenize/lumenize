@@ -24,7 +24,7 @@ The **real email-based login is the default** for anything exercising auth / ide
 3. **Client-side synthetic mint** (`create-nebula-test-token`) — last resort; each surviving use justified in-place.
 4. **Negative-control mints** — deliberately *wrong-shape* tokens (base-shape, no-`access`) to prove the gateway rejects them. Real login cannot produce a wrong-shape token, so this is **not** a happy-path shortcut and stays legitimate.
 
-> **Today's code differs.** The test-mode variable is `NEBULA_AUTH_TEST_MODE`, and `LUMENIZE_AUTH_TEST_MODE` in `@lumenize/auth`. Mesh's own suites mint their tokens with `createTestRefreshFunction`, which signs in the test with the private key, so it is rung 3 in all but name.
+> **Today's code differs.** `@lumenize/auth`'s test-mode variable is `LUMENIZE_AUTH_TEST_MODE`. Mesh's own suites mint their tokens with `createTestRefreshFunction`, which signs in the test with the private key, so it is rung 3 in all but name.
 
 The real multi-user login is **dual-use**: our testing/harness infra *and* a user-developer feature (log N users into their own preview tabs to test their access-control model; later, the substrate for user-developer automated testing). Build it in a reusable place, not per-test.
 

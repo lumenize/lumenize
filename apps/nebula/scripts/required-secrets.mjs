@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Every deployment's own: the bootstrap address, the signing pair, and the mail provider's key. */
-const BASE = ['NEBULA_AUTH_BOOTSTRAP_EMAIL', 'JWT_PRIVATE_KEY_BLUE', 'JWT_PUBLIC_KEY_BLUE', 'RESEND_API_KEY'];
+const BASE = ['AUTH_BOOTSTRAP_EMAIL', 'JWT_PRIVATE_KEY_BLUE', 'JWT_PUBLIC_KEY_BLUE', 'RESEND_API_KEY'];
 
 /** @param {string} origin @returns {string[]} */
 export function requiredSecrets(origin) {

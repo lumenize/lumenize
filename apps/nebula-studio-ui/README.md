@@ -20,7 +20,7 @@ Everyone signs in the one way, by an emailed link followed as sent; there is no 
 
 Prereqs: Docker Desktop running (`docker context use desktop-linux`).
 
-1. **One-time** — set `NEBULA_AUTH_BOOTSTRAP_EMAIL` in the **gitignored** root `/.dev.vars`
+1. **One-time** — set `AUTH_BOOTSTRAP_EMAIL` in the **gitignored** root `/.dev.vars`
    (local-only; never committed or deployed): the address that holds the platform root's admin
    membership on the local stacks. Then run `npm install` at the **repo root**.
 

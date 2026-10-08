@@ -1,7 +1,7 @@
 /**
  * @lumenize/nebula-auth/testing — Node.js-safe test/harness entry point.
  *
- * The main `@lumenize/nebula-auth` barrel re-exports `NebulaAuthRegistry` (a DurableObject) which
+ * The main `@lumenize/nebula-auth` barrel re-exports `AuthRegistry` (a DurableObject) which
  * transitively imports `cloudflare:workers` and fails to resolve outside Workers. This subpath exposes
  * only the parts a Node harness needs to mint + reason about Nebula tokens — all
  * `cloudflare:workers`-free — so it can be imported from a standalone `tsx` driver

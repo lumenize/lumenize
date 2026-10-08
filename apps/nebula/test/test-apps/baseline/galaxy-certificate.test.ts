@@ -172,7 +172,7 @@ describe('a wake a deletion overtakes is torn down again', () => {
   // In-lane, since no running system can time a deletion into the gap between the Registry's answer
   // and the wake: the fake's `onWake` deletes the galaxy's `Scopes` row as the wake arrives. Drives
   // the facade, the caller nebula-auth's own lane cannot reach.
-  const registry = () => (env as any).NEBULA_AUTH_REGISTRY.getByName('registry');
+  const registry = () => (env as any).AUTH_REGISTRY.getByName('registry');
   const deleteRow = (scope: string) => (runInDurableObject as any)(registry(), (_i: any, c: any) => {
     c.storage.sql.exec('DELETE FROM Scopes WHERE universeGalaxyStarId = ?', scope);
   });

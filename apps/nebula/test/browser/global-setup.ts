@@ -15,7 +15,7 @@
  * `ignoreHTTPSErrors` to accept it. This keeps the cookie path identical
  * to production — no test-mode bypasses.
  *
- * Why no NEBULA_AUTH_TEST_MODE: tests exercise the real magic-link email
+ * Why no AUTH_TEST_MODE: tests exercise the real magic-link email
  * flow via Cloudflare Email Sending → Email Routing → deployed
  * email-test Worker → WebSocket back to the test. Test mode in any
  * wrangler invocation is a leak risk.
@@ -124,7 +124,7 @@ export default async function setup(project: TestProject) {
     configPath: WRANGLER_CONFIG,
     extraArgs: [
       '--local-protocol', 'https',
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
+      '--var', 'AUTH_BOOTSTRAP_EMAIL:test@lumenize-test.dev',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
       // Enable debug logging so email-send failures and other auth-flow
       // issues surface in the wrangler-dev stdout buffer (otherwise they're

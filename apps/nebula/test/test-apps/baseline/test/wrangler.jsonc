@@ -9,7 +9,7 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "GalaxyTest" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
       { "name": "PROFILE", "class_name": "ProfileTest" }
     ]
   },
@@ -22,7 +22,7 @@
     "Universe": { "type": "durable-object", "storage": "sqlite" },
     "GalaxyTest": { "type": "durable-object", "storage": "sqlite" },
     "StarTest": { "type": "durable-object", "storage": "sqlite" },
-    "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "ProfileTest": { "type": "durable-object", "storage": "sqlite" }
   },
   "services": [
@@ -32,9 +32,9 @@
       "entrypoint": "NebulaEmailSender"
     },
     // The mesh-speaking invite facade — reached by clients via
-    // `lmz.call('NEBULA_AUTH_FACADE', undefined, …)` (Worker binding, no instance name).
+    // `lmz.call('AUTH_FACADE', undefined, …)` (Worker binding, no instance name).
     {
-      "binding": "NEBULA_AUTH_FACADE",
+      "binding": "AUTH_FACADE",
       "service": "nebula-baseline-test",
       "entrypoint": "NebulaAuthFacade"
     },

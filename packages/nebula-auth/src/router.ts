@@ -4,7 +4,7 @@
  * Every route here is a step in a session's lifecycle, and it answers only on the platform host:
  * `apps/nebula` reaches this router for that host alone and answers `/auth/*` on every other host
  * with a 404. The token and login flows run IN THE WORKER (see `worker-token.ts`) over Workers KV +
- * registry RPC; the two claims are forwarded to the singleton `NebulaAuthRegistry` DO after
+ * registry RPC; the two claims are forwarded to the singleton `AuthRegistry` DO after
  * Turnstile. No route reads an access token. What a session DOES with the Registry — listing,
  * creating, deleting, impersonating, inviting — enters mesh-side through `NebulaAuthFacade`.
  */
@@ -109,8 +109,8 @@ export function buildAuthRouteTable(env: Env, hooks: ScopeLifecycleHooks): Route
    * failures. Cloudflare's edge always supplies it in production.
    */
   const connectionRateLimitGuard: Step = async (request) => {
-    const limiter = (env as Env & { NEBULA_AUTH_CONNECTION_RATE_LIMITER?: RateLimit })
-      .NEBULA_AUTH_CONNECTION_RATE_LIMITER;
+    const limiter = (env as Env & { AUTH_CONNECTION_RATE_LIMITER?: RateLimit })
+      .AUTH_CONNECTION_RATE_LIMITER;
     if (!limiter) return; // unbound → no-op; the Registry's boot-time check reports this state
     const key = request.headers.get('CF-Connecting-IP');
     if (!key) return;
@@ -128,7 +128,7 @@ export function buildAuthRouteTable(env: Env, hooks: ScopeLifecycleHooks): Route
    *  a malformed body with its own 400 `invalid_request` (`raw-comm.md` § *Edge Worker fronting a
    *  DO*). The two claims are the only rows that reach it. */
   const forwardRaw: Step = (request) =>
-    env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
+    env.AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
 
   /**
    * Serve the auth SPA's HTML for a GET navigation: Home, login, signup, the emails page, a link's
@@ -276,7 +276,7 @@ function authPipeline(env: Env, hooks: ScopeLifecycleHooks): RouteRunner {
  * construction in every test run, training readers to ignore the one signal this exists to create).
  */
 export const UNCONFIGURED_PROTECTIONS: readonly { config: string; level: 'error' | 'warn' }[] = [
-  { config: 'NEBULA_AUTH_CONNECTION_RATE_LIMITER', level: 'error' },
+  { config: 'AUTH_CONNECTION_RATE_LIMITER', level: 'error' },
   { config: 'TURNSTILE_SECRET_KEY', level: 'warn' },
 ];
 
@@ -349,7 +349,7 @@ export const TURNSTILE_BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
  * header is absent/wrong. The token is a secret — never log it.
  */
 export function isTurnstileBypassed(request: Request, env: object): boolean {
-  const bypassToken = (env as { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN?: string }).NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN;
+  const bypassToken = (env as { AUTH_TURNSTILE_BYPASS_TOKEN?: string }).AUTH_TURNSTILE_BYPASS_TOKEN;
   if (!bypassToken) return false;
   const presented = request.headers.get(TURNSTILE_BYPASS_HEADER);
   return presented !== null && constantTimeEqual(presented, bypassToken);
@@ -359,7 +359,7 @@ export function isTurnstileBypassed(request: Request, env: object): boolean {
  * `null` = pass through, a `Response` = refuse. Exactly two pass-through paths: an absent (or
  * empty) `TURNSTILE_SECRET_KEY` — how development and every vitest lane run (the configs bind it
  * `''` explicitly, which wins over a `.dev.vars` value) — and the authorized bypass header.
- * ⚠️ There is deliberately NO `NEBULA_AUTH_TEST_MODE` short-circuit here: one flag that both hands
+ * ⚠️ There is deliberately NO `AUTH_TEST_MODE` short-circuit here: one flag that both hands
  * out magic links AND disables the only bound on the unauthenticated endpoints is strictly worse
  * to leak than one that does the first alone (`security.md` — that binding has no second factor),
  * and the short-circuit made a gated endpoint byte-identical to an ungated one under every test

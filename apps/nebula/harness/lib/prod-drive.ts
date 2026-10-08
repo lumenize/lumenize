@@ -3,7 +3,7 @@
  *
  * Drives the *deployed* Lumenize at `lumenize.dev` (no local boot), on the platform host as a browser
  * does. The Turnstile gate on the unauthenticated endpoints is skipped via the authorized bypass
- * token (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`, presented as the `x-lumenize-turnstile-bypass`
+ * token (`AUTH_TURNSTILE_BYPASS_TOKEN`, presented as the `x-lumenize-turnstile-bypass`
  * header) — used ONLY for the one-time login, since the refresh, Home's summary and resource reads
  * are already Turnstile-free. The login seeds a **stored cookie jar** (Phase 3d): the platform host's
  * refresh cookies, so later runs refresh headlessly. Those cookies are a superuser credential — kept
@@ -81,7 +81,7 @@ export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAI
     authScope,
     email,
     testToken: readDevVar('TEST_TOKEN'),
-    bypassToken: readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN'),
+    bypassToken: readDevVar('AUTH_TURNSTILE_BYPASS_TOKEN'),
     timeout: 120_000,
     fetchImpl: browser.fetch,
   });
@@ -96,7 +96,7 @@ export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAI
  * Returns the received magic-link URL (proof of routing). First bit of the ADR-009 real-login harness.
  */
 export async function prodEmailSpin(email: string): Promise<string> {
-  const bypassToken = readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN');
+  const bypassToken = readDevVar('AUTH_TURNSTILE_BYPASS_TOKEN');
   const testToken = readDevVar('TEST_TOKEN');
   // ⚠️ `_scopeless` — the login request names no scope, so its mail carries no scope tag.
   const waiter = waitForEmail({ testToken, instance: '_scopeless', to: email, timeout: 120_000 });

@@ -10,7 +10,7 @@
 **Lumenize code runs on two sides of one boundary, and each side has to call the other.**
 
 - **Mesh nodes** call each other with `lmz.call`. Every hop carries verified claims in `callContext`, guards check them (passage on a scoped node, then `onBeforeCall`), and only `@mesh()`-decorated members can be called. The Galaxy, each Star and the Profile are mesh nodes.
-- **Raw infrastructure** speaks Workers RPC and HTTP and knows nothing of claims. `NebulaAuthRegistry`, the identity singleton, extends `DurableObject` directly.
+- **Raw infrastructure** speaks Workers RPC and HTTP and knows nothing of claims. `AuthRegistry`, the identity singleton, extends `DurableObject` directly.
 
 Two examples, one per direction:
 
@@ -39,7 +39,7 @@ Three rules hold for both:
 - creating a galaxy;
 - minting an impersonation token.
 
-**How:** the infrastructure package exports a `LumenizeWorker`, which is a Cloudflare `WorkerEntrypoint`, bound as a service binding, and mesh code calls it like any node: `lmz.call('NEBULA_AUTH_FACADE', undefined, ctn<NebulaAuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
+**How:** the infrastructure package exports a `LumenizeWorker`, which is a Cloudflare `WorkerEntrypoint`, bound as a service binding, and mesh code calls it like any node: `lmz.call('AUTH_FACADE', undefined, ctn<NebulaAuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
 
 1. The facade refuses on the verified claims, `callContext.originAuth`, before its hop. That is rule 2's check, made in the facade, so a refused call never wakes the infrastructure ([ADR-018](018-singleton-is-the-scarce-resource.md)).
 2. It makes the one raw call, beside the invariants it enforces.

@@ -3,7 +3,7 @@
  * registry + KV, per the dissolved-DO model (tasks/nebula-auth-surrogate-sub.md).
  *
  * Grounding: rung 2 (test-mode server issuance) — the registry echoes the raw magic/invite link in the
- * response ONLY when `NEBULA_AUTH_TEST_MODE` is set (miniflare.bindings), so no email round-trip is
+ * response ONLY when `AUTH_TEST_MODE` is set (miniflare.bindings), so no email round-trip is
  * needed but the real issuance + consume + KV + JWT-mint code paths are exercised end-to-end.
  *
  * Two ways to establish an identity (login verify NEVER mints — a raw email can't just self-join):
@@ -91,7 +91,7 @@ export async function verifiedClaims(accessToken: string): Promise<NebulaJwtPayl
 
 /** The Registry stub, for the methods only the facade reaches in production. */
 export function registryStub(): any {
-  return (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+  return (env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
 }
 
 /**
@@ -286,7 +286,7 @@ export async function issueInvitesAs(
   callerToken: string, scope: string, invitees: InviteeRequest[], inviterName?: string,
 ): Promise<InviteMintResult> {
   const claims = parseJwtUnsafe(callerToken)!.payload as unknown as NebulaJwtPayload;
-  const registry = (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+  const registry = (env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
   // ⚠️ Straight to the registry, so `inviterName` arrives UNSANITIZED — the facade is what caps and
   // strips it, and a test asserting that sanitization must drive the facade instead.
   return await registry.issueInvites(scope, invitees, PLATFORM, claims, inviterName) as InviteMintResult;
@@ -341,7 +341,7 @@ export async function foundStarAndLogin(
  *
  * A configured bootstrap address is minted its platform membership at CONSUME (the shared registry
  * consume ensures it, behind mailbox proof), so this is a real rung-1
- * login. Keyed to an email bound in `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL`; passing an
+ * login. Keyed to an email bound in `vitest.config.js`'s `AUTH_BOOTSTRAP_EMAIL`; passing an
  * unlisted address mints nothing and the login is rejected.
  */
 export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, activeScope?: string) {
@@ -352,7 +352,7 @@ export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, acti
   return { ...await refreshAndParse(self, PLATFORM_SCOPE, refreshToken, activeScope), refreshToken };
 }
 
-/** The first entry of `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL` list. */
+/** The first entry of `vitest.config.js`'s `AUTH_BOOTSTRAP_EMAIL` list. */
 export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 
 /** The SECOND entry of that list (config spells it mixed-case with a leading space; the registry

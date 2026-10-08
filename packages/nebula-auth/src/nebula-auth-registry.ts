@@ -1,5 +1,5 @@
 /**
- * NebulaAuthRegistry — the ONE singleton DO that owns all durable auth state.
+ * AuthRegistry — the ONE singleton DO that owns all durable auth state.
  *
  * Since tasks/archive/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this registry is
  * the **single writer** of everything: the `Scopes` existence registry, `Emails` + `Memberships` (surrogate-`sub`
@@ -50,7 +50,7 @@ import { reportUnconfiguredProtections } from './router';
 
 /**
  * What a ticket-backed claim answers with. Refusals are values rather than throws — see
- * {@link NebulaAuthRegistry.claimUniverseWithTicket} for why.
+ * {@link AuthRegistry.claimUniverseWithTicket} for why.
  */
 export type TicketClaimResult =
   | { ok: true; sub: string; universeGalaxyStarId: string }
@@ -119,7 +119,7 @@ export interface ScopeDeletionPlan {
   affectedUsers: ScopeDeletionAffectedUsers;
 }
 
-export class NebulaAuthRegistry extends DurableObject {
+export class AuthRegistry extends DurableObject {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Run the registry's schema migrations once, eagerly, before any request is dispatched (the
@@ -207,16 +207,16 @@ export class NebulaAuthRegistry extends DurableObject {
   /** The Workers-KV namespace holding the hot refresh records (`refresh:{tokenHash}`). */
   get #refreshKv(): KVNamespace { return (this.env as any).REFRESH_TOKEN_KV; }
 
-  get #isTestMode(): boolean { return (this.env as any).NEBULA_AUTH_TEST_MODE === 'true'; }
+  get #isTestMode(): boolean { return (this.env as any).AUTH_TEST_MODE === 'true'; }
 
   /**
-   * Bootstrap-admin emails (comma-separated `NEBULA_AUTH_BOOTSTRAP_EMAIL`) → normalized `string[]`.
+   * Bootstrap-admin emails (comma-separated `AUTH_BOOTSTRAP_EMAIL`) → normalized `string[]`.
    * Split → trim → lowercase → drop empties → dedup. A bootstrap email founding the reserved
    * `_platform` scope is stamped platform admin. Compare via array membership, never a substring
    * `String.includes` on the raw joined value.
    */
   get #bootstrapEmails(): string[] {
-    const raw = (this.env as any).NEBULA_AUTH_BOOTSTRAP_EMAIL as string | undefined;
+    const raw = (this.env as any).AUTH_BOOTSTRAP_EMAIL as string | undefined;
     if (!raw) return [];
     return [...new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean))];
   }
@@ -1599,7 +1599,7 @@ export class NebulaAuthRegistry extends DurableObject {
     // actor would be ADR-016's own failure shape, a record that names the person acted upon. The
     // record names every scope it deleted, as `executeScopeDeletion`'s does.
     debug('nebula-auth.Registry.claim.converged').info('Pending claims superseded', {
-      actor: 'agent:nebula', keptScope: acceptedScope, retired,
+      actor: 'agent:lumenize', keptScope: acceptedScope, retired,
     });
   }
 

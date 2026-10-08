@@ -34,7 +34,7 @@ import { selectSessionsToMint } from '../src/worker-token';
 const BOOTSTRAP = 'bootstrap-admin@example.com';
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 const addr = () => `p2-${crypto.randomUUID().slice(0, 8)}@example.com`;
-const getRegistry = (): any => env.NEBULA_AUTH_REGISTRY.getByName('registry');
+const getRegistry = (): any => env.AUTH_REGISTRY.getByName('registry');
 
 /** The scopes a consume set cookies for, read off each cookie's name. */
 function cookieScopes(resp: Response): string[] {

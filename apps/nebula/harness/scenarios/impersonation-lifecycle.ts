@@ -168,7 +168,7 @@ export async function run(stack: DevStack): Promise<void> {
   let mintRequests = 0;
   const realCallAsync = adminClient.lmz.callAsync;
   (adminClient.lmz as { callAsync: unknown }).callAsync = (binding: string, ...rest: unknown[]) => {
-    if (binding === 'NEBULA_AUTH_FACADE') mintRequests++;
+    if (binding === 'AUTH_FACADE') mintRequests++;
     return (realCallAsync as (...a: unknown[]) => unknown)(binding, ...rest);
   };
 
@@ -224,7 +224,7 @@ export async function run(stack: DevStack): Promise<void> {
     // values a real claim-star login must carry.
     assert.equal(subjectClaims.access.authScope, star, "the subject's own token must carry the star as authScope");
     assert.equal(subjectClaims.access.scopeAdmin, true, "the subject's own token must carry scopeAdmin");
-    const { access_token: derivedToken } = await realCallAsync('NEBULA_AUTH_FACADE', undefined,
+    const { access_token: derivedToken } = await realCallAsync('AUTH_FACADE', undefined,
       adminClient.ctn<NebulaAuthFacade>().impersonate(subject.sub, {})) as { access_token: string };
     const derived = parseJwtUnsafe(derivedToken)!.payload as any;
     assert.equal(derived.access.authScope, subjectClaims.access.authScope,
@@ -245,14 +245,14 @@ export async function run(stack: DevStack): Promise<void> {
     );
     const asSubject = await connectDriver(stack, { scope: star, session: { accessToken: subject.accessToken, sub: subject.sub } });
     try {
-      const own = await asSubject.client.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+      const own = await asSubject.client.lmz.callAsync('AUTH_FACADE', undefined,
         asSubject.client.ctn<NebulaAuthFacade>().impersonate(below.sub, {})) as { access_token: string };
       assert.equal((parseJwtUnsafe(own.access_token)!.payload as any).sub, below.sub,
         "the subject's OWN token must mint for someone beneath them — the positive control");
     } finally {
       asSubject.dispose();
     }
-    const chained = await child.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+    const chained = await child.lmz.callAsync('AUTH_FACADE', undefined,
       child.ctn<NebulaAuthFacade>().impersonate(below.sub, {})).then(() => null, (e: unknown) => (e as Error).message);
     assert.match(chained ?? '(it minted)', /root identity/,
       'a derived (act-bearing) token must be refused the mint, by the root-identity message');

@@ -5,8 +5,8 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "NEBULA_AUTH_REGISTRY",
-        "class_name": "NebulaAuthRegistry"
+        "name": "AUTH_REGISTRY",
+        "class_name": "AuthRegistry"
       },
       {
         "name": "BARE_STORAGE_DO",
@@ -23,7 +23,7 @@
   // DO class registry (NOT SQL migration). The per-scope NebulaAuth DO is dissolved
   // (tasks/nebula-auth-surrogate-sub.md) — only the singleton registry remains.
   "exports": {
-    "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "BareStorageDO": { "type": "durable-object", "storage": "sqlite" },
     "Profile": { "type": "durable-object", "storage": "sqlite" }
   },
@@ -47,7 +47,7 @@
     // faucets). The key is `CF-Connecting-IP` with allow-on-absent, so this lane (where miniflare
     // supplies no such header) never collapses every caller onto one key.
     {
-      "name": "NEBULA_AUTH_CONNECTION_RATE_LIMITER",
+      "name": "AUTH_CONNECTION_RATE_LIMITER",
       "namespace_id": "2002",
       "simple": {
         "limit": 100,

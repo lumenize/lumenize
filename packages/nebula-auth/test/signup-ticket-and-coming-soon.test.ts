@@ -30,7 +30,7 @@ import { SIGNUP_TICKET_TTL, SIGNUP_TICKET_COOKIE, COMING_SOON_TAGS } from '../sr
 
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 const addr = () => `p6-${crypto.randomUUID().slice(0, 8)}@example.com`;
-const getRegistry = (): any => env.NEBULA_AUTH_REGISTRY.getByName('registry');
+const getRegistry = (): any => env.AUTH_REGISTRY.getByName('registry');
 
 const proveNewAddress = (email: string) => proveAddress(SELF, email);
 

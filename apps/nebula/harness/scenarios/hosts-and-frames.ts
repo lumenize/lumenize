@@ -57,7 +57,7 @@ import {
 const SUPERUSER = superuserEmail('hosts-superuser@lumenize-test.dev');
 
 export const needsContainer = false;
-export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
+export const bootVars = { AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');

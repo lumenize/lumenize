@@ -23,7 +23,7 @@
  * vite's port, for the socket) and `inject('platformOrigin')` (the platform host there, for the
  * refresh). The address is fresh per run, so no other lane's mail can answer its waiter.
  *
- * No NEBULA_AUTH_TEST_MODE: ADR-009 rung 1 throughout, the same real magic-link flow as the
+ * No AUTH_TEST_MODE: ADR-009 rung 1 throughout, the same real magic-link flow as the
  * Node-side harness. `audit-test-mode.sh` does not scan `.ts`, so keeping this spawn test-mode-free
  * is a discipline here, not an enforced gate.
  */

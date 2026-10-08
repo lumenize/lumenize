@@ -23,7 +23,7 @@ import {
 const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: '_platform', scopeAdmin: true } }) as any;
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
-function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
+function getRegistry(): any { return env.AUTH_REGISTRY.getByName('registry'); }
 /** The `sub` for an address in a scope, read through the DO's own storage (no RPC exposes it — the
  *  surrogate key stays out of every membership read). */
 async function subForEmail(email: string, scope: string): Promise<string> {

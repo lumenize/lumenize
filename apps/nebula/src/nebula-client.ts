@@ -1000,7 +1000,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         throw new ImpersonationMintError('The client that created this impersonation session has been torn down');
       }
       return mintImpersonation(() => parent.lmz.callAsync(
-        'NEBULA_AUTH_FACADE', undefined,
+        'AUTH_FACADE', undefined,
         parent.ctn<NebulaAuthFacade>().impersonate(sub, { ttlSeconds: opts?.ttlSeconds }),
       ), sub);
     };
@@ -1077,7 +1077,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * the test fixtures, and the eventual UI affordance all route through it, and the
    * `invited | already-member | promoted` discriminant has one owning type).
    *
-   * An ordinary mesh call to the `NEBULA_AUTH_FACADE` Worker binding (`instanceName: undefined`
+   * An ordinary mesh call to the `AUTH_FACADE` Worker binding (`instanceName: undefined`
    * routes it as a `LumenizeWorker`), so verified claims ride `callContext.originAuth` — never a
    * Bearer header this client would have to surface. Eligibility is the facade's: every member may
    * invite non-admin peers into exactly their own scope; dominion additionally permits inviting
@@ -1097,7 +1097,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   invite(targetScope: string, invitees: InviteeRequest[], inviterName?: string): Promise<InviteSummary> {
     return this.lmz.callAsync(
-      'NEBULA_AUTH_FACADE', undefined,
+      'AUTH_FACADE', undefined,
       this.ctn<NebulaAuthFacade>().invite(targetScope, invitees, inviterName),
     );
   }
@@ -1105,7 +1105,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   // ─── Scope hierarchy (Universe / Galaxy / Star management) ────────────────
   //
   // What a session does with the scope tree — listing an account's apps, creating one, deleting a
-  // scope — is a mesh call to the `NEBULA_AUTH_FACADE` Worker binding, so the verified claims ride
+  // scope — is a mesh call to the `AUTH_FACADE` Worker binding, so the verified claims ride
   // `callContext.originAuth` and never a Bearer header. Home's summary is not here: it reads the
   // platform host's cookies, which no page on a scope host reaches. A deletion's Durable Objects are
   // wiped server-side, so a caller reacts to the result and wipes nothing itself.
@@ -1114,7 +1114,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // A fresh continuation per call: a chain is built by recording operations onto its root.
     const facade = () => this.ctn<NebulaAuthFacade>();
     const call = <T>(remote: unknown): Promise<T> =>
-      this.lmz.callAsync('NEBULA_AUTH_FACADE', undefined, remote as never) as Promise<T>;
+      this.lmz.callAsync('AUTH_FACADE', undefined, remote as never) as Promise<T>;
     return {
       /**
        * One more level beneath this client's own page — a universe page's apps. The parent is the

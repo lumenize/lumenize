@@ -17,7 +17,7 @@
  * CLOSED and TOTAL, so a miss there is a superuser who cannot log in at all.
  *
  * ⚠️ **The bootstrap address is pinned for THIS BOOT ONLY, and that is what keeps it rung 1.**
- * `.dev.vars` binds `NEBULA_AUTH_BOOTSTRAP_EMAIL` to a real human mailbox, which no automated run
+ * `.dev.vars` binds `AUTH_BOOTSTRAP_EMAIL` to a real human mailbox, which no automated run
  * can read. `bootVars` re-points it at the `*@lumenize-test.dev` catch-all the email-test Worker serves,
  * so the login below is a genuine round trip — link requested, mail delivered, link clicked — rather
  * than a synthetic mint standing in for one (ADR-009 rung 1). The override never touches
@@ -50,7 +50,7 @@ const PLATFORM_SCOPE = '_platform';
 const SUPERUSER_EMAIL = superuserEmail(uniqueTestEmail('superuser'));
 
 /** Re-point the bootstrap allow-list at an address on the test catch-all, for this boot only. */
-export const bootVars = { NEBULA_AUTH_BOOTSTRAP_EMAIL: SUPERUSER_EMAIL };
+export const bootVars = { AUTH_BOOTSTRAP_EMAIL: SUPERUSER_EMAIL };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
@@ -173,7 +173,7 @@ export async function run(stack: DevStack): Promise<void> {
     const listed: string[] = [];
     let after: string | undefined;
     do {
-      const page = await atUniverse.client.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+      const page = await atUniverse.client.lmz.callAsync('AUTH_FACADE', undefined,
         (atUniverse.client.ctn<NebulaAuthFacade>() as any).expandScope(after ? { after } : undefined),
       ) as { children: { scope: string }[]; nextCursor?: string };
       listed.push(...page.children.map((c) => c.scope));

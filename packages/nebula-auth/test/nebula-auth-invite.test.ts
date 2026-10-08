@@ -27,7 +27,7 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0, 8)}@example.com`; }
-function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
+function getRegistry(): any { return env.AUTH_REGISTRY.getByName('registry'); }
 
 /** The mint result's invite URL for one address. */
 function linkFor(mint: InviteMintResult, email: string): string {

@@ -1,5 +1,5 @@
 /**
- * Registry unit tests — NebulaAuthRegistry: discovery, existence (`Scopes`), admin-minting claim
+ * Registry unit tests — AuthRegistry: discovery, existence (`Scopes`), admin-minting claim
  * flows, admin-gated in-session creation, scope-tree, and cascade deletion (sub-first).
  *
  * Uses Workers RPC to call registry methods directly (nebula-auth is raw-DO infrastructure). Each test
@@ -14,7 +14,7 @@ import type { AccessEntry, NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 /** A fresh, isolated registry stub (unique name → own migrated storage). */
 function freshRegistry(): any {
-  return env.NEBULA_AUTH_REGISTRY.getByName(`reg-${crypto.randomUUID()}`);
+  return env.AUTH_REGISTRY.getByName(`reg-${crypto.randomUUID()}`);
 }
 
 /** Seed `Scopes` + `Emails` + `Memberships` directly (bypassing the authority-point mint) for deletion
@@ -77,7 +77,7 @@ async function founded(r: any, u: string, email: string): Promise<string> {
   return rows[0].sub as string;
 }
 
-describe('NebulaAuthRegistry', () => {
+describe('AuthRegistry', () => {
   // ── membership rows — what the mint/delete paths actually wrote ───────────────────────────────
   // These asserted through the retired `discover` endpoint; the endpoint was only ever the READ.
   // `membershipsOf` reads the same rows without an unauthenticated oracle in front of them, so every

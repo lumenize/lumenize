@@ -2,13 +2,13 @@
 #
 # Audit: TEST_MODE + BOOTSTRAP_EMAIL leak surfaces
 #
-# Test-mode env vars (NEBULA_AUTH_TEST_MODE, LUMENIZE_AUTH_TEST_MODE) bypass
+# Test-mode env vars (AUTH_TEST_MODE, LUMENIZE_AUTH_TEST_MODE) bypass
 # real auth — magic-link required, Turnstile, etc. They MUST only be set in
 # vitest configs (in-process miniflare bindings, never deployed). If one of
 # these vars ever lands in a wrangler.jsonc, a package.json script, a shell
 # script, or a CI workflow, that's a production-leak risk.
 #
-# Bootstrap-admin emails (NEBULA_AUTH_BOOTSTRAP_EMAIL, LUMENIZE_AUTH_BOOTSTRAP_EMAIL)
+# Bootstrap-admin emails (AUTH_BOOTSTRAP_EMAIL, LUMENIZE_AUTH_BOOTSTRAP_EMAIL)
 # are privilege-granting (auto-admin for the first subject registering that email —
 # and at _platform, a `*` super-admin). A value committed in a WRANGLER CONFIG
 # deploys as a prod var — a standing admin backdoor — so those are scanned too
@@ -34,7 +34,7 @@ set -e
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-PATTERN='(NEBULA_AUTH_TEST_MODE|LUMENIZE_AUTH_TEST_MODE)'
+PATTERN='(AUTH_TEST_MODE|LUMENIZE_AUTH_TEST_MODE)'
 HITS=0
 
 # Common excludes for grep -r — directories that are noise (build/install
@@ -103,13 +103,13 @@ scan ".dev.vars / .env files" \
 # prod vars (packaging.md § Environment variables). They belong in vitest miniflare.bindings (tests)
 # or `wrangler secret put` (prod), NEVER a committed config:
 #   *_BOOTSTRAP_EMAIL           — auto-admin for the first subject registering that email → a standing admin backdoor.
-#   NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN — the shared token that skips Turnstile (router.checkTurnstile) → committed = anyone bypasses Turnstile.
+#   AUTH_TURNSTILE_BYPASS_TOKEN — the shared token that skips Turnstile (router.checkTurnstile) → committed = anyone bypasses Turnstile.
 # The ONLY sanctioned home is a *deployed test harness* (test/browser/worker/), which carries the
 # bootstrap email with a comment — excepted below. Scanned for WRANGLER CONFIGS ONLY, deliberately NOT
 # shell scripts: a deploy script that merely CHECKS a secret is set via `wrangler secret list` (e.g.
 # apps/nebula/scripts/deploy.sh naming the var) sets no committed value and is legitimate.
 # .dev.vars.example is the placeholder template (a value there is expected), so it's not scanned here.
-PRIVILEGED_PATTERN='(NEBULA_AUTH_BOOTSTRAP_EMAIL|LUMENIZE_AUTH_BOOTSTRAP_EMAIL|NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN)'
+PRIVILEGED_PATTERN='(AUTH_BOOTSTRAP_EMAIL|LUMENIZE_AUTH_BOOTSTRAP_EMAIL|AUTH_TURNSTILE_BYPASS_TOKEN)'
 PRIVILEGED_HITS=$(grep -rlE "$PRIVILEGED_PATTERN" "${EXCLUDE_DIRS[@]}" \
   --include='wrangler.jsonc' --include='wrangler.toml' --include='wrangler.json' \
   --exclude='audit-test-mode.sh' . 2>/dev/null | grep -vE '/test/browser/worker/' || true)

@@ -59,7 +59,7 @@ export interface EmailLoginOptions {
    * - `'email'` (default, **rung 1**) — the real thing: the server sends, the deployed
    *   email-test Worker receives, the link arrives over a WebSocket push.
    * - `'test-mode'` (**rung 2**) — the server returns `magicLinkUrl` in the response body
-   *   instead of sending. Requires `NEBULA_AUTH_TEST_MODE=true` on the worker.
+   *   instead of sending. Requires `AUTH_TEST_MODE=true` on the worker.
    *
    * ⚠️ Rung 2 is **still real server issuance** — real `MagicLinks` row, real consume, real
    * cookie, real JWT. The ONLY thing it skips is the email hop. It is emphatically not a
@@ -448,7 +448,7 @@ export async function provisionStarAdmin(
       if (!rawLink) {
         throw new Error(
           "channel 'test-mode' but no magicLinkUrl came back — " +
-          'NEBULA_AUTH_TEST_MODE must be "true" on the worker for this channel',
+          'AUTH_TEST_MODE must be "true" on the worker for this channel',
         );
       }
       link = rawLink;
@@ -612,7 +612,7 @@ export async function provisionAndLogin(
       if (!rawLink) {
         throw new Error(
           "channel 'test-mode' but no magicLinkUrl came back — " +
-          'NEBULA_AUTH_TEST_MODE must be "true" on the worker for this channel',
+          'AUTH_TEST_MODE must be "true" on the worker for this channel',
         );
       }
       link = rawLink;
@@ -708,7 +708,7 @@ export async function createGalaxyViaFacade(options: {
     ...(options.WebSocket ? { WebSocket: options.WebSocket } : {}),
   } as ConstructorParameters<typeof LumenizeClient>[0]);
   try {
-    await client.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+    await client.lmz.callAsync('AUTH_FACADE', undefined,
       client.ctn<NebulaAuthFacade>().createGalaxy(universeGalaxyId));
   } catch (e) {
     if ((e as { errorCode?: string }).errorCode !== 'slug_taken') throw e;

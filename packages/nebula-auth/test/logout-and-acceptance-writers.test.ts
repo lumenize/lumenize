@@ -23,7 +23,7 @@ import { PLATFORM_SCOPE } from '../src/types';
 
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 const addr = () => `p5-${crypto.randomUUID().slice(0, 8)}@example.com`;
-const getRegistry = (): any => env.NEBULA_AUTH_REGISTRY.getByName('registry');
+const getRegistry = (): any => env.AUTH_REGISTRY.getByName('registry');
 
 /** Can this cookie still mint, from a page on its own scope's host? */
 async function stillRefreshes(scope: string, token: string, page = scope): Promise<boolean> {

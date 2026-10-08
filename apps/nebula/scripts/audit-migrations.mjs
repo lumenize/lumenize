@@ -30,9 +30,10 @@
  */
 
 /**
- * Freeze-time count of registered DO classes: Universe, Galaxy, Star, NebulaAuthRegistry,
- * Profile — 5. A `"state": "deleted"` export, `NebulaClientGateway` now that each scope's node hosts
- * its pages' Clients, is a tombstone, not a class, and is not counted. (DevStudio + DevContainer collapsed INTO Galaxy —
+ * Freeze-time count of registered DO classes: Universe, Galaxy, Star, AuthRegistry,
+ * Profile — 5. A `"state": "deleted"` export — `NebulaClientGateway` now that each scope's node hosts
+ * its pages' Clients, and `NebulaAuthRegistry` now that it is `AuthRegistry` — is a tombstone, not a
+ * class, and is not counted. (DevStudio + DevContainer collapsed INTO Galaxy —
  * tasks/archive/nebula-galaxy-collapse-and-chat.md; the per-scope `NebulaAuth` DO was dissolved
  * earlier — tasks/nebula-auth-surrogate-sub.md.)
  * The gate is a one-way-door tripwire, so when the registry LEGITIMATELY changes (a DO class added or
@@ -110,7 +111,7 @@ export function parseJsonc(text) {
 
 /**
  * Collect identifiers re-exported by `export { A, B as C } from '…'` clauses. Tokenized
- * (not substring-matched) so `NebulaAuth` and `NebulaAuthRegistry` are distinct, and the
+ * (not substring-matched) so a class name that prefixes another (`Profil`, `Profile`) stays distinct, and the
  * `[^}]*` capture spans the multi-line clause in worker.ts.
  */
 function parseReexports(workerTs) {

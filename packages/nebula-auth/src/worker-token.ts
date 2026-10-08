@@ -33,7 +33,7 @@ import type {
   AcceptanceCredential, AcceptanceOutcome, ComingSoonTag, ConsumeMembership, ConsumePlan, LinkLookup,
   NebulaJwtPayload, RefreshPut, RefreshTokenKV, ScopeLifecycleHooks,
 } from './types';
-import type { NebulaAuthRegistry, TicketClaimResult } from './nebula-auth-registry';
+import type { AuthRegistry, TicketClaimResult } from './nebula-auth-registry';
 import { checkedReturnTo, deploymentOrigin, parseHost, personaId, platformOrigin } from './hosts';
 import type { HostTarget } from './hosts';
 import { rawRpcStub } from '@lumenize/mesh/raw-rpc';
@@ -54,7 +54,7 @@ function isValidEmail(email: string): boolean {
 
 /** The registry stub (raw Workers RPC — nebula-auth is raw-DO infrastructure). */
 function registry(env: Env): any {
-  return (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+  return (env as any).AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
 }
 
 /**
@@ -69,7 +69,7 @@ function registry(env: Env): any {
  * synchronous on the class and arrive as promises over RPC, which `await` resolves either way.
  */
 function identityReads(env: Env):
-  Pick<NebulaAuthRegistry, 'getIdentityScope' | 'getIdentityScopeIncludingPending'> {
+  Pick<AuthRegistry, 'getIdentityScope' | 'getIdentityScopeIncludingPending'> {
   return registry(env);
 }
 
@@ -249,12 +249,12 @@ export function validateTtlSeconds(value: unknown): { error: string } | { ok: tr
 
 /**
  * The longest access token this deployment mints: {@link ACCESS_TOKEN_TTL}, or less when
- * `NEBULA_AUTH_ACCESS_TOKEN_TTL` names a shorter whole number of seconds. The var can only SHORTEN —
+ * `AUTH_ACCESS_TOKEN_TTL` names a shorter whole number of seconds. The var can only SHORTEN —
  * a longer, malformed or empty value leaves the constant — so it never widens the window a revoked
  * token keeps working (`security.md`). A `/live` scenario that waits out a real lapse boots with it.
  */
-export function accessTokenCeiling(env: Pick<Env, 'NEBULA_AUTH_ACCESS_TOKEN_TTL'>): number {
-  const configured = Number(env.NEBULA_AUTH_ACCESS_TOKEN_TTL || NaN);
+export function accessTokenCeiling(env: Pick<Env, 'AUTH_ACCESS_TOKEN_TTL'>): number {
+  const configured = Number(env.AUTH_ACCESS_TOKEN_TTL || NaN);
   return Number.isInteger(configured) && configured >= 1 && configured < ACCESS_TOKEN_TTL
     ? configured
     : ACCESS_TOKEN_TTL;

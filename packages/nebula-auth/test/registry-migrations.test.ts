@@ -8,7 +8,7 @@
  *
  * The registry migrates eagerly in its constructor, so a registry stub's storage is never
  * pre-migration; the raw migration run is exercised at the runner level against a virgin
- * BareStorageDO ctx.storage, and the fresh path is verified on a real NebulaAuthRegistry.
+ * BareStorageDO ctx.storage, and the fresh path is verified on a real AuthRegistry.
  */
 import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject, runDurableObjectAlarm } from 'cloudflare:test';
@@ -77,7 +77,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
    * CONSTRUCTED DO with no intervening wake, so only the alarm can have removed them.
    */
   it('the alarm sweeps all three token tables — expired gone, fresh kept', async () => {
-    const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-sweep-${crypto.randomUUID()}`);
+    const stub: any = env.AUTH_REGISTRY.getByName(`reg-sweep-${crypto.randomUUID()}`);
     const past = '2020-01-01T00:00:00.000Z';
     const future = '9999-01-01T00:00:00.000Z';
     await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
@@ -108,7 +108,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
    * constructor satisfies two of its three arms on any wake.
    */
   it('a freshly-constructed registry has an alarm scheduled, and the tick re-arms it', async () => {
-    const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-arm-${crypto.randomUUID()}`);
+    const stub: any = env.AUTH_REGISTRY.getByName(`reg-arm-${crypto.randomUUID()}`);
     const armed = async () => (runInDurableObject as any)(stub, (_i: any, ctx: any) => ctx.storage.getAlarm());
     expect(await armed()).not.toBeNull();                   // reds if the constructor does not arm
 
@@ -121,7 +121,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
    * path" — would have deleted a user-developer's scope within the hour, with its slug freed.
    */
   it('the sweep reaps NOTHING else — a member-less scope and an un-taken-up claim both survive', async () => {
-    const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-keep-${crypto.randomUUID()}`);
+    const stub: any = env.AUTH_REGISTRY.getByName(`reg-keep-${crypto.randomUUID()}`);
     // ⚠️ TWO SEPARATE scope ids, and that separation is the whole test. An earlier version put the
     // claimer's membership on the same id as the supposedly member-less scope, so the fixture
     // contained no member-less scope at all — and the mutant this is aimed at
@@ -163,8 +163,8 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     expect(children.map((c: any) => c.scope)).toContain('memberless.app');
   });
 
-  it('fresh path: a new NebulaAuthRegistry has the migrated schema (constructor wired the runner)', async () => {
-    const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-fresh-${crypto.randomUUID()}`);
+  it('fresh path: a new AuthRegistry has the migrated schema (constructor wired the runner)', async () => {
+    const stub: any = env.AUTH_REGISTRY.getByName(`reg-fresh-${crypto.randomUUID()}`);
     const r = await (runInDurableObject as any)(stub, (_instance: any, ctx: any) => {
       ctx.storage.sql.exec("INSERT INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES ('e1','a@x.com','p1',1,'2026-01-01T00:00:00.000Z')");
       ctx.storage.sql.exec("INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES ('s1','e1','acme',1,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')");

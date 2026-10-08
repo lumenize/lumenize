@@ -97,7 +97,7 @@ async function makeClient(opts: {
  * fixture that always seeded accepted rows could never tell the guard from its absence.
  */
 async function seedIdentity(profileId: string, scope: string, accepted = true): Promise<void> {
-  const registry: any = (env as any).NEBULA_AUTH_REGISTRY.getByName('registry');
+  const registry: any = (env as any).AUTH_REGISTRY.getByName('registry');
   const emailId = crypto.randomUUID();
   await (runInDurableObject as any)(registry, (_i: any, c: any) => {
     c.storage.sql.exec(

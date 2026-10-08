@@ -24,7 +24,7 @@ what the tests run. The script, in order:
 2. **Preflights** (refuses before building):
    - DO-class registry consistency (`scripts/audit-migrations.mjs` — named for history; it reads the
      declarative `exports` map) — the DO-class registry is a one-way door once deployed.
-   - the super-admin bootstrap secret (`NEBULA_AUTH_BOOTSTRAP_EMAIL`) is set (name-only check;
+   - the super-admin bootstrap secret (`AUTH_BOOTSTRAP_EMAIL`) is set (name-only check;
      never echoes a value).
 3. **Builds the Studio SPA** (`vite build` → `apps/nebula-studio-ui/dist`) so the Workers-Assets
    upload sees it, and prints the resolved `AUTH_EMAIL_FROM` for an eyeball against the
@@ -38,7 +38,7 @@ what the tests run. The script, in order:
 - **Cloudflare WARP on** + **Docker Desktop running** — the container image build/push needs both
   (see the `cf-container-deploy-proxy` note). The headless/CI deploy is deferred.
 - **First deploy only:** set the super-admin seed **before** the first `npm run deploy:nebula` —
-  `wrangler secret put NEBULA_AUTH_BOOTSTRAP_EMAIL` (enter `larry@lumenize.com`). The preflight is a
+  `wrangler secret put AUTH_BOOTSTRAP_EMAIL` (enter `larry@lumenize.com`). The preflight is a
   name-only check that the secret exists; `wrangler secret put` works against a not-yet-deployed
   worker, so set it first and the preflight passes.
 - The self-check reads `/_version` on the platform host, `https://platform.lumenize.dev`; override it

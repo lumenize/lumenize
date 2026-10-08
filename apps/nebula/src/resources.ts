@@ -665,7 +665,7 @@ export class Resources {
       // the caller's identity; only a subscription update speaks for the node alone.
       const lmz = this.#lmz();
       lmz.call(
-        'NEBULA_AUTH_FACADE', undefined,
+        'AUTH_FACADE', undefined,
         this.#ctn<NebulaAuthFacade>().invite(lmz.instanceName!, valid.map(({ email }) => ({ email }))),
         this.#ctn<ResourcesHost>().resourcesResults.onInviteResult(nodeId, Object.fromEntries(valid.map((v) => [v.email, v.tier]))),
       );

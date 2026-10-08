@@ -12,7 +12,7 @@
  *
  * No test-mode bypass — exercises the same code path a real user would
  * exercise. The audit-test-mode.sh script ensures no future change leaks
- * NEBULA_AUTH_TEST_MODE into wrangler configs / npm scripts / CI.
+ * AUTH_TEST_MODE into wrangler configs / npm scripts / CI.
  */
 
 import { provisionAndLogin, provisionStarAdmin } from '../lib/email-login';

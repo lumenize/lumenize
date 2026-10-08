@@ -8,7 +8,7 @@ export const {
   Universe,
   GalaxyTest,
   StarTest,
-  NebulaAuthRegistry,
+  AuthRegistry,
   NebulaClientTest,
   ProfileTest,
 } = instrumented.dos;

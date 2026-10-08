@@ -9,7 +9,7 @@ import { DurableObject } from 'cloudflare:workers';
 import type { ResolvedEmail } from '@lumenize/email';
 import type { EmailMessage, ScopeLifecycleHooks, ScopeTarget } from '../src/types';
 
-import { NebulaAuthRegistry as NebulaAuthRegistryBase } from '../src/nebula-auth-registry';
+import { AuthRegistry as NebulaAuthRegistryBase } from '../src/nebula-auth-registry';
 
 /**
  * Runs after each refresh-KV delete the Registry makes, while the Registry still awaits it — where a
@@ -20,7 +20,7 @@ export const registryKvHook: { afterDelete?: (key: string) => Promise<void> } = 
 
 /** The singleton Registry, for wrangler bindings, with its refresh KV wrapped for
  *  {@link registryKvHook}; with no hook set, every call passes straight through. */
-export class NebulaAuthRegistry extends NebulaAuthRegistryBase {
+export class AuthRegistry extends NebulaAuthRegistryBase {
   constructor(ctx: DurableObjectState, env: Env) {
     const kv = (env as any).REFRESH_TOKEN_KV as KVNamespace;
     const wrapped = new Proxy(kv, {
@@ -40,7 +40,7 @@ export { Profile } from '../src/profile';
 
 /**
  * A behavior-less SQLite-backed DO used ONLY to obtain a virgin `ctx.storage` in migration tests.
- * The real `NebulaAuthRegistry` migrates eagerly in its constructor, so a registry stub's storage is
+ * The real `AuthRegistry` migrates eagerly in its constructor, so a registry stub's storage is
  * never pre-migration — the prod-path (seed-old-schema) test needs a DO that runs no migrations itself.
  */
 export class BareStorageDO extends DurableObject {}

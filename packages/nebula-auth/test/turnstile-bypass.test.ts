@@ -1,7 +1,7 @@
 /**
  * Turnstile bypass token — `isTurnstileBypassed` (router.ts). The authorized inspection identity
  * (the `/live` prod-drive) skips Turnstile by presenting the `x-lumenize-turnstile-bypass` header
- * equal to `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`; every other request stays Turnstile-gated.
+ * equal to `AUTH_TURNSTILE_BYPASS_TOKEN`; every other request stays Turnstile-gated.
  * See tasks/archive/claude-live-verification.md (the Turnstile-bypass follow-up).
  *
  * Pure-function unit test (no DO): constructs a Request + a plain env and asserts the decision. Each
@@ -22,17 +22,17 @@ const req = (headers: Record<string, string> = {}) =>
 
 describe('Turnstile bypass token (isTurnstileBypassed)', () => {
   it('allows the bypass ONLY with the exact token in the header', () => {
-    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: TOKEN }), { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(true);
+    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: TOKEN }), { AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(true);
   });
 
   it('denies a WRONG token (Turnstile stays enforced) — reds if the header value isn\'t actually checked', () => {
-    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: 'wrong' }), { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(false);
+    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: 'wrong' }), { AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(false);
     // A near-miss (correct prefix, extra char) must also fail — constant-time compare, exact match.
-    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: TOKEN + 'x' }), { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(false);
+    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: TOKEN + 'x' }), { AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(false);
   });
 
   it('denies when the header is ABSENT (the normal-user path)', () => {
-    expect(isTurnstileBypassed(req(), { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(false);
+    expect(isTurnstileBypassed(req(), { AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN })).toBe(false);
   });
 
   it('is DISABLED when the knob is unset/empty (no accidental open bypass) — reds if the unset guard is dropped', () => {
@@ -40,7 +40,7 @@ describe('Turnstile bypass token (isTurnstileBypassed)', () => {
     expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: TOKEN }), {})).toBe(false);
     // Empty-string knob must NOT match an empty header (both empty would `constantTimeEqual` true —
     // the `if (!bypassToken) return false` guard prevents that footgun).
-    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: '' }), { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: '' })).toBe(false);
+    expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: '' }), { AUTH_TURNSTILE_BYPASS_TOKEN: '' })).toBe(false);
   });
 });
 
@@ -48,7 +48,7 @@ describe('Turnstile bypass token (isTurnstileBypassed)', () => {
  * 🔒 Which routes Turnstile GATES — asserted BEHAVIOURALLY, in both directions, on the real path.
  *
  * Mechanism: a PER-TEST env spread passed to `routeNebulaAuthRequest` binding a non-empty secret
- * (`checkTurnstile` no longer short-circuits on `NEBULA_AUTH_TEST_MODE`, so the doctored env
+ * (`checkTurnstile` no longer short-circuits on `AUTH_TEST_MODE`, so the doctored env
  * reaches the real gated code). A token-less request then answers `403 turnstile_required` on a
  * gated route BEFORE any `siteverify` fetch — so the present/absent sweep costs no network — and
  * something else (never `turnstile_required`) everywhere else. The expectation is ENUMERATED from
@@ -136,7 +136,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', [TURNSTILE_BYPASS_HEADER]: TOKEN },
       body: JSON.stringify({ email: 'x@example.com' }), // no slug → the DO's own 400, not Turnstile's
-    }), { ...env, TURNSTILE_SECRET_KEY: 'gate-on', NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN } as any, { hooks: recordingHooks });
+    }), { ...env, TURNSTILE_SECRET_KEY: 'gate-on', AUTH_TURNSTILE_BYPASS_TOKEN: TOKEN } as any, { hooks: recordingHooks });
     expect((await resp!.json() as any).error).not.toBe('turnstile_required');
   });
 });

@@ -135,7 +135,7 @@ export async function run(stack: DevStack): Promise<void> {
     // the claim's first app and the one limb 2 created.
     // Mutation: honour the argument as the parent → the other universe's app appears → reds.
     await atOther.client.scopes.createGalaxy(otherUniverse, 'app2');
-    const listed = await atUniverse.client.lmz.callAsync('NEBULA_AUTH_FACADE', undefined,
+    const listed = await atUniverse.client.lmz.callAsync('AUTH_FACADE', undefined,
       (atUniverse.client.ctn<NebulaAuthFacade>() as any).expandScope(otherUniverse)) as { children: { scope: string }[] };
     assert.deepEqual(listed.children.map((c) => c.scope), [galaxy, `${universe}.first`],
       "the universe page's list must answer for its own scope, whatever the call names");

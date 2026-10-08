@@ -330,7 +330,7 @@ describe('lifetime — re-minting through the parent', () => {
     let failMints = false;
     const realCallAsync = admin.lmz.callAsync;
     (admin.lmz as { callAsync: unknown }).callAsync = (binding: string, ...rest: unknown[]) =>
-      failMints && binding === 'NEBULA_AUTH_FACADE'
+      failMints && binding === 'AUTH_FACADE'
         ? Promise.reject(new Error('LumenizeClient disconnected before the callAsync result arrived'))
         : (realCallAsync as (...a: unknown[]) => unknown)(binding, ...rest);
 

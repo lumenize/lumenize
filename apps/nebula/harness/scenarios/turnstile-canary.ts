@@ -55,7 +55,7 @@ function isTurnstileBlock(r: ProbeResult): boolean {
 export const sweepEnv = { HARNESS_TURNSTILE_SECRET: '1x0000000000000000000000000000000AA' };
 
 export async function run(stack: DevStack): Promise<void> {
-  const bypassToken = readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN');
+  const bypassToken = readDevVar('AUTH_TURNSTILE_BYPASS_TOKEN');
 
   async function post(
     path: string,

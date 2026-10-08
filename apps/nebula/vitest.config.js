@@ -69,11 +69,11 @@ export default defineConfig({
           wrangler: { configPath: './test/wrangler.jsonc' },
           miniflare: {
             bindings: {
-              NEBULA_AUTH_TEST_MODE: 'true',
+              AUTH_TEST_MODE: 'true',
               // Explicitly EMPTY (wins over .dev.vars): holds Turnstile OFF for this lane on any
-              // checkout — checkTurnstile no longer skips on NEBULA_AUTH_TEST_MODE.
+              // checkout — checkTurnstile no longer skips on AUTH_TEST_MODE.
               TURNSTILE_SECRET_KEY: '',
-              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'nebula',
             },
           },
@@ -105,11 +105,11 @@ export default defineConfig({
           wrangler: { configPath: './test/test-apps/baseline/test/wrangler.jsonc' },
           miniflare: {
             bindings: {
-              NEBULA_AUTH_TEST_MODE: 'true',
+              AUTH_TEST_MODE: 'true',
               // Explicitly EMPTY (wins over .dev.vars): holds Turnstile OFF for this lane on any
-              // checkout — checkTurnstile no longer skips on NEBULA_AUTH_TEST_MODE.
+              // checkout — checkTurnstile no longer skips on AUTH_TEST_MODE.
               TURNSTILE_SECRET_KEY: '',
-              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'nebula',
               // Phase 5.3.5: shorten the Gateway grace period so
               // drop-on-failed-fanout tests can observe ClientDisconnectedError

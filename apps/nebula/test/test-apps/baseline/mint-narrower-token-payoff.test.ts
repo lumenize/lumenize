@@ -14,7 +14,7 @@
  *
  * ADR-009 **rung 2**, like the whole `baseline` lane: real founding, real invite, real
  * server-issued login (test-mode issuance — the magic link is read from the response, gated by the
- * `NEBULA_AUTH_TEST_MODE` binding), and the token under test comes from the production mint.
+ * `AUTH_TEST_MODE` binding), and the token under test comes from the production mint.
  * The earlier "rung 1" label here was wrong: rung 1 is the real email transport, which this lane
  * does not use.
  *

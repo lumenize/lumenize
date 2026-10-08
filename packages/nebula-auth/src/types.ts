@@ -160,7 +160,7 @@ export interface NebulaJwtPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Registry row shapes (NebulaAuthRegistry SQLite — see schemas.ts)
+// Registry row shapes (AuthRegistry SQLite — see schemas.ts)
 // Timestamps are ISO 8601 Zulu strings (ADR-011); bearer tokens stored HASHED (`tokenHash`).
 // ---------------------------------------------------------------------------
 
@@ -352,7 +352,7 @@ export interface InviteMintResult {
  *  `isPlatformScope` is the one thing that recognizes it. */
 export const PLATFORM_SCOPE = '_platform';
 
-/** Singleton instance name for NebulaAuthRegistry */
+/** Singleton instance name for AuthRegistry */
 export const REGISTRY_INSTANCE_NAME = 'registry';
 
 /**
@@ -412,8 +412,11 @@ export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
  * package may not import from `apps/nebula`. Browser-safe consumers (deriving `kind` at render)
  * import it via the pure `@lumenize/nebula-auth/claims` subpath, which re-exports it — the ROOT
  * barrel exports the Registry DO and must never enter a client bundle.
+ *
+ * TEMP → target: configuration the app supplies. The value names the product, Lumenize; the
+ * constant keeps its name until the app passes its agent's id in.
  */
-export const NEBULA_SUB = 'agent:nebula';
+export const NEBULA_SUB = 'agent:lumenize';
 
 /** Default URL prefix for all auth routes */
 export const NEBULA_AUTH_PREFIX = '/auth';
