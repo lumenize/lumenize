@@ -5,7 +5,7 @@ description: Login, token management, and moving between scopes, for Nebula.
 
 # Auth flows
 
-Nebula uses [nebula-auth](/docs/auth) for passwordless authentication. Every scope is served from its own host, and every session lives on one host, the platform host. An access token carries two scopes: **`authScope`**, the membership whose refresh cookie minted it, and **`aud`**, the scope of the page's host. This page shows the end-to-end sequences from the UI perspective.
+Nebula's authentication is passwordless, through Mesh's auth layer, `@lumenize/mesh/auth`. Every scope is served from its own host, and every session lives on one host, the platform host. An access token carries two scopes: **`authScope`**, the membership whose refresh cookie minted it, and **`aud`**, the scope of the page's host. This page shows the end-to-end sequences from the UI perspective.
 
 :::info[Where the pieces live]
 
@@ -209,7 +209,7 @@ sequenceDiagram
     participant C as NebulaClient
     participant EP as Entrypoint<br/>(hostedUpgrade)
     participant GW as Host node<br/>(ClientGateway)
-    participant DO as NebulaDO<br/>(onBeforeCall)
+    participant DO as ScopedMeshDO<br/>(passage step)
     participant M as mesh guard<br/>(e.g. requireDominionHere)
 
     rect rgba(200, 220, 240, 0.3)
@@ -235,7 +235,7 @@ sequenceDiagram
         C->>GW: lmz.call(binding, node, ...)
         Note over GW: stamp the verified claims onto callContext.originAuth
         GW->>DO: the call, in place or relayed, with its callContext
-        Note over DO: onBeforeCall, requirePassage:<br/>the host's scope (aud) at or below this node,<br/>or dominion over it from that host
+        Note over DO: the passage step, ahead of onBeforeCall, requirePassage:<br/>the host's scope (aud) at or below this node,<br/>or dominion over it from that host
         alt No passage
             DO-->>GW: Error: No passage from the host's scope into this node
             GW-->>C: Error propagated

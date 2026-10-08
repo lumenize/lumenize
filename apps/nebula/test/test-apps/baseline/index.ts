@@ -18,7 +18,7 @@ export {
   entrypoint as default,
 } from '@lumenize/nebula';
 
-// Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
+// Re-export auth classes (defined in Mesh's auth layer, but wrangler needs them here)
 export { AuthRegistry, AuthEmailSender } from '@lumenize/mesh/auth';
 import { Profile } from '@lumenize/mesh/auth/profile';
 

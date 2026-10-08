@@ -20,7 +20,8 @@ import { routeAuthRequest } from '../../src/auth/router';
 import { hostedUpgrade, type TierBindings } from '../../src/auth/hosted-upgrade';
 import { AuthFacade } from '../../src/auth/auth-facade';
 import { deploymentOrigin, parseHost } from '../../src/auth/hosts';
-import { rawRpcStub } from '../../src/raw-rpc';
+import { rawRpcStub, type RawRpcSurface } from '../../src/raw-rpc';
+import type { ScopedMeshDO } from '../../src/scoped-mesh-do';
 import type { ScopeLifecycleHooks } from '../../src/auth/types';
 
 export { AuthRegistry } from '../../src/auth/auth-registry';
@@ -44,7 +45,9 @@ export function scopeLifecycleHooks(tiers: TierBindings): ScopeLifecycleHooks {
     async teardown(targets, cause, operationId) {
       await Promise.all(targets.map(async ({ instanceName, tier }) => {
         try {
-          await rawRpcStub(tiers[tier] as Parameters<typeof rawRpcStub>[0], instanceName).teardown(cause, operationId);
+          // Every tier binding names a scoped node; the Worker's own binding union does not say so.
+          const node = rawRpcStub(tiers[tier] as Parameters<typeof rawRpcStub>[0], instanceName) as unknown as RawRpcSurface<ScopedMeshDO>;
+          await node.teardown(cause, operationId);
         } catch (err) {
           if (isOrderedReset(err)) return;
           debug('test.scope.teardown').error('teardown failed', {

@@ -51,6 +51,8 @@ describe('nebula-client preview-ready hook — the build reply', () => {
   // does. The post is the real trigger — the committed Message starts the turn under the poster —
   // so the build reply reaches this client the way it reaches Studio's page. Mutation: the factory
   // ignores `Client`, and the client it builds is a NebulaClient, with no `postUserMessage`.
+  // In-lane because the reply is certain only with the model's rounds queued: driven by the real
+  // model, `first-app-built` cannot wait on it (its limb 5 says why), so no scenario sees it fire.
   it('the factory builds the class it is handed: a StudioClient whose onPreviewReady fires on its build reply', async () => {
     const { universe, galaxy } = uniqueGalaxyScope();
     // Founds the universe and its galaxy, then queues the model's two rounds for the next turn.

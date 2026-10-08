@@ -8,7 +8,7 @@
  * widening invariant, platform sink, malformed names) lives in
  * `scope-isolation.test.ts`.
  *
- * @see tasks/nebula-do-scope-isolation.md
+ * @see tasks/archive/nebula-do-scope-isolation.md
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';

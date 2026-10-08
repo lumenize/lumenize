@@ -21,7 +21,7 @@
     ]
   },
   // DO class registry (NOT SQL migration). The per-scope NebulaAuth DO is dissolved
-  // (tasks/nebula-auth-surrogate-sub.md) — only the singleton registry remains.
+  // (tasks/archive/nebula-auth-surrogate-sub.md) — only the singleton registry remains.
   "exports": {
     "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "BareStorageDO": { "type": "durable-object", "storage": "sqlite" },

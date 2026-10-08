@@ -17,42 +17,17 @@
  * ([`tasks/archive/nebula-auth-decouple-from-auth.md`]) is shrinking — so new mint sites compose
  * this, never re-emit `access:{...}` inline.
  *
- * PURE by construction: imports only `./parse-id`, `./types` and `./hosts` — no `cloudflare:workers`, and as of
- * 2026-07-31 no crypto import either (the `jti` is a direct `crypto.randomUUID()` call) — so it is
- * safe to pull into the Node-safe `@lumenize/mesh/auth/testing` subpath, and it IS the
- * `@lumenize/mesh/client` subpath — the route by which a module in a Node-safe value graph
- * (e.g. apps/nebula's `snapshots.ts`, reachable from its client subpath) takes `projectActingToken`
- * without dragging the root barrel's Registry DO (`cloudflare:workers`) along. Signing stays with the
- * caller (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
+ * PURE by construction: imports only `./parse-id` and `./types` — no `cloudflare:workers`, and as
+ * of 2026-07-31 no crypto import either (the `jti` is a direct `crypto.randomUUID()` call) — so the
+ * Node-safe `@lumenize/mesh/auth/testing` subpath and `@lumenize/mesh/client` re-export from it. That
+ * is the route by which a module in a Node-safe value graph (e.g. Resources' `snapshots.ts`, reachable
+ * from its client subpath) takes `projectActingToken` without the Registry DO (`cloudflare:workers`).
+ * Signing stays with the caller (the server resolves BLUE/GREEN from env; the test-util reads
+ * `.dev.vars`).
  */
 import type { AccessEntry, ActClaim, AuthClaims } from './types';
 import { ACCESS_TOKEN_TTL } from './types';
 import { isAtOrAbove } from './parse-id';
-
-// Re-exported here because this file IS the pure `@lumenize/mesh/client` subpath — the
-// browser-safe route by which a client bundle (deriving `kind` from `act?.sub === NEBULA_SUB` at
-// render) takes the constant without the root barrel's Registry DO (`cloudflare:workers`).
-export { NEBULA_SUB } from './types';
-
-// The slug grammar, for the same reason: apps/nebula's `org-ops.ts` validates an org-tree node's
-// slug with it and runs in the client bundle too.
-export { isValidSlug, MAX_SLUG_LENGTH, isAtOrAbove } from './parse-id';
-
-// The impersonation mint's refusal test, for the same reason: the client classifies a child's failed
-// re-mint with it, and runs in the browser.
-export { isImpersonationRefused } from './types';
-
-// The galaxy cap and its refusal, for the same reason: the `/live` harness runs under Node and matches
-// the refusal's wording.
-export { MAX_GALAXIES_PER_OWNER, GALAXY_CAP_MESSAGE } from './types';
-
-// The signup ticket's cookie name, the cookie cap and the access token's lifetime, for the same
-// reason: the harness presents the ticket, bounds a forged jar by the cap, and waits out the TTL.
-export { SIGNUP_TICKET_COOKIE, MINT_ALL_COOKIE_CAP, ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from './types';
-
-// Which host is which, for the same reason: vite's config and the harness read a host against the
-// deployment's origin with the one parse the Worker uses.
-export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo, type HostTarget } from './hosts';
 
 /** Inputs for {@link buildAuthClaims}. */
 export interface AccessClaimInput {

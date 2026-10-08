@@ -2,8 +2,8 @@
  * **A galaxy's certificate order is woken by name, only from our own code, and only for a galaxy
  * that stands.**
  *
- * Creating a galaxy orders its certificate pack, and the order starts when nebula-auth's
- * `orderCertificate` hook reaches the Galaxy's `@rawRpc()` entry, after a create or a claim's
+ * Creating a galaxy orders its certificate pack, and the order starts when the auth
+ * layer's `orderCertificate` hook reaches the Galaxy's `@rawRpc()` entry, after a create or a claim's
  * acceptance. The local stack's origin is `http`, so the Galaxy records the wake and orders
  * nothing; what this scenario watches is the wake's marker, `nebula.Galaxy.orderCertificate`, which
  * carries the Galaxy's own `this.lmz.instanceName` and the operation that woke it.

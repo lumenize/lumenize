@@ -42,7 +42,7 @@ export class SecurityClient extends MeshClient {
   }
 
   /**
-   * Call an admin-only method, guarded on `originAuth.claims.access.scopeAdmin`.
+   * Call an admin-only method, guarded on dominion over the document's workspace.
    */
   callAdminMethod(instanceId: string): void {
     this.lmz.call(

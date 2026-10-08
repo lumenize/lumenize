@@ -208,8 +208,9 @@ export class NebulaClient extends MeshClient<AuthClaims> {
   }
 
   /**
-   * @internal Test-only — runs the same walk `onSubscriptionRequired` runs, for tests that
-   * exercise what one re-subscribe does without forcing a lost subscription first.
+   * @internal Test-only — runs the resources half of the walk `onSubscriptionRequired` runs (the
+   * Profile channel's restore is `MeshClient`'s and is not run), for tests that exercise what one
+   * re-subscribe does without forcing a lost subscription first.
    */
   _restoreSubscriptionsForTest(): void { this.#resources._restoreSubscriptionsForTest(); }
 

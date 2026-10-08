@@ -2,7 +2,7 @@
  * Response-leg scope gate matrix (ADR-003's fire-back leg; `tasks/archive/mesh-continuation-only-calls.md`).
  *
  * The mandatory security carve-out: the fire-back RESPONSE leg lands on `__handleResponse`, which
- * runs the SAME shared `executeEnvelope` → `onBeforeCall` (= `requirePassage`) as the request
+ * runs the SAME shared `executeEnvelope` → passage step (`requirePassage`) as the request
  * leg — only the per-method @mesh allowlist is toggled off (`requireMeshDecorator:false`). So the
  * response door is scope-gated BY CONSTRUCTION: a legitimate response leg is admitted, and a
  * forged cross-scope response is rejected. The one exception is a chain the node started, whose
@@ -14,7 +14,7 @@
  * and reject cases use DIFFERENT origin scopes by construction. ⚠️ It reads the origin's
  * MEMBERSHIP, never the `aud` beside it: `aud` is client-selected, so a caller could name any node
  * as its active scope. One case below pins exactly that split. Each reject is capable-of-failing:
- * with the gate off (drop `requirePassage` in `NebulaDO.onBeforeCall`, or make `hasPassageInto`
+ * with the gate off (drop `requirePassage` in `ScopedMeshDO`'s passage step, or make `hasPassageInto`
  * return true), the forged envelope would admit ({$ack}) and every reject assertion flips RED.
  *
  * This is the RESPONSE-leg mirror of the request-leg `scope-isolation.test.ts` branch fan-out.

@@ -18,7 +18,8 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject, browserLogin, ORIGIN, pageOf } from '../../test-helpers';
-import { ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown } from '../../../../../packages/mesh/src/impersonation';
+import { ImpersonationChainError, ImpersonationMintError } from '@lumenize/mesh/client';
+import { childrenOf, isTornDown } from '../../../../../packages/mesh/src/impersonation';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { NebulaClient } from '@lumenize/resources';
 

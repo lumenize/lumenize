@@ -81,7 +81,7 @@
   "kv_namespaces": [
     { "binding": "REFRESH_TOKEN_KV", "id": "fab894998be745fe80d4f75c1c9a92a3" }
   ],
-  // nebula-auth's rate limiter, keyed on `CF-Connecting-IP` for the routes that present no token
+  // The auth layer's rate limiter, keyed on `CF-Connecting-IP` for the routes that present no token
   // (forged-cookie / open-route faucets). Without it the guard silently no-ops (it allows when
   // unbound) — the Registry's constructor logs `debug.error` when it is absent. The limit is a
   // DELIBERATELY loose placeholder (bound abuse, never legitimate traffic); picking a real number
@@ -201,7 +201,7 @@
     "DEBUG": "auth,nebula-auth,nebula,mesh,routing",
     // Magic-link / invite from-address — `lumenize.io` is the platform's own mail domain (ADR-021).
     // It MUST stay verified on Resend, which rejects mail from an unverified sender. Same value as
-    // the nebula-auth code default, so a lane that drops this var still sends.
+    // the auth layer's code default, so a lane that drops this var still sends.
     "AUTH_EMAIL_FROM": "noreply@lumenize.io",
     // Every lane sends through Resend; the comment above `services` says why.
     "EMAIL_PROVIDER": "resend"

@@ -8,10 +8,10 @@
 
 import type { CallContext } from '@lumenize/mesh';
 import type { AuthClaims } from '@lumenize/mesh';
-// ⚠️ VALUE import from the `/claims` subpath, NEVER the root barrel: this module sits in the Node-safe
-// client value graph (`client-index.ts` re-exports `END_OF_TIME`), and the barrel exports the Registry
-// DO, which pulls `cloudflare:workers`. `/claims` is pure by construction — its own header says so —
-// and it is ADR-016's ONE shared projection; no site assembles its own record.
+// ⚠️ VALUE import from Mesh's `/client` subpath, NEVER its root: this module sits in the Node-safe
+// client value graph (`client-index.ts` re-exports `END_OF_TIME`), and Mesh's root exports
+// `ScopedMeshDO`, which pulls `cloudflare:workers`. `/client` is pure, and `projectActingToken` is
+// ADR-016's ONE shared projection; no site assembles its own record.
 import { projectActingToken, prependActor } from '@lumenize/mesh/client';
 import type { ActingTokenRecord } from '@lumenize/mesh/client';
 import { debug } from '@lumenize/debug';
@@ -243,7 +243,7 @@ export class Snapshots {
 
   /** Project the caller's verified claims into the ADR-016 record; when a server-composed
    *  `actor` is supplied, prepend it as the new OUTERMOST `act` entry via the ONE shared
-   *  `prependActor` helper (nebula-auth/claims) — preserving any pre-existing verified chain
+   *  `prependActor` helper (`@lumenize/mesh/client`) — preserving any pre-existing verified chain
    *  beneath (an impersonated session's committed message triggering Nebula yields the
    *  two-level chain; a flatten would drop the delegation). */
   #buildActingToken(actor?: { sub: string; profileId: string }): ActingTokenRecord {

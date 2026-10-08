@@ -308,7 +308,8 @@ describe('lifetime — re-minting through the parent', () => {
     ['a timeout', Object.assign(new Error('callAsync timed out'), { name: 'TimeoutError' }), false],
     ['a refusal-shaped error without `terminal`', Object.assign(new Error('x'), { name: 'ImpersonationRefusedError' }), false],
   ])('%s classifies terminal=%s', async (_label, rejection, terminal) => {
-    const { mintImpersonation, ImpersonationMintError } = await import('../../../../../packages/mesh/src/impersonation');
+    const { mintImpersonation } = await import('../../../../../packages/mesh/src/impersonation');
+    const { ImpersonationMintError } = await import('@lumenize/mesh/client');
     const outcome = await mintImpersonation(() => Promise.reject(rejection), 'sub').catch((e: unknown) => e);
     // Mutation: classify every failure as terminal → the transport rows red, which is the direction
     // that matters: a build that terminates on everything kills an impersonation session on a blip.

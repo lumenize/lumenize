@@ -3,7 +3,7 @@
  * decided to push.
  *
  * `this.lmz.broadcast(targets, remote, { onResult })` is a member of every node's `lmz` — a
- * `MeshDO`, a `MeshWorker`, a `MeshClient`, and a node composed with `ComposedMeshDO` —
+ * `ScopedMeshDO` or `UnscopedMeshDO`, a `MeshWorker` and a `MeshClient` —
  * because all it needs is that node's `lmz.call`. The sender a receiver sees is therefore always
  * the node that decided to push, at any N. Its tail latency grows with N; the recursive Worker
  * tier that once cut it was removed, and its measurements are in the 2026-06-06 blog post.

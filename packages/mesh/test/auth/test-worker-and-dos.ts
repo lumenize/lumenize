@@ -9,7 +9,7 @@ import { DurableObject } from 'cloudflare:workers';
 import type { ResolvedEmail } from '@lumenize/email';
 import type { EmailMessage, ScopeLifecycleHooks, ScopeTarget } from '../../src/auth/types';
 
-import { AuthRegistry as NebulaAuthRegistryBase } from '../../src/auth/auth-registry';
+import { AuthRegistry as AuthRegistryBase } from '../../src/auth/auth-registry';
 
 /**
  * Runs after each refresh-KV delete the Registry makes, while the Registry still awaits it — where a
@@ -20,7 +20,7 @@ export const registryKvHook: { afterDelete?: (key: string) => Promise<void> } = 
 
 /** The singleton Registry, for wrangler bindings, with its refresh KV wrapped for
  *  {@link registryKvHook}; with no hook set, every call passes straight through. */
-export class AuthRegistry extends NebulaAuthRegistryBase {
+export class AuthRegistry extends AuthRegistryBase {
   constructor(ctx: DurableObjectState, env: Env) {
     const kv = (env as any).REFRESH_TOKEN_KV as KVNamespace;
     const wrapped = new Proxy(kv, {

@@ -180,9 +180,9 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
   it('4 (Galaxy): a tree update reaps its tree subscriber (onTreeBroadcastResult)', async () => {
     // The Galaxy's plane builds a tree like any host's, and its door takes tree subscriptions.
     const scope = `reap-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
+    const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
     const tab = async () => (await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair)).client;
+      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair)).client;
     const admin = await tab();
     const doomed = await tab();
     await doomed.lmz.callAsync('GALAXY', scope, (doomed.ctn() as any).resources.subscribeTree());
@@ -219,9 +219,9 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
 
   it('5 (Galaxy): a chat update to a subscriber missing some results reaps it (onQueryBroadcastResult)', async () => {
     const scope = `reap-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
+    const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
     const { client: admin, accessToken } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     const chat = uuid();
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: chat };
     const message = (nodeId: string) => ({ op: 'create' as const, typeName: 'Message', nodeId, value: { chat, content: 'm' } });
@@ -232,7 +232,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'member@example.com');
     const { client: doomed, payload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     await admin.orgTree.setPermission(nodeA, payload.sub, 'read');
     using handle = doomed.resources.subscribeQuery(query);
     await handle.ready;

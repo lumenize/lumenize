@@ -2,14 +2,13 @@
 paths:
   - "packages/mesh/**/*.ts"
   - "packages/fetch/**/*.ts"
-  - "packages/nebula-frontend/**/*.ts"
   - "apps/nebula/**/*.ts"
   - "packages/resources/**/*.ts"
 ---
 
 # Mesh Patterns
 
-Applies to **mesh-based code** — `LumenizeDO` subclasses / `this.lmz` / `this.svc`: `packages/mesh`, `packages/fetch`, `apps/nebula`, `packages/nebula-frontend`. Communication MUST go through the Mesh abstraction and MUST NOT use raw DO primitives — the most common mistake is dropping to raw Workers RPC where a mesh call belongs. (Raw-DO infrastructure like `auth`/`testing` is a different layer → [raw-comm.md](raw-comm.md); to tell which layer you're in → [workers-projects.md](workers-projects.md). Local DO correctness → [durable-objects.md](durable-objects.md).)
+Applies to **mesh-based code** — `ScopedMeshDO` and `UnscopedMeshDO` subclasses / `this.lmz` / `this.svc`: `packages/mesh`, `packages/fetch`, `packages/resources`, `apps/nebula`. Communication MUST go through the Mesh abstraction and MUST NOT use raw DO primitives — the most common mistake is dropping to raw Workers RPC where a mesh call belongs. (Raw-DO infrastructure like `auth`/`testing` is a different layer → [raw-comm.md](raw-comm.md); to tell which layer you're in → [workers-projects.md](workers-projects.md). Local DO correctness → [durable-objects.md](durable-objects.md).)
 
 ## Prefer `lmz.call()` / `ctn()` over raw RPC — always
 - Cross-node communication MUST go through `this.lmz.call(...)`; **raw Workers RPC** (`stub.method()`, `env.X.get(id).method()`) MUST NOT be used in application code without explicit human approval. Raw RPC **bypasses the Mesh security model** (callContext-based auth/identity propagation and the declared `@mesh()` call surface) and also holds a stub open (wall-clock billing). Framework code like `ClientGateway` is the rare approved exception — see § *`ClientGateway` is the server-side half of a Client* below.
@@ -28,7 +27,7 @@ There is **no awaited request/response form.** `callRaw` was removed (`mesh-cont
   - **It is bounded.** A built-in default `timeoutMs` (30 s; `0`/`Infinity` disables) is composed with an optional caller `AbortSignal` via `AbortSignal.any`. ⚠️ Abort cancels the WAIT, not the server OP, so only idempotent ops MAY be retried (client-supplied UUID / ADR-005 eTag).
   - **The greppable rule: the only awaitable on `client.lmz` is `callAsync`; `lmz.call` stays `void`** — a `grep 'lmz\.call\b'` hit MUST NOT be `await`ed. **DOs/Workers MUST NOT get `callAsync`**: a held heap Promise dies on hibernation, so they use the traveling handler.
   - **It is the escape hatch, not the default.** A `subscribe` SHOULD be preferred for live UI data, as SHOULD higher-level SDK methods (`client.resources.*`) when they exist; `callAsync` is for a one-shot read or mutation.
-  - **Callee side:** a method reached by `callAsync` **returns its value** and the framework fires it back, the same as any call's target. It MUST NOT explicitly invoke a named handler by `requestId`; that pre-`callAsync` hand-roll is retired. Canonical consumers: `packages/resources/src/nebula-client.ts` `orgTree.*` / `#readResource` / `#meshSubmit`.
+  - **Callee side:** a method reached by `callAsync` **returns its value** and the framework fires it back, the same as any call's target. It MUST NOT explicitly invoke a named handler by `requestId`; that pre-`callAsync` hand-roll is retired. Canonical consumers: `packages/resources/src/client-resources.ts` `orgTree.*` / `#readResource` / `#meshSubmit`.
 
 ## DO vs Worker routing rule
 `lmz.call(bindingName, instanceName, remoteContinuation, ...)` decides DO vs Worker entirely by **whether `instanceName` is `undefined`**. From `packages/mesh/src/lmz-api.ts` `callRawImpl`: `calleeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker'`.
@@ -39,11 +38,11 @@ There is **no awaited request/response form.** `callRaw` was removed (`mesh-cont
 The call path validates the binding against its actual shape **synchronously, before dispatch** (`assertCallTarget` + `isDONamespace` from `@lumenize/routing`), so a mismatch **throws a clear error at the `lmz.call(...)` site**, before the handler could hear of it. Passing a label string for a Worker call (e.g. for tracing) throws *"binding '…' is a Worker/service binding but an instance name was supplied"*; a DO binding with no instance name throws *"requires an instance name"*. The instance-name slot is for DO routing only and MUST NOT be used as a data or label channel; to pass data to the callee, see § *Passing data to the callee* below.
 
 ## Node identity is stamped on every first-contact entry (not just mesh calls)
-The framework populates a node's persistent identity — `this.lmz.bindingName` / `this.lmz.instanceName`, the basis for return addresses, tracing, and anything derived server-side from *which instance this is* — from routing metadata on **every** entry that can be first-contact, not only the mesh receive path. If a node serves its **own** HTTP/WebSocket `fetch()` surface, identity is stamped from the `x-lumenize-do-*` headers the Worker's forward sets — for a page, `forwardPage` in `apps/nebula/src/page-forward.ts`, and for a Client's upgrade, `routeDORequest` behind `hostedUpgrade` in `apps/nebula/src/entrypoint.ts`, each of which drops any the client sent first — at `fetch()`/accept time — because hibernation `webSocketMessage`/`webSocketClose` handlers can't re-derive routing metadata. So `instanceName` is populated on the non-mesh path too; relying on the mesh path alone leaves it `undefined` on a cold non-mesh entry (e.g. a container node injecting its server-derived scope into the shell it serves — an empty value mis-routes silently). The third source is the `@rawRpc()` entry, `__rawRpc`, which stamps the binding and instance name `rawRpcStub` passes once it has checked they name this object — so `Profile.setDisplayNames`, the first touch of a new person's Profile, finds its name stamped. First-write-wins keeps the paths consistent. (Rationale: ADR-007.)
+The framework populates a node's persistent identity — `this.lmz.bindingName` / `this.lmz.instanceName`, the basis for return addresses, tracing, and anything derived server-side from *which instance this is* — from routing metadata on **every** entry that can be first-contact, not only the mesh receive path. If a node serves its **own** HTTP/WebSocket `fetch()` surface, identity is stamped from the `x-lumenize-do-*` headers the Worker's forward sets — for a page, `forwardPage` in `apps/nebula/src/page-forward.ts`, and for a Client's upgrade, `routeDORequest` behind `hostedUpgrade` (`packages/mesh/src/auth/hosted-upgrade.ts`, which a Worker's `fetch` calls), each of which drops any the client sent first — at `fetch()`/accept time — because hibernation `webSocketMessage`/`webSocketClose` handlers can't re-derive routing metadata. So `instanceName` is populated on the non-mesh path too; relying on the mesh path alone leaves it `undefined` on a cold non-mesh entry (e.g. a container node injecting its server-derived scope into the shell it serves — an empty value mis-routes silently). The third source is the `@rawRpc()` entry, `__rawRpc`, which stamps the binding and instance name `rawRpcStub` passes once it has checked they name this object — so `Profile.setDisplayNames`, the first touch of a new person's Profile, finds its name stamped. First-write-wins keeps the paths consistent. (Rationale: ADR-007.)
 
 ## A client's `instanceName` MUST start with its `sub` — its upgrade is refused otherwise
 A client's `instanceName` is its id on the node that hosts it, the one path segment after
-`/gateway/`. The Worker's `hostedUpgrade` (`apps/nebula/src/entrypoint.ts`) refuses the upgrade before
+`/gateway/`. The Worker's `hostedUpgrade` (`packages/mesh/src/auth/hosted-upgrade.ts`) refuses the upgrade before
 routing unless the id has a `.` and `id.substring(0, indexOf('.'))` equals the `sub` of the
 **verified JWT** (403 *"identity mismatch"*). The node does not check again: it only decodes the
 token, so it could not tell a forged `sub` from a real one.
@@ -170,7 +169,7 @@ Errors thrown across a mesh call (DO ↔ Client, DO ↔ DO) are pre/post-process
 - **Designing typed errors**: when consolidating a throw-based path into typed errors, you MUST enumerate *every* case the inner code can throw, not just the one you're typing — a too-broad catch silently swallows unrelated failures (e.g. a permission refactor that swallowed a `"Node X not found"` malformed-request error as a permission failure). One typed Error per case, or string-match the message and mark the site with a TODO.
 
 ## `ClientGateway` is the server-side half of a Client
-A client and its server-side half together are the equivalent of a mesh node. The half is `ClientGateway`, composed into the node that hosts the client, which is a node in its own right: in Nebula every scope's node composes it through `NebulaDO`, so the Star `acme.crm.tenant1` holds a tab's socket as `acme.crm.tenant1/alice.9f2c41aa`. The half carries two requirements on the client's behalf:
+A client and its server-side half together are the equivalent of a mesh node. The half is `ClientGateway`, composed into the node that hosts the client, which is a node in its own right: in Nebula every scope's node composes it through `ScopedMeshDO`, so the Star `acme.crm.tenant1` holds a tab's socket as `acme.crm.tenant1/alice.9f2c41aa`. The half carries two requirements on the client's behalf:
 
 1. **It MUST honor every transport rule a node's framework honors.** It acks a node's call early, keeps that call's continuation, fills it with the client's answer using `fireResponse`'s code, and fires it back. It hands the client's own filled continuation down to whatever socket the client is on now.
 2. **It MUST NOT act as a node of its own.** It never appears in a `callChain`, holds no `@mesh()` members, and decides nothing that belongs to the client: every check it makes is one that must not depend on the browser's honesty — who connects, whether the token is live, and whether the tab has passage into what is sent down.
@@ -181,36 +180,25 @@ For cleanup after a client leaves, **reactive** patterns (e.g. drop-on-failed-br
 
 ## Nebula platform code never drops to raw primitives
 `apps/nebula` business logic (Galaxy, Star, Universe, Resources) MUST stay on the Mesh surface, and MUST NOT use raw Workers RPC, raw `acceptWebSocket`, or `extends DurableObject`. When a raw-level capability is genuinely needed, it MUST be solved **architecturally, not inline** — and code crosses the mesh boundary only at one of [ADR-023](../../docs/adr/023-the-mesh-boundary-is-crossed-at-a-bridge.md)'s two bridges, a facade or `@rawRpc()`:
-- **A hook MAY be added at the mesh layer**, with the Nebula class then using only that hook. Canonical: `NebulaDO` hosts its pages' Clients with no raw DO code of its own — it composes `ClientGateway` and implements its hooks, `onBeforeCallToClient` refusing a sender its holder has no passage into.
-- **The raw-DO part MAY be factored into an infrastructure package.** Canonical: `nebula-auth` was forked from `auth` (both raw-DO infra — see [raw-comm.md](raw-comm.md)) rather than embedding raw auth DOs in the platform. **The same shape runs in the consuming direction:** when platform code needs to *call into* raw-DO infrastructure, the infrastructure package SHOULD expose a mesh-speaking facade — a `LumenizeWorker` entrypoint it owns, wired as a service binding — so the platform side never leaves `lmz.call` and the one raw hop lives inside the facade, next to the invariants the facade enforces (`callContext.originAuth` arrives verified there; identity is never hand-threaded). Canonical instance: `NebulaAuthFacade` (`@lumenize/mesh/auth/facade`, bound as the self-referencing `AUTH_FACADE` service binding) — the entry for what a session does with the Registry, whose claims-only verdicts and ADR-016 projection live beside its one raw Registry hop. ⚠️ **They no longer share code**: `nebula-auth` dropped `@lumenize/auth` from its manifest entirely on 2026-07-31, and the two are now free to diverge. What they share is *extracted* (`@lumenize/crypto`), never a dependency on the auth product — any future sharing MUST follow that shape.
+- **A hook MAY be added at the mesh layer**, with the Nebula class then using only that hook. Canonical: Nebula's `Universe`, `Galaxy` and `Star` host their pages' Clients with no raw DO code of their own — `ScopedMeshDO` composes `ClientGateway` and implements its hooks, `onBeforeCallToClient` refusing a sender its holder has no passage into.
+- **The raw-DO part MAY be factored into an infrastructure package.** Canonical: Mesh's auth layer keeps the Registry a raw Durable Object (see [raw-comm.md](raw-comm.md)) rather than embedding raw auth DOs in the platform. **The same shape runs in the consuming direction:** when platform code needs to *call into* raw-DO infrastructure, the infrastructure package SHOULD expose a mesh-speaking facade — a `MeshWorker` entrypoint it owns, wired as a service binding — so the platform side never leaves `lmz.call` and the one raw hop lives inside the facade, next to the invariants the facade enforces (`callContext.originAuth` arrives verified there; identity is never hand-threaded). Canonical instance: `AuthFacade` (`@lumenize/mesh/auth/facade`, bound as the self-referencing `AUTH_FACADE` service binding) — the entry for what a session does with the Registry, whose claims-only verdicts and ADR-016 projection live beside its one raw Registry hop. ⚠️ **Mesh's auth layer shares no code with `@lumenize/auth`**: its predecessor, `nebula-auth`, dropped that dependency on 2026-07-31, and the two are free to diverge. What they share is *extracted* (`@lumenize/crypto`), never a dependency on the auth product — any future sharing MUST follow that shape.
 
 - **Our own code MAY reach a mesh node through `@rawRpc()` for an operation no client may call.** This is ADR-023's second bridge, running the other way from a facade: raw-DO infrastructure, or a hook it hands the platform, reaches a mesh node.
   - The node decorates the method `@rawRpc()`, never `@mesh()`. The caller uses `rawRpcStub(binding, instanceName)` from `@lumenize/mesh/raw-rpc`, which only code holding the binding can call. The node's one `__rawRpc` entry verifies the pair, refuses any undecorated name, and stamps identity.
-  - The shape that rides it is a **hook seam**: the infrastructure package declares what it needs done to objects it cannot name, as a required property (`ScopeLifecycleHooks` on `NebulaAuthFacade`), and the platform supplies it from one module, `apps/nebula/src/scope-lifecycle-hooks.ts`, which holds every `rawRpcStub` call the platform makes.
-  - Canonical: `NebulaDO.teardown()`, which a deletion's hook calls and which `@mesh()` would open to any admin wanting to wipe a live app; and `Profile.readDisplayNames`/`setDisplayNames`, which the consent route calls.
+  - The shape that rides it is a **hook seam**: the infrastructure package declares what it needs done to objects it cannot name, as a required property (`ScopeLifecycleHooks` on `AuthFacade`), and the platform supplies it from one module, `apps/nebula/src/scope-lifecycle-hooks.ts`, which holds every `rawRpcStub` call the platform makes.
+  - Canonical: `ScopedMeshDO.teardown()`, which a deletion's hook calls and which `@mesh()` would open to any admin wanting to wipe a live app; and `Profile.readDisplayNames`/`setDisplayNames`, which the consent route calls.
 
 If neither fits, that's a signal to extend Mesh itself — you MUST ask before dropping down. **Ergonomic friction counts too**: Nebula is Mesh's first (and only) consumer, so "this API is awkward to use from Nebula" is Mesh product feedback — you MUST flag it (backlog item or proposal), and MUST NOT silently absorb it with app-side contortions.
 
 ## Package dependency direction
-`@lumenize/mesh` is the MIT foundation. Nebula packages extend mesh but **never the reverse** — mesh MUST NOT import nebula/nebula-auth/apps. When deciding where code belongs: generic DO/Worker mesh plumbing → `mesh`; product/ontology/resource logic → `nebula`; auth/identity → `auth`/`nebula-auth`. You MUST flag any import that points "up" the graph (mesh → nebula).
+`@lumenize/mesh` is the MIT foundation, and `@lumenize/resources` and `apps/nebula` build on it — **never the reverse**: mesh MUST NOT import `@lumenize/resources` or `apps/`, and `@lumenize/resources` MUST NOT import `apps/`. `npm run audit:dep-direction` is the proof. When deciding where code belongs: generic mesh plumbing, the scope tree and its auth → `mesh`; the Resources plane, its ontology and its Client half → `resources`; the product → `apps/nebula`. You MUST flag any import that points "up" the graph.
 
-⚠️ **Carve-out — mesh owns the WIRE PROTOCOL; auth owns what the token MEANS.** The
-"auth/identity → `auth`/`nebula-auth`" clause is about verification, gating and key handling, not
-about the bytes on the socket. **Producing and parsing the `lmz.access-token.` WebSocket
-subprotocol lives in `mesh`** (`src/gateway-messages.ts`, exported from `@lumenize/mesh/client` —
-`WS_TOKEN_PREFIX`, `extractWebSocketToken`), because mesh's `MeshClient` is the **producer**:
-splitting the two ends across packages made them a never-re-sync copy of a live protocol, whose
-failure mode is a silent 401 on upgrade. Verification of the extracted token stays in
-`auth`/`nebula-auth`. Without this note a future session helpfully moves it back.
-
-- Nebula consumers MUST import from **`@lumenize/mesh/client`, not the root barrel** — `nebula-auth`'s
-  `router.ts` is re-exported from a widely-imported index, so the barrel would drag
-  `cloudflare:workers` through it (`packaging.md`'s bare-`SyntaxError`).
-- ⚠️ **`packages/auth/src/hooks.ts` keeps a KNOWN second copy, deliberately.** `auth` MUST NOT
-  depend on `mesh`, yet mesh routes its own e2e WebSocket upgrades through auth's hooks — so the
-  property is "defined once **on the Nebula path**", never "defined once repo-wide". Both sites
-  carry reciprocal comments; `mesh/test/browser/ws-roundtrip-browser.test.ts` covers that coupling
-  in CI. The prefix is additionally a **published wire convention**
+- A Client's code MUST import from **`@lumenize/mesh/client`, not the root barrel**, which re-exports
+  `ScopedMeshDO` and so drags `cloudflare:workers` through it (`packaging.md`'s bare-`SyntaxError`).
+- ⚠️ **`packages/auth/src/hooks.ts` keeps a second copy of the `lmz.access-token.` prefix** until
+  [mesh-1-alpha.md](../../tasks/mesh-1-alpha.md) deletes the package: `auth` does not depend on
+  `mesh`, and Mesh's own `src/gateway-messages.ts` holds the copy its Client produces and its
+  `hostedUpgrade` reads. The prefix is also a **published wire convention**
   (`website/docs/mesh/security.mdx` teaches third parties to hand-write it), so its value is pinned
   as a literal in `mesh/test/ws-token-subprotocol.test.ts` — changing it is a breaking protocol
   change, not a rename.

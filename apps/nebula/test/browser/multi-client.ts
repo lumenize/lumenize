@@ -85,7 +85,7 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
 
   // Step 3: Create M clients with distinct tabIds. Passing both `accessToken`
   // and `instanceName` makes the MeshClient constructor skip its own
-  // refresh + tabId generation (see lumenize-client.ts:540), so each client
+  // refresh + tabId generation (`MeshClient`'s `#connectInternal`), so each client
   // connects with the shared JWT under its own id on the host node.
   const contexts: Context[] = [];
   const clients: HarnessNebulaClient[] = [];

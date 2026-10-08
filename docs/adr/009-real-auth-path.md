@@ -3,7 +3,7 @@
 **Date**: 2026-07-06
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: `feedback_real_auth_path_over_shortcuts` memory; the `create-nebula-test-token` client-mint + the `/live` harness (`apps/nebula/harness/`); the 2026-07-06 mis-grounding it enabled (concluding "the user turn isn't persisted" from the mint/server path, missing the real client-login `postUserMessage`).
+**Evidence**: `feedback_real_auth_path_over_shortcuts` memory; the `createTestToken` client-mint (`@lumenize/mesh/auth/testing`) + the `/live` harness (`apps/nebula/harness/`); the 2026-07-06 mis-grounding it enabled (concluding "the user turn isn't persisted" from the mint/server path, missing the real client-login `postUserMessage`).
 
 ## Context
 
@@ -21,7 +21,7 @@ The **real email-based login is the default** for anything exercising auth / ide
 2. **Test-mode server-issuance** (the Registry in test mode, `AUTH_TEST_MODE`, which returns the magic link instead of mailing it) — for isolated unit tests needing an authed identity but not the email round-trip. **Real server issuance, no email, no client mint.** Speed is not the reason for this rung, since a real login costs **~0.9 s marginal** inside a running suite. Two other costs are:
    - **Flake.** Email is an external dependency, and an outage or non-delivery reddens an otherwise-deterministic unit suite.
    - **Mail volume.** Every real login sends a message, and testing alone already nears the mail plan's monthly allowance.
-3. **Client-side synthetic mint** (`create-nebula-test-token`) — last resort; each surviving use justified in-place.
+3. **Client-side synthetic mint** (`createTestToken`) — last resort; each surviving use justified in-place.
 4. **Negative-control mints** — deliberately *wrong-shape* tokens (base-shape, no-`access`) to prove the gateway rejects them. Real login cannot produce a wrong-shape token, so this is **not** a happy-path shortcut and stays legitimate.
 
 > **Today's code differs.** `@lumenize/auth`'s test-mode variable is `LUMENIZE_AUTH_TEST_MODE`.
@@ -40,7 +40,7 @@ The real multi-user login is **dual-use**: our testing/harness infra *and* a use
 
 ### Positive
 - The divergence/mis-grounding class is closed — design reasoning grounds on real behavior.
-- Less shortcut machinery to build + maintain (`create-nebula-test-token`'s correct-shape uses migrate to real login).
+- Less shortcut machinery to build + maintain (`createTestToken`'s correct-shape uses migrate to real login).
 - The dual-use multi-user login becomes a shipped user-developer capability, not throwaway test glue.
 
 ### Negative / mitigations

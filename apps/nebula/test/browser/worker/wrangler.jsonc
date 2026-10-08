@@ -20,7 +20,7 @@
       { "name": "BenchAgent", "class_name": "BenchAgent" }
     ]
   },
-  // The per-scope NebulaAuth DO is dissolved (tasks/nebula-auth-surrogate-sub.md); refresh state lives
+  // The per-scope NebulaAuth DO is dissolved (tasks/archive/nebula-auth-surrogate-sub.md); refresh state lives
   // in the REFRESH_TOKEN_KV namespace below. This is a local `wrangler dev` harness — if a stale
   // `.wrangler` still has NebulaAuth registered under v1, `rm -rf .wrangler` before re-running.
   // Real KV namespace provisioned 2026-07-22 (the documented PHASE-4 manual step —
@@ -80,7 +80,7 @@
   // there. The CF Email Sending path itself is covered by
   // packages/auth/test/e2e-email. (tasks/nebula-in-ci.md "Email everywhere = Resend".)
   "vars": {
-    // The deployment's origin, which every host and the JWT issuer derive from (nebula-auth `hosts.ts`).
+    // The deployment's origin, which every host and the JWT issuer derive from (Mesh's `auth/hosts.ts`).
     // https, because this lane's `wrangler dev` serves `--local-protocol https`.
     "LUMENIZE_ORIGIN": "https://lumenize.localhost",
     "PRIMARY_JWT_KEY": "BLUE",

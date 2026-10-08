@@ -18,7 +18,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
 import { requireDominionHere } from '@lumenize/mesh';
-import { ROOT_NODE_ID } from '../../../../../packages/resources/src/org-ops';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;

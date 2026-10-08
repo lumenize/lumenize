@@ -4,7 +4,7 @@
  * sequences `transaction(create)` → `subscribe` client-side so callers get one
  * call + a `using` handle whose `.snapshot` resolves with the created snapshot.
  *
- * @see packages/resources/src/nebula-client.ts (resources.createAndSubscribe)
+ * @see packages/resources/src/client-resources.ts (resources.createAndSubscribe)
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';

@@ -3,7 +3,7 @@
  * for `@mesh()` (`descriptor.get ?? descriptor.value`, `decoratedFunctionOf` in `ocan/execute.ts`),
  * over the WHOLE prototype chain, nearest definition first.
  *
- * Both halves matter. A walk of one prototype misses what a host inherits — `NebulaDO.teardown` is
+ * Both halves matter. A walk of one prototype misses what a host inherits — `ScopedMeshDO.teardown` is
  * wire-reachable on every host — and a `descriptor.value` walk misses a getter gate like
  * `resources`. An override without `@mesh()` shadows a decorated base method or getter, and the
  * entry rule refuses it, so the nearest definition is the one that counts.

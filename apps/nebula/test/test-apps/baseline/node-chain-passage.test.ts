@@ -1,7 +1,7 @@
 /**
  * A chain a node started carries no claims, and passage reads its `activeScope` from the node that
  * started it: that node's name, when it is a scope, held as a plain member with no `scopeAdmin`
- * (`NebulaDO`'s `claimsForPassage`). A chain a node named by an id started has none.
+ * (`ScopedMeshDO`'s `claimsForPassage`). A chain a node named by an id started has none.
  *
  * In-lane, because no product path makes a Star call its sibling or a Profile start a chain into a
  * Star, and a harness helper that made one would be a fixture (`live-scenarios.md`). Each test

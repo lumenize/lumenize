@@ -349,7 +349,7 @@ describe('resetDevData capability surface (Star.prototype)', () => {
 
   it('the Star\'s whole @mesh surface, by guard tier, equals the frozen allow-list', () => {
     // Every entry reachable on the Star's prototype chain, read as the entry rule looks for
-    // `@mesh()`. `NebulaDO.teardown` carries `@rawRpc()` instead, so it is absent: restoring its
+    // `@mesh()`. `ScopedMeshDO.teardown` carries `@rawRpc()` instead, so it is absent: restoring its
     // `@mesh()` reds this. A new entry, a dropped guard, or
     // `@mesh()` on the undecorated `resourcesResults` changes a list here. Installs arrive only by
     // lazy-pull from the Galaxy registry, landing at `resourcesResults.onOntologyPulled` behind that

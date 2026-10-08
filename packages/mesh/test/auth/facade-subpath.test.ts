@@ -1,5 +1,5 @@
 /**
- * The facade subpath boundary — `AuthFacade` composes `@lumenize/mesh` (a `LumenizeWorker`
+ * The facade subpath boundary — `AuthFacade` composes `@lumenize/mesh` (a `MeshWorker`
  * carrying `@mesh()` decorators), and pulling that chain through the widely-imported root barrel
  * breaks the transform of pure-unit consumers that import the index only for light utilities (a
  * bare `SyntaxError` with no location — packaging.md § Standard package files). It is reachable

@@ -21,8 +21,8 @@ import { parseHost, type HostTarget } from "@lumenize/mesh/client";
 // minification renames the decorator (`@mesh()` -> `@Ka()`), so a grep finds nothing and
 // reads as a pass. Measured cost of this plugin: ~16 ms/build.
 //
-// The @lumenize/* packages resolve through WORKSPACE SYMLINKS to apps/nebula/src/**, i.e.
-// outside node_modules — which is why swc's default node_modules-exclude does not skip
+// The @lumenize/* packages resolve through WORKSPACE SYMLINKS to their source (apps/nebula/src/**,
+// packages/resources/src/**, packages/mesh/src/**), i.e. outside node_modules — which is why swc's default node_modules-exclude does not skip
 // them here and no `exclude` override is needed (the container scaffold, where the
 // frontend is a real vendored dependency, does need one).
 const swcPlugin = swc.vite({
@@ -121,7 +121,7 @@ const authAppRoutes = {
 export default defineConfig({
   plugins: [vue(), swcPlugin, tailwindcss(), lumenizeOriginMeta, appSpaFallback, authAppRoutes],
   // TWO entries, one dist. The Worker's page step serves Studio's `index.html` on a universe or
-  // galaxy host, and nebula-auth's router serves `auth-app.html` on the platform host, each fetched
+  // galaxy host, and Mesh's auth router serves `auth-app.html` on the platform host, each fetched
   // through the ASSETS binding, since the Worker runs first on every path.
   build: {
     rollupOptions: {
@@ -139,7 +139,7 @@ export default defineConfig({
   // esbuild under vite 6) — the package changed, the hazard did not: neither transforms
   // stage-3 decorators, so without this the prebundle wins the race and SWC never sees
   // them. Dev-server-only knob; the production build is covered by the plugin itself.
-  optimizeDeps: { exclude: ["@lumenize/nebula", "@lumenize/mesh"] },
+  optimizeDeps: { exclude: ["@lumenize/nebula", "@lumenize/resources", "@lumenize/mesh"] },
   server: {
     port: 5174,
     strictPort: true,

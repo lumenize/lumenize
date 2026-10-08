@@ -1190,8 +1190,7 @@ type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
 
 /**
  * Mixin that composes the narrow comms+guards core (ADR-007) onto any DO-flavored base
- * (`DurableObject`, or a third-party base built on it). It supplies the receive glue that
- * `MeshDO` and the Profile DO would otherwise copy verbatim: the lazy `lmz`
+ * (`DurableObject`, or a third-party base built on it). It supplies the receive glue: the lazy `lmz`
  * getter, the default no-op `onBeforeCall`, and the two receive seams
  * (`__executeOperation` / `__handleResponse`) that delegate to {@link executeEnvelope}.
  * `nodeTypeName` is the per-type label threaded through (debug namespaces + validation logging).
@@ -1204,9 +1203,10 @@ type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
  * a narrow local cast; the *concrete* base type still flows through to subclasses, so a
  * subclass keeps its base's own members for `override`/`super`.
  *
- * Each node adds its à-la-carte capabilities on top — `svc`/`onStart`/hibernation-WS/`__localChainExecutor`
- * for `MeshDO`; reach helpers + storage for the
- * Profile DO — none of which are part of the shared invariant. Its fan-out is not among them:
+ * Today `MeshDO`, the base `ScopedMeshDO` and `UnscopedMeshDO` share, is its one user; it stays a
+ * mixin so a node on another DO base can compose the same core (ADR-007). Each node adds its à-la-carte
+ * capabilities on top — `svc`/`onStart`/`__localChainExecutor` for `MeshDO`, hibernation WebSockets
+ * for `ScopedMeshDO` — none of which are part of the shared invariant. Its fan-out is not among them:
  * `lmz.broadcast` is part of the core this mixin supplies.
  */
 export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, nodeTypeName: string) {

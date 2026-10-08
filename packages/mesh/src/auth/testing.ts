@@ -29,7 +29,7 @@ export {
 } from './parse-id';
 
 // Types + constants needed to build/inspect tokens, plus the invite wire shapes (a Node harness
-// drives `NebulaClient.invite` and asserts on its summary).
+// drives `MeshClient.invite` and asserts on its summary).
 export type {
   AccessEntry, AuthClaims, Tier, ParsedId,
   InviteeRequest, InviteOutcome, InviteeSummary, InviteeError, InviteSummary,

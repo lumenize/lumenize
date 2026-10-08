@@ -1,7 +1,6 @@
 import { debug } from '@lumenize/debug';
 import { routeDORequest } from '@lumenize/routing';
-import { extractWebSocketToken } from '../gateway-messages';
-import { GATEWAY_PREFIX } from '../scoped-mesh-do';
+import { GATEWAY_PREFIX, extractWebSocketToken } from '../gateway-messages';
 import { parseId } from './parse-id';
 import { verifyAccessToken } from './router';
 import type { AuthClaims, Tier } from './types';

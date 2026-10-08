@@ -4,8 +4,8 @@
  * A Client re-subscribes exactly when its host node says it lost something, never on a network blip
  * or a token rotation inside the grace period. Two angles:
  *
- *   - **The walk itself**: a test-only `_restoreSubscriptionsForTest()` hook runs the same walk
- *     `onSubscriptionRequired` runs, so the test can assert what one re-subscribe does — registry →
+ *   - **The walk itself**: a test-only `_restoreSubscriptionsForTest()` hook runs the resources half
+ *     of the walk `onSubscriptionRequired` runs, so the test can assert what one re-subscribe does — registry →
  *     Star → snapshot push → a fresh row — without first losing a subscription.
  *
  *   - **A supersede**: a second client with the same `instanceName` and `accessToken` makes the

@@ -34,7 +34,8 @@ import { REGISTRY_MIGRATIONS } from './schemas';
 import {
   AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, RESERVED_UNIVERSE_SLUGS,
   SCOPELESS_INSTANCE_TAG, MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
-  SCOPE_TREE_NODE_BUDGET, SIGNUP_TICKET_TTL, MAX_GALAXIES_PER_OWNER, GALAXY_CAP_MESSAGE, sameRefreshRecord, kvTtlSeconds,
+  SCOPE_TREE_NODE_BUDGET, SIGNUP_TICKET_TTL, MAX_GALAXIES_PER_OWNER, GALAXY_CAP_MESSAGE, NEBULA_SUB, sameRefreshRecord,
+  kvTtlSeconds,
 } from './types';
 import type {
   AccessEntry, EmailMessage, InviteMintResult, InviteeError, InviteeMintResult,
@@ -1599,7 +1600,7 @@ export class AuthRegistry extends DurableObject {
     // actor would be ADR-016's own failure shape, a record that names the person acted upon. The
     // record names every scope it deleted, as `executeScopeDeletion`'s does.
     debug('nebula-auth.Registry.claim.converged').info('Pending claims superseded', {
-      actor: 'agent:lumenize', keptScope: acceptedScope, retired,
+      actor: NEBULA_SUB, keptScope: acceptedScope, retired,
     });
   }
 

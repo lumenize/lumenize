@@ -18,7 +18,7 @@ Look at the file you're editing:
 
 **Sub-layer** (only needed to pick framework vs library vs platform) is by location: `packages/mesh` = **framework** (defines the Mesh surface *and* raw internals like `ClientGateway`); `apps/nebula` = **platform** (never raw); any other Mesh-layer package = **library**; any other raw-DO package = **infrastructure**.
 
-⚠️ **Base class / usage beats name.** `nebula-auth` `extends DurableObject` → raw-DO infra despite "nebula." The never-raw rule is about the platform business logic (Galaxy/Star/Universe/Resources), not everything with "nebula" in the path.
+⚠️ **Base class / usage beats location.** Mesh's auth layer, `packages/mesh/src/auth`, holds raw-DO infrastructure inside the Mesh package: its Registry `extends DurableObject`. The never-raw rule is about the platform's business logic (Galaxy, Star, Universe, Resources), not everything under a Mesh path.
 
 ## Which rule files apply, by layer
 
@@ -28,7 +28,7 @@ Look at the file you're editing:
 | Raw-DO infrastructure | ✅ | — | ✅ |
 | DO-driving tooling | ✅ (its DO fixtures) | — | ✅ |
 | Mesh framework (`mesh`) | ✅ | ✅ | ✅ (raw internals) |
-| Mesh library (`fetch`) | ✅ | ✅ | — |
+| Mesh library (`fetch`, `resources`) | ✅ | ✅ | — |
 | **Nebula platform** | ✅ | ✅ | **❌ never** for its nodes; its Worker's forwards follow § *What reaches a Durable Object's `fetch`* |
 
 ## Snapshot — derive from the rule above if unlisted
@@ -37,10 +37,10 @@ Convenience only, not authoritative, and may lag the code:
 | Package | Layer |
 |---|---|
 | `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources), whose nodes extend `ScopedMeshDO`, which composes `ClientGateway` so every scope's node hosts the Clients on its pages — its business logic reaches a node only over the mesh or through a `@rawRpc()`-decorated method, and its Worker reaches a Durable Object's `fetch` only through the forwards `npm run audit:do-http` lists ([raw-comm.md](raw-comm.md)). Galaxy is a plain `ScopedMeshDO` that drives a container via raw `ctx.container` → also [containers.md](containers.md) |
-| `mesh` | Mesh framework — defines the Mesh surface (`ScopedMeshDO`, `UnscopedMeshDO`, `MeshWorker`) *and* raw internals: `ClientGateway`, a Client's server-side half, which a scoped node composes. Driving a container is raw `ctx.container` on any DO — no base class → [containers.md](containers.md) |
+| `mesh` | Mesh framework — defines the Mesh surface (`ScopedMeshDO`, `UnscopedMeshDO`, `MeshWorker`, `MeshClient`) *and* raw internals: `ClientGateway`, a Client's server-side half, which a scoped node composes. Driving a container is raw `ctx.container` on any DO — no base class → [containers.md](containers.md). Its `src/auth/` layer is dual-layer, derived per file: the Registry and its router are raw-DO infrastructure, while `/auth/profile` (`Profile`, an `UnscopedMeshDO`) and `/auth/facade` (`AuthFacade`, a `MeshWorker`) are Mesh layer, and `worker-token.ts` reaches the `Profile` through `rawRpcStub` → those files also follow [mesh.md](mesh.md) |
+| `resources` | Mesh library — the Resources plane a host node composes, and `ClientResources`, the half a `NebulaClient` composes; defines no DO in `src` |
 | `fetch` | Mesh library — uses `this.lmz`, defines no DO |
 | `auth`, `ts-runtime-parser-validator` | raw-DO infrastructure — `extends DurableObject` |
-| `nebula-auth` | dual-layer, derived per-file: the Registry/router core is raw-DO infrastructure, while two subpath exports compose mesh — `/profile` (a `ComposedMeshDO`) and `/facade` (`NebulaAuthFacade`, a `LumenizeWorker`) — and `worker-token.ts` reaches the `Profile` through `rawRpcStub` → those files also follow [mesh.md](mesh.md) |
 | `testing` | DO-driving tooling — wraps user DOs, defines none in `src` (`raw-comm.md` applies) |
 | `rpc`, `routing` | utility / Worker — DO-adjacent (call DO stubs but define no DO) |
 | `debug`, `structured-clone` | utility — no DO involvement |

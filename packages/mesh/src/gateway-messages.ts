@@ -49,6 +49,9 @@ export const WS_CLOSE_GONE = 4410;
  * answers 426 to an upgrade that offers only the previous name, `lmz`: that Client speaks the
  * previous wire, which this version no longer has.
  */
+/** The prefix a Client's upgrade arrives under at its host node: `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`. */
+export const GATEWAY_PREFIX = '/gateway';
+
 export const WS_PROTOCOL = 'lmz.2';
 
 // ============================================
@@ -66,7 +69,7 @@ export const WS_PROTOCOL = 'lmz.2';
  * both ends share this constant.
  *
  * Lives here because this module is the Workers-free wire-protocol home: the PRODUCER
- * (`lumenize-client.ts` `#connect`) and the `@lumenize/mesh/client` entry both reach it without
+ * (`mesh-client.ts` `#connectInternal`) and the `@lumenize/mesh/client` entry both reach it without
  * dragging `cloudflare:workers` into a browser bundle.
  *
  * ⚠️ `packages/auth/src/hooks.ts` keeps its own copy of this prefix and of

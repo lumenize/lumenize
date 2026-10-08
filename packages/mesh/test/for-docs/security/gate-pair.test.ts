@@ -16,13 +16,16 @@ import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { SecurityClient } from './security-client.js';
 import type { GatePairDO } from './gate-pair-do.js';
-import { loginAt, uniqueScope } from '../../support/login.js';
+import { loginAt, uniqueScope, type Login } from '../../support/login.js';
 
 /** A workspace's first login is its admin; each later one is invited and is a plain member. */
 const workspace = uniqueScope('acme');
 
-async function connect() {
-  const login = await loginAt(workspace);
+async function connect(scope = workspace) {
+  return clientFor(await loginAt(scope));
+}
+
+async function clientFor(login: Login) {
   const browser = new Browser();
   const ctx = browser.context(login.baseUrl);
   const client = new SecurityClient({
@@ -38,8 +41,10 @@ async function connect() {
 }
 
 it('a `@mesh()` getter gate is reachable and an UNDECORATED one is refused without running', async () => {
-  const instance = crypto.randomUUID();
-  const admin = await connect();
+  // A scoped node, named by the workspace it belongs to.
+  const instance = workspace;
+  const founder = await loginAt(workspace);
+  const admin = await clientFor(founder);
   try {
     // PERMITTED — the guard runs at the entry op, then the chain walks onto what it handed back.
     await admin.lmz.callAsync(
@@ -62,14 +67,38 @@ it('a `@mesh()` getter gate is reachable and an UNDECORATED one is refused witho
     expect(await node.undecoratedGateRan).toBe(false);
 
     // The GUARD still decides who gets through the `@mesh()` getter — without this, a rule that let
-    // anything through the gate would satisfy the two halves above.
-    const outsider = await connect();
+    // anything through the gate would satisfy the two halves above. A plain member of the workspace
+    // has passage into it and is refused by `requireDominionHere`.
+    const member = await connect();
     try {
-      await expect(outsider.lmz.callAsync(
-        'GATE_PAIR_DO', instance, outsider.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },
+      await expect(member.lmz.callAsync(
+        'GATE_PAIR_DO', instance, member.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },
       )).rejects.toThrow(/Admin access required/);
     } finally {
-      outsider[Symbol.dispose]();
+      member[Symbol.dispose]();
+    }
+
+    // The workspace's own founder, on a page of a galaxy below it, has passage up into the workspace
+    // and holds `scopeAdmin`, yet no dominion over it: dominion reads the host. A bare `scopeAdmin`
+    // check would let this through; `requireDominionHere` names the node and refuses.
+    const below = await clientFor(await founder.atPage(`${workspace}.first`));
+    try {
+      await expect(below.lmz.callAsync(
+        'GATE_PAIR_DO', instance, below.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },
+      )).rejects.toThrow(/Admin access required for /);
+    } finally {
+      below[Symbol.dispose]();
+    }
+
+    // The founder of ANOTHER workspace holds `scopeAdmin` too, there, and is refused by passage
+    // before any guard runs: a scoped node's name says which workspace its admins administer.
+    const otherFounder = await connect(uniqueScope('other'));
+    try {
+      await expect(otherFounder.lmz.callAsync(
+        'GATE_PAIR_DO', instance, otherFounder.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },
+      )).rejects.toThrow(/No passage from/);
+    } finally {
+      otherFounder[Symbol.dispose]();
     }
   } finally {
     admin[Symbol.dispose]();

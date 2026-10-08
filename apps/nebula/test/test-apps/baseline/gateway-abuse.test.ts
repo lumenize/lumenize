@@ -13,7 +13,7 @@ import { StarTest, NebulaClientTest } from './index';
 describe('abuse cases at a host node', () => {
 
   // ============================================
-  // Direct HTTP to NebulaDO
+  // Direct HTTP to a ScopedMeshDO
   // ============================================
 
   describe('direct HTTP rejection', () => {

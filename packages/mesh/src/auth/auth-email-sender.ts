@@ -11,9 +11,9 @@
  *
  * **Collapsed on arrival**, not mirrored: upstream this was an abstract `AuthEmailSenderBase` plus
  * a thin `AuthEmailSender` subclass. After the copy there is exactly ONE consumer, so the
- * base/subclass split had nothing left to abstract — and the originals stay live in
- * `packages/auth`, `mesh/test/**` and five website docs, where an identically-named copy would be
- * ambiguous at every call site.
+ * base/subclass split had nothing left to abstract. It takes the name of `@lumenize/auth`'s subclass,
+ * `AuthEmailSender`, as `turnstile.ts` takes its function's: Mesh no longer depends on that package,
+ * so no program holds both.
  *
  * `ResolvedEmail` is imported from `@lumenize/email`, never copied: that package owns the type and
  * this sender feeds it straight to `EmailTransport.sendEmail`, so it is the one member of the copy
@@ -74,9 +74,9 @@ export function defaultInviteNewHtml(message: InviteNewMessage, appName: string)
  * `@lumenize/mesh`'s server surface. The registry DO reaches it via plain Workers RPC through the
  * `AUTH_EMAIL_SENDER` service binding.
  *
- * All five templates, subjects and `EmailMessage` variants were copied **verbatim**; Nebula emits
- * `magic-link`, `invite-new`, and `invite-existing` today (the invite entry discriminates the last
- * two by acceptance — `invite-entry.ts`), so keeping the remaining two is not a YAGNI question.
+ * Of the five templates, subjects and `EmailMessage` variants copied verbatim, the three Nebula sends
+ * stay: `magic-link`, `invite-new` and `invite-existing` (the invite entry discriminates the last two
+ * by acceptance — `invite-entry.ts`).
  */
 export class AuthEmailSender extends WorkerEntrypoint {
   from: string;

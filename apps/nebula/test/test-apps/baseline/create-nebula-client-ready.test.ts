@@ -1,7 +1,7 @@
 /**
  * createNebulaClient `ready` — real-Star connection-lifecycle probes (§5.3.8 / P10).
  *
- * Exercises the factory's `ready` Promise against a REAL Star + REAL nebula-auth.
+ * Exercises the factory's `ready` Promise against a REAL Star + REAL Registry.
  * The jsdom factory tests drive a MockClient; this is the no-mock backing the
  * test-fidelity obligation requires (tasks/nebula-frontend.md §5.3.7-v3). Covers
  * the three §5.3.8 **first-connect** `ready` probes (the lifecycle-matrix items
@@ -18,12 +18,12 @@
  * path 5/6 and needs WS-disconnect tooling → §5.3.7-v4, not here.
  *
  * The reject probe is the no-mock proof that P9's first-connect classification works
- * for the REAL NebulaClient. NebulaClient supplies `refresh` as a *function* (so mesh's
- * string-endpoint classification in #refreshToken never runs); the function must itself
- * throw `LoginRequiredError` on 401/403 (nebula-client.ts) or #connectInternal swallows
- * the failure into unbounded reconnect and `ready` hangs forever. **Capable-of-failing:**
- * revert that nebula-client.ts classification and the reject probe times out (the client
- * goes 'reconnecting', `ready` never settles).
+ * for the REAL NebulaClient. NebulaClient refreshes through `MeshClient`'s default, the platform
+ * host's endpoint, whose `#refreshToken` throws `LoginRequiredError` on a 401/403
+ * (`mesh-client.ts`); without it #connectInternal swallows the failure into unbounded
+ * reconnect and `ready` hangs forever. **Capable-of-failing:** drop that 401/403
+ * classification and the reject probe times out (the client goes 'reconnecting', `ready`
+ * never settles).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';

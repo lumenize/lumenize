@@ -1,7 +1,7 @@
 /**
  * Cold-start anatomy — echo bench (2026-07-22).
  *
- * Measures the PURE mesh round-trip to a true NebulaDO (StarTest) with ZERO
+ * Measures the PURE mesh round-trip to a true ScopedMeshDO (StarTest) with ZERO
  * data-plane work: client → Gateway → Star.echo(value) → back. Same worker,
  * same `InstrumentedNebulaClientGateway` marker decomposition, same harness as
  * transactions.benchmark.ts — so COLD echo is directly comparable to the

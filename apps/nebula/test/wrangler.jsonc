@@ -4,7 +4,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "vars": {
-    // The deployment's origin, which every host and the JWT issuer derive from (nebula-auth `hosts.ts`).
+    // The deployment's origin, which every host and the JWT issuer derive from (Mesh's `auth/hosts.ts`).
     "LUMENIZE_ORIGIN": "http://lumenize.localhost",
     "PRIMARY_JWT_KEY": "BLUE"
   }

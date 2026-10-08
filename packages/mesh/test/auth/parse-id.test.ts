@@ -475,7 +475,8 @@ describe('hasPassageInto', () => {
 
   it('EVERY authenticated caller has passage to the platform root, by construction', () => {
     // Not a leak — the root is at or above nothing, but everything is at or below IT, so the
-    // upward arm admits. `nebula-do.ts`'s name reservation is what stands in front of it.
+    // upward arm admits. `requirePassage`'s name reservation (`scoped-mesh-do.ts`) is what stands
+    // in front of it.
     expect(hasPassageInto(claim('acme.app.tenant'), '_platform')).toBe(true);
   });
 

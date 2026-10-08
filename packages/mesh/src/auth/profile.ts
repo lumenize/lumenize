@@ -64,8 +64,8 @@ export interface ProfileSnapshot {
 
 /**
  * The client-side continuation target for a pushed snapshot — a minimal structural interface so the
- * fanout can type `ctn<ProfileUpdateReceiver>()` WITHOUT importing `NebulaClient` (an upward edge a
- * type-only import would silently pass tests on). Matches `NebulaClient.handleProfileUpdate`.
+ * fanout can type `ctn<ProfileUpdateReceiver>()` WITHOUT importing `MeshClient`, so this server node names no client class (a type-only import
+ * would silently pass tests on). Matches `MeshClient.handleProfileUpdate`.
  *
  * A **dedicated** profile channel (NOT `handleResourceUpdate('Profile', …)`): the platform profile must
  * not share the client's resource-type keyspace/routing with a dev-user ontology type named `Profile`
@@ -113,7 +113,7 @@ export class Profile extends UnscopedMeshDO<Env> {
     // allow-list); every other instance does nothing. `ctx.id.name`, not `this.lmz.instanceName`
     // — identity is not stamped this early (the same trap Resources documents), while a
     // named DO's `ctx.id.name` is available from construction. INSERT OR IGNORE: one more
-    // statement in this constructor's established seed pattern, and a later super-admin edit is
+    // statement in `onStart`'s established seed pattern, and a later super-admin edit is
     // never clobbered on reconstruct. Write-authz is `#requireOwnerOrAdmin`'s branch (3), which lets
     // a super-admin edit this one profile, since an ownerless, not-in-Registry profile has no scope
     // the scoped arm could find.

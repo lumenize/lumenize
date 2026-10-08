@@ -34,9 +34,8 @@ import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
 import { debugLines } from '../lib/stdio';
 import { waitForEmail } from '@lumenize/email-test/client';
-import {
-  ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
-} from '../../../../packages/mesh/src/impersonation';
+import { ImpersonationChainError, ImpersonationMintError } from '@lumenize/mesh/client';
+import { childrenOf, isTornDown } from '../../../../packages/mesh/src/impersonation';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 export const needsContainer = false;
@@ -360,7 +359,7 @@ export async function run(stack: DevStack): Promise<void> {
 
   // ── 6. child.logout() is CHILD-ONLY teardown — the admin's cookie must survive ─────────────────
   // 🛑 Every refresh cookie sits at `Path=/` on the platform host, so a logout the child sent would
-  // carry every cookie this browser holds, the admin's included; only `NebulaClient.logout()`'s
+  // carry every cookie this browser holds, the admin's included; only `MeshClient.logout()`'s
   // `#mintedFrom` branch stands between a child logout and the admin's refresh token. The child here
   // is an invited identity AT THE UNIVERSE, impersonated from the universe's page, the ordinary
   // support shape.

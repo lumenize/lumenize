@@ -27,7 +27,7 @@ The rest of this ADR names the two bridges, says when each is the right one, and
 
 Three rules hold for both:
 
-1. **The crossing runs between code we wrote, running in our own Worker.** The facade's raw call reaches the Registry from `nebula-auth`'s own facade, and a `@rawRpc` call reaches a node from our Worker's own code. Both halves matter. `NebulaClient` is ours, but it runs in someone's browser, where its user can change it, so it is a client and makes neither hop. A user-developer's code never runs in our Worker at all.
+1. **The crossing runs between code we wrote, running in our own Worker.** The facade's raw call reaches the Registry from Mesh's own auth facade, and a `@rawRpc` call reaches a node from our Worker's own code. Both halves matter. `NebulaClient` is ours, but it runs in someone's browser, where its user can change it, so it is a client and makes neither hop. A user-developer's code never runs in our Worker at all.
 2. **Whatever authorizes the crossing is checked before it crosses.** The facade checks the caller's claims before its hop, so a refused call never reaches the Registry. A `@rawRpc` call goes around the node's mesh guards, its passage step, its `onBeforeCall` and the `@mesh()` check, because it carries out a decision already checked where it was made.
 3. **The side entered keeps the checks it applies to calls from within itself.** The Registry still checks the claims each of its methods is handed, so a caller that reached it some other way is still refused. A mesh node's guard still covers every mesh call, and a `@rawRpc()`-decorated method is simply never one.
 
@@ -39,7 +39,7 @@ Three rules hold for both:
 - creating a galaxy;
 - minting an impersonation token.
 
-**How:** the infrastructure package exports a `LumenizeWorker`, which is a Cloudflare `WorkerEntrypoint`, bound as a service binding, and mesh code calls it like any node: `lmz.call('AUTH_FACADE', undefined, ctn<AuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
+**How:** the infrastructure package exports a `MeshWorker`, which is a Cloudflare `WorkerEntrypoint`, bound as a service binding, and mesh code calls it like any node: `lmz.call('AUTH_FACADE', undefined, ctn<AuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
 
 1. The facade refuses on the verified claims, `callContext.originAuth`, before its hop. That is rule 2's check, made in the facade, so a refused call never wakes the infrastructure ([ADR-018](018-singleton-is-the-scarce-resource.md)).
 2. It makes the one raw call, beside the invariants it enforces.

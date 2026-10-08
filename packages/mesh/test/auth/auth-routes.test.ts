@@ -1,6 +1,6 @@
 /**
  * Worker router — routing correctness + gating through the full Worker (SELF.fetch) over the registry
- * + KV (the dissolved-DO model, tasks/nebula-auth-surrogate-sub.md). Every route is a step in a
+ * + KV (the dissolved-DO model, tasks/archive/nebula-auth-surrogate-sub.md). Every route is a step in a
  * session's lifecycle on the platform host, and none reads an access token: what a session does
  * moved to the mesh facade (POST `/auth/{scope}/invite` is a 404, asserted below), and Home reads by
  * cookie.

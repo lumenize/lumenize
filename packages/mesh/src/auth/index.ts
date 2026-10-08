@@ -22,7 +22,7 @@ export { AuthRegistry } from './auth-registry';
 // The same rule keeps `AuthFacade` (a mesh-composing MeshWorker) out of this barrel —
 // import it from `@lumenize/mesh/auth/facade`.
 
-// Scope-hierarchy shapes — the client (NebulaClient.scopes) returns these to the UI.
+// Scope-hierarchy shapes — the client (MeshClient.scopes) returns these to the UI.
 export type {
   AffectedScope, ScopeDeletionBlocker, ScopeDeletionAffectedUsers, ScopeDeletionPlan,
 } from './auth-registry';
@@ -62,10 +62,10 @@ export {
 export type { VerdictClaims } from './parse-id';
 
 // ADR-016's acting-principal projection — the ONE shared shape every record site uses.
-// ⚠️ Exported deliberately: `apps/nebula` records the identical shape (the `Snapshots` engine's `actingToken`
-// column), and a second hand-rolled projection there is the divergence ADR-016 calls unrecoverable
-// history. (`Snapshots` itself imports it from the Node-safe `./claims` subpath, not this barrel —
-// this module is in its client value graph and the barrel exports the Registry DO.)
+// ⚠️ Exported deliberately: `@lumenize/resources` records the identical shape (the `Snapshots` engine's
+// `actingToken` column), and a second hand-rolled projection there is the divergence ADR-016 calls
+// unrecoverable history. (`Snapshots` itself imports it from Mesh's Node-safe `/client` subpath, not
+// this barrel — that module is in its client value graph and this barrel exports the Registry DO.)
 export { projectActingToken } from './access-claims';
 export type { ActingTokenRecord } from './access-claims';
 

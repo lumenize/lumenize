@@ -3,7 +3,7 @@
 **Date**: 2026-07-17
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: `apps/nebula/src/galaxy.ts` — the first hub, a plain `NebulaDO` driving its own build container through raw `ctx.container`; `.claude/rules/containers.md` (day-to-day mechanics + the state machines). Origin: a month of running CF Containers ([[studio-keep-container-native-tide]]).
+**Evidence**: `apps/nebula/src/galaxy.ts` — the first hub, a plain `ScopedMeshDO` driving its own build container through raw `ctx.container`; `.claude/rules/containers.md` (day-to-day mechanics + the state machines). Origin: a month of running CF Containers ([[studio-keep-container-native-tide]]).
 
 ## Context
 
@@ -42,6 +42,6 @@ The mechanism (state machines, the `running`×`status` trap, what's verifiable o
 - Vertical scale (`instance_type`) is available if a single tenant ever outgrows the default instance, so a tenant-sharded system can let its one container do everything ill-suited to JS/WASM.
 
 ### Negative / open
-- The hub is a plain `LumenizeDO` driving raw `ctx.container` — never `extends Container`. The base's homework transfers to the drive: attach `monitor()`, bound the readiness poll, serialize lifecycle transitions on a promise-chain latch. `.claude/rules/containers.md` § *The `Container` base is optional* carries the checklist. Skip an item and the hub wedges on the next container death.
+- The hub is a plain `ScopedMeshDO` driving raw `ctx.container` — never `extends Container`. The base's homework transfers to the drive: attach `monitor()`, bound the readiness poll, serialize lifecycle transitions on a promise-chain latch. `.claude/rules/containers.md` § *The `Container` base is optional* carries the checklist. Skip an item and the hub wedges on the next container death.
 - An eviction mid-operation orphans the container **and** tears its capnweb session. Container lifetime therefore sits strictly inside one in-flight request. The ephemeral drive — construct, build, destroy, per build — satisfies that, and pays the container cold-start on every build.
 - The stuck-flag race stays cloud-only and deploy-verifiable. The hub keeps its signature predicates as logged evidence; nothing acts on them.

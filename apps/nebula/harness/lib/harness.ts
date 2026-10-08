@@ -10,8 +10,8 @@
  *
  * Lifted from the ui-smoke lane (`test/ui-smoke/global-setup.ts`) + the bench harness
  * (`test/browser/multi-client.ts`), generalized off vitest. Runs in plain Node: imports only
- * the Node-safe entries (`@lumenize/nebula/client`, `@lumenize/mesh/auth/testing`,
- * `@lumenize/crypto`, `@lumenize/testing`) — none pull `cloudflare:workers`.
+ * the Node-safe entries (`@lumenize/nebula/client`, `@lumenize/resources/client`, `@lumenize/mesh/client`,
+ * `@lumenize/mesh/auth/testing`, `@lumenize/crypto`, `@lumenize/testing`) — none pull `cloudflare:workers`.
  *
  * Local `wrangler dev` needs Docker Desktop when the boot builds the container image — the
  * harness probes it and fails loudly if absent. PROD driving is deliberately NOT here: prod tokens come

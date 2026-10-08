@@ -9,7 +9,8 @@
  * which is exactly what the depth-2 assertions here red on.
  */
 import { describe, it, expect } from 'vitest';
-import { prependActor, NEBULA_SUB } from '../../src/auth/access-claims';
+import { prependActor } from '../../src/auth/access-claims';
+import { NEBULA_SUB } from '../../src/auth/types';
 
 describe('prependActor (RFC 8693 chain nesting, written once)', () => {
   it('no base: the actor pair becomes the whole chain', () => {

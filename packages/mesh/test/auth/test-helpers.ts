@@ -1,6 +1,6 @@
 /**
  * Shared test helpers for Mesh's auth layer — the login flows through the Worker (SELF.fetch) over the
- * registry + KV, per the dissolved-DO model (tasks/nebula-auth-surrogate-sub.md).
+ * registry + KV, per the dissolved-DO model (tasks/archive/nebula-auth-surrogate-sub.md).
  *
  * Grounding: rung 2 (test-mode server issuance) — the registry echoes the raw magic/invite link in the
  * response ONLY when `AUTH_TEST_MODE` is set (miniflare.bindings), so no email round-trip is
@@ -278,9 +278,9 @@ export async function foundUniverse(self: Fetcher, slug: string, email: string, 
 /**
  * Issue invites straight at the Registry (test-as-caller RPC), the way the mesh facade does in
  * production: `callerClaims` are parsed off a REAL server-minted token, so the ADR-016 projection
- * and the in-method cap re-assertion see genuine claims. This package has no mesh stack — the
- * facade's own guards are covered in apps/nebula's baseline lane (`invite-facade.test.ts`); here
- * the Registry primitive is the unit.
+ * and the in-method cap re-assertion see genuine claims. This lane's Worker binds no facade, so the
+ * Registry primitive is the unit; the facade's own guards are covered in apps/nebula's baseline lane
+ * (`invite-facade.test.ts`).
  */
 export async function issueInvitesAs(
   callerToken: string, scope: string, invitees: InviteeRequest[], inviterName?: string,

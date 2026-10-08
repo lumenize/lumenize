@@ -1127,7 +1127,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * Wake this galaxy's certificate order — nebula-auth's `orderCertificate` hook, after a create or a
+   * Wake this galaxy's certificate order — the auth layer's `orderCertificate` hook, after a create or a
    * claim's acceptance. `@rawRpc()`, never `@mesh()`: no client may make a Galaxy spend a pack, so a
    * Galaxy nobody created never orders one (ADR-023). It records that a pack is wanted and arms the
    * alarm, which is the one caller of Cloudflare's API, so two wakes order once.

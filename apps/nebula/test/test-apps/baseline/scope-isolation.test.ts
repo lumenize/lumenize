@@ -1,14 +1,14 @@
 /**
  * Structural DO scope isolation (Fix 1) — tier DOs Star / Galaxy / Universe.
  *
- * NebulaDO.onBeforeCall accepts a mesh call iff its `aud` is covered by the
+ * `ScopedMeshDO`'s passage step accepts a mesh call iff its `aud` is covered by the
  * scope encoded in the DO's *instance name* (`isAtOrAbove(name, aud)`),
  * replacing the old trust-on-first-use `aud`-lock.
  *
  * Every test here is capable-of-failing: it flips RED if the gate reverts to
  * TOFU (first-caller-wins) or drops the structural check.
  *
- * @see tasks/nebula-do-scope-isolation.md (the test matrix)
+ * @see tasks/archive/nebula-do-scope-isolation.md (the test matrix)
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
@@ -354,7 +354,7 @@ describe('onBeforeCall fail-closed branches (below the public API)', () => {
 // A tier DO's mesh entries over its WHOLE prototype chain, by guard. `requireDominionHere` and
 // `requireChatWrite` are authorization walls of their own — dominion over the host, and DAG `write`
 // at the chat node (the door a Message passes; `security.md`) — so the widening concern is the rest.
-// Walking the chain is what sees an inherited entry such as `NebulaDO.teardown`.
+// Walking the chain is what sees an inherited entry such as `ScopedMeshDO.teardown`.
 const nonAdminMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
   .filter(({ guard }) => guard !== requireDominionHere && guard !== requireChatWrite).map(({ name }) => name);
 const chatFloorMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)

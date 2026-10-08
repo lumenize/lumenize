@@ -1,6 +1,6 @@
 # Real-browser tests for `@lumenize/mesh`
 
-This directory is **the template for real-browser testing of any `@lumenize/*` package that bundles a `LumenizeClient`-derived front end** (mesh itself, nebula-frontend, customer apps).
+This directory is **the template for real-browser testing of any `@lumenize/*` package that bundles a `MeshClient`-derived front end** (mesh itself, nebula-frontend, customer apps).
 
 Why this exists: the `@lumenize/debug` lazy-`import('cloudflare:workers')` regression silently passed every vitest-plugin test in 2026-06 because vitest-plugin resolves dynamic imports at runtime. Real Vite resolves them at bundle-time and refused — users couldn't bundle a NebulaClient. This setup catches that class of bug (and several others) by running tests in real chromium against a real `wrangler dev` worker.
 

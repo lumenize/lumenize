@@ -22,7 +22,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { isMeshCallable } from '@lumenize/mesh';
 import { meshEntries } from '../mesh-surface';
 import { Galaxy, requireChatWrite, LOOP_TOOL_ENTRIES } from '../../../src/galaxy';
-import { NebulaClient } from '../../../../../packages/resources/src/nebula-client';
+import { NebulaClient } from '@lumenize/resources/client';
 import { requireDominionHere } from '@lumenize/mesh';
 import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '../../../src/chat-constants';
 
@@ -91,7 +91,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
 
   it('the DOMINION list is exactly Galaxy configuration', () => {
     // A source entry accidentally shipped with requireDominionHere ENTERS this set → red;
-    // a config method dropped to the chat floor LEAVES it → red. `NebulaDO.teardown` carries
+    // a config method dropped to the chat floor LEAVES it → red. `ScopedMeshDO.teardown` carries
     // `@rawRpc()`, never `@mesh()`, so the walk up the whole chain does not find it.
     expect(meshMethods('dominion')).toEqual(['setGalaxyConfig']);
   });

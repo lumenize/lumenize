@@ -207,9 +207,9 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
 
   it('a denied resource subscriber that disconnects is reaped at the next write — on a Galaxy', async () => {
     const scope = `den-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
+    const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
     const { client: admin, accessToken } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     const chat = uuid();
     const nodeB = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'b', 'B');
     const m = uuid();
@@ -223,7 +223,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'doomed@example.com');
     const { client: doomed } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'doomed@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'doomed@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     expect(await doomed.resources.subscribe('Message', m).snapshot).toBeNull();
     const doomedAddress = addressOfClient(doomed);
     expect(await rows(doomedAddress)).toBe(1);

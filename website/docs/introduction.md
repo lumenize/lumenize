@@ -58,4 +58,3 @@ The right way is the easy way — and we show you how to test it.
 | @lumenize/ts-runtime-validator | Deprecated — use [@lumenize/ts-runtime-parser-validator](/docs/ts-runtime-parser-validator) | ✓ | ⚫ Deprecated | MIT |
 | @lumenize/rpc | Deprecated — use @lumenize/mesh (remains as foundation for @lumenize/testing) | — | ⚫ Deprecated | MIT |
 | [Lumenize Nebula](/blog/introducing-lumenize-nebula) | Agentic platform for enterprise apps from declarative business ontologies | — | 🔵 Coming Soon | Unlicensed |
-| [@lumenize/mesh/auth](/blog/introducing-lumenize-nebula) | Auth integration for Nebula applications | — | 🔴 Experimental | Unlicensed |

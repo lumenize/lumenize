@@ -35,7 +35,7 @@
  * its pages' Clients, and `NebulaAuthRegistry` now that it is `AuthRegistry` — is a tombstone, not a
  * class, and is not counted. (DevStudio + DevContainer collapsed INTO Galaxy —
  * tasks/archive/nebula-galaxy-collapse-and-chat.md; the per-scope `NebulaAuth` DO was dissolved
- * earlier — tasks/nebula-auth-surrogate-sub.md.)
+ * earlier — tasks/archive/nebula-auth-surrogate-sub.md.)
  * The gate is a one-way-door tripwire, so when the registry LEGITIMATELY changes (a DO class added or
  * removed), bump this DELIBERATELY in the same change that edits bindings + exports + worker.ts — that
  * conscious edit is the discipline, and it keeps a silent parse failure (→ empty set, size 0) from

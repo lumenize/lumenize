@@ -8,7 +8,7 @@
  * 1. onLoginRequired callback when auth fails
  * 2. onBeforeCall() blocking unauthenticated access
  * 3. Authenticated user accessing protected resources
- * 4. @mesh(guard) with claims check (admin only)
+ * 4. @mesh(guard) with claims check (dominion over the document's workspace)
  * 5. @mesh(guard) with instance state (allowed editors)
  * 6. Reusable guards (requireSubscriber pattern)
  * 7. A guard that computes its own decision from the caller and the node's storage
@@ -120,10 +120,9 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   // ============================================
   // Phase 2 & 3: onBeforeCall() ownership check
   // ============================================
-  // UserProfileDO demonstrates owner-or-admin access:
+  // UserProfileDO demonstrates owner-only access:
   // - Owner (sub matches instance name) can access
-  // - An admin of the caller's workspace (`access.scopeAdmin`) can access anyone's profile
-  // - Others get "Access denied"
+  // - Everyone else gets "Access denied", the workspace's admin included (Phase 4)
 
   const bobBrowser = new Browser();
   const bobLogin = await loginAt(workspace);
@@ -165,11 +164,20 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   expect((profileResult as any).message).toBe('Profile data');
   expect((profileResult as any).sub).toBe(bobUserId);
 
+  // …and is refused at someone else's: the guard's other half.
+  bob.callUserProfile(adminLogin.sub);
+  await vi.waitFor(() => {
+    expect(profileCallResults.length).toBe(2);
+  });
+  expect(profileCallResults[1]).toBeInstanceOf(Error);
+  expect((profileCallResults[1] as Error).message).toContain('Access denied');
+
   // ============================================
   // Phase 4: @mesh(guard) with claims check (admin only)
   // ============================================
-  // The adminMethod guard checks originAuth.claims.access.scopeAdmin. Bob, an invited member, is
-  // refused; the workspace's founder, its admin, gets through.
+  // The adminMethod guard checks that the caller holds dominion over the workspace the document
+  // was created in. Bob, an invited member, is refused; the workspace's founder, its admin, gets
+  // through; and the founder of another workspace, an admin there, is refused here.
   //
   // ⚠️ This also pins the WIRE FORMAT end to end: the host copies the whole verified payload into
   // `originAuth.claims`, so the Registry's `access` claim arrives as the guard reads it. Driven over
@@ -184,7 +192,9 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
     originalAdminHandler(result);
   };
 
+  // Created from the workspace's page, so the document belongs to the workspace.
   const adminDocId = crypto.randomUUID();
+  await bob.lmz.callAsync('TEAM_DOC_DO', adminDocId, bob.ctn<TeamDocDO>().create(), { timeoutMs: 10_000 });
   bob.callAdminMethod(adminDocId);
 
   await vi.waitFor(() => {
@@ -226,6 +236,47 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
 
   expect(adminOwnResults[0]).not.toBeInstanceOf(Error);
   expect(adminOwnResults[0]).toBe('admin-only-result');
+
+  // The workspace's admin holds no ownership of Bob's profile: UserProfileDO has no admin.
+  const adminProfileResults: Array<{ message: string; sub: string } | Error> = [];
+  const originalAdminProfileHandler = adminUser.handleProfileResponse.bind(adminUser);
+  (adminUser as any).handleProfileResponse = (result: any) => {
+    adminProfileResults.push(result);
+    originalAdminProfileHandler(result);
+  };
+  adminUser.callUserProfile(bobUserId);
+  await vi.waitFor(() => {
+    expect(adminProfileResults.length).toBe(1);
+  });
+  expect(adminProfileResults[0]).toBeInstanceOf(Error);
+  expect((adminProfileResults[0] as Error).message).toContain('Access denied');
+
+  // The founder of ANOTHER workspace holds `scopeAdmin` too, at that workspace, and is refused here:
+  // the guard asks about dominion over this document's workspace, never about the bit alone.
+  const otherLogin = await loginAt(uniqueScope('other'));
+  const otherBrowser = new Browser();
+  using otherFounder = new SecurityClient({
+    instanceName: `${otherLogin.sub}.tab1`,
+    baseUrl: otherLogin.baseUrl,
+    refresh: otherLogin.refresh,
+    fetch: otherBrowser.fetch,
+    WebSocket: otherBrowser.WebSocket,
+  });
+  await vi.waitFor(() => {
+    expect(otherFounder.connectionState).toBe('connected');
+  });
+  const otherResults: Array<string | Error> = [];
+  const originalOtherHandler = otherFounder.handleAdminResponse.bind(otherFounder);
+  (otherFounder as any).handleAdminResponse = (result: any) => {
+    otherResults.push(result);
+    originalOtherHandler(result);
+  };
+  otherFounder.callAdminMethod(adminDocId);
+  await vi.waitFor(() => {
+    expect(otherResults.length).toBe(1);
+  });
+  expect(otherResults[0]).toBeInstanceOf(Error);
+  expect((otherResults[0] as Error).message).toContain('Admin only');
 
   // ============================================
   // Phase 5: @mesh(guard) with instance state (allowed editors)

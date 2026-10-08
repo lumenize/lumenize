@@ -196,7 +196,7 @@ For richer status UI (color-coded badges, "last connected X minutes ago" tooltip
 
 ## Current user (`client.claims`)
 
-The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by nebula-auth), `aud` (the scope of this page's host, which is what the token can act from), `access` (the membership the token rests on — `{ authScope, scopeAdmin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
+The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by Mesh's auth layer), `aud` (the scope of this page's host, which is what the token can act from), `access` (the membership the token rests on — `{ authScope, scopeAdmin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
 
 `client.claims` is `null` until the client's first token refresh completes, and `client` is not reactive — a `v-if` gated on it never re-evaluates. Studio-generated apps never see that window: the bootstrap top-level-awaits the factory's `ready` promise before the app mounts, so claims are populated before any component renders. That contract is pinned at [API reference § client.claims](./api-reference.md#clientclaims); the examples below rely on it. Outside a Studio bootstrap (admin tools, scripts), guard with `client.claims?.`.
 

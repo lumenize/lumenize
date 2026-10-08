@@ -14,11 +14,12 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 
 **Goal:** `website/docs` describes Mesh 1.0, and the `@check-example` checker covers every page again.
 
-- **What it rewrites:** `docs/mesh`, `docs/auth`, `docs/debug/index.mdx`, and the package table in `docs/introduction.md`, which still lists `@lumenize/auth` as current, `@lumenize/rpc` as the foundation of `@lumenize/testing`, and `@lumenize/nebula-auth`, which is now Mesh's `/auth`.
+- **What it rewrites:** `docs/mesh`, `docs/auth`, `docs/debug/index.mdx`, and the package table in `docs/introduction.md`, which still lists `@lumenize/auth` as current, `@lumenize/rpc` as the foundation of `@lumenize/testing`, and no row for Mesh's `/auth`, whose `@lumenize/nebula-auth` row was dropped when that package became it.
 - **What it removes:** the checker exclusion `mesh-is-built-on-the-scope-tree.md`'s D8 adds to `website/scripts/check-examples.mjs` and `website/docusaurus.config.ts`, labelled `TEMP → target: the Mesh 1.0-alpha docs rewrite`. The run passes with it gone.
 - **It lands before Item 4 deletes `packages/auth`,** since `docs/auth` and `docs/debug/index.mdx` carry `@check-example` blocks that name its files.
 - **It draws on § *Docs ideas*,** the running list at the end of this file.
 - **What it teaches that 0.26 did not:** scoped and unscoped nodes, with `ScopedMeshDO` and `UnscopedMeshDO`; Mesh's `/auth` entry points; and the for-docs mini-apps' document nodes, which `mesh-is-built-on-the-scope-tree.md` ports as unscoped nodes with their own share lists.
+- **The security page's admin checks come in both kinds** (Larry, 2026-10-08). `GatePairDO` is a scoped node named by its workspace, guarded by `requireDominionHere`, so another workspace's founder is refused by passage. `TeamDocDO` is unscoped: it records the workspace it is created in and checks `hasDominionOver` against it. `UserProfileDO`, named by a person's `sub`, is owner-only. The page shows the bare `scopeAdmin` bit nowhere as an admin check, since anyone who claims a workspace holds it there.
 
 ## Item 2: Mesh's default auth UI
 

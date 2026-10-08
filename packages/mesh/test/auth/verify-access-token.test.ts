@@ -1,5 +1,5 @@
 /**
- * Phase 1.96: verifyAccessToken tests
+ * verifyAccessToken tests
  *
  * Tests the exported verification function directly with crafted JWTs.
  * Covers valid tokens, invalid tokens (each claim failure), and key rotation.

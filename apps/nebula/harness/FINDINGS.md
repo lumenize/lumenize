@@ -8,7 +8,7 @@ re-discover it.
 
 `harness/prod.ts` drives the **deployed** Nebula (`nebula.lumenize.com`) with no local boot:
 
-- **Turnstile bypass (forward-looking — a no-op today)** — the `nebula-auth` `checkTurnstile` bypass
+- **Turnstile bypass (forward-looking — a no-op today)** — the auth layer's `checkTurnstile` bypass
   (a secret token in the `x-lumenize-turnstile-bypass` header = `AUTH_TURNSTILE_BYPASS_TOKEN`,
   constant-time compared) skips ONLY the anti-bot gate; Turnstile stays ON for everyone else. The
   harness sends it on the one-time login (`refresh-token` / `my-scopes` / resource reads are already

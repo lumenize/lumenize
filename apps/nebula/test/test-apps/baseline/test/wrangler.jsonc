@@ -13,7 +13,7 @@
       { "name": "PROFILE", "class_name": "ProfileTest" }
     ]
   },
-  // The per-scope NebulaAuth DO is dissolved (tasks/nebula-auth-surrogate-sub.md); refresh state lives
+  // The per-scope NebulaAuth DO is dissolved (tasks/archive/nebula-auth-surrogate-sub.md); refresh state lives
   // in the REFRESH_TOKEN_KV namespace below.
   "kv_namespaces": [
     { "binding": "REFRESH_TOKEN_KV", "id": "nebula-baseline-refresh-token-kv-test" }
@@ -46,7 +46,7 @@
     }
   ],
   "vars": {
-    // The deployment's origin, which every host and the JWT issuer derive from (nebula-auth `hosts.ts`).
+    // The deployment's origin, which every host and the JWT issuer derive from (Mesh's `auth/hosts.ts`).
     "LUMENIZE_ORIGIN": "http://lumenize.localhost",
     "PRIMARY_JWT_KEY": "BLUE"
   }

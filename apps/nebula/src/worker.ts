@@ -10,7 +10,7 @@
  * (`test/test-apps/baseline/index.ts`).
  *
  * NOTE: separate from `src/index.ts` (the library surface, which exports `entrypoint`
- * as a NAMED export + omits the nebula-auth DOs) — wrangler needs a `default` handler
+ * as a NAMED export + omits the auth layer's DOs) — wrangler needs a `default` handler
  * and every bound class re-exported from one module.
  */
 export { default } from './entrypoint';

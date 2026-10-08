@@ -253,7 +253,7 @@ export function validateTtlSeconds(value: unknown): { error: string } | { ok: tr
  * a longer, malformed or empty value leaves the constant — so it never widens the window a revoked
  * token keeps working (`security.md`). A `/live` scenario that waits out a real lapse boots with it.
  */
-export function accessTokenCeiling(env: Pick<Env, 'AUTH_ACCESS_TOKEN_TTL'>): number {
+export function accessTokenCeiling(env: { AUTH_ACCESS_TOKEN_TTL?: string }): number {
   const configured = Number(env.AUTH_ACCESS_TOKEN_TTL || NaN);
   return Number.isInteger(configured) && configured >= 1 && configured < ACCESS_TOKEN_TTL
     ? configured
@@ -326,7 +326,8 @@ export async function mintAccessToken(
   if (!privateKeyPem) throw new Error(`JWT private key not configured for ${activeKey}`);
 
   const privateKey = await importPrivateKey(privateKeyPem);
-  const effectiveTtlSeconds = clampTtlSeconds(opts.ttlSeconds, accessTokenCeiling(env), {
+  // Widened: a Worker that sets no `AUTH_ACCESS_TOKEN_TTL` generates an `Env` without it.
+  const effectiveTtlSeconds = clampTtlSeconds(opts.ttlSeconds, accessTokenCeiling(env as Env & { AUTH_ACCESS_TOKEN_TTL?: string }), {
     sub: opts.sub, activeScope: opts.activeScope,
   });
   const payload = buildAuthClaims({
@@ -961,7 +962,7 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
  *
  * ⚠️ **A DERIVED session never reaches here.** An impersonated client holds no refresh cookie of its
  * own, so this call would spend the ORIGINATOR's — `security.md`'s derived-session rule. The client's
- * guard is `NebulaClient.logout()`'s `#mintedFrom` branch, which ends an impersonation by teardown.
+ * guard is `MeshClient.logout()`'s `#mintedFrom` branch, which ends an impersonation by teardown.
  */
 export async function handleLogout(request: Request, env: Env): Promise<Response> {
   const operationId = crypto.randomUUID();

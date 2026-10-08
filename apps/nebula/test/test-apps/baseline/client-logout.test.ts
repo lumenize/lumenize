@@ -4,7 +4,7 @@
  * Every session's cookies live on the platform host, so a page cannot end them itself: `logout()`
  * drops the in-memory token and claims, disconnects, and sends the top-level page to the platform
  * host's logout page, whose own `POST` ends every session the browser holds. Exercised against a
- * REAL Star + REAL nebula-auth:
+ * REAL Star + REAL Registry:
  *   - the in-memory access token + claims are dropped (MeshClient.clearAccessToken)
  *   - disconnect() → the factory mirrors store.lmz.connection.state = 'disconnected'
  *   - a top-level page goes to `/auth/logout` on the platform host, `?everywhere=1` when asked

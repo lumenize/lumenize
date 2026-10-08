@@ -81,7 +81,7 @@ export interface MeshDecorator<T> {
  * @example
  * Basic usage - make a method mesh-callable:
  * ```typescript
- * class DocumentDO extends MeshDO<Env> {
+ * class DocumentDO extends UnscopedMeshDO<Env> {
  *   @mesh()
  *   getContent(): string {
  *     return this.svc.sql`SELECT content FROM documents LIMIT 1`[0]?.content ?? '';
@@ -97,7 +97,7 @@ export interface MeshDecorator<T> {
  * @example
  * With guard function - add per-method authorization:
  * ```typescript
- * class SecureDocumentDO extends MeshDO<Env> {
+ * class SecureDocumentDO extends UnscopedMeshDO<Env> {
  *   @mesh((instance: SecureDocumentDO) => {
  *     // Guard runs before the method executes
  *     const { originAuth } = instance.lmz.callContext;

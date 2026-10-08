@@ -28,7 +28,7 @@ import { HAS_DOCKER, HAS_AI_PATH } from './gates';
 import { launchChromium, loginToStudio } from './helpers';
 
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must pass
- *  nebula-auth's `isValidSlug` (no leading, trailing or consecutive hyphens, at most 30
+ *  Mesh's `isValidSlug` (no leading, trailing or consecutive hyphens, at most 30
  *  characters), so a single hyphen — NOT `test--`. Separate from any manually-claimed scope; the working scope is the
  *  GALAXY post-collapse — the Wipe teardown targets its `.dev` star (`{scope}.dev`). */
 const TEST_SCOPE = 'test-u0.test-g0';

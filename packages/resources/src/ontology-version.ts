@@ -21,9 +21,9 @@ export interface OntologyVersionConfig {
 /**
  * Compiled, stored-per-version row. Immutable after write.
  *
- * `relationships` rides along for 5.5's lazy-migration path — no Phase 1–6
- * code reads it, but co-locating it with `validatorBundle` saves the future
- * migrator a re-extract on every cold migration.
+ * `relationships` is stored beside `validatorBundle` so nothing re-extracts it: `Resources` reads it
+ * to validate a `parentChild` query (`installedOntology()`), and a lazy migrator would read it on
+ * every cold migration.
  */
 export interface OntologyVersionRow {
   version: string;

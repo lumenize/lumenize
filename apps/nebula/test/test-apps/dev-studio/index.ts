@@ -1,6 +1,6 @@
 /**
  * Galaxy codegen test harness (the `dev-studio` vitest project — its name predates the
- * collapse of DevStudio into Galaxy). Galaxy `extends NebulaDO` (a constructable SQLite
+ * collapse of DevStudio into Galaxy). Galaxy `extends ScopedMeshDO` (a constructable SQLite
  * DO), so it runs under vitest-plugin — this project exercises the real node: the
  * `@cloudflare/computer` Workspace + host-side git (writeSource / commit / readSource)
  * and the compile-and-apply into the registry, which the derived `{u}.{g}.dev` star pulls on its

@@ -6,16 +6,13 @@
  * The asymmetry is what readers get wrong, so both halves sit side by side: a DECORATED gate is
  * reachable from the wire, an UNDECORATED one is not — and the absence of the decorator is what
  * does the second. Nothing about visibility matters; `settingsForResults` below is `public`.
+ *
+ * A scoped node, named by its workspace's scope, so its admin check is Mesh's own
+ * `requireDominionHere`, and a caller from another workspace is refused by passage before any
+ * guard runs. `TeamDocDO` shows the same check on an unscoped node.
  */
 
-import { UnscopedMeshDO, mesh, type AuthClaims } from '../../../src/index.js';
-
-/** Throw to deny. The guard runs at the ENTRY op, before the getter body. */
-function requireAdmin(instance: GatePairDO): void {
-  if (!(instance.lmz.callContext.originAuth?.claims as AuthClaims | undefined)?.access?.scopeAdmin) {
-    throw new Error('Admin access required');
-  }
-}
+import { ScopedMeshDO, mesh, requireDominionHere } from '../../../src/index.js';
 
 /** The capability a gate hands back. Plain methods — no decorator of their own. */
 export class Settings {
@@ -25,7 +22,7 @@ export class Settings {
   write(value: string): void { this.#node.stored = value; }
 }
 
-export class GatePairDO extends UnscopedMeshDO<Env> {
+export class GatePairDO extends ScopedMeshDO<Env> {
   get stored(): string | undefined { return this.ctx.storage.kv.get('setting'); }
   set stored(value: string | undefined) { this.ctx.storage.kv.put('setting', value); }
 
@@ -34,7 +31,7 @@ export class GatePairDO extends UnscopedMeshDO<Env> {
 
   // A GETTER gate. The guard runs at the ENTRY op — read off the descriptor, before the getter
   // body is invoked — and the body then picks what to hand back.
-  @mesh(requireAdmin) get settings(): Settings { return new Settings(this); }
+  @mesh(requireDominionHere) get settings(): Settings { return new Settings(this); }
 
   // The same capability, UNDECORATED, so it is unreachable from the wire. An undecorated getter is
   // refused WITHOUT running: the check reads the property's descriptor, never the property.

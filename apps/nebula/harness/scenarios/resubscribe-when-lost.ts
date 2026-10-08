@@ -24,8 +24,10 @@
  *  7. **Accepting a broader membership in another tab** moves this tab to its new `sub`, and it keeps
  *     receiving updates. Mutation: keep the first name, and the tab loops on 403.
  *  8. **The Profile channel, after a reconnect held 8 s**: a change to the profile while the tab is
- *     away is reaped, the tab is told `true`, subscribes the profile again, and hears the next
- *     change. Mutation: skip the Profile channel in `MeshClient.onSubscriptionRequired`.
+ *     away is reaped, as the Profile's reaper receipt shows, the tab is told `true`, subscribes the
+ *     profile again, and hears the next change. Mutation: skip the Profile channel in
+ *     `MeshClient.onSubscriptionRequired`; the receipt is what makes that red, since a row the reaper
+ *     left would carry the next change with no restore.
  *
  * Limbs 2, 6 and 7 wait for a real token to come due: `bootVars` sets the shortest supported
  * lifetime, so a call 90 s after a token's mint rotates its socket. Those tabs open first and wait
@@ -50,7 +52,7 @@ import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } fr
 export const needsContainer = false;
 export const bootVars = {
   AUTH_ACCESS_TOKEN_TTL: String(RECOMMENDED_MIN_TTL_SECONDS),
-  DEBUG: 'nebula.Resources.subscribers,nebula.Resources.reap',
+  DEBUG: 'nebula.Resources.subscribers,nebula.Resources.reap,nebula-auth.Profile.reap',
 };
 
 /** A tab that counts the resource pushes it receives and keeps the last one. */
@@ -356,11 +358,20 @@ export async function run(stack: DevStack): Promise<void> {
       await writer.updateMyProfile({ nickname: 'changed-while-away' }); // fails once the grace period runs out
       await until(() => watcher.connectionState === 'connected', 20_000, 'limb 8: the tab never came back');
       await until(() => log.statuses.length === 2, 5_000, 'limb 8: no connection_status on the reconnect');
+      const id = watcher.lmz.instanceName!;
+      const isReap = (l: { namespace: string; message: string; data: Record<string, any> }) => l.namespace === 'nebula-auth.Profile.reap'
+        && l.message === 'update not delivered' && clientIdIn(l.data) === id && l.data.name === 'ClientDisconnectedError';
+      let reaped: boolean | undefined;
+      if (stack.logs) {
+        await waitForDebugLines(stack, (all) => all.some(isReap), 'limb 8\'s reap').catch(() => {});
+        reaped = debugLines(stack.logs()).some(isReap);
+      }
       await new Promise((r) => setTimeout(r, 1_000));
       await writer.updateMyProfile({ nickname: 'changed-after' });
       await until(() => heard.includes('changed-after'), 10_000, '').catch(() => {});
-      limb('limb 8 — the Profile channel, past the grace period', log.statuses.at(-1) === true && heard.includes('changed-after'),
-        `told ${log.statuses.at(-1)}; the next change ${heard.includes('changed-after') ? 'arrived' : 'LOST'}`);
+      limb('limb 8 — the Profile channel, past the grace period',
+        log.statuses.at(-1) === true && heard.includes('changed-after') && reaped !== false,
+        `told ${log.statuses.at(-1)}; the next change ${heard.includes('changed-after') ? 'arrived' : 'LOST'}; the away change's push reaped the row: ${reaped ?? '(not observable)'}`);
     }
 
     // ── LIMB 1: Studio, frozen past its host node's 30 s wait ──────────────────────────────────────

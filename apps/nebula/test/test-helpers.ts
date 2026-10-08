@@ -1,7 +1,7 @@
 /**
  * Shared test helpers for Nebula test files.
  *
- * Composes nebula-auth test mode login with NebulaClient creation.
+ * Composes Mesh's auth test-mode login with NebulaClient creation.
  */
 import { expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -345,7 +345,7 @@ export async function browserLogin(
   //
   // ⚠️ Don't copy that param over from `@lumenize/auth`, where it IS load-bearing:
   // `lumenize-auth.ts` gates on `#isTestMode && searchParams.get('_test') === 'true'`, so the
-  // binding alone does nothing there. nebula-auth can't do the same because the decision is
+  // binding alone does nothing there. Mesh's auth layer can't do the same because the decision is
   // made inside the registry DO, reached by RPC with no request URL to read. Consequence worth
   // knowing: a leaked `AUTH_TEST_MODE` in a deployed worker would return magic links to
   // ORDINARY traffic, where the same leak in @lumenize/auth would only affect requests that
@@ -571,7 +571,7 @@ export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
  *
  * This is the ONE production path to a *second* `access.scopeAdmin` identity in a universe that already
  * has an admin: `requestMagicLink` mints the bootstrap email at `_platform`
- * (`nebula-auth-registry.ts` — the only email-magic-link mint), and `*` covers every scope. It holds
+ * (`auth-registry.ts` — the only email-magic-link mint), and `*` covers every scope. It holds
  * **no DAG grant** in any Star's tree, as no admin does — which is exactly the shape the stored-bypass
  * fixtures need ("`access.scopeAdmin` with no DAG grant of its own").
  *

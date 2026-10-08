@@ -8,8 +8,8 @@
  * Worker rewrites from the hostname; our own code by `rawRpcStub`, never `fetch`; and a node's own
  * container at the paths its library fixes. Nothing keeps those apart at runtime but the
  * paths each forward produces, so this scans source, never tests: every `src` tree under `apps/`,
- * the Resources plane (`packages/resources/src`) and Mesh's auth layer (`packages/mesh/src/auth`)
- * for all four checks, and for check 3 every class in `packages/mesh/src` that declares
+ * the Resources plane (`packages/resources/src`), Mesh's auth layer (`packages/mesh/src/auth`) and
+ * its scoped node base (`scoped-mesh-do.ts`) for all four checks, and for check 3 every class in `packages/mesh/src` that declares
  * `HTTP_PREFIXES`. It checks four things:
  *
  *   1. Every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as
@@ -64,6 +64,8 @@ const fail = (file, node, message) => {
 };
 
 const AUTH_LAYER = 'packages/mesh/src/auth/';
+/** Mesh's scoped node base, which every scope's node extends, and so held to all four checks as it was under `apps/`. */
+const SCOPED_BASE = 'packages/mesh/src/scoped-mesh-do.ts';
 
 /** The files scanned, each with whether all four checks apply or only check 3's surfaces. */
 function sourceFiles() {
@@ -75,7 +77,7 @@ function sourceFiles() {
       if (statSync(path).isDirectory()) walk(path, inSrc || name === 'src', checks);
       else if (inSrc && name.endsWith('.ts') && !name.endsWith('.d.ts')) {
         const file = relative(ROOT, path);
-        out.set(file, file.startsWith(AUTH_LAYER) ? 'all' : out.get(file) ?? checks);
+        out.set(file, file.startsWith(AUTH_LAYER) || file === SCOPED_BASE ? 'all' : out.get(file) ?? checks);
       }
     }
   };

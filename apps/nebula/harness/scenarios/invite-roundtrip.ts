@@ -20,7 +20,7 @@
  *  3. **Accepting on THAT link's page is the login** — the cookie lands, and the refresh mints a JWT whose
  *     `authScope` is the star and whose `scopeAdmin` is true (scenario 4: the invite requested the
  *     bit under the inviter's dominion). *The bit's own mutations are validated in-lane
- *     (nebula-auth-invite.test.ts drives the same mint); what only this tier can add is that the
+ *     (Mesh's auth-invite.test.ts drives the same mint); what only this tier can add is that the
  *     DELIVERED link carries them.*
  *  4. **The invited star admin acts on its tree through the bypass, holding no grant there** —
  *     the tree arrives on the orgTree channel with no grant for the invitee, and their own

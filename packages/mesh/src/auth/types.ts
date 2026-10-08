@@ -30,9 +30,8 @@ type EmailMessageBase = {
  * soon, and each would otherwise be an override fighting a shared default, or Nebula vocabulary
  * pushed into the MIT package.
  *
- * All five variants were copied **verbatim**; Nebula emits `magic-link`, `invite-new`, and
- * `invite-existing` today (the invite entry picks between the last two by acceptance —
- * `invite-entry.ts`), so pruning the remaining two is not a YAGNI question either.
+ * Of the five variants copied verbatim, the three Nebula sends stay: `magic-link`, `invite-new` and
+ * `invite-existing` (the invite entry picks between the last two by acceptance — `invite-entry.ts`).
  *
  * Subject lines are controlled by `AuthEmailSender` via overridable methods — not part of this type.
  *

@@ -18,7 +18,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const mesh = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'packages', 'mesh', 'src');
+// Every path below is relative to the repo root, whichever directory runs the script: Mesh's `test`
+// script runs it from `packages/mesh`, where esbuild's default would key the graph `src/auth/…` and
+// no pattern below could match.
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const mesh = resolve(root, 'packages', 'mesh', 'src');
 
 const FORBIDDEN = [
   /packages\/mesh\/src\/auth\/auth-registry\.ts$/,
@@ -34,6 +38,7 @@ for (const entry of ['index.ts', 'client-index.ts']) {
   const result = await build({
     entryPoints: [resolve(mesh, entry)],
     bundle: true,
+    absWorkingDir: root,
     write: false,
     metafile: true,
     platform: 'node',
@@ -50,7 +55,7 @@ for (const entry of ['index.ts', 'client-index.ts']) {
     console.error(
       `✗ Mesh's ${entry} graph reaches the auth layer's server half, which belongs behind @lumenize/mesh/auth:\n`
       + hits.map((h) => `    ${h}`).join('\n')
-      + `\n  Trace the importer chain with: npx esbuild packages/mesh/src/${entry} --bundle --metafile=meta.json`,
+      + `\n  Trace the importer chain from the repo root with: npx esbuild packages/mesh/src/${entry} --bundle --metafile=meta.json`,
     );
   } else {
     console.log(`✓ mesh ${entry} graph holds no Registry, router, token or email-sender module (${inputs.length} modules checked)`);
@@ -58,7 +63,7 @@ for (const entry of ['index.ts', 'client-index.ts']) {
   if (entry === 'client-index.ts') {
     // A decorator is an `@name(` opening a line; a JSDoc tag sits behind its ` * `.
     const decorated = inputs.filter((i) => i.endsWith('.ts')
-      && /^\s*@[A-Za-z_$][\w$.]*\(/m.test(readFileSync(resolve(process.cwd(), i), 'utf8')));
+      && /^\s*@[A-Za-z_$][\w$.]*\(/m.test(readFileSync(resolve(root, i), 'utf8')));
     if (decorated.length > 0) {
       failed = true;
       console.error(

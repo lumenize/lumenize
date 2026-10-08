@@ -8,7 +8,7 @@
  * minimal subclass installs an ontology the same way but stays browser-bundleable:
  * `StarTest` is imported as a TYPE only (erased at runtime — the `ctn()` proxy
  * records just the method name), and it extends the vue-free, browser-safe
- * `NebulaClient` from `@lumenize/nebula/client`.
+ * `NebulaClient` from `@lumenize/resources/client`.
  *
  * `applyOntologyForTest` is `@mesh(requireDominionHere)` on the STAR (it compiles
  * server-side in the test app — the deployed Worker carries no compiler), so this must

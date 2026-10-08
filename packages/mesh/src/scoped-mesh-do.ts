@@ -9,7 +9,7 @@ import { debug } from '@lumenize/debug';
 import { MeshDO } from './mesh-do';
 import { ClientGateway } from './client-gateway';
 import type { ClientGatewayHost } from './client-gateway';
-import { WS_CLOSE_GONE } from './gateway-messages';
+import { GATEWAY_PREFIX, WS_CLOSE_GONE } from './gateway-messages';
 import type { GatewayConnectionInfo } from './gateway-messages';
 import { rawRpc } from './raw-rpc-decorator';
 import type { CallEnvelope } from './lmz-api';
@@ -31,15 +31,12 @@ import type { AuthClaims } from './auth/types';
  */
 type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string } };
 
-/** The prefix a Client's upgrade arrives under at its host node: `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`. */
-export const GATEWAY_PREFIX = '/gateway';
-
 /**
  * Guard: require admin access **over the node this call is running on**.
  * Used with @mesh(requireDominionHere) on subclass methods.
  *
- * Orthogonal to onBeforeCall's tenant boundary: onBeforeCall decides *which tenant* may call
- * (passage), `requireDominionHere` decides *whether the caller holds dominion here*.
+ * Orthogonal to the passage step's tenant boundary: the passage step decides *which tenant* may
+ * call, `requireDominionHere` decides *whether the caller holds dominion here*.
  *
  * ⚠️ **The bare `access.scopeAdmin` bit is NOT dominion** — it is dominion only over what the
  * calling host's scope covers, the token's `aud` (the host rule, ADR-015 and ADR-022). A universe

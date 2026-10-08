@@ -18,7 +18,7 @@ Both uses get the same mechanics. The "org" in "org tree" reads more as a verb (
 
 ## Permissions table and resolution
 
-Each node carries a per-user permissions table — `sub` (the subject claim from the user's JWT, a bare UUID minted by nebula-auth) → `'admin' | 'write' | 'read'`. Grants are matched by exact string equality against the JWT `sub`. Effective permission for `(sub, nodeId)` is the **highest grant found on any ancestor path** from the resource's attached node up to root.
+Each node carries a per-user permissions table — `sub` (the subject claim from the user's JWT, a bare UUID minted by Mesh's auth layer) → `'admin' | 'write' | 'read'`. Grants are matched by exact string equality against the JWT `sub`. Effective permission for `(sub, nodeId)` is the **highest grant found on any ancestor path** from the resource's attached node up to root.
 
 ```typescript @skip-check
 // Conceptual — actual API surface lives on client.orgTree. Keys are bare-UUID

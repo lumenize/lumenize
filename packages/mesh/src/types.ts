@@ -161,9 +161,9 @@ export interface CallOptions {
  *
  * @example
  * ```typescript
- * import { MeshDO } from '@lumenize/mesh';
+ * import { UnscopedMeshDO } from '@lumenize/mesh';
  *
- * class MyDO extends MeshDO<Env> {
+ * class MyDO extends UnscopedMeshDO<Env> {
  *   example() {
  *     // Built-in - no import needed
  *     this.svc.sql`SELECT * FROM users`;

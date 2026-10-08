@@ -1,6 +1,6 @@
 /**
  * Integration — full stack through the Worker router over the registry + KV (the dissolved-DO model,
- * tasks/nebula-auth-surrogate-sub.md). Uses `Browser` from `@lumenize/testing`, whose jar admits a
+ * tasks/archive/nebula-auth-surrogate-sub.md). Uses `Browser` from `@lumenize/testing`, whose jar admits a
  * cookie as a browser does: a `__Host-` cookie set on the platform host stays there, and a page on a
  * scope host gets its token by a credentialed `fetch` that carries the platform host's cookies and
  * names the page in `Origin`.

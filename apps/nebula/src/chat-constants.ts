@@ -1,11 +1,10 @@
 /**
  * Chat-identity constants + the platform chat ontology SOURCE.
  *
- * Kept in a **client-safe LEAF** — it imports ONLY `./org-ops` (itself a pure
- * constants/types leaf) — so BOTH the browser client (`nebula-client.ts`, bundled via
- * the `./client` entry, which must send {@link CHAT_MESSAGE_ONTOLOGY_VERSION} on every
- * chat op) and the server can use them WITHOUT dragging server code into the browser
- * bundle. The COMPILE of {@link CHAT_MESSAGE_TYPES} lives in `./chat-ontology` (it
+ * Kept **client-safe** — its one import is `ROOT_NODE_ID` from `@lumenize/resources/client` —
+ * so BOTH Studio's page (which reaches it through the `./client` entry and hands
+ * {@link CHAT_MESSAGE_ONTOLOGY_VERSION} to its client for every chat op) and the server can
+ * use them WITHOUT dragging server code into the browser bundle. The COMPILE of {@link CHAT_MESSAGE_TYPES} lives in `./chat-ontology` (it
  * reaches the parser-validator → `cloudflare:workers`); only the pure strings live here.
  */
 import { ROOT_NODE_ID } from '@lumenize/resources/client';

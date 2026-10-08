@@ -144,13 +144,13 @@ describe('no subscription update carries the identity of the caller whose call c
 
     // ── Galaxy kind: a streaming chunk, caused by the admin's turn ────────────────────────────
     const scope = `ident-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
+    const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
     const { client: gAdmin, accessToken: gToken } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, gToken, 'probe@example.com');
     const { client: gProbe, payload: gProbeP } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'probe@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'probe@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     await gAdmin.orgTree.setPermission(CHAT_NODE_ID, gProbeP.sub, 'read');
     using chat = gProbe.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID });
     await chat.ready;

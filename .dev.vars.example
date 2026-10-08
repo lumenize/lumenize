@@ -42,11 +42,12 @@ DEBUG=
 # @lumenize/auth configuration
 # See https://lumenize.com/docs/auth/configuration#what-mustmight-be-in-env for all options
 #
-# Bootstrap-admin emails: the base @lumenize/auth DO and the nebula-auth DO are SEPARATE DOs
+# Bootstrap-admin emails: the base @lumenize/auth DO and Mesh's auth Registry are SEPARATE DOs
 # with SEPARATE vars — this is NOT a duplicate/typo. Set BOTH; never rename or delete either.
 #   LUMENIZE_AUTH_BOOTSTRAP_EMAIL — base @lumenize/auth LumenizeAuth DO (lumenize-auth.ts).
-#   AUTH_BOOTSTRAP_EMAIL   — nebula-auth NebulaAuth DO (nebula-auth.ts); at the reserved
-#                                   _platform instance this email becomes a `*` super-admin.
+#   AUTH_BOOTSTRAP_EMAIL          — Mesh's AuthRegistry (packages/mesh/src/auth/auth-registry.ts);
+#                                   at the reserved _platform instance this email becomes a `*`
+#                                   super-admin.
 # First subject to log in with a bootstrap email is auto-promoted to admin. Both accept a
 # COMMA-SEPARATED list (`a@x.io, b@y.io`) — every listed email is promoted (whitespace/case are
 # normalized per entry). Privilege-granting, so in TESTS these belong in vitest miniflare.bindings,
@@ -55,7 +56,7 @@ LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
 AUTH_BOOTSTRAP_EMAIL=you@example.com,teammate@example.com
 # Relative (/app) or absolute (https://example.com/app)
 LUMENIZE_AUTH_REDIRECT=/app
-# Access-token lifetime in seconds, honoured only when SHORTER than nebula-auth's 900. Leave it
+# Access-token lifetime in seconds, honoured only when SHORTER than Mesh auth's 900. Leave it
 # empty: the /live scenario that waits out a real token lapse sets it for its own boot.
 AUTH_ACCESS_TOKEN_TTL=
 # LUMENIZE_AUTH_ISSUER=https://lumenize.local

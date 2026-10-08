@@ -212,7 +212,7 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
     const { client: admin } = await universeAdminClient(NebulaClientTest, browser, star, star, em('adm'));
     try {
       // Distinguishable by SHAPE from the registry's past-the-facade in-method cap throw, which
-      // REJECTS the whole call (asserted in nebula-auth's own suite): here the promise resolves
+      // REJECTS the whole call (asserted in Mesh's auth suite): here the promise resolves
       // and the malformed entry rides the per-invitee error list.
       const good = em('good');
       const summary = await facadeInvite(admin, star, [{ email: good }, { email: 'not-an-email' }, 42]);

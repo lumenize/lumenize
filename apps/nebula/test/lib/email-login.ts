@@ -555,7 +555,7 @@ export async function refreshAccessToken(
  * that does not exist yet.
  *
  * Why this and not just `loginViaEmail`: **login never mints an identity.** Identity
- * mint is authority-point-only (`nebula-auth-registry.ts` says outright *"NEVER call
+ * mint is authority-point-only (`auth-registry.ts` says outright *"NEVER call
  * from a login path"*), so an address holding no membership gets a link whose Continue sends it
  * to sign up, holding no refresh cookie. The one open, admin-minting entry point today is
  * `claim-universe`, which mints the universe admin with `scopeAdmin: true` before sending the link.

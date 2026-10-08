@@ -49,9 +49,13 @@ export default defineConfig({
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
       // The Resources plane lives in packages/resources, outside this root, and is exercised here.
+      // `allowExternal` matches a loaded file's absolute path, so `src/**` alone would admit every
+      // workspace package this suite loads; the exclude below keeps Resources and drops the rest.
+      // `src/**` stays root-relative because the pass that lists never-loaded files reads it so.
       allowExternal: true,
-      include: ['**/src/**', '**/packages/resources/src/**'],
+      include: ['src/**', '**/packages/resources/src/**'],
       exclude: [
+        '**/packages/!(resources)/**',
         '**/node_modules/**',
         '**/dist/**',
         '**/*.config.*',
@@ -175,7 +179,7 @@ export default defineConfig({
         },
       },
       // DevStudio node (Phase 3.5b) — shell Workspace + isomorphic-git source-of-truth
-      // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends NebulaDO
+      // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends ScopedMeshDO
       // (constructable under vitest-plugin, unlike DevContainer). Own wrangler
       // (DEV_STUDIO + STAR probe + LOADER). nodejs_compat for shell/isomorphic-git.
       {

@@ -2,8 +2,8 @@
  * The `lmz.access-token.` WebSocket subprotocol — mesh owns both ends on the Nebula path.
  *
  * `WS_TOKEN_PREFIX` + `extractWebSocketToken` moved here from `@lumenize/auth` so the producer
- * (`lumenize-client.ts` `#connect`) and the consumer (`nebula-auth`'s router, Nebula's
- * entrypoint) share one definition instead of a never-re-sync copy between two ends of a live
+ * (`mesh-client.ts` `#connectInternal`) and the consumer (`hostedUpgrade`, in Mesh's auth layer)
+ * share one definition instead of a never-re-sync copy between two ends of a live
  * protocol — where the failure mode is a silent 401 on WS upgrade.
  *
  * The `extractWebSocketToken` cases below are ported from `packages/auth/test/auth.test.ts`

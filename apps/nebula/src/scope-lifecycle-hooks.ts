@@ -1,12 +1,12 @@
 /**
- * The scope lifecycle hooks nebula-auth calls when a scope is deleted or created — `NebulaAuthFacade`
+ * The scope lifecycle hooks Mesh's auth layer calls when a scope is deleted or created — `NebulaAuthFacade`
  * on a deletion or `createGalaxy`, and the auth router when a claim is accepted — the one module
  * that holds every `rawRpcStub` call `apps/nebula` makes (ADR-023's `@rawRpc()` bridge): a wipe
  * through `teardown()`, and a galaxy's certificate wake through `orderCertificate()`.
  *
- * nebula-auth decides WHICH scopes a deletion or a creation touches, and cannot name a Galaxy or a
+ * The auth layer decides WHICH scopes a deletion or a creation touches, and cannot name a Galaxy or a
  * Star (dependency direction), so it hands the targets here and this module wipes each one's Durable
- * Object through `NebulaDO.teardown()`. Neither is a mesh method: `@mesh()` would let any admin wipe
+ * Object through `ScopedMeshDO.teardown()`. Neither is a mesh method: `@mesh()` would let any admin wipe
  * a live app without deleting it.
  */
 import { debug } from '@lumenize/debug';

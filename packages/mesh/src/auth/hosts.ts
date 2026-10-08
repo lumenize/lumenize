@@ -8,7 +8,7 @@
  * exactly as `tenant1.crm.acme.lumenize.dev` is.
  *
  * Pure, with no `cloudflare:workers` in its graph, so vite's config and the Node harness import it
- * through the `/claims` subpath.
+ * through Mesh's `/client` subpath.
  */
 import { isValidSlug } from './parse-id';
 import { RESERVED_STAR_SLUGS, RESERVED_UNIVERSE_SLUGS } from './types';

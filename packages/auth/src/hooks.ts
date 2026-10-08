@@ -9,12 +9,11 @@ import type { JwtPayload } from '@lumenize/crypto';
  * ⚠️ **A KNOWN SECOND COPY, kept deliberately — do NOT "de-duplicate" it against
  * `@lumenize/mesh`.** The canonical definition (and `extractWebSocketToken`) now lives in
  * `packages/mesh/src/gateway-messages.ts`, exported from `@lumenize/mesh/client`, because mesh
- * both produces the subprotocol and parses it on the Nebula path. `@lumenize/auth` must not
- * depend on `@lumenize/mesh` (`mesh.md` § Package dependency direction), yet mesh routes its own
- * e2e WebSocket upgrades through these hooks — so this end stays independent by design.
- *
- * That coupling is not untested: `mesh/test/browser/ws-roundtrip-browser.test.ts` round-trips
- * mesh's real producer against this consumer in CI, so a divergence reddens there.
+ * both produces the subprotocol and parses it, in its own auth layer's `hostedUpgrade`.
+ * `@lumenize/auth` must not depend on `@lumenize/mesh` (`mesh.md` § Package dependency
+ * direction), so this end stays independent by design. Since Mesh's suites moved onto Mesh's own
+ * auth, nothing round-trips Mesh's producer against this copy, and the copy goes with the package
+ * when `@lumenize/auth` is retired.
  *
  * The property is "defined once on the Nebula path", never "defined once repo-wide" — the prefix
  * is additionally a **published wire convention** that `website/docs/mesh/security.mdx` teaches

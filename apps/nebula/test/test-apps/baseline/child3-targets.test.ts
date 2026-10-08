@@ -50,19 +50,19 @@ describe('child3 — a turn\'s chunks reach the readers of the chat node, and no
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
-    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
+    const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
 
     // Non-admin "granted": explicit read on the chat node.
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'granted@example.com');
     const { client: granted, payload: grantedP } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     await admin.orgTree.setPermission(CHAT_NODE_ID, grantedP.sub, 'read');
 
     // Non-admin "denied": no grant anywhere.
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
     const { client: denied } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
 
     // All three subscribe the chat query → three query rows, each carrying its own sub +
     // dominionOverHostAtSubscribe flag. Permission is enforced per push, per target.
