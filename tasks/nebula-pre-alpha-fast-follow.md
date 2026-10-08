@@ -1,6 +1,6 @@
 # Nebula Pre-Alpha Fast-Follow
 
-**Status**: Drafted, not started — the **parent index** for the reactive "next" horizon: platform capabilities the first real user-developer apps will demand beyond the core codegen + data + chat loop. Not a build commitment; each item is `/review-task`'d before "go" and picked up **as user demand surfaces**. Linked from [`nebula-pre-alpha.md`](nebula-pre-alpha.md). Real child task files are spun **one at a time** when an item goes active — never pre-created as stubs. (Item 3 already has its own file; Items 1–2 are homed here until they go active. Item 9 is a **defect** rather than a capability — the one exception to the framing above, and it says so at the top of the item.)
+**Status**: Drafted, not started — the **parent index** for the reactive "next" horizon: platform capabilities the first real user-developer apps will demand beyond the core codegen + data + chat loop. Not a build commitment; each item is `/review-task`'d before "go" and picked up **as user demand surfaces**. Linked from [`nebula-pre-alpha.md`](nebula-pre-alpha.md). Real child task files are spun **one at a time** when an item goes active — never pre-created as stubs. (Item 3 already has its own file; Items 1–2 are homed here until they go active. Item 9 is a **defect** rather than a capability, and it says so at the top of the item.)
 
 **Provenance**: Items 1–2 surfaced 2026-07-02 from the first user-developer spec — Jennifer's [Luminize Almanac vision/requirements/data-model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and her companion [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit). Review lens was "what does this spec teach Nebula," not spec QA (see the `nebula-pitch-deck` memory for the full findings).
 
@@ -300,3 +300,30 @@ If both land and the model still cannot close a loop it should be able to close,
 The experiment turned up two more things any design has to handle: after a deploy a snapshot restores its own, older image, and `@swc/core` 1.16.12+ will not load under the new policy's filesystem. Both are in its `RESULTS.md` § *Findings*.
 
 **Demand trigger: fired 2026-10-02**, when computer 0.4.0 shipped the passthrough. The wipe gate is the cheap moment, because the new container application lands there and the vitest-plugin move already has.
+
+## Item 12: `cf` and `cloudflare.config.ts` replace `wrangler` and `wrangler.jsonc`
+
+**Not a capability: a toolchain move with a deadline, added 2026-10-08.** Cloudflare launched `cf` in open beta on 2026-09-28 ([launch post](https://blog.cloudflare.com/cloudflare-cf-cli-launch/)). When the beta ends, Cloudflare ships a final wrangler major that points at `cf`, then maintains wrangler for 18 months. **Until a child task file exists, `cf`'s source is the authority** (`cloudflare/cf`, `packages/cli/src/commands/`). The `test_bugs/` folder that listed its gaps was deleted on 2026-10-05 in cloudflare/cf#208, and two of those gaps were already stale on launch day; they are below.
+
+**Goal:** `apps/nebula` declares its Worker in a typed `cloudflare.config.ts`, and our scripts, the `/live` harness and the vitest-plugin lane all read that file instead of `wrangler.jsonc`.
+
+**What it buys:**
+- **`apps/nebula/scripts/local-config.mjs` goes away.** It builds the config a local stack boots from by commenting `routes`, and for a container-free boot `containers`, out of `wrangler.jsonc` with a regex. Inside `defineConfig(({ mode }) => …)` each is a check on `mode`.
+- **The config type-checks.** Bindings come from typed helpers such as `bindings.durableObject(…)`, so an agent editing the file gets the language server's errors. It is ADR-001's bet, applied to config.
+- **Every operation in Cloudflare's API becomes a command**, about 3,000 against wrangler's 280, with JSON output by default and `cf cli search` to find one from a sentence.
+
+**What blocks it today** (checked 2026-10-08 against `cf` 1.0.0-beta.13 and wrangler 4.147.0):
+- **Our `@mesh()`-decorated methods under the Vite build.** `cf` builds with the Cloudflare Vite plugin, and Rolldown passes TC39 decorators through untransformed while still exiting 0; Oxc's transform is still an open issue, oxc-project/oxc#9170. Both UI surfaces already carry `unplugin-swc` for this, but nobody has measured it on the Worker's own build. Until someone does, `cf` hands a Worker that needs esbuild back to wrangler for dev and deploy, which is the path the 18 months run out on.
+
+**What it costs:**
+- **The `/live` harness is built on `wrangler dev`.** `drive.ts` boots one per scenario, reads its output, and fingerprints the tree it reloads on save. A Vite dev server changes all three, so switching to `cf` ends with a `drive.ts all` sweep and a deployed pass.
+- **A second package pins `miniflare` exactly.** `cf` 1.0.0-beta.13 pins `5.20261006.0-alpha` and `@cloudflare/vitest-plugin` 1.3.6 pins `5.20261001.0-alpha`, so today they disagree. The two are chosen together from then on, or local dev and the vitest-plugin lane run different workerd builds (`packaging.md` § *Toolchain bumps*).
+- **`critical.md` is written against wrangler.** Its `Env` rule runs `wrangler types` into `worker-configuration.d.ts`, its compatibility-date rule is stated per `wrangler.jsonc`, and its secrets rule names `wrangler.jsonc` and its `vars`. Each changes with the format.
+
+**Not blockers, though both were reported as blockers on 2026-09-28:**
+- **Type generation.** `cf workers types` writes `.cloudflare/types/index.d.ts` from `cloudflare.config.ts` alone, with the runtime types included by default. It has been in `cf` since its first public commit, so `npm run types` has a direct replacement.
+- **Secrets.** `wrangler secret put` takes `--name <worker>` in place of reading a config, and `deploy-test.sh` already passes `--name test-nebula`; only the hint `deploy.sh` prints leaves it out. `cf` writes Worker secrets too: its generated `workers secrets update` and `bulk` commands call `PUT …/workers/scripts/{worker}/secrets`, added on launch day in cloudflare/cf#6.
+
+`cf` can list and query Durable Object namespaces but has no command to delete one, so `workflow.md` § *Experiments* keeps its dashboard-delete rule. That touches experiment cleanup, not adopting `cf`.
+
+**Trigger: a deadline, not demand.** The 18 months start when `cf`'s beta ends, and `cf` is moving fast: beta.13 shipped on 2026-10-07, ten days after launch. The first step is one spike, any time after pre-alpha: build `apps/nebula`'s Worker in `experiments/` with the Cloudflare Vite plugin and `unplugin-swc`, then call a `@mesh()`-decorated method on it. If the decorators survive, what is left is cost.
