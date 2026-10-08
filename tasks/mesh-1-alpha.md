@@ -1,6 +1,6 @@
 # Mesh 1.0.0-alpha.1
 
-**Status:** a holding file, like `backlog.md` and [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md), for what must be done or decided before `@lumenize/mesh` 1.0.0-alpha.1 is published. Not a build commitment as a whole: each item becomes a task file of its own, or joins one, when it starts. Work starts after [mesh-is-built-on-the-scope-tree.md](mesh-is-built-on-the-scope-tree.md) lands and Nebula pre-alpha ships, and the npm publish in [nebula-pre-alpha.md](nebula-pre-alpha.md)'s close-out waits for it.
+**Status:** a holding file, like `backlog.md` and [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md), for what must be done or decided before `@lumenize/mesh` 1.0.0-alpha.1 is published. Not a build commitment as a whole: each item becomes a task file of its own, or joins one, when it starts. Work starts once Nebula pre-alpha ships, since [mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md) landed 2026-10-08, and the npm publish in [nebula-pre-alpha.md](nebula-pre-alpha.md)'s close-out waits for it.
 
 ## Objective
 
@@ -8,7 +8,7 @@
 
 After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adopter on their own would find routes serving Nebula's pages, scope deletions whose teardown only Nebula's Worker runs, website docs describing 0.26, and labels that only fit an app builder. The items below close that gap. Items 5, 9 and 10 must be decided before the publish, and the rest must land. There is no Item 6: the Registry stays raw (`mesh-is-built-on-the-scope-tree.md` D13).
 
-**No item here risks a schema change.** They are docs, configuration, and adopter-facing work Nebula does not need: adding a step that serves an adopter's login page changes what a route serves and nothing anyone stores. Anything that could need a schema change belongs in `mesh-is-built-on-the-scope-tree.md`, before the wipe (its § *What waits for mesh-1-alpha*). Every built app carries the Client's code, so an item here changes the wire, and the exports a generated app imports, only by addition.
+**No item here risks a schema change.** They are docs, configuration, and adopter-facing work Nebula does not need: adding a step that serves an adopter's login page changes what a route serves and nothing anyone stores. Anything that could need a schema change went into `mesh-is-built-on-the-scope-tree.md`, before the wipe (its § *What waits for mesh-1-alpha*). Every built app carries the Client's code, so an item here changes the wire, and the exports a generated app imports, only by addition.
 
 ## Item 1: The website docs rewrite
 

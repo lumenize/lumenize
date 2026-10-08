@@ -77,7 +77,7 @@ Missing: [numbered, specific, each a thing this task adds or changes]
 [Decisions that must be made and that gate something, each with its options and a recommendation.]
 ```
 
-**Each section is a heading of its own so a sibling file can cite it by name** — `§ *Constraints*`, not a section whose title lists its children (Larry, 2026-10-06, from the pen round on `tasks/mesh-is-built-on-the-scope-tree.md`, which first used this outline).
+**Each section is a heading of its own so a sibling file can cite it by name** — `§ *Constraints*`, not a section whose title lists its children (Larry, 2026-10-06, from the pen round on `tasks/archive/mesh-is-built-on-the-scope-tree.md`, which first used this outline).
 
 **Rules for the Pass 1 sections — these are what make it worth reviewing:**
 
