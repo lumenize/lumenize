@@ -662,7 +662,12 @@ Each row records who decided it and when; § *Design intent* carries the reasons
 - **Phase 6's coverage criterion is met on its after figures alone (Larry, 2026-10-08).** The before run hung twice, and every after figure clears both targets from Mesh's own suites; the criterion now says so.
 - **One decision stays open, in the backlog rather than here:** whether `ComposedMeshDO` folds into `MeshDO`, its one user.
 - **The local sweep, containers included, passed 61 of 62 with one parked.** `persona-host` timed out on an invite email and passed alone in 11 s. A second miss came that afternoon in `resubscribe-when-lost`, on a magic link Resend had accepted. The backlog row Larry's question opened carries both.
-- DEPLOY-RESULTS
+- **Deployed, on `393d36f` (`test-nebula` version `45e85956`):**
+  - The pre-rename cookie's refresh answered 401 `invalid_token`, on this deploy and the one before it.
+  - The sweep at concurrency 2 passed 60 of 62 with one parked, in 97.5 min. Each failure passed alone:
+    - `studio-app-settings` hit `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` on its new app's host, the backlog's open TLS row and its third scenario; 166 s alone.
+    - `deleted-on-cloudflare` died in limb 5, 35 min in, on a bare `TimeoutError`; all five limbs passed alone in 1228 s. The likeliest source is a Cloudflare certificate-API call past `cloudflareCertificateApi`'s 15 s bound, which `list()` lets escape. The tail beside the sweep had gone quiet by then, so no Worker logs cover it.
+  - A first deployed sweep, on the deploy before the panel's fixes, was stopped at four scenarios once those fixes began, since every later result would have belonged to no tree.
 
 **Retro notes:**
 - **An instrument has to be mutation-checked where its runner runs it.** Phase 3 checked `check-mesh-graph.mjs` from the repo root, where it works, and it reported CAUGHT. Mesh's `test` script runs it from `packages/mesh`, where it could never fail. Phase 7 met the same trap from the other side: mutations run from the repo root used the root's vitest and reported CAUGHT on a collection failure.
@@ -676,5 +681,35 @@ Each row records who decided it and when; § *Design intent* carries the reasons
 **Close-out notes:**
 - **Standing guidance:** § *What changes in standing guidance*'s grep now lists only dated history, the archived file names that carry it, and the `NodeType` string `mesh.md` quotes; every file `git diff -M --name-status 8b81924..HEAD` renamed or deleted is cited at no old path in `CLAUDE.md`, `.claude`, `docs/adr` or `docs/vision`; `security.md`'s two instruments return their nine and five files at the new paths; no `Today's code differs` block describes what this task built.
 - **Release notes:** the BREAKING row lists every export Mesh lost since `8b81924`, checked against the diff of its two barrels, and now the Client's claims type parameter too.
-- **Backlog:** five rows open, for the email waiter that cannot say which hop lost its mail, the plane's frontend tests still in `apps/nebula`, the two copies of `localhost-lookup.ts`, a Mesh test-support subpath at its third consumer, and DECIDE on folding `ComposedMeshDO` into `MeshDO`. Three rows that named `LumenizeClientGateway`, `lumenize-client.ts` or `hostedUpgrade`'s old home are repointed.
+- **Backlog:** six rows open, for the email waiter that cannot say which hop lost its mail, `deleted-on-cloudflare`'s unexplained deployed failure, the plane's frontend tests still in `apps/nebula`, the two copies of `localhost-lookup.ts`, a Mesh test-support subpath at its third consumer, and DECIDE on folding `ComposedMeshDO` into `MeshDO`. The rows on a new app's TLS and on `drive.ts` owning its tail capture gain today's evidence. Three rows that named `LumenizeClientGateway`, `lumenize-client.ts` or `hostedUpgrade`'s old home are repointed.
 - **Memory:** the WARP note records a clean image push with WARP off, and eight memories that gave a retired name as current now give the new one beside it.
+- **Backlog, deleted:** the five rows this build closed had been struck through rather than deleted, which `tasks/README.md` § *Backlog* forbids; they are gone, and only this file cites them.
+
+## Phase Retro
+
+**1. What did we learn?**
+- **Moving a package's code is cheap; moving the TEXT that names it is the build.** Every blocker and major the panel found was outside the code that moved: an instrument, a rule's `paths:`, a doc Studio's model reads, an ADR's evidence line. The code itself changed behaviour nowhere a scenario could see.
+- **A check can be unable to fail where it runs and still pass every mutation where you ran it.** `check-mesh-graph.mjs` worked from the repo root and was blind from `packages/mesh`; Phase 7's mutations looked caught from the root and were collection failures. Both now have a line in `testing.md`.
+- **A generated file can make a green gate false.** Type-check passed for a phase against a `worker-configuration.d.ts` that predated its own Worker's exports.
+- **The real-browser lane earns its cost.** It alone found the `TOKEN_REFRESH_AHEAD_SECONDS` import cycle (Phase 5), and Studio's vite config loader alone found decorator syntax in `/client` (Phase 7). No Node or workerd lane could see either.
+
+**2. What did we struggle with?**
+- **`apps/nebula`'s vitest stalls at 0% CPU**, in a full run and again in `baseline` alone, early as well as at exit. Running project by project after reaping `workerd` got every count, and it cost Phase 6 its coverage "before" figure, which Larry then waived.
+- **Scripted renames miss what they cannot parse:** a member access (`mod.LumenizeClient`), comments naming an old file, a test local named for what it used to hold. The bare-identifier grep caught the code; comments reached the panel.
+- **Phases 5 and 6 could not be built apart.** Each phase's tests needed the other's code, so they shipped as one commit, and a criterion comparing against "Phase 5's counts" had nothing to compare.
+
+**3. Did any tests fail unexpectedly?**
+- **`short-tokens`' socket limb** read the token's `exp` while the socket's own reconnect refreshed once more, because a token born inside the refresh-ahead window is always due (fixed in Phase 5).
+- **Two scenarios asserted the Profile's refusal message,** which moved into `UnscopedMeshDO` with the check.
+- **`resubscribe-when-lost`'s Studio limb** failed because Studio's vite config could not load decorator syntax from `/client`; nothing else loads that config.
+- **Two email waiters timed out on one afternoon** (`persona-host`, `resubscribe-when-lost`), both on sends Resend accepted. The cause is not known, and the backlog row on Resend's delivery events is how it would be.
+- **`first-app-built` failed twice on a Workers AI `400` mid-turn** in Phase 4, and passed on the third run.
+
+**4. Impact on follow-on work?**
+- [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 1*'s docs rewrite now carries the security page's mix of scoped and unscoped admin checks, and its package table loses a row this build had made wrong.
+- The BREAKING row carries every break to `@lumenize/mesh` into Item 5's release notes, the Client's type parameter included.
+- Six backlog rows open (Close-out notes above), one of them a DECIDE: whether `ComposedMeshDO` folds into `MeshDO`, its one user.
+
+**5. Process changes?**
+- **Made:** `testing.md` says to run `mutate.mjs` from the package being mutated, and to run an instrument from the directory its runner uses.
+- **Made (Larry agreed, 2026-10-08):** `scripts/type-check.sh` regenerates every Worker's types before it checks, so a stale `Env` can no longer pass the gate. With `@lumenize/resources`' `PROFILE` put back to untyped, the run regenerated it and passed, in 62 s for the whole check; the old script read the same stale file and missed three real errors.

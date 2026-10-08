@@ -125,7 +125,7 @@ You MUST score each candidate on this, and MUST say so when you recommend:
 ## Key npm scripts (from repo root)
 - `npm install` — install + `postinstall` (symlinks `.dev.vars` and `cloudflare-test-env.d.ts` into packages)
 - `npm run types` — generate `worker-configuration.d.ts` for all packages; **run before writing code that uses `Env`**
-- `npm run type-check` — TypeScript check across packages
+- `npm run type-check` — regenerates every Worker's types (`npm run types`), then type-checks every package; the generated files under `packages/` are gitignored, so nothing else keeps them fresh
 - `npm test` — `test:code`, then `test:doc`
 - `npm run test:code` — every workspace's own `test` script (`scripts/test-code.sh`)
 - `npm run test:doc` — first the `@check-example` checker (`documentation.md` § *Documentation workflow*), which fails the run on a stale doc block; then the legacy `doc-test/` suites `scripts/test-doc.sh` lists, which are advisory

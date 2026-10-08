@@ -10,6 +10,21 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
+# Regenerate every Worker's `Env` first. The generated `worker-configuration.d.ts` files under
+# packages/ are gitignored, so nothing else refreshes them, and a stale one types a binding its
+# Worker gained as nothing: `rawRpcStub` on it answers `never`, and code that no longer compiles
+# against its Worker passes here. Three errors hid that way through a build (2026-10-08).
+echo "⚙️  Regenerating Worker types..."
+types_log="$(mktemp)"
+if ! "$SCRIPT_DIR/generate-types.sh" > "$types_log" 2>&1; then
+  cat "$types_log"
+  rm -f "$types_log"
+  echo "❌ Type generation failed; the check below would read stale types"
+  exit 1
+fi
+rm -f "$types_log"
+echo ""
+
 echo "🔍 Type-checking packages..."
 echo ""
 
