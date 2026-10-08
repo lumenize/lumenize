@@ -27,7 +27,7 @@ import { deploymentOrigin, hostOrigin, parseHost, type HostTarget } from '@lumen
 import { handlePictureUpload, servePicture } from './profile-pictures';
 import { forwardPage } from './page-forward';
 import { GATEWAY_PREFIX } from './nebula-do';
-import { LUMENIZE_ORIGIN_META } from './page-meta';
+import { LUMENIZE_ORIGIN_META } from '@lumenize/mesh/client';
 import { routeDORequest } from '@lumenize/routing';
 import { extractWebSocketToken } from '@lumenize/mesh/client';
 

@@ -13,8 +13,8 @@
  * `fetch`, an `onLoginRequired`/`onConnectionStateChange`).
  */
 import { inject } from 'vitest';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
-import type { CreateNebulaClientConfig, FactoryResult } from '@lumenize/nebula/frontend';
+import { createNebulaClient } from '@lumenize/resources/frontend';
+import type { CreateNebulaClientConfig, FactoryResult } from '@lumenize/resources/frontend';
 import { PAGE_STAR } from './page-star';
 
 export { PAGE_STAR };

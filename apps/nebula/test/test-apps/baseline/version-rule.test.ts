@@ -25,10 +25,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import {
-  ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID, canonicalQueryHash,
-} from '@lumenize/nebula';
-import type { Galaxy, Star, QueryDescriptor, TransactionResult } from '@lumenize/nebula';
+import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/resources';
+import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import type { Galaxy, Star } from '@lumenize/nebula';
+import type { QueryDescriptor, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, universeAdminClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { GalaxyTest, StarTest } from './index';

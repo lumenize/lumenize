@@ -23,9 +23,10 @@
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
-import type { Galaxy, Star, NodeInviteAck } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import { createNebulaClient } from '@lumenize/resources/frontend';
+import type { Galaxy, Star } from '@lumenize/nebula';
+import type { NodeInviteAck } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
 import { sharedApp } from '../lib/shared-app';

@@ -8,7 +8,7 @@
  * bundle. The COMPILE of {@link CHAT_MESSAGE_TYPES} lives in `./chat-ontology` (it
  * reaches the parser-validator → `cloudflare:workers`); only the pure strings live here.
  */
-import { ROOT_NODE_ID } from './org-ops';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 
 /**
  * The fixed, well-known Chat id for pre-alpha's single chat thread. Client and server

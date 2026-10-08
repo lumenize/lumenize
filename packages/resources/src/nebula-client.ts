@@ -50,8 +50,7 @@ import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, Transa
 import type { QueryUpdatePayload, QueryDescriptor, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
 import type { OrgTreeState, PermissionTier } from './org-ops';
-import type { Star } from './star';
-import type { NodeInvitee, NodeInviteAck } from './resources';
+import type { NodeInvitee, NodeInviteAck, ResourcesRequests } from './resources';
 
 const log = debug('lumenize.nebula-client');
 
@@ -60,6 +59,14 @@ const log = debug('lumenize.nebula-client');
 // factory swaps in a Vue-reactive one), and re-exports its types as the public
 // surface. api-reference.md is the contract.
 export type { TransactionOutcome, TransactionResourceResolution, ResourceHandler, ConflictResolverVerdict };
+
+/**
+ * The surface every node that hosts this client's Resources serves, whatever its class: a Star, a
+ * Galaxy or a Universe answers `resources` the same way through its one `@mesh()`-decorated getter.
+ */
+interface ResourcesHostNode {
+  readonly resources: ResourcesRequests;
+}
 /**
  * Public operation descriptor (the engine op shape): `typeName` on every op;
  * `eTag` optional (auto-derived from the local store when omitted — the
@@ -323,7 +330,7 @@ interface PendingSubscribe {
 
 /**
  * The store-effect seam the conflict-outcome engine drives. The factory
- * (`@lumenize/nebula/frontend`) injects a Vue-reactive implementation via
+ * (`@lumenize/resources/frontend`) injects a Vue-reactive implementation via
  * {@link NebulaClient.bindStore}; headless NebulaClient (Node tests, admin
  * scripting) uses the default in-memory one so transactions resolve without a
  * UI store. All effects are keyed by `(resourceType, resourceId)`; the
@@ -811,7 +818,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
 
   /**
    * Register a runtime listener for connection-state transitions. The factory
-   * (`@lumenize/nebula/frontend`) uses this to mirror state into
+   * (`@lumenize/resources/frontend`) uses this to mirror state into
    * `store.lmz.connection.*`; it also reads {@link connectionState} once at
    * creation to replay the current state (so factory/connect ordering is
    * irrelevant). Single-handler; a later call replaces the previous one. The
@@ -1160,7 +1167,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     let result: any;
     try {
       result = await this.#hostCallAsync(
-        this.ctn<Star>().resources.transaction(this.requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
+        this.ctn<ResourcesHostNode>().resources.transaction(this.requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
       );
     } catch (e) {
       if (!(e instanceof Error)) throw e;
@@ -1295,7 +1302,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     if (version) {
       for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
         this.#hostCall(
-          this.ctn<Star>().resources.subscribe(version, resourceType, resourceId),
+          this.ctn<ResourcesHostNode>().resources.subscribe(version, resourceType, resourceId),
           this.ctn<this>().onResourceSubscribeRefused(resourceType, resourceId));
       }
     }
@@ -1309,13 +1316,13 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     // loop above.
     for (const [queryHash, entry] of this.#queryEntries) {
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
+        this.ctn<ResourcesHostNode>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
     }
     // Re-fire every live STANDALONE subscriber-list watcher sub (the roster re-arrives via
     // handleQuerySubscribersUpdate; the server's INSERT OR REPLACE makes the re-register idempotent).
     for (const [queryHash, entry] of this.#querySubscriberEntries) {
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuerySubscribers(entry.query),
+        this.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(entry.query),
         this.ctn<this>().onRosterSubscribeRefused(queryHash));
     }
     // The org tree, gated on a registered listener so headless clients (admin scripts, tests) that
@@ -1335,7 +1342,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
         const entry = this.#subscriptionRegistry.get(key);
         if (!entry) continue;
         this.#hostCall(
-          this.ctn<Star>().resources.subscribe(version, entry.resourceType, entry.resourceId),
+          this.ctn<ResourcesHostNode>().resources.subscribe(version, entry.resourceType, entry.resourceId),
           this.ctn<this>().onResourceSubscribeRefused(entry.resourceType, entry.resourceId));
       }
     }
@@ -1346,12 +1353,12 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     for (const [queryHash, entry] of this.#queryEntries) {
       if (entry.ready.settled) continue;
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
+        this.ctn<ResourcesHostNode>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
     }
     for (const [queryHash, entry] of this.#querySubscriberEntries) {
       if (entry.ready.settled) continue;
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuerySubscribers(entry.query),
+        this.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(entry.query),
         this.ctn<this>().onRosterSubscribeRefused(queryHash));
     }
     if (this.#treeSnapshotAwaited && this.#orgTreeListener) this.#subscribeTree();
@@ -1359,7 +1366,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
 
   #subscribeTree(): void {
     this.#treeSnapshotAwaited = true;
-    this.#hostCall(this.ctn<Star>().resources.subscribeTree(), this.ctn<this>().logRefusal('subscribeTree'));
+    this.#hostCall(this.ctn<ResourcesHostNode>().resources.subscribeTree(), this.ctn<this>().logRefusal('subscribeTree'));
   }
 
   /**
@@ -1559,7 +1566,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
           listeners: new Set(),
         };
         this.#queryEntries.set(queryHash, entry);
-        this.#hostCall(this.ctn<Star>().resources.subscribeQuery(query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
+        this.#hostCall(this.ctn<ResourcesHostNode>().resources.subscribeQuery(query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
       }
       entry.refcount++;
       const e = entry;
@@ -1596,7 +1603,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
   async #inviteToNode(nodeId: string, invitees: NodeInvitee[], attempt = 0): Promise<NodeInviteAck> {
     try {
       return await this.#hostCallAsync(
-        this.ctn<Star>().resources.invite(nodeId, invitees));
+        this.ctn<ResourcesHostNode>().resources.invite(nodeId, invitees));
     } catch (err) {
       if (isInstalling(err) && attempt < INSTALLING_RETRY_LIMIT) {
         await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));
@@ -1624,25 +1631,25 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
    */
   readonly orgTree = {
     createNode: (nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.createNode(nodeId, parentNodeId, slug, label)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.createNode(nodeId, parentNodeId, slug, label)),
     addEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.addEdge(parentNodeId, childNodeId)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.addEdge(parentNodeId, childNodeId)),
     removeEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.removeEdge(parentNodeId, childNodeId)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.removeEdge(parentNodeId, childNodeId)),
     reparentNode: (childNodeId: string, oldParentId: string, newParentId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.reparentNode(childNodeId, oldParentId, newParentId)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.reparentNode(childNodeId, oldParentId, newParentId)),
     deleteNode: (nodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.deleteNode(nodeId)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.deleteNode(nodeId)),
     undeleteNode: (nodeId: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.undeleteNode(nodeId)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.undeleteNode(nodeId)),
     renameNode: (nodeId: string, newSlug: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.renameNode(nodeId, newSlug)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.renameNode(nodeId, newSlug)),
     relabelNode: (nodeId: string, newLabel: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.relabelNode(nodeId, newLabel)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.relabelNode(nodeId, newLabel)),
     setPermission: (nodeId: string, targetSub: string, level: PermissionTier): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.setPermission(nodeId, targetSub, level)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.setPermission(nodeId, targetSub, level)),
     revokePermission: (nodeId: string, targetSub: string): Promise<void> =>
-      this.#orgTreeMutate(this.ctn<Star>().resources.orgTree.revokePermission(nodeId, targetSub)),
+      this.#orgTreeMutate(this.ctn<ResourcesHostNode>().resources.orgTree.revokePermission(nodeId, targetSub)),
   };
 
   /** Count one more handle on `(rt, rid)`, creating the key's read-access state with the first. */
@@ -1702,7 +1709,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     this.#subscribeRefcount.delete(key);
     this.#subscriptionRegistry.delete(key);
     this.#resourceAccess.delete(key);
-    this.#hostCall(this.ctn<Star>().resources.unsubscribe(resourceType, resourceId), this.ctn<this>().logRefusal('unsubscribe'));
+    this.#hostCall(this.ctn<ResourcesHostNode>().resources.unsubscribe(resourceType, resourceId), this.ctn<this>().logRefusal('unsubscribe'));
   }
 
   /**
@@ -1753,7 +1760,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
       ws.sub[Symbol.dispose]();
     }
     entry.windowSubs.clear();
-    this.#hostCall(this.ctn<Star>().resources.unsubscribeQuery(queryHash), this.ctn<this>().logRefusal('unsubscribeQuery'));
+    this.#hostCall(this.ctn<ResourcesHostNode>().resources.unsubscribeQuery(queryHash), this.ctn<this>().logRefusal('unsubscribeQuery'));
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -1765,7 +1772,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     return this.#subscribeVia(
       key,
       () => this.#hostCall(
-        this.ctn<Star>().resources.subscribe(version, resourceType, resourceId),
+        this.ctn<ResourcesHostNode>().resources.subscribe(version, resourceType, resourceId),
         this.ctn<this>().onResourceSubscribeRefused(resourceType, resourceId)),
       this.#pendingSubscribes,
       // Through the SAME door the host's own error push uses, so abandoning runs that branch's
@@ -1862,7 +1869,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
       entry = { query, refcount: 0, ready: { promise, resolve, reject, settled: false } };
       this.#querySubscriberEntries.set(queryHash, entry);
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuerySubscribers(query),
+        this.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(query),
         this.ctn<this>().onRosterSubscribeRefused(queryHash));
     }
     entry.refcount++;
@@ -1884,7 +1891,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     if (entry.refcount > 1) { entry.refcount--; return; } // other handles still hold it open
     this.#querySubscriberEntries.delete(queryHash);
     this.#hostCall(
-      this.ctn<Star>().resources.unsubscribeQuerySubscribers(queryHash),
+      this.ctn<ResourcesHostNode>().resources.unsubscribeQuerySubscribers(queryHash),
       this.ctn<this>().logRefusal('unsubscribeQuerySubscribers'));
   }
 
@@ -1974,7 +1981,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     // except an `installing` stale (the host is mid-lazy-pull), which retries the idempotent read.
     const attempt = (options as { installingAttempt?: number } | undefined)?.installingAttempt ?? 0;
     return this.#hostCallAsync<Snapshot | null>(
-      this.ctn<Star>().resources.read(version, resourceId),
+      this.ctn<ResourcesHostNode>().resources.read(version, resourceId),
     ).catch(async (err) => {
       if (isOntologyStaleError(err)) {
         if (err.installing && attempt < INSTALLING_RETRY_LIMIT) {
@@ -2081,7 +2088,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
           const registered = this.#subscriptionRegistry.get(key);
           if (!version || !registered) return;
           this.#hostCall(
-            this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId),
+            this.ctn<ResourcesHostNode>().resources.subscribe(version, registered.resourceType, registered.resourceId),
             this.ctn<this>().onResourceSubscribeRefused(registered.resourceType, registered.resourceId));
         })) {
         return;
@@ -2207,14 +2214,14 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
         const registered = this.#subscriptionRegistry.get(key);
         if (!registered) continue;
         this.#hostCall(
-          this.ctn<Star>().resources.subscribe(version, registered.resourceType, registered.resourceId),
+          this.ctn<ResourcesHostNode>().resources.subscribe(version, registered.resourceType, registered.resourceId),
           this.ctn<this>().onResourceSubscribeRefused(registered.resourceType, registered.resourceId));
       }
     }
     for (const [queryHash, entry] of this.#queryEntries) {
       if (entry.deniedNodes.length === 0) continue;
       this.#hostCall(
-        this.ctn<Star>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
+        this.ctn<ResourcesHostNode>().resources.subscribeQuery(entry.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
     }
   }
 
@@ -2238,7 +2245,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     if (result instanceof Error) {
       if (isInstalling(result) && this.#retryInstalling(`query:${queryHash}`, () => {
         const live = this.#queryEntries.get(queryHash);
-        if (live) this.#hostCall(this.ctn<Star>().resources.subscribeQuery(live.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
+        if (live) this.#hostCall(this.ctn<ResourcesHostNode>().resources.subscribeQuery(live.query), this.ctn<this>().onQuerySubscribeRefused(queryHash));
       })) return;
       if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
@@ -2270,7 +2277,7 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
       if (isInstalling(result) && this.#retryInstalling(`roster:${queryHash}`, () => {
         const live = this.#querySubscriberEntries.get(queryHash);
         if (live) {
-          this.#hostCall(this.ctn<Star>().resources.subscribeQuerySubscribers(live.query),
+          this.#hostCall(this.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(live.query),
             this.ctn<this>().onRosterSubscribeRefused(queryHash));
         }
       })) return;

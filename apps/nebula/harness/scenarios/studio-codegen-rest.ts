@@ -34,7 +34,7 @@
  */
 import assert from 'node:assert/strict';
 import { DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
-import type { Snapshot } from '@lumenize/nebula/client';
+import type { Snapshot } from '@lumenize/resources/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';

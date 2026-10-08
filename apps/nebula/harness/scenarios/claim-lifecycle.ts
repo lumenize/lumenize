@@ -38,7 +38,8 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';

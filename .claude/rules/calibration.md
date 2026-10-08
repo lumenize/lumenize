@@ -113,7 +113,7 @@ Four failure modes, same root — treating the suite as an oracle rather than as
 
 | Conclusion (correct, agreed) | Premise (false, unchecked) |
 |---|---|
-| Drop the client-side TTL warn | *"the client cannot import the constant"* — `apps/nebula/src/frontend/types.ts` already imports from `@lumenize/mesh/client`, so the module is reachable from the client graph and a `./types` export is one line |
+| Drop the client-side TTL warn | *"the client cannot import the constant"* — `packages/resources/src/frontend/types.ts` already imports from `@lumenize/mesh/client`, so the module is reachable from the client graph and a `./types` export is one line |
 | Write a `/live` expiry scenario | *"pool-workers cannot let time pass"* — `vi.setSystemTime` moves the clock **both** the Worker and the DO see, measured |
 
 It recurs, and not only here: on 2026-08-03 a claim that `@cloudflare/computer` drags in `zod` — an ADR-001 footgun — was asserted under a conclusion nobody was arguing with, and corrected in `experiments/computer-vfs-build/RESULTS.md` § 7, which names this entry. Different domain, four days later.

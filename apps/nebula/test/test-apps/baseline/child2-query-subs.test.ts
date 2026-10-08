@@ -10,8 +10,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
+import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/resources';
+import type { Snapshot, TransactionResult, QuerySubscriberRow } from '@lumenize/resources';
 import { adminClientAt, createInvitedClient, createSubject, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

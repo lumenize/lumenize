@@ -24,7 +24,8 @@
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from '@lumenize/mesh/client';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';

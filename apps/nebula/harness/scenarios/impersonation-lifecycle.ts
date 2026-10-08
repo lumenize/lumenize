@@ -22,7 +22,8 @@
 import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
 import {
@@ -34,7 +35,7 @@ import { debugLines } from '../lib/stdio';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
-} from '../../src/impersonation';
+} from '../../../../packages/resources/src/impersonation';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 export const needsContainer = false;

@@ -16,8 +16,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/resources';
 import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

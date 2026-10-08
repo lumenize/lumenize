@@ -10,7 +10,9 @@
     "audit:urls": "node scripts/audit-urls.mjs"
   },
   "dependencies": {
+    "@lumenize/mesh": "*",
     "@lumenize/nebula": "*",
+    "@lumenize/resources": "*",
     "daisyui": "^5.0.0",
     "lucide-vue-next": "^0.469.0",
     "vue": "3.6.0-rc.10"

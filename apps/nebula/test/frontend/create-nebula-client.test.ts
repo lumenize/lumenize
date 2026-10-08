@@ -5,8 +5,8 @@
  * (§5.3.8 / P10); `ready`'s first-connect terminal-reject pairs with P9.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { resolveNebulaClientConfig, defaultOnLoginRequired } from '../../src/frontend/create-nebula-client';
-import type { OntologyStaleInfo } from '../../src/nebula-client';
+import { resolveNebulaClientConfig, defaultOnLoginRequired } from '../../../../packages/resources/src/frontend/create-nebula-client';
+import type { OntologyStaleInfo } from '../../../../packages/resources/src/nebula-client';
 
 const STALE: OntologyStaleInfo = { reason: 'ontology-stale', clientVersion: 'v1', currentVersion: 'v2' };
 

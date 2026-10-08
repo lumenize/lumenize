@@ -53,7 +53,7 @@ import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
 import { scopeOriginFrom } from '../lib/email-login';
 import { withCommitStamp } from './bench-commit-stamp';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 import { ThroughputHarnessClient } from './throughput-harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
 

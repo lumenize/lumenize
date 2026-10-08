@@ -27,7 +27,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import { LoginRequiredError } from '@lumenize/mesh/client';
 import { foundAndLogin, ORIGIN, pageOf } from '../../test-helpers';
 

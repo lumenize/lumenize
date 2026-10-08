@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
 import { universeAdminClient, createSubject, createInvitedClient, uniqueGalaxyScope, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { StarTest, GalaxyTest } from './index';

@@ -1,8 +1,8 @@
 import { mesh } from '@lumenize/mesh/client';
-import { NebulaClient } from './nebula-client';
-import type { NebulaClientConfig } from './nebula-client';
+import { NebulaClient } from '@lumenize/resources/client';
+import type { NebulaClientConfig } from '@lumenize/resources/client';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
-import type { TransactionResult } from './snapshots';
+import type { TransactionResult } from '@lumenize/resources/client';
 import type { Galaxy } from './galaxy';
 
 export interface StudioClientConfig extends NebulaClientConfig {

@@ -3,7 +3,7 @@
 **Date**: 2026-06-11 (records the concurrency commitment, in force since Resources shipped)
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: `apps/nebula/src/snapshots.ts` (eTag checks, monotonic pre-checks, in-transaction idempotency), `website/docs/nebula/resources.md` (conflict handlers), the frontend conflict-outcome work (archived) (client outcome state machine)
+**Evidence**: `packages/resources/src/snapshots.ts` (eTag checks, monotonic pre-checks, in-transaction idempotency), `website/docs/nebula/resources.md` (conflict handlers), the frontend conflict-outcome work (archived) (client outcome state machine)
 
 ## Context
 

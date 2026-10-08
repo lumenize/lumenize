@@ -18,7 +18,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
 import { requireDominionHere } from '../../../src/nebula-do';
-import { ROOT_NODE_ID } from '../../../src/org-ops';
+import { ROOT_NODE_ID } from '../../../../../packages/resources/src/org-ops';
 
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;

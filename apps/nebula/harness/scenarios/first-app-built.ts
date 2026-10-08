@@ -58,7 +58,8 @@
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
-import type { Galaxy, Snapshot } from '@lumenize/nebula';
+import type { Galaxy } from '@lumenize/nebula';
+import type { Snapshot } from '@lumenize/resources';
 import { DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, connectDriver, NEW_HOST_TIMEOUT_MS } from '../lib/harness';

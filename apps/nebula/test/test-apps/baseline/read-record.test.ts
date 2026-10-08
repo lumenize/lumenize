@@ -11,7 +11,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind } from '@lumenize/nebula';
-import type { Snapshot } from '@lumenize/nebula';
+import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

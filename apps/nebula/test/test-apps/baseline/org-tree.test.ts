@@ -6,8 +6,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { OrgTreeState, Star } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { OrgTreeState } from '@lumenize/resources';
+import type { Star } from '@lumenize/nebula';
 import {
   adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, createSubject, uniqueGalaxyScope, ownerOf,
 } from '../../test-helpers';

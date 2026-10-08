@@ -30,11 +30,15 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { preprocess } from '@lumenize/structured-clone';
 import { isMeshCallable } from '@lumenize/mesh';
 import {
-  Star, Galaxy, Resources, ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID,
-  canonicalQueryHash,
+  Star,
+  Galaxy,
+  CHAT_NODE_ID,
+  CHAT_MESSAGE_ONTOLOGY_VERSION,
+  DEFAULT_CHAT_ID,
 } from '@lumenize/nebula';
+import { Resources, ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/resources';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';
-import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
+import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
 

@@ -21,7 +21,7 @@
  * The decision of which overlays exist is `parseOverlay`, one pure function a test can flip.
  */
 import { readonly, shallowRef } from 'vue';
-import { deploymentOriginOfPage, hostOrigin, parseHost, type HostTarget } from '@lumenize/nebula/frontend';
+import { deploymentOriginOfPage, hostOrigin, parseHost, type HostTarget } from '@lumenize/mesh/client';
 
 /** Every overlay the shell knows. `transcript` carries the message id whose stream it shows. */
 export interface Overlay {

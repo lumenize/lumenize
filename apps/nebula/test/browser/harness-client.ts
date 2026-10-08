@@ -20,8 +20,8 @@
  */
 
 import { mesh } from '@lumenize/mesh/client';
-import { NebulaClient } from '@lumenize/nebula/client';
-import type { OperationDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import type { OperationDescriptor, Snapshot, TransactionResult } from '@lumenize/resources/client';
 
 /** Per-call decomposed timing: arrival timestamps from the Node clock. */
 export interface DecomposedTimings {

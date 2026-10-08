@@ -26,7 +26,7 @@
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost, NEW_HOST_TIMEOUT_MS } from '../lib/harness';

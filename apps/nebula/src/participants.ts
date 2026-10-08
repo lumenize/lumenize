@@ -15,7 +15,7 @@
  */
 
 import { NEBULA_SUB } from '@lumenize/mesh/client';
-import type { WireActingToken } from './snapshots';
+import type { WireActingToken } from '@lumenize/resources/client';
 
 /** A message participant's kind — `agent` for a Nebula-actor-stamped message, else `human`. */
 export type ParticipantKind = 'agent' | 'human';

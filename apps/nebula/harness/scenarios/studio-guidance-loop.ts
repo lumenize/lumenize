@@ -27,7 +27,8 @@
  */
 import assert from 'node:assert/strict';
 import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
-import type { Galaxy, Snapshot } from '@lumenize/nebula';
+import type { Galaxy } from '@lumenize/nebula';
+import type { Snapshot } from '@lumenize/resources';
 import { deriveKind, StudioClient } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';

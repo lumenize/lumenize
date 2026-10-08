@@ -13,8 +13,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, Star, requireDominionHere } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { Star, requireDominionHere } from '@lumenize/nebula';
+import type { Snapshot, TransactionResult } from '@lumenize/resources';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { meshEntries } from '../mesh-surface';
 import { universeAdminClient, createInvitedClient, foundAndLogin, createSubject, uniqueGalaxyScope } from '../../test-helpers';

@@ -9,8 +9,8 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { RESERVED_STAR_SLUGS } from '@lumenize/mesh/auth';
 import type { AuthClaims } from '@lumenize/mesh/auth';
 import { hostOrigin } from '@lumenize/mesh/client';
-import { NebulaClient } from '@lumenize/nebula';
-import type { NebulaClientConfig } from '@lumenize/nebula';
+import { NebulaClient } from '@lumenize/resources';
+import type { NebulaClientConfig } from '@lumenize/resources';
 import {
   requestUniverseClaim, requestStarClaim, requestMagicLink, createGalaxyViaFacade, consumeLink,
 } from './lib/email-login';

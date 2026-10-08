@@ -15,8 +15,8 @@
  */
 
 import { mesh } from '@lumenize/mesh/client';
-import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
-import type { TransactionResult } from '@lumenize/nebula/client';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
+import type { TransactionResult } from '@lumenize/resources/client';
 
 export class ThroughputHarnessClient extends NebulaClient {
   /** Concurrent in-flight count. `callAsync` correlates each transaction by its own `callId`, so the

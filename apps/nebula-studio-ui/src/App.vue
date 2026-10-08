@@ -7,8 +7,10 @@ import AppSettings from "./AppSettings.vue";
 import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
-import { createNebulaClient, StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
-import type { TurnLiveness, FactoryResult } from "@lumenize/nebula/frontend";
+import { createNebulaClient } from "@lumenize/resources/frontend";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/client";
+import type { FactoryResult } from "@lumenize/resources/frontend";
+import type { TurnLiveness } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
 

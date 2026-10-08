@@ -13,9 +13,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
-import type { TransactionResult, QuerySubscriberRow, QueryDescriptor, Snapshot } from '@lumenize/nebula';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import type { TransactionResult, QuerySubscriberRow, QueryDescriptor, Snapshot } from '@lumenize/resources';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import {
   adminClientAt, universeAdminClient, createInvitedClient, createPlatformAdminClient, browserLogin, createSubject, ORIGIN, pageOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';

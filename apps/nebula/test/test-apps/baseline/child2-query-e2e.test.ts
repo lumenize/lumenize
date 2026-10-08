@@ -12,8 +12,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
-import type { Snapshot } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

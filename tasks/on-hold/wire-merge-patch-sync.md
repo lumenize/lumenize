@@ -229,7 +229,7 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 | Phase | Scope | Where |
 |---|---|---|
 | A | DAG-tree sync — server fanout + client apply + tests | `apps/nebula/src/{star,nebula-client}.ts`, baseline tests |
-| B | Per-resource read sync — same primitives, different drivers | `apps/nebula/src/snapshots.ts`, NebulaClient resources API |
+| B | Per-resource read sync — same primitives, different drivers | `packages/resources/src/snapshots.ts`, NebulaClient resources API |
 | C | Perf verification — synthetic benchmarks for both paths | `apps/nebula/test/browser/` or a new bench dir |
 
 Phase A depends on `tasks/archive/nebula-dag-normalize.md` shipping first. Phase B is independent of A and can ship in either order; co-shipping makes the most sense since the plumbing overlaps.

@@ -19,8 +19,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, NebulaClient, StudioClient } from '@lumenize/nebula';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula';
+import { NebulaClient } from '@lumenize/resources';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import { universeAdminClient, uniqueGalaxyScope, addressOfClient, browserLogin, ORIGIN, pageOf } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
 import type { GalaxyTest } from './index';

@@ -134,7 +134,7 @@ This item settles two things:
 
 ## A `computed()` misses its subscription
 
-**A component's `computed()` that switches to a resource id the store already holds never subscribes it, and the view shows stale data with no error.** Take `computed(() => store.resources.Todo[selectedId.value])`. When `selectedId` changes, Vue re-runs the getter during the render's dirty check, where neither an effect scope nor a component instance is active, so `trackRead` in `apps/nebula/src/frontend/create-nebula-client.ts` ties the read to nothing.
+**A component's `computed()` that switches to a resource id the store already holds never subscribes it, and the view shows stale data with no error.** Take `computed(() => store.resources.Todo[selectedId.value])`. When `selectedId` changes, Vue re-runs the getter during the render's dirty check, where neither an effect scope nor a component instance is active, so `trackRead` in `packages/resources/src/frontend/create-nebula-client.ts` ties the read to nothing.
 
 - **Why it mostly works today.** A never-seen id is rescued by accident: the read writes `{}` into the store, that write runs the getter again inside the render, and there the read subscribes.
 - **When it fails.** The id was read once outside any scope, or read by a component that has since unmounted and let it go. Either way the store already holds it, nothing is written, and the getter does not run again.

@@ -16,8 +16,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionResult } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { TransactionResult } from '@lumenize/resources';
 import { NebulaClientTest } from './index';
 import { adminClientAt } from '../../test-helpers';
 

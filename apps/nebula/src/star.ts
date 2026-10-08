@@ -17,13 +17,9 @@
 import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { NebulaDO, requireDominionHere } from './nebula-do';
-import { Resources } from './resources';
-import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from './resources';
+import { Resources } from '@lumenize/resources';
+import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { Galaxy } from './galaxy';
-
-// Node-invite types re-exported from their home (the composed plane) so
-// existing `@lumenize/nebula` import sites are unchanged.
-export type { NodeInvitee, NodeInviteAck } from './resources';
 
 export class Star extends NebulaDO implements ResourcesHost {
   #resources!: Resources

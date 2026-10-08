@@ -45,7 +45,7 @@ import { canonicalQueryHash } from './query-hash';
 import type { QueryDescriptor, QueryUpdatePayload, SubscriberEntry } from './query-hash';
 import { parse } from '@lumenize/structured-clone';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './snapshots';
-import type { OntologyVersionRow } from './ontology-compile';
+import type { OntologyVersionRow } from './ontology-version';
 import { OntologyStaleError, WipedMidTransactionError } from './errors';
 
 /**

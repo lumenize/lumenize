@@ -28,7 +28,7 @@
  * proves the first result is the bypass rather than an ungated scope.
  */
 import assert from 'node:assert/strict';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';

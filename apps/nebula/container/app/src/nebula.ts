@@ -9,7 +9,7 @@
  * Studio origin a framed page reports to) and `<meta name="lumenize-origin">`; the factory reads
  * the second itself.
  *
- * ⚠️ Assembled-image wiring: `@lumenize/nebula/frontend` is a private workspace package
+ * ⚠️ Assembled-image wiring: `@lumenize/resources/frontend` is a private workspace package
  * (not on npm), so it is VENDORED into the container image at image build — the seed
  * App.vue boots standalone (doesn't import this file) so the image self-validates
  * vite+HMR without the factory; the Galaxy seeds an App.vue into its own source tree
@@ -18,7 +18,7 @@
  * The assembled preview (factory + live Star) rides the e2e run with `wrangler dev` + Docker Desktop.
  */
 // @ts-expect-error — vendored at deploy build (see header); unresolved in the baked tree.
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 
 interface NebulaScope {
   // ABSENT until an ontology is applied. An app with no resources never needs one and boots

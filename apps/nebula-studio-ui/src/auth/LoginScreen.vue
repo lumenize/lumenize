@@ -23,7 +23,7 @@
  */
 import { onMounted, ref } from 'vue';
 import { viewState, leaveTo } from '../view-state';
-import { parseHost, deploymentOriginOfPage } from '@lumenize/nebula/frontend';
+import { parseHost, deploymentOriginOfPage } from '@lumenize/mesh/client';
 import ConsentModal from './ConsentModal.vue';
 import { pendingFor } from './home-logic';
 

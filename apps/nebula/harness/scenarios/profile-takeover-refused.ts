@@ -48,7 +48,7 @@ import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { provisionAndLogin, acceptInviteAndLogin } from '../../test/lib/email-login';
-import { ImpersonationMintError } from '../../src/impersonation';
+import { ImpersonationMintError } from '../../../../packages/resources/src/impersonation';
 
 export const needsContainer = false;
 

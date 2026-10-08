@@ -44,7 +44,8 @@ import {
   provisionStarAdmin, provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, refreshFromPage, refreshCookie,
   requestStarClaim,
 } from '../../test/lib/email-login';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 
 export const needsContainer = false;
 

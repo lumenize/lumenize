@@ -18,8 +18,9 @@
  * Mutation: call at once with the scope still unknown, and the snapshot never arrives.
  */
 import assert from 'node:assert/strict';
-import { ROOT_NODE_ID, NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
-import type { Snapshot } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID, NebulaClient } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import type { Snapshot } from '@lumenize/resources/client';
 import type { DevStack } from '../lib/harness';
 import {
   connectDriver, mintDegradedToken, assertTokenRejected, scopeUrlOf, constructionPairs, readDevVar,

@@ -19,8 +19,9 @@ import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { Browser } from '@lumenize/testing';
 import { createTestToken } from '@lumenize/mesh/auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { canonicalQueryHash, DEFAULT_CHAT_ID } from '@lumenize/nebula';
-import type { QueryDescriptor, OntologyVersionConfig } from '@lumenize/nebula';
+import { canonicalQueryHash } from '@lumenize/resources';
+import { DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import type { QueryDescriptor, OntologyVersionConfig } from '@lumenize/resources';
 import { NebulaClientTest } from './index';
 import { ORIGIN, pageOf, addressOfClient } from '../../test-helpers';
 

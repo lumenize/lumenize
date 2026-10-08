@@ -30,9 +30,9 @@ import {
   type Snapshot,
   type TransactionOutcome,
   type TransactionResourceResolution,
-} from '../../src/frontend/conflict-outcome';
-import type { QueueSubmission } from '../../src/frontend/debounce';
-import { makeLongformResolver } from '../../src/frontend/text-merge';
+} from '../../../../packages/resources/src/frontend/conflict-outcome';
+import type { QueueSubmission } from '../../../../packages/resources/src/frontend/debounce';
+import { makeLongformResolver } from '../../../../packages/resources/src/frontend/text-merge';
 
 type Responder = (subs: QueueSubmission[]) => Promise<ServerBatchResponse>;
 

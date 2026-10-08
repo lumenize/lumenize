@@ -15,34 +15,10 @@
 import { extractTypeMetadata, generateParseModule } from '@lumenize/ts-runtime-parser-validator/compile';
 import type { TypeMetadata } from '@lumenize/ts-runtime-parser-validator/compile';
 
-export interface OntologyVersionConfig {
-  version: string;
-  types: string;
-  /**
-   * Whether a Star INSTALLING this version over an older one must wipe its data first (the
-   * breaking-edit bargain — a breaking ontology edit invalidates stored snapshots, which are
-   * never migrated pre-alpha). A PROPERTY of the version row, decided (and dominion-checked)
-   * where the version is appended — written once, immutable, never consumed-and-cleared. A
-   * Star already on the version never asks (install is idempotent).
-   */
-  wipeOnInstall?: boolean;
-}
-
-/**
- * Compiled, stored-per-version row. Immutable after write.
- *
- * `relationships` rides along for 5.5's lazy-migration path — no Phase 1–6
- * code reads it, but co-locating it with `validatorBundle` saves the future
- * migrator a re-extract on every cold migration.
- */
-export interface OntologyVersionRow {
-  version: string;
-  types: string;
-  validatorBundle: string;
-  relationships: TypeMetadata['relationships'];
-  /** See {@link OntologyVersionConfig.wipeOnInstall} — carried onto the immutable row. */
-  wipeOnInstall?: boolean;
-}
+// The row shapes are the Resources plane's, which stores and installs them; this module produces
+// them. The leaf subpath keeps the plane's server graph out of the compiler's plain-Node program.
+import type { OntologyVersionConfig, OntologyVersionRow } from '@lumenize/resources/ontology-version';
+export type { OntologyVersionConfig, OntologyVersionRow };
 
 /**
  * Platform-fixed Resource types, unioned into EVERY compiled ontology version — entities the

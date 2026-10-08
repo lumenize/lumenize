@@ -15,9 +15,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionOutcome } from '@lumenize/nebula';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { TransactionOutcome } from '@lumenize/resources';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import { computed } from '@vue/reactivity';
 import { adminClientAt, foundAndLogin, ORIGIN, pageOf, ownerOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';

@@ -25,7 +25,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
-import type { Galaxy, OntologyVersionRow, Snapshot } from '@lumenize/nebula';
+import type { Galaxy } from '@lumenize/nebula';
+import type { OntologyVersionRow, Snapshot } from '@lumenize/resources';
 import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
 

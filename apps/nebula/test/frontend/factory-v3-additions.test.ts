@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { effect, effectScope } from '@vue/reactivity';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
-import { createNebulaStore } from '../../src/frontend/create-nebula-client';
+import { createNebulaStore } from '../../../../packages/resources/src/frontend/create-nebula-client';
 import { MockClient } from './mock-client';
 
 type Entry = { level: string; namespace: string; message: string; data?: unknown };

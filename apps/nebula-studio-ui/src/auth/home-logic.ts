@@ -9,7 +9,7 @@
  *
  * Nothing in this file reaches the network or reads the DOM, so it can be asserted directly.
  */
-import { isAtOrAbove } from '@lumenize/nebula/frontend';
+import { isAtOrAbove } from '@lumenize/mesh/client';
 
 /** The wire shapes, mirrored from `@lumenize/mesh/auth`'s `types.ts`. */
 export type Tier = 'universe' | 'galaxy' | 'star';

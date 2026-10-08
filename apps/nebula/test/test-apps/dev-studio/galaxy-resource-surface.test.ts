@@ -22,7 +22,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { isMeshCallable } from '@lumenize/mesh';
 import { meshEntries } from '../mesh-surface';
 import { Galaxy, requireChatWrite, LOOP_TOOL_ENTRIES } from '../../../src/galaxy';
-import { NebulaClient } from '../../../src/nebula-client';
+import { NebulaClient } from '../../../../../packages/resources/src/nebula-client';
 import { requireDominionHere } from '../../../src/nebula-do';
 import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '../../../src/chat-constants';
 

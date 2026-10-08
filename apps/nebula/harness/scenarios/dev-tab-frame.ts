@@ -39,7 +39,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { BrowserContext, Frame, Page } from 'playwright';
 import type { BuildReport } from '../../src/build-report';

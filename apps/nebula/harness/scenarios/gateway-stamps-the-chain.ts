@@ -48,7 +48,8 @@
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { GatewayMessageType, type NodeIdentity } from '@lumenize/mesh/client';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';

@@ -20,7 +20,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import { foundAndLogin, ORIGIN, pageOf } from '../../test-helpers';
 
 function uniqueStar(): string {

@@ -158,7 +158,7 @@ graph TD
 **Tradeoffs:**
 - You can't grant narrower-than-admin access this way. The sharee gets whatever they have on their own subtree, which is usually admin. For read-only sharing, Approach 1 is the right tool.
 - Mental model is harder: the same node appears in two places.
-- Cycles are still forbidden — if Alice tried to make `list-shopping` a parent of `user-bob`, the cycle detector at [org-ops.ts](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/org-ops.ts) would reject it.
+- Cycles are still forbidden — if Alice tried to make `list-shopping` a parent of `user-bob`, the cycle detector at [org-ops.ts](https://github.com/lumenize/lumenize/blob/main/packages/resources/src/org-ops.ts) would reject it.
 
 ### When to use which
 

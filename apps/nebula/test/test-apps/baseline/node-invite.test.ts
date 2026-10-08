@@ -20,8 +20,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Star, NodeInviteAck, NebulaClient } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Star } from '@lumenize/nebula';
+import type { NodeInviteAck, NebulaClient } from '@lumenize/resources';
 import { adminClientAt, createPlatformAdminClient, createInvitedClient, createSubject, uniqueStar } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

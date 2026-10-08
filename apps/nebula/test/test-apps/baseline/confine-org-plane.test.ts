@@ -22,7 +22,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { OrgTree, Subscriptions, Snapshots, ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { OrgTree, Subscriptions, Snapshots, ROOT_NODE_ID } from '@lumenize/resources';
+import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';

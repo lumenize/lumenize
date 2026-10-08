@@ -32,7 +32,7 @@
  * a real clock. Rung 1 comes along for free.
  *
  * **A second thing it proves for free:** this file runs under Node via `tsx`, and it imports
- * `NebulaClient`, which imports `apps/nebula/src/impersonation.ts`. Nothing else loads that module
+ * `NebulaClient`, which imports `packages/resources/src/impersonation.ts`. Nothing else loads that module
  * outside workerd, so its Node-safety — the property that decided against a client-side
  * `debug.warn` importing `@lumenize/mesh/auth`'s barrel — is otherwise asserted only by reasoning.
  * If this scenario boots at all, that property holds.
@@ -41,7 +41,8 @@
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionStarAdmin, loginViaEmail, refreshAccessToken } from '../../test/lib/email-login';

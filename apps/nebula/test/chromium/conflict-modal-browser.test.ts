@@ -19,7 +19,7 @@
  * would be the server's `original`, not the user's `my edit`.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createNebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { createNebulaClient, ROOT_NODE_ID } from '@lumenize/resources/frontend';
 import { OntologyAdminClient } from './ontology-admin';
 import { pageEndpoints, PAGE_STAR } from './factory-harness';
 

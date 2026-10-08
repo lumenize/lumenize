@@ -3,7 +3,7 @@
  * `<meta name="lumenize-origin">`, and the platform host's origin derived from it at the page's own
  * port. Browser-safe and pure but for the one DOM read.
  */
-import { hostOrigin } from '@lumenize/mesh/client';
+import { hostOrigin } from './auth/hosts';
 import { LUMENIZE_ORIGIN_META } from './page-meta';
 
 /** The deployment origin the page's `lumenize-origin` meta names, or `undefined` off a served page. */

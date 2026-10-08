@@ -15,8 +15,8 @@
  * connect as an admin whose dominion covers the star (the harness's bootstrapped admin
  * cookie) — a raw-RPC seed route can't carry that auth context.
  */
-import { NebulaClient } from '@lumenize/nebula/client';
-import type { OntologyVersionConfig } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import type { OntologyVersionConfig } from '@lumenize/resources/client';
 // Type-only — erased at runtime, so no server code reaches the browser bundle.
 import type { StarTest } from '../test-apps/baseline/index';
 

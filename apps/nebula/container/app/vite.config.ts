@@ -9,7 +9,7 @@ import swc from "unplugin-swc";
 //
 // ⚠️ BUT rolldown/oxc does NOT transform TC39 stage-3 decorators. It emits them VERBATIM
 // and THE BUILD STILL EXITS 0 — the artifact only fails when a browser parses it. The
-// generated app reaches decorators through `./nebula` -> `@lumenize/nebula/frontend` ->
+// generated app reaches decorators through `./nebula` -> `@lumenize/resources/frontend` ->
 // NebulaClient, whose mesh-callable methods carry `@mesh()`. So this plugin is REQUIRED,
 // not an optimization; without it the preview silently ships a SyntaxError.
 //

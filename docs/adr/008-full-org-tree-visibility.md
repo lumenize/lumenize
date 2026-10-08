@@ -4,7 +4,7 @@
 **Status**: Accepted
 **Deciders**: Larry
 **Amended**: 2026-07-08 — broadened grantee-identity visibility beyond admins (read/write grants expose identity too), and extended the principle to **presence** (who is *actively subscribed*); more edits expected as presence is built. 2026-09-28 — a host's org tree and its query rosters are visible to anyone with passage into it, a tenant reaching its Galaxy included (§ *Non-goals*).
-**Evidence**: `apps/nebula/src/org-tree.ts` (`addEdge` et al. short-circuit idempotent ops *before* `requirePermission` — non-disclosing **only** because the tree is universally visible; the comment warns every such short-circuit must move *after* the check if visibility ever goes per-branch), the query-subscription design decisions (child-of-P disclosure accepted; always disclose the denied-node set; the universal-visibility assumption they rest on), `tasks/on-hold/nebula-request-access.md` (the denied-node set drives the request-access flow this ADR makes coherent).
+**Evidence**: `packages/resources/src/org-tree.ts` (`addEdge` et al. short-circuit idempotent ops *before* `requirePermission` — non-disclosing **only** because the tree is universally visible; the comment warns every such short-circuit must move *after* the check if visibility ever goes per-branch), the query-subscription design decisions (child-of-P disclosure accepted; always disclose the denied-node set; the universal-visibility assumption they rest on), `tasks/on-hold/nebula-request-access.md` (the denied-node set drives the request-access flow this ADR makes coherent).
 
 ## Context
 

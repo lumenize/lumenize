@@ -18,8 +18,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionResult } from '@lumenize/resources';
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

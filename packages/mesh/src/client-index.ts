@@ -117,3 +117,8 @@ export {
   isImpersonationRefused,
 } from './auth/types';
 export type { Tier, ParsedId, AccessEntry, ActClaim, AuthClaims } from './auth/types';
+
+// What a served page knows about its deployment: the meta tag that names it, and the platform
+// host a page refreshes against.
+export { LUMENIZE_ORIGIN_META } from './page-meta';
+export { deploymentOriginOfPage, platformOriginOf } from './page-origin';

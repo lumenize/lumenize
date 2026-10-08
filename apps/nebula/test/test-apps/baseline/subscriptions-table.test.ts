@@ -12,9 +12,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, Subscriptions, canonicalQueryHash } from '@lumenize/nebula';
+import { ROOT_NODE_ID, Subscriptions, canonicalQueryHash } from '@lumenize/resources';
 import { ensureSubscribersTable } from '@lumenize/mesh/auth/profile';
-import type { QueryDescriptor, SubscriptionKind, TransactionResult } from '@lumenize/nebula';
+import type { QueryDescriptor, SubscriptionKind, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

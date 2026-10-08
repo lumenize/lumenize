@@ -5,6 +5,7 @@ paths:
   - "packages/ts-runtime-parser-validator/**/*.ts"
   - "packages/mesh/**/*.ts"
   - "apps/nebula/src/**/*.ts"
+  - "packages/resources/**/*.ts"
 ---
 
 # Communicating Without Mesh (raw DO and Workers)
@@ -59,7 +60,7 @@ A node's `onRequest` MUST compare the path only against the prefixes its class r
 
 One other forward carries page traffic into a Durable Object's `fetch`, and its target is no mesh node: nebula-auth's `forwardRaw` sends the claim `POST`s to the Registry, a raw Durable Object that reads no identity header.
 
-**`npm run audit:do-http` is the proof.** It scans source, never tests: every `src` tree under `apps/` and Mesh's auth layer, `packages/mesh/src/auth`, for all four checks, and for the third every class in `packages/mesh/src` that declares `HTTP_PREFIXES`. It checks four things:
+**`npm run audit:do-http` is the proof.** It scans source, never tests: every `src` tree under `apps/`, the Resources plane in `packages/resources/src` and Mesh's auth layer in `packages/mesh/src/auth` for all four checks, and for the third every class in `packages/mesh/src` that declares `HTTP_PREFIXES`. It checks four things:
 
 1. every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as something other than a Durable Object namespace;
 2. every `routeDORequest` call under `apps/` passes `bindings`;

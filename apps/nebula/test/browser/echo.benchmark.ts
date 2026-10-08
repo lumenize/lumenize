@@ -29,8 +29,8 @@
 import { describe, it, expect, inject } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { scopeOriginFrom } from '../lib/email-login';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
-import type { OperationDescriptor } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import type { OperationDescriptor } from '@lumenize/resources/client';
 import { HarnessNebulaClient } from './harness-client';
 import { bootstrapUniverseAdmin } from './auth-bootstrap';
 

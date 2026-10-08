@@ -16,8 +16,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import { foundAndLogin, ORIGIN, pageOf } from '../../test-helpers';
 
 function uniqueStar(): string {

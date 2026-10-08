@@ -48,7 +48,9 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
-      include: ['**/src/**'],
+      // The Resources plane lives in packages/resources, outside this root, and is exercised here.
+      allowExternal: true,
+      include: ['**/src/**', '**/packages/resources/src/**'],
       exclude: [
         '**/node_modules/**',
         '**/dist/**',
@@ -84,7 +86,7 @@ export default defineConfig({
           exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**', 'test/ui-smoke/**'],
         },
       },
-      // Frontend project — the @lumenize/nebula/frontend layer (factory + the
+      // Frontend project — the @lumenize/resources/frontend layer (factory + the
       // ported pure-helper/engine suites: text-merge, deep-equals, debounce,
       // conflict-outcome). jsdom env (NOT vitest-plugin) so Vue can mount
       // components for the v3/v4 component probes; pure-logic tests run fine in
@@ -219,7 +221,7 @@ export default defineConfig({
         },
       },
       // Chromium project — real-browser (vitest-browser + Playwright). The v4
-      // production-shape harness: runs the @lumenize/nebula/frontend factory +
+      // production-shape harness: runs the @lumenize/resources/frontend factory +
       // Vue in real chromium against a real wrangler-dev Star. The test page sits
       // on a Star's host and is signed in as that Star's admin; global-setup.ts
       // says how, and why each test's context starts from its cookies. Catches

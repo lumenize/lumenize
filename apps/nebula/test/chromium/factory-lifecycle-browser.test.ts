@@ -5,7 +5,7 @@
  * many sequential steps, destructive step last), this single test strings
  * together what would otherwise be four separate real-Star tests:
  *
- *   1. CONNECTIVITY + bundle regression — `@lumenize/nebula/frontend` bundles
+ *   1. CONNECTIVITY + bundle regression — `@lumenize/resources/frontend` bundles
  *      for real chromium (Vite would fail on any transitive cloudflare:workers /
  *      node:async_hooks import), the factory connects through Studio's vite to a real
  *      Star, and `ready` resolves with claims populated + `lmz.connection` connected.
@@ -30,7 +30,7 @@
  * browser↔vitest-server channel and hangs the run (see ws-disconnect.ts).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources/frontend';
 import { bootstrapFactory } from './factory-harness';
 import { recordingWebSocket, refresh401AfterFlag } from './ws-disconnect';
 

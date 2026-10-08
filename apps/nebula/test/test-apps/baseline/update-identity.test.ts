@@ -25,8 +25,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
-import type { QueryDescriptor, TransactionResult } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import type { QueryDescriptor, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { StarTest } from './index';

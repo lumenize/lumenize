@@ -7,7 +7,7 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import type { AuthClaims } from '@lumenize/mesh/auth';
+import type { AuthClaims } from '@lumenize/mesh';
 // ⚠️ VALUE import from the `/claims` subpath, NEVER the root barrel: this module sits in the Node-safe
 // client value graph (`client-index.ts` re-exports `END_OF_TIME`), and the barrel exports the Registry
 // DO, which pulls `cloudflare:workers`. `/claims` is pure by construction — its own header says so —

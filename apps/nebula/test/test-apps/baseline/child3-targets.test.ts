@@ -19,7 +19,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
-import type { QueryDescriptor } from '@lumenize/nebula';
+import type { QueryDescriptor } from '@lumenize/resources';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

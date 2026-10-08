@@ -24,8 +24,8 @@
  * decides every claim here; nothing about the fan-out is constructed on this side.
  */
 import assert from 'node:assert/strict';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
-import type { QuerySubscription } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import type { QuerySubscription } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';

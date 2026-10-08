@@ -45,7 +45,7 @@ import { debug } from '@lumenize/debug';
 import { deepEquals } from './deep-equals';
 import type { Middleware, StoreClient, WriteContext } from './types';
 import { NebulaClient } from '../nebula-client';
-import { deploymentOriginOfPage, platformOriginOf } from '../page-origin';
+import { deploymentOriginOfPage, platformOriginOf } from '@lumenize/mesh/client';
 import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscription, OntologyStaleInfo, NebulaClientConfig } from '../nebula-client';
 
 /** The common shape the factory holds + disposes: a `ResourceSubscription`/profile handle (error-surface

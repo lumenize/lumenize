@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { effect, effectScope } from '@vue/reactivity';
-import { createNebulaStore } from '../../src/frontend/create-nebula-client';
+import { createNebulaStore } from '../../../../packages/resources/src/frontend/create-nebula-client';
 import { MockClient } from './mock-client';
 
 function setup(initialState: Record<string, any> = {}) {

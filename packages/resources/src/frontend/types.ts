@@ -1,5 +1,5 @@
 /**
- * Core factory types for `@lumenize/nebula/frontend`.
+ * Core factory types for `@lumenize/resources/frontend`.
  */
 import type { ConnectionState } from '@lumenize/mesh/client';
 import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, SubscriberListSubscription, SubscriberRosterDelivery } from '../nebula-client';

@@ -29,7 +29,7 @@ import { describe, it, expect, inject, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { scopeOriginFrom } from '../lib/email-login';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
-import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
 import { bootstrapStarAdmin } from './auth-bootstrap';
 
 const ONTOLOGY_VERSION = 'v1';

@@ -18,7 +18,8 @@
  */
 import assert from 'node:assert/strict';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from '@lumenize/nebula/client';
-import type { Galaxy, Snapshot, NodeInviteAck } from '@lumenize/nebula';
+import type { Galaxy } from '@lumenize/nebula';
+import type { Snapshot, NodeInviteAck } from '@lumenize/resources';
 import { deriveKind, deriveParticipants, StudioClient } from '@lumenize/nebula/client';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import { waitForEmail } from '@lumenize/email-test/client';

@@ -19,7 +19,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { hasDominionOver, type InviteSummary, type AuthClaims } from '@lumenize/mesh/auth';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
-import type { NebulaClient } from '@lumenize/nebula';
+import type { NebulaClient } from '@lumenize/resources';
 import { NebulaClientTest, type StarTest } from './index';
 import {
   universeAdminClient, adminClientAt, createInvitedClient, createSubject, createPlatformAdminClient,

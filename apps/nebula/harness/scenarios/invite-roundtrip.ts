@@ -32,7 +32,8 @@
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
-import { NebulaClient, ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, type OrgTreeState } from '@lumenize/nebula/client';
+import { NebulaClient, ROOT_NODE_ID, type OrgTreeState } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
 import {

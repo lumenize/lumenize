@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject, pageOf, ORIGIN } from '../../test-helpers';
-import { childrenOf, isTornDown } from '../../../src/impersonation';
+import { childrenOf, isTornDown } from '../../../../../packages/resources/src/impersonation';
 
 /** Outside the 30s refresh-ahead window — construction will not re-mint. */
 const SAFE_TTL = 300;
@@ -308,7 +308,7 @@ describe('lifetime — re-minting through the parent', () => {
     ['a timeout', Object.assign(new Error('callAsync timed out'), { name: 'TimeoutError' }), false],
     ['a refusal-shaped error without `terminal`', Object.assign(new Error('x'), { name: 'ImpersonationRefusedError' }), false],
   ])('%s classifies terminal=%s', async (_label, rejection, terminal) => {
-    const { mintImpersonation, ImpersonationMintError } = await import('../../../src/impersonation');
+    const { mintImpersonation, ImpersonationMintError } = await import('../../../../../packages/resources/src/impersonation');
     const outcome = await mintImpersonation(() => Promise.reject(rejection), 'sub').catch((e: unknown) => e);
     // Mutation: classify every failure as terminal → the transport rows red, which is the direction
     // that matters: a build that terminates on everything kills an impersonation session on a blip.

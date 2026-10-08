@@ -4,7 +4,7 @@
 **App**: `apps/nebula/`
 **Supersedes**: `tasks/icebox/nebula-5.4-capability-tickets.md` (per-resource `ResourceHistory` DO + capability tickets — iceboxed)
 **Master task file**: `tasks/archive/nebula.md` (archived)
-**Relevant engine**: `apps/nebula/src/snapshots.ts` (`Snapshots` table, Snodgrass-style temporal storage in Star)
+**Relevant engine**: `packages/resources/src/snapshots.ts` (`Snapshots` table, Snodgrass-style temporal storage in Star)
 
 ## Goal
 

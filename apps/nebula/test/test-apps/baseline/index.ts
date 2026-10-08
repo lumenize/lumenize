@@ -55,16 +55,16 @@ import {
   Star,
   Universe,
   Galaxy,
-  NebulaClient,
   StudioClient,
   requireDominionHere,
-  ROOT_NODE_ID,
 } from '@lumenize/nebula';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources';
 // The compile fn left the barrel with the Worker's compilers — a test Worker may
 // still carry it (this app never deploys), imported from the leaf directly.
 import { compileOntologyVersion } from '../../../src/ontology-compile';
 import { ROW_PATH, wsPath } from '../../../src/build-report';
-import type { NebulaClientConfig, StudioClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/nebula';
+import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
+import type { StudioClientConfig } from '@lumenize/nebula';
 import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
 import type { CertificateApi, CertificatePack, CertificateResult } from '../../../src/certificate';
 

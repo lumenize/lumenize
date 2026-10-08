@@ -12,8 +12,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, isNoOntologyInstalledError } from '@lumenize/nebula';
-import type { TransactionResult } from '@lumenize/nebula';
+import { ROOT_NODE_ID, isNoOntologyInstalledError } from '@lumenize/resources';
+import type { TransactionResult } from '@lumenize/resources';
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 

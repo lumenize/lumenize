@@ -70,7 +70,7 @@ COPY apps/nebula/container/app/package.json apps/nebula/container/app/package-lo
 RUN npm install && npm cache clean --force
 
 # ── Vendor the private @lumenize frontend graph ─────────────────────────────────────
-# The generated app's `src/nebula.ts` imports `@lumenize/nebula/frontend` — a private
+# The generated app's `src/nebula.ts` imports `@lumenize/resources/frontend` — a private
 # workspace package, not on npm (its own header documents this vendoring) — so the
 # build box carries the SOURCE-form graph at /node_modules where the mounted app's
 # resolution walk finds it. Source-form is deliberate: the scaffold's vite config
@@ -79,8 +79,8 @@ RUN npm install && npm cache clean --force
 # frontend entry's closed import graph (vue's own @vue/* deps arrived with the npm
 # install above); a new @lumenize package in that graph needs a COPY pair here AND a
 # `!` pair in the root .dockerignore.
-COPY apps/nebula/package.json /node_modules/@lumenize/nebula/package.json
-COPY apps/nebula/src /node_modules/@lumenize/nebula/src
+COPY packages/resources/package.json /node_modules/@lumenize/resources/package.json
+COPY packages/resources/src /node_modules/@lumenize/resources/src
 COPY packages/mesh/package.json /node_modules/@lumenize/mesh/package.json
 COPY packages/mesh/src /node_modules/@lumenize/mesh/src
 COPY packages/crypto/package.json /node_modules/@lumenize/crypto/package.json

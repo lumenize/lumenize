@@ -7,9 +7,10 @@
  * only under `/_public/`, through one forward; a Client's upgrade only under `/gateway/`, which the
  * Worker rewrites from the hostname; our own code by `rawRpcStub`, never `fetch`; and a node's own
  * container at the paths its library fixes. Nothing keeps those apart at runtime but the
- * paths each forward produces, so this scans source, never tests: every `src` tree under `apps/` and
- * Mesh's auth layer (`packages/mesh/src/auth`) for all four checks, and for check 3 every class in
- * `packages/mesh/src` that declares `HTTP_PREFIXES`. It checks four things:
+ * paths each forward produces, so this scans source, never tests: every `src` tree under `apps/`,
+ * the Resources plane (`packages/resources/src`) and Mesh's auth layer (`packages/mesh/src/auth`)
+ * for all four checks, and for check 3 every class in `packages/mesh/src` that declares
+ * `HTTP_PREFIXES`. It checks four things:
  *
  *   1. Every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as
  *      something other than a Durable Object namespace.
@@ -79,6 +80,7 @@ function sourceFiles() {
     }
   };
   walk(join(ROOT, 'apps'), false, 'all');
+  walk(join(ROOT, 'packages/resources/src'), true, 'all');
   walk(join(ROOT, 'packages/mesh/src'), true, 'surfaces');
   return [...out].sort(([a], [b]) => a.localeCompare(b));
 }

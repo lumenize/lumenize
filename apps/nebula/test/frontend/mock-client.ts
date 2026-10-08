@@ -18,13 +18,13 @@ import {
   type ServerBatchResponse,
   type ServerResourceResult,
   type Snapshot,
-} from '../../src/frontend/conflict-outcome';
-import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, SubscriberListSubscription, SubscriberRosterDelivery } from '../../src/nebula-client';
-import type { QueryDescriptor, SubscriberEntry } from '../../src/query-hash';
-import type { StoreClient } from '../../src/frontend/types';
+} from '../../../../packages/resources/src/frontend/conflict-outcome';
+import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, SubscriberListSubscription, SubscriberRosterDelivery } from '../../../../packages/resources/src/nebula-client';
+import type { QueryDescriptor, SubscriberEntry } from '../../../../packages/resources/src/query-hash';
+import type { StoreClient } from '../../../../packages/resources/src/frontend/types';
 import type { ConnectionState } from '@lumenize/mesh/client';
-import type { QueueSubmission } from '../../src/frontend/debounce';
-import type { Snapshot as WireSnapshot } from '../../src/snapshots';
+import type { QueueSubmission } from '../../../../packages/resources/src/frontend/debounce';
+import type { Snapshot as WireSnapshot } from '../../../../packages/resources/src/snapshots';
 
 /** Per-resource server fact (what `Star.resources.transaction` resolves to per op). */
 export type MockServerResult = ServerResourceResult;

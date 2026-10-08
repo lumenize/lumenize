@@ -6,9 +6,10 @@
 *
 !apps/nebula/container
 !apps/nebula/container/**
-!apps/nebula/package.json
-!apps/nebula/src
-!apps/nebula/src/**
+# The compiler stage's three sources from the app.
+!apps/nebula/src/ontology-compile.ts
+!apps/nebula/src/sfc-contract.ts
+!apps/nebula/src/build-report.ts
 !packages/ts-runtime-parser-validator/package.json
 !packages/ts-runtime-parser-validator/src
 !packages/ts-runtime-parser-validator/src/**
@@ -17,6 +18,9 @@
 !packages/ts-runtime-parser-validator/forks
 !packages/ts-runtime-parser-validator/forks/**
 # The vendored @lumenize frontend graph (see the Dockerfile's vendor stage).
+!packages/resources/package.json
+!packages/resources/src
+!packages/resources/src/**
 !packages/mesh/package.json
 !packages/mesh/src
 !packages/mesh/src/**

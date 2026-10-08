@@ -27,7 +27,8 @@
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';

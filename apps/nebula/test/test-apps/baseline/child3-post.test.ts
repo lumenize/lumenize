@@ -15,7 +15,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind, deriveParticipants } from '@lumenize/nebula';
-import type { Snapshot } from '@lumenize/nebula';
+import type { Snapshot } from '@lumenize/resources';
 import { env } from 'cloudflare:test';
 import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';

@@ -21,9 +21,10 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { effectScope } from '@vue/reactivity';
-import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
-import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/resources';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import {
   adminClientAt, universeAdminClient, browserLogin, foundAndLogin, createSubject, createInvitedClient, ORIGIN, pageOf, ownerOf, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';

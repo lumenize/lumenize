@@ -32,8 +32,8 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasDominionOver } from '@lumenize/mesh/auth';
-import type { AuthClaims } from '@lumenize/mesh/auth';
+import { hasDominionOver } from '@lumenize/mesh';
+import type { AuthClaims } from '@lumenize/mesh';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
 import { stringify } from '@lumenize/structured-clone';

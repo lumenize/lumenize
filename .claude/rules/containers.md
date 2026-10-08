@@ -2,6 +2,7 @@
 paths:
   - "packages/mesh/**/*.ts"
   - "apps/nebula/**/*.ts"
+  - "packages/resources/**/*.ts"
   - "**/Dockerfile"
 ---
 

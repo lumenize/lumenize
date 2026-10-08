@@ -23,8 +23,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind, ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot } from '@lumenize/nebula';
+import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind } from '@lumenize/nebula';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot } from '@lumenize/resources';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';
 import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
 import { StudioClientTest } from './index';
