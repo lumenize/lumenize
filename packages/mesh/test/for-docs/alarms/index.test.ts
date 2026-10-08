@@ -38,7 +38,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'quick-start');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_quick_start');
 
     // Schedule a follow-up email for 60 seconds from now
     await client.scheduleFollowUp('user@example.com', 60);
@@ -56,7 +56,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'scheduling');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_scheduling');
 
     // Schedule delayed reminder (seconds from now)
     await client.scheduleDelayedReminder('Check document status', 60);
@@ -91,7 +91,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'rich-context');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_rich_context');
 
     const testDate = new Date('2026-06-15T10:00:00Z');
     const testSet = new Set([1, 2, 3]);
@@ -110,7 +110,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'manage');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_manage');
 
     // Schedule returns schedule info
     const schedule = await client.scheduleAndReturnInfo('Important reminder', 300);
@@ -143,7 +143,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'retry');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_retry');
 
     // Configure to simulate failure
     await client.ctx.storage.kv.put('simulateFailure', true);
@@ -181,7 +181,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'testing');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_testing');
 
     // Schedule multiple alarms
     await client.scheduleDelayedReminder('Task 1', 10);
@@ -206,7 +206,7 @@ it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
 
   {
-    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'filter-patterns');
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'reminders_filter_patterns');
 
     // Schedule different types
     await client.scheduleDelayedReminder('Delayed task', 60);

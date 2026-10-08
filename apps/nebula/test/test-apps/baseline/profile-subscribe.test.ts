@@ -58,7 +58,6 @@ async function meshClient(opts: {
   const ctx = browser.context(pageOf(activeScope));
   const client = new SubscriberProbe({
     baseUrl: pageOf(activeScope),
-    hostFromHostname: true,
     refresh: createTestToken({
       issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,

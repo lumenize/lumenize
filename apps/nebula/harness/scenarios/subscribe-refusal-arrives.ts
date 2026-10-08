@@ -78,7 +78,7 @@ export async function run(stack: DevStack): Promise<void> {
 
   const limbs: Array<{ n: number; binding: string; road: string; expected: RegExp }> = [
     { n: 1, binding: 'PROFILE', road: 'at the early ack',
-      expected: new RegExp(`^"${app.galaxy.replace(/\./g, '\\.')}" is a scope's name, and no Profile runs under one$`) },
+      expected: new RegExp(`^"${app.galaxy.replace(/\./g, '\\.')}" parses as a scope, and an UnscopedMeshDO never runs under a scope's name`) },
     { n: 2, binding: 'UNIVERSE', road: 'after the ack',
       expected: /^No member named 'resources' exists on this node/ },
   ];

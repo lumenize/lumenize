@@ -7,7 +7,7 @@ import { env } from 'cloudflare:test';
 
 describe('LumenizeDO - Basic Usage', () => {
   it('auto-injects sql service', async () => {
-    const stub = env.USERS_DO.getByName('sql-test');
+    const stub = env.USERS_DO.getByName('sql_test');
 
     const user = await stub.addUser('user1', 'test@example.com');
 
@@ -18,7 +18,7 @@ describe('LumenizeDO - Basic Usage', () => {
   });
 
   it('uses multiple injected services together', async () => {
-    const stub = env.NOTIFICATIONS_DO.getByName('multi-service-test');
+    const stub = env.NOTIFICATIONS_DO.getByName('multi_service_test');
 
     const result = await stub.scheduleNotification(
       'user1',
@@ -31,7 +31,7 @@ describe('LumenizeDO - Basic Usage', () => {
   });
 
   it('works with queries and inserts', async () => {
-    const stub = env.USERS_DO.getByName('queries-test');
+    const stub = env.USERS_DO.getByName('queries_test');
 
     await stub.addUser('alice', 'alice@example.com');
     await stub.addUser('bob', 'bob@example.com');

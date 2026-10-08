@@ -23,7 +23,7 @@ import { isMeshCallable } from '@lumenize/mesh';
 import { meshEntries } from '../mesh-surface';
 import { Galaxy, requireChatWrite, LOOP_TOOL_ENTRIES } from '../../../src/galaxy';
 import { NebulaClient } from '../../../../../packages/resources/src/nebula-client';
-import { requireDominionHere } from '../../../src/nebula-do';
+import { requireDominionHere } from '@lumenize/mesh';
 import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '../../../src/chat-constants';
 
 // ─── driver — direct in-DO call ────────────────────────────────────────────

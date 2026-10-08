@@ -14,7 +14,7 @@
  *
  *   1. Every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as
  *      something other than a Durable Object namespace.
- *   2. Every `routeDORequest` call under `apps/` passes `bindings`.
+ *   2. Every `routeDORequest` call passes `bindings`.
  *   3. Every mesh node's `onRequest` (or `fetch` override) compares the path only against the
  *      prefixes its class registers in a static `HTTP_PREFIXES`.
  *   4. No Durable Object stub is made except in a named forward or, inside Mesh's auth layer, for
@@ -52,7 +52,7 @@ const NOT_DURABLE_OBJECTS = [
 const ENV_DECLARATIONS = 'apps/nebula/worker-configuration.d.ts';
 
 /** Base classes whose `fetch` is not a mesh node's. */
-const NON_MESH_BASES = new Set(['DurableObject', 'WorkerEntrypoint', 'LumenizeWorker']);
+const NON_MESH_BASES = new Set(['DurableObject', 'WorkerEntrypoint', 'MeshWorker']);
 
 /** Methods that make a Durable Object stub or the id one is made from. */
 const STUB_MAKERS = new Set(['getByName', 'idFromName', 'idFromString', 'newUniqueId', 'getExisting']);
@@ -186,9 +186,9 @@ for (const [file, checks] of sourceFiles()) {
       }
     }
 
-    // 2. Every `routeDORequest` call under `apps/` passes `bindings`.
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'routeDORequest'
-      && file.startsWith('apps/')) {
+    // 2. Every `routeDORequest` call passes `bindings`.
+    if (checks === 'all' && ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && node.expression.text === 'routeDORequest') {
       counts.routeDORequest++;
       const options = node.arguments[2];
       const has = options && ts.isObjectLiteralExpression(options)
@@ -225,7 +225,7 @@ for (const [file, checks] of sourceFiles()) {
 }
 
 console.log(
-  `audit:do-http — ${counts.fetchSites} member .fetch( sites, ${counts.routeDORequest} routeDORequest calls under apps/, `
+  `audit:do-http — ${counts.fetchSites} member .fetch( sites, ${counts.routeDORequest} routeDORequest calls, `
   + `${counts.surfaces} mesh-node HTTP surfaces comparing ${counts.comparisons} paths, ${counts.stubs} stub-making calls`,
 );
 if (failures.length) {

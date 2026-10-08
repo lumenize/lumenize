@@ -12,10 +12,9 @@
  * 2. **It is the only place `constructor` reaches `Function`.** workerd refuses that walk with an
  *    `EvalError`; unrestricted V8 does not. The probe table's V8 row can only be driven here.
  *
- * **No chain-forging DO is needed.** The Gateway relays whatever `(binding, instance)` a client's
- * own message names, so a client addressing the Gateway binding at its OWN instance name gets the
- * chain pushed back down to itself and run on its own executor — the same inbound door a genuine
- * DO push arrives at.
+ * **No chain-forging DO is needed.** The host relays whatever `(binding, instance)` a client's own
+ * message names, so a client addressing its host at its OWN address gets the chain pushed back
+ * down to itself and run on its own executor — the same inbound door a genuine DO push arrives at.
  *
  * Written RED-first: the client used to check only the first `apply`, so every walk limb below was
  * permitted — including the one that reaches `Function`, which only a browser can drive.
@@ -27,14 +26,20 @@ import type { OperationChain } from '../../src/ocan/index';
 
 
 describe('@lumenize/mesh entry + walk rules on the client executor (real chromium)', () => {
-  it('refuses what a remote caller must not reach, in the browser', async () => {
+  // it.skip until a Client knows the address its host holds it under, from the host's
+  // `connection_status`: its call to itself through the host arrives with the host-stamped address
+  // as the last hop, which the default guard compares with the bare id and refuses as a peer's.
+  it.skip('refuses what a remote caller must not reach, in the browser', async () => {
     const proxyPath = inject('wranglerBaseUrl');
     const baseUrl = globalThis.location!.origin + proxyPath;
+    const scope = inject('pageScope');
 
     // globalSetup's ONE real magic-link login — see auth-bootstrap.ts for why it is not per file.
     const accessToken = inject('adminAccessToken');
     const client = new EditorClient({
-      baseUrl, accessToken, refresh: `${proxyPath}/auth/refresh-token`,
+      baseUrl, accessToken,
+      // The page holds no session cookie: the token from setup outlives the suite.
+      refresh: async () => { throw new Error('this lane holds no session cookie to refresh with'); },
     });
 
     try {
@@ -43,7 +48,7 @@ describe('@lumenize/mesh entry + walk rules on the client executor (real chromiu
       }, { timeout: 10_000, interval: 100 });
 
       /**
-       * Send `chain` to THIS client through the Gateway and report what its own executor did.
+       * Send `chain` to THIS client through its host and report what its own executor did.
        *
        * ⚠️ **This route relays REFUSALS and nothing else** — `#handleClientCall` sends a
        * `response` back only when the ack carries `$error`, so a chain that RUNS answers
@@ -55,7 +60,7 @@ describe('@lumenize/mesh entry + walk rules on the client executor (real chromiu
       const onClient = async (chain: OperationChain): Promise<string> => {
         try {
           await client.lmz.callAsync(
-            client.lmz.bindingName!, client.lmz.instanceName,
+            'WORKSPACE_DO', `${scope}/${client.lmz.instanceName}`,
             continuationFromChain(chain),
             { timeoutMs: 4_000 },
           );

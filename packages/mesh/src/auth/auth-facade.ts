@@ -3,7 +3,7 @@
  * Registry: invites, listing an account's apps, creating an app, deleting a scope, and
  * impersonation. HTTP carries the session lifecycle (login, refresh, a link page's consume); this
  * facade carries the session's mutations, reached with an ordinary `lmz.call` or `callAsync` (a
- * service binding with `instanceName: undefined` routes as a `LumenizeWorker`). The ONE raw hop left
+ * service binding with `instanceName: undefined` routes as a `MeshWorker`). The ONE raw hop left
  * on this path — facade → Registry DO stub — lives here, in infrastructure code where raw RPC is
  * native, next to the invariants the facade enforces (ADR-023's facade bridge).
  *
@@ -58,7 +58,7 @@
  * sent it.
  */
 import { debug } from '@lumenize/debug';
-import { LumenizeWorker } from '../lumenize-worker';
+import { MeshWorker } from '../mesh-worker';
 import { mesh } from '../mesh-decorator';
 import type { OriginRequest } from '../types';
 import { hasDominionOver, parseId } from './parse-id';
@@ -80,7 +80,7 @@ type RegistryStub = {
     (...args: Parameters<AuthRegistry[K]>) => Promise<Awaited<ReturnType<AuthRegistry[K]>>>;
 };
 
-export abstract class AuthFacade extends LumenizeWorker {
+export abstract class AuthFacade extends MeshWorker {
   /**
    * Wipes the Durable Objects a deletion removed or a creation wrote. Supplied by the consuming
    * Worker, which alone can name them; required, so a subclass that forgets does not compile.

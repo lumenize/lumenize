@@ -12,7 +12,7 @@ paths:
 
 How a DO is invoked and how it talks when it is **not** on the Mesh abstraction. This applies to two kinds of code:
 - **Raw-DO infrastructure** — packages that deliberately `extend DurableObject` (not `LumenizeDO`) and have their own model: `auth`, `nebula-auth`, `testing`, `ts-runtime-parser-validator`.
-- **Mesh's own framework internals** — the parts of `packages/mesh` that build the abstraction with raw primitives, e.g. `LumenizeClientGateway` (extends `DurableObject` for its zero-storage design).
+- **Mesh's own framework internals** — the parts of `packages/mesh` that build the abstraction with raw primitives, e.g. `ClientGateway`, which a scoped node composes to accept its Clients' sockets with the hibernation API.
 
 **`apps/nebula` reaches a node in exactly two ways, and its Worker reaches a Durable Object's `fetch` in exactly one.** Its business logic — Galaxy, Star, Universe, Resources — reaches a node only over the mesh ([mesh.md](mesh.md)) or through a `@rawRpc()`-decorated method by `rawRpcStub`; and its Worker reaches a Durable Object's `fetch` only through the forwards `npm run audit:do-http` lists (§ *What reaches a Durable Object's `fetch`*). This file loads on `apps/nebula/src` for that section and the page track; if you are writing platform logic and reaching for any other primitive below, you're in the wrong file. (Which layer am I? → [workers-projects.md](workers-projects.md).) Local DO correctness — storage, sync methods, etc. — still applies regardless: [durable-objects.md](durable-objects.md).
 
@@ -63,7 +63,7 @@ One other forward carries page traffic into a Durable Object's `fetch`, and its 
 **`npm run audit:do-http` is the proof.** It scans source, never tests: every `src` tree under `apps/`, the Resources plane in `packages/resources/src` and Mesh's auth layer in `packages/mesh/src/auth` for all four checks, and for the third every class in `packages/mesh/src` that declares `HTTP_PREFIXES`. It checks four things:
 
 1. every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as something other than a Durable Object namespace;
-2. every `routeDORequest` call under `apps/` passes `bindings`;
+2. every `routeDORequest` call passes `bindings`;
 3. every mesh node's `onRequest` compares the path only against its `HTTP_PREFIXES`;
 4. no Durable Object stub is made except in a named forward or, inside Mesh's auth layer, for its own Registry — so an inline `getByName(…).teardown()` that skips `rawRpcStub` fails it.
 

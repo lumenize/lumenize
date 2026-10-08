@@ -399,7 +399,7 @@ describe('LumenizeClient', () => {
       client.disconnect();
     });
 
-    it('builds correct path with binding and instance', () => {
+    it('builds the path from the instance alone, since the page\'s host names the node', () => {
       const client = new TestClient({
         instanceName: 'alice.tab123',
         baseUrl: 'wss://example.com',
@@ -408,7 +408,7 @@ describe('LumenizeClient', () => {
         WebSocket: createMockWebSocketClass(),
       });
 
-      expect(createdWebSockets[0].url).toBe('wss://example.com/gateway/MY_GATEWAY/alice.tab123');
+      expect(createdWebSockets[0].url).toBe('wss://example.com/gateway/alice.tab123');
       client.disconnect();
     });
 

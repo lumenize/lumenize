@@ -7,7 +7,7 @@
  * - A guard that computes its own decision
  */
 
-import { LumenizeDO, mesh } from '../../../src/index.js';
+import { UnscopedMeshDO, mesh, type AuthClaims } from '../../../src/index.js';
 
 // ============================================
 // Types
@@ -32,7 +32,7 @@ function requireSubscriber(instance: TeamDocDO) {
 // TeamDocDO
 // ============================================
 
-export class TeamDocDO extends LumenizeDO<Env> {
+export class TeamDocDO extends UnscopedMeshDO<Env> {
   /**
    * Get allowed editors from storage
    */
@@ -85,9 +85,10 @@ export class TeamDocDO extends LumenizeDO<Env> {
   // Guards checking claims (block 3, first example)
   // ============================================
 
-  // Check `callContext.originAuth.claims` to determine access
+  // Check `callContext.originAuth.claims` to determine access: here, whether the caller is an
+  // admin of the workspace they signed in to
   @mesh((instance: TeamDocDO) => {
-    if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
+    if (!(instance.lmz.callContext.originAuth?.claims as AuthClaims | undefined)?.access?.scopeAdmin) {
       throw new Error('Admin only');
     }
   })

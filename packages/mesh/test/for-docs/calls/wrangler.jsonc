@@ -5,8 +5,8 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "LUMENIZE_CLIENT_GATEWAY",
-        "class_name": "LumenizeClientGateway"
+        "name": "WORKSPACE_DO",
+        "class_name": "WorkspaceDO"
       },
       {
         "name": "DOCUMENT_DO",
@@ -17,8 +17,12 @@
         "class_name": "CalculatorDO"
       },
       {
-        "name": "LUMENIZE_AUTH",
-        "class_name": "LumenizeAuth"
+        "name": "AUTH_REGISTRY",
+        "class_name": "AuthRegistry"
+      },
+      {
+        "name": "PROFILE",
+        "class_name": "Profile"
       }
     ]
   },
@@ -32,16 +36,53 @@
       "binding": "ANALYTICS_WORKER",
       "service": "mesh-calls",
       "entrypoint": "AnalyticsWorker"
+    },
+    {
+      "binding": "AUTH_FACADE",
+      "service": "mesh-calls",
+      "entrypoint": "AuthFacade"
     }
   ],
   "exports": {
-    "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
-    "DocumentDO": { "type": "durable-object", "storage": "sqlite" },
-    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" },
-    "CalculatorDO": { "type": "durable-object", "storage": "sqlite" }
+    "WorkspaceDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "DocumentDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "CalculatorDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "AuthRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "Profile": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
   },
+  "kv_namespaces": [
+    {
+      "binding": "REFRESH_TOKEN_KV",
+      "id": "mesh-calls-refresh-token-kv"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "AUTH_CONNECTION_RATE_LIMITER",
+      "namespace_id": "2002",
+      "simple": {
+        "limit": 1000,
+        "period": 60
+      }
+    }
+  ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "LUMENIZE_AUTH_REDIRECT": "/app"
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost"
   }
 }

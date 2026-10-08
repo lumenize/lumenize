@@ -1,25 +1,26 @@
 /**
  * @lumenize/mesh - Lumenize Mesh communication framework
  *
- * Provides base classes for mesh nodes (LumenizeDO, LumenizeWorker, LumenizeClient)
+ * Provides base classes for mesh nodes (ScopedMeshDO, UnscopedMeshDO, MeshWorker, LumenizeClient)
  * with automatic dependency injection, OCAN communication, and mesh RPC.
  */
 
-// Primary exports
-export { LumenizeDO } from './lumenize-do';
-export type { Continuation, AnyContinuation } from './lumenize-do';
+// Primary exports: the two Durable Object bases — a node named by a scope checks passage and hosts
+// its pages' Clients; a node named by an id decides per method — and the Worker base.
+export { ScopedMeshDO, requirePassage, requireDominionHere, requirePassageIntoSender, GATEWAY_PREFIX } from './scoped-mesh-do';
+export { UnscopedMeshDO } from './unscoped-mesh-do';
+export type { Continuation, AnyContinuation } from './mesh-do';
 
-export { LumenizeWorker } from './lumenize-worker';
-// Continuation type is the same for LumenizeDO and LumenizeWorker
+export { MeshWorker } from './mesh-worker';
 
 export { NadisPlugin } from './nadis-plugin';
 
-// sql is built-in and automatically available on this.svc.sql for LumenizeDO subclasses
+// sql is built-in and automatically available on this.svc.sql for every Mesh Durable Object
 // Side-effect import ensures LumenizeServices declaration merging runs
 import './sql';
 export type { sql } from './sql';
 
-// alarms is built-in and automatically available on this.svc.alarms for LumenizeDO subclasses
+// alarms is built-in and automatically available on this.svc.alarms for every Mesh Durable Object
 // Side-effect import ensures LumenizeServices declaration merging runs
 import './alarms';
 export type { Schedule, ScheduledAlarm, DelayedAlarm, CronAlarm } from './alarms';
@@ -29,9 +30,6 @@ export type { BroadcastFn, BroadcastTarget, BroadcastOptions } from './broadcast
 
 // Re-export Lumenize infrastructure API
 export type { LmzApi, CallEnvelope } from './lmz-api';
-// ComposedMeshDO — the DO-flavored mesh-composition mixin (VALUE export; the Profile DO in
-// `auth/profile.ts` does `extends ComposedMeshDO(DurableObject, 'Profile')`).
-export { ComposedMeshDO } from './lmz-api';
 
 // Re-export mesh node identity and call context types
 export type {
@@ -56,12 +54,11 @@ export { mesh, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from '.
 export { rawRpc } from './raw-rpc-decorator';
 export type { MeshGuard } from './mesh-decorator';
 
-// LumenizeClientGateway - WebSocket bridge for mesh clients
-export { LumenizeClientGateway, ClientDisconnectedError, GatewayMessageType } from './lumenize-client-gateway';
-// A Client's server-side half, which a node composes to host Clients
+// A Client's server-side half, which a scoped node composes to host the Clients on its pages, and
+// the frames it exchanges with them
 export { ClientGateway } from './client-gateway';
-export { WS_CLOSE_GONE } from './gateway-messages';
-export type { ClientGatewayHost, ClientGatewayOptions } from './client-gateway';
+export { ClientDisconnectedError, GatewayMessageType, WS_CLOSE_GONE } from './gateway-messages';
+export type { ClientGatewayHost } from './client-gateway';
 export type {
   GatewayConnectionInfo,
   GatewayMessage,
@@ -70,7 +67,7 @@ export type {
   IncomingCallMessage,
   IncomingCallResponseMessage,
   ConnectionStatusMessage,
-} from './lumenize-client-gateway';
+} from './gateway-messages';
 
 // LumenizeClient - Browser/Node.js client for mesh communication
 export { LumenizeClient, LoginRequiredError, HostDeletedError, TOKEN_REFRESH_AHEAD_SECONDS } from './lumenize-client';
@@ -87,10 +84,6 @@ export type {
 export { getOrCreateTabId } from './tab-id';
 export { isClientInstanceName, hostInstanceOf, addressOf, splitAddress } from './client-address';
 export type { TabIdDeps } from './tab-id';
-
-// Test helpers
-export { createTestRefreshFunction } from './create-test-refresh-function';
-export type { CreateTestRefreshFunctionOptions } from './create-test-refresh-function';
 
 // The scope grammar, the passage and dominion verdicts, and the host grammar: what a node checks
 // and a Client reads, from `auth/` but reaching neither the Registry nor `cloudflare:workers`.

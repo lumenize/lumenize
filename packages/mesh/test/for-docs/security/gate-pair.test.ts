@@ -1,5 +1,5 @@
 /**
- * The gate pair, DRIVEN — LumenizeClient → Worker → Gateway → DO, both halves.
+ * The gate pair, DRIVEN — LumenizeClient → Worker → its host node → DO, both halves.
  *
  * ⚠️ **A fixture with no assertions passes `npm run test:doc` and the whole-suite run alike.** The
  * `@check-example` checker reads the doc block against the source and never instantiates anything,
@@ -15,18 +15,19 @@ import { it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { SecurityClient } from './security-client.js';
-import { createTestRefreshFunction, type LumenizeClientGateway } from '../../../src/index.js';
 import type { GatePairDO } from './gate-pair-do.js';
+import { loginAt, uniqueScope } from '../../support/login.js';
 
-const ORIGIN = 'https://example.com';
+/** A workspace's first login is its admin; each later one is invited and is a plain member. */
+const workspace = uniqueScope('acme');
 
-async function connect(isAdmin: boolean) {
+async function connect() {
+  const login = await loginAt(workspace);
   const browser = new Browser();
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(login.baseUrl);
   const client = new SecurityClient({
-    baseUrl: ORIGIN,
-    gatewayBindingName: 'LUMENIZE_CLIENT_GATEWAY',
-    refresh: createTestRefreshFunction({ sub: `u-${crypto.randomUUID()}`, isAdmin }),
+    baseUrl: login.baseUrl,
+    refresh: login.refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage,
@@ -37,8 +38,8 @@ async function connect(isAdmin: boolean) {
 }
 
 it('a `@mesh()` getter gate is reachable and an UNDECORATED one is refused without running', async () => {
-  const instance = `gate-pair-${crypto.randomUUID()}`;
-  const admin = await connect(true);
+  const instance = crypto.randomUUID();
+  const admin = await connect();
   try {
     // PERMITTED — the guard runs at the entry op, then the chain walks onto what it handed back.
     await admin.lmz.callAsync(
@@ -62,7 +63,7 @@ it('a `@mesh()` getter gate is reachable and an UNDECORATED one is refused witho
 
     // The GUARD still decides who gets through the `@mesh()` getter — without this, a rule that let
     // anything through the gate would satisfy the two halves above.
-    const outsider = await connect(false);
+    const outsider = await connect();
     try {
       await expect(outsider.lmz.callAsync(
         'GATE_PAIR_DO', instance, outsider.ctn<GatePairDO>().settings.read(), { timeoutMs: 10_000 },

@@ -20,6 +20,8 @@ export interface DocumentCallbacks {
   onContentUpdate?: (content: string) => void;
   // Called when spell check findings are received
   onSpellFindings?: (findings: SpellFinding[]) => void;
+  // Called when the document refuses the subscription, as one not shared with this user does
+  onSubscribeRefused?: (error: Error) => void;
   // Called with callContext when content update is received (for testing { newChain: true })
   onContentUpdateContext?: (context: CallContext) => void;
 }
@@ -35,6 +37,16 @@ export interface DocumentHandle {
 export class EditorClient extends LumenizeClient {
   // Registry of open documents by documentId
   readonly #documents = new Map<string, DocumentCallbacks>();
+
+  /** Create a document owned by this Client's user, resolving once it exists. */
+  createDocument(documentId: string): Promise<void> {
+    return this.lmz.callAsync('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().create());
+  }
+
+  /** Share an owned document with the user whose `sub` is given. */
+  shareDocument(documentId: string, sub: string): Promise<void> {
+    return this.lmz.callAsync('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().share(sub));
+  }
   // Documents whose subscribe has not answered yet. One sent just as a socket closed may never
   // have arrived, so these are sent again on any reconnect.
   readonly #awaitingSnapshot = new Set<string>();
@@ -113,7 +125,8 @@ export class EditorClient extends LumenizeClient {
     if (!callbacks) return; // Document was closed
 
     if (result instanceof Error) {
-      console.error(`Failed to subscribe to ${documentId}:`, result);
+      if (callbacks.onSubscribeRefused) callbacks.onSubscribeRefused(result);
+      else console.error(`Failed to subscribe to ${documentId}:`, result);
       return;
     }
     callbacks.onContentUpdate?.(result);
@@ -142,14 +155,13 @@ export class EditorClient extends LumenizeClient {
    * Request spell check directly from Worker (bypassing DO)
    *
    * Demonstrates client calling Worker directly. The Worker responds
-   * back to this client via handleSpellFindings.
+   * back to this client via handleSpellFindings, at the address its host stamped on the call.
    */
   requestSpellCheck(documentId: string, content: string) {
-    // Client passes its own instanceName so Worker knows where to respond
     this.lmz.call(
       'SPELLCHECK_WORKER',
       undefined,
-      this.ctn<SpellCheckWorker>().check(content, this.lmz.instanceName, documentId),
+      this.ctn<SpellCheckWorker>().check(content, documentId),
       this.ctn().handleCallFailed('spell check'),
       { onErrorOnly: true }
     );

@@ -2,12 +2,27 @@
   "name": "lumenize-mesh-browser-e2e",
   "main": "./index.ts",
   "compatibility_date": "2026-10-01",
-  "compatibility_flags": ["nodejs_compat_v2"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "durable_objects": {
     "bindings": [
-      { "name": "LUMENIZE_CLIENT_GATEWAY", "class_name": "LumenizeClientGateway" },
-      { "name": "DOCUMENT_DO", "class_name": "DocumentDO" },
-      { "name": "LUMENIZE_AUTH", "class_name": "LumenizeAuth" }
+      {
+        "name": "WORKSPACE_DO",
+        "class_name": "WorkspaceDO"
+      },
+      {
+        "name": "DOCUMENT_DO",
+        "class_name": "DocumentDO"
+      },
+      {
+        "name": "AUTH_REGISTRY",
+        "class_name": "AuthRegistry"
+      },
+      {
+        "name": "PROFILE",
+        "class_name": "Profile"
+      }
     ]
   },
   "services": [
@@ -17,19 +32,43 @@
       "entrypoint": "SpellCheckWorker"
     },
     {
+      "binding": "AUTH_FACADE",
+      "service": "lumenize-mesh-browser-e2e",
+      "entrypoint": "AuthFacade"
+    },
+    {
       "binding": "AUTH_EMAIL_SENDER",
       "service": "lumenize-mesh-browser-e2e",
       "entrypoint": "AuthEmailSender"
     }
   ],
   "exports": {
-    "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
-    "DocumentDO": { "type": "durable-object", "storage": "sqlite" },
-    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" }
+    "WorkspaceDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "DocumentDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "AuthRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "Profile": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
   },
+  "kv_namespaces": [
+    {
+      "binding": "REFRESH_TOKEN_KV",
+      "id": "lumenize-mesh-browser-e2e-refresh-token-kv"
+    }
+  ],
   "ratelimits": [
     {
-      "name": "LUMENIZE_AUTH_RATE_LIMITER",
+      "name": "AUTH_CONNECTION_RATE_LIMITER",
       "namespace_id": "2002",
       "simple": {
         "limit": 100,
@@ -39,18 +78,10 @@
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "LUMENIZE_AUTH_REDIRECT": "/app",
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost",
     // Magic links go through Resend and land in the `lumenize-test.dev` catch-all the deployed
     // `email-test` Worker reads. A `send_email` binding send to a per-run address would count
     // against Cloudflare's daily quota (experiments/email-quota-probe/RESULTS.md).
-    "EMAIL_PROVIDER": "resend",
-    // First subject registered with this exact email is automatically
-    // admin-approved (isAdmin in JWT). Required for our test, which uses
-    // a brand-new subject each run — without this, the JWT's
-    // `adminApproved: false` makes the auth gate 403 the WS upgrade.
-    // DOCUMENTED EXCEPTION (packaging.md § env vars): bootstrap knobs belong in
-    // vitest miniflare.bindings, but this worker is a DEPLOYED test harness with
-    // no bindings channel. Do not copy this pattern to non-harness workers.
-    "LUMENIZE_AUTH_BOOTSTRAP_EMAIL": "test@lumenize-test.dev"
+    "EMAIL_PROVIDER": "resend"
   }
 }

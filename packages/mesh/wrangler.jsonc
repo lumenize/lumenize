@@ -7,6 +7,11 @@
       "binding": "TEST_WORKER",
       "service": "lumenize-base",
       "entrypoint": "TestWorker"
+    },
+    {
+      "binding": "AUTH_FACADE",
+      "service": "lumenize-base",
+      "entrypoint": "AuthFacade"
     }
   ],
   "durable_objects": {
@@ -36,16 +41,17 @@
         "class_name": "OnStartErrorDO"
       },
       {
-        "name": "LUMENIZE_CLIENT_GATEWAY",
-        "class_name": "LumenizeClientGateway"
-      },
-      {
         "name": "ECHO_DO",
         "class_name": "EchoDO"
       },
+      // Every scope's node: the Clients on a scope's pages connect to it (test/support/test-auth.ts).
       {
         "name": "CLIENT_HOST_DO",
         "class_name": "ClientHostDO"
+      },
+      {
+        "name": "CUSTOM_HOST_DO",
+        "class_name": "CustomHostDO"
       },
       {
         "name": "ALARM_TEST_DO",
@@ -60,10 +66,6 @@
         "class_name": "OnRequestTestDO"
       },
       {
-        "name": "CUSTOM_GATEWAY",
-        "class_name": "CustomGateway"
-      },
-      {
         "name": "REJECTING_DO",
         "class_name": "RejectingDO"
       },
@@ -74,6 +76,19 @@
       {
         "name": "MEMBER_KIND_DO",
         "class_name": "MemberKindDO"
+      },
+      {
+        "name": "ROOM_DO",
+        "class_name": "RoomDO"
+      },
+      // Mesh's auth: the Registry every login goes through, and the Profile the consent route reaches.
+      {
+        "name": "AUTH_REGISTRY",
+        "class_name": "AuthRegistry"
+      },
+      {
+        "name": "PROFILE",
+        "class_name": "Profile"
       }
     ]
   },
@@ -86,22 +101,37 @@
     "OnStartErrorDO": { "type": "durable-object", "storage": "sqlite" },
     "EchoDO": { "type": "durable-object", "storage": "sqlite" },
     "ClientHostDO": { "type": "durable-object", "storage": "sqlite" },
+    "CustomHostDO": { "type": "durable-object", "storage": "sqlite" },
     "AlarmTestDO": { "type": "durable-object", "storage": "sqlite" },
     "TaskSchedulerDO": { "type": "durable-object", "storage": "sqlite" },
     "OnRequestTestDO": { "type": "durable-object", "storage": "sqlite" },
     "RejectingDO": { "type": "durable-object", "storage": "sqlite" },
     "MarkerRejectingDO": { "type": "durable-object", "storage": "sqlite" },
-    "MemberKindDO": { "type": "durable-object", "storage": "sqlite" }
+    "MemberKindDO": { "type": "durable-object", "storage": "sqlite" },
+    "RoomDO": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "Profile": { "type": "durable-object", "storage": "sqlite" }
   },
+  // The refresh-token records the Registry writes and the refresh route reads.
+  "kv_namespaces": [
+    {
+      "binding": "REFRESH_TOKEN_KV",
+      "id": "mesh-refresh-token-kv-test"
+    }
+  ],
   "ratelimits": [
     {
-      "name": "LUMENIZE_AUTH_RATE_LIMITER",
-      "namespace_id": "1001",
+      "name": "AUTH_CONNECTION_RATE_LIMITER",
+      "namespace_id": "2002",
       "simple": {
-        "limit": 100,
+        "limit": 1000,
         "period": 60
       }
     }
-  ]
+  ],
+  "vars": {
+    "PRIMARY_JWT_KEY": "BLUE",
+    // The deployment's origin, from which every host and the token issuer derive.
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost"
+  }
 }
-

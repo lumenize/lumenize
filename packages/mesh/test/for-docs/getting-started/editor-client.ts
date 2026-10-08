@@ -17,6 +17,8 @@ export interface DocumentCallbacks {
   onContentUpdate?: (content: string) => void;
   // Called when spell check findings are received
   onSpellFindings?: (findings: SpellFinding[]) => void;
+  // Called when the document refuses the subscription, as one not shared with this user does
+  onSubscribeRefused?: (error: Error) => void;
 }
 
 // Handle for an open document - allows saving content and closing
@@ -30,6 +32,20 @@ export interface DocumentHandle {
 export class EditorClient extends LumenizeClient {
   // Registry of open documents by documentId
   readonly #documents = new Map<string, DocumentCallbacks>();
+
+  /** Create a document owned by this Client's user, resolving once it exists. */
+  createDocument(documentId: string): Promise<void> {
+    return this.lmz.callAsync('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().create());
+  }
+
+  /** Share an owned document with the user whose `sub` is given, or stop sharing it. */
+  shareDocument(documentId: string, sub: string): Promise<void> {
+    return this.lmz.callAsync('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().share(sub));
+  }
+
+  unshareDocument(documentId: string, sub: string): Promise<void> {
+    return this.lmz.callAsync('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().unshare(sub));
+  }
 
   /**
    * Open a document for editing
@@ -85,7 +101,8 @@ export class EditorClient extends LumenizeClient {
     if (!callbacks) return; // Document was closed
 
     if (result instanceof Error) {
-      console.error(`Failed to subscribe to ${documentId}:`, result);
+      if (callbacks.onSubscribeRefused) callbacks.onSubscribeRefused(result);
+      else console.error(`Failed to subscribe to ${documentId}:`, result);
       return;
     }
     callbacks.onContentUpdate?.(result);

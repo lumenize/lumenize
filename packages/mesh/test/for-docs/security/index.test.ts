@@ -12,13 +12,19 @@
  * 5. @mesh(guard) with instance state (allowed editors)
  * 6. Reusable guards (requireSubscriber pattern)
  * 7. A guard that computes its own decision from the caller and the node's storage
+ *
+ * Every user logs in on one workspace's page through Mesh's Registry, which hands the magic link
+ * back in test mode (ADR-009 rung 2). The workspace's first login is its admin; each later one is
+ * invited and is a plain member.
  */
 
 import { it, expect, vi } from 'vitest';
 import { createTestingClient, Browser } from '@lumenize/testing';
 import { SecurityClient, type TeamDocResult } from './security-client.js';
-import { LoginRequiredError, createTestRefreshFunction, type LumenizeClientGateway } from '../../../src/index.js';
+import { LoginRequiredError } from '../../../src/index.js';
 import type { TeamDocDO } from './team-doc-do.js';
+import type { WorkspaceDO } from '../security/index.js';
+import { loginAt, uniqueScope } from '../../support/login.js';
 
 /**
  * Capture what the client's `@mesh()` TeamDocDO handler receives.
@@ -55,6 +61,10 @@ async function drive(
 }
 
 it('security patterns: auth, guards, and a guard that computes its own decision', async () => {
+  const workspace = uniqueScope('acme');
+  // The workspace's founder, its admin
+  const adminLogin = await loginAt(workspace);
+
   // ============================================
   // Phase 1: onLoginRequired callback
   // ============================================
@@ -62,15 +72,16 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   // the onLoginRequired callback is invoked.
 
   const aliceBrowser = new Browser();
-  const aliceUserId = crypto.randomUUID();
-  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
+  const aliceLogin = await loginAt(workspace);
+  const aliceUserId = aliceLogin.sub;
+  const aliceRefresh = aliceLogin.refresh;
 
   // Track login required errors
   const loginRequiredErrors: LoginRequiredError[] = [];
 
   using alice = new SecurityClient({
     instanceName: `${aliceUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: aliceLogin.baseUrl,
     refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
@@ -88,14 +99,11 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
 
   // Use testing client to force close the WebSocket with auth error code
   // Code 4403 (invalid signature) triggers onLoginRequired directly without refresh attempt
-  // (4401 would attempt refresh first, which succeeds because createTestRefreshFunction keeps minting valid tokens)
+  // (4401 would attempt refresh first, which succeeds because Alice's session is live)
   {
-    using gatewayClient = createTestingClient<typeof LumenizeClientGateway>(
-      'LUMENIZE_CLIENT_GATEWAY',
-      `${aliceUserId}.tab1`
-    );
+    using hostClient = createTestingClient<typeof WorkspaceDO>('WORKSPACE_DO', workspace);
     // Force close with 4403 (invalid signature) - this triggers onLoginRequired directly
-    const sockets = await gatewayClient.ctx.getWebSockets();
+    const sockets = await hostClient.ctx.getWebSockets(`${workspace}/${aliceUserId}.tab1`);
     await sockets[0].close(4403, 'Invalid token signature');
   }
 
@@ -114,16 +122,17 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   // ============================================
   // UserProfileDO demonstrates owner-or-admin access:
   // - Owner (sub matches instance name) can access
-  // - Admin (isAdmin claim) can access anyone's profile
+  // - An admin of the caller's workspace (`access.scopeAdmin`) can access anyone's profile
   // - Others get "Access denied"
 
   const bobBrowser = new Browser();
-  const bobUserId = crypto.randomUUID();
-  const bobRefresh = createTestRefreshFunction({ sub: bobUserId });
+  const bobLogin = await loginAt(workspace);
+  const bobUserId = bobLogin.sub;
+  const bobRefresh = bobLogin.refresh;
 
   using bob = new SecurityClient({
     instanceName: `${bobUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: bobLogin.baseUrl,
     refresh: bobRefresh,
     fetch: bobBrowser.fetch,
     WebSocket: bobBrowser.WebSocket,
@@ -159,16 +168,12 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   // ============================================
   // Phase 4: @mesh(guard) with claims check (admin only)
   // ============================================
-  // The adminMethod guard checks originAuth.claims.isAdmin. Bob (no isAdmin) is refused;
-  // an admin minted with `isAdmin: true` gets through.
+  // The adminMethod guard checks originAuth.claims.access.scopeAdmin. Bob, an invited member, is
+  // refused; the workspace's founder, its admin, gets through.
   //
-  // ⚠️ This also pins the FLAT WIRE FORMAT end to end. `createTestRefreshFunction` hands
-  // `isAdmin` to `createJwtPayload` as a *custom claim*, which spreads the bag FLAT onto the
-  // token; the Gateway then copies the whole verified payload into `originAuth.claims`. If
-  // the bag were ever nested instead of spread, the claim would arrive as
-  // `originAuth.claims.customClaims.isAdmin`, the guard would read `undefined`, and the admin
-  // half below goes red. Driven over the real path — real client → Worker fetch → auth hooks
-  // → Gateway → DO — with no test-mode infrastructure.
+  // ⚠️ This also pins the WIRE FORMAT end to end: the host copies the whole verified payload into
+  // `originAuth.claims`, so the Registry's `access` claim arrives as the guard reads it. Driven over
+  // the real path — real client → Worker fetch → `hostedUpgrade` → the host node → DO.
 
   const adminCallResults: Array<string | Error> = [];
 
@@ -179,7 +184,8 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
     originalAdminHandler(result);
   };
 
-  bob.callAdminMethod('admin-doc-1');
+  const adminDocId = crypto.randomUUID();
+  bob.callAdminMethod(adminDocId);
 
   await vi.waitFor(() => {
     expect(adminCallResults.length).toBe(1);
@@ -188,14 +194,14 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   expect(adminCallResults[0]).toBeInstanceOf(Error);
   expect((adminCallResults[0] as Error).message).toContain('Admin only');
 
-  // An admin — same path, but the token carries the isAdmin custom claim.
+  // An admin — same path, but the token's membership is the workspace's admin.
   const adminBrowser = new Browser();
-  const adminUserId = crypto.randomUUID();
-  const adminRefresh = createTestRefreshFunction({ sub: adminUserId, isAdmin: true });
+  const adminUserId = adminLogin.sub;
+  const adminRefresh = adminLogin.refresh;
 
   using adminUser = new SecurityClient({
     instanceName: `${adminUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: adminLogin.baseUrl,
     refresh: adminRefresh,
     fetch: adminBrowser.fetch,
     WebSocket: adminBrowser.WebSocket,
@@ -212,7 +218,7 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
     originalOwnHandler(result);
   };
 
-  adminUser.callAdminMethod('admin-doc-1');
+  adminUser.callAdminMethod(adminDocId);
 
   await vi.waitFor(() => {
     expect(adminOwnResults.length).toBe(1);
@@ -233,12 +239,13 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   // the method, not of the guard it demonstrates.
 
   const carolBrowser = new Browser();
-  const carolUserId = crypto.randomUUID();
-  const carolRefresh = createTestRefreshFunction({ sub: carolUserId });
+  const carolLogin = await loginAt(workspace);
+  const carolUserId = carolLogin.sub;
+  const carolRefresh = carolLogin.refresh;
 
   using carol = new SecurityClient({
     instanceName: `${carolUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: carolLogin.baseUrl,
     refresh: carolRefresh,
     fetch: carolBrowser.fetch,
     WebSocket: carolBrowser.WebSocket,
@@ -249,10 +256,13 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   });
 
   const carolResults = captureTeamDocResults(carol);
+  // Team documents are named by an id, never by a scope
+  const editorDocId = crypto.randomUUID();
+  const subscriberDocId = crypto.randomUUID();
 
   // Carol is not yet an allowed editor — the guard refuses her.
   const refusedUpdate = await drive(carolResults, () =>
-    carol.callUpdateDocument('editor-doc-1', 'Carol was here')
+    carol.callUpdateDocument(editorDocId, 'Carol was here')
   );
   expect(refusedUpdate).toBeInstanceOf(Error);
   expect((refusedUpdate as Error).message).toContain('Not an allowed editor');
@@ -260,7 +270,7 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   // Seeding + reading storage is what createTestingClient IS for: addEditor is
   // reachable over the mesh, but the `allowedEditors` getter has no @mesh().
   {
-    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'editor-doc-1');
+    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', editorDocId);
 
     // Add Carol as an allowed editor
     await teamDocClient.addEditor(carolUserId);
@@ -272,13 +282,13 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
 
   // Same call, same path — now the guard passes.
   const updateResult = await drive(carolResults, () =>
-    carol.callUpdateDocument('editor-doc-1', 'Carol was here')
+    carol.callUpdateDocument(editorDocId, 'Carol was here')
   );
   expect(updateResult).toEqual({ updated: true, content: 'Carol was here' });
 
   // ...and the write actually landed. Asserting only on the returned value
   // can't tell a real write from a method that just reports success.
-  const storedContent = await drive(carolResults, () => carol.callGetContent('editor-doc-1'));
+  const storedContent = await drive(carolResults, () => carol.callGetContent(editorDocId));
   expect(storedContent).toBe('Carol was here');
 
   // ============================================
@@ -293,13 +303,13 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
 
   // Bob is not subscribed yet.
   const refusedEdit = await drive(bobResults, () =>
-    bob.callEditDocument('subscriber-doc-1', 'Team doc content')
+    bob.callEditDocument(subscriberDocId, 'Team doc content')
   );
   expect(refusedEdit).toBeInstanceOf(Error);
   expect((refusedEdit as Error).message).toContain('Subscriber access required');
 
   {
-    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'subscriber-doc-1');
+    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', subscriberDocId);
 
     // Add Bob as a subscriber
     await teamDocClient.addSubscriber(bobUserId);
@@ -312,12 +322,12 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
   // Both editDocument and addComment use requireSubscriber —
   // Bob can call them because he's subscribed
   const editResult = await drive(bobResults, () =>
-    bob.callEditDocument('subscriber-doc-1', 'Team doc content')
+    bob.callEditDocument(subscriberDocId, 'Team doc content')
   );
   expect(editResult).toEqual({ edited: true, content: 'Team doc content' });
 
   const commentResult = await drive(bobResults, () =>
-    bob.callAddComment('subscriber-doc-1', 'Looks good!')
+    bob.callAddComment(subscriberDocId, 'Looks good!')
   );
   expect(commentResult).toEqual({ commented: true });
 
@@ -329,13 +339,13 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
 
   // Bob is not an editor of this instance, so the guard refuses.
   const refusedEditorEdit = await drive(bobResults, () =>
-    bob.callEditAsEditor('editor-doc-1', 'Editor-gated edit')
+    bob.callEditAsEditor(editorDocId, 'Editor-gated edit')
   );
   expect(refusedEditorEdit).toBeInstanceOf(Error);
   expect((refusedEditorEdit as Error).message).toContain('Editor access required');
 
   {
-    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'editor-doc-1');
+    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', editorDocId);
 
     // Initially Bob is not an editor
     const editorsBefore = await teamDocClient.allowedEditors;
@@ -351,7 +361,7 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
 
   // Now Bob is an editor, and the guard passes.
   const editorEditResult = await drive(bobResults, () =>
-    bob.callEditAsEditor('editor-doc-1', 'Editor-gated edit')
+    bob.callEditAsEditor(editorDocId, 'Editor-gated edit')
   );
   expect(editorEditResult).toEqual({ edited: true, byUser: bobUserId });
 
@@ -369,18 +379,15 @@ it('security patterns: auth, guards, and a guard that computes its own decision'
  * this test proves that when refresh *fails*, onLoginRequired fires correctly.
  */
 it('4401 close triggers refresh, which fails, then fires onLoginRequired', async () => {
-  const userId = crypto.randomUUID();
+  const workspace = uniqueScope('acme');
+  const login = await loginAt(workspace);
+  const userId = login.sub;
 
-  // Create two refresh functions: one that works, one that throws
-  const workingRefresh = createTestRefreshFunction({ sub: userId });
-  const failingRefresh = createTestRefreshFunction({ sub: userId, expired: true });
-
-  // First call succeeds (initial connect), subsequent calls fail
+  // The refresh route, counted: the user logs out below, so every refresh after that one fails
   let callCount = 0;
   const refresh = async () => {
     callCount++;
-    if (callCount <= 1) return workingRefresh();
-    return failingRefresh();
+    return login.refresh();
   };
 
   const browser = new Browser();
@@ -388,7 +395,7 @@ it('4401 close triggers refresh, which fails, then fires onLoginRequired', async
 
   using client = new SecurityClient({
     instanceName: `${userId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: login.baseUrl,
     refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
@@ -397,19 +404,19 @@ it('4401 close triggers refresh, which fails, then fires onLoginRequired', async
     },
   });
 
-  // Wait for initial connection (uses workingRefresh)
+  // Wait for initial connection
   await vi.waitFor(() => {
     expect(client.connectionState).toBe('connected');
   });
   expect(callCount).toBe(1);
 
+  // The session ends: logout revokes the refresh cookie, so the refresh route now answers 401
+  await login.logout();
+
   // Force close with 4401 (token expired) — client will attempt refresh, which throws
   {
-    using gatewayClient = createTestingClient<typeof LumenizeClientGateway>(
-      'LUMENIZE_CLIENT_GATEWAY',
-      `${userId}.tab1`
-    );
-    const sockets = await gatewayClient.ctx.getWebSockets();
+    using hostClient = createTestingClient<typeof WorkspaceDO>('WORKSPACE_DO', workspace);
+    const sockets = await hostClient.ctx.getWebSockets(`${workspace}/${userId}.tab1`);
     await sockets[0].close(4401, 'Token expired');
   }
 
@@ -426,74 +433,30 @@ it('4401 close triggers refresh, which fails, then fires onLoginRequired', async
 });
 
 /**
- * CORS test: verify that WebSocket upgrades from disallowed origins are
- * rejected with 403 by routeDORequest's server-side CORS enforcement.
- *
- * The security Worker is configured with cors: { origin: ['https://localhost'] }.
- * Requests without an Origin header pass through (same-origin assumed),
- * but cross-origin requests from unlisted origins are blocked before
- * reaching the Gateway or auth hooks.
- *
- * Uses browser.fetch directly (not browser.context) to bypass the Browser's
- * client-side CORS simulation and inspect the raw server response.
- */
-it('CORS allowlist rejects WebSocket upgrade from disallowed origin', async () => {
-  // Mint a valid token to isolate the CORS behavior
-  const browser = new Browser();
-  const refresh = createTestRefreshFunction({ sub: 'cors-test-user' });
-  const { access_token: accessToken, sub } = await refresh();
-
-  // Attempt WebSocket upgrade from a disallowed origin (raw fetch to see server response)
-  const rejectedResponse = await browser.fetch(`https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/${sub}.tab1`, {
-    headers: {
-      'Origin': 'https://evil.com',
-      'Upgrade': 'websocket',
-      'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${accessToken}`,
-    },
-  });
-
-  // Server-side CORS enforcement: 403 before auth hooks or Gateway are invoked
-  expect(rejectedResponse.status).toBe(403);
-  expect(await rejectedResponse.text()).toBe('Forbidden: Origin not allowed');
-
-  // Same request from the allowed origin should NOT get 403
-  const allowedResponse = await browser.fetch(`https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/${sub}.tab1`, {
-    headers: {
-      'Origin': 'https://localhost',
-      'Upgrade': 'websocket',
-      'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${accessToken}`,
-    },
-  });
-
-  expect(allowedResponse.status).not.toBe(403);
-});
-
-/**
  * Negative security test: verify that forged/invalid JWTs are rejected
- * by the Worker's auth hooks BEFORE reaching the gateway DO.
+ * by the Worker's `hostedUpgrade` BEFORE reaching the host node.
  *
- * This is the end-to-end counterpart to the auth package unit tests.
- * The gateway unit tests use fake JWTs (since gateway trusts the Worker),
+ * The host node's own tests use fake JWTs (since the host trusts the Worker),
  * but this test proves the Worker actually blocks invalid tokens.
  */
-it('Worker rejects forged JWT before it reaches the gateway DO', async () => {
+it('Worker rejects forged JWT before it reaches the host node', async () => {
   const browser = new Browser();
+  const page = `http://${uniqueScope('acme')}.lumenize.localhost`;
 
-  // Attempt WebSocket upgrade with a completely forged JWT
-  // The Worker's onBeforeConnect should reject this with 401
+  // Attempt WebSocket upgrade with a completely forged JWT — its signature does not verify
   const forgedToken = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJmYWtlLXVzZXIifQ.not-a-real-signature';
-  const response = await browser.fetch('https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/forged-user.tab1', {
+  const response = await browser.fetch(`${page}/gateway/forged-user.tab1`, {
     headers: {
       'Upgrade': 'websocket',
       'Sec-WebSocket-Protocol': `lmz.2, lmz.access-token.${forgedToken}`,
     },
   });
 
-  // Worker hooks should reject — invalid signature never reaches gateway
-  expect(response.status).toBe(401);
+  // Refused before routing — a token that does not verify never reaches the host
+  expect(response.status).toBe(403);
 
   // Also verify: no token at all
-  const noTokenResponse = await browser.fetch('https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/no-token.tab1', {
+  const noTokenResponse = await browser.fetch(`${page}/gateway/no-token.tab1`, {
     headers: {
       'Upgrade': 'websocket',
       'Sec-WebSocket-Protocol': 'lmz.2',

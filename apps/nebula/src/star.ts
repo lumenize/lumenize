@@ -16,12 +16,12 @@
 
 import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { NebulaDO, requireDominionHere } from './nebula-do';
+import { ScopedMeshDO, requireDominionHere } from '@lumenize/mesh';
 import { Resources } from '@lumenize/resources';
 import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { Galaxy } from './galaxy';
 
-export class Star extends NebulaDO implements ResourcesHost {
+export class Star extends ScopedMeshDO implements ResourcesHost {
   #resources!: Resources
 
   onStart() {

@@ -90,9 +90,9 @@ describe('LumenizeWorker - Direct Method Execution', () => {
 
 describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   test('Worker→Worker call: result handler forwards to a store DO', async () => {
-    const storeDO = env.TEST_DO.getByName('worker-to-worker-store-1');
+    const storeDO = env.TEST_DO.getByName('worker_to_worker_store_1');
 
-    await env.TEST_WORKER.testCallToWorker('hello-worker-to-worker', 'worker-to-worker-store-1');
+    await env.TEST_WORKER.testCallToWorker('hello-worker-to-worker', 'worker_to_worker_store_1');
 
     await vi.waitFor(async () => {
       expect(await storeDO.getForwardedResult()).toBe('worker-echo: hello-worker-to-worker');
@@ -103,10 +103,10 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   // back to the origin, where it runs with the Error appended. Capable-of-failing: have the loop
   // drop `onResult` from each target's call, and no error reaches the origin.
   test('broadcast: a target Error reaches the origin\'s onResult', async () => {
-    const origin = env.TEST_DO.getByName('broadcast-origin');
-    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'broadcast-origin' });
+    const origin = env.TEST_DO.getByName('broadcast_origin');
+    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'broadcast_origin' });
 
-    origin.testBroadcastToThrower('broadcast-target');
+    origin.testBroadcastToThrower('broadcast_target');
 
     await vi.waitFor(async () => {
       expect(await origin.getBroadcastErrorName()).toBeTruthy();
@@ -118,10 +118,10 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   // handler needs no `@mesh()`. Capable of failing: have the fire-back door require `@mesh()` and
   // this reds while the decorated sibling above stays green, which is what separates the two doors.
   test('broadcast: a target Error reaches an UNDECORATED onResult handler', async () => {
-    const origin = env.TEST_DO.getByName('broadcast-origin-undecorated');
-    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'broadcast-origin-undecorated' });
+    const origin = env.TEST_DO.getByName('broadcast_origin_undecorated');
+    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'broadcast_origin_undecorated' });
 
-    origin.testBroadcastToThrowerUndecorated('broadcast-target-undecorated');
+    origin.testBroadcastToThrowerUndecorated('broadcast_target_undecorated');
 
     await vi.waitFor(async () => {
       expect(await origin.getUndecoratedBroadcastError()).toBeTruthy();
@@ -130,14 +130,14 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   }, 10000);
 
   test('result handler receives success result', async () => {
-    const storeDO = env.TEST_DO.getByName('worker-call-result-store-1');
+    const storeDO = env.TEST_DO.getByName('worker_call_result_store_1');
 
     // Worker calls DO remoteEcho, result handler forwards result to storeDO
     await env.TEST_WORKER.testCallToDO(
       'TEST_DO',
-      'worker-call-target-1',
+      'worker_call_target_1',
       'call-test-value',
-      'worker-call-result-store-1'
+      'worker_call_result_store_1'
     );
 
     // Wait for the one-way chain to complete
@@ -148,13 +148,13 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   });
 
   test('result handler receives error as Error', async () => {
-    const storeDO = env.TEST_DO.getByName('worker-call-error-store-1');
+    const storeDO = env.TEST_DO.getByName('worker_call_error_store_1');
 
     // Worker calls DO throwError, result handler forwards error to storeDO
     await env.TEST_WORKER.testCallWithErrorToDO(
       'TEST_DO',
-      'worker-call-error-target-1',
-      'worker-call-error-store-1'
+      'worker_call_error_target_1',
+      'worker_call_error_store_1'
     );
 
     // Wait for the one-way chain to complete
@@ -168,12 +168,12 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
     // This should not throw — call returns void, work happens in background
     await env.TEST_WORKER.testCallErrorsOnly(
       'TEST_DO',
-      'worker-call-fandf-1',
+      'worker_call_fandf_1',
       'errors-only-value'
     );
 
     // Verify the remote DO received the call by checking its envelope
-    const targetDO = env.TEST_DO.getByName('worker-call-fandf-1');
+    const targetDO = env.TEST_DO.getByName('worker_call_fandf_1');
     await vi.waitFor(async () => {
       const envelope = await targetDO.getLastEnvelope();
       expect(envelope).toBeTruthy();
@@ -187,10 +187,10 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   });
 
   test('DO→Worker error: DO result handler receives error from Worker throwError', async () => {
-    const callerDO = env.TEST_DO.getByName('do-worker-error-caller-1');
+    const callerDO = env.TEST_DO.getByName('do_worker_error_caller_1');
 
     // Real identity so the Worker can fire the error back to this DO.
-    await callerDO.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'do-worker-error-caller-1' });
+    await callerDO.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'do_worker_error_caller_1' });
 
     // DO calls Worker throwError, DO result handler stores error
     callerDO.testCallWithErrorToWorker('TEST_WORKER');

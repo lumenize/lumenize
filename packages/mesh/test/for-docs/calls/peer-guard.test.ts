@@ -3,30 +3,28 @@
  *
  * The client's default `onBeforeCall` blocks a DIRECT client→client call by checking the IMMEDIATE
  * caller (`callChain.at(-1)`), NOT the origin. This is the foundation-default proof, homed in
- * `@lumenize/mesh`'s own package on the BASE `LumenizeClientGateway` (its `onBeforeCallToClient` is a
- * no-op — no aud fence), so the CLIENT guard is the sole rejecter (not confounded by a Gateway fence),
- * and using `createTestRefreshFunction` (a `@lumenize/mesh` export — no `@lumenize/mesh/auth` import,
- * respecting the dependency direction). `EditorClient` carries NO `onBeforeCall` override → it exercises
- * the DEFAULT guard.
+ * `@lumenize/mesh`'s own package on a host node whose `onBeforeCallToClient` checks passage into the
+ * sender only, which a Client sender skips, so the CLIENT guard is the sole rejecter. Every user logs
+ * in on one workspace's page through Mesh's Registry (ADR-009 rung 2). `EditorClient` carries NO
+ * `onBeforeCall` override → it exercises the DEFAULT guard.
  *
  * Every test is capable-of-failing; the mutation-checks below were RUN and observed to flip during the
  * build (tasks/mesh-client-peer-guard.md § Success criteria).
  */
 import { it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { createTestRefreshFunction } from '../../../src/index.js';
 import { EditorClient } from './editor-client.js';
+import { loginAt, uniqueScope, type Login } from '../../support/login.js';
 import type { DocumentDO } from './document-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
 
-/** A connected `EditorClient` with the DEFAULT peer-guard and a unique sub/instanceName per call. */
-async function connectEditor(): Promise<EditorClient> {
+/** A connected `EditorClient` with the DEFAULT peer-guard, logged in as `login`. */
+async function connectEditor(login: Login): Promise<EditorClient> {
   const browser = new Browser();
-  const userId = crypto.randomUUID();
   const client = new EditorClient({
-    instanceName: `${userId}.tab1`,
-    baseUrl: 'https://localhost',
-    refresh: createTestRefreshFunction({ sub: userId }),
+    instanceName: `${login.sub}.tab1`,
+    baseUrl: login.baseUrl,
+    refresh: login.refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
   });
@@ -35,9 +33,14 @@ async function connectEditor(): Promise<EditorClient> {
 }
 
 it('#1 default guard ACCEPTS a DO-mediated cross-client fanout push (caller = the DO)', async () => {
-  using writer = await connectEditor();
-  using receiver = await connectEditor();
+  const workspace = uniqueScope('acme');
+  const writerLogin = await loginAt(workspace);
+  const receiverLogin = await loginAt(workspace);
+  using writer = await connectEditor(writerLogin);
+  using receiver = await connectEditor(receiverLogin);
   const documentId = crypto.randomUUID();
+  await writer.createDocument(documentId);
+  await writer.shareDocument(documentId, receiverLogin.sub);
 
   // Receiver subscribes with the DEFAULT guard (no override). Capture pushed content + the immediate
   // caller type the receiver sees on each `handleContentUpdate`.
@@ -62,19 +65,24 @@ it('#1 default guard ACCEPTS a DO-mediated cross-client fanout push (caller = th
   expect(callerTypes).toContain('LumenizeDO');
 }, 20000);
 
-it('#2 default guard BLOCKS a direct client→client call (caller = a client), via the base Gateway', async () => {
-  using alice = await connectEditor();
-  using bob = await connectEditor();
+it('#2 default guard BLOCKS a direct client→client call (caller = a client), via their host', async () => {
+  const workspace = uniqueScope('acme');
+  const aliceLogin = await loginAt(workspace);
+  const bobLogin = await loginAt(workspace);
+  using alice = await connectEditor(aliceLogin);
+  using bob = await connectEditor(bobLogin);
   const documentId = crypto.randomUUID();
+  await bob.createDocument(documentId);
+  await bob.shareDocument(documentId, aliceLogin.sub);
 
   const bobContents: string[] = [];
   bob.openDocument(documentId, { onContentUpdate: (c) => bobContents.push(c) });
   await vi.waitFor(() => expect(bobContents[0]).toBe(''), { timeout: 10000 }); // bob subscribed
 
-  // Alice calls bob's @mesh `handleContentUpdate` DIRECTLY via the base Gateway (no DO in the chain).
+  // Alice calls bob's @mesh `handleContentUpdate` DIRECTLY through their host (no DO in the chain).
   // bob sees callChain = [alice]; at(-1) = alice (a LumenizeClient, DISTINCT instanceName) → bob's
   // default guard REJECTS it before `handleContentUpdate` runs.
-  alice.lmz.call('LUMENIZE_CLIENT_GATEWAY', bob.lmz.instanceName!,
+  alice.lmz.call('WORKSPACE_DO', `${workspace}/${bob.lmz.instanceName}`,
     alice.ctn<EditorClient>().handleContentUpdate(documentId, 'DIRECT-FROM-ALICE'),
     alice.ctn().handleCallFailed('direct push'), { onErrorOnly: true });
 
@@ -91,8 +99,9 @@ it('#2 default guard BLOCKS a direct client→client call (caller = a client), v
 }, 20000);
 
 it('#3 default guard ACCEPTS a Worker-mediated push (caller = a LumenizeWorker) — no DO-only regression', async () => {
-  using client = await connectEditor();
+  using client = await connectEditor(await loginAt(uniqueScope('acme')));
   const documentId = crypto.randomUUID();
+  await client.createDocument(documentId);
 
   const findings: SpellFinding[][] = [];
   const doc = client.openDocument(documentId, { onSpellFindings: (f) => findings.push(f) });

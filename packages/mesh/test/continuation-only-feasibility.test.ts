@@ -29,11 +29,11 @@ function chainFor(method: string, args: any[]) {
 
 describe('@lumenize/mesh — continuation-only calls (Phase 1a feasibility)', () => {
   it('4-arg call: traveling handler + early-ack + fire-back delivers the result (DO→DO)', async () => {
-    const caller = env.TEST_DO.getByName('feasib-basic-caller');
+    const caller = env.TEST_DO.getByName('feasib_basic_caller');
     // Caller identity must be its REAL binding+instance so the callee can fire back to it.
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'feasib-basic-caller' });
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'feasib_basic_caller' });
 
-    caller.testCallSlow('TEST_DO', 'feasib-basic-callee', 'hello', 0);
+    caller.testCallSlow('TEST_DO', 'feasib_basic_callee', 'hello', 0);
 
     await vi.waitFor(async () => {
       expect(await caller.getLastCallResult()).toBe('echo: hello');
@@ -45,15 +45,15 @@ describe('@lumenize/mesh — continuation-only calls (Phase 1a feasibility)', ()
   });
 
   it('__executeOperation ACKS EARLY: {$ack} returns before the slow chain completes', async () => {
-    const callee = env.TEST_DO.getByName('feasib-earlyack-callee');
+    const callee = env.TEST_DO.getByName('feasib_earlyack_callee');
 
     const envelope = {
       version: 1,
       chain: preprocess(chainFor('slowEcho', ['ea', 1500])),
       callContext: {
-        callChain: [{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'feasib-earlyack-origin' }],
+        callChain: [{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'feasib_earlyack_origin' }],
       },
-      metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'feasib-earlyack-callee' } },
+      metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'feasib_earlyack_callee' } },
     };
 
     const ack = await callee.__executeOperation(envelope as any);
@@ -71,10 +71,10 @@ describe('@lumenize/mesh — continuation-only calls (Phase 1a feasibility)', ()
   });
 
   it('DO-liveness (criterion 10): callee early-acks then does LONG (2s) post-ack work and STILL fires back', async () => {
-    const caller = env.TEST_DO.getByName('feasib-slow-caller');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'feasib-slow-caller' });
+    const caller = env.TEST_DO.getByName('feasib_slow_caller');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'feasib_slow_caller' });
 
-    caller.testCallSlow('TEST_DO', 'feasib-slow-callee', 'slow', 2000);
+    caller.testCallSlow('TEST_DO', 'feasib_slow_callee', 'slow', 2000);
 
     // If DurableObjectState.waitUntil does NOT keep the callee alive across the 2s gap,
     // the fire-back never lands and this times out (the premise fails → D15 must be revisited).
@@ -86,11 +86,11 @@ describe('@lumenize/mesh — continuation-only calls (Phase 1a feasibility)', ()
   }, 15_000);
 
   it('interleaved early-ack calls stay isolated: each handler receives its OWN result', async () => {
-    const caller = env.TEST_DO.getByName('feasib-many-caller');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'feasib-many-caller' });
+    const caller = env.TEST_DO.getByName('feasib_many_caller');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'feasib_many_caller' });
 
     const values = ['a', 'b', 'c', 'd', 'e'];
-    caller.testCallMany('TEST_DO', 'feasib-many-callee', values, 300);
+    caller.testCallMany('TEST_DO', 'feasib_many_callee', values, 300);
 
     await vi.waitFor(async () => {
       const results = await caller.getManyResults();
@@ -110,10 +110,10 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
     const entries: any[] = [];
     setDebugSink((e) => entries.push(e));
     try {
-      const caller = env.TEST_DO.getByName('n8-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'n8-caller' });
+      const caller = env.TEST_DO.getByName('n8_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'n8_caller' });
 
-      caller.testCallThrowingHandler('TEST_DO', 'n8-callee');
+      caller.testCallThrowingHandler('TEST_DO', 'n8_callee');
 
       // The handler DID run (marker set), and its throw was surfaced to the debug sink — not
       // silently swallowed, not a crash. A fire-back carries no `response` of its own, so
@@ -135,17 +135,17 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
     // Drive __handleResponse directly with a hand-built fire-back — no prior call() populated any
     // in-memory state on this instance. The handler runs from the envelope + storage alone, and the
     // cold caller even learns its identity from the fire-back metadata (proves "caller holds ZERO state").
-    const caller = env.TEST_DO.getByName('n9-cold-caller');
+    const caller = env.TEST_DO.getByName('n9_cold_caller');
     const fireBack = {
       version: 1,
       chain: preprocess([{ type: 'get', key: 'handleResultWithContext' }, { type: 'apply', args: ['restored-from-envelope'] }]),
       callContext: {
         callChain: [
-          { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9-origin' },
-          { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9-callee' },
+          { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9_origin' },
+          { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9_callee' },
         ],
       },
-      metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9-cold-caller' } },
+      metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'n9_cold_caller' } },
     };
 
     const ack = await caller.__handleResponse(fireBack as any);
@@ -153,16 +153,16 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
 
     await vi.waitFor(async () => { expect(await caller.getLastCallResult()).toBe('restored-from-envelope'); });
     // Identity was restored from the fire-back envelope metadata, not from any prior in-memory call.
-    expect(await caller.testLmzGetInstanceName()).toBe('n9-cold-caller');
+    expect(await caller.testLmzGetInstanceName()).toBe('n9_cold_caller');
   });
 
   it('D6 tier 2: an admission reject returns on the ACK and runs the handler LOCALLY with the Error', async () => {
-    const caller = env.TEST_DO.getByName('reject-caller');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'reject-caller' });
+    const caller = env.TEST_DO.getByName('reject_caller');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'reject_caller' });
 
     // REJECTING_DO.onBeforeCall throws → the callee rejects at admission → the ack carries the Error
     // → the framework runs the caller's handler LOCALLY (no fire-back — the caller is still hot).
-    caller.testCallToRejecter('REJECTING_DO', 'reject-target');
+    caller.testCallToRejecter('REJECTING_DO', 'reject_target');
 
     await vi.waitFor(async () => {
       expect(await caller.getLastCallError()).toContain('admission rejected by onBeforeCall');
@@ -170,12 +170,12 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
   });
 
   it('broadcast-to-disconnected (mesh side): a 4-arg call to a disconnected client delivers ClientDisconnectedError to the handler', async () => {
-    const caller = env.TEST_DO.getByName('disc-caller');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'disc-caller' });
+    const caller = env.TEST_DO.getByName('disc_caller');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'disc_caller' });
 
-    // No client ever connected as 'never-connected.tab1' → the Gateway acks, then fires
+    // No client ever connected as 'feasib-host/never-connected.tab1' → its host acks, then fires
     // ClientDisconnectedError back to the caller's fire-back door, with the Client as last hop.
-    caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', 'never-connected.tab1');
+    caller.testCallToDisconnectedClient('CLIENT_HOST_DO', 'feasib-host/never-connected.tab1');
 
     await vi.waitFor(async () => {
       expect(await caller.getLastCallError()).toBeTruthy();
@@ -185,6 +185,6 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
     // err.name === 'ClientDisconnectedError'; WHICH client it was
     // comes from `callContext.callee`, never from the error, which carries no such field.)
     expect(await caller.getLastCallErrorName()).toBe('ClientDisconnectedError');
-    expect(await caller.getLastCallErrorClient()).toBe('never-connected.tab1');
+    expect(await caller.getLastCallErrorClient()).toBe('feasib-host/never-connected.tab1');
   });
 });

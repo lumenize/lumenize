@@ -19,7 +19,7 @@ export { AuthRegistry } from './auth-registry';
 // pulling that whole chain through this (widely-imported) index breaks the transform of pure-unit
 // consumers that import only light utilities (e.g. parse-id). Import it from the dedicated subpath
 // instead: `import { Profile } from '@lumenize/mesh/auth/profile'` (tasks/archive/nebula-profile-store.md).
-// The same rule keeps `AuthFacade` (a mesh-composing LumenizeWorker) out of this barrel —
+// The same rule keeps `AuthFacade` (a mesh-composing MeshWorker) out of this barrel —
 // import it from `@lumenize/mesh/auth/facade`.
 
 // Scope-hierarchy shapes — the client (NebulaClient.scopes) returns these to the UI.
@@ -41,6 +41,10 @@ export { routeAuthRequest } from './router';
 
 // JWT verification — primary export for consuming packages
 export { verifyAccessToken } from './router';
+
+// A Client's upgrade on a scope's host, checked and forwarded to the node the host spells.
+export { hostedUpgrade } from './hosted-upgrade';
+export type { TierBindings } from './hosted-upgrade';
 
 // universeGalaxyStarId parsing, plus the two structural containment predicates the
 // coarse-grained verdicts are built from (ADR-015 § *Predicate pair*).

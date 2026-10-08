@@ -17,41 +17,41 @@ import { env } from 'cloudflare:test';
 describe('@lumenize/mesh - CallContext Propagation', () => {
   describe('Basic callContext structure', () => {
     it('callChain[0] is the origin when a DO calls another DO', async () => {
-      const caller = env.TEST_DO.getByName('caller-do-1');
-      const callee = env.TEST_DO.getByName('callee-do-1');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-do-1' });
+      const caller = env.TEST_DO.getByName('caller_do_1');
+      const callee = env.TEST_DO.getByName('callee_do_1');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller_do_1' });
 
-      caller.fireCall('TEST_DO', 'callee-do-1', 'captureContext');
+      caller.fireCall('TEST_DO', 'callee_do_1', 'captureContext');
 
       const ctx = await vi.waitFor(async () => {
         const c = await callee.getObservedContext();
         expect(c).toBeDefined();
         return c;
       });
-      expect(ctx.callChain[0]).toMatchObject({ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'caller-do-1' });
+      expect(ctx.callChain[0]).toMatchObject({ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'caller_do_1' });
     });
 
     it('callee gets its own identity from this.lmz', async () => {
-      const caller = env.TEST_DO.getByName('caller-callee-test-1');
-      const callee = env.TEST_DO.getByName('callee-callee-test-1');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-callee-test-1' });
+      const caller = env.TEST_DO.getByName('caller_callee_test_1');
+      const callee = env.TEST_DO.getByName('callee_callee_test_1');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller_callee_test_1' });
 
-      caller.fireCall('TEST_DO', 'callee-callee-test-1', 'captureContext');
+      caller.fireCall('TEST_DO', 'callee_callee_test_1', 'captureContext');
 
       const identity = await vi.waitFor(async () => {
         const i = await callee.getObservedIdentity();
         expect(i).toBeDefined();
         return i;
       });
-      expect(identity).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'callee-callee-test-1' });
+      expect(identity).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'callee_callee_test_1' });
     });
 
     it('callChain has one element (origin) when origin calls directly', async () => {
-      const caller = env.TEST_DO.getByName('chain-empty-1');
-      const callee = env.TEST_DO.getByName('chain-empty-2');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'chain-empty-1' });
+      const caller = env.TEST_DO.getByName('chain_empty_1');
+      const callee = env.TEST_DO.getByName('chain_empty_2');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'chain_empty_1' });
 
-      caller.fireCall('TEST_DO', 'chain-empty-2', 'captureContext');
+      caller.fireCall('TEST_DO', 'chain_empty_2', 'captureContext');
 
       const ctx = await vi.waitFor(async () => {
         const c = await callee.getObservedContext();
@@ -59,19 +59,19 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         return c;
       });
       expect(ctx.callChain).toHaveLength(1);
-      expect(ctx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain-empty-1' });
+      expect(ctx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain_empty_1' });
     });
   });
 
   describe('Multi-hop call chains (DO → DO → DO)', () => {
     it('callChain accumulates through hops', async () => {
-      const doA = env.TEST_DO.getByName('chain-a');
-      const doB = env.TEST_DO.getByName('chain-b');
-      const doC = env.TEST_DO.getByName('chain-c');
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'chain-a' });
+      const doA = env.TEST_DO.getByName('chain_a');
+      const doB = env.TEST_DO.getByName('chain_b');
+      const doC = env.TEST_DO.getByName('chain_c');
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'chain_a' });
 
       // A → B(capture + forward) → C(capture)
-      doA.fireCall('TEST_DO', 'chain-b', 'captureAndForward', ['TEST_DO', 'chain-c']);
+      doA.fireCall('TEST_DO', 'chain_b', 'captureAndForward', ['TEST_DO', 'chain_c']);
 
       const cCtx = await vi.waitFor(async () => {
         const c = await doC.getObservedContext();
@@ -82,21 +82,21 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
       // B saw just the origin [A]; C saw [A, B].
       expect(bCtx.callChain).toHaveLength(1);
-      expect(bCtx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain-a' });
+      expect(bCtx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain_a' });
       expect(cCtx.callChain).toHaveLength(2);
-      expect(cCtx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain-a' });
-      expect(cCtx.callChain[1]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain-b' });
+      expect(cCtx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain_a' });
+      expect(cCtx.callChain[1]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'chain_b' });
     });
   });
 
   describe('DO → Worker → DO call chains', () => {
     it('Worker propagates callContext to the downstream DO', async () => {
-      const doA = env.TEST_DO.getByName('do-worker-do-1');
-      const target = env.TEST_DO.getByName('do-worker-do-target');
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'do-worker-do-1' });
+      const doA = env.TEST_DO.getByName('do_worker_do_1');
+      const target = env.TEST_DO.getByName('do_worker_do_target');
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'do_worker_do_1' });
 
       // A → Worker(forwardCapture) → target DO(capture)
-      doA.fireCall('TEST_WORKER', undefined, 'forwardCapture', ['TEST_DO', 'do-worker-do-target']);
+      doA.fireCall('TEST_WORKER', undefined, 'forwardCapture', ['TEST_DO', 'do_worker_do_target']);
 
       const ctx = await vi.waitFor(async () => {
         const c = await target.getObservedContext();
@@ -104,7 +104,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         return c;
       });
       // Final DO sees [do-worker-do-1 (origin), worker (caller)].
-      expect(ctx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'do-worker-do-1' });
+      expect(ctx.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'do_worker_do_1' });
       expect(ctx.callChain).toHaveLength(2);
       expect(ctx.callChain[1].type).toBe('LumenizeWorker');
     });
@@ -112,26 +112,26 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
   describe('Caller accessor pattern (callChain.at(-1))', () => {
     it('at(-1) is the origin when origin calls directly', async () => {
-      const doA = env.TEST_DO.getByName('caller-getter-1');
-      const doB = env.TEST_DO.getByName('caller-getter-2');
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-getter-1' });
+      const doA = env.TEST_DO.getByName('caller_getter_1');
+      const doB = env.TEST_DO.getByName('caller_getter_2');
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller_getter_1' });
 
-      doA.fireCall('TEST_DO', 'caller-getter-2', 'captureContext');
+      doA.fireCall('TEST_DO', 'caller_getter_2', 'captureContext');
 
       const ctx = await vi.waitFor(async () => {
         const c = await doB.getObservedContext();
         expect(c).toBeDefined();
         return c;
       });
-      expect(ctx.callChain.at(-1)).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'caller-getter-1' });
+      expect(ctx.callChain.at(-1)).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'caller_getter_1' });
     });
 
     it('at(-1) is the last hop in a multi-hop chain', async () => {
-      const doA = env.TEST_DO.getByName('caller-chain-1');
-      const doC = env.TEST_DO.getByName('caller-chain-3');
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-chain-1' });
+      const doA = env.TEST_DO.getByName('caller_chain_1');
+      const doC = env.TEST_DO.getByName('caller_chain_3');
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller_chain_1' });
 
-      doA.fireCall('TEST_DO', 'caller-chain-2', 'captureAndForward', ['TEST_DO', 'caller-chain-3']);
+      doA.fireCall('TEST_DO', 'caller_chain_2', 'captureAndForward', ['TEST_DO', 'caller_chain_3']);
 
       const ctx = await vi.waitFor(async () => {
         const c = await doC.getObservedContext();
@@ -140,17 +140,17 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       });
       // C's callChain = [A, B]; at(-1) = B.
       expect(ctx.callChain).toHaveLength(2);
-      expect(ctx.callChain.at(-1)).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'caller-chain-2' });
+      expect(ctx.callChain.at(-1)).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'caller_chain_2' });
     });
   });
 
   describe('No state in a call context', () => {
     it('a node\'s call carries no state field in its context', async () => {
-      const doA = env.TEST_DO.getByName('state-empty-1');
-      const doB = env.TEST_DO.getByName('state-empty-2');
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'state-empty-1' });
+      const doA = env.TEST_DO.getByName('state_empty_1');
+      const doB = env.TEST_DO.getByName('state_empty_2');
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'state_empty_1' });
 
-      doA.fireCall('TEST_DO', 'state-empty-2', 'captureContext');
+      doA.fireCall('TEST_DO', 'state_empty_2', 'captureContext');
 
       const ctx = await vi.waitFor(async () => {
         const c = await doB.getObservedContext();
@@ -164,10 +164,10 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
   describe('@mesh decorator security', () => {
     it('blocks calls to methods without @mesh (error delivered to handler)', async () => {
-      const caller = env.TEST_DO.getByName('mesh-security-1');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'mesh-security-1' });
+      const caller = env.TEST_DO.getByName('mesh_security_1');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'mesh_security_1' });
 
-      caller.callForOutcome('TEST_DO', 'mesh-security-2', 'nonMeshMethod');
+      caller.callForOutcome('TEST_DO', 'mesh_security_2', 'nonMeshMethod');
 
       const err = await vi.waitFor(async () => {
         const e = await caller.getLastCallError();
@@ -178,10 +178,10 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('allows calls to @mesh methods', async () => {
-      const caller = env.TEST_DO.getByName('mesh-allowed-1');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'mesh-allowed-1' });
+      const caller = env.TEST_DO.getByName('mesh_allowed_1');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'mesh_allowed_1' });
 
-      caller.callForOutcome('TEST_DO', 'mesh-allowed-2', 'remoteEcho', ['hello']);
+      caller.callForOutcome('TEST_DO', 'mesh_allowed_2', 'remoteEcho', ['hello']);
 
       await vi.waitFor(async () => {
         expect(await caller.getLastCallResult()).toBe('echo: hello');
@@ -191,10 +191,10 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
   describe('@mesh(guard) security', () => {
     it('guard blocks the call when the condition is not met', async () => {
-      const caller = env.TEST_DO.getByName('guard-block-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-block-caller' });
+      const caller = env.TEST_DO.getByName('guard_block_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard_block_caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-block-callee', 'guardedAdminMethod'); // origin is no "admin-" node
+      caller.callForOutcome('TEST_DO', 'guard_block_callee', 'guardedAdminMethod'); // origin is no "admin-" node
 
       const err = await vi.waitFor(async () => {
         const e = await caller.getLastCallError();
@@ -205,10 +205,10 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('guard allows the call when the condition is met', async () => {
-      const caller = env.TEST_DO.getByName('admin-guard-allow-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'admin-guard-allow-caller' });
+      const caller = env.TEST_DO.getByName('admin_guard_allow_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'admin_guard_allow_caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-allow-callee', 'guardedAdminMethod');
+      caller.callForOutcome('TEST_DO', 'guard_allow_callee', 'guardedAdminMethod');
 
       await vi.waitFor(async () => {
         expect(await caller.getLastCallResult()).toBe('admin-only-result');
@@ -216,10 +216,10 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('guard checks authentication (a sub in originAuth)', async () => {
-      const caller = env.TEST_DO.getByName('guard-auth-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-auth-caller' });
+      const caller = env.TEST_DO.getByName('guard_auth_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard_auth_caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-auth-callee', 'guardedAuthMethod'); // a direct call carries no originAuth
+      caller.callForOutcome('TEST_DO', 'guard_auth_callee', 'guardedAuthMethod'); // a direct call carries no originAuth
 
       const err = await vi.waitFor(async () => {
         const e = await caller.getLastCallError();
@@ -230,10 +230,10 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('async guard works correctly', async () => {
-      const caller = env.TEST_DO.getByName('guard-async-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-async-caller' });
+      const caller = env.TEST_DO.getByName('guard_async_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard_async_caller' });
 
-      caller.callForOutcome('TEST_DO', 'guard-async-callee', 'guardedMethod'); // no originAuth, so no token claim
+      caller.callForOutcome('TEST_DO', 'guard_async_callee', 'guardedMethod'); // no originAuth, so no token claim
 
       const err = await vi.waitFor(async () => {
         const e = await caller.getLastCallError();
@@ -244,8 +244,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('Worker: guard blocks call when condition not met', async () => {
-      const caller = env.TEST_DO.getByName('worker-guard-block-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker-guard-block-caller' });
+      const caller = env.TEST_DO.getByName('worker_guard_block_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker_guard_block_caller' });
 
       caller.callForOutcome('TEST_WORKER', undefined, 'guardedWorkerAdminMethod');
 
@@ -258,8 +258,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('Worker: guard checks authentication (a sub in originAuth)', async () => {
-      const caller = env.TEST_DO.getByName('worker-guard-auth-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker-guard-auth-caller' });
+      const caller = env.TEST_DO.getByName('worker_guard_auth_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker_guard_auth_caller' });
 
       caller.callForOutcome('TEST_WORKER', undefined, 'guardedWorkerAuthMethod');
 
@@ -272,8 +272,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
 
     it('Worker: async guard works correctly', async () => {
-      const caller = env.TEST_DO.getByName('worker-guard-async-caller');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker-guard-async-caller' });
+      const caller = env.TEST_DO.getByName('worker_guard_async_caller');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker_guard_async_caller' });
 
       caller.callForOutcome('TEST_WORKER', undefined, 'guardedWorkerMethod');
 
@@ -288,10 +288,10 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
   describe('onBeforeCall hook', () => {
     it('onBeforeCall runs before method execution (call still succeeds)', async () => {
-      const caller = env.TEST_DO.getByName('before-call-1');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'before-call-1' });
+      const caller = env.TEST_DO.getByName('before_call_1');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'before_call_1' });
 
-      caller.callForOutcome('TEST_DO', 'before-call-2', 'remoteEcho', ['test']);
+      caller.callForOutcome('TEST_DO', 'before_call_2', 'remoteEcho', ['test']);
 
       await vi.waitFor(async () => {
         expect(await caller.getLastCallResult()).toBe('echo: test');
@@ -301,11 +301,11 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
   describe('ALS stability within a post-ack invocation', () => {
     it('callContext survives sequential + concurrent awaits inside the detached post-ack chain', async () => {
-      const caller = env.TEST_DO.getByName('als-stability-caller');
-      const callee = env.TEST_DO.getByName('als-stability-callee');
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als-stability-caller' });
+      const caller = env.TEST_DO.getByName('als_stability_caller');
+      const callee = env.TEST_DO.getByName('als_stability_callee');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als_stability_caller' });
 
-      caller.fireCall('TEST_DO', 'als-stability-callee', 'testAlsStability');
+      caller.fireCall('TEST_DO', 'als_stability_callee', 'testAlsStability');
 
       const seen = await vi.waitFor(async () => {
         const s = await callee.getAlsStability();
@@ -314,22 +314,22 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       });
       // The callee saw the same origin (callChain[0]) at start, after one await, and after
       // concurrent awaits — ALS held across the detached post-ack task's await boundaries.
-      expect(seen).toEqual(['als-stability-caller', 'als-stability-caller', 'als-stability-caller']);
+      expect(seen).toEqual(['als_stability_caller', 'als_stability_caller', 'als_stability_caller']);
     });
   });
 
   describe('ALS isolation for concurrent calls', () => {
     it('concurrent calls have isolated callContext (no cross-contamination)', async () => {
-      const callerA = env.TEST_DO.getByName('als-isolation-caller-a');
-      const callerB = env.TEST_DO.getByName('als-isolation-caller-b');
-      const calleeA = env.TEST_DO.getByName('als-isolation-callee-a');
-      const calleeB = env.TEST_DO.getByName('als-isolation-callee-b');
-      await callerA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als-isolation-caller-a' });
-      await callerB.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als-isolation-caller-b' });
+      const callerA = env.TEST_DO.getByName('als_isolation_caller_a');
+      const callerB = env.TEST_DO.getByName('als_isolation_caller_b');
+      const calleeA = env.TEST_DO.getByName('als_isolation_callee_a');
+      const calleeB = env.TEST_DO.getByName('als_isolation_callee_b');
+      await callerA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als_isolation_caller_a' });
+      await callerB.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als_isolation_caller_b' });
 
       // Concurrent calls from different origins to distinct callees.
-      callerA.fireCall('TEST_DO', 'als-isolation-callee-a', 'captureContext');
-      callerB.fireCall('TEST_DO', 'als-isolation-callee-b', 'captureContext');
+      callerA.fireCall('TEST_DO', 'als_isolation_callee_a', 'captureContext');
+      callerB.fireCall('TEST_DO', 'als_isolation_callee_b', 'captureContext');
 
       const [ctxA, ctxB] = await vi.waitFor(async () => {
         const a = await calleeA.getObservedContext();
@@ -338,20 +338,20 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         expect(b).toBeDefined();
         return [a, b];
       });
-      expect(ctxA.callChain[0].instanceName).toBe('als-isolation-caller-a');
-      expect(ctxB.callChain[0].instanceName).toBe('als-isolation-caller-b');
+      expect(ctxA.callChain[0].instanceName).toBe('als_isolation_caller_a');
+      expect(ctxB.callChain[0].instanceName).toBe('als_isolation_caller_b');
     });
   });
 
   describe('Two-one-way calls (callback pattern)', () => {
     it('callback call PRESERVES original callContext (origin stays the same)', async () => {
-      const origin = env.TEST_DO.getByName('two-one-way-origin');
-      const target = env.TEST_DO.getByName('two-one-way-target');
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-origin' });
-      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-target' });
+      const origin = env.TEST_DO.getByName('two_one_way_origin');
+      const target = env.TEST_DO.getByName('two_one_way_target');
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two_one_way_origin' });
+      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two_one_way_target' });
       await origin.clearTwoOneWayResult();
 
-      origin.initiateTwoOneWayCall('TEST_DO', 'two-one-way-target', 'test-marker-123');
+      origin.initiateTwoOneWayCall('TEST_DO', 'two_one_way_target', 'test-marker-123');
 
       const result = await vi.waitFor(async () => {
         const r = await origin.getTwoOneWayResult();
@@ -362,22 +362,22 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       expect(result.marker).toBe('test-marker-123');
       // Target's incoming context shows origin as callChain[0].
       expect(result.targetIncomingContext.callChain[0]).toMatchObject({
-        type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'two-one-way-origin',
+        type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'two_one_way_origin',
       });
       // The callback's context preserves the ORIGINAL origin, with target appended.
-      expect(result.callbackContext.callChain[0]).toMatchObject({ instanceName: 'two-one-way-origin' });
+      expect(result.callbackContext.callChain[0]).toMatchObject({ instanceName: 'two_one_way_origin' });
       expect(result.callbackContext.callChain).toHaveLength(2);
-      expect(result.callbackContext.callChain[1]).toMatchObject({ instanceName: 'two-one-way-target' });
+      expect(result.callbackContext.callChain[1]).toMatchObject({ instanceName: 'two_one_way_target' });
     });
 
     it('callChain.at(-1) gives the immediate caller (the callback maker)', async () => {
-      const origin = env.TEST_DO.getByName('two-one-way-caller-origin');
-      const target = env.TEST_DO.getByName('two-one-way-caller-target');
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-caller-origin' });
-      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-caller-target' });
+      const origin = env.TEST_DO.getByName('two_one_way_caller_origin');
+      const target = env.TEST_DO.getByName('two_one_way_caller_target');
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two_one_way_caller_origin' });
+      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two_one_way_caller_target' });
       await origin.clearTwoOneWayResult();
 
-      origin.initiateTwoOneWayCall('TEST_DO', 'two-one-way-caller-target', 'caller-test');
+      origin.initiateTwoOneWayCall('TEST_DO', 'two_one_way_caller_target', 'caller-test');
 
       const result = await vi.waitFor(async () => {
         const r = await origin.getTwoOneWayResult();
@@ -385,8 +385,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         return r;
       });
 
-      expect(result.callbackContext.callChain.at(-1)).toMatchObject({ instanceName: 'two-one-way-caller-target' });
-      expect(result.callbackContext.callChain[0].instanceName).toBe('two-one-way-caller-origin');
+      expect(result.callbackContext.callChain.at(-1)).toMatchObject({ instanceName: 'two_one_way_caller_target' });
+      expect(result.callbackContext.callChain[0].instanceName).toBe('two_one_way_caller_origin');
     });
   });
 });

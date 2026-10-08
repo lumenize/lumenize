@@ -8,7 +8,7 @@ import type { Schedule } from '@lumenize/mesh';
 
 describe('Alarms - Basic Usage', () => {
   it('schedules one-time task with delay', async () => {
-    const stub = env.TASK_SCHEDULER_DO.getByName('delay-test');
+    const stub = env.TASK_SCHEDULER_DO.getByName('delay_test');
 
     const result = await stub.scheduleTask('send-email', 5);
 
@@ -17,7 +17,7 @@ describe('Alarms - Basic Usage', () => {
   });
 
   it('schedules task at specific timestamp', async () => {
-    const stub = env.TASK_SCHEDULER_DO.getByName('timestamp-test');
+    const stub = env.TASK_SCHEDULER_DO.getByName('timestamp_test');
 
     const future = Date.now() + 10000; // 10 seconds from now
     const result = await stub.scheduleAt('cleanup', future);
@@ -26,7 +26,7 @@ describe('Alarms - Basic Usage', () => {
   });
 
   it('schedules recurring task with cron', async () => {
-    const stub = env.TASK_SCHEDULER_DO.getByName('cron-test');
+    const stub = env.TASK_SCHEDULER_DO.getByName('cron_test');
 
     const result = await stub.scheduleRecurringTask('daily-report');
 
@@ -35,7 +35,7 @@ describe('Alarms - Basic Usage', () => {
   });
 
   it('cancels scheduled task', async () => {
-    const stub = env.TASK_SCHEDULER_DO.getByName('cancel-test');
+    const stub = env.TASK_SCHEDULER_DO.getByName('cancel_test');
 
     // First request: schedule the task
     const scheduleResult = await stub.scheduleTaskForCancellation('reminder', 60);
@@ -53,7 +53,7 @@ describe('Alarms - Basic Usage', () => {
   });
 
   it('lists all scheduled tasks', async () => {
-    const stub = env.TASK_SCHEDULER_DO.getByName('list-test');
+    const stub = env.TASK_SCHEDULER_DO.getByName('list_test');
 
     await stub.scheduleTask('task1', 10);
     await stub.scheduleTask('task2', 20);
@@ -63,7 +63,7 @@ describe('Alarms - Basic Usage', () => {
   });
 
   it('executes scheduled task via triggerAlarms', async () => {
-    const stub = env.TASK_SCHEDULER_DO.getByName('execute-test');
+    const stub = env.TASK_SCHEDULER_DO.getByName('execute_test');
 
     // Schedule a task
     await stub.scheduleTask('execute-me', 10);

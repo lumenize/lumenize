@@ -70,7 +70,7 @@ export function defaultInviteNewHtml(message: InviteNewMessage, appName: string)
 /**
  * Nebula's auth email sender.
  *
- * Extends `WorkerEntrypoint` directly (not `LumenizeWorker`) so this package has no dependency on
+ * Extends `WorkerEntrypoint` directly (not `MeshWorker`) so this module has no dependency on
  * `@lumenize/mesh`'s server surface. The registry DO reaches it via plain Workers RPC through the
  * `AUTH_EMAIL_SENDER` service binding.
  *

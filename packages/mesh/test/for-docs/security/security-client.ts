@@ -42,7 +42,7 @@ export class SecurityClient extends LumenizeClient {
   }
 
   /**
-   * Call an admin-only method, guarded on `originAuth.claims.isAdmin`.
+   * Call an admin-only method, guarded on `originAuth.claims.access.scopeAdmin`.
    */
   callAdminMethod(instanceId: string): void {
     this.lmz.call(

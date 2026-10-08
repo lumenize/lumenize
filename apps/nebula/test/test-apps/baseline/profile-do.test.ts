@@ -61,7 +61,6 @@ async function makeClient(opts: {
   const ctx = browser.context(pageOf(activeScope));
   const client = new MeshProbe({
     baseUrl: pageOf(activeScope),
-    hostFromHostname: true,
     refresh: createTestToken({
       issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
@@ -133,7 +132,7 @@ describe('Profile DO', () => {
    * The THIRD package's reaper, driven rather than grepped.
    *
    * The Profile's reaper is its own `onProfileBroadcastResult`, reached through `lmz.broadcast` on
-   * the one node that composes the mesh core without extending `LumenizeDO`. This drives it against
+   * the one `UnscopedMeshDO` in the app. This drives it against
    * a forged reply: a tab answers a push by throwing a `ClientDisconnectedError` naming another
    * tab. The reaper takes its victim from the address it pushed to, so the named tab keeps its row;
    * and the tab's host node renames a Client's own `ClientDisconnectedError`, so the tab that threw

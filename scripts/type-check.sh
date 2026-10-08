@@ -20,7 +20,10 @@ errors=0
 # Cloudflare Workers type env (its @lumenize/* imports transitively pull DO source
 # referencing DurableObjectState/ctx/env/Env). Its own `vite build` validates it; it
 # is not gated here. Revisit if @lumenize/nebula gains browser-type-safe entries.
-SKIP_PACKAGES=("nebula-studio-ui")
+# fetch is out of the run: it is built on Mesh's pre-2026-10-08 bases (LumenizeDO, LumenizeWorker)
+# and nobody runs it in production; its suites are kept, never deleted, for a streaming revival
+# (packages/fetch/README.md).
+SKIP_PACKAGES=("nebula-studio-ui" "fetch")
 
 # Find all packages with tsconfig.json. apps/nebula/harness and apps/nebula/container/compiler
 # are nested standalone configs (plain-Node type envs — the live self-verification harness and

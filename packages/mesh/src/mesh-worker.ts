@@ -7,13 +7,13 @@ import {
   type AnyContinuation,
 } from './ocan/index.js';
 import { createLmzApiForWorker, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
-import { ClientDisconnectedError } from './lumenize-client-gateway.js';
+import { ClientDisconnectedError } from './gateway-messages.js';
 
 // Re-export continuation types from ocan for convenience
 export type { Continuation, AnyContinuation };
 
 // Register ClientDisconnectedError on globalThis for proper structured-clone serialization
-// This ensures LumenizeWorker instances can deserialize this error type when received from Gateway
+// This ensures a MeshWorker can deserialize this error type when received from Gateway
 (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
 
 /**
@@ -26,7 +26,7 @@ export type { Continuation, AnyContinuation };
  * - Continuation support via `this.ctn()`
  * - Automatic envelope handling via `__executeOperation()`
  * 
- * **Key differences from LumenizeDO**:
+ * **Key differences from MeshDO**:
  * - Workers are ephemeral (no storage, no persistence)
  * - No `instanceName` or `id` (always undefined)
  * - `call()` uses `ctx.waitUntil()` to keep the Worker alive across the call's ack
@@ -36,7 +36,7 @@ export type { Continuation, AnyContinuation };
  * 
  * @example
  * ```typescript
- * export class MyWorker extends LumenizeWorker<Env> {
+ * export class MyWorker extends MeshWorker<Env> {
  *   someMethod() {
  *     // Make a cross-node call to a DO. Identity is auto-initialized from envelope
  *     // metadata. The result fires back into the handler (never awaited).
@@ -46,7 +46,7 @@ export type { Continuation, AnyContinuation };
  * }
  * ```
  */
-export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
+export class MeshWorker<Env = any> extends WorkerEntrypoint<Env> {
   #lmzApi: LmzApi | null = null;
 
   /**
@@ -116,7 +116,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *
    * @example
    * ```typescript
-   * class AuthWorker extends LumenizeWorker<Env> {
+   * class AuthWorker extends MeshWorker<Env> {
    *   onBeforeCall(): void {
    *     super.onBeforeCall();
    *

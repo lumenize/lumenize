@@ -15,11 +15,11 @@
  * `client-gateway-passage-delivery.test.ts`.
  */
 import { describe, it, expect } from 'vitest';
-import { NebulaDO } from '../../../src/index';
+import { ScopedMeshDO } from '@lumenize/mesh';
 import type { CallEnvelope, GatewayConnectionInfo, NodeIdentity } from '@lumenize/mesh';
 
 /** The hook is pure, so it can be invoked off the prototype with no DO construction. */
-const gate = NebulaDO.prototype.onBeforeCallToClient;
+const gate = ScopedMeshDO.prototype.onBeforeCallToClient;
 
 const node = (bindingName: string, instanceName?: string): NodeIdentity =>
   ({ type: instanceName?.includes('/') ? 'LumenizeClient' : 'LumenizeDO', bindingName, instanceName });

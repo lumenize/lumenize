@@ -2,6 +2,7 @@ import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { parseJwtUnsafe, type JwtPayload } from '@lumenize/crypto';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG, WS_HEARTBEAT_INTERVAL_MS } from './ws-heartbeat.js';
+import { TOKEN_REFRESH_AHEAD_SECONDS } from './token-refresh.js';
 import {
   newContinuation,
   executeOperationChain,
@@ -88,7 +89,7 @@ const MAX_QUEUE_SIZE = 1000;
  * Default `callAsync` timeout. A public awaitable escape hatch with no default would re-arm the
  * exact "Promise hangs to reload" gap `callAsync` exists to close, so the common path is bounded by
  * construction. `0`/`Infinity` disables (rare long awaits). 30s matches the mesh→client push budget
- * (`CLIENT_CALL_TIMEOUT_MS`, `lumenize-client-gateway.ts`).
+ * (`CLIENT_CALL_TIMEOUT_MS`, `client-gateway.ts`).
  */
 const DEFAULT_CALLASYNC_TIMEOUT_MS = 30_000;
 
@@ -122,6 +123,8 @@ const DEFAULT_REFRESH_ENDPOINT = '/auth/refresh-token';
  */
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
+export { TOKEN_REFRESH_AHEAD_SECONDS };
+
 /**
  * Error thrown when the user must re-login
  *
@@ -130,18 +133,6 @@ export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'dis
  * - No token was provided (WebSocket close code 4400)
  * - Token signature is invalid (WebSocket close code 4403)
  */
-/**
- * How far AHEAD of a token's `exp` the client refreshes, in seconds.
- *
- * ⚠️ **Exported because it is a cross-package coupling, not an implementation detail.** A token whose
- * whole lifetime is at or under this window is *born* already due for refresh, so it re-mints
- * continuously — which makes this value the floor under any caller-chosen token TTL. `nebula-auth`'s
- * `RECOMMENDED_MIN_TTL_SECONDS` is defined as a multiple of it; before this was exported that
- * relation could only be asserted in prose, so changing the number here would silently falsify a
- * constant in another package.
- */
-export const TOKEN_REFRESH_AHEAD_SECONDS = 30;
-
 export class LoginRequiredError extends Error {
   name = 'LoginRequiredError';
 
@@ -172,7 +163,11 @@ export class HostDeletedError extends Error {
  */
 export interface LumenizeClientConfig {
   /**
-   * Base URL for WebSocket connection
+   * The page's origin, whose host names the node that hosts this Client. The upgrade names only
+   * the Client's id, `wss://tenant1.crm.acme.lumenize.dev/gateway/alice.9f2c41aa`; the Worker
+   * writes the binding and scope into the path from the hostname,
+   * `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`, and the host node names the Client
+   * `acme.crm.tenant1/alice.9f2c41aa`.
    *
    * Default: current origin in browsers (e.g., `https://` → `wss://`)
    * Required in Node.js environments.
@@ -182,8 +177,8 @@ export interface LumenizeClientConfig {
   /**
    * Unique client identifier
    *
-   * Format: `${sub}.${tabId}` where `sub` is the JWT subject.
-   * This becomes the Gateway DO instance name.
+   * Format: `${sub}.${tabId}` where `sub` is the JWT subject: the Client's id on the node that
+   * hosts it.
    *
    * **Optional** — auto-generated from the `sub` returned by `refresh`
    * and a sessionStorage-backed `tabId` (with BroadcastChannel
@@ -192,22 +187,13 @@ export interface LumenizeClientConfig {
   instanceName?: string;
 
   /**
-   * Gateway DO binding name
+   * The binding this Client names itself by in its own `callContext`, before its host stamps a call.
+   * Its host's binding is not known to the Client.
    *
-   * Default: `LUMENIZE_CLIENT_GATEWAY`
+   * Default: `LUMENIZE_CLIENT_GATEWAY`, a binding no Worker has.
+   * TEMP → target: the address the host's `connection_status` carries.
    */
   gatewayBindingName?: string;
-
-  /**
-   * The Worker derives this Client's host node from the page's hostname, so the upgrade names only
-   * the Client's id: `wss://tenant1.crm.acme.lumenize.dev/gateway/alice.9f2c41aa`. The Worker writes
-   * the binding and scope into the path from the hostname, `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`,
-   * and the host node names the Client `acme.crm.tenant1/alice.9f2c41aa`. `gatewayBindingName` is
-   * then unused in the URL.
-   *
-   * Default: `false`, which upgrades at `/gateway/{gatewayBindingName}/{instanceName}`.
-   */
-  hostFromHostname?: boolean;
 
   /**
    * Initial JWT access token
@@ -350,7 +336,7 @@ export interface LmzApiClient {
    * }
    * ```
    *
-   * No constraint on the server side (LumenizeDO/LumenizeWorker) — those
+   * No constraint on the server side (a Mesh Durable Object or MeshWorker) — those
    * use real `AsyncLocalStorage` and preserve context across awaits. The
    * same code pattern works there too, just isn't required.
    *
@@ -991,16 +977,13 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       baseUrl = baseUrl.replace('http://', 'ws://');
     }
 
-    // Build URL: /gateway/{bindingName}/{instanceName}, or /gateway/{instanceName} when the Worker
-    // derives the host node from the hostname
-    const binding = this.#config.gatewayBindingName;
+    // Build URL: /gateway/{instanceName}; the Worker derives the host node from the hostname
     const instance = this.#instanceName;
     if (!instance) {
       throw new Error('instanceName not available — connect has not completed');
     }
 
-    if (this.#config.hostFromHostname) return `${baseUrl}/gateway/${instance}`;
-    return `${baseUrl}/gateway/${binding}/${instance}`;
+    return `${baseUrl}/gateway/${instance}`;
   }
 
   #handleOpen(): void {

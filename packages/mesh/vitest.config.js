@@ -115,11 +115,17 @@ const swcPlugin = swc.vite({
 });
 
 // Bindings set on every project's miniflare instance. LUMENIZE_MESH_TEST_MODE
-// enables test-only behavior in @lumenize/mesh source (currently: longer
-// LumenizeClientGateway grace period to tolerate CPU contention from parallel
+// enables test-only behavior in @lumenize/mesh source (currently: a longer
+// ClientGateway grace period to tolerate CPU contention from parallel
 // miniflare workers). Never set in .dev.vars or a deployed wrangler.jsonc.
 const testModeBindings = {
   LUMENIZE_MESH_TEST_MODE: 'true',
+  // Mesh's Registry hands each magic link back instead of mailing it, so a test's Clients log in
+  // through the real routes without mail (ADR-009 rung 2, test/support/login.ts).
+  AUTH_TEST_MODE: 'true',
+  // ⚠️ Explicitly EMPTY: bindings win over `.dev.vars`, so this holds Turnstile off on any checkout,
+  // even one whose `.dev.vars` carries a real key.
+  TURNSTILE_SECRET_KEY: '',
 };
 
 // --- Opt-out gating for the secret-less lane (mirrors packages/auth/vitest.config.js) ---
@@ -194,6 +200,7 @@ export default defineConfig({
             'test/for-docs/security/**/*.test.ts',
             'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
             'test/gateway-timing.test.ts', // Needs a short grace period — run in `gateway-timing`
+            'test/short-tokens.test.ts', // Needs a short token lifetime — run in `short-tokens`
             'test/auth/**/*.test.ts', // Its own Worker and bindings — run in `auth`
           ],
         },
@@ -244,6 +251,19 @@ export default defineConfig({
         test: {
           name: 'gateway-timing',
           include: ['test/gateway-timing.test.ts'],
+        },
+      },
+      {
+        // Clients whose every token is born inside the 30 s refresh-ahead window: the deployment's
+        // ceiling on an access token's lifetime is 20 s here, so the next call or request refreshes.
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './wrangler.jsonc' },
+          miniflare: { bindings: { ...testModeBindings, AUTH_ACCESS_TOKEN_TTL: '20' } },
+        })],
+        test: {
+          name: 'short-tokens',
+          include: ['test/short-tokens.test.ts'],
         },
       },
       ...(includeCfRemote ? [{

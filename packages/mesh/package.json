@@ -58,7 +58,6 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.3.6",
-    "@lumenize/auth": "^0.26.0",
     "@lumenize/debug": "*",
     "@lumenize/email-test": "*",
     "@lumenize/testing": "^0.26.0",

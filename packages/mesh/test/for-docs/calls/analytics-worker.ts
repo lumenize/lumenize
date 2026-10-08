@@ -7,7 +7,7 @@
  * 3. Worker makes a one-way call back to the DO with results
  */
 
-import { LumenizeWorker, mesh } from '../../../src/index.js';
+import { MeshWorker, mesh } from '../../../src/index.js';
 import type { DocumentDO } from './document-do.js';
 
 export interface AnalyticsResult {
@@ -16,7 +16,7 @@ export interface AnalyticsResult {
   readingTimeMinutes: number;
 }
 
-export class AnalyticsWorker extends LumenizeWorker<Env> {
+export class AnalyticsWorker extends MeshWorker<Env> {
   @mesh()
   async computeAnalytics(
     content: string,

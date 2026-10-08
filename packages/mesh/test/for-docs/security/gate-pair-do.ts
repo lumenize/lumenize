@@ -8,11 +8,11 @@
  * does the second. Nothing about visibility matters; `settingsForResults` below is `public`.
  */
 
-import { LumenizeDO, mesh } from '../../../src/index.js';
+import { UnscopedMeshDO, mesh, type AuthClaims } from '../../../src/index.js';
 
 /** Throw to deny. The guard runs at the ENTRY op, before the getter body. */
 function requireAdmin(instance: GatePairDO): void {
-  if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
+  if (!(instance.lmz.callContext.originAuth?.claims as AuthClaims | undefined)?.access?.scopeAdmin) {
     throw new Error('Admin access required');
   }
 }
@@ -25,7 +25,7 @@ export class Settings {
   write(value: string): void { this.#node.stored = value; }
 }
 
-export class GatePairDO extends LumenizeDO<Env> {
+export class GatePairDO extends UnscopedMeshDO<Env> {
   get stored(): string | undefined { return this.ctx.storage.kv.get('setting'); }
   set stored(value: string | undefined) { this.ctx.storage.kv.put('setting', value); }
 

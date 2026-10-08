@@ -1,13 +1,23 @@
 /**
  * DocumentDO - Collaborative document storage
  *
- * Example of a LumenizeDO from getting-started.mdx, calls.mdx and broadcast.mdx
+ * Example of an unscoped node from getting-started.mdx, calls.mdx and broadcast.mdx. A document is
+ * named by an id, never by a scope, so it is its own gatekeeper: its owner shares it by `sub`, and
+ * it checks that list when someone subscribes and again before each push.
  */
 
-import { LumenizeDO, mesh, getOperationChain, executeOperationChain, type OperationChain, type Continuation, type CallContext } from '../../../src/index.js';
+import { debug } from '@lumenize/debug';
+import { UnscopedMeshDO, mesh, getOperationChain, executeOperationChain, type OperationChain, type Continuation, type CallContext } from '../../../src/index.js';
 import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
 import type { AnalyticsWorker, AnalyticsResult } from './analytics-worker.js';
+
+/** A subscribed Client: its address, as its host stamped it, and whose it is. */
+export interface Subscriber {
+  bindingName: string;
+  instanceName: string;
+  sub: string;
+}
 
 /**
  * Stored task structure for manual persistence pattern
@@ -74,7 +84,7 @@ export class AdminInterface {
   }
 }
 
-export class DocumentDO extends LumenizeDO<Env> {
+export class DocumentDO extends UnscopedMeshDO<Env> {
   // Require authentication for all mesh calls
   onBeforeCall(): void {
     super.onBeforeCall();
@@ -83,44 +93,68 @@ export class DocumentDO extends LumenizeDO<Env> {
     }
   }
 
+  /** Guard: the caller owns the document. */
+  requireOwner(): void {
+    const sub = this.lmz.callContext.originAuth?.sub;
+    if (!sub || this.ctx.storage.kv.get('owner') !== sub) {
+      throw new Error('Only the owner can do that');
+    }
+  }
+
+  /** Guard: the caller owns the document or it was shared with them. */
+  requireShared(): void {
+    const sub = this.lmz.callContext.originAuth?.sub;
+    if (!this.#sharedWith(sub)) throw new Error(`Not shared with ${sub}`);
+  }
+
+  /** Create the document, owned by its caller. */
   @mesh()
+  create(): void {
+    if (this.ctx.storage.kv.get('owner')) throw new Error('Document already exists');
+    this.ctx.storage.kv.put('owner', this.lmz.callContext.originAuth!.sub);
+  }
+
+  @mesh((doc: DocumentDO) => doc.requireOwner())
+  share(sub: string): void {
+    const sharedWith: Set<string> = this.ctx.storage.kv.get('sharedWith') ?? new Set();
+    sharedWith.add(sub);
+    this.ctx.storage.kv.put('sharedWith', sharedWith);
+  }
+
+  @mesh((doc: DocumentDO) => doc.requireShared())
   update(content: string) {
     this.ctx.storage.kv.put('content', content);
 
     // Notify all subscribers with new content
     this.#broadcastContent(content);
 
-    // Trigger spell check - worker sends results directly to originator
-    const { callChain } = this.lmz.callContext;
-    const clientId = callChain[0]?.instanceName;
-    const documentId = this.lmz.instanceName!;
-
-    if (clientId) {
-      this.lmz.call(
-        'SPELLCHECK_WORKER',
-        undefined,
-        this.ctn<SpellCheckWorker>().check(content, clientId, documentId),
-        this.ctn().handleCallFailed('spell check'),
-        { onErrorOnly: true }
-      );
-    }
+    // Trigger spell check - worker sends results directly to originator, the start of this chain
+    this.lmz.call(
+      'SPELLCHECK_WORKER',
+      undefined,
+      this.ctn<SpellCheckWorker>().check(content, this.lmz.instanceName!),
+      this.ctn().handleCallFailed('spell check'),
+      { onErrorOnly: true }
+    );
   }
 
-  @mesh()
+  @mesh((doc: DocumentDO) => doc.requireShared())
   subscribe(): string {
-    const { callChain } = this.lmz.callContext;
-    const clientId = callChain[0]?.instanceName;
-    if (clientId) {
-      const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-      subscribers.add(clientId);
-      this.ctx.storage.kv.put('subscribers', subscribers);
+    // The address comes from the chain the Client's host stamped, never from anything it sent.
+    const origin = this.lmz.callContext.callChain[0];
+    if (origin?.instanceName) {
+      const subscribers = this.#subscribers();
+      if (!subscribers.some((s) => s.bindingName === origin.bindingName && s.instanceName === origin.instanceName)) {
+        subscribers.push({ bindingName: origin.bindingName!, instanceName: origin.instanceName, sub: this.lmz.callContext.originAuth!.sub });
+        this.ctx.storage.kv.put('subscribers', subscribers);
+      }
     }
     return this.ctx.storage.kv.get('content') ?? '';
   }
 
   /** A one-shot read of the current content — no side effects (unlike `subscribe`, which also
    *  registers the caller). A natural `callAsync` target: the client awaits the returned value. */
-  @mesh()
+  @mesh((doc: DocumentDO) => doc.requireShared())
   readContent(): string {
     return this.ctx.storage.kv.get('content') ?? '';
   }
@@ -200,13 +234,38 @@ export class DocumentDO extends LumenizeDO<Env> {
   }
 
   getSubscriberCount(): number {
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    return subscribers.size;
+    return this.#subscribers().length;
   }
 
   clearAll(): void {
     this.ctx.storage.kv.put('content', '');
-    this.ctx.storage.kv.put('subscribers', new Set());
+    this.ctx.storage.kv.put('subscribers', []);
+  }
+
+  #sharedWith(sub: string | undefined): boolean {
+    if (!sub) return false;
+    if (this.ctx.storage.kv.get('owner') === sub) return true;
+    const sharedWith: Set<string> = this.ctx.storage.kv.get('sharedWith') ?? new Set();
+    return sharedWith.has(sub);
+  }
+
+  #subscribers(): Subscriber[] {
+    return this.ctx.storage.kv.get('subscribers') ?? [];
+  }
+
+  /**
+   * The subscribers the share list still covers, before a push. One unshared since it subscribed
+   * is dropped, and gets nothing more.
+   */
+  #stillShared(): Subscriber[] {
+    const subscribers = this.#subscribers();
+    const stillShared = subscribers.filter((s) => {
+      if (this.#sharedWith(s.sub)) return true;
+      debug('docs.DocumentDO.push').warn('push withheld', { instanceName: s.instanceName, refusal: `Not shared with ${s.sub}` });
+      return false;
+    });
+    if (stillShared.length !== subscribers.length) this.ctx.storage.kv.put('subscribers', stillShared);
+    return stillShared;
   }
 
   /**
@@ -289,9 +348,8 @@ export class DocumentDO extends LumenizeDO<Env> {
 
   // Reusable broadcast helper that accepts any continuation
   #broadcast(continuation: Continuation<any>) {
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    for (const clientId of subscribers) {
-      this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation,
+    for (const { bindingName, instanceName } of this.#stillShared()) {
+      this.lmz.call(bindingName, instanceName, continuation,
         this.ctn().handleCallFailed('content update'), { newChain: true, onErrorOnly: true });
     }
   }
@@ -306,14 +364,13 @@ export class DocumentDO extends LumenizeDO<Env> {
    * even though its ORIGIN is another client. (Contrast `#broadcast`, whose `newChain` makes the DO
    * the origin — a shape the origin-based guard bug never rejected, so it can't prove the fix.)
    */
-  @mesh()
+  @mesh((doc: DocumentDO) => doc.requireShared())
   updatePreservingOrigin(content: string): void {
     this.ctx.storage.kv.put('content', content);
     const documentId = this.lmz.instanceName!;
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    for (const clientId of subscribers) {
+    for (const { bindingName, instanceName } of this.#stillShared()) {
       // NO newChain → callChain stays [writerClient, this DO]; the receiver's at(-1) is this DO.
-      this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId,
+      this.lmz.call(bindingName, instanceName,
         this.ctn<EditorClient>().handleContentUpdate(documentId, content),
         this.ctn().handleCallFailed('content update'), { onErrorOnly: true });
     }
@@ -324,17 +381,13 @@ export class DocumentDO extends LumenizeDO<Env> {
    * Driven by `broadcast.test.ts`, which also shows what this leaves behind: a subscriber whose tab
    * is gone stays listed, since the handler here only logs that its push failed.
    */
-  @mesh()
+  @mesh((doc: DocumentDO) => doc.requireShared())
   publish(content: string) {
     this.ctx.storage.kv.put('content', content);
     const documentId = this.lmz.instanceName!;
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
 
-    // Every subscriber's Gateway gets the same `handleContentUpdate` call
-    const targets = [...subscribers].map((clientId) => ({
-      bindingName: 'LUMENIZE_CLIENT_GATEWAY',
-      instanceName: clientId,
-    }));
+    // Every subscriber's host gets the same `handleContentUpdate` call, for its Client
+    const targets = this.#stillShared().map(({ bindingName, instanceName }) => ({ bindingName, instanceName }));
     this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content), {
       onResult: this.ctn().handleCallFailed('content update'),
     });
@@ -344,30 +397,26 @@ export class DocumentDO extends LumenizeDO<Env> {
    * The same push, with drop-on-failed-fanout cleanup — broadcast.mdx § Result Handling. Driven by
    * `broadcast.test.ts`: the dead subscriber `publish` leaves listed is dropped by this one.
    */
-  @mesh()
+  @mesh((doc: DocumentDO) => doc.requireShared())
   publishAndPrune(content: string) {
     this.ctx.storage.kv.put('content', content);
     const documentId = this.lmz.instanceName!;
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    const targets = [...subscribers].map((clientId) => ({
-      bindingName: 'LUMENIZE_CLIENT_GATEWAY',
-      instanceName: clientId,
-    }));
+    const targets = this.#stillShared().map(({ bindingName, instanceName }) => ({ bindingName, instanceName }));
 
     this.lmz.broadcast(targets, this.ctn<EditorClient>().handleContentUpdate(documentId, content), {
       onResult: this.ctn().onContentDelivered(),
     });
   }
 
-  // No `@mesh()` — a Gateway fires a failed push back to this node's fire-back door, where the
-  // member-level check is off. Adding one would make this reaper callable as an ordinary request,
+  // No `@mesh()` — a Client's host fires a failed push back to this node's fire-back door, where
+  // the member-level check is off. Adding one would make this reaper callable as an ordinary request,
   // with caller-chosen arguments; only the framework-supplied callee makes that harmless.
   onContentDelivered(result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      const clientId = this.lmz.callContext.callee?.instanceName;
-      if (clientId) {
-        const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-        subscribers.delete(clientId);
+      const callee = this.lmz.callContext.callee;
+      if (callee?.instanceName) {
+        const subscribers = this.#subscribers()
+          .filter((s) => !(s.bindingName === callee.bindingName && s.instanceName === callee.instanceName));
         this.ctx.storage.kv.put('subscribers', subscribers);
       }
     }

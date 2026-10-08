@@ -1,17 +1,13 @@
 /**
- * `createTestToken` — mint a correct-shape Nebula access token locally, with no
- * magic-link email loop, for driving a running Nebula from a Node harness.
+ * `createTestToken` — mint a correct-shape access token locally, with no magic-link email loop,
+ * for driving a running app from a Node harness.
  *
  * This is the **local** identity path of the live self-verification harness
- * (`tasks/archive/claude-live-verification.md` Phase 1). It is the Nebula analogue of mesh's
- * `createTestRefreshFunction`, with the critical difference the task turns on: the base
- * util signs a **flat `scopeAdmin`** payload with **no `access` claim** — the *base* mesh/auth
- * shape — which Nebula's gateway rejects (`router.verifyAccessToken`, the
- * `access.authScope` gate). This util instead composes the shared
- * {@link buildAuthClaims} claim-builder, so the token carries the real
- * `access: { authScope, scopeAdmin? }` shape a scope admin's server-minted token would —
- * verified normally against the corresponding public key, no test-mode, all production
- * verification paths exercised.
+ * (`tasks/archive/claude-live-verification.md`). It composes the shared {@link buildAuthClaims}
+ * claim-builder, so the token carries the `access: { authScope, scopeAdmin? }` shape a scope
+ * admin's server-minted token would, which verification requires (`router.verifyAccessToken`, the
+ * `access.authScope` gate) — verified normally against the corresponding public key, no
+ * test-mode, all production verification paths exercised.
  *
  * NOT a login: the token carries only a `sub` (identity is the surrogate `sub`, never email —
  * `email` is no longer a JWT claim), and no email is sent and no identity is DB-minted. For local

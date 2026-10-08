@@ -2,14 +2,11 @@
  * End-to-end mesh smoke test, real chromium edition.
  *
  * Mirrors `website/docs/mesh/getting-started.mdx` as closely as possible —
- * the worker is the documented worker (`createAuthRoutes` +
- * `createRouteDORequestAuthHooks` + `routeDORequest`), the client is the
- * documented `EditorClient`, and auth goes through a real magic-link email
- * (Resend → Email Routing → deployed `email-test` worker). The only
- * deviations from production are:
- *  - `AuthEmailSender.from` is `test@lumenize.io` (a verified sending
- *    domain on this account) instead of `auth@example.com`.
- *  - No Turnstile gating (Turnstile is documented as optional, Step 9).
+ * the worker is the getting-started worker (Mesh's auth routes, `hostedUpgrade`
+ * and a `WorkspaceDO` host node), the client is the documented `EditorClient`,
+ * and auth goes through a real magic-link email (Resend → Email Routing →
+ * deployed `email-test` worker). The only deviation from production is that
+ * no Turnstile secret is set, so the claim is not gated.
  *
  * Why this exists: the `@lumenize/debug` regression slipped past
  * vitest-plugin because both vitest-plugin and `tsx` resolve dynamic
@@ -36,8 +33,7 @@ describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
     const baseUrl = globalThis.location!.origin + proxyPath;
 
     // 1. The token from globalSetup's ONE real magic-link login (see auth-bootstrap.ts for why the
-    //    login is not here: every file in this project shares one pinned admin identity, so a
-    //    per-file round trip is a race for one mailbox rather than an independent login).
+    //    login is not here).
     const accessToken = inject('adminAccessToken');
     expect(accessToken.split('.')).toHaveLength(3);
 
@@ -47,7 +43,8 @@ describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
     const client = new EditorClient({
       baseUrl,
       accessToken,
-      refresh: `${proxyPath}/auth/refresh-token`,
+      // The page holds no session cookie: the token from setup outlives the suite.
+      refresh: async () => { throw new Error('this lane holds no session cookie to refresh with'); },
     });
 
     try {
@@ -56,8 +53,9 @@ describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
         expect(client.connectionState).toBe('connected');
       }, { timeout: 10_000, interval: 100 });
 
-      // 4. Open a document with capture callbacks for both update + spell paths
-      const documentId = `doc-${crypto.randomUUID().slice(0, 8)}`;
+      // 4. Create a document and open it with capture callbacks for both update + spell paths
+      const documentId = crypto.randomUUID();
+      await client.createDocument(documentId);
       const updates: string[] = [];
       const findings: SpellFinding[][] = [];
       const handle = client.openDocument(documentId, {

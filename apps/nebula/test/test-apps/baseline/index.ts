@@ -5,7 +5,7 @@
  * (StarTest, NebulaClientTest), and provides the Worker entrypoint.
  */
 
-import { mesh, rawRpc, splitAddress } from '@lumenize/mesh';
+import { mesh, rawRpc, splitAddress, requireDominionHere } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import type { AuthClaims } from '@lumenize/mesh/auth';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
@@ -56,7 +56,6 @@ import {
   Universe,
   Galaxy,
   StudioClient,
-  requireDominionHere,
 } from '@lumenize/nebula';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources';
 // The compile fn left the barrel with the Worker's compilers — a test Worker may
@@ -120,7 +119,7 @@ export class StarTest extends Star {
     return `You are ${this.lmz.callContext.originAuth!.sub}`;
   }
 
-  /** Test-only: a call target that checks nothing past `onBeforeCall`'s passage. */
+  /** Test-only: a call target that checks nothing past the passage step. */
   @mesh()
   admitted(): string {
     return 'admitted';
@@ -161,7 +160,7 @@ export class StarTest extends Star {
   /**
    * Test-only (T-local-skip): schedule a self-continuation via the mesh alarm
    * service. It is delivered through the *local* chain executor (not
-   * executeEnvelope), so it must NOT invoke onBeforeCall.
+   * executeEnvelope), so it must NOT run the passage step.
    */
   @mesh()
   scheduleSelfPing(): void {
@@ -419,7 +418,7 @@ export class StarTest extends Star {
 // ============================================
 
 export class GalaxyTest extends Galaxy {
-  /** Test-only: a call target that checks nothing past `onBeforeCall`'s passage. */
+  /** Test-only: a call target that checks nothing past the passage step. */
   @mesh()
   admitted(): string {
     return 'admitted';

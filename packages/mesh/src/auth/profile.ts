@@ -9,12 +9,12 @@
  * subtracting known-private keys from the stored record, which is the shape that ships a leak the first
  * time someone adds a field and forgets the deny-list.
  *
- * Layer: **raw-DO infrastructure that COMPOSES the mesh comms core** (`ComposedMeshDO`, ADR-007) — it
- * needs the client-facing mesh subscribe AND a raw-RPC read of the raw `AuthRegistry` (the
- * scoped-admin authz check), which a `LumenizeDO` (Mesh-layer, never-raw) could not do. It takes ONLY
- * the comms core — no `onStart`, no `svc` (a raw composer has neither) — and fans updates out with
- * `lmz.broadcast`, which the core carries. Code home is `@lumenize/mesh/auth`; it RUNS in the one
- * `nebula` Worker (re-exported there, bound as `PROFILE`).
+ * Layer: **an `UnscopedMeshDO`, named by its `profileId`** — it needs the client-facing mesh
+ * subscribe AND a raw-RPC read of the raw `AuthRegistry` (the scoped-admin authz check), which
+ * reaches the Registry beside the rules it serves (ADR-023). Being unscoped, it runs no passage
+ * check and refuses to run under a scope's name, so each method decides who may call it, and it
+ * fans updates out with `lmz.broadcast`. Code home is `@lumenize/mesh/auth/profile`; it RUNS in the
+ * app's Worker (re-exported there, bound as `PROFILE`).
  *
  * AuthZ (ADR-012):
  *  - **Public read/subscribe is OPEN** — any authenticated caller holding the `profileId` reads the
@@ -35,16 +35,13 @@
  * @see docs/adr/012-global-profile-visibility.md — authz; docs/adr/013-identity-profileid-resolution.md
  *      — data model; tasks/archive/nebula-profile-store.md — the frozen design record
  */
-import { DurableObject } from 'cloudflare:workers';
-import { ComposedMeshDO } from '../lmz-api';
+import { UnscopedMeshDO } from '../unscoped-mesh-do';
 import { addressOf, splitAddress } from '../client-address';
 import { mesh } from '../mesh-decorator';
 import { rawRpc } from '../raw-rpc-decorator';
-import { newContinuation } from '../ocan/proxy-factory';
-import type { Continuation } from '../lumenize-do';
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
-import { hasDominionOver, isPlatformScope, parseId } from './parse-id';
+import { hasDominionOver, isPlatformScope } from './parse-id';
 import { NEBULA_SUB, REGISTRY_INSTANCE_NAME } from './types';
 import type { AuthClaims } from './types';
 
@@ -94,14 +91,13 @@ export function ensureSubscribersTable(sql: SqlStorage): void {
   sql.exec(`CREATE TABLE IF NOT EXISTS Subscribers (clientAddress TEXT PRIMARY KEY, subscribedAt TEXT NOT NULL) WITHOUT ROWID`);
 }
 
-export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
+export class Profile extends UnscopedMeshDO<Env> {
   /** Monotonic ULID factory — the forward-only per-write `eTag` (a statically-init utility; loss-safe). */
   #ulid = ulidFactory({ monotonic: true });
 
-  constructor(ctx: DurableObjectState, env: Env) {
-    // `env as Cloudflare.Env`: ComposedMeshDO erases DurableObject's env generic (mirrors LumenizeDO).
-    super(ctx, env as Cloudflare.Env);
-    // Synchronous raw-DO init (no `onStart` — a raw composer has none; the ctor completes before dispatch).
+  /** Schema and seed, before any request (`durable-objects.md` § *Initialization*). */
+  onStart(): void {
+    const ctx = this.ctx;
     // WITHOUT ROWID on the TEXT PKs (write-cost — durable-objects.md).
     ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS ProfileFields (field TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID`,
@@ -116,7 +112,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // seed would render Nebula unlike every human — the set is exactly the PUBLIC_FIELDS
     // allow-list); every other instance does nothing. `ctx.id.name`, not `this.lmz.instanceName`
     // — identity is not stamped this early (the same trap Resources documents), while a
-    // named DO's `ctx.id.name` is available at construction. INSERT OR IGNORE: one more
+    // named DO's `ctx.id.name` is available from construction. INSERT OR IGNORE: one more
     // statement in this constructor's established seed pattern, and a later super-admin edit is
     // never clobbered on reconstruct. Write-authz is `#requireOwnerOrAdmin`'s branch (3), which lets
     // a super-admin edit this one profile, since an ownerless, not-in-Registry profile has no scope
@@ -132,34 +128,6 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
         );
       }
     }
-  }
-
-  /**
-   * A Profile never runs under a name that parses as a scope, such as `acme.crm.bigco`.
-   *
-   * A Profile is named by a profile id: a UUID, a persona's version-5 UUID, or `NEBULA_SUB`
-   * (`'agent:lumenize'`), none of which parses as a scope. Without this check a tab could bring a
-   * Profile into existence at a Star's name. Passage reads a claimless chain's scope from the name
-   * of the node that started it (`NebulaDO`'s `claimsForPassage`), which is sound only if every
-   * object running under a scope-shaped name checks passage into that scope, and a Profile checks
-   * none. Every other caller passes, since a Profile's reads are open to any caller holding its id
-   * (ADR-012) and its writes check ownership in the method.
-   */
-  onBeforeCall(): void {
-    super.onBeforeCall();
-    const name = this.lmz.instanceName;
-    if (name === undefined) return;
-    let isScope = true;
-    try { parseId(name); } catch { isScope = false; }
-    if (isScope) throw new Error(`"${name}" is a scope's name, and no Profile runs under one`);
-  }
-
-  // `ctn()` stays per-class (off ComposedMeshDO) — its `Continuation<this>` return can't cross the mixin
-  // boundary when a subclass concretizes an optional base method (see backlog § Lumenize Mesh).
-  ctn(): Continuation<this>;
-  ctn<T>(): Continuation<T>;
-  ctn(): Continuation<unknown> {
-    return newContinuation() as Continuation<unknown>;
   }
 
   // ── Reads (OPEN — no gate, NO registry read) ─────────────────────────────────────────────────────

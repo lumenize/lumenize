@@ -90,7 +90,10 @@ export class Alarms {
     this.#sql = doInstance.svc.sql;
     this.#log = debug('lmz.alarms.Alarms');
 
-    // Create table synchronously (idempotent)
+    // Create table synchronously (idempotent).
+    // ⚠️ `time` and `created_at` are epoch seconds, an exception to ADR-011's ISO 8601 text: they
+    // stay as they are until alarms are refactored, which revisits both, and the table's retry
+    // columns with them.
     this.#storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS __lmz_alarms (
         id TEXT PRIMARY KEY NOT NULL,
@@ -341,7 +344,7 @@ export class Alarms {
     return executedIds;
   }
 
-  /** Alarm handler - called by LumenizeDO's alarm() lifecycle method */
+  /** Alarm handler - called by MeshDO's alarm() lifecycle method */
   readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
     const now = Math.floor(Date.now() / 1000);
     const overdueResult = this.#sql`SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}`;

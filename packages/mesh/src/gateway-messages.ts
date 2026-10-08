@@ -1,6 +1,6 @@
 /**
  * Gateway wire-protocol primitives — shared between `LumenizeClient` and
- * `LumenizeClientGateway`.
+ * `ClientGateway`, its server-side half.
  *
  * **This module must have zero imports from `cloudflare:workers`**, so that
  * `LumenizeClient` (which imports `GatewayMessageType` and `ClientDisconnectedError`

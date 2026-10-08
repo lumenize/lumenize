@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { rawRpcStub } from '../src/raw-rpc';
 
-const name = (label: string) => `raw-${label}-${crypto.randomUUID().slice(0, 8)}`;
+const name = (label: string) => `raw_${label}_${crypto.randomUUID().slice(0, 8)}`;
 const entry = (instance: string) =>
   (env.TEST_DO.getByName(instance) as unknown as {
     __rawRpc(binding: string, instanceName: string, method: string, args: unknown[]): Promise<unknown>;

@@ -15,7 +15,7 @@
  *  - the co-located **ephemeral build container** via raw `ctx.container` — a
  *    stateless build-box, never `extends Container` (containers.md).
  *
- * `extends NebulaDO` for the structural tenant-isolation `onBeforeCall` (passage into
+ * `extends ScopedMeshDO` for the structural tenant isolation its passage step enforces (passage into
  * `{u}.{g}`). Three guard tiers sit on top of it. The source entries — `readSource`,
  * `writeSource`, `buildNow`, `applyOntology` — carry `@mesh(requireChatWrite)`,
  * the chat floor: DAG `write` at the chat node, the same check a Message create passes
@@ -38,7 +38,7 @@ import {
 } from '@lumenize/ts-runtime-parser-validator/runtime';
 import { NEBULA_SUB, hasDominionOver, projectActingToken } from '@lumenize/mesh/auth';
 import type { AuthClaims } from '@lumenize/mesh/auth';
-import { GATEWAY_PREFIX, NebulaDO, requireDominionHere } from './nebula-do';
+import { GATEWAY_PREFIX, ScopedMeshDO, requireDominionHere } from '@lumenize/mesh';
 // Types only — the COMPILE itself runs in the container build job
 // (tasks/archive/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
 // stores, and does not build). No value import of the compile half may return here;
@@ -349,7 +349,7 @@ export function workersAiRestHeaders(opts: { token: string; gateway?: string; ex
 
 // ─── Galaxy DO ───────────────────────────────────────────────────────
 
-export class Galaxy extends NebulaDO implements ResourcesHost {
+export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // Cache over `ctx.storage` (the durable Workspace VFS) — reconstructed in onStart,
   // never the source of truth. `!`-asserted: onStart runs (inside the base
   // blockConcurrencyWhile) before any @mesh method. Read it through `#workspace()`,
@@ -721,7 +721,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    *    workspace proxy on the path `@cloudflare/computer` fixes, whose upgrade it refuses without
    *    the client secret it minted. No page forward produces it.
    *
-   * Everything else goes to `NebulaDO`'s, which accepts a Client's upgrade under `/gateway/` and
+   * Everything else goes to `ScopedMeshDO`'s, which accepts a Client's upgrade under `/gateway/` and
    * answers 404 to the rest — the data plane rides the mesh, never HTTP.
    */
   override async onRequest(request: Request): Promise<Response> {
@@ -1620,7 +1620,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
 
   // ─── Resource plane (the chat Chat/Message Resources) ─────────
   //
-  // `onBeforeCall` (NebulaDO base) enforces passage into `{u}.{g}`; the per-op DAG read/write
+  // The passage step (ScopedMeshDO base) enforces passage into `{u}.{g}`; the per-op DAG read/write
   // check lives inside the plane, exactly as on Star. (The source entries above put that same
   // chat-node `write` check ON the decorator — `requireChatWrite` — because they do no per-op
   // check of their own.)

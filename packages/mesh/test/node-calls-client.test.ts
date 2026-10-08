@@ -1,20 +1,18 @@
 /**
- * A node's call to a Client: the Gateway acks early, keeps the node's result handler continuation,
+ * A node's call to a Client: its host acks early, keeps the node's result handler continuation,
  * and fills it with the Client's answer the way a node's fire-back does.
  *
- * Every limb drives a real `LumenizeClient` through the test Worker's real Gateway, called by a real
- * node, and reads what that node's own handler received at its fire-back door. The direct
- * `__executeOperation` limbs — no socket, the early ack, the spy on `ctx.waitUntil` — are in
- * `lumenize-client-gateway.test.ts`, which plays the socket by hand.
+ * Every limb drives a real `LumenizeClient`, logged in through Mesh's Registry and hosted by a
+ * scope's node, called by a real node, and reads what that node's own handler received at its
+ * fire-back door. The direct `__executeOperation` limbs — no socket, the early ack, the spy on
+ * `ctx.waitUntil` — are in `client-gateway.test.ts`, which plays the socket by hand.
  */
 import { describe, it, expect, vi } from 'vitest';
-// Also what lets `Browser`'s default fetch reach the test Worker through `SELF`.
 import { env } from 'cloudflare:test';
-import { Browser } from '@lumenize/testing';
 import { parse } from '@lumenize/structured-clone';
 import { LumenizeClient } from '../src/lumenize-client';
 import { mesh } from '../src/mesh-decorator';
-import { createTestRefreshFunction } from '../src/create-test-refresh-function';
+import { connectClient, loginOf } from './support/login';
 
 /** An Error subclass that carries a property of its own, unregistered on `globalThis`. */
 class BoundError extends Error {
@@ -39,7 +37,7 @@ class AnsweringClient extends LumenizeClient {
     };
   }
 
-  /** Answers with an Error named as the Gateway's own verdict that a Client is gone. */
+  /** Answers with an Error named as the host's own verdict that a Client is gone. */
   @mesh()
   returnGone(): Error {
     return Object.assign(new Error('gone'), { name: 'ClientDisconnectedError' });
@@ -51,26 +49,18 @@ class AnsweringClient extends LumenizeClient {
   }
 }
 
-async function connect(): Promise<AnsweringClient> {
-  const sub = crypto.randomUUID();
-  const browser = new Browser();
-  const client = new AnsweringClient({
-    instanceName: `${sub}.tab1`,
-    baseUrl: 'https://localhost',
-    refresh: createTestRefreshFunction({ sub }),
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
-  });
-  await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
-  return client;
-}
+/** A real Client on a fresh universe's page. */
+const connect = () => connectClient(AnsweringClient);
+
+/** A Client's address on its host: `h-1a2b3c4d/{sub}.tab1`. */
+const addressOf = (client: LumenizeClient) => `${loginOf(client).scope}/${client.lmz.instanceName}`;
 
 /** A node that calls `client`'s `method` and keeps the answer, read back once it arrives. */
 async function answerFrom(client: AnsweringClient, method: string): Promise<any> {
   const name = `ncc-${crypto.randomUUID()}`;
   const node = env.TEST_DO.getByName(name);
   await node.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: name });
-  await node.callClient('LUMENIZE_CLIENT_GATEWAY', client.lmz.instanceName!, method, [], method);
+  await node.callClient('CLIENT_HOST_DO', addressOf(client), method, [], method);
   return vi.waitFor(async () => {
     const kept = await node.getOutcomes(method);
     expect(kept).toHaveLength(1);
@@ -93,7 +83,7 @@ describe('a node\'s call to a Client', () => {
     expect({ name: result.error.name, message: result.error.message, code: result.error.code })
       .toEqual({ name: 'BoundError', message: 'bound', code: 42 });
     // The Client is the last hop, and so the handler's `callee`, as a node that answered would be.
-    const client_ = { type: 'LumenizeClient', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: client.lmz.instanceName };
+    const client_ = { type: 'LumenizeClient', bindingName: 'CLIENT_HOST_DO', instanceName: addressOf(client) };
     expect(callChain.at(-1)).toEqual(client_);
     expect(callee).toEqual(client_);
   });
@@ -103,10 +93,10 @@ describe('a node\'s call to a Client', () => {
     const name = `ncc-${crypto.randomUUID()}`;
     const node = env.TEST_DO.getByName(name);
     await node.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: name });
-    const gateway = client.lmz.instanceName!;
-    await node.callClient('LUMENIZE_CLIENT_GATEWAY', gateway, 'rich', [], 'answer', true);
-    await node.callClient('LUMENIZE_CLIENT_GATEWAY', gateway, 'returnGone', [], 'returned', true);
-    await node.callClient('LUMENIZE_CLIENT_GATEWAY', gateway, 'throwGone', [], 'thrown', true);
+    const address = addressOf(client);
+    await node.callClient('CLIENT_HOST_DO', address, 'rich', [], 'answer', true);
+    await node.callClient('CLIENT_HOST_DO', address, 'returnGone', [], 'returned', true);
+    await node.callClient('CLIENT_HOST_DO', address, 'throwGone', [], 'thrown', true);
 
     // The thrown one is the barrier: the Client answers in order, so the two before it have been
     // answered, and would have fired back, by the time it arrives.

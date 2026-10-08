@@ -1,5 +1,6 @@
-import { LumenizeDO } from '../src/lumenize-do';
-import { LumenizeWorker } from '../src/lumenize-worker';
+import { UnscopedMeshDO } from '../src/unscoped-mesh-do';
+import { ScopedMeshDO, requireDominionHere } from '../src/scoped-mesh-do';
+import { MeshWorker } from '../src/mesh-worker';
 import { mesh } from '../src/mesh-decorator';
 import { rawRpc } from '../src/raw-rpc-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
@@ -8,43 +9,39 @@ import { getOperationChain, type OperationChain } from '../src/ocan/index.js';
 import { continuationFromChain } from './continuation-from-chain.js';
 import { preprocess, postprocess, stringify } from '@lumenize/structured-clone';
 import { debug } from '@lumenize/debug';
-import { ClientGateway, type ClientGatewayHost } from '../src/client-gateway';
 
-// Export LumenizeClientGateway for testing
-export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
-
-import { LumenizeClientGateway } from '../src/lumenize-client-gateway';
-import type { GatewayConnectionInfo } from '../src/lumenize-client-gateway';
+import type { GatewayConnectionInfo } from '../src/gateway-messages';
 import type { CallContext } from '../src/types';
+import { authFacadeFor, meshTestFetch } from './support/test-auth';
+
+// Mesh's own auth, which every Client here logs in through (test/support/login.ts).
+export { AuthRegistry, Profile } from './support/test-auth';
+
+/** The binding each tier of scope lives under: every scope's node here is a `ClientHostDO`. */
+const TIERS = { universe: 'CLIENT_HOST_DO', galaxy: 'CLIENT_HOST_DO', star: 'CLIENT_HOST_DO' } as const;
+
+/** The facade, bound as `AUTH_FACADE`, whose deletions tear down `ClientHostDO`s. */
+export const AuthFacade = authFacadeFor(TIERS);
 
 /**
- * Custom Gateway subclass for testing hook overrides.
+ * A host node overriding the hooks `ClientGateway` calls on its host, for the hook tests in
+ * `client-gateway.test.ts`.
  *
  * - onBeforeAccept: rejects if role is 'blocked'; no additional claims (JWT auto-included)
  * - onBeforeCallToMesh: stamps the connection's identity onto the context as a top-level `_auth`
  * - onBeforeCallToClient: rejects calls from binding 'BLOCKED_BINDING', and calls from
  *   'ADMINS_ONLY_BINDING' to a connection whose claims lack `admin: true`
  */
-export class CustomGateway extends LumenizeClientGateway {
+export class CustomHostDO extends ScopedMeshDO<Env> {
   override onBeforeAccept(
     instanceName: string,
     sub: string,
     jwtPayload: Record<string, unknown>
   ): Response | Record<string, unknown> | undefined {
-    // Validate format: must contain '.'
-    const dotIndex = instanceName.indexOf('.');
-    if (dotIndex === -1) {
-      return new Response('Custom: invalid format', { status: 403 });
-    }
-    if (instanceName.substring(0, dotIndex) !== sub) {
-      return new Response('Custom: identity mismatch', { status: 403 });
-    }
-
     // Reject if role is 'blocked'
     if (jwtPayload.role === 'blocked') {
       return new Response('Custom: blocked role', { status: 403 });
     }
-
     // Accept with JWT claims only (role, org already included from JWT)
     return undefined;
   }
@@ -73,6 +70,7 @@ export class CustomGateway extends LumenizeClientGateway {
     if (envelope.metadata?.caller?.bindingName === 'ADMINS_ONLY_BINDING' && connectionInfo.claims.admin !== true) {
       throw new Error('Custom: calls from ADMINS_ONLY_BINDING reach admins only');
     }
+    return undefined;
   }
 }
 
@@ -93,7 +91,9 @@ export interface BroadcastOutcome {
   callee?: string;
 }
 
-export class TestDO extends LumenizeDO<Env> {
+// The test nodes below are `UnscopedMeshDO`s, so a test names each by an id the scope grammar
+// refuses: `caller_3`, never `caller-3`, which parses as the Universe `caller-3` and is refused.
+export class TestDO extends UnscopedMeshDO<Env> {
   // The `@rawRpc()` entry's subjects (raw-rpc.test.ts): one decorated method that reports the
   // identity the entry stamped, one undecorated method, and the getter every node has.
   @rawRpc()
@@ -629,9 +629,9 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Broadcast to never-connected client Gateways. Each Gateway acks, then fires its
   // ClientDisconnectedError back, so each outcome runs `recordBroadcastOutcome` at this node's fire-back door.
-  broadcastToGateways(clientInstances: string[]): void {
+  broadcastToClients(clientInstances: string[]): void {
     this.lmz.broadcast(
-      clientInstances.map((instanceName) => ({ bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName })),
+      clientInstances.map((instanceName) => ({ bindingName: 'CLIENT_HOST_DO', instanceName })),
       (this.ctn() as any).clientMethod(),
       { onResult: this.ctn<TestDO>().recordBroadcastOutcome() },
     );
@@ -805,11 +805,11 @@ export class TestDO extends LumenizeDO<Env> {
   // @mesh(guard) test helpers
   // ============================================
 
-  // Method with guard that admits only a chain an "admin-" node started — a stand-in role read
+  // Method with guard that admits only a chain an "admin_" node started — a stand-in role read
   // from the caller's own address, which the mesh stamps and no caller writes.
   @mesh((instance: TestDO) => {
     const origin = instance.lmz.callContext?.callChain?.[0]?.instanceName;
-    if (!origin?.startsWith('admin-')) {
+    if (!origin?.startsWith('admin_')) {
       throw new Error('Guard: admin role required');
     }
   })
@@ -1140,7 +1140,7 @@ export class TestDO extends LumenizeDO<Env> {
  * recorder are the fixture, and putting them on the DO every other suite shares would make each of
  * those suites carry a surface it never asked for.
  */
-export class MemberKindDO extends LumenizeDO<Env> {
+export class MemberKindDO extends UnscopedMeshDO<Env> {
   /** Everything a getter body or a guard did, in order, read back THROUGH the mesh. */
   #trace(entry: string): void {
     const seen = (this.ctx.storage.kv.get('trace') as string[] | undefined) ?? [];
@@ -1203,7 +1203,7 @@ export class MemberKindDO extends LumenizeDO<Env> {
 }
 
 // Test DO that implements onRequest() lifecycle hook
-export class OnRequestTestDO extends LumenizeDO<Env> {
+export class OnRequestTestDO extends UnscopedMeshDO<Env> {
   onRequest(request: Request): Response {
     const url = new URL(request.url);
 
@@ -1223,7 +1223,7 @@ export class OnRequestTestDO extends LumenizeDO<Env> {
 }
 
 // Test DO that uses onStart() lifecycle hook
-export class OnStartTestDO extends LumenizeDO<Env> {
+export class OnStartTestDO extends UnscopedMeshDO<Env> {
   // Track whether onStart was called
   #onStartCalled = false;
 
@@ -1265,7 +1265,7 @@ export class OnStartTestDO extends LumenizeDO<Env> {
 }
 
 // Test DO that throws in onStart()
-export class OnStartErrorDO extends LumenizeDO<Env> {
+export class OnStartErrorDO extends UnscopedMeshDO<Env> {
   async onStart() {
     throw new Error('Intentional onStart error for testing');
   }
@@ -1277,7 +1277,7 @@ export class OnStartErrorDO extends LumenizeDO<Env> {
 }
 
 // Test Worker class for Worker-to-DO and Worker-to-Worker tests
-export class TestWorker extends LumenizeWorker<Env> {
+export class TestWorker extends MeshWorker<Env> {
   // Store last received envelope for inspection
   lastReceivedEnvelope: any = null;
 
@@ -1477,10 +1477,10 @@ export class TestWorker extends LumenizeWorker<Env> {
 
   // lmz.broadcast from a Worker — driven by broadcast.test.ts. Each never-connected client's
   // Gateway acks, then fires its outcome back, so each runs `forwardBroadcastOutcome` here.
-  broadcastToGateways(clientInstances: string[], storeInstance: string): void {
+  broadcastToClients(clientInstances: string[], storeInstance: string): void {
     this.lmz.__init({ bindingName: 'TEST_WORKER' });
     this.lmz.broadcast(
-      clientInstances.map((instanceName) => ({ bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName })),
+      clientInstances.map((instanceName) => ({ bindingName: 'CLIENT_HOST_DO', instanceName })),
       (this.ctn() as any).clientMethod(),
       { onResult: this.ctn<TestWorker>().forwardBroadcastOutcome(storeInstance) },
     );
@@ -1584,7 +1584,7 @@ export class TestWorker extends LumenizeWorker<Env> {
 }
 
 // AlarmTestDO - comprehensive test DO for alarm functionality
-export class AlarmTestDO extends LumenizeDO<Env> {
+export class AlarmTestDO extends UnscopedMeshDO<Env> {
   executedAlarms: Array<{ payload: any }> = [];
 
   // Test helper: Schedule an alarm
@@ -1683,7 +1683,7 @@ export class AlarmTestDO extends LumenizeDO<Env> {
 
 // A DO that rejects EVERY incoming call at admission (its onBeforeCall throws). Used to exercise
 // the early-ack reject path: the caller's handler runs LOCALLY with the Error.
-export class RejectingDO extends LumenizeDO<Env> {
+export class RejectingDO extends UnscopedMeshDO<Env> {
   override onBeforeCall(): void {
     throw new Error('admission rejected by onBeforeCall');
   }
@@ -1701,7 +1701,7 @@ export class RejectingDO extends LumenizeDO<Env> {
  * giving ITS error a chain would make those tests run one. Structured clone carries own keys across
  * a hop, which is how an Error carries any own property it was given.
  */
-export class MarkerRejectingDO extends LumenizeDO<Env> {
+export class MarkerRejectingDO extends UnscopedMeshDO<Env> {
   override onBeforeCall(): void {
     const err = Object.assign(new Error('admission rejected with a marker-shaped error'), {
       __isNestedOperation: true,
@@ -1719,9 +1719,9 @@ export class MarkerRejectingDO extends LumenizeDO<Env> {
   }
 }
 
-// Simple EchoDO for testing LumenizeClientGateway
+// Echoes back the input with context info, for a Client's call to another node
 // Echoes back the input with context info
-export class EchoDO extends LumenizeDO<Env> {
+export class EchoDO extends UnscopedMeshDO<Env> {
   @mesh()
   echo(message: string): { message: string; callChain?: any; caller?: any } {
     const { callChain } = this.lmz.callContext;
@@ -1739,18 +1739,15 @@ export class EchoDO extends LumenizeDO<Env> {
 }
 
 /**
- * A node that hosts Clients, the way a scope's node does: it composes `ClientGateway` with no
- * options and hands it its socket events and every message addressed to one of its Clients. A Client
- * on `h1` is `h1/{sub}.{tabId}` under `CLIENT_HOST_DO`.
+ * A node that hosts Clients, as a scope's node does: a `ScopedMeshDO`, which composes `ClientGateway`
+ * and checks passage on every call. A Client on `h-1a2b3c4d`'s host is `h-1a2b3c4d/{sub}.{tabId}`
+ * under `CLIENT_HOST_DO`, and every scope a test claims names one.
  */
-export class ClientHostDO extends LumenizeDO<Env> implements ClientGatewayHost {
-  #clientGateway = new ClientGateway(this.ctx, this.env, this);
-
-  override get __clientGateway(): ClientGateway {
-    return this.#clientGateway;
-  }
-
-  /** The marker a test counts to see how many times this host admitted a call. */
+export class ClientHostDO extends ScopedMeshDO<Env> {
+  /**
+   * The marker a test counts to see how many times this host admitted a call. It never calls
+   * `super`, which passage does not need: the base runs its passage step before this hook.
+   */
   override onBeforeCall(): void {
     debug('test.ClientHostDO.onBeforeCall').debug('host admitted a call', {
       instanceName: this.lmz.instanceName,
@@ -1773,6 +1770,12 @@ export class ClientHostDO extends LumenizeDO<Env> implements ClientGatewayHost {
     return 'guarded';
   }
 
+  /** Runs only for a caller holding dominion over this node. */
+  @mesh(requireDominionHere)
+  adminOnly(): string {
+    return 'admin';
+  }
+
   /** Push `value` to the Client named `clientName` on this host, keeping its answer under `tag`. */
   @mesh()
   pushTo(clientName: string, value: string, tag: string): void {
@@ -1788,39 +1791,43 @@ export class ClientHostDO extends LumenizeDO<Env> implements ClientGatewayHost {
     return this.ctx.storage.kv.get(`answer:${tag}`);
   }
 
+  /**
+   * Start a claimless chain here, as an alarm or a `newChain` does, calling `echo` on the host node
+   * `target`; the answer, or the refusal, is kept under `tag`.
+   */
+  @rawRpc()
+  startChainTo(target: string, tag: string): void {
+    this.lmz.call('CLIENT_HOST_DO', target, this.ctn<ClientHostDO>().echo(tag), this.ctn<ClientHostDO>().keepAnswer(tag));
+  }
+
+  /** {@link pushTo}, reached by our own code rather than a Client, so the push starts here. */
+  @rawRpc()
+  pushFromHere(clientName: string, value: string, tag: string): void {
+    this.pushTo(clientName, value, tag);
+  }
+
   /** Close every hosted Client's socket with `code`, as a host about to be deleted does. */
   @mesh()
   closeEveryClient(code: number): void {
-    this.#clientGateway.closeAll(code, 'test host closing');
+    this.__clientGateway.closeAll(code, 'test host closing');
+  }
+}
+
+/**
+ * An unscoped node whose `onBeforeCall` never calls `super`, for the refusal of a scope-shaped name
+ * at the identity stamp, which no override can skip.
+ */
+export class RoomDO extends UnscopedMeshDO<Env> {
+  override onBeforeCall(): void {}
+
+  @mesh()
+  whoAmI(): string | undefined {
+    return this.lmz.instanceName;
   }
 
-  onBeforeAccept(instanceName: string, sub: string): Response | undefined {
-    const id = instanceName.slice(instanceName.indexOf('/') + 1);
-    return id.startsWith(`${sub}.`) ? undefined : new Response('Forbidden: identity mismatch', { status: 403 });
-  }
-
-  onBeforeCallToMesh(baseContext: CallContext): CallContext {
-    return baseContext;
-  }
-
-  onBeforeCallToClient(): undefined {
-    return undefined;
-  }
-
-  override onRequest(request: Request): Promise<Response> {
-    return this.#clientGateway.acceptUpgrade(request);
-  }
-
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    return this.#clientGateway.receiveMessage(ws, message);
-  }
-
-  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    this.#clientGateway.socketClosed(ws, code, reason);
-  }
-
-  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    this.#clientGateway.socketErrored(ws, error);
+  @rawRpc()
+  rawWhoAmI(): string | undefined {
+    return this.lmz.instanceName;
   }
 }
 
@@ -1829,40 +1836,8 @@ interface HostedTestClientShape {
   receive(value: string): string;
 }
 
-// Import routeDORequest for e2e testing with Browser.WebSocket
-import { env } from 'cloudflare:workers';
-import { routeDORequest } from '@lumenize/routing';
-import { createRouteDORequestAuthHooks } from '@lumenize/auth';
-
-// Create auth hooks once at module level (async — imports public keys from env)
-const authHooks = await createRouteDORequestAuthHooks(env);
-
-// Default export for worker - routes to DOs for e2e testing
+// The Worker: Mesh's auth routes, and a Client's upgrade on a scope's host, which reaches the
+// `ClientHostDO` that host spells.
 export default {
-  async fetch(request: Request, env: Env) {
-    // For e2e tests, we need to route WebSocket connections to the Gateway
-    // The routeDORequest function matches URLs like /gateway/LUMENIZE_CLIENT_GATEWAY/{instanceName}
-    // and routes them to the appropriate DO
-
-    // A Client whose host comes from the hostname upgrades at /gateway/{id}; on `h1.hosted.test`
-    // that is the Client `h1/{id}` on CLIENT_HOST_DO, the rewrite a scope's Worker makes.
-    const url = new URL(request.url);
-    const hostedId = url.hostname.endsWith('.hosted.test') ? /^\/gateway\/([^/]+)$/.exec(url.pathname)?.[1] : undefined;
-    if (hostedId !== undefined) {
-      url.pathname = `/gateway/CLIENT_HOST_DO/${url.hostname.split('.')[0]}/${hostedId}`;
-      request = new Request(url, request);
-    }
-
-    const response = await routeDORequest(request, env, {
-      prefix: 'gateway',
-      ...authHooks,
-    });
-
-    if (response) {
-      return response;
-    }
-
-    return new Response('OK');
-  },
+  fetch: meshTestFetch(TIERS),
 };
-

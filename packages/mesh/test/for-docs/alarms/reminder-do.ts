@@ -4,9 +4,9 @@
  * Example DO for alarms.mdx documentation
  */
 
-import { LumenizeDO, mesh } from '../../../src/index.js';
+import { UnscopedMeshDO, mesh } from '../../../src/index.js';
 
-export class ReminderDO extends LumenizeDO<Env> {
+export class ReminderDO extends UnscopedMeshDO<Env> {
   // ============================================
   // Quick Start pattern: Schedule a follow-up reminder
   // ============================================

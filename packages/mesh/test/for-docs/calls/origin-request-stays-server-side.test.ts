@@ -1,7 +1,7 @@
 /**
  * A pushed call hands a client the writer's `originAuth`, never its `originRequest`.
  *
- * `originRequest` is what the Gateway snapshots from a client's WebSocket upgrade: its IP,
+ * `originRequest` is what a client's host snapshots from its WebSocket upgrade: its IP,
  * `User-Agent`, `Accept-Language`, and Cloudflare's `cf` city, region, latitude, longitude,
  * timezone and colo. Server-side code reads it anywhere along the chain — an emailed link is built
  * from its `origin`. But a push that keeps the writer's chain, which `lmz.broadcast` sends with
@@ -13,7 +13,7 @@
  * - **`this.lmz.callContext` in the subscriber's `@mesh()` handler** — what app code sees, decided
  *   by the client's `#handleIncomingCall`.
  * - **the raw `incoming_call` frame on the subscriber's socket** — what devtools shows, decided by
- *   the Gateway's `#forwardToClient`. This is the limb that reds if the Gateway starts forwarding
+ *   the host's `ClientGateway.#forwardToClient`. This is the limb that reds if it starts forwarding
  *   the field again: the client no longer copies it, so the handler limb stays green through that
  *   regression.
  *
@@ -22,8 +22,8 @@
  *
  * **Why no running system (`live.md`).** Both deciding functions are mesh code that reads nothing
  * from its environment, and this drives them end to end: real `EditorClient`s over real WebSocket
- * upgrades, the Worker, `@lumenize/auth`'s hooks, the base `LumenizeClientGateway` and a real
- * `DocumentDO`. The `originRequest` in play is the one the Gateway stamped from the writer's own
+ * upgrades, the Worker's `hostedUpgrade`, the host node's `ClientGateway` and a real `DocumentDO`,
+ * with each user logged in through Mesh's Registry. The `originRequest` in play is the one the host stamped from the writer's own
  * upgrade; nothing here builds it. A deployed Worker changes what the snapshot contains (a real
  * `cf`, an edge-set IP), never whether it is forwarded. And this lane runs in CI, so a mesh change
  * that forwards the field again is caught where it is made, which `/live` is not.
@@ -31,10 +31,11 @@
 import { it, expect, expectTypeOf, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import {
-  createTestRefreshFunction, GatewayMessageType, type CallContext, type LmzApiClient,
+  GatewayMessageType, type CallContext, type LmzApiClient,
 } from '../../../src/index.js';
 import { EditorClient } from './editor-client.js';
 import type { DocumentDO } from './document-do.js';
+import { loginAt, uniqueScope, type Login } from '../../support/login.js';
 
 // Type-level, so `npm run type-check` enforces these and vitest does not. MUTATION-CHECK (run,
 // flipped): type `LmzApiClient.callContext` as `CallContext` again and the first line fails.
@@ -42,10 +43,10 @@ expectTypeOf<LmzApiClient['callContext']>().not.toHaveProperty('originRequest');
 expectTypeOf<LmzApiClient['callContext']>().toHaveProperty('originAuth');
 
 /**
- * A connected `EditorClient` for `sub`. Pass `frames` to record every text frame its socket
+ * A connected `EditorClient` for `login`. Pass `frames` to record every text frame its socket
  * receives — the recorder subclasses the WebSocket, so it sits below the client's own parsing.
  */
-async function connectEditor(sub: string, frames?: string[]): Promise<EditorClient> {
+async function connectEditor(login: Login, frames?: string[]): Promise<EditorClient> {
   const browser = new Browser();
   class RecordingWebSocket extends browser.WebSocket {
     constructor(url: string | URL, protocols?: string[] | string) {
@@ -56,9 +57,9 @@ async function connectEditor(sub: string, frames?: string[]): Promise<EditorClie
     }
   }
   const client = new EditorClient({
-    instanceName: `${sub}.tab1`,
-    baseUrl: 'https://localhost',
-    refresh: createTestRefreshFunction({ sub }),
+    instanceName: `${login.sub}.tab1`,
+    baseUrl: login.baseUrl,
+    refresh: login.refresh,
     fetch: browser.fetch,
     WebSocket: RecordingWebSocket,
   });
@@ -67,11 +68,16 @@ async function connectEditor(sub: string, frames?: string[]): Promise<EditorClie
 }
 
 it("a subscriber receives the writer's originAuth, never its originRequest", async () => {
-  const writerSub = crypto.randomUUID();
+  const workspace = uniqueScope('acme');
+  const writerLogin = await loginAt(workspace);
+  const subscriberLogin = await loginAt(workspace);
+  const writerSub = writerLogin.sub;
   const subscriberFrames: string[] = [];
-  using writer = await connectEditor(writerSub);
-  using subscriber = await connectEditor(crypto.randomUUID(), subscriberFrames);
+  using writer = await connectEditor(writerLogin);
+  using subscriber = await connectEditor(subscriberLogin, subscriberFrames);
   const documentId = crypto.randomUUID();
+  await writer.createDocument(documentId);
+  await writer.shareDocument(documentId, subscriberLogin.sub);
 
   const contents: string[] = [];
   const contexts: CallContext[] = [];
@@ -93,13 +99,13 @@ it("a subscriber receives the writer's originAuth, never its originRequest", asy
   const [ctx] = contexts;
   // Positive control: this is the writer's chain. `originRequest` is copied beside `originAuth`
   // by the same spread at every hop, so it rode this push as far as the Gateway.
-  expect(ctx.callChain[0]).toMatchObject({ type: 'LumenizeClient', instanceName: `${writerSub}.tab1` });
+  expect(ctx.callChain[0]).toMatchObject({ type: 'LumenizeClient', instanceName: `${workspace}/${writerSub}.tab1` });
   // MUTATION-CHECK (run, flipped): drop `originAuth` from `#forwardToClient` and this reds.
   expect(ctx.originAuth?.sub).toBe(writerSub);
   // Red before the fix: the subscriber's handler saw the writer's `{ origin: 'https://localhost' }`.
   expect(ctx.originRequest).toBeUndefined();
 
-  // ── Wire limb: the raw frame the Gateway put on the subscriber's socket ──
+  // ── Wire limb: the raw frame the host put on the subscriber's socket ──
   const pushes = subscriberFrames
     .map((raw) => ({ raw, message: JSON.parse(raw) }))
     .filter(({ message }) => message.type === GatewayMessageType.INCOMING_CALL);
@@ -120,11 +126,16 @@ it("a subscriber receives the writer's originAuth, never its originRequest", asy
 // MUTATION-CHECK: restore the inherit default in `broadcastShared`, and the writer's claims are back
 // in the frame.
 it("a broadcast push carries no originAuth, at the handler and on the frame", async () => {
-  const writerSub = crypto.randomUUID();
+  const workspace = uniqueScope('acme');
+  const writerLogin = await loginAt(workspace);
+  const subscriberLogin = await loginAt(workspace);
+  const writerSub = writerLogin.sub;
   const subscriberFrames: string[] = [];
-  using writer = await connectEditor(writerSub);
-  using subscriber = await connectEditor(crypto.randomUUID(), subscriberFrames);
+  using writer = await connectEditor(writerLogin);
+  using subscriber = await connectEditor(subscriberLogin, subscriberFrames);
   const documentId = crypto.randomUUID();
+  await writer.createDocument(documentId);
+  await writer.shareDocument(documentId, subscriberLogin.sub);
 
   const contents: string[] = [];
   const contexts: CallContext[] = [];

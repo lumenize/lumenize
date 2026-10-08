@@ -5,8 +5,8 @@
  * require the Cloudflare Workers runtime. Use this from Node.js (test
  * harnesses, CLIs, server-side renders) and unbundled browsers.
  *
- * The main `@lumenize/mesh` entry point re-exports `LumenizeDO`,
- * `LumenizeWorker`, `LumenizeClientGateway`, and other server-only surface —
+ * The main `@lumenize/mesh` entry point re-exports `ScopedMeshDO`,
+ * `MeshWorker`, `ClientGateway`, and other server-only surface —
  * all of which transitively import `cloudflare:workers` and fail to load
  * outside Workers. This file intentionally leaves them out.
  *

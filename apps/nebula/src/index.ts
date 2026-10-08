@@ -3,7 +3,6 @@
  */
 
 // DO classes
-export { NebulaDO, requireDominionHere, requirePassage } from './nebula-do';
 export { Universe } from './universe';
 export { Galaxy, requireChatWrite, assertModelPath, LOOP_TOOL_ENTRIES } from './galaxy';
 export { Star } from './star';

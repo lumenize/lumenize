@@ -17,8 +17,8 @@ import { mesh, isMeshCallable } from '../src/mesh-decorator';
 
 /** Fire `chain` at the DO over a real hop and keep what its handler recorded. */
 async function wire(name: string, chain: unknown[]): Promise<string> {
-  const caller = env.TEST_DO.getByName(`mk-caller-${name}`);
-  await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: `mk-caller-${name}` });
+  const caller = env.TEST_DO.getByName(`mk_caller_${name}`);
+  await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: `mk_caller_${name}` });
   await caller.clearMarkerProbe();
   caller.testWireChainAt('MEMBER_KIND_DO', name, chain as never);
   await vi.waitFor(async () => {
@@ -33,37 +33,37 @@ const APPLY = (...args: unknown[]) => ({ type: 'apply' as const, args });
 
 describe('@mesh() decorates a method and a getter, and nothing else', () => {
   it('a `@mesh()` METHOD reaches its target', async () => {
-    expect(await wire('mk-method', [GET('decoratedMethod'), APPLY('x')]))
+    expect(await wire('mk_method', [GET('decoratedMethod'), APPLY('x')]))
       .toBe('PERMITTED: method reached: x');
   });
 
   it('a `@mesh()` GETTER reaches its target — the GETTER path, not a call', async () => {
     // Asserting on a call would be satisfied by a method-only implementation and leave the getter
     // entry unmeasured: op 0 here is a `get`, and nothing applies it.
-    expect(await wire('mk-getter', [GET('decoratedGate'), GET('reached'), APPLY()]))
+    expect(await wire('mk_getter', [GET('decoratedGate'), GET('reached'), APPLY()]))
       .toBe('PERMITTED: facade reached');
   });
 
   it("a getter gate's guard runs BEFORE its body", async () => {
-    const node = env.MEMBER_KIND_DO.getByName('mk-order');
+    const node = env.MEMBER_KIND_DO.getByName('mk_order');
     await node.clearTrace();
-    await wire('mk-order', [GET('guardedGate'), GET('reached'), APPLY()]);
+    await wire('mk_order', [GET('guardedGate'), GET('reached'), APPLY()]);
     expect(await node.getTrace()).toEqual(['guard', 'guarded getter body']);
   });
 
   it("a getter gate's body runs ONCE per chain", async () => {
-    const node = env.MEMBER_KIND_DO.getByName('mk-once');
+    const node = env.MEMBER_KIND_DO.getByName('mk_once');
     await node.clearTrace();
-    await wire('mk-once', [GET('decoratedGate'), GET('reached'), APPLY()]);
+    await wire('mk_once', [GET('decoratedGate'), GET('reached'), APPLY()]);
     expect(await node.getTrace()).toEqual(['getter body']);
   });
 
   it('an UNDECORATED getter is refused WITHOUT running', async () => {
     // The property that justifies reading descriptors rather than `parent[key]`: deciding by
     // reading the member would run the very code the rule is deciding whether to admit.
-    const node = env.MEMBER_KIND_DO.getByName('mk-undecorated');
+    const node = env.MEMBER_KIND_DO.getByName('mk_undecorated');
     await node.clearTrace();
-    expect(await wire('mk-undecorated', [GET('undecoratedGate'), GET('reached'), APPLY()]))
+    expect(await wire('mk_undecorated', [GET('undecoratedGate'), GET('reached'), APPLY()]))
       .toMatch(/is not mesh-callable/);
     expect(await node.getTrace()).toEqual([]);
   });
@@ -82,7 +82,7 @@ describe('@mesh() decorates a method and a getter, and nothing else', () => {
     //
     // ⚠️ Asserted as the specific string. The earlier `/PERMITTED|REFUSED/` matched every value
     // this helper can return, so it held on any tree — and hid exactly this.
-    expect(await wire('mk-async', [GET('asyncGate'), GET('reached'), APPLY()]))
+    expect(await wire('mk_async', [GET('asyncGate'), GET('reached'), APPLY()]))
       .toMatch(/^REFUSED: TypeError: .* is not a function/);
   });
 });
@@ -152,9 +152,9 @@ describe('the kinds that do NOT ship are refused twice over', () => {
 
 describe('what a node authored itself may still root anywhere', () => {
   it('runs a ctx-rooted handler on the fire-back, which the entry rule does not see', async () => {
-    const caller = env.TEST_DO.getByName('ctx-rooted-caller');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctx-rooted-caller' });
-    caller.testCtxRootedHandler('TEST_DO', 'ctx-rooted-callee');
+    const caller = env.TEST_DO.getByName('ctx_rooted_caller');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctx_rooted_caller' });
+    caller.testCtxRootedHandler('TEST_DO', 'ctx_rooted_callee');
     await vi.waitFor(async () => {
       expect(await caller.getCtxRootedCache()).toBeDefined();
     }, { timeout: 5000 });

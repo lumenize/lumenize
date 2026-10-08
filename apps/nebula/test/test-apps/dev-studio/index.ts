@@ -13,7 +13,7 @@
 import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
 import { Star } from '../../../src/star';
-import { requireDominionHere } from '../../../src/nebula-do';
+import { requireDominionHere } from '@lumenize/mesh';
 import { DEFAULT_LOOP_CONFIG } from '../../../src/codegen-loop';
 import { TOOL_ARGS_BUNDLE_ID } from '../../../src/tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from '../../../src/validator-seeds';

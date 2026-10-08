@@ -9,17 +9,20 @@ import {
 import { parse } from '@lumenize/structured-clone';
 import { ComposedMeshDO, initIdentityFromHeaders } from './lmz-api.js';
 import { debug } from '@lumenize/debug';
-import { ClientDisconnectedError } from './lumenize-client-gateway.js';
+import { ClientDisconnectedError } from './gateway-messages.js';
 
 // Re-export continuation types from ocan for convenience
 export type { Continuation, AnyContinuation };
 
 // Register ClientDisconnectedError on globalThis for proper structured-clone serialization
-// This ensures LumenizeDO instances can deserialize this error type when received from Gateway
+// This ensures a Mesh Durable Object can deserialize this error type when received from a Client's host
 (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
 
 /**
- * LumenizeDO - Base class for stateful Durable Objects in the Lumenize Mesh
+ * MeshDO — what every Mesh Durable Object shares, under the two bases an app extends:
+ * `ScopedMeshDO`, a node named by a scope, which checks passage and hosts the Clients on its
+ * scope's pages, and `UnscopedMeshDO`, a node named by an id. Internal: neither an app nor a test
+ * extends it directly.
  *
  * Provides automatic dependency injection for built-in and NADIS services via `this.svc.*`
  *
@@ -35,9 +38,9 @@ export type { Continuation, AnyContinuation };
  * @example
  * Basic usage:
  * ```typescript
- * import { LumenizeDO } from '@lumenize/mesh';
+ * import { UnscopedMeshDO } from '@lumenize/mesh';
  *
- * class MyDO extends LumenizeDO<Env> {
+ * class MyDO extends UnscopedMeshDO<Env> {
  *   async getUser(id: string) {
  *     const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
  *     return rows[0];
@@ -54,7 +57,7 @@ export type { Continuation, AnyContinuation };
  * }
  * ```
  */
-export abstract class LumenizeDO<Env = any> extends ComposedMeshDO(DurableObject, 'LumenizeDO') {
+export abstract class MeshDO<Env = any> extends ComposedMeshDO(DurableObject, 'LumenizeDO') {
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
 
@@ -111,14 +114,14 @@ export abstract class LumenizeDO<Env = any> extends ComposedMeshDO(DurableObject
    * It automatically delegates to `this.svc.alarms.alarm()` to execute
    * any pending scheduled tasks.
    *
-   * **No override needed** - LumenizeDO handles alarm scheduling automatically.
+   * **No override needed** — the base handles alarm scheduling automatically.
    * Just use `this.svc.alarms.schedule()` to schedule tasks.
    *
    * @param alarmInfo - Cloudflare alarm invocation info
    *
    * @example
    * ```typescript
-   * class MyDO extends LumenizeDO<Env> {
+   * class MyDO extends UnscopedMeshDO<Env> {
    *   scheduleTask() {
    *     // Schedule a task - alarm() handles execution automatically
    *     this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
@@ -175,7 +178,7 @@ export abstract class LumenizeDO<Env = any> extends ComposedMeshDO(DurableObject
    * set by `routeDORequest` in @lumenize/routing.
    *
    * **Validation**: If the instance header contains a Durable Object ID (64-char hex string)
-   * instead of a name, returns an HTTP 400 error. LumenizeDO requires instance names for
+   * instead of a name, returns an HTTP 400 error. A Mesh Durable Object requires instance names for
    * proper mesh addressing.
    *
    * This is called automatically by the default `fetch()` handler. If you
@@ -187,7 +190,7 @@ export abstract class LumenizeDO<Env = any> extends ComposedMeshDO(DurableObject
    *
    * @example
    * ```typescript
-   * class MyDO extends LumenizeDO<Env> {
+   * class MyDO extends UnscopedMeshDO<Env> {
    *   async fetch(request: Request) {
    *     // Manual initialization (alternative to super.fetch())
    *     const error = this.__initFromHeaders(request.headers);
@@ -338,17 +341,14 @@ if (!(globalThis as any).__lumenizeResultHandlers) {
   (globalThis as any).__lumenizeResultHandlers = {};
 }
 
-// Expose LumenizeDO prototype for method overrides (e.g., __processCallQueue)
-(globalThis as any).__LumenizeDOPrototype = LumenizeDO.prototype;
-
 // Re-export the global LumenizeServices interface for convenience
 export type { LumenizeServices } from './types';
 
-// Register built-in sql service (always available on this.svc.sql for LumenizeDO subclasses)
+// Register built-in sql service (always available on this.svc.sql for every Mesh Durable Object)
 import { sql } from './sql';
 (globalThis as any).__lumenizeServiceRegistry['sql'] = (doInstance: any) => sql(doInstance);
 
-// Register built-in alarms service (always available on this.svc.alarms for LumenizeDO subclasses)
+// Register built-in alarms service (always available on this.svc.alarms for every Mesh Durable Object)
 import { Alarms } from './alarms';
 (globalThis as any).__lumenizeServiceRegistry['alarms'] = (doInstance: any) => new Alarms(doInstance);
 

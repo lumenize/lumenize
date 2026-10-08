@@ -471,8 +471,7 @@ export async function inviteViaMesh(
 
 /**
  * Mint a DELIBERATELY-DEGRADED token for the negative control.
- * - `'base'`  → the base mesh/auth shape (`createTestRefreshFunction`-equivalent): flat `scopeAdmin`,
- *   NO `access` claim, base issuer. This is the exact "wrong shape for Nebula" the task names.
+ * - `'base'`  → the base `@lumenize/auth` shape: flat `scopeAdmin`, NO `access` claim, base issuer. This is the exact "wrong shape for Nebula" the task names.
  *   ⚠️ The `scopeAdmin`/`emailVerified`/`adminApproved` flags are passed as `customClaims` but land
  *   FLAT on the token — `createJwtPayload` spreads the bag — so this really is the flat base shape,
  *   not a nested one. That flatness is the point of the control; a nested bag would degrade the

@@ -48,8 +48,6 @@ After authentication, a call passes a fixed sequence of layers. Two verdicts dec
 
 **There are two sequences, because a call to a mesh node and a request to a Registry route arrive by different routes.** Only the mesh sequence computes the two verdicts. The Registry's HTTP routes are used for calls that don't have an access token — logging in, the refresh, acceptance, logging out. What a session does once it holds a token is a mesh call.
 
-> **Today's code differs.** Passage runs inside `onBeforeCall()` itself, in `NebulaDO`, the base class `apps/nebula`'s scoped nodes extend, so a subclass that overrides that hook without calling `super` drops passage. `ScopedMeshDO` and `UnscopedMeshDO` are not built, and the Profile composes the mesh core directly and refuses a scope-shaped name in its own `onBeforeCall()`.
-
 **Mesh nodes.** Every layer runs in order, even where a given call makes one a no-op:
 
 - **M1 — Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.

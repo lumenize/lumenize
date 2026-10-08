@@ -10,10 +10,9 @@
 // `EmailTransport.sendEmail` — so it is the one member of the 2026-07-31 copy set that must stay in
 // lockstep with its owner, and therefore carries no free-to-diverge licence.
 import type { ResolvedEmail } from '@lumenize/email';
-// ⚠️ The Node/browser-safe `/client` subpath, deliberately — this module is re-exported from
-// `@lumenize/mesh/auth/testing`, which must load outside Workers. The main `@lumenize/mesh`
-// barrel would drag `cloudflare:workers` in.
-import { TOKEN_REFRESH_AHEAD_SECONDS } from '../lumenize-client';
+// A leaf, deliberately: this module loads outside Workers (`@lumenize/mesh/auth/testing` re-exports
+// it), and the Client imports the scope grammar, which imports this module.
+import { TOKEN_REFRESH_AHEAD_SECONDS } from '../token-refresh';
 export type { ResolvedEmail };
 
 /** Fields every `EmailMessage` variant carries. Internal — the union below is the public shape. */

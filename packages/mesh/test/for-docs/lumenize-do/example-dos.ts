@@ -4,10 +4,10 @@
  * that loads the worker.
  */
 // Import LumenizeDO - alarms is built-in, no separate import needed
-import { LumenizeDO } from '@lumenize/mesh';
+import { UnscopedMeshDO } from '@lumenize/mesh';
 
 // Example: Basic auto-injection
-class UsersDO extends LumenizeDO<Env> {
+class UsersDO extends UnscopedMeshDO<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Run migrations in constructor
@@ -40,7 +40,7 @@ class UsersDO extends LumenizeDO<Env> {
 }
 
 // Example: Using multiple services together
-class NotificationsDO extends LumenizeDO<Env> {
+class NotificationsDO extends UnscopedMeshDO<Env> {
   executedNotifications: Array<{ userId: string; message: string }> = [];
 
   constructor(ctx: DurableObjectState, env: Env) {

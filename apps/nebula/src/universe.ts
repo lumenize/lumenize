@@ -3,9 +3,9 @@
  */
 
 import { mesh } from '@lumenize/mesh';
-import { NebulaDO, requireDominionHere } from './nebula-do';
+import { ScopedMeshDO, requireDominionHere } from '@lumenize/mesh';
 
-export class Universe extends NebulaDO {
+export class Universe extends ScopedMeshDO {
   @mesh(requireDominionHere) // a descendant's member is refused: dominion never flows up
   setUniverseConfig(key: string, value: unknown) {
     const config = this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};

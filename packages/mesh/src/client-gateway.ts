@@ -74,39 +74,39 @@ interface GracePeriod {
 }
 
 /**
- * What `ClientGateway` needs from the Durable Object that hosts it: the three hooks every host
- * implements, and a node's own request door. Nebula's `NebulaDO` and Mesh's
- * `LumenizeClientGateway` are hosts, and the latter's JSDoc documents each hook.
+ * What `ClientGateway` needs from the node that hosts it: the three hooks every host implements, and
+ * the node's own request door. `ScopedMeshDO` is the host, and implements each hook; a subclass
+ * overrides one to add to it.
  */
 export interface ClientGatewayHost {
+  /**
+   * Connection-time hook, called during a Client's upgrade after its token is decoded. Every JWT
+   * payload field becomes the connection's claims; a returned `Record` merges on top
+   * (`{ ...jwtPayload, ...hookResult }`), and a returned `Response` refuses the upgrade.
+   */
   onBeforeAccept(
     instanceName: string,
     sub: string,
     jwtPayload: Record<string, unknown>,
   ): Response | Record<string, unknown> | undefined;
+  /**
+   * Pre-dispatch hook: the context a Client's call carries, built from its socket's verified
+   * attachment, returned enriched or as it is. `callId` is the inbound frame's, for tracing.
+   */
   onBeforeCallToMesh(baseContext: CallContext, connectionInfo: GatewayConnectionInfo, callId: string): CallContext;
+  /**
+   * Pre-forward hook: a node's call to the Client, after the ack and immediately before it goes down
+   * the socket, with the Client's verified identity and claims. Throw to refuse it: the Error fills
+   * the calling node's continuation, which fires back to it. It returns `undefined` rather than
+   * `void` so that an `async` override, whose rejected Promise would refuse nothing, does not compile.
+   */
   onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined;
   /**
-   * A host node's own request door. A Client's call to the node that hosts it runs through it as a
-   * method call, so it passes `onBeforeCall` and the `@mesh()` check exactly as an RPC would.
+   * The host node's own request door. A Client's call to the node that hosts it runs through it as a
+   * method call, so it passes the passage step, `onBeforeCall` and the `@mesh()` check exactly as an
+   * RPC would.
    */
-  __executeOperation?(envelope: CallEnvelope): Promise<any>;
-}
-
-/** How a `ClientGateway` is composed. */
-export interface ClientGatewayOptions {
-  /**
-   * The host is a Durable Object of one Client's own, named by the Client, as
-   * `LumenizeClientGateway` is. Never set it on a mesh node: the node's doors would take that
-   * Client's traffic for the node's own, and run its answers as the node's own chain.
-   *
-   * Without it, the host is a node that hosts many Clients, such as the Star `acme.crm.tenant1`.
-   * Each Client's id is the one path segment after the host's instance name,
-   * `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`, and its name is
-   * `acme.crm.tenant1/alice.9f2c41aa`. An upgrade naming no id, or more than one, is refused, so no
-   * Client is named by its host's own name, and a Client's call to its host runs in place.
-   */
-  singleClient?: boolean;
+  __executeOperation(envelope: CallEnvelope): Promise<any>;
 }
 
 /**
@@ -121,8 +121,19 @@ export interface ClientGatewayOptions {
  * **Zero storage.** Nothing here touches `ctx.storage`. State is derived from the host's sockets,
  * each tagged with its Client's `instanceName`, from those sockets' attachments, and from two
  * in-memory records: a grace period per Client, and the node calls waiting for a Client's answer.
- * Both die with the isolate, and each says what that costs where it is declared. Every socket lookup names its Client, so one host can hold
- * many Clients; `LumenizeClientGateway` holds one.
+ * Both die with the isolate, and each says what that costs where it is declared. Every socket
+ * lookup names its Client, so one host holds many. A Client's state, and what its next connection
+ * is told:
+ *
+ * | Client's socket | Grace period | State | subscriptionRequired on reconnect |
+ * |-----------------|--------------|-------|-----------------------------------|
+ * | Open | — | Connected | `false` (a supersede) |
+ * | None | Running (≤5 s) | Grace Period | `false`, or `true` once a delivery to it failed |
+ * | None | None, or ended | Disconnected | `true` |
+ *
+ * An evicted host has no record of a grace period, so it reports `true`, the safe direction. A
+ * delivery that failed is recorded on the grace period and on every socket the Client still holds,
+ * open or closing, and the next connection is told `true` whatever the row says.
  *
  * The host reaches it only through its entry points and hands it only its `ctx`, its `env` and the
  * hooks in {@link ClientGatewayHost}.
@@ -138,19 +149,10 @@ export class ClientGateway {
   /** Each Client's grace period, by `instanceName`, from its socket's close to its reconnect */
   #gracePeriods = new Map<string, GracePeriod>();
 
-  /** The host is a node that hosts many Clients, not a Durable Object of one Client's own. */
-  #hostNode: boolean;
-
-  constructor(ctx: DurableObjectState, env: any, host: ClientGatewayHost, options?: ClientGatewayOptions) {
-    // A mesh node has doors that hand a Client's traffic to this half; named by the node's own name,
-    // that Client's answers would run as the node's own chain, so the one-Client mode refuses one.
-    if (options?.singleClient && '__clientGateway' in host) {
-      throw new Error('ClientGateway: singleClient is for a Durable Object of one Client\'s own; a mesh node hosts each Client under its own id');
-    }
+  constructor(ctx: DurableObjectState, env: any, host: ClientGatewayHost) {
     this.#ctx = ctx;
     this.#env = env;
     this.#host = host;
-    this.#hostNode = options?.singleClient !== true;
   }
 
   get #gracePeriodMs(): number {
@@ -237,9 +239,8 @@ export class ClientGateway {
       return new Response('Forbidden: missing instance name', { status: 403 });
     }
 
-    // A host node names each Client by its own name and the Client's id; a Gateway of one Client's
-    // own is named by the Client's name already.
-    const instanceName = this.#hostNode ? clientNameFromPath(request, hostInstanceName) : hostInstanceName;
+    // A host node names each Client by its own name and the Client's id.
+    const instanceName = clientNameFromPath(request, hostInstanceName);
     if (instanceName instanceof Response) {
       log.warn('WebSocket upgrade rejected: the path names no single client id', { hostInstanceName });
       return instanceName;
@@ -667,7 +668,7 @@ export class ClientGateway {
       try {
         if (this.#isHostNode(binding, instance, attachment)) {
           log.debug('ran in place', { callId, binding, instance });
-          ack = await this.#host.__executeOperation!(envelope);
+          ack = await this.#host.__executeOperation(envelope);
         } else {
           ack = await resolveStub(this.#env, binding, instance).__executeOperation(envelope);
         }
@@ -687,11 +688,10 @@ export class ClientGateway {
 
   /**
    * Whether a Client's call to (`binding`, `instance`) is for the node hosting it, its own name or
-   * another Client's on it. Only a host that hosts many Clients and has its own request door runs a
-   * call in place.
+   * another Client's on it. Such a call runs in place, through the host's own request door.
    */
   #isHostNode(binding: string, instance: string | undefined, attachment: GatewayConnectionInfo): boolean {
-    return this.#hostNode && instance !== undefined && typeof this.#host.__executeOperation === 'function'
+    return instance !== undefined
       && binding === attachment.bindingName
       && hostInstanceOf(instance) === hostInstanceOf(attachment.instanceName);
   }

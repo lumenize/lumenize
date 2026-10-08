@@ -3,8 +3,9 @@
  *
  * Passage reads a claimless chain's `activeScope` from the name of the node that started it, which
  * is sound only if every object under a scope-shaped name checks passage into that scope. A
- * Profile checks none, so it refuses to run under a name that parses as a scope. Every profile id
- * passes: a UUID, a persona's version-5 UUID, and `NEBULA_SUB`, which is no UUID at all.
+ * Profile checks none, so its base, `UnscopedMeshDO`, refuses to run under a name that parses as a
+ * scope. Every profile id passes: a UUID, a persona's version-5 UUID, and `NEBULA_SUB`, which is no
+ * UUID at all.
  *
  * The other half of that passage rule, a chain a node started, has no product path that a tab can
  * drive to a sibling, so `apps/nebula/test/test-apps/baseline/node-chain-passage.test.ts` covers
@@ -12,8 +13,8 @@
  * subscription scenario covers that rule's admission once a push is answered at the fire-back door.
  *
  * Two limbs, both run, with the verdict at the end (`live-scenarios.md`):
- *  1. **A tab calling `PROFILE` at a Star's name is refused with the Profile's own message.**
- *     Mutation: drop the check in `Profile.onBeforeCall`, and the call is admitted.
+ *  1. **A tab calling `PROFILE` at a Star's name is refused with `UnscopedMeshDO`'s message.**
+ *     Mutation: drop the check from `lmz.__init`, and the call is admitted.
  *  2. **Positive control: a tab subscribing to the `NEBULA_SUB` Profile receives its snapshot.**
  *     Mutation: refuse every name that is not a UUID, and the subscribe is refused.
  *
@@ -30,7 +31,7 @@ import { testSlug } from '../lib/test-scopes';
 
 export const needsContainer = false;
 
-const PROFILE_REFUSAL = /is a scope's name, and no Profile runs under one$/;
+const PROFILE_REFUSAL = /parses as a scope, and an UnscopedMeshDO never runs under a scope's name/;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');

@@ -8,6 +8,14 @@ import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './
 import { findRawRpcMethod } from './raw-rpc-decorator.js';
 import { isClientInstanceName, hostInstanceOf } from './client-address.js';
 import type { ClientGateway } from './client-gateway.js';
+import { PASSAGE_STEP, REFUSES_SCOPE_NAME } from './node-kinds.js';
+import { parseId, isPlatformScope } from './auth/parse-id.js';
+
+/** Whether a node name parses as a scope (`acme`, `acme.crm`, `acme.crm.tenant1`) or is the platform's. */
+function namesScope(instanceName: string): boolean {
+  if (isPlatformScope(instanceName)) return true;
+  try { parseId(instanceName); return true; } catch { return false; }
+}
 
 // Re-export types for convenience
 export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
@@ -295,7 +303,7 @@ async function dispatchEnvelope(
  * with the call and the callee fires it back; nothing is parked here.
  *
  * The only per-node-type divergence is what `ctx.waitUntil` does across the short ack hop: it
- * keeps an ephemeral `LumenizeWorker` alive at any compatibility date, and a DO/Container only
+ * keeps an ephemeral `MeshWorker` alive at any compatibility date, and a DO/Container only
  * from 2026-10-01 (`durable_object_io_tasks_prevent_eviction`) — before that it is a **no-op**
  * on a DO, which the hop's few milliseconds make harmless. (The browser `LumenizeClient` does
  * NOT use this — it sends its handler with the call through its host node, via its own `#call`.)
@@ -357,7 +365,7 @@ function callShared(
   const dispatchPromise = dispatchEnvelope(env, nodeInstance, calleeBindingName, calleeInstanceName, envelope, handlerChain, remoteChain);
 
   // Keep the node alive across the short ack hop so the outbound RPC completes even if the
-  // invocation that fired the call is about to return. An ephemeral `LumenizeWorker` needs this at
+  // invocation that fired the call is about to return. An ephemeral `MeshWorker` needs this at
   // any compatibility date. A DO/Container is held by it only from 2026-10-01
   // (`durable_object_io_tasks_prevent_eviction`); before that it is a no-op on a DO, which is
   // harmless here because the hop takes milliseconds, far inside the 70–140 s idle window.
@@ -480,7 +488,7 @@ export interface CallEnvelope {
 }
 
 /**
- * Lumenize API - Identity and RPC infrastructure for LumenizeDO and LumenizeWorker
+ * Lumenize API - Identity and RPC infrastructure for MeshDO and MeshWorker
  *
  * Provides clean abstraction over identity management (binding name, instance name)
  * and RPC infrastructure (`call`, and `broadcast` built on it) for both Durable Objects and
@@ -495,8 +503,8 @@ export interface LmzApi {
   /**
    * Binding name for this DO or Worker (e.g., 'USER_DO')
    *
-   * - **LumenizeDO**: Stored in `ctx.storage.kv.get('__lmz_do_binding_name')`
-   * - **LumenizeWorker**: Stored in private field
+   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_binding_name')`
+   * - **MeshWorker**: Stored in private field
    *
    * **Validation**: Cannot be changed once set to a different value
    */
@@ -505,8 +513,8 @@ export interface LmzApi {
   /**
    * Instance name for this DO (undefined for Workers)
    *
-   * - **LumenizeDO**: Stored in `ctx.storage.kv.get('__lmz_do_instance_name')`
-   * - **LumenizeWorker**: Always undefined (Workers are ephemeral)
+   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_instance_name')`
+   * - **MeshWorker**: Always undefined (Workers are ephemeral)
    *
    * **Validation**: Cannot be changed once set to a different value
    */
@@ -611,7 +619,7 @@ export interface LmzApi {
  * `this.lmz.bindingName`/`instanceName` are available on the **`fetch()` path** —
  * not only the mesh receive path (`executeEnvelope` ← envelope `metadata.callee`).
  *
- * Used by `LumenizeDO.__initFromHeaders` (the DO HTTP path), and composed by any other
+ * Used by `MeshDO.__initFromHeaders` (the DO HTTP path), and composed by any other
  * HTTP entry rather than reimplemented — ADR-007's "identity stamped on every
  * first-contact entry path" requirement.
  *
@@ -654,13 +662,13 @@ export function initIdentityFromHeaders(
 }
 
 /**
- * Create LmzApi implementation for LumenizeDO
+ * Create LmzApi implementation for MeshDO
  *
  * Identity stored in Durable Object storage:
  * - `bindingName` → `ctx.storage.kv.get/put('__lmz_do_binding_name')`
  * - `instanceName` → `ctx.storage.kv.get/put('__lmz_do_instance_name')`
  *
- * @internal Used by LumenizeDO.lmz getter
+ * @internal Used by MeshDO.lmz getter
  */
 export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance: any): LmzApi {
   // Private method to set bindingName (used internally by __init)
@@ -722,6 +730,16 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
      * @internal Initialize identity - not for external use
      */
     __init(options: { bindingName?: string; instanceName?: string }): void {
+      // An `UnscopedMeshDO` never runs under a scope's name: passage trusts a scope-shaped name
+      // to check passage into its scope, and an unscoped node checks none.
+      if (options.instanceName !== undefined && doInstance?.[REFUSES_SCOPE_NAME] === true
+        && namesScope(options.instanceName)) {
+        throw new Error(
+          `"${options.instanceName}" parses as a scope, and an UnscopedMeshDO never runs under a scope's ` +
+          'name — name it by an id, such as a UUID, or extend ScopedMeshDO',
+        );
+      }
+
       if (options.bindingName !== undefined) {
         setBindingName(options.bindingName);
       }
@@ -752,13 +770,13 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
 }
 
 /**
- * Create LmzApi implementation for LumenizeWorker
+ * Create LmzApi implementation for MeshWorker
  *
  * Identity stored in closure (private to this function):
  * - `bindingName` - stored in closure variable
  * - `instanceName`, `id` - always undefined (Workers are ephemeral)
  *
- * @internal Used by LumenizeWorker.lmz getter
+ * @internal Used by MeshWorker.lmz getter
  */
 export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
   // Private storage for Worker identity (no persistence)
@@ -829,7 +847,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 /**
  * Node interface for the shared `executeEnvelope` receive path.
  *
- * `LumenizeDO` and `LumenizeWorker` both satisfy this structurally.
+ * `MeshDO` and `MeshWorker` both satisfy this structurally.
  * The node's `ctx.waitUntil` and `env` (fire-back stub) are NOT on this interface —
  * they're `protected` on the base classes, so each node threads them into `executeEnvelope`'s
  * options from inside its own method (where protected access is allowed). `__executeChain`
@@ -996,7 +1014,7 @@ export function fillHandler(handler: any, outcome: unknown, callee: string): any
 
 /**
  * Execute an incoming call envelope on a mesh node — the shared receive path for
- * `LumenizeDO` and `LumenizeWorker`, for BOTH RPC entries:
+ * `MeshDO` and `MeshWorker`, for BOTH RPC entries:
  * `__executeOperation` (requests, `requireMeshDecorator: true`) and `__handleResponse`
  * (fire-backs, `requireMeshDecorator: false`). `onBeforeCall` runs on **both** — the
  * response leg is scope-gated by construction — except at the fire-back door on a chain this node
@@ -1007,7 +1025,7 @@ export function fillHandler(handler: any, outcome: unknown, callee: string): any
  * and returns `{ $ack: true }` the instant the callee is admitted — BEFORE the chain. The
  * chain + fire-back then run as a **detached task** (started eagerly, re-bound to the envelope's
  * `callContext` via `runWithCallContext` — a fresh scope, not a captured closure). `ctx.waitUntil`
- * holds the node for that tail: a `LumenizeWorker` at any compatibility date, a DO from 2026-10-01
+ * holds the node for that tail: a `MeshWorker` at any compatibility date, a DO from 2026-10-01
  * for up to 15 minutes. Before that date it is a **no-op** on a DO, and a long detached chain can
  * be evicted mid-run (see the ADMITTED block).
  * An admission/guard failure returns `{ $error }` on the ack instead.
@@ -1108,7 +1126,14 @@ export async function executeEnvelope(
     const [origin] = callContext.callChain;
     const startedHere = options?.filled === true && origin !== undefined && node.lmz.bindingName !== undefined
       && origin.bindingName === node.lmz.bindingName && origin.instanceName === node.lmz.instanceName;
-    if (!startedHere) runWithCallContext(callContext, () => { node.onBeforeCall(); });
+    // A scoped node's passage step runs first, keyed by a symbol private to Mesh, so a subclass that
+    // overrides `onBeforeCall` without `super` cannot drop it.
+    if (!startedHere) {
+      runWithCallContext(callContext, () => {
+        (node as { [PASSAGE_STEP]?: () => void })[PASSAGE_STEP]?.();
+        node.onBeforeCall();
+      });
+    }
   } catch (error) {
     return { $error: preprocess(error) };
   }
@@ -1145,7 +1170,7 @@ export async function executeEnvelope(
     });
   });
   // Hold the node for the detached tail; postAck runs eagerly either way. An ephemeral
-  // LumenizeWorker is held at any compatibility date. A DO/Container is held from 2026-10-01
+  // MeshWorker is held at any compatibility date. A DO/Container is held from 2026-10-01
   // (`durable_object_io_tasks_prevent_eviction`), for up to 15 minutes from the tail's start.
   // ⚠️ Before that date `waitUntil` is a no-op on a DO, and so, for a detached chain, is a pending
   // binding call or RPC, so a long chain with idle gaps — an agentic loop awaiting a model — can be
@@ -1166,12 +1191,12 @@ type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
 /**
  * Mixin that composes the narrow comms+guards core (ADR-007) onto any DO-flavored base
  * (`DurableObject`, or a third-party base built on it). It supplies the receive glue that
- * `LumenizeDO` and the Profile DO would otherwise copy verbatim: the lazy `lmz`
+ * `MeshDO` and the Profile DO would otherwise copy verbatim: the lazy `lmz`
  * getter, the default no-op `onBeforeCall`, and the two receive seams
  * (`__executeOperation` / `__handleResponse`) that delegate to {@link executeEnvelope}.
  * `nodeTypeName` is the per-type label threaded through (debug namespaces + validation logging).
  * (`ctn()` deliberately stays per-class: its `Continuation<this>` return can't cross the mixin
- * boundary cleanly when a subclass concretizes an optional base method — e.g. `LumenizeDO.alarm`.)
+ * boundary cleanly when a subclass concretizes an optional base method — e.g. `MeshDO.alarm`.)
  *
  * A **mixin**, not a free helper: the glue must read the base's **protected** `ctx`/`env` (to thread
  * `ctx.waitUntil` + the fire-back `env` into `executeEnvelope`), which only a subclass may. The
@@ -1180,7 +1205,7 @@ type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
  * subclass keeps its base's own members for `override`/`super`.
  *
  * Each node adds its à-la-carte capabilities on top — `svc`/`onStart`/hibernation-WS/`__localChainExecutor`
- * for `LumenizeDO`; reach helpers + storage for the
+ * for `MeshDO`; reach helpers + storage for the
  * Profile DO — none of which are part of the shared invariant. Its fan-out is not among them:
  * `lmz.broadcast` is part of the core this mixin supplies.
  */

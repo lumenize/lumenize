@@ -254,7 +254,7 @@ export interface ReadOptions {
   ontologyVersion?: string;
 }
 
-export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName' | 'hostFromHostname'> {
+export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {
   /**
    * The platform host's origin, `https://platform.lumenize.dev`, where every refresh goes. The
    * browser sends the platform host's cookies with it and names this page in `Origin`, and the
@@ -656,9 +656,6 @@ export class NebulaClient extends LumenizeClient<AuthClaims> {
     // `#state`) directly. No closure-variable workaround needed.
     super({
       ...baseConfig,
-      // The page's host names the node that hosts this Client, so the upgrade names only its id:
-      // `/gateway/alice.9f2c41aa` on `tenant1.crm.acme.lumenize.dev` reaches the Star `acme.crm.tenant1`.
-      hostFromHostname: true,
       refresh: async () => {
         const minted = await refreshFn();
         // The page's scope is the token's `aud`, set by the server from this page's host. Learned

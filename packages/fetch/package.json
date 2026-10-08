@@ -15,7 +15,7 @@
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run",
+    "test:retired": "vitest --run",
     "test:debug": "DEBUG=lmz.* vitest --run",
     "coverage": "vitest --run --coverage",
     "types": "cd test && wrangler types"

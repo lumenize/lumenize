@@ -8,8 +8,8 @@ import type { Alarms } from './alarms';
 /**
  * Type of mesh node
  *
- * - `LumenizeDO` — Stateful Durable Object
- * - `LumenizeWorker` — Stateless Worker Entrypoint
+ * - `MeshDO` — Stateful Durable Object
+ * - `MeshWorker` — Stateless Worker Entrypoint
  * - `LumenizeClient` — Browser/Node.js client
  */
 export type NodeType = 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
@@ -161,9 +161,9 @@ export interface CallOptions {
  *
  * @example
  * ```typescript
- * import { LumenizeDO } from '@lumenize/mesh';
+ * import { MeshDO } from '@lumenize/mesh';
  *
- * class MyDO extends LumenizeDO<Env> {
+ * class MyDO extends MeshDO<Env> {
  *   example() {
  *     // Built-in - no import needed
  *     this.svc.sql`SELECT * FROM users`;

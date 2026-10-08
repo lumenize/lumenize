@@ -1,5 +1,7 @@
 # @lumenize/proxy-fetch
 
+> **Out of the test run since 2026-10-08.** Mesh renamed the bases this package builds on (`LumenizeDO` became `ScopedMeshDO` and `UnscopedMeshDO`, `LumenizeWorker` became `MeshWorker`), so it no longer loads. Nobody runs it in production, so its `test` script is renamed `test:retired` and `scripts/type-check.sh` skips it. The suites stay, for a revival if streaming brings it back.
+
 A de✨light✨ful proxy fetch that offloads external API calls from Durable Objects to Workers, eliminating wall-clock billing while waiting for responses.
 
 For complete documentation, visit **[https://lumenize.com/docs/proxy-fetch](https://lumenize.com/docs/proxy-fetch)**

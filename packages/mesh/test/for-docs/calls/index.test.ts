@@ -18,9 +18,10 @@
  * - Context preservation in handlers
  */
 
-import { it, expect, vi } from 'vitest';
+import { it, expect, vi, beforeEach } from 'vitest';
 import { Browser, createTestingClient, type RpcAccessible } from '@lumenize/testing';
-import { createTestRefreshFunction } from '../../../src/index.js';
+import { loginAt, uniqueScope } from '../../support/login.js';
+import { scopeOrigin } from '../../auth/test-helpers.js';
 import { EditorClient } from './editor-client.js';
 import { CalculatorClient } from './calculator-client.js';
 import { DocumentDO, AdminInterface, AdminAccessError } from './document-do.js';
@@ -32,8 +33,12 @@ import type { CallContext } from '../../../src/index.js';
 // Type for RPC access to DocumentDO internals
 type DocumentDOType = RpcAccessible<InstanceType<typeof DocumentDO>>;
 
+// Each test's users log in on one workspace's page through Mesh's Registry (ADR-009 rung 2)
+let workspace: string;
+beforeEach(() => { workspace = uniqueScope('acme'); });
+
 it('collaborative document editing with multiple clients', async () => {
-  const documentId = 'collab-doc-1';
+  const documentId = crypto.randomUUID();
 
   // Track events for each client
   const aliceEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
@@ -44,13 +49,14 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const aliceBrowser = new Browser();
-  const aliceUserId = crypto.randomUUID();
-  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
+  const aliceLogin = await loginAt(workspace);
+  const aliceUserId = aliceLogin.sub;
+  const aliceRefresh = aliceLogin.refresh;
 
   // Use `using` for automatic cleanup via Symbol.dispose
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: aliceRefresh,
     // Test-specific: inject browser's fetch/WebSocket
     fetch: aliceBrowser.fetch,
@@ -62,6 +68,8 @@ it('collaborative document editing with multiple clients', async () => {
   });
 
   // Alice opens the document - should receive empty content for new document
+
+  await alice.createDocument(documentId);
   const aliceDoc = alice.openDocument(documentId, {
     onContentUpdate: (content) => aliceEvents.content.push(content),
     onSpellFindings: (findings) => aliceEvents.spellFindings.push(findings),
@@ -95,12 +103,13 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const bobBrowser = new Browser();
-  const bobUserId = crypto.randomUUID();
-  const bobRefresh = createTestRefreshFunction({ sub: bobUserId });
+  const bobLogin = await loginAt(workspace);
+  const bobUserId = bobLogin.sub;
+  const bobRefresh = bobLogin.refresh;
 
   using bob = new EditorClient({
     instanceName: `${bobUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: bobRefresh,
     // Test-specific: inject browser's fetch/WebSocket
     fetch: bobBrowser.fetch,
@@ -112,6 +121,7 @@ it('collaborative document editing with multiple clients', async () => {
   });
 
   // Bob opens the same document - should receive current content
+  await alice.shareDocument(documentId, bobUserId);
   const bobDoc = bob.openDocument(documentId, {
     onContentUpdate: (content) => bobEvents.content.push(content),
     onSpellFindings: (findings) => bobEvents.spellFindings.push(findings),
@@ -167,12 +177,13 @@ it('collaborative document editing with multiple clients', async () => {
 it('operation nesting: nested method calls execute in single round trip', async () => {
   // Setup: authenticate and connect
   const browser = new Browser();
-  const userId = crypto.randomUUID();
-  const refresh = createTestRefreshFunction({ sub: userId });
+  const login = await loginAt(workspace);
+  const userId = login.sub;
+  const refresh = login.refresh;
 
   using client = new CalculatorClient({
     instanceName: `${userId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
@@ -188,7 +199,7 @@ it('operation nesting: nested method calls execute in single round trip', async 
   // Inner operations execute first, results feed into outer operation
   client.lmz.call(
     'CALCULATOR_DO',
-    'calc-1',
+    'calc_1',
     client.ctn<CalculatorDO>().add(
       client.ctn<CalculatorDO>().add(1, 10),      // Returns 11
       client.ctn<CalculatorDO>().add(100, 1000)   // Returns 1100
@@ -207,7 +218,7 @@ it('operation nesting: nested method calls execute in single round trip', async 
   // ============================================
   client.lmz.call(
     'CALCULATOR_DO',
-    'calc-1',
+    'calc_1',
     client.ctn<CalculatorDO>().multiply(
       5,
       client.ctn<CalculatorDO>().add(2, 3)  // Returns 5
@@ -224,12 +235,13 @@ it('operation nesting: nested method calls execute in single round trip', async 
 
 it('callAsync: a client awaits a one-shot read that resolves, and a pre-aborted signal rejects', async () => {
   const browser = new Browser();
-  const userId = crypto.randomUUID();
-  const refresh = createTestRefreshFunction({ sub: userId });
+  const login = await loginAt(workspace);
+  const userId = login.sub;
+  const refresh = login.refresh;
 
   using client = new EditorClient({
     instanceName: `${userId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
@@ -240,6 +252,8 @@ it('callAsync: a client awaits a one-shot read that resolves, and a pre-aborted 
   });
 
   const documentId = crypto.randomUUID();
+
+  await client.createDocument(documentId);
   const doc = client.openDocument(documentId, {});
   doc.saveContent('The quick brown fox');
 
@@ -265,7 +279,7 @@ it('callAsync: a client awaits a one-shot read that resolves, and a pre-aborted 
  * caller's context to bleed through to all recipients.
  */
 it('newChain: true breaks call chain so recipients see DO as origin', async () => {
-  const documentId = 'newchain-test-doc';
+  const documentId = crypto.randomUUID();
 
   // Track callContext received in broadcasts
   const receivedContexts: CallContext[] = [];
@@ -273,12 +287,13 @@ it('newChain: true breaks call chain so recipients see DO as origin', async () =
 
   // Setup: Alice connects and subscribes
   const aliceBrowser = new Browser();
-  const aliceUserId = crypto.randomUUID();
-  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
+  const aliceLogin = await loginAt(workspace);
+  const aliceUserId = aliceLogin.sub;
+  const aliceRefresh = aliceLogin.refresh;
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
@@ -289,6 +304,8 @@ it('newChain: true breaks call chain so recipients see DO as origin', async () =
   });
 
   // Alice opens document with context capture callback
+
+  await alice.createDocument(documentId);
   const aliceDoc = alice.openDocument(documentId, {
     onContentUpdate: (content) => contentUpdates.push(content),
     onContentUpdateContext: (ctx) => receivedContexts.push(ctx),
@@ -340,16 +357,17 @@ it('newChain: true breaks call chain so recipients see DO as origin', async () =
  * - Once granted, forceReset() is trusted to execute
  */
 it('operation chaining: admin().forceReset() executes in single round trip', async () => {
-  const documentId = 'chaining-test-doc';
+  const documentId = crypto.randomUUID();
 
   // Setup: Admin user connects
   const adminBrowser = new Browser();
-  const adminUserId = crypto.randomUUID();
-  const adminRefresh = createTestRefreshFunction({ sub: adminUserId });
+  const adminLogin = await loginAt(workspace);
+  const adminUserId = adminLogin.sub;
+  const adminRefresh = adminLogin.refresh;
 
   using admin = new EditorClient({
     instanceName: `${adminUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: adminRefresh,
     fetch: adminBrowser.fetch,
     WebSocket: adminBrowser.WebSocket,
@@ -401,16 +419,17 @@ it('operation chaining: admin().forceReset() executes in single round trip', asy
  * Also verifies custom error type preservation across the mesh when registered on globalThis.
  */
 it('operation chaining: non-admin gets AdminAccessError with preserved type', async () => {
-  const documentId = 'chaining-error-test-doc';
+  const documentId = crypto.randomUUID();
 
   // Setup: Regular user (not admin) connects
   const userBrowser = new Browser();
-  const userId = crypto.randomUUID();
-  const userRefresh = createTestRefreshFunction({ sub: userId });
+  const login = await loginAt(workspace);
+  const userId = login.sub;
+  const userRefresh = login.refresh;
 
   using user = new EditorClient({
     instanceName: `${userId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: userRefresh,
     fetch: userBrowser.fetch,
     WebSocket: userBrowser.WebSocket,
@@ -452,16 +471,17 @@ it('operation chaining: non-admin gets AdminAccessError with preserved type', as
  * This is critical for handlers that need to know who initiated the operation.
  */
 it('context preservation: callContext available in handlers after remote call', async () => {
-  const documentId = 'context-test-doc';
+  const documentId = crypto.randomUUID();
 
   // Setup: Alice connects
   const aliceBrowser = new Browser();
-  const aliceUserId = crypto.randomUUID();
-  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
+  const aliceLogin = await loginAt(workspace);
+  const aliceUserId = aliceLogin.sub;
+  const aliceRefresh = aliceLogin.refresh;
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
@@ -475,6 +495,8 @@ it('context preservation: callContext available in handlers after remote call', 
   const handlerContexts: CallContext[] = [];
 
   // Open document with context tracking in subscribe handler
+
+  await alice.createDocument(documentId);
   const aliceDoc = alice.openDocument(documentId, {
     onContentUpdate: (content) => {
       // This handler receives callContext automatically restored
@@ -515,12 +537,13 @@ it('handler without @mesh: local handlers work without @mesh decorator', async (
   // All these handlers work because they're local continuations, not remote entry points
 
   const browser = new Browser();
-  const userId = crypto.randomUUID();
-  const refresh = createTestRefreshFunction({ sub: userId });
+  const login = await loginAt(workspace);
+  const userId = login.sub;
+  const refresh = login.refresh;
 
   using client = new CalculatorClient({
     instanceName: `${userId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
@@ -558,17 +581,18 @@ it('handler without @mesh: local handlers work without @mesh decorator', async (
  * propagates the original client's auth context through the call chain.
  */
 it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => {
-  const documentId = 'analytics-test-doc-2';
+  const documentId = crypto.randomUUID();
   const testContent = 'Hello world. This is a test document with some words.';
 
   // Setup: Alice authenticates and connects
   const aliceBrowser = new Browser();
-  const aliceUserId = crypto.randomUUID();
-  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
+  const aliceLogin = await loginAt(workspace);
+  const aliceUserId = aliceLogin.sub;
+  const aliceRefresh = aliceLogin.refresh;
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
@@ -580,6 +604,8 @@ it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => 
 
   // Setup: Store content in the document (through the mesh so it has auth)
   const contentEvents: string[] = [];
+
+  await alice.createDocument(documentId);
   alice.openDocument(documentId, {
     onContentUpdate: (content) => contentEvents.push(content),
   }).saveContent(testContent);
@@ -636,18 +662,19 @@ it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => 
  * stored for later execution - not passed from the client.
  */
 it('manual persistence: store and execute continuation with context', async () => {
-  const documentId = 'manual-persistence-doc';
+  const documentId = crypto.randomUUID();
   const taskId = 'my-task-123';
   const testMessage = 'Hello from persisted continuation';
 
   // Setup: Alice authenticates and connects
   const aliceBrowser = new Browser();
-  const aliceUserId = crypto.randomUUID();
-  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
+  const aliceLogin = await loginAt(workspace);
+  const aliceUserId = aliceLogin.sub;
+  const aliceRefresh = aliceLogin.refresh;
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
-    baseUrl: 'https://localhost',
+    baseUrl: scopeOrigin(workspace),
     refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,

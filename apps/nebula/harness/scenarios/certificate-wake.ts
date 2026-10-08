@@ -47,7 +47,7 @@ export const needsContainer = false;
 
 export const bootVars = {
   DEBUG: 'nebula.Galaxy.orderCertificate,nebula.Galaxy.certificate,nebula-auth.worker.acceptMembership,'
-    + 'nebula-auth.facade.createGalaxy,nebula.NebulaDO.onBeforeCall',
+    + 'nebula-auth.facade.createGalaxy,lmz.mesh.ScopedMeshDO.passage',
 };
 
 const WAKE = 'nebula.Galaxy.orderCertificate';
@@ -157,7 +157,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(config && typeof config === 'object' && 'coalesceWindowMs' in config,
       'the call must reach the never-created Galaxy and read its default config');
     if (observable) {
-      const all = await waitForDebugLines(stack, (a) => a.some((l) => l.namespace === 'nebula.NebulaDO.onBeforeCall'
+      const all = await waitForDebugLines(stack, (a) => a.some((l) => l.namespace === 'lmz.mesh.ScopedMeshDO.passage'
         && l.data.instanceName === never), `the never-created Galaxy's entry marker`);
       const wakers = new Set(all.filter(isWaker).map((l) => l.data.operationId));
       const stray = all.filter((l) => l.namespace === WAKE && !wakers.has(l.data.operationId));

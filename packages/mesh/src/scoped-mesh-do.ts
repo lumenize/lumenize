@@ -1,25 +1,33 @@
 /**
- * NebulaDO — Base class for all Nebula tier Durable Objects (Universe, Galaxy, Star)
- *
- * Provides structural tenant isolation via onBeforeCall() and shared guard
- * functions for @mesh(guard) decorators, and hosts the Clients on its scope's pages.
+ * ScopedMeshDO — the Durable Object base of a node named by a scope, and the guards it composes:
+ * `requirePassage` (run in its passage step), `requireDominionHere` (for `@mesh(guard)`), and
+ * `requirePassageIntoSender` (on a node's call to a Client it hosts). It hosts the Clients on its
+ * scope's pages.
  */
 
-import { ClientGateway, LumenizeDO, WS_CLOSE_GONE, mesh, rawRpc } from '@lumenize/mesh';
-import type { CallContext, CallEnvelope, ClientGatewayHost, GatewayConnectionInfo } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from '@lumenize/mesh/auth';
-import type { AuthClaims, VerdictClaims } from '@lumenize/mesh/auth';
+import { MeshDO } from './mesh-do';
+import { ClientGateway } from './client-gateway';
+import type { ClientGatewayHost } from './client-gateway';
+import { WS_CLOSE_GONE } from './gateway-messages';
+import type { GatewayConnectionInfo } from './gateway-messages';
+import { rawRpc } from './raw-rpc-decorator';
+import type { CallEnvelope } from './lmz-api';
+import type { CallContext } from './types';
+import { PASSAGE_STEP } from './node-kinds';
+import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from './auth/parse-id';
+import type { VerdictClaims } from './auth/parse-id';
+import type { AuthClaims } from './auth/types';
 
 /**
  * The minimal structural shape `requireDominionHere` reads (`lmz.callContext` +
  * `lmz.instanceName`), so the guard binds to what it actually consumes rather
- * than to the `NebulaDO` class. Module-private — `index.ts` exports the guard
+ * than to the `ScopedMeshDO` class. Module-private — `index.ts` exports the guard
  * functions, not this type.
  *
  * `instanceName` is OPTIONAL because `LmzApi.instanceName` is
  * `readonly instanceName?: string` — a required `string | undefined` here fails
- * to compile for `NebulaDO` itself.
+ * to compile for `ScopedMeshDO` itself.
  */
 type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string } };
 
@@ -41,17 +49,17 @@ export const GATEWAY_PREFIX = '/gateway';
  * ancestors. See tasks/archive/nebula-confine-admin-bypass.md.
  *
  * **Fail closed on a missing instance name.** `instanceName` is permanently `undefined` on a
- * `LumenizeWorker`, and a node type could compose this guard *without* `requirePassage`. Never
+ * `MeshWorker`, and a node type could compose this guard *without* `requirePassage`. Never
  * coerce: `?? ''` denies every scoped admin, `!` opens the hole.
  *
  * ⚠️ This deliberately mirrors only branch (a) of `requirePassage`, not its platform-name reject
  * (b) or its name parse (d) — whose ORDER there is load-bearing because the reserved platform scope
  * is the ROOT of the scope tree, so a superuser holds dominion over any string, an unparseable name
  * included. The invariant that makes that sound here: `onBeforeCall` always runs before guard
- * execution, and `NebulaDO` composes `requirePassage`, so (b)/(d) have already run on every
- * Nebula node. That is an enforced ordering, not an incidental property.
+ * execution, and `ScopedMeshDO`'s passage step runs `requirePassage` first, so (b)/(d) have already
+ * run on every scoped node. That is an enforced ordering, not an incidental property.
  *
- * Typed against the structural `HasCallContext` shape (not `NebulaDO`) so the
+ * Typed against the structural `HasCallContext` shape (not `ScopedMeshDO`) so the
  * guard binds to what it reads, not to a class hierarchy.
  */
 export function requireDominionHere(instance: HasCallContext) {
@@ -82,8 +90,8 @@ export function requireDominionHere(instance: HasCallContext) {
 }
 
 /**
- * The structural scope guard shared by every Nebula node type's `onBeforeCall`
- * (all extend NebulaDO) — composed, not reimplemented, per ADR-007 ("one
+ * The structural scope guard every scoped node runs, in the passage step `ScopedMeshDO` runs before
+ * `onBeforeCall` — composed, not reimplemented, per ADR-007 ("one
  * guard path, one place to audit"). Pure (instance name + the call's claims in,
  * throw-or-return out) so its branches are unit-mutation-testable without a
  * DO harness.
@@ -96,7 +104,7 @@ export function requireDominionHere(instance: HasCallContext) {
  *
  * **Passage is computed from the call's `activeScope`**: the token's `aud`, the calling host's
  * scope (the host rule, ADR-015 and ADR-022), or, for a chain a node started with no claims, that
- * node's scope as a plain member. `NebulaDO.onBeforeCall` derives which and hands it in as
+ * node's scope as a plain member. `ScopedMeshDO`'s passage step derives which and hands it in as
  * `claims`. The refresh derives `aud` from the page's `Origin`, which page script cannot set, so
  * it says which page, and so whose code, made the call. A plain member cannot widen it:
  * verification refuses a plain membership's token whose `aud` differs from its `authScope`.
@@ -162,8 +170,10 @@ function scopeNamed(instanceName: string | undefined): string | undefined {
  * write. Its scope is its name when that parses as one: a Galaxy reaches a tab on one of its Stars'
  * hosts, since upward is free, and a sibling Star is refused as lateral (ADR-015). A Star
  * `acme.crm.tenant2` pushing to a tab on `acme.crm.tenant1`'s host is refused; the Galaxy
- * `acme.crm` pushing there passes. A sender whose name is no scope, the `Profile`, passes, so a
- * node not named by a scope must hold no tenant's data.
+ * `acme.crm` pushing there passes. A sender whose name is no scope, an `UnscopedMeshDO` such as
+ * the `Profile`, passes: an unscoped node that holds anyone's data is its own gatekeeper, checking
+ * its own policy when it is called and again before each push, as a document node shared across
+ * organizations checks its share list.
  *
  * It is needed because a server-side node can address any Client whose address it holds, and this
  * is what stops a lateral one. It reads the sender's address and no claims of the writer's, so a
@@ -190,34 +200,32 @@ export function requirePassageIntoSender(envelope: CallEnvelope, connectionInfo:
 }
 
 /**
- * NebulaDO — base class for Universe, Galaxy, and Star.
+ * ScopedMeshDO — the base of a node named by a scope: `acme`, `acme.crm` or `acme.crm.tenant1`.
  *
- * onBeforeCall() enforces **structural** passage via the shared
- * {@link requirePassage} helper (composed, not reimplemented — ADR-007). A
- * mesh call is accepted iff the caller is an `access.scopeAdmin` whose dominion
- * from its host covers this DO's **instance name** (downward dominion), OR the
- * call's `activeScope` sits at or below the scope encoded in that name (the
- * non-admin path). That is the token's `aud`, the calling host's scope, or, on a
- * chain a scoped node started, that node's scope. Containment is by whole dot-separated segment —
- * a scope covers itself and every descendant, and nothing else — so no tier
- * grammar is involved. There is no trust-on-first-use lock and no stored `aud`;
- * the node's half is read off its name on every call, and the caller's half comes
- * from the host the refresh read off `Origin`, which page script cannot set.
+ * **It checks passage on every call, in a step no subclass removes.** Before `onBeforeCall`, on both
+ * doors, the core runs this class's passage step: {@link requirePassage} over the call's
+ * `activeScope`. A call is accepted iff the caller is an `access.scopeAdmin` whose dominion from its
+ * host covers this node's **instance name** (downward dominion), OR the call's `activeScope` sits at
+ * or below the scope that name spells (the non-admin path). That is the token's `aud`, the calling
+ * host's scope, or, on a chain a scoped node started, that node's scope. Containment is by whole
+ * dot-separated segment, so no tier grammar is involved, and nothing is stored: the node's half is
+ * read off its name on every call. The step is keyed by a symbol private to Mesh, so a subclass that
+ * overrides `onBeforeCall` without `super` keeps it, and `onBeforeCall` stays every node's own hook.
+ * The step logs `lmz.mesh.ScopedMeshDO.passage` with the node's `instanceName`.
  *
- * Soundness rests on name == routing key: a tier DO is addressed by the same
- * `parseId`-valid id that becomes its `instanceName` (never a 64-hex DO id), so
- * the derived scope equals the address an attacker must already control.
- * See tasks/archive/nebula-onbeforecall-higher-admin-reach.md and
- * tasks/archive/nebula-do-scope-isolation.md.
+ * Soundness rests on name == routing key: a scoped node is addressed by the same `parseId`-valid id
+ * that becomes its `instanceName` (never a 64-hex DO id), so the derived scope equals the address an
+ * attacker must already control.
  *
  * **It hosts the Clients on its scope's pages, by composing `ClientGateway`.** A page on
- * `tenant1.crm.acme.lumenize.dev` upgrades at `/gateway/alice.9f2c41aa`, and the Star
- * `acme.crm.tenant1` holds the socket as `acme.crm.tenant1/alice.9f2c41aa`; Universe, Galaxy and
- * Star add nothing for it. A call addressed to that name arrives at this node's doors and goes down
- * the socket after {@link requirePassageIntoSender}, and `onBeforeCall` never runs for it. A hosted
- * Client's own call to this node runs in place, through the same door and `onBeforeCall` as an RPC.
+ * `tenant1.crm.acme.lumenize.dev` upgrades at `/gateway/alice.9f2c41aa`, and the node
+ * `acme.crm.tenant1` holds the socket as `acme.crm.tenant1/alice.9f2c41aa`; a subclass adds nothing
+ * for it. A call addressed to that name arrives at this node's doors and goes down the socket after
+ * {@link requirePassageIntoSender}, and neither the passage step nor `onBeforeCall` runs for it. A
+ * hosted Client's own call to this node runs in place, through the same door, step and
+ * `onBeforeCall` as an RPC.
  */
-export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
+export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements ClientGatewayHost {
   /** The paths {@link onRequest} dispatches on, and the only ones: `npm run audit:do-http` holds it to these. */
   static readonly HTTP_PREFIXES: readonly string[] = [GATEWAY_PREFIX];
 
@@ -231,24 +239,23 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
   /**
    * Tear this node down: wipe all of its storage and reset the object, so the next call constructs
    * a fresh one. A deletion calls it on every scope it removes, and a creation on every scope it
-   * writes, so a new owner starts empty. Distinct from `Star.resetDevData`, which wipes and then
-   * re-initialises to keep the `.dev` sandbox usable.
+   * writes, so a new owner starts empty.
    *
    * `@rawRpc()`, never `@mesh()`: it carries out a decision the Registry made where claims were
    * checked, and `@mesh()` would let any admin wipe a live app without deleting it (ADR-023).
    *
    * Logs `nebula.scope.teardown` first, with `this.lmz.instanceName` read with no fallback, so an
    * entry that stamped nothing shows as a missing name, and with the `operationId` of the facade
-   * call that ordered it, so a reader counts what one call caused. Then {@link beforeTeardown}, `deleteAll()`,
-   * a macrotask yield so the wipe persists before the abort (`durable-objects.md` § *Persist before
-   * `ctx.abort()`*), and `ctx.abort('scope-deleted')`, without which `Resources`, `OrgTree` and the
-   * Galaxy's Workspace would stay pointed at dropped tables and a re-created scope would fail with
-   * `no such table`. The abort rejects the caller's call; the scope lifecycle hooks read that
+   * call that ordered it, so a reader counts what one call caused. Then {@link beforeTeardown},
+   * `deleteAll()`, a macrotask yield so the wipe persists before the abort (`durable-objects.md`
+   * § *Persist before `ctx.abort()`*), and `ctx.abort('scope-deleted')`, without which whatever a
+   * subclass built over its storage would stay pointed at dropped tables and a re-created scope
+   * would fail with `no such table`. The abort rejects the caller's call; the scope lifecycle hooks read that
    * rejection as the reset it is.
    *
    * A deletion closes every socket this node hosts with `WS_CLOSE_GONE` (4410) after
-   * {@link beforeTeardown} and before `deleteAll()`. After, because a Galaxy's `beforeTeardown` can
-   * wait twenty seconds on a certificate order, and a 4410 sent ahead of it let a Client read the
+   * {@link beforeTeardown} and before `deleteAll()`. After, because a `beforeTeardown` can wait —
+   * Nebula's Galaxy waits up to twenty seconds on a certificate order — and a 4410 sent ahead of it let a Client read the
    * chat it had been told was deleted; a socket accepted during that wait is closed with the rest.
    * Before, because the close frames go out during the wipe and the yield after it, and a close
    * sent after the wipe was lost to the abort, so the Client timed out instead (both found on the
@@ -311,7 +318,9 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
    * that the id begins with its `sub`, and nothing else reaches this path. The node only decodes
    * the token, so a check here would compare against a `sub` anyone bypassing the Worker could forge.
    */
-  onBeforeAccept(): undefined {
+  onBeforeAccept(
+    instanceName: string, sub: string, jwtPayload: Record<string, unknown>,
+  ): Response | Record<string, unknown> | undefined {
     return undefined;
   }
 
@@ -326,16 +335,17 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
     return undefined;
   }
 
-  onBeforeCall() {
-    // Scope is derived from this DO's instance name (stamped from the envelope's
-    // metadata.callee before onBeforeCall runs).
+  /**
+   * The passage step: {@link requirePassage} over the call's `activeScope`. The core runs it before
+   * `onBeforeCall`, keyed by a symbol private to Mesh. Scope is derived from this node's instance
+   * name, stamped from the envelope's `metadata.callee` before the step runs.
+   * @internal
+   */
+  [PASSAGE_STEP](): void {
     const name = this.lmz.instanceName;
-
-    // Entry marker (internal testing primitive): the local-executor path
-    // (alarms, OCAN self-continuations) must NOT route through onBeforeCall, so
-    // its absence on that path is asserted via this sink marker. See T-local-skip.
-    debug('nebula.NebulaDO.onBeforeCall').debug('entry', { instanceName: name });
-
+    // Entry marker (internal testing primitive): the local-executor path (alarms, OCAN
+    // self-continuations) must NOT run the passage step, and a test asserts its absence there.
+    debug('lmz.mesh.ScopedMeshDO.passage').debug('entry', { instanceName: name });
     requirePassage(name, claimsForPassage(this.lmz.callContext));
   }
 }

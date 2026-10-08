@@ -3,10 +3,10 @@
  * export it: a worker that imported the test file would register its suite in every test file
  * that loads the worker. Alarms is a built-in service in `LumenizeDO`, so nothing else is imported.
  */
-import { LumenizeDO } from '@lumenize/mesh';
+import { UnscopedMeshDO } from '@lumenize/mesh';
 
 // Example: Task scheduling DO
-class TaskSchedulerDO extends LumenizeDO<Env> {
+class TaskSchedulerDO extends UnscopedMeshDO<Env> {
   executedTasks: Array<{ name: string; time: number }> = [];
 
   // Schedule a task - seconds from now

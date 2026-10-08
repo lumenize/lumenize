@@ -54,8 +54,8 @@ async function awaitHandler(caller: { getHandlerReceived: () => Promise<unknown>
 
 describe('a filled chain is data — the executor never resolves it', () => {
   it('does not run an injected chain on the node-to-node FIRE-BACK', async () => {
-    const caller = await freshCaller('r1-fireback-caller');
-    caller.testCallForMarkerReply('TEST_DO', 'r1-fireback-callee', markerShapedJson('fire-back'));
+    const caller = await freshCaller('r1_fireback_caller');
+    caller.testCallForMarkerReply('TEST_DO', 'r1_fireback_callee', markerShapedJson('fire-back'));
 
     const received = await awaitHandler(caller) as Record<string, unknown>;
     expect(await caller.getInjectedRan(), 'the injected chain must not have run').toEqual([]);
@@ -63,9 +63,9 @@ describe('a filled chain is data — the executor never resolves it', () => {
   });
 
   it('does not run an injected chain when the result is APPENDED (the reaper shape)', async () => {
-    const caller = await freshCaller('r1-appended-caller');
+    const caller = await freshCaller('r1_appended_caller');
     caller.testCallForMarkerReplyAppended(
-      'TEST_DO', 'r1-appended-callee', markerShapedJson('appended'), 'query-hash-1',
+      'TEST_DO', 'r1_appended_callee', markerShapedJson('appended'), 'query-hash-1',
     );
 
     const received = await awaitHandler(caller) as Record<string, unknown>;
@@ -75,8 +75,8 @@ describe('a filled chain is data — the executor never resolves it', () => {
   });
 
   it('does not run an injected chain on the LOCAL handler path (an admission reject)', async () => {
-    const caller = await freshCaller('r1-local-caller');
-    caller.testCallToMarkerRejecter('MARKER_REJECTING_DO', 'r1-local-rejecter');
+    const caller = await freshCaller('r1_local_caller');
+    caller.testCallToMarkerRejecter('MARKER_REJECTING_DO', 'r1_local_rejecter');
 
     const received = await awaitHandler(caller);
     expect(await caller.getInjectedRan(), 'the injected chain must not have run').toEqual([]);
@@ -88,8 +88,8 @@ describe('a filled chain is data — the executor never resolves it', () => {
   it('delivers a result carrying BOTH marker keys intact and unexecuted (ADR-002)', async () => {
     // What rules out closing R1 by neutralising the value — stripping or renaming the two keys
     // would satisfy every limb above and contradict ADR-002's full structured-clone round trip.
-    const caller = await freshCaller('r1-fidelity-caller');
-    caller.testCallForMarkerReply('TEST_DO', 'r1-fidelity-callee', markerShapedJson('fidelity'));
+    const caller = await freshCaller('r1_fidelity_caller');
+    caller.testCallForMarkerReply('TEST_DO', 'r1_fidelity_callee', markerShapedJson('fidelity'));
 
     const received = await awaitHandler(caller) as Record<string, unknown>;
     expect(await caller.getInjectedRan()).toEqual([]);
@@ -109,7 +109,7 @@ describe('a filled chain is data — the executor never resolves it', () => {
    * over the schedule count, never a message match.
    */
   it('cannot turn a wire-borne chain into a stored continuation', async () => {
-    const node = env.TEST_DO.getByName('alarm-wire-chain');
+    const node = env.TEST_DO.getByName('alarm_wire_chain');
     const before = await node.countSchedules();
     const outcome = await node.testBoundedChain([
       { type: 'get', key: 'svc' },
@@ -137,7 +137,7 @@ describe('a filled chain is data — the executor never resolves it', () => {
   //    every limb above and break this one. (`test/for-docs/calls/calculator-client.ts` is the
   //    published browser-client version of the same control.)
   it('still resolves a genuine nested marker in a TEMPLATE chain', async () => {
-    const caller = env.TEST_DO.getByName('r1-template-control');
+    const caller = env.TEST_DO.getByName('r1_template_control');
     const result = await caller.testNestedTemplate();
     expect(result).toBe(30);
   });

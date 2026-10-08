@@ -1,7 +1,7 @@
 /**
  * The invite facade — the mesh-speaking guarded entry (`NebulaAuthFacade.invite`, reached by a
  * client `lmz.callAsync('AUTH_FACADE', undefined, …)` through its host node; a service
- * binding with no instance name routes as a LumenizeWorker).
+ * binding with no instance name routes as a MeshWorker).
  *
  * The rule under test, enforced once, at this facade:
  *   eligibility = exact-scope membership ∨ dominion over the target scope;

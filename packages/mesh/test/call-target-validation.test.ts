@@ -12,34 +12,34 @@ import { env } from 'cloudflare:test';
  */
 describe('@lumenize/mesh - call target validation', () => {
   it('Worker binding + instance name throws (not silently dropped)', async () => {
-    const caller = env.TEST_DO.getByName('ctv-worker-instance');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv-worker-instance' });
+    const caller = env.TEST_DO.getByName('ctv_worker_instance');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv_worker_instance' });
     await expect(
       caller.testCallWithContinuations('TEST_WORKER', 'some-label', 'hi')
     ).rejects.toThrow(/Worker\/service binding .* instance name/);
   });
 
   it('DO binding without an instance name throws', async () => {
-    const caller = env.TEST_DO.getByName('ctv-do-noinstance');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv-do-noinstance' });
+    const caller = env.TEST_DO.getByName('ctv_do_noinstance');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv_do_noinstance' });
     await expect(
       caller.testCallWithContinuations('TEST_DO', undefined, 'hi')
     ).rejects.toThrow(/Durable Object namespace .* requires an instance name/);
   });
 
   it('unknown binding name throws', async () => {
-    const caller = env.TEST_DO.getByName('ctv-unknown');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv-unknown' });
+    const caller = env.TEST_DO.getByName('ctv_unknown');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv_unknown' });
     await expect(
       caller.testCallWithContinuations('NOPE_BINDING', 'x', 'hi')
     ).rejects.toThrow(/no binding named 'NOPE_BINDING'/);
   });
 
   it('valid DO call still works (positive control)', async () => {
-    const caller = env.TEST_DO.getByName('ctv-valid-do-call');
-    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv-valid-do-call' });
+    const caller = env.TEST_DO.getByName('ctv_valid_do_call');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv_valid_do_call' });
 
-    caller.callForOutcome('TEST_DO', 'ctv-valid-callee', 'remoteEcho', ['ping']);
+    caller.callForOutcome('TEST_DO', 'ctv_valid_callee', 'remoteEcho', ['ping']);
 
     await vi.waitFor(async () => {
       expect(await caller.getLastCallResult()).toBe('echo: ping');

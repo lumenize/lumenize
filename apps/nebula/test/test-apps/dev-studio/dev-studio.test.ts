@@ -17,7 +17,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
-import { requireDominionHere } from '../../../src/nebula-do';
+import { requireDominionHere } from '@lumenize/mesh';
 import { ROOT_NODE_ID } from '../../../../../packages/resources/src/org-ops';
 
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
@@ -271,7 +271,7 @@ describe('Galaxy command surface is admin-gated (requireDominionHere)', () => {
   });
 
   it('operand 3 — fails CLOSED when the callee instance name is absent', () => {
-    // Permanently undefined on a LumenizeWorker; must never coerce (`?? ''` would deny every
+    // Permanently undefined on a MeshWorker; must never coerce (`?? ''` would deny every
     // scoped admin, `!` would open the hole).
     const admin = { access: { scopeAdmin: true, authScope: 'u' } };
     expect(guardNoName(admin)).toThrow('missing callee instance name');
