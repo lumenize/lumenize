@@ -12,6 +12,8 @@
  *   2. app → Cloudflare or Resend → SMTP
  *   3. Cloudflare Email Routing (catch-all `*@lumenize-test.dev`) → this Worker
  *   4. this Worker → WebSocket push back to the test   ← `waitForEmail`
+ *      …and beside it, Resend's webhook → this Worker → the same socket, so a waiter hears what
+ *      Resend reported about its send: a bounce ends the wait at once, and a timeout names the hop.
  *   5. test → app:              GET <magic-link URL>   ← `extractMagicLink`
  *
  * No test-mode bypass anywhere in it — this is the path a real user walks, and
@@ -19,7 +21,7 @@
  * `tasks/email-latency-cf-vs-resend.md`), which is why it can be the default
  * tier rather than a reserved-for-headline-flows luxury.
  */
-import type { StoredEmail } from './types';
+import type { StoredEmail, DeliveryEvent, DeliveryEventMessage } from './types';
 
 const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
 const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';
@@ -59,6 +61,10 @@ export interface WaitForEmailOptions {
    * infrastructure, so keeping isolation here means a new test lane needs no
    * redeploy — and no cooperation from the sender, unlike `instance` (which
    * only works if the sender stamps the header).
+   *
+   * With `to` set, the waiter also hears Resend's delivery events for that recipient: a bounce, a
+   * failure or a suppression rejects at once with Resend's reason, and a timeout says what Resend last
+   * reported ({@link describeDelivery}). Without it, events are not subscribed to.
    */
   to?: string;
   /**
@@ -115,6 +121,8 @@ export function waitForEmail(options: WaitForEmailOptions): {
   cleanup: () => void;
   /** Receive-side timing, for `reportEmailLatency`. */
   marks: EmailWaitMarks;
+  /** What Resend has reported so far about the send to `to`, oldest first. Empty without `to`. */
+  deliveryEvents: DeliveryEvent[];
 } {
   const { testToken, instance, to, timeout = 60_000 } = options;
   const instanceParam = instance !== undefined ? `&instance=${encodeURIComponent(instance)}` : '';
@@ -122,6 +130,7 @@ export function waitForEmail(options: WaitForEmailOptions): {
     to === undefined || email.to?.some((addr) => addr.address?.toLowerCase() === to.toLowerCase()) === true;
 
   const marks: EmailWaitMarks = {};
+  const deliveryEvents: DeliveryEvent[] = [];
   let ws: WebSocket;
   let cleanedUp = false;
 
@@ -149,7 +158,7 @@ export function waitForEmail(options: WaitForEmailOptions): {
 
     // The instance filter persists via serializeAttachment on the DO side, so
     // concurrent subscribers each see only their own emails.
-    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${instanceParam}`);
+    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${instanceParam}${to !== undefined ? '&events=1' : ''}`);
 
     await new Promise<void>((resolve, reject) => {
       ws.addEventListener('open', () => { marks.wsOpenAt = Date.now(); resolve(); });
@@ -160,11 +169,24 @@ export function waitForEmail(options: WaitForEmailOptions): {
     const email = await new Promise<StoredEmail>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
-        reject(new Error(`No email received within ${timeout}ms`));
+        reject(new Error(`No email received within ${timeout}ms; ${describeDelivery(deliveryEvents)}`));
       }, timeout);
 
       ws.addEventListener('message', (event) => {
-        const email = JSON.parse(event.data as string) as StoredEmail;
+        const parsed = JSON.parse(event.data as string) as StoredEmail | DeliveryEventMessage;
+        if (isDeliveryEventMessage(parsed)) {
+          const delivery = parsed.event;
+          if (to === undefined || delivery.recipient !== to.toLowerCase()) return;
+          deliveryEvents.push(delivery);
+          if (TERMINAL_DELIVERY_EVENTS.includes(delivery.type)) {
+            clearTimeout(timer);
+            cleanup();
+            reject(new Error(`Resend reported ${delivery.type} for ${delivery.recipient} at ${delivery.occurredAt}`
+              + (delivery.reason ? `: ${delivery.reason}` : '')));
+          }
+          return;
+        }
+        const email = parsed;
         // Another test's email on the shared socket — keep waiting, don't
         // resolve with it and don't consume our timer.
         if (!matchesRecipient(email)) return;
@@ -190,7 +212,37 @@ export function waitForEmail(options: WaitForEmailOptions): {
   // nothing for an actual awaiter: the returned reference still rejects.
   emailPromise.catch(() => { /* see above — real awaiters still see the rejection */ });
 
-  return { emailPromise, cleanup, marks };
+  return { emailPromise, cleanup, marks, deliveryEvents };
+}
+
+function isDeliveryEventMessage(message: StoredEmail | DeliveryEventMessage): message is DeliveryEventMessage {
+  return 'kind' in message && message.kind === 'delivery-event';
+}
+
+/** The events after which no mail is coming: Resend gave up on the send. */
+export const TERMINAL_DELIVERY_EVENTS: readonly string[] = ['email.bounced', 'email.failed', 'email.suppressed'];
+
+/**
+ * Which hop a missing email was lost at, from what Resend reported about it, for a waiter's timeout.
+ * Nothing at all means the send never reached Resend, or the webhook is not registered; `delivered`
+ * means Resend handed it off, so it was lost after that, in Cloudflare's routing or the email-test Worker.
+ */
+export function describeDelivery(events: readonly DeliveryEvent[]): string {
+  if (events.length === 0) {
+    return 'Resend reported nothing for this recipient: the send never reached Resend, or its webhook is not registered';
+  }
+  const last = [...events].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).at(-1)!;
+  const reason = last.reason ? `: ${last.reason}` : '';
+  switch (last.type) {
+    case 'email.delivered':
+      return `Resend delivered it at ${last.occurredAt}, so it was lost after delivery, in Cloudflare's routing or the email-test Worker`;
+    case 'email.delivery_delayed':
+      return `Resend reported delivery delayed at ${last.occurredAt}${reason}`;
+    case 'email.sent':
+      return `Resend accepted it at ${last.occurredAt} and reported nothing further`;
+    default:
+      return `Resend's last report was ${last.type} at ${last.occurredAt}${reason}`;
+  }
 }
 
 /** Extract the magic-link URL from a parsed email's HTML. */
