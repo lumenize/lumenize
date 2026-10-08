@@ -1,7 +1,7 @@
 /**
  * The client posts a human Message + attribution derives ONLY from the stamp.
  *
- * `NebulaClient.postUserMessage` (the create half of `chat`) writes ONE atomic Message
+ * `StudioClient.postUserMessage` (the create half of `chat`) writes ONE atomic Message
  * carrying NO identity fields — attribution comes entirely from the server-stamped
  * `meta.actingToken` (verified claims), which is what makes author spoofing impossible.
  * It rides the chat query, so the sender AND a second subscriber both see it via the
@@ -21,7 +21,7 @@ import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { universeAdminClient, ORIGIN, pageOf } from '../../test-helpers';
-import { NebulaClientTest, GalaxyTest } from './index';
+import { StudioClientTest, GalaxyTest } from './index';
 
 const uniqueChatScope = () => `c3p-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = {
@@ -33,7 +33,7 @@ const chatQuery = {
   // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
-    NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+    StudioClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
     { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
   );
 }
@@ -97,7 +97,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
 
     // (a) The loud throw — resource pair present (the tempting fallback), chat pair absent.
     const { client: pairless } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+      StudioClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
       { resourceHostBinding: 'GALAXY' },
     );
     await expect(pairless.postUserMessage('hi')).rejects.toThrow(/no chat host/);
@@ -106,7 +106,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // are the safe shape — a fallback would be invisible): resources at the STAR `.dev` tier,
     // chat at the covering GALAXY. The posted Message must be readable on the GALAXY plane.
     const { client: mixed, payload: mixedPayload } = await universeAdminClient(
-      NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, email,
+      StudioClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, email,
       CHAT_MESSAGE_ONTOLOGY_VERSION,
       { resourceHostBinding: 'STAR', chatHostBinding: 'GALAXY', chatScope: scope },
     );
@@ -174,7 +174,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     })();
     const browser = new Browser();
     const ctx = browser.context(pageOf(scope));
-    const impersonated = new NebulaClientTest({
+    const impersonated = new StudioClientTest({
       baseUrl: pageOf(scope), platformOrigin: ORIGIN,      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope,
       accessToken: access_token, instanceName: `${userSub}.${crypto.randomUUID().slice(0, 8)}`,

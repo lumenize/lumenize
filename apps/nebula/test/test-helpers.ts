@@ -400,12 +400,12 @@ export async function foundAndLogin(
  * Build + connect a client on `activeScope`'s page over the browser's established cookies. Shared
  * by every factory. The page names nothing: the client takes its scope from its first token.
  */
-async function connectClient<T extends NebulaClient>(
-  ClientClass: new (config: NebulaClientConfig) => T,
+async function connectClient<T extends NebulaClient, C extends NebulaClientConfig = NebulaClientConfig>(
+  ClientClass: new (config: C) => T,
   browser: Browser,
   activeScope: string,
   ontologyVersion: string,
-  extraConfig?: Partial<NebulaClientConfig>,
+  extraConfig?: Partial<C>,
 ): Promise<T> {
   const ctx = browser.context(pageOf(activeScope));
   const client = new ClientClass({
@@ -417,7 +417,7 @@ async function connectClient<T extends NebulaClient>(
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     ...extraConfig,
-  });
+  } as C);
   // Wait for connection. Baseline-project setup file bumps vi.waitFor's
   // default timeout to 5s (apps/nebula/test/test-apps/baseline/test/setup.ts).
   await vi.waitFor(() => {
@@ -455,14 +455,14 @@ async function connectClient<T extends NebulaClient>(
  * "an admin with no DAG grant on this node"), you want {@link universeAdminClient} — this one's
  * guarantee will change under you.
  */
-export async function adminClientAt<T extends NebulaClient>(
-  ClientClass: new (config: NebulaClientConfig) => T,
+export async function adminClientAt<T extends NebulaClient, C extends NebulaClientConfig = NebulaClientConfig>(
+  ClientClass: new (config: C) => T,
   browser: Browser,
   scope: string,
   activeScope: string,
   email: string,
   ontologyVersion: string = 'v1',
-  extraConfig?: Partial<NebulaClientConfig>,
+  extraConfig?: Partial<C>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   const segments = scope.split('.');
   if (segments.length !== 3) {
@@ -502,8 +502,8 @@ export async function adminClientAt<T extends NebulaClient>(
  *
  * `scope` may be any tier — the universe is derived from it.
  */
-export async function universeAdminClient<T extends NebulaClient>(
-  ClientClass: new (config: NebulaClientConfig) => T,
+export async function universeAdminClient<T extends NebulaClient, C extends NebulaClientConfig = NebulaClientConfig>(
+  ClientClass: new (config: C) => T,
   browser: Browser,
   /**
    * The scope you want to WORK IN (typically a star). ⚠️ **Not where the login happens** — the
@@ -514,7 +514,7 @@ export async function universeAdminClient<T extends NebulaClient>(
   activeScope: string,
   email: string,
   ontologyVersion: string = 'v1',
-  extraConfig?: Partial<NebulaClientConfig>,
+  extraConfig?: Partial<C>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
   return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, ontologyVersion, extraConfig);
 }
@@ -543,8 +543,8 @@ export async function universeAdminClient<T extends NebulaClient>(
  * ontology pass their own value. Tests that don't use `client.resources.*`
  * at all are unaffected by the default — only the auto-attach paths use it.
  */
-export async function createAuthenticatedClient<T extends NebulaClient>(
-  ClientClass: new (config: NebulaClientConfig) => T,
+export async function createAuthenticatedClient<T extends NebulaClient, C extends NebulaClientConfig = NebulaClientConfig>(
+  ClientClass: new (config: C) => T,
   browser: Browser,
   scope: string,
   activeScope: string,
@@ -552,7 +552,7 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   ontologyVersion: string = 'v1',
   /** Optional extra config to pass through to the client constructor —
    *  e.g. `{ onShouldRefreshUI: fn }` for the staleness tests. */
-  extraConfig?: Partial<NebulaClientConfig>,
+  extraConfig?: Partial<C>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
   const { accessToken, payload, authScope } = await foundAndLogin(browser, scope, email, activeScope);
   const client = await connectClient(ClientClass, browser, activeScope, ontologyVersion, extraConfig);
@@ -578,12 +578,12 @@ export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
  * ⚠️ Only usable where `NEBULA_AUTH_BOOTSTRAP_EMAIL` is bound (baseline project). Without it, login
  * succeeds but the first authed route 403s.
  */
-export async function createPlatformAdminClient<T extends NebulaClient>(
-  ClientClass: new (config: NebulaClientConfig) => T,
+export async function createPlatformAdminClient<T extends NebulaClient, C extends NebulaClientConfig = NebulaClientConfig>(
+  ClientClass: new (config: C) => T,
   browser: Browser,
   activeScope: string,
   ontologyVersion: string = 'v1',
-  extraConfig?: Partial<NebulaClientConfig>,
+  extraConfig?: Partial<C>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   const { accessToken, payload } = await browserLogin(browser, PLATFORM_SCOPE, BOOTSTRAP_EMAIL, activeScope);
   const client = await connectClient(ClientClass, browser, activeScope, ontologyVersion, extraConfig);
@@ -595,14 +595,14 @@ export async function createPlatformAdminClient<T extends NebulaClient>(
  * half of the pair with {@link createAuthenticatedClient}. `authScope` is where the invite minted
  * them (`createSubject`'s scope), whose membership they accept on Home.
  */
-export async function createInvitedClient<T extends NebulaClient>(
-  ClientClass: new (config: NebulaClientConfig) => T,
+export async function createInvitedClient<T extends NebulaClient, C extends NebulaClientConfig = NebulaClientConfig>(
+  ClientClass: new (config: C) => T,
   browser: Browser,
   authScope: string,
   activeScope: string,
   email: string,
   ontologyVersion: string = 'v1',
-  extraConfig?: Partial<NebulaClientConfig>,
+  extraConfig?: Partial<C>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
   const client = await connectClient(ClientClass, browser, activeScope, ontologyVersion, extraConfig);

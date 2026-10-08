@@ -129,8 +129,6 @@ export async function run(stack: DevStack): Promise<void> {
       platformOrigin: origin,
       ontologyVersion: version,
       resourceHostBinding: 'STAR',
-      chatHostBinding: 'GALAXY',
-      chatScope: galaxy,
       accessToken: session.accessToken,
       instanceName: `${session.sub}.${crypto.randomUUID().slice(0, 8)}`,
       fetch: ctx.fetch,

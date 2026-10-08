@@ -37,7 +37,7 @@ const uuid = () => crypto.randomUUID();
 const TYPES_V1 = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
 const TYPES_V2 = 'interface TestResource { title: string; note?: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
 const CHAT_V2 = { version: 'chat-v2', types: `${CHAT_MESSAGE_TYPES}\ninterface Extra { note: string }` };
-const GALAXY_PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
+const GALAXY_PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const CHAT_QUERY: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
 /** The Galaxy's install and the Apply compile in place (typia); a hang still reds. */
 const COMPILE_TIMEOUT_MS = 60_000;

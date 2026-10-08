@@ -13,15 +13,16 @@
  * the hook a UI would install.
  *
  * Mutation-validated (testing.md): commenting out `this.#onPreviewReady?.(scope)` in
- * `NebulaClient.handlePreviewReady` leaves `captured` empty → the `vi.waitFor` times
+ * `StudioClient.handlePreviewReady` leaves `captured` empty → the `vi.waitFor` times
  * out → this test reddens. Removing the `announceBuildToRequester` call from
  * `#buildAndAnnounce` reds it the same way.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
-import { universeAdminClient, uniqueGalaxyScope, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, NebulaClient, StudioClient } from '@lumenize/nebula';
+import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { universeAdminClient, uniqueGalaxyScope, addressOfClient, browserLogin, ORIGIN, pageOf } from '../../test-helpers';
+import { NebulaClientTest, StudioClientTest } from './index';
 import type { GalaxyTest } from './index';
 
 /** One fake model round that calls the build tool, then one that marks complete. */
@@ -35,12 +36,60 @@ const BUILD_THEN_COMPLETE = [
 ];
 
 describe('nebula-client preview-ready hook — the build reply', () => {
+  // Pure, so no running system: which class carries Studio's methods is a fact of the prototypes.
+  // A generated app's client is a NebulaClient, and none of the three is any use to it.
+  // Mutation: leave `uploadProfilePicture` on NebulaClient.
+  it("Studio's three methods live on StudioClient, and NebulaClient carries none of them", () => {
+    for (const method of ['postUserMessage', 'handlePreviewReady', 'uploadProfilePicture']) {
+      expect(method in NebulaClient.prototype, method).toBe(false);
+      expect(typeof (StudioClient.prototype as unknown as Record<string, unknown>)[method], method).toBe('function');
+    }
+  });
+
+  // Studio's own construction: the factory a generated app calls, handed Studio's class, as App.vue
+  // does. The post is the real trigger — the committed Message starts the turn under the poster —
+  // so the build reply reaches this client the way it reaches Studio's page. Mutation: the factory
+  // ignores `Client`, and the client it builds is a NebulaClient, with no `postUserMessage`.
+  it('the factory builds the class it is handed: a StudioClient whose onPreviewReady fires on its build reply', async () => {
+    const { universe, galaxy } = uniqueGalaxyScope();
+    // Founds the universe and its galaxy, then queues the model's two rounds for the next turn.
+    const { client: seeder } = await universeAdminClient(
+      NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { resourceHostBinding: 'GALAXY' },
+    );
+    seeder.callGalaxySeedChatScript(galaxy, BUILD_THEN_COMPLETE);
+    await vi.waitFor(() => expect(seeder.callCompleted).toBe(true));
+    expect(seeder.lastError).toBeUndefined();
+
+    const browser = new Browser();
+    await browserLogin(browser, universe, 'admin@example.com', galaxy);
+    const ctx = browser.context(pageOf(galaxy));
+    const captured: string[] = [];
+    const studio = createNebulaClient({
+      Client: StudioClient,
+      baseUrl: pageOf(galaxy), platformOrigin: ORIGIN, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+      resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: galaxy,
+      onPreviewReady: (scope) => { captured.push(scope); },
+      fetch: ctx.fetch, WebSocket: ctx.WebSocket,
+      sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
+      onShouldRefreshUI: () => {},
+    });
+    await studio.ready;
+    expect(studio.client).toBeInstanceOf(StudioClient);
+
+    await studio.client.postUserMessage('build it');
+    await vi.waitFor(() => expect(captured).toEqual([galaxy]), { timeout: 15000 });
+
+    await studio.dispose();
+    seeder[Symbol.dispose]();
+  });
+
   it('a turn whose build succeeds invokes onPreviewReady with the Galaxy scope, on the client that asked', async () => {
     const { galaxy } = uniqueGalaxyScope();
     const captured: string[] = [];
     // On Studio's page, the galaxy's own, where a chat turn is asked for.
     const { client } = await universeAdminClient(
-      NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', 'v1',
+      StudioClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', 'v1',
       { onPreviewReady: (scope: string) => { captured.push(scope); } },
     );
 
@@ -63,9 +112,9 @@ describe('nebula-client preview-ready hook — the build reply', () => {
     const { galaxy } = uniqueGalaxyScope();
     const chatPair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: galaxy } as const;
     const { client: asker } = await universeAdminClient(
-      NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      StudioClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
     const { client: other } = await universeAdminClient(
-      NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
+      StudioClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
     expect(other.lmz.instanceName).not.toBe(asker.lmz.instanceName); // fixture guard: two tabs
 
     // The other tab watches the chat, as a second Studio does, so it is on every list a fanout reads.

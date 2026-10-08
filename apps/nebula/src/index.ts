@@ -82,6 +82,8 @@ export {
 
 // Client
 export { NebulaClient } from './nebula-client';
+export { StudioClient } from './studio-client';
+export type { StudioClientConfig } from './studio-client';
 export type {
   NebulaClientConfig,
   OntologyStaleInfo,

@@ -26,6 +26,9 @@
 // Client class + config
 export { NebulaClient } from './nebula-client';
 export type { NebulaClientConfig } from './nebula-client';
+// Studio's own Client: NebulaClient plus chat posts, picture uploads and the build reply.
+export { StudioClient } from './studio-client';
+export type { StudioClientConfig } from './studio-client';
 
 // Scope-deletion wire types — re-exported so a frontend (which depends on `@lumenize/nebula`, not on
 // `@lumenize/nebula-auth`) can type the confirm screen against the SHARED shape instead of hand-copying

@@ -19,7 +19,7 @@
 import assert from 'node:assert/strict';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Snapshot, NodeInviteAck } from '@lumenize/nebula';
-import { deriveKind, deriveParticipants } from '@lumenize/nebula/client';
+import { deriveKind, deriveParticipants, StudioClient } from '@lumenize/nebula/client';
 import { NEBULA_SUB } from '@lumenize/nebula-auth/claims';
 import { waitForEmail } from '@lumenize/email-test/client';
 import type { DevStack, Driver } from '../lib/harness';
@@ -67,7 +67,7 @@ export async function run(stack: DevStack): Promise<void> {
   const disposables: Array<{ dispose: () => void }> = [];
   try {
     // ── The OWNER: real email login, real provisioning ──
-    const owner = await connectDriver(stack, { scope: SCOPE });
+    const owner = await connectDriver(stack, { scope: SCOPE, Client: StudioClient });
     disposables.push(owner);
 
     // ── The COACH: a real platform bootstrap login, then acting in the galaxy ──
@@ -96,7 +96,7 @@ export async function run(stack: DevStack): Promise<void> {
       origin, { refreshToken: coachRefresh, authScope: PLATFORM_SCOPE }, SCOPE, fetch,
     );
     const coach = await connectDriver(stack, {
-      scope: SCOPE, session: { accessToken: coachSession.accessToken, sub: coachSession.sub },
+      scope: SCOPE, Client: StudioClient, session: { accessToken: coachSession.accessToken, sub: coachSession.sub },
     });
     disposables.push(coach);
 
@@ -132,7 +132,7 @@ export async function run(stack: DevStack): Promise<void> {
     const austenClaims = parseJwtUnsafe(austenSession.accessToken)!.payload as unknown as { access: { scopeAdmin?: boolean } };
     assert.equal(austenClaims.access.scopeAdmin, undefined, 'Austen must hold NO galaxy admin bit');
     const austen = await connectDriver(stack, {
-      scope: SCOPE, session: { accessToken: austenSession.accessToken, sub: austenSession.sub },
+      scope: SCOPE, Client: StudioClient, session: { accessToken: austenSession.accessToken, sub: austenSession.sub },
     });
     disposables.push(austen);
 

@@ -41,7 +41,7 @@ const chatQuery = {
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
-    { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
@@ -92,7 +92,7 @@ describe('child3 — transient progress stream + durable Message', () => {
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
     const { client: denied } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
+      NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY' });
 
     using sa = admin.resources.subscribeQuery(chatQuery); await sa.ready;
     using sd = denied.resources.subscribeQuery(chatQuery); await sd.ready;

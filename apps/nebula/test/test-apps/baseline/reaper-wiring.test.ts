@@ -179,7 +179,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
   it('4 (Galaxy): a tree update reaps its tree subscriber (onTreeBroadcastResult)', async () => {
     // The Galaxy's plane builds a tree like any host's, and its door takes tree subscriptions.
     const scope = `reap-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope } as const;
+    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
     const tab = async () => (await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair)).client;
     const admin = await tab();
@@ -218,7 +218,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
 
   it('5 (Galaxy): a chat update to a subscriber missing some results reaps it (onQueryBroadcastResult)', async () => {
     const scope = `reap-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope } as const;
+    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
     const { client: admin, accessToken } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
     const chat = uuid();

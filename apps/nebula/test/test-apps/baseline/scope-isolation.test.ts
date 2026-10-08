@@ -29,7 +29,7 @@ import {
   foundStarAndLogin,
   uniqueGalaxyScope,
   uniqueStar, ownerOf } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, StudioClientTest } from './index';
 
 describe('structural scope isolation (Fix 1)', () => {
   // ── T1 — Shared-Galaxy multi-star (RED→GREEN) ──────────────────────────
@@ -443,9 +443,10 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
     // galaxy invite's co-minted `.dev` admin, whose dominion stops at the `.dev` Star — passes the
     // Galaxy's passage check and the door, and is refused by the op's own grant check.
     const scope = `b5-${crypto.randomUUID().slice(0, 8)}.app`;
-    const pair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope };
+    const pair = { resourceHostBinding: 'GALAXY' };
     const { client: owner, accessToken } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, pair,
+      StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { ...pair, chatHostBinding: 'GALAXY', chatScope: scope },
     );
     const posted = await owner.postUserMessage('behind the door');
     const adminBrowser = new Browser();

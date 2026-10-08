@@ -28,7 +28,7 @@
 import assert from 'node:assert/strict';
 import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Snapshot } from '@lumenize/nebula';
-import { deriveKind } from '@lumenize/nebula/client';
+import { deriveKind, StudioClient } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
@@ -46,7 +46,7 @@ type Codegen = { toolCalls?: Array<{ name: string; args?: unknown; result?: unkn
 type Reply = { content: string; codegen?: Codegen };
 
 /** Post, then wait for the durable agent reply — the ASSERTED half of every turn. */
-async function turn(driver: Driver, sub: { resourceIds: string[] }, text: string): Promise<Reply> {
+async function turn(driver: Driver<StudioClient>, sub: { resourceIds: string[] }, text: string): Promise<Reply> {
   const t0 = Date.now();
   const id = await driver.client.postUserMessage(text);
   const deadline = Date.now() + TURN_TIMEOUT_MS;
@@ -83,7 +83,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error(`  ${pass === true ? '✓' : pass === 'asked' ? '·' : '✗'} limb ${limb} — ${note}`);
   };
 
-  const driver = await connectDriver(stack, { scope: SCOPE });
+  const driver = await connectDriver(stack, { scope: SCOPE, Client: StudioClient });
   try {
     using sub = driver.client.resources.subscribeQuery(chatQuery); await sub.ready;
 

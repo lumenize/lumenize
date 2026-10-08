@@ -25,7 +25,7 @@ const uniqueChatScope = () => `c2e-${crypto.randomUUID().slice(0, 8)}.app`;
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
-    { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
@@ -142,7 +142,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
     const { client: user, payload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
+      NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY' });
     await admin.orgTree.setPermission(nodeA, payload.sub, 'read');
     await admin.orgTree.setPermission(nodeB, payload.sub, 'read');
 

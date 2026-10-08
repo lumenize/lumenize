@@ -27,7 +27,7 @@ import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
 import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, StudioClientTest } from './index';
 
 const CHAT_QUERY = {
   queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
@@ -167,7 +167,7 @@ describe('the DAG permission plane is confined to its host', () => {
     it('a {u}.{g}.dev-scoped ADMIN with no DAG grant is DENIED on the chat node; a grant opens exactly that door', async () => {
       const scope = `cab-${crypto.randomUUID().slice(0, 8)}.app`;
       const { client: admin, accessToken } = await universeAdminClient(
-        NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+        StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
         { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
       );
       // Seed real content at the chat node (two model rounds: the seed turn + the
@@ -186,7 +186,7 @@ describe('the DAG permission plane is confined to its host', () => {
       const adminBrowser = new Browser();
       await createSubject(adminBrowser, scope, accessToken, 'devadmin@example.com');
       const { client: devAdmin, payload } = await createInvitedClient(
-        NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',
+        StudioClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',
         CHAT_MESSAGE_ONTOLOGY_VERSION,
         { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
       );
@@ -215,7 +215,7 @@ describe('the DAG permission plane is confined to its host', () => {
     it('Subscriptions stores 0 for a granted `.dev` admin on the real host — and 1 for the covering admin (the un-skipped store-side half)', async () => {
       const scope = `cab-${crypto.randomUUID().slice(0, 8)}.app`;
       const { client: admin, accessToken } = await universeAdminClient(
-        NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+        StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
         { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
       );
       admin.callGalaxySeedChatScript(scope, [
@@ -231,7 +231,7 @@ describe('the DAG permission plane is confined to its host', () => {
       const { client: devAdmin, payload } = await createInvitedClient(
         NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',
         CHAT_MESSAGE_ONTOLOGY_VERSION,
-        { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+        { resourceHostBinding: 'GALAXY' },
       );
       await admin.lmz.callAsync('GALAXY', scope,
         admin.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'read'));

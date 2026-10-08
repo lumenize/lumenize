@@ -762,6 +762,12 @@ export function createNebulaStore(
 // Re-export for tests that drive synthetic scopes / computeds.
 export { effectScope, vueComputed as computed };
 
+/** A class {@link createNebulaClient} can build: `NebulaClient`, or a subclass taking its own config. */
+export type NebulaClientClass = new (config: any) => NebulaClient;
+
+/** The config a {@link NebulaClientClass} is constructed with. */
+type ConfigOf<K extends NebulaClientClass> = K extends new (config: infer C) => NebulaClient ? C : never;
+
 /**
  * Configuration for {@link createNebulaClient}. `platformOrigin`, `parentOrigin`, `baseUrl` and
  * `onShouldRefreshUI` come from the page, and all the inherited `NebulaClient` fields (`fetch`,
@@ -769,21 +775,22 @@ export { effectScope, vueComputed as computed };
  * hatches for admin/scripting/tests. api-reference § createNebulaClient is the contract.
  *
  * No scope is configured: the client takes its scope from its first token's `aud`, which the
- * platform host's refresh reads from this page's host.
+ * platform host's refresh reads from this page's host. A subclass's config is named by the class:
+ * `CreateNebulaClientConfig<StudioClientConfig>`.
  */
-export interface CreateNebulaClientConfig
-  extends Omit<NebulaClientConfig, 'platformOrigin' | 'parentOrigin' | 'onShouldRefreshUI'> {
-  /** Defaults to the platform host of the deployment the page's `lumenize-origin` meta names, at
-   *  the page's own port. */
-  platformOrigin?: string;
-  /** Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`. */
-  parentOrigin?: string;
-  /** Called on `ontology-stale`. `undefined`/`null` → default once-guarded
-   *  `window.location.reload()`; pass an explicit `() => {}` to opt out. */
-  onShouldRefreshUI?: ((info: OntologyStaleInfo) => void) | null;
-  /** Grace before auto-unsubscribe after the binding refcount hits zero (default 2000ms). */
-  unsubscribeGraceMs?: number;
-}
+export type CreateNebulaClientConfig<TConfig extends NebulaClientConfig = NebulaClientConfig> =
+  Omit<TConfig, 'platformOrigin' | 'parentOrigin' | 'onShouldRefreshUI'> & {
+    /** Defaults to the platform host of the deployment the page's `lumenize-origin` meta names, at
+     *  the page's own port. */
+    platformOrigin?: string;
+    /** Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`. */
+    parentOrigin?: string;
+    /** Called on `ontology-stale`. `undefined`/`null` → default once-guarded
+     *  `window.location.reload()`; pass an explicit `() => {}` to opt out. */
+    onShouldRefreshUI?: ((info: OntologyStaleInfo) => void) | null;
+    /** Grace before auto-unsubscribe after the binding refcount hits zero (default 2000ms). */
+    unsubscribeGraceMs?: number;
+  };
 
 /**
  * What {@link createNebulaClient} returns. `store` is the Vue-reactive,
@@ -791,8 +798,8 @@ export interface CreateNebulaClientConfig
  * after the first successful connection (claims populated) and rejects with a
  * `LoginRequiredError` on terminal auth failure (api-reference § createNebulaClient).
  */
-export interface FactoryResult {
-  client: NebulaClient;
+export interface FactoryResult<C extends NebulaClient = NebulaClient> {
+  client: C;
   store: Record<string, any>;
   ready: Promise<void>;
   use(middleware: Middleware): () => void;
@@ -924,14 +931,21 @@ export function defaultOnHostDeleted(platformOrigin: string): () => void {
  * (The *first-connect* terminal-reject becomes fully exercisable once P9 makes
  * mesh classify first-connect auth failures; mid-session terminal works today.)
  *
+ * `Client` names the class to build, `NebulaClient` by default; the config and the returned
+ * `client` are typed by it, so `createNebulaClient({ Client: StudioClient, chatHostBinding, … })`
+ * returns a `StudioClient`.
+ *
  * @see https://lumenize.com/docs/nebula/api-reference#createnebulaclient
  */
-export function createNebulaClient(config: CreateNebulaClientConfig): FactoryResult {
-  const resolved = resolveNebulaClientConfig(config);
+export function createNebulaClient<K extends NebulaClientClass = typeof NebulaClient>(
+  config: CreateNebulaClientConfig<ConfigOf<K>> & { Client?: K },
+): FactoryResult<InstanceType<K>> {
+  const { Client = NebulaClient, ...clientConfig } = config as CreateNebulaClientConfig & { Client?: NebulaClientClass };
+  const resolved = resolveNebulaClientConfig(clientConfig);
 
   // Pull the user's own connection/auth observers (if any) so we can chain ours
   // in front of them rather than shadowing them.
-  const { onConnectionStateChange: userOnConnectionStateChange, onLoginRequired: userOnLoginRequired } = config;
+  const { onConnectionStateChange: userOnConnectionStateChange, onLoginRequired: userOnLoginRequired } = clientConfig;
 
   let resolveReady!: () => void;
   let rejectReady!: (err: unknown) => void;
@@ -943,14 +957,14 @@ export function createNebulaClient(config: CreateNebulaClientConfig): FactoryRes
 
   const onSessionMissing = userOnLoginRequired ?? defaultOnLoginRequired(resolved.platformOrigin, resolved.parentOrigin);
 
-  const client = new NebulaClient({
-    ...config,
+  const client = new Client({
+    ...clientConfig,
     baseUrl: resolved.baseUrl,
     platformOrigin: resolved.platformOrigin,
     parentOrigin: resolved.parentOrigin,
     ontologyVersion: resolved.ontologyVersion,
     onShouldRefreshUI: resolved.onShouldRefreshUI,
-    onHostDeleted: config.onHostDeleted ?? defaultOnHostDeleted(resolved.platformOrigin),
+    onHostDeleted: clientConfig.onHostDeleted ?? defaultOnHostDeleted(resolved.platformOrigin),
     onConnectionStateChange: (state) => {
       if (state === 'connected' && !readySettled) {
         readySettled = true;
@@ -967,9 +981,9 @@ export function createNebulaClient(config: CreateNebulaClientConfig): FactoryRes
       }
       onSessionMissing(err);
     },
-  });
+  }) as InstanceType<K>;
 
-  const storeResult = createNebulaStore(client, { unsubscribeGraceMs: config.unsubscribeGraceMs });
+  const storeResult = createNebulaStore(client, { unsubscribeGraceMs: clientConfig.unsubscribeGraceMs });
 
   return {
     client,

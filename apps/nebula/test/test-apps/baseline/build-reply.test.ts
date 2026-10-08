@@ -19,7 +19,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { universeAdminClient, uniqueGalaxyScope } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { StudioClientTest } from './index';
 
 /** One fake model round that calls the build tool, then one that marks complete. */
 const BUILD_THEN_COMPLETE = [
@@ -35,12 +35,12 @@ const NO_BUILD = [
   { choices: [{ message: { content: 'just chatting', reasoning_content: '', tool_calls: [] } }] },
 ];
 
-async function waitForResult(client: NebulaClientTest) {
+async function waitForResult(client: StudioClientTest) {
   await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
 }
 /** An admin on Studio's page, the galaxy's own, where a chat turn is asked for. */
 async function studioAdminClient(galaxy: string, extraConfig?: Record<string, unknown>) {
-  return universeAdminClient(NebulaClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', 'v1', extraConfig);
+  return universeAdminClient(StudioClientTest, new Browser(), galaxy, galaxy, 'admin@example.com', 'v1', extraConfig);
 }
 describe('The build reply', () => {
   it('T1: a successful build REPLIES to the requester, and a turn with no build replies nothing', async () => {

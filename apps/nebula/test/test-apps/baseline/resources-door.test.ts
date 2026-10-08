@@ -36,11 +36,11 @@ import {
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
 import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
 import { adminClientAt, universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, StudioClientTest } from './index';
 
 const uuid = () => crypto.randomUUID();
 const TYPES = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
-const GALAXY_PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
+const GALAXY_PAIR = (_scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const CHAT_QUERY: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
 
 type SinkEntry = { namespace: string; level: string; message: string; data?: Record<string, unknown> };
@@ -388,7 +388,8 @@ describe('the Galaxy tells a Star-tier caller with no grant `permission`, and a 
   it('a `.dev` admin with no chat-node grant is told `permission` as a RESOLVED result; `write` makes it `ok`', async () => {
     const scope = `door-${uuid().slice(0, 8)}.app`;
     const { client: owner, accessToken } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(scope),
+      StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
     );
     const posted = await owner.postUserMessage('something to read');
     // A Star-tier caller: the galaxy invite co-mints a `.dev` membership WITH `scopeAdmin`, whose

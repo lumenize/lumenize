@@ -33,7 +33,7 @@ describe('the read_file record', () => {
     const scope = uniqueScope();
     const { client } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
-      { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+      { resourceHostBinding: 'GALAXY' },
     );
     using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
 

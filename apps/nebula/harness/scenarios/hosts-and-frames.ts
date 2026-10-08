@@ -44,7 +44,7 @@ import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar, scopeUrlOf, waitForHost, NEW_HOST_TIMEOUT_MS, superuserEmail } from '../lib/harness';
@@ -238,7 +238,7 @@ export async function run(stack: DevStack): Promise<void> {
     await waitForHost(scopeUrlOf(stack, tenant)); // its galaxy is new, so on a deployed target its certificate is too
     const shim = new Browser();
     const tenantCtx = shim.context(scopeUrlOf(stack, tenant));
-    const tenantClient = new NebulaClient({
+    const tenantClient = new StudioClient({
       baseUrl: scopeUrlOf(stack, tenant), platformOrigin: stack.baseUrl, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       accessToken: founder.accessToken, instanceName: `${founder.sub}.${crypto.randomUUID().slice(0, 8)}`,
       fetch: tenantCtx.fetch, sessionStorage: tenantCtx.sessionStorage, BroadcastChannel: tenantCtx.BroadcastChannel,

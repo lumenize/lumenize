@@ -33,7 +33,7 @@
  * decision rather than an omission.
  */
 import assert from 'node:assert/strict';
-import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
+import { DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
 import type { Snapshot } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
@@ -65,7 +65,7 @@ export async function run(stack: DevStack): Promise<void> {
   const gateway = optionalDevVar('CF_AI_GATEWAY');
   console.error(`[studio-codegen-rest] gateway routing: ${gateway ? `cf-aig-gateway-id: ${gateway}` : 'off (no CF_AI_GATEWAY)'}`);
 
-  const driver = await connectDriver(stack, { scope: SCOPE });
+  const driver = await connectDriver(stack, { scope: SCOPE, Client: StudioClient });
   try {
     // Subscribe FIRST (the product's shape), then post — the reply arrives on the query.
     using sub = driver.client.resources.subscribeQuery({

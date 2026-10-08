@@ -20,7 +20,7 @@ import { DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind } from '@lum
 import type { Snapshot } from '@lumenize/nebula';
 import { HISTORY_HEADER } from '../../../src/codegen-loop';
 import { universeAdminClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { StudioClientTest } from './index';
 
 const uniqueScope = () => `hb-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
@@ -40,22 +40,22 @@ const FOUR_HUNDRED_LINES = Array.from({ length: 400 }, (_, i) => `<!-- line ${i}
 
 async function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
-    NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+    StudioClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
     { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
   );
 }
-async function seed(client: NebulaClientTest, scope: string, script: unknown[]) {
+async function seed(client: StudioClientTest, scope: string, script: unknown[]) {
   client.callGalaxySeedChatScript(scope, script);
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
   expect(client.lastError).toBeUndefined();
 }
 /** Drop every prompt captured so far, so the next read is the next turn's. */
-async function drain(client: NebulaClientTest, scope: string): Promise<void> {
+async function drain(client: StudioClientTest, scope: string): Promise<void> {
   client.callGalaxyTakeSeenMessages(scope);
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 }
 /** Drain, post, then wait for the agent's durable reply to it. */
-async function postAndWait(client: NebulaClientTest, scope: string, sub: { resourceIds: readonly string[] }, text: string): Promise<string> {
+async function postAndWait(client: StudioClientTest, scope: string, sub: { resourceIds: readonly string[] }, text: string): Promise<string> {
   await drain(client, scope);
   const id = await client.postUserMessage(text);
   await vi.waitFor(async () => {
@@ -68,7 +68,7 @@ async function postAndWait(client: NebulaClientTest, scope: string, sub: { resou
   return id;
 }
 /** The system layer (`messages[0]`) and the request (`messages[1]`) of the LAST turn's first round. */
-async function lastTurnPrompt(client: NebulaClientTest, scope: string): Promise<{ system: string; request: string }> {
+async function lastTurnPrompt(client: StudioClientTest, scope: string): Promise<{ system: string; request: string }> {
   client.callGalaxyTakeSeenMessages(scope);
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
   const calls = client.lastResult as Array<Array<{ role: string; content: string }>>;

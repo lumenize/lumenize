@@ -27,7 +27,7 @@ import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKin
 import type { Snapshot } from '@lumenize/nebula';
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
 import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { StudioClientTest } from './index';
 
 const uniqueChatScope = () => `ctr-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = {
@@ -36,7 +36,7 @@ const chatQuery = {
 
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
-    NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+    StudioClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
     { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
   );
 }
@@ -46,14 +46,14 @@ const round = (content: string) => ({
   choices: [{ message: { content, reasoning_content: '', tool_calls: [] } }],
 });
 
-async function seedScript(client: NebulaClientTest, scope: string, script: unknown[]) {
+async function seedScript(client: StudioClientTest, scope: string, script: unknown[]) {
   client.callGalaxySeedChatScript(scope, script);
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
   expect(client.lastError).toBeUndefined();
 }
 
 /** The agent replies currently in the thread, replyTo → snapshot. */
-async function agentReplies(client: NebulaClientTest, ids: readonly string[]): Promise<Map<string, Snapshot>> {
+async function agentReplies(client: StudioClientTest, ids: readonly string[]): Promise<Map<string, Snapshot>> {
   const out = new Map<string, Snapshot>();
   for (const id of ids) {
     const snap = await client.resources.read('Message', id) as Snapshot | null;
@@ -163,7 +163,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'member@example.com');
     const { client: member } = await createInvitedClient(
-      NebulaClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      StudioClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
       { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
     );
 

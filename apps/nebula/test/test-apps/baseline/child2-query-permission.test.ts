@@ -18,7 +18,7 @@ import type { TransactionResult, QuerySubscriberRow, QueryDescriptor, Snapshot }
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import {
   adminClientAt, universeAdminClient, createInvitedClient, createPlatformAdminClient, browserLogin, createSubject, ORIGIN, pageOf, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, StudioClientTest } from './index';
 
 const VERSION = 'v1';
 const TYPES = [
@@ -103,9 +103,10 @@ describe('a permission change and a query subscriber', () => {
     // Where Studio grants a collaborator: the Galaxy hosts a tree like any plane, and the client
     // asks again there exactly as it does on a Star.
     const scope = `${uniqueUniverse()}.app`;
-    const pair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope };
+    const pair = { resourceHostBinding: 'GALAXY' };
     const { client: owner, accessToken } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, pair,
+      StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { ...pair, chatHostBinding: 'GALAXY', chatScope: scope },
     );
     const posted = await owner.postUserMessage('before the grant');
     const adminBrowser = new Browser();

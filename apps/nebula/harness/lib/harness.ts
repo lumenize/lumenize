@@ -23,7 +23,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { NebulaClient, StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import type { NebulaClientConfig } from '@lumenize/nebula/client';
 import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
 import { hostOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
 import { provisionAndLogin } from '../../test/lib/email-login';
@@ -220,8 +221,8 @@ let captured = '';
  *  which had no client method) died when invites moved onto `NebulaClient.invite`. A scenario
  *  that genuinely needs a bearer holds the SESSION it logged in with (`EmailSession.accessToken`),
  *  which is a snapshot with the same staleness caveat. */
-export interface Driver {
-  client: NebulaClient;
+export interface Driver<C extends NebulaClient = NebulaClient> {
+  client: C;
   /** The subject UUID the mint assigned this identity. */
   sub: string;
   /** The scope whose host this driver's client connects from, and so its token's `aud`. */
@@ -240,23 +241,21 @@ export interface Driver {
 }
 
 /**
- * Post-collapse construction pairs for a driver at `scope`: resources live on the DO that OWNS
- * the scope (3 segments = a Star, 2 = a Galaxy), and chat always lives at the covering Galaxy
- * (`{u}.{g}`). A universe-tier driver gets no chat pair — the client's chat surface then throws
- * loudly rather than misrouting, by design. A scenario exercising a different plane overrides
- * per-driver: each driver sets the pair for the plane it exercises.
+ * The resource pair for a client at `scope`: resources live on the DO that OWNS the scope
+ * (3 segments = a Star, 2 = a Galaxy). A scenario exercising a different plane overrides it.
  */
-export function constructionPairs(scope: string): {
-  resourceHostBinding: string;
-  chatHostBinding?: string;
-  chatScope?: string;
-} {
+export function constructionPairs(scope: string): { resourceHostBinding: string } {
+  return { resourceHostBinding: scope.split('.').length >= 3 ? 'STAR' : 'GALAXY' };
+}
+
+/**
+ * The chat pair a `StudioClient` at `scope` posts through: chat always lives at the covering Galaxy
+ * (`{u}.{g}`). A universe-tier scope gets none, so a post there throws loudly rather than
+ * misrouting, by design.
+ */
+export function chatPairOf(scope: string): { chatHostBinding?: string; chatScope?: string } {
   const parts = scope.split('.');
-  const galaxy = parts.length >= 2 ? `${parts[0]}.${parts[1]}` : undefined;
-  return {
-    resourceHostBinding: parts.length >= 3 ? 'STAR' : 'GALAXY',
-    ...(galaxy ? { chatHostBinding: 'GALAXY', chatScope: galaxy } : {}),
-  };
+  return parts.length >= 2 ? { chatHostBinding: 'GALAXY', chatScope: `${parts[0]}.${parts[1]}` } : {};
 }
 
 /** Poll until the client reaches `connected`, or throw on timeout. */
@@ -295,10 +294,16 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
  * that genuinely need a WRONG-shaped token use {@link mintDegradedToken} (rung 4), which is not a
  * login and never reaches `connectDriver`.
  */
-export async function connectDriver(
+export async function connectDriver<C extends NebulaClient = NebulaClient>(
   stack: DevStack,
   opts: {
     scope: string;
+    /**
+     * The class to build, `NebulaClient` by default — the class a generated app's page builds. A
+     * scenario that posts to chat or uploads a picture passes `StudioClient`, as Studio's page does,
+     * and gets the chat pair for its scope.
+     */
+    Client?: new (config: NebulaClientConfig) => C;
     /** Login identity. Defaults to a fresh `test-<uuid>@lumenize-test.dev` (routed by the catch-all). */
     email?: string;
     /**
@@ -320,7 +325,7 @@ export async function connectDriver(
      */
     session?: { accessToken: string; sub: string };
   },
-): Promise<Driver> {
+): Promise<Driver<C>> {
   const scope = opts.scope;
   const browser = new Browser();
 
@@ -351,11 +356,14 @@ export async function connectDriver(
   // A deployed app's host fails its handshake until the app's certificate is issued.
   await waitForHost(scopeUrlOf(stack, scope));
   const ctx = browser.context(scopeUrlOf(stack, scope));
-  const client = new NebulaClient({
+  const Client = opts.Client ?? (NebulaClient as unknown as new (config: NebulaClientConfig) => C);
+  const studio = (Client as unknown) === StudioClient || Client.prototype instanceof StudioClient;
+  const client = new Client({
     baseUrl: scopeUrlOf(stack, scope),
     platformOrigin: stack.baseUrl,
     ontologyVersion: opts.ontologyVersion ?? CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...constructionPairs(scope),
+    ...(studio ? chatPairOf(scope) : {}),
     accessToken: access_token,
     instanceName: `${sub}.${crypto.randomUUID().slice(0, 8)}`,
     fetch: ctx.fetch,

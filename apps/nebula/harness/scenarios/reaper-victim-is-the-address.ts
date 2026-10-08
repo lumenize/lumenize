@@ -151,8 +151,6 @@ export async function run(stack: DevStack): Promise<void> {
       platformOrigin: origin,
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       resourceHostBinding: 'GALAXY',
-      chatHostBinding: 'GALAXY',
-      chatScope: SCOPE,
       accessToken,
       instanceName: clientId,
       fetch: ctx.fetch,

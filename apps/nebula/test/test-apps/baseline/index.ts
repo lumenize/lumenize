@@ -56,6 +56,7 @@ import {
   Universe,
   Galaxy,
   NebulaClient,
+  StudioClient,
   requireDominionHere,
   ROOT_NODE_ID,
 } from '@lumenize/nebula';
@@ -63,7 +64,7 @@ import {
 // still carry it (this app never deploys), imported from the leaf directly.
 import { compileOntologyVersion } from '../../../src/ontology-compile';
 import { ROW_PATH, wsPath } from '../../../src/build-report';
-import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/nebula';
+import type { NebulaClientConfig, StudioClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/nebula';
 import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
 import type { CertificateApi, CertificatePack, CertificateResult } from '../../../src/certificate';
 
@@ -646,18 +647,23 @@ export class GalaxyTest extends Galaxy {
 }
 
 // ============================================
-// Test subclass: NebulaClientTest — adds @mesh methods + test initiators
+// Test subclasses: NebulaClientTest and StudioClientTest — add @mesh methods + test initiators
 // ============================================
 
 // Guard for client-side methods
-function requireAdminCaller(instance: NebulaClientTest) {
+function requireAdminCaller(instance: NebulaClient) {
   const claims = instance.lmz.callContext.originAuth?.claims as unknown as NebulaJwtPayload;
   if (!claims?.access?.scopeAdmin) {
     throw new Error('Admin caller required');
   }
 }
 
-export class NebulaClientTest extends NebulaClient {
+/**
+ * The captures and initiators every test client carries, over whichever class the test builds:
+ * `NebulaClient` for the Resources suites, which a generated app's client is, and `StudioClient`
+ * for the files that post to chat or hear a build reply.
+ */
+const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClient>(Base: TBase) => class extends Base {
   // --- Result storage for test assertions ---
   lastResult: any = undefined;
   lastError: string | undefined = undefined;
@@ -687,11 +693,6 @@ export class NebulaClientTest extends NebulaClient {
   // --- handleOrgTreeUpdate capture (the dedicated org-tree channel) ---
   lastOrgTree: unknown = undefined;
   orgTreeUpdateCount = 0;
-
-  /** `handlePreviewReady` capture — the BUILD reply's landing point (the Galaxy answers
-   *  whoever asked for the build). CUMULATIVE — NOT zeroed by resetResults (it's a channel
-   *  counter; baseline it before the action under test, per testing.md). */
-  previewReadyCount = 0;
 
   // --- handleQueryUpdate capture (the query channel). Reset explicitly by the
   //     query initiators (not resetResults). ---
@@ -760,16 +761,6 @@ export class NebulaClientTest extends NebulaClient {
   adminEcho(message: string): string {
     this.lastAdminEchoMessage = message;
     return `Admin client echoed: ${message}`;
-  }
-
-  /** Count the build reply. `super` keeps the real `handlePreviewReady → #onPreviewReady`
-   *  path (unset in most tests → a no-op); the counter proves the signal reached THIS
-   *  client, which is the whole point of a reply addressed at the requester. */
-  @mesh()
-  override handlePreviewReady(scope: string): void {
-    this.#recordPush('handlePreviewReady');
-    this.previewReadyCount++;
-    super.handlePreviewReady(scope);
   }
 
   // --- Test initiators (tests call these to trigger outbound mesh calls) ---
@@ -1127,7 +1118,7 @@ export class NebulaClientTest extends NebulaClient {
     // The base no-ops state write when no StateManager is bound, so tests that
     // don't call bindToState still work.
     super.handleResourceUpdate(resourceType, resourceId, result);
-    this.#recordPush('handleResourceUpdate');
+    this.recordPush('handleResourceUpdate');
 
     this.resourceUpdateCount++;
     this.lastResourceResult = result;
@@ -1165,11 +1156,11 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   @mesh()
-  override handleOrgTreeUpdate(envelope: { value: unknown }): void {
+  override handleOrgTreeUpdate(envelope: { value: OrgTreeState }): void {
     // Delegate to base so the factory's listener fires (a no-op headless), then
     // capture the tree state for assertion on the dedicated org-tree channel.
-    super.handleOrgTreeUpdate(envelope as { value: never });
-    this.#recordPush('handleOrgTreeUpdate');
+    super.handleOrgTreeUpdate(envelope);
+    this.recordPush('handleOrgTreeUpdate');
     this.orgTreeUpdateCount++;
     this.lastOrgTree = envelope.value;
   }
@@ -1179,7 +1170,7 @@ export class NebulaClientTest extends NebulaClient {
   @mesh()
   override handleQueryUpdate(queryHash: string, result: QueryUpdatePayload | Error): void {
     super.handleQueryUpdate(queryHash, result);
-    this.#recordPush('handleQueryUpdate');
+    this.recordPush('handleQueryUpdate');
     this.queryUpdateCount++;
     if (result instanceof Error) {
       this.lastQueryError = result;
@@ -1194,7 +1185,7 @@ export class NebulaClientTest extends NebulaClient {
   @mesh()
   override handleQuerySubscribersUpdate(queryHash: string, result: SubscriberRosterPayload | Error): void {
     super.handleQuerySubscribersUpdate(queryHash, result);
-    this.#recordPush('handleQuerySubscribersUpdate');
+    this.recordPush('handleQuerySubscribersUpdate');
     this.querySubscribersUpdateCount++;
     this.lastQuerySubscribersUpdate = result instanceof Error
       ? { queryHash, error: result }
@@ -1207,13 +1198,14 @@ export class NebulaClientTest extends NebulaClient {
   @mesh()
   override handleStreamChunk(messageId: string, progress: string, replyTo?: string): void {
     super.handleStreamChunk(messageId, progress, replyTo);
-    this.#recordPush('handleStreamChunk');
+    this.recordPush('handleStreamChunk');
     this.lastStreamReplyTo = replyTo;
     this.streamChunkCount++;
     this.lastStreamChunk = { messageId, progress };
   }
 
-  #recordPush(handler: string): void {
+  /** Record a push as it arrives, for {@link pushOrigins}. */
+  protected recordPush(handler: string): void {
     const cc = this.lmz.callContext;
     this.pushOrigins.push({ handler, originSub: cc.originAuth?.sub, chain: cc.callChain.map((n) => n.bindingName) });
   }
@@ -1253,4 +1245,33 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
+};
+
+/** The Resources suites' client: the class a generated app builds, plus the test captures. */
+export class NebulaClientTest extends withClientTestCaptures(NebulaClient) {
+  constructor(config: NebulaClientConfig) {
+    super(config);
+  }
+}
+
+/** The client for the files that post to chat or hear a build reply: Studio's class, plus the captures. */
+export class StudioClientTest extends withClientTestCaptures(StudioClient) {
+  /** `handlePreviewReady` capture — the BUILD reply's landing point (the Galaxy answers
+   *  whoever asked for the build). CUMULATIVE — NOT zeroed by resetResults (it's a channel
+   *  counter; baseline it before the action under test, per testing.md). */
+  previewReadyCount = 0;
+
+  constructor(config: StudioClientConfig) {
+    super(config);
+  }
+
+  /** Count the build reply. `super` keeps the real `handlePreviewReady → onPreviewReady`
+   *  path (unset in most tests → a no-op); the counter proves the signal reached THIS
+   *  client, which is the whole point of a reply addressed at the requester. */
+  @mesh()
+  override handlePreviewReady(scope: string): void {
+    this.recordPush('handlePreviewReady');
+    this.previewReadyCount++;
+    super.handlePreviewReady(scope);
+  }
 }

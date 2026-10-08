@@ -206,7 +206,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
 
   it('a denied resource subscriber that disconnects is reaped at the next write — on a Galaxy', async () => {
     const scope = `den-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope } as const;
+    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
     const { client: admin, accessToken } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
     const chat = uuid();

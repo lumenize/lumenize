@@ -26,13 +26,13 @@ import {
 import type { Galaxy, QueryDescriptor, Snapshot, TransactionResult, OntologyVersionConfig } from '@lumenize/nebula';
 import {
   adminClientAt, universeAdminClient, foundAndLogin, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, StudioClientTest } from './index';
 import type { GalaxyTest, StarTest } from './index';
 
 const uuid = () => crypto.randomUUID();
 const V1 = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
 const V2 = 'interface TestResource { title: string; note?: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
-const GALAXY_PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
+const GALAXY_PAIR = (_scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const COMPILE_TIMEOUT_MS = 60_000;
 
 type SinkEntry = { namespace: string; level: string; message: string; data?: Record<string, any> };
@@ -253,7 +253,10 @@ describe('off the .dev Star, a replacing `wipeOnInstall` row changes nothing', (
   it('a Galaxy — including one whose slug is `dev`: the version, a committed Message and an org-tree grant all survive', async () => {
     // `dev` is a legal galaxy slug, so the check has to be segment-precise: `{u}.dev` is a Galaxy.
     const scope = `pw-${uuid().slice(0, 8)}.dev`;
-    const owner = await admin(scope, scope, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(scope));
+    const { client: owner } = await universeAdminClient(
+      StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+    );
     const posted = await owner.postUserMessage('kept');
     await owner.lmz.callAsync('GALAXY', scope, door(owner).orgTree.setPermission(CHAT_NODE_ID, 'grantee-sub', 'write'));
     await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().setChatSourceForTest({

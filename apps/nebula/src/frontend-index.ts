@@ -25,7 +25,7 @@ export type { HostTarget } from '@lumenize/nebula-auth/claims';
 
 // Vue-reactive factory + helpers (this entry pulls in `vue`).
 export { createNebulaClient } from './frontend/create-nebula-client';
-export type { CreateNebulaClientConfig, FactoryResult } from './frontend/create-nebula-client';
+export type { CreateNebulaClientConfig, FactoryResult, NebulaClientClass } from './frontend/create-nebula-client';
 export type { Middleware, WriteContext } from './frontend/types';
 export { textMerge, makeLongformResolver } from './frontend/text-merge';
 export type { ConflictResolverVerdict } from './frontend/text-merge';

@@ -50,9 +50,7 @@ import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, Transa
 import type { QueryUpdatePayload, QueryDescriptor, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
 import type { OrgTreeState, PermissionTier } from './org-ops';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
 import type { Star } from './star';
-import type { Galaxy } from './galaxy';
 import type { NodeInvitee, NodeInviteAck } from './resources';
 
 const log = debug('lumenize.nebula-client');
@@ -282,37 +280,12 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    */
   onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   /**
-   * Optional hook invoked when the Galaxy answers a build this client asked for — the
-   * {@link NebulaClient.handlePreviewReady} push, fired by the build reply
-   * (`Galaxy.announceBuildToRequester`) and by nothing else. The Studio uses it to
-   * auto-refresh the preview iframe — no manual Reload. `scope` is the scope the
-   * readiness is for (ignore if the UI has since switched scopes).
-   */
-  onPreviewReady?: (scope: string) => void;
-  /**
    * Which mesh binding hosts this client's Resources — every `client.resources.*` op,
    * `client.orgTree.*`, and the org-tree channel. Default `'STAR'`. Every host serves the
    * same surface through its one `resources` door, so a client pointed at the Galaxy reads its
-   * tree the same way. The chat paths route via {@link chatHostBinding} + {@link chatScope},
-   * never this field.
+   * tree the same way. Studio's posts route by `StudioClient`'s chat pair, never this field.
    */
   resourceHostBinding?: string;
-  /**
-   * The CHAT host pair — which binding + instance host this client's chat
-   * (`postUserMessage` and the thread subscription). Chat `Chat`/`Message` Resources live on
-   * **GALAXY `{u}.{g}`** (the app-level brain) while app resources stay on the Star, so
-   * the two planes are separate construction pairs — PER CLIENT INSTANCE, never per op
-   * (no client needs two hosts: Studio's client chats and never touches app resources;
-   * a generated app's client does the reverse and leaves this unset).
-   *
-   * ⚠️ NO default, deliberately — a chat-path call with the pair unset THROWS loudly,
-   * which is what kills the silent misroute (chat falling back to the resource pair
-   * would write the user `Message` to the Star's plane). `Profile` subs ride NEITHER
-   * pair (the fixed `PROFILE` binding with the profileId as instance, ADR-012).
-   */
-  chatHostBinding?: string;
-  /** The chat host's instance — the galaxy `{u}.{g}` (see {@link chatHostBinding}). */
-  chatScope?: string;
   /**
    * How long `subscribe` / `subscribeProfile` wait for their FIRST push before giving up, in ms.
    * Default {@link SUBSCRIBE_TIMEOUT_MS}. A subscribe settles on the host's push rather than on the
@@ -466,20 +439,11 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /** Retries used per subscribe channel (`resource:`, `query:` or `roster:` plus its key) while a
    *  host installs its ontology — see {@link #retryInstalling}. */
   #installingAttempts = new Map<string, number>();
-  /** The chat host pair — NO default; chat paths throw when unset (see the config JSDoc). */
-  #chatHostBinding?: string;
-  #chatScope?: string;
   /** Ceiling on a subscribe's wait for its first push — see {@link NebulaClientConfig.subscribeTimeoutMs}. */
   #subscribeTimeoutMs: number;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
-  #onPreviewReady?: (scope: string) => void;
-  // Captured for `logout()` (the embedded refresh closure reads them too, but a
-  // method can't reach the constructor's `config`). `#baseUrl` may be undefined
-  // when the browser auto-detects it for the WS URL — logout falls back to the
-  // current origin in that case.
-  #baseUrl?: string;
   #fetchFn: typeof fetch;
-  /** Exactly what a child from `impersonate()` inherits — see {@link impersonate}. */
+  /** Exactly what a child from `impersonate()` inherits — see {@link childConfig}. */
   #childConfigBase!: ChildConfigBase;
   /** The ids of children `impersonate()` is minting, claimed until each is registered. */
   #childrenOpening = new Set<string>();
@@ -637,10 +601,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       parentOrigin,
       ontologyVersion,
       onShouldRefreshUI,
-      onPreviewReady,
       resourceHostBinding,
-      chatHostBinding,
-      chatScope,
       onConnectionStateChange: userOnConnectionStateChange,
       ...baseConfig
     } = config;
@@ -734,12 +695,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.#ontologyVersion = ontologyVersion;
     this.#resourceHostBinding = resourceHostBinding ?? 'STAR';
-    this.#chatHostBinding = chatHostBinding;
-    this.#chatScope = chatScope;
     this.#subscribeTimeoutMs = config.subscribeTimeoutMs ?? SUBSCRIBE_TIMEOUT_MS;
     // The inheritance contract for a child from `impersonate()`, captured as ONE field because a
-    // method cannot reach the constructor's `config` (see `#baseUrl` above) and `LumenizeClient`'s
-    // own `#config` is private. Deliberately EXCLUDES `onLoginRequired`: a child must not hold the
+    // method cannot reach the constructor's `config` and `LumenizeClient`'s own `#config` is private. Deliberately EXCLUDES `onLoginRequired`: a child must not hold the
     // admin's handler, or someone else's session ending would bounce the admin to login.
     this.#childConfigBase = {
       baseUrl: config.baseUrl,
@@ -752,14 +710,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       sessionStorage: config.sessionStorage,
       BroadcastChannel: config.BroadcastChannel,
       resourceHostBinding: this.#resourceHostBinding,
-      chatHostBinding: this.#chatHostBinding,
-      chatScope: this.#chatScope,
       subscribeTimeoutMs: this.#subscribeTimeoutMs,
     };
     this.#mintedFrom = (config as unknown as Record<symbol, unknown>)[INTERNAL_PARENT] as NebulaClient | undefined;
     this.#onShouldRefreshUI = onShouldRefreshUI;
-    this.#onPreviewReady = onPreviewReady;
-    this.#baseUrl = config.baseUrl;
     this.#fetchFn = config.fetch ?? fetch;
 
     // Build the conflict-outcome engine over the store adapter + the serial
@@ -1013,7 +967,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    *   `sub` — before any network call. Dispose that child first.
    * @throws {ImpersonationMintError} when the facade refuses, carrying its message.
    */
-  async impersonate(sub: string, opts?: ImpersonateOptions): Promise<NebulaClient> {
+  async impersonate(sub: string, opts?: ImpersonateOptions): Promise<this> {
     // Local, decidable, and enforced independently by the mint's root-identity gate. `?.` is
     // required rather than defensive: `claims` is genuinely nullable on the base class.
     assertCanImpersonate(this.claims as { act?: unknown } | null | undefined);
@@ -1062,8 +1016,11 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       this.#childrenOpening.delete(instanceName);
     }
 
-    const child = new NebulaClient({
-      ...this.#childConfigBase,
+    // The child is this client's own class, so a subclass's child keeps its surface — a Studio
+    // client's child still posts to chat — and carries what that subclass's `childConfig` adds.
+    const Child = this.constructor as new (config: NebulaClientConfig) => this;
+    const child = new Child({
+      ...this.childConfig(),
       accessToken: minted.access_token,
       instanceName,
       [INTERNAL_REFRESH]: (async () => {
@@ -1102,6 +1059,16 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // AFTER the mint resolves, so a refused mint leaves no half-registered child holding a socket.
     registerChild(this, child);
     return child;
+  }
+
+  /**
+   * The config a child from {@link impersonate} is built with. It deliberately leaves out
+   * `onLoginRequired`: a child must not hold the admin's handler, or someone else's session ending
+   * would bounce the admin to login. A subclass whose own config a child needs extends this with
+   * those fields.
+   */
+  protected childConfig(): NebulaClientConfig {
+    return { ...this.#childConfigBase } as NebulaClientConfig;
   }
 
   /**
@@ -1193,7 +1160,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     let result: any;
     try {
       result = await this.#hostCallAsync(
-        this.ctn<Star>().resources.transaction(this.#requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
+        this.ctn<Star>().resources.transaction(this.requireOntologyVersion('transaction'), meshNewETag, this.#buildMeshOps(subs)),
       );
     } catch (e) {
       if (!(e instanceof Error)) throw e;
@@ -1792,7 +1759,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
     // BEFORE any state. Refusing inside `fire()` instead would leave a registry entry and an armed
     // abandon timer behind a subscribe that never went out.
-    const version = this.#requireOntologyVersion('subscribe');
+    const version = this.requireOntologyVersion('subscribe');
     const key = `${resourceType}:${resourceId}`;
     this.#subscriptionRegistry.set(key, { resourceType, resourceId });
     return this.#subscribeVia(
@@ -1823,28 +1790,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
     return this.lmz.callAsync('PROFILE', this.claims.profileId,
       this.ctn<ProfileSubscribeTarget>().writeProfile(fields)) as Promise<void>;
-  }
-
-  /**
-   * Upload a profile picture — the platform's first blob — and return its public URL.
-   *
-   * Upload ONLY, on purpose: the caller then writes the URL into the Profile with
-   * {@link updateMyProfile}, which REPLACES the public set, so the caller carries nickname/name
-   * through (App.vue's editor does). Two steps rather than one keeps the write on the one
-   * owner-authorized path that already exists, instead of widening the auth Worker's seam.
-   * The bearer never leaves the client (`authedFetch`); the server derives WHOSE picture from the
-   * verified claims and sniffs the bytes — the Content-Type sent here is a courtesy.
-   */
-  async uploadProfilePicture(image: Blob): Promise<string> {
-    const base = this.#baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '');
-    const res = await this.authedFetch(`${base}/pictures`, {
-      method: 'PUT', body: image, headers: image.type ? { 'content-type': image.type } : {},
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({})) as { error_description?: string };
-      throw new Error(body.error_description ?? `picture upload failed (${res.status})`);
-    }
-    return ((await res.json()) as { url: string }).url;
   }
 
   /**
@@ -1956,7 +1901,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * {@link CHAT_MESSAGE_ONTOLOGY_VERSION}, a platform constant rather than an applied version. Only
    * a generated app's client, whose version comes from the Galaxy's applied head, can be without one.
    */
-  #requireOntologyVersion(operation: string): string {
+  protected requireOntologyVersion(operation: string): string {
     if (!this.#ontologyVersion) throw new NoOntologyInstalledError(operation);
     return this.#ontologyVersion;
   }
@@ -2021,7 +1966,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // per Star). Kept in the client signature for API symmetry with
     // subscribe/transaction and for future addressing changes.
     void resourceType;
-    const version = options?.ontologyVersion ?? this.#requireOntologyVersion('read');
+    const version = options?.ontologyVersion ?? this.requireOntologyVersion('read');
     // `callAsync` returns the snapshot (framework fire-back) — resilient across
     // reconnect/freeze, bounded by the default timeout. Concurrent reads are correlated by the
     // primitive's `callId`. On a stale version `Star.resources.read` throws `OntologyStaleError` → the reject
@@ -2364,74 +2309,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    *  UI seam; headless clients (tests) read {@link streamingProgress} instead. */
   setOnStreamChunk(hook: (messageId: string, progress: string, replyTo?: string) => void): void {
     this.#onStreamChunk = hook;
-  }
-
-  /**
-   * The chat host pair, or a LOUD throw when unset — the guard that kills the silent
-   * misroute (a chat path falling back to the resource pair would land the user
-   * `Message` on the Star's plane and the chat's subscription would watch the wrong
-   * host). Construct the client with `chatHostBinding: 'GALAXY', chatScope: '{u}.{g}'`
-   * to chat.
-   */
-  #chatHost(): { binding: string; scope: string } {
-    if (!this.#chatHostBinding || !this.#chatScope) {
-      throw new Error(
-        'This client has no chat host: construct it with chatHostBinding + chatScope ' +
-        "(chat lives on GALAXY at the {u}.{g} tier) — chat never falls back to the resource pair.",
-      );
-    }
-    return { binding: this.#chatHostBinding, scope: this.#chatScope };
-  }
-
-  // (`chat()` is GONE — the committed human `Message` IS the codegen trigger since the
-  // collapse: the send is {@link postUserMessage}, the Galaxy's commit hook starts the
-  // turn under the poster's own authority, and completion arrives on the `Message`
-  // subscription — which also re-derives on reconnect and reload, so there is no
-  // one-shot delivery machinery to strand.)
-
-  /**
-   * Post a human `Message` to the pre-alpha chat — a single atomic create on the CHAT
-   * host's data plane (the chat pair — throws without one). ⚠️ Writes NO identity
-   * fields: attribution comes entirely from the server-stamped `meta.actingToken`
-   * (`sub` + `profileId` from the writer's verified JWT), which is what makes author
-   * spoofing impossible — a client-written `author`/`role` would be a second, forgeable
-   * source of truth. Returns the client-minted message id (idempotency, ADR-010); the
-   * agent reply links back to it via `replyTo`. Rides the
-   * `Message where chat==DEFAULT_CHAT_ID` query, so the sender AND every other
-   * subscriber see it via the fanout (no optimistic echo). `chat` calls this before
-   * kicking codegen; a non-codegen participant can call it directly to just chat.
-   */
-  async postUserMessage(content: string): Promise<string> {
-    const { binding, scope } = this.#chatHost();
-    const messageId = crypto.randomUUID();
-    const newETag = crypto.randomUUID();
-    // The door's `transaction` returns an OntologyStaleError as a VALUE on a version
-    // mismatch; everything else is the ordinary TransactionResult.
-    const result = await this.lmz.callAsync(
-      binding, scope,
-      this.ctn<Galaxy>().resources.transaction(this.#requireOntologyVersion('postUserMessage'), newETag, {
-        [messageId]: {
-          op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
-          value: { chat: DEFAULT_CHAT_ID, content },
-        },
-      }),
-    ) as TransactionResult | Error;
-    if (result instanceof Error) throw result;
-    if (!result.ok) {
-      throw new Error(`postUserMessage failed: ${JSON.stringify(result.errors)}`);
-    }
-    return messageId;
-  }
-
-  /**
-   * Receive the Galaxy's build reply — "your preview has a new dist" (direct delivery,
-   * addressed to this client's `instanceName`, so it survives a WS reconnect during the
-   * build). Invokes the `onPreviewReady` hook so the UI can refresh the preview iframe.
-   * `@mesh()` because it arrives as a push like the others.
-   */
-  @mesh()
-  handlePreviewReady(scope: string): void {
-    this.#onPreviewReady?.(scope);
   }
 
   // No onBeforeCall override — NebulaClient inherits the base LumenizeClient default, which refuses

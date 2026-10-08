@@ -63,7 +63,7 @@ import { deploymentOrigin, hostOrigin } from '@lumenize/nebula-auth/claims';
 import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
-import type { NebulaClient } from './nebula-client';
+import type { StudioClient } from './studio-client';
 import type { Snapshot } from './snapshots';
 import { TOOL_ARGS_BUNDLE_ID } from './tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from './validator-seeds';
@@ -1604,7 +1604,7 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
   protected deliverPreviewReady(scope: string, clientAddress: string): void {
     try {
       const { bindingName, instanceName } = splitAddress(clientAddress);
-      this.lmz.call(bindingName, instanceName, this.ctn<NebulaClient>().handlePreviewReady(scope),
+      this.lmz.call(bindingName, instanceName, this.ctn<StudioClient>().handlePreviewReady(scope),
         this.ctn<Galaxy>().onPreviewReadyUndelivered(), { newChain: true, onErrorOnly: true });
     } catch (e) {
       debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: e });

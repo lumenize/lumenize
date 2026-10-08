@@ -34,7 +34,7 @@ import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, uniqueTestEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { RECOMMENDED_MIN_TTL_SECONDS } from '@lumenize/nebula-auth/claims';
-import { NebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { NebulaClient, StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, constructionPairs, readDevVar, scopeUrlOf, waitForHost, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
 import { provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, foundTenantStar } from '../../test/lib/email-login';
@@ -336,7 +336,7 @@ export async function run(stack: DevStack): Promise<void> {
       const scope = `${universe}.app`;
       const email = uniqueTestEmail();
       const session = await provisionAndLogin({ baseUrl: origin, scope, email, testToken });
-      const writer = await connectDriver(stack, { scope, session });
+      const writer = await connectDriver(stack, { scope, session, Client: StudioClient });
       disposers.push(() => writer.dispose());
       ours.add(writer.client.lmz.instanceName!);
       const { viteBaseUrl, scopeUrl, close: closeVite } = await bootStudioVite(stack.baseUrl);

@@ -7,8 +7,8 @@ import AppSettings from "./AppSettings.vue";
 import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
-import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
-import type { TurnLiveness } from "@lumenize/nebula/frontend";
+import { createNebulaClient, StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/frontend";
+import type { TurnLiveness, FactoryResult } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
 
@@ -214,7 +214,7 @@ const elapsedSec = computed(() =>
   turnStartedAt.value === null ? 0 : Math.max(0, Math.floor((nowTick.value - turnStartedAt.value) / 1000)),
 );
 const previewSrc = ref("");
-const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
+const nebula = shallowRef<FactoryResult<StudioClient> | null>(null);
 
 // account / hierarchy
 const menuOpen = ref(false);
@@ -385,6 +385,8 @@ onUnmounted(() => window.removeEventListener("message", onFrameMessage));
 
 async function connect() {
   const n = createNebulaClient({
+    // Studio's own class: it posts to the build thread, uploads pictures, and hears build replies.
+    Client: StudioClient,
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...chatPair(activeScope),
     // The build reply lands here: the Galaxy answers whoever asked for the build. The

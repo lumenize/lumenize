@@ -27,10 +27,10 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
 import type { Galaxy, OntologyVersionRow, Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, StudioClientTest } from './index';
 
 const uniqueScope = () => `scf-${crypto.randomUUID().slice(0, 8)}.app`;
-const PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
+const PAIR = (_scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const OID_RE = /^[0-9a-f]{40}$/;
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
 const TODO_V2 = `interface Todo { title: string; done: boolean; priority: string; }`;
@@ -57,7 +57,9 @@ async function ownerAndMember(scope: string) {
   const adminBrowser = new Browser();
   await createSubject(adminBrowser, scope, accessToken, 'member@example.com');
   const { client: member, payload } = await createInvitedClient(
-    NebulaClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, PAIR(scope),
+    // A collaborator in Studio, so one test can post as them.
+    StudioClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+    { ...PAIR(scope), chatHostBinding: 'GALAXY', chatScope: scope },
   );
   // The dangerous shape, asserted: the chat floor is reachable by a grant, and NO dominion
   // anywhere — a co-minted `.dev` membership is a different `sub` on a different session.

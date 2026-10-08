@@ -41,7 +41,7 @@ const BUILD_THEN_COMPLETE = [
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
-    { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+    { resourceHostBinding: 'GALAXY' },
   );
 }
 
@@ -50,7 +50,7 @@ describe('child3 — a turn\'s chunks reach the readers of the chat node, and no
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
-    const chatPair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope } as const;
+    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
 
     // Non-admin "granted": explicit read on the chat node.
     const adminBrowser = new Browser();

@@ -459,3 +459,22 @@ Each row records who decided it and when; § *Design intent* carries the reasons
 - **`__lmz_alarms` in ISO text, and the retry row's columns** (D21).
 - **Keeping `@lumenize/fetch` working** (§ *Current state*).
 - **Moving `nebula-auth`'s own suites off ADR-009 rung 2.** They already log in through test mode and move with their assertions untouched.
+
+## Build notes
+
+### Phase 1 — Studio's methods live on `StudioClient`
+
+**For the human:**
+- **Pulled forward from Phase 7: the impersonation child is built from its parent's own class.** `NebulaClient.impersonate` now builds `new this.constructor(…)` from a protected `childConfig()`, and `StudioClient` extends that with its chat pair. Without it, a Studio client's child would have lost the chat pair it inherits today until Phase 7. Phase 7 moves the same shape into `MeshClient` instead of introducing it.
+- **`#baseUrl` moved to `StudioClient` rather than becoming protected.** `uploadProfilePicture` was its only reader; the comment calling it "captured for `logout()`" was stale. Only `requireOntologyVersion` became protected on `NebulaClient`.
+- **The harness's driver takes a class, as the factory does.** `connectDriver({ Client: StudioClient })` builds Studio's client and gives it its scope's chat pair (`chatPairOf`); `constructionPairs` now returns only the resource pair. Five scenarios pass `StudioClient`: `four-party-chat`, `studio-guidance-loop`, `studio-codegen-rest`, `resubscribe-when-lost` (its writer), and `hosts-and-frames` (its uploader).
+- **Dead chat pairs dropped.** Nine baseline files and three scenarios handed a chat pair to a client that never posts; each now carries only its resource pair.
+
+**Retro notes:**
+- The fixture split is a mixin, `withClientTestCaptures(Base)`, applied to both classes. It surfaced an override wider than its base, `handleOrgTreeUpdate(envelope: { value: unknown })`, which the continuation types of two instantiations rejected; narrowed to `OrgTreeState`.
+- `createNebulaClient` is generic over the class (`K extends NebulaClientClass`), inferring the config from the constructor, so `onPreviewReady` type-checks only when `Client: StudioClient` is passed.
+- **Gate, as run:** `apps/nebula` `npm test` passed 119 files (1 skipped) and 1032 tests in 61 minutes, its one unhandled rejection from `invite-facade.test.ts`, which this phase did not touch. `drive.ts all --fast` passed 53 of 53 in 21.5 minutes. The two new tests and `App.vue`'s `Client` each reddened under their mutation; the last stalls `signup-to-first-app` at the composer's post.
+- **`audit:do-http`'s counts before Phase 2:** 5 member `.fetch(` sites, 1 `routeDORequest` call under `apps/`, 2 mesh-node HTTP surfaces comparing 4 paths, and 5 stub-making calls.
+- An orphaned `wrangler dev` from 20:06, parented by launchd, was still up from the earlier session's run and was killed before the sweep.
+
+**Close-out notes:** no backlog row or sibling line changes in this phase.

@@ -20,7 +20,7 @@ import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { deriveKind } from '@lumenize/nebula';
 import { NEBULA_SUB } from '@lumenize/nebula-auth';
-import { NebulaClientTest } from './index';
+import { StudioClientTest } from './index';
 
 const uniqueChatScope = () => `c3e-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = {
@@ -32,7 +32,7 @@ const chatQuery = {
   // a galaxy is administered.
 function devClient(scope: string, email = 'admin@example.com') {
   return universeAdminClient(
-    NebulaClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
+    StudioClientTest, new Browser(), scope, scope, email, CHAT_MESSAGE_ONTOLOGY_VERSION,
     { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
   );
 }

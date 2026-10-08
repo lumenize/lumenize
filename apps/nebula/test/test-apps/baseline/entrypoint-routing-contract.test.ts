@@ -52,7 +52,7 @@ describe('entrypoint routing contract — exhaustive + collision-free', () => {
     const scope = `erc-${crypto.randomUUID().slice(0, 8)}.app`;
     const { client } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'serve@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
-      { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+      { resourceHostBinding: 'GALAXY' },
     );
     const html = '<!doctype html><html><head><title>app</title></head><body>BUILT</body></html>';
     await client.lmz.callAsync('GALAXY', scope, client.ctn<Galaxy>().writeSource('dist/index.html', html));

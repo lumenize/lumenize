@@ -143,7 +143,7 @@ describe('no subscription update carries the identity of the caller whose call c
 
     // ── Galaxy kind: a streaming chunk, caused by the admin's turn ────────────────────────────
     const scope = `ident-${uuid().slice(0, 8)}.app`;
-    const chatPair = { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope } as const;
+    const chatPair = { resourceHostBinding: 'GALAXY' } as const;
     const { client: gAdmin, accessToken: gToken } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, chatPair);
     const adminBrowser = new Browser();
