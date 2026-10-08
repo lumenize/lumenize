@@ -1,5 +1,5 @@
 /**
- * LumenizeClient default peer-guard (tasks/mesh-client-peer-guard.md).
+ * MeshClient default peer-guard (tasks/mesh-client-peer-guard.md).
  *
  * The client's default `onBeforeCall` blocks a DIRECT client→client call by checking the IMMEDIATE
  * caller (`callChain.at(-1)`), NOT the origin. This is the foundation-default proof, homed in
@@ -80,7 +80,7 @@ it('#2 default guard BLOCKS a direct client→client call (caller = a client), v
   await vi.waitFor(() => expect(bobContents[0]).toBe(''), { timeout: 10000 }); // bob subscribed
 
   // Alice calls bob's @mesh `handleContentUpdate` DIRECTLY through their host (no DO in the chain).
-  // bob sees callChain = [alice]; at(-1) = alice (a LumenizeClient, DISTINCT instanceName) → bob's
+  // bob sees callChain = [alice]; at(-1) = alice (a MeshClient, DISTINCT instanceName) → bob's
   // default guard REJECTS it before `handleContentUpdate` runs.
   alice.lmz.call('WORKSPACE_DO', `${workspace}/${bob.lmz.instanceName}`,
     alice.ctn<EditorClient>().handleContentUpdate(documentId, 'DIRECT-FROM-ALICE'),

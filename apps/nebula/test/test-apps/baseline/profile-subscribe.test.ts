@@ -10,13 +10,13 @@
  *
  * Harness: mesh clients with `refresh: createTestToken(...)` in DISTINCT scopes so the subscriber
  * (X) and the writer (Y) sit in different universes, so neither has passage into the other's scope (rung-2/3;
- * ADR-009). A `SubscriberProbe` (a `LumenizeClient` capturing the dedicated `@mesh handleProfileUpdate`
+ * ADR-009). A `SubscriberProbe` (a `MeshClient` capturing the dedicated `@mesh handleProfileUpdate`
  * channel) is the receive side; a `NebulaClient` exercises the real `subscribeProfile` client API.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
-import { LumenizeClient, mesh, type CallEnvelope, type OriginAuth } from '@lumenize/mesh';
+import { MeshClient, mesh, type CallEnvelope, type OriginAuth } from '@lumenize/mesh';
 import { preprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { Browser } from '@lumenize/testing';
@@ -30,11 +30,11 @@ function uuid(): string { return crypto.randomUUID(); }
 /** Receive side: captures pushes on the DEDICATED global-Profile channel (`handleProfileUpdate`, the
  *  production path); ALSO captures `handleResourceUpdate`. Profiles ride their own channel now
  *  (tasks/archive/nebula-subscriber-lists.md). */
-class SubscriberProbe extends LumenizeClient {
+class SubscriberProbe extends MeshClient {
   /** Each push on the profile channel, with the `originAuth` it arrived carrying. */
   profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot; originAuth?: OriginAuth }> = [];
   updates: Array<{ resourceType: string; resourceId: string; snapshot: ProfileSnapshot }> = [];
-  // No onBeforeCall override — the DEFAULT LumenizeClient guard accepts the fanned-out UPDATE because
+  // No onBeforeCall override — the DEFAULT MeshClient guard accepts the fanned-out UPDATE because
   // its immediate caller is the PROFILE DO (not another client); the Profile starts each update's
   // chain afresh, so it is the origin too. The host node's onBeforeCallToClient lets it through because
   // a Profile's name is no scope.
@@ -198,9 +198,10 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     await (runInDurableObject as any)(stub, (_i: any, c: any) => c.storage.sql.exec('DELETE FROM Subscribers'));
     expect(await subscriberCount(pid)).toBe(0);
 
-    // The re-subscribe walk must re-fire the subscribe to PROFILE/pid. A regression routing it to
-    // STAR/pid instead would throw (pid is not a parseId-valid scope) and never re-add the row.
-    (client as any)._restoreSubscriptionsForTest();
+    // The restore the host's loss report triggers must re-fire the subscribe to PROFILE/pid: the
+    // Profile channel is the session's, so `MeshClient.onSubscriptionRequired` restores it. A regression
+    // routing it to STAR/pid instead would throw (pid is not a parseId-valid scope) and never re-add the row.
+    client.onSubscriptionRequired();
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1));
   });
 

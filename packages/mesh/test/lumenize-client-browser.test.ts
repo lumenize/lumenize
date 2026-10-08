@@ -21,11 +21,11 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  LumenizeClient,
+  MeshClient,
   mesh,
   getOrCreateTabId,
   type ConnectionState,
-  type LumenizeClientConfig,
+  type MeshClientConfig,
 } from '../src/client-index';
 
 // Minimal stub WebSocket: lets the constructor's eager `connect()` complete
@@ -55,7 +55,7 @@ class StubWebSocket {
   dispatchEvent(): boolean { return false; }
 }
 
-class TestClient extends LumenizeClient {}
+class TestClient extends MeshClient {}
 
 describe('@lumenize/mesh/client (real-browser bundle)', () => {
   it('imports cleanly under Vite + chromium', () => {
@@ -63,13 +63,13 @@ describe('@lumenize/mesh/client (real-browser bundle)', () => {
     // browser. That's the primary signal. The remaining `expect`s document
     // what the import surface should look like so accidental removals get
     // caught as test failures rather than silent breakage.
-    expect(typeof LumenizeClient).toBe('function');
+    expect(typeof MeshClient).toBe('function');
     expect(typeof mesh).toBe('function');
     expect(typeof getOrCreateTabId).toBe('function');
   });
 
   it('constructs without throwing and reports a valid initial connectionState', () => {
-    const config: LumenizeClientConfig = {
+    const config: MeshClientConfig = {
       baseUrl: 'wss://example.invalid',
       WebSocket: StubWebSocket as unknown as typeof WebSocket,
       // Don't supply a refresh URL — the client won't try to refresh during

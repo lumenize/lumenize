@@ -6,9 +6,12 @@
 
 // Client class + config
 export { NebulaClient } from './nebula-client';
-export type { NebulaClientConfig } from './nebula-client';
+export type { NebulaClientConfig, NebulaStoreAdapter } from './nebula-client';
+// The Client's half of the Resources plane, which NebulaClient composes.
+export { ClientResources } from './client-resources';
+export type { ClientResourcesOptions } from './client-resources';
 // What `impersonate()` throws, for a caller that tells its refusals apart.
-export { ImpersonationChainError, ImpersonationAlreadyOpenError, ImpersonationMintError } from './impersonation';
+export { ImpersonationChainError, ImpersonationAlreadyOpenError, ImpersonationMintError } from '@lumenize/mesh/client';
 
 // Resource types and the END_OF_TIME constant — used when constructing transactions and reading
 // snapshots. These types reference @lumenize/mesh and @lumenize/crypto through type-only imports,

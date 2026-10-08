@@ -315,7 +315,7 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
 
   it('a chain no client originated is refused, by message, and writes no row', async () => {
     const host = await starHost();
-    // A DO-originated chain: the origin is a Galaxy, not a LumenizeClient. The claims pass the
+    // A DO-originated chain: the origin is a Galaxy, not a MeshClient. The claims pass the
     // Star's passage check, so the door's own refusal is what stops it.
     const claims = { aud: host.scope, sub: 'door-admin', profileId: 'p-door-admin', access: { authScope: host.scope, scopeAdmin: true } };
     const stub = (env as any).STAR.getByName(host.scope);

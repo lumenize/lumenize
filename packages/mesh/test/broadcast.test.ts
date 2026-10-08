@@ -10,12 +10,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
-import { LumenizeClient } from '../src/lumenize-client';
+import { MeshClient } from '../src/mesh-client';
 import type { TestDO } from './test-worker-and-dos';
 import { connectClient, loginOf, uniqueScope } from './support/login';
 
 /** A client whose `onResult` handler records every result it receives. It comes back filled, so no `@mesh()`. */
-class BroadcastClient extends LumenizeClient {
+class BroadcastClient extends MeshClient {
   outcomes: unknown[] = [];
 
   recordOutcome(result?: unknown): void {

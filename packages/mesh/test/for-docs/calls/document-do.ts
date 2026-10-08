@@ -358,7 +358,7 @@ export class DocumentDO extends UnscopedMeshDO<Env> {
    * Like `update`, but fans out to subscribers WITHOUT `{ newChain: true }`, so the pushed
    * `handleContentUpdate` preserves the WRITER's origin: the receiver sees
    * `callChain = [writerClient, DocumentDO]` (`callChain.at(-1)` = this DO). It is what
-   * `lmz.broadcast` sends with `{ newChain: false }`, and the fixture for the `LumenizeClient`
+   * `lmz.broadcast` sends with `{ newChain: false }`, and the fixture for the `MeshClient`
    * default peer-guard: a DO-mediated
    * cross-client push must be ACCEPTED by the receiver's default `onBeforeCall` (caller = the DO),
    * even though its ORIGIN is another client. (Contrast `#broadcast`, whose `newChain` makes the DO

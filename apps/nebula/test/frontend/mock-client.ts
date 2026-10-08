@@ -19,7 +19,7 @@ import {
   type ServerResourceResult,
   type Snapshot,
 } from '../../../../packages/resources/src/frontend/conflict-outcome';
-import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, SubscriberListSubscription, SubscriberRosterDelivery } from '../../../../packages/resources/src/nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, ProfileSubscription, SubscriberListSubscription, SubscriberRosterDelivery } from '../../../../packages/resources/src/nebula-client';
 import type { QueryDescriptor, SubscriberEntry } from '../../../../packages/resources/src/query-hash';
 import type { StoreClient } from '../../../../packages/resources/src/frontend/types';
 import type { ConnectionState } from '@lumenize/mesh/client';
@@ -100,14 +100,12 @@ export class MockClient implements StoreClient {
     this.#profileHandler = handler;
   }
 
-  subscribeProfile(profileId: string): ResourceSubscription {
+  subscribeProfile(profileId: string): ProfileSubscription {
     this.profileSubscribes.push({ profileId });
     const snapshot = this.profileSubscribeResponder(profileId) as Promise<never>;
     let disposed = false;
     return {
       snapshot,
-      deniedNodes: [],
-      onChange: (): void => {},
       [Symbol.dispose]: (): void => {
         if (disposed) return;
         disposed = true;

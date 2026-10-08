@@ -1,7 +1,7 @@
 /**
  * @lumenize/mesh - Lumenize Mesh communication framework
  *
- * Provides base classes for mesh nodes (ScopedMeshDO, UnscopedMeshDO, MeshWorker, LumenizeClient)
+ * Provides base classes for mesh nodes (ScopedMeshDO, UnscopedMeshDO, MeshWorker, MeshClient)
  * with automatic dependency injection, OCAN communication, and mesh RPC.
  */
 
@@ -69,16 +69,24 @@ export type {
   ConnectionStatusMessage,
 } from './gateway-messages';
 
-// LumenizeClient - Browser/Node.js client for mesh communication
-export { LumenizeClient, LoginRequiredError, HostDeletedError, TOKEN_REFRESH_AHEAD_SECONDS } from './lumenize-client';
+// MeshClient - Browser/Node.js client for mesh communication
+export { MeshClient, LoginRequiredError, HostDeletedError, TOKEN_REFRESH_AHEAD_SECONDS } from './mesh-client';
 export type {
-  LumenizeClientConfig,
+  MeshClientConfig,
   ConnectionState,
   LmzApiClient,
   ClientCallOptions,
   ClientBroadcastOptions,
+  ProfileChannelSnapshot,
+  ProfileSubscription,
   Continuation as ClientContinuation,  // Alias to avoid conflict with DO's Continuation
-} from './lumenize-client';
+} from './mesh-client';
+// What `impersonate()` throws, for a caller that tells its refusals apart, and what it takes.
+export { ImpersonationChainError, ImpersonationAlreadyOpenError, ImpersonationMintError } from './impersonation';
+export type { ImpersonateOptions } from './impersonation';
+// A subscribe's wait for its first push, shared by the Profile channel and a subclass's own planes.
+export { awaitFirstPush, SUBSCRIBE_TIMEOUT_MS } from './first-push';
+export type { PendingPush } from './first-push';
 
 // Tab ID management for browser clients
 export { getOrCreateTabId } from './tab-id';

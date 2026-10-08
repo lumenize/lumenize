@@ -53,7 +53,7 @@ or anything else in the leading segment and you get a 403 that reads as a *token
 message says "identity mismatch", so the natural next move is to go debug minting, which is the wrong
 file. ⚠️ This works at all only because a surrogate `sub` is a **dotless** UUID; a `sub` containing a
 dot would break the parse rather than the comparison. Canonical: `childInstanceName` in
-`packages/resources/src/impersonation.ts`, which appends `${tabId}.${scope}` after the subject's `sub`.
+`packages/mesh/src/impersonation.ts`, which appends `${tabId}.${scope}` after the subject's `sub`.
 
 ## Passing data to the callee
 **Default: whatever the callee needs SHOULD be passed as arguments to the continuation method.** The callee declares them as ordinary parameters and they cross the wire — explicit, typed, and visible at the call site:
@@ -198,7 +198,7 @@ If neither fits, that's a signal to extend Mesh itself — you MUST ask before d
 "auth/identity → `auth`/`nebula-auth`" clause is about verification, gating and key handling, not
 about the bytes on the socket. **Producing and parsing the `lmz.access-token.` WebSocket
 subprotocol lives in `mesh`** (`src/gateway-messages.ts`, exported from `@lumenize/mesh/client` —
-`WS_TOKEN_PREFIX`, `extractWebSocketToken`), because mesh's `LumenizeClient` is the **producer**:
+`WS_TOKEN_PREFIX`, `extractWebSocketToken`), because mesh's `MeshClient` is the **producer**:
 splitting the two ends across packages made them a never-re-sync copy of a live protocol, whose
 failure mode is a silent 401 on upgrade. Verification of the extracted token stays in
 `auth`/`nebula-auth`. Without this note a future session helpfully moves it back.

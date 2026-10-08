@@ -1,13 +1,13 @@
 /**
  * A Client's result handler continuation travels with its call and comes back filled.
  *
- * Every limb drives a real `LumenizeClient`, logged in through Mesh's Registry and hosted by a
+ * Every limb drives a real `MeshClient`, logged in through Mesh's Registry and hosted by a
  * scope's node, to a real node, and asserts what the Client's own handler received. The properties are the mesh framework's — the
  * Client's response door, the Gateway's refusal fill — so this package's lane is where they live;
  * `apps/nebula`'s `forged-continuation` and `late-answer-dropped` scenarios drive the same doors live.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { LumenizeClient } from '../src/lumenize-client';
+import { MeshClient } from '../src/mesh-client';
 import type { TestDO } from './test-worker-and-dos';
 import { connectClient, loginOf } from './support/login';
 
@@ -18,7 +18,7 @@ class BoundError extends Error {
 }
 
 /** A client whose handlers record what they received. They run as its own continuations, so no `@mesh()`. */
-class ContinuationClient extends LumenizeClient {
+class ContinuationClient extends MeshClient {
   received: unknown[] = [];
   injected: string[] = [];
   callees: unknown[] = [];

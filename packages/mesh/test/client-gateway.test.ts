@@ -2,7 +2,7 @@
  * `ClientGateway`, a Client's server-side half, as a host node composes it: each limb here plays a
  * Client's socket by hand against `ClientHostDO`, a `ScopedMeshDO`, or `CustomHostDO`, which
  * overrides the host's hooks. The limbs upgrade straight into the host, below the Worker, to hold
- * frames, sockets and grace periods by hand; `hosted-clients.test.ts` drives a real `LumenizeClient`
+ * frames, sockets and grace periods by hand; `hosted-clients.test.ts` drives a real `MeshClient`
  * through the Worker's `hostedUpgrade`.
  *
  * Each test gets a host of its own, `HOST`, so a Client's grace period or socket never leaks into the
@@ -421,7 +421,7 @@ describe('ClientGateway, on a host node', () => {
 
       // Build the operation chain (OCAN format)
       // Chain format: [{ type: 'get', key: 'methodName' }, { type: 'apply', args: [...] }]
-      // Client preprocesses the chain before sending over WebSocket (like LumenizeClient does)
+      // Client preprocesses the chain before sending over WebSocket (like MeshClient does)
       const chain = preprocess([
         { type: 'get', key: 'echo' },
         { type: 'apply', args: ['Hello from client!'] },
@@ -509,7 +509,7 @@ describe('ClientGateway, on a host node', () => {
       });
 
       // Build the operation chain (OCAN format)
-      // Client preprocesses the chain before sending over WebSocket (like LumenizeClient does)
+      // Client preprocesses the chain before sending over WebSocket (like MeshClient does)
       const chain = preprocess([
         { type: 'get', key: 'getCallContext' },
         { type: 'apply', args: [] },

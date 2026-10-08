@@ -14,7 +14,7 @@
  * bundles the client into a real browser, the browser drives a real
  * WebSocket through a real `wrangler dev`, and a real DO@`@mesh()` call
  * comes back. Any future change that breaks bundling, breaks
- * `LumenizeClient`'s browser runtime, breaks the mesh wire protocol, or
+ * `MeshClient`'s browser runtime, breaks the mesh wire protocol, or
  * breaks the auth integration fails here loudly.
  */
 import { describe, it, expect, inject, vi } from 'vitest';
@@ -25,7 +25,7 @@ import type { SpellFinding } from '../for-docs/getting-started/spell-check-worke
 describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
   it('drives full subscribe → save → broadcast + spell-check round-trip', async () => {
     // `wranglerBaseUrl` is the proxy path `/worker` (see global-setup.ts);
-    // resolve it against the test page's origin so LumenizeClient gets a
+    // resolve it against the test page's origin so MeshClient gets a
     // full URL it can convert to `wss://`. Vite's dev server forwards
     // `/worker/*` to wrangler-dev, keeping everything same-origin from
     // chromium's POV (so `SameSite=Strict` cookies flow normally).
@@ -37,7 +37,7 @@ describe('@lumenize/mesh getting-started e2e (real chromium)', () => {
     const accessToken = inject('adminAccessToken');
     expect(accessToken.split('.')).toHaveLength(3);
 
-    // 2. Construct the documented EditorClient. LumenizeClient auto-derives
+    // 2. Construct the documented EditorClient. MeshClient auto-derives
     //    instanceName from the JWT's `sub` claim + a sessionStorage-backed
     //    tabId, so we only have to pass the token.
     const client = new EditorClient({

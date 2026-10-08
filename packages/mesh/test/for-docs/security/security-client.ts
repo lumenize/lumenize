@@ -4,7 +4,7 @@
  * From website/docs/mesh/security.mdx
  */
 
-import { LumenizeClient, mesh } from '../../../src/index.js';
+import { MeshClient, mesh } from '../../../src/index.js';
 import type { UserProfileDO } from './user-profile-do.js';
 import type { TeamDocDO } from './team-doc-do.js';
 
@@ -16,7 +16,7 @@ export type TeamDocResult =
   | { commented: true }
   | string;
 
-export class SecurityClient extends LumenizeClient {
+export class SecurityClient extends MeshClient {
   /**
    * Call a user profile DO method
    */

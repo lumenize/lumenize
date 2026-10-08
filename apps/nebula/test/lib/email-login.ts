@@ -19,7 +19,7 @@
  * enough that speed is never a reason to drop to a lower rung.
  */
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { LumenizeClient } from '@lumenize/mesh/client';
+import { MeshClient } from '@lumenize/mesh/client';
 import { hostOrigin } from '@lumenize/mesh/client';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
@@ -687,7 +687,7 @@ export async function foundTenantStar(options: {
 }
 
 /** The mesh client `createGalaxyViaFacade` calls through: nothing but the base, which is abstract. */
-class FacadeCaller extends LumenizeClient {}
+class FacadeCaller extends MeshClient {}
 
 /**
  * Create an app through `NebulaAuthFacade.createGalaxy` — the one way a session creates a galaxy —
@@ -705,7 +705,7 @@ export async function createGalaxyViaFacade(options: {
     accessToken,
     refresh: async () => ({ access_token: accessToken, sub }),
     ...(options.WebSocket ? { WebSocket: options.WebSocket } : {}),
-  } as ConstructorParameters<typeof LumenizeClient>[0]);
+  } as ConstructorParameters<typeof MeshClient>[0]);
   try {
     await client.lmz.callAsync('AUTH_FACADE', undefined,
       client.ctn<AuthFacade>().createGalaxy(universeGalaxyId));

@@ -6,12 +6,12 @@ import {
   GatewayMessageType,
   type ConnectionStatusMessage,
 } from '../src/gateway-messages';
-import { LumenizeClient } from '../src/lumenize-client';
+import { MeshClient } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { connectClient, loginOf, uniqueScope } from './support/login';
 
 /** A Client whose one push handler never answers, as a tab the browser froze. */
-class FrozenClient extends LumenizeClient {
+class FrozenClient extends MeshClient {
   @mesh()
   hang(): Promise<never> {
     return new Promise(() => {});

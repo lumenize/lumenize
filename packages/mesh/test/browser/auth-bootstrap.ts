@@ -18,7 +18,7 @@
  * path, as the link page's button does; if the host it carries ever stops matching the stack that
  * sent it, this throws instead of papering over it.
  *
- * The browser never needs the cookie: `LumenizeClient` skips its refresh round-trip entirely when
+ * The browser never needs the cookie: `MeshClient` skips its refresh round-trip entirely when
  * an `accessToken` is supplied, refreshing only when the token is missing or near expiry, and an
  * access token minted at setup is good for far longer than the suite runs.
  */
@@ -37,7 +37,7 @@ const REFRESH_COOKIE_PREFIX = '__Host-refresh-token.';
 
 /**
  * Claim `scope` as a fresh address, follow the emailed link, and exchange the resulting cookie for
- * an access token on the universe's own page. Returns the token for `LumenizeClientConfig.accessToken`.
+ * an access token on the universe's own page. Returns the token for `MeshClientConfig.accessToken`.
  */
 export async function claimAndGetAccessToken(options: BootstrapOptions): Promise<string> {
   const { port, scope, testToken } = options;

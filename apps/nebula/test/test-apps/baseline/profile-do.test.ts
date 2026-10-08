@@ -8,7 +8,7 @@
  * registry rows carrying a CHOSEN `profileId` so `getScopesForProfile(profileId)` resolves to a known
  * scope. Real issuance assigns `profileId` server-side, so the fixture could not be constructed through it.
  *
- * Harness: a plain `LumenizeClient` (mesh) with `refresh: createTestToken(...)` (ADR-009 rung 3,
+ * Harness: a plain `MeshClient` (mesh) with `refresh: createTestToken(...)` (ADR-009 rung 3,
  * justified per-site: these tests need PRECISE control over the `profileId` / `access` / scope claims,
  * which the cookie login can't give — and the baseline login lane is expectedly red mid-turnover). The
  * client connects to the REAL host node of its token's scope; the JWT is verified normally at the entrypoint.
@@ -18,7 +18,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { deploymentOrigin, platformOrigin, NEBULA_SUB } from '@lumenize/mesh/client';
-import { LumenizeClient, mesh } from '@lumenize/mesh';
+import { MeshClient, mesh } from '@lumenize/mesh';
+import type { ProfileChannelSnapshot } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
 import { createTestToken } from '@lumenize/mesh/auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
@@ -28,7 +29,7 @@ import {
 import { FAIL_CLOSED_PROFILE_ID, NebulaClientTest } from './index';
 
 /** Captures pushes on the dedicated profile channel — the subscribe() leg of the neither-list test. */
-class MeshProbe extends LumenizeClient {
+class MeshProbe extends MeshClient {
   profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
   /**
    * When set, this tab answers every push by throwing a `ClientDisconnectedError` naming SOMEBODY
@@ -40,13 +41,13 @@ class MeshProbe extends LumenizeClient {
    */
   forgedVictim?: string;
   @mesh()
-  handleProfileUpdate(profileId: string, snapshot: ProfileSnapshot): void {
+  override handleProfileUpdate(profileId: string, snapshot: ProfileChannelSnapshot | null | Error): void {
     if (this.forgedVictim) {
       throw Object.assign(new Error('client went away'), {
         name: 'ClientDisconnectedError', clientInstanceName: this.forgedVictim,
       });
     }
-    this.profileUpdates.push({ profileId, snapshot });
+    this.profileUpdates.push({ profileId, snapshot: snapshot as ProfileSnapshot });
   }
 }
 function uuid(): string { return crypto.randomUUID(); }
@@ -121,11 +122,11 @@ const registryReads = () => sink.filter((e) => e.namespace === 'nebula-auth.Prof
 beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });
 afterEach(() => clearDebugSink());
 
-const read = (c: LumenizeClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().read());
-const write = (c: LumenizeClient<any>, pid: string, f: { name?: string; nickname?: string; picture?: string }) =>
+const read = (c: MeshClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().read());
+const write = (c: MeshClient<any>, pid: string, f: { name?: string; nickname?: string; picture?: string }) =>
   c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writeProfile(f));
-const readNotes = (c: LumenizeClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().readPrivateNotes());
-const writeNotes = (c: LumenizeClient<any>, pid: string, n: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writePrivateNotes(n));
+const readNotes = (c: MeshClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().readPrivateNotes());
+const writeNotes = (c: MeshClient<any>, pid: string, n: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writePrivateNotes(n));
 
 describe('Profile DO', () => {
   /**

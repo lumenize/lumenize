@@ -180,7 +180,7 @@ function scopeNamed(instanceName: string | undefined): string | undefined {
  * push that starts a fresh chain passes it.
  *
  * A sender that is itself a Client is not checked here: its name does not parse as a scope, so it
- * offers none to check passage into. The receiving Client decides, and `LumenizeClient.onBeforeCall`
+ * offers none to check passage into. The receiving Client decides, and `MeshClient.onBeforeCall`
  * refuses it by default.
  */
 export function requirePassageIntoSender(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {

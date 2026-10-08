@@ -10,7 +10,7 @@ import type { Alarms } from './alarms';
  *
  * - `MeshDO` — Stateful Durable Object
  * - `MeshWorker` — Stateless Worker Entrypoint
- * - `LumenizeClient` — Browser/Node.js client
+ * - `MeshClient` — Browser/Node.js client
  */
 export type NodeType = 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
 
@@ -54,10 +54,10 @@ export type OriginCf = Pick<IncomingRequestCfProperties,
  *
  * Captured by the Gateway at WebSocket upgrade — CONNECTION-scoped, so it is refreshed on each
  * reconnect and may be minutes or hours old mid-session. `undefined` when the origin isn't a
- * `LumenizeClient` (DO/Worker origins, `newChain: true`).
+ * `MeshClient` (DO/Worker origins, `newChain: true`).
  *
  * **Server-side only.** It rides every hop between DOs and Workers, and never reaches a client:
- * the Gateway leaves it out of every call it forwards down a socket, and a `LumenizeClient` types
+ * the Gateway leaves it out of every call it forwards down a socket, and a `MeshClient` types
  * `this.lmz.callContext` as `Omit<CallContext, 'originRequest'>`, so reading it there fails to
  * compile. These are the origin's IP, location and browser, and a push that inherits a writer's
  * chain (`lmz.broadcast` with `{ newChain: false }`) would otherwise hand them to every subscriber.

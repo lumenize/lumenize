@@ -9,7 +9,7 @@
  * scripted socket can hand it 4410 without a node to delete.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { LumenizeClient, WS_CLOSE_GONE } from '../../src/client-index.js';
+import { MeshClient, WS_CLOSE_GONE } from '../../src/client-index.js';
 
 /** A WebSocket the test opens and closes by hand, recording every one the Clients construct. */
 function scriptedSockets() {
@@ -45,8 +45,8 @@ function scriptedSockets() {
   return { made, WebSocket: ScriptedSocket as unknown as typeof WebSocket };
 }
 
-/** `LumenizeClient` is abstract; this one adds nothing. */
-class WakeClient extends LumenizeClient {}
+/** `MeshClient` is abstract; this one adds nothing. */
+class WakeClient extends MeshClient {}
 
 describe('wake-up sensing', () => {
   it('reconnects a dropped Client and leaves a deleted host\'s Client and a disconnected one stopped', async () => {

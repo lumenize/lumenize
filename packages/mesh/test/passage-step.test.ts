@@ -14,15 +14,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
-import { LumenizeClient } from '../src/lumenize-client';
+import { MeshClient } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { rawRpcStub } from '../src/raw-rpc';
 import type { AuthFacade } from '../src/auth/auth-facade';
 import type { ClientHostDO, RoomDO } from './test-worker-and-dos';
 import { connectClient, loginAt, loginOf, uniqueScope } from './support/login';
 
-/** `LumenizeClient` is abstract; this one adds nothing. */
-class PlainClient extends LumenizeClient {}
+/** `MeshClient` is abstract; this one adds nothing. */
+class PlainClient extends MeshClient {}
 
 let entries: DebugLogOutput[] = [];
 beforeEach(() => {
@@ -83,7 +83,7 @@ describe('a claimless chain is held to the scope of the node that started it', {
 
 describe('a node\'s push to a Client checks passage into the node that sent it', { timeout: 20000 }, () => {
   /** A Client whose push handler answers. */
-  class ReceivingClient extends LumenizeClient {
+  class ReceivingClient extends MeshClient {
     @mesh()
     receive(value: string): string {
       return `${value}!`;

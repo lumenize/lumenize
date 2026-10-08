@@ -1,9 +1,9 @@
 /**
- * Gateway wire-protocol primitives — shared between `LumenizeClient` and
+ * Gateway wire-protocol primitives — shared between `MeshClient` and
  * `ClientGateway`, its server-side half.
  *
  * **This module must have zero imports from `cloudflare:workers`**, so that
- * `LumenizeClient` (which imports `GatewayMessageType` and `ClientDisconnectedError`
+ * `MeshClient` (which imports `GatewayMessageType` and `ClientDisconnectedError`
  * from here) can be loaded in Node.js and browsers without the `cloudflare:workers`
  * module-load failure.
  *
@@ -206,6 +206,12 @@ export interface IncomingCallResponseMessage {
 export interface ConnectionStatusMessage {
   type: typeof GatewayMessageType.CONNECTION_STATUS;
   subscriptionRequired: boolean;
+  /**
+   * The Client's address on the node that accepted it, `STAR/acme.crm.tenant1/alice.9f2c41aa`: the
+   * host's binding and the name it holds the Client under (`addressOf`). The Client reports it as
+   * its own identity, since nothing on the page names the binding.
+   */
+  address: string;
 }
 
 /** Union of all Gateway messages */

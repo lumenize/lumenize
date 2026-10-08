@@ -1,13 +1,13 @@
 /**
  * EditorClient - Browser client implementation
  *
- * Example of a LumenizeClient from getting-started.mdx.
+ * Example of a MeshClient from getting-started.mdx.
  * Manages multiple open documents over a single WebSocket connection.
  * Uses event callbacks for UI integration - the same pattern works
  * in production (React state updates, DOM manipulation, etc.).
  */
 
-import { LumenizeClient, mesh } from '../../../src/client-index.js';
+import { MeshClient, mesh } from '../../../src/client-index.js';
 import type { DocumentDO } from './document-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
 
@@ -29,7 +29,7 @@ export interface DocumentHandle {
   close(): void;
 }
 
-export class EditorClient extends LumenizeClient {
+export class EditorClient extends MeshClient {
   // Registry of open documents by documentId
   readonly #documents = new Map<string, DocumentCallbacks>();
 

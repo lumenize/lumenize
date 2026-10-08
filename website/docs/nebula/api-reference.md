@@ -45,7 +45,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `TransactionResourceResolution` discriminated union (per-resource, what the handler receives) | new-in-v3 | [TransactionResourceResolution](#transactionresourceresolution) |
 | `ConflictResolverVerdict` (what the handler returns for `'conflict-pending'`) | implemented-in-spike (under old `ConflictResolution` name) | [ConflictResolverVerdict](#conflictresolververdict) |
 | `Snapshot` / `SnapshotMeta` (what reads, subscribes, and store entries hold) | implemented-in-spike (`meta.mimeType` new-in-v3) | [Snapshot](#snapshot) |
-| `client.claims` (inherited JWT payload) | inherited from `LumenizeClient` | [client.claims](#clientclaims) |
+| `client.claims` (inherited JWT payload) | inherited from `MeshClient` | [client.claims](#clientclaims) |
 
 ## `createNebulaClient` {#createnebulaclient}
 
@@ -65,7 +65,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 
 ### Config
 
-`NebulaClientConfig` extends [`LumenizeClientConfig`](/docs/mesh/lumenize-client) (minus `refresh` and `gatewayBindingName`) with these additional fields. **No field names a scope**: the client takes its scope from its first token's `aud`, which the platform host's refresh mints for the page's host, and a call made before that token arrives waits for it. In a browser **every field auto-detects** from the page; they stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no page.
+`NebulaClientConfig` extends [`MeshClientConfig`](/docs/mesh/lumenize-client) (minus `refresh`, with `platformOrigin` required) with these additional fields. **No field names a scope**: the client takes its scope from its first token's `aud`, which the platform host's refresh mints for the page's host, and a call made before that token arrives waits for it. In a browser **every field auto-detects** from the page; they stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no page.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -84,7 +84,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 | `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. Seeded with `resources`, `lmz` (`connection`, `orgTree`, `profiles`, `querySubscribers`), and empty `ui` / `app` objects. |
 | `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with a `LoginRequiredError` (mesh's existing terminal-auth signal, also delivered via the `onLoginRequired` hook — there is no separate `AuthRequiredError`) on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor). By then the factory's default `onLoginRequired` has acted: a top-level page goes to the platform host's login with `return_to` naming it, and a framed page posts to its parent instead. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
 | `use(middleware)` | `(mw: Middleware) => () => void` | Register an additional middleware. Returns a deregistration function. Synced-state middleware is always-on; user-supplied middleware layers on top. |
-| `dispose()` | `() => void` | Same as [`client.dispose()`](#clientdispose): flush pending debounced writes, clear refcount + pending-unsubscribe timers, dispose internal scopes, and disconnect the underlying `LumenizeClient` WebSocket. |
+| `dispose()` | `() => void` | Same as [`client.dispose()`](#clientdispose): flush pending debounced writes, clear refcount + pending-unsubscribe timers, dispose internal scopes, and disconnect the underlying `MeshClient` WebSocket. |
 
 ### Example
 
@@ -468,7 +468,7 @@ Tear down the factory:
 1. Flush every pending debounced write through the serial-per-resource queue.
 2. Clear refcount + pending-unsubscribe timers.
 3. Dispose internal effectScopes.
-4. Disconnect the underlying `LumenizeClient` WebSocket.
+4. Disconnect the underlying `MeshClient` WebSocket.
 
 After dispose, the store remains readable (Vue reactivity is independent) but writes no longer trigger transactions and no new subscribes fire. Typically called only in tests or at full page teardown.
 
@@ -480,9 +480,9 @@ After dispose, the store remains readable (Vue reactivity is independent) but wr
 client.logout(): Promise<void>;
 ```
 
-User-initiated **sign-out**: revokes + clears the (HttpOnly, path-scoped) refresh cookie via the auth logout endpoint, drops the in-memory access token, and sets `store.lmz.connection.state` to `'disconnected'`. The app then redirects to login — typically the same redirect the `ready` / `onLoginRequired` terminal-auth path uses.
+User-initiated **sign-out**, ending every session this browser holds: drops the in-memory access token, sets `store.lmz.connection.state` to `'disconnected'`, and sends the page to the platform host's logout page, which ends the sessions. Every session lives on the platform host, so a page cannot end one itself. A page framed inside Studio tells Studio instead, and a client from `impersonate()` only ends itself, since the session it would end is the admin's.
 
-Distinct from [`client.dispose()`](#clientdispose), which tears down the client/connection **without** revoking the session (a disposed client could reconnect with the same valid cookie; a logged-out one cannot). The server-side logout endpoint is a nebula-auth concern added alongside this method.
+Distinct from [`client.dispose()`](#clientdispose), which tears down the client/connection **without** ending the session (a disposed client could reconnect with the same valid cookie; a logged-out one cannot).
 
 ## `client.orgTree` {#clientorgtree}
 
@@ -579,10 +579,10 @@ interface OrgTreeState {
 **Tag**: `new-in-v3`
 
 ```typescript @skip-check
-subscribeProfile(profileId: string): ResourceSubscription;
+subscribeProfile(profileId: string): ProfileSubscription;
 ```
 
-Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by their `profileId` — a global, cross-Star identity handle, delivered on a dedicated channel to [`store.lmz.profiles[profileId]`](#lmzprofiles). Returns the same `using`-compatible [`ResourceSubscription`](#resourcessubscribe) handle as `resources.subscribe` (`.snapshot` resolves with the first snapshot; `[Symbol.dispose]()` releases on the last handle).
+Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by their `profileId` — a global, cross-Star identity handle, delivered on a dedicated channel to [`store.lmz.profiles[profileId]`](#lmzprofiles). Returns a `using`-compatible `ProfileSubscription`: `.snapshot` resolves with the first snapshot (`{ value, meta: { eTag } }`, or `null` for a profile that does not exist), and `[Symbol.dispose]()` releases on the last handle. No permission ever denies a profile, so it has no `deniedNodes`.
 
 You rarely call this directly — **reading `store.lmz.profiles[profileId].value` inside a component auto-subscribes it** (refcounted, grace-period-aware, windowed), exactly like reading a resource. The common pattern is resolving display identity for ids you already hold (the current user's own `client.claims.profileId` for the app chrome, or each `profileId` in a roster).
 
@@ -629,7 +629,7 @@ The factory's `set` trap routes writes under `store.resources.<rt>.<rid>.value(\
 
 **Tag**: `implemented-in-spike`
 
-The factory mirrors the underlying `LumenizeClient` connection state to three reserved paths so the UI can bind declaratively without event listeners:
+The factory mirrors the underlying `MeshClient` connection state to three reserved paths so the UI can bind declaratively without event listeners:
 
 | Path | Type | Description |
 | --- | --- | --- |
@@ -679,11 +679,11 @@ Example — a "who's here" roster for a chat session, with each person's avatar 
 
 ## `client.claims` {#clientclaims}
 
-**Tag**: inherited from `LumenizeClient`
+**Tag**: inherited from `MeshClient`
 
-NebulaClient extends [`LumenizeClient`](/docs/mesh/lumenize-client), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `access`, etc.) is available with no Nebula-specific wrapping. See [mesh: LumenizeClient § Client identity](/docs/mesh/lumenize-client#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`. For admin-only UI, gate on **both** `client.claims.access?.scopeAdmin` (Galaxy/Universe scope admin) and an `admin` grant in the org-tree (app admin) — see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui).
+NebulaClient extends [`MeshClient`](/docs/mesh/lumenize-client), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `access`, etc.) is available with no Nebula-specific wrapping. See [mesh: the Client § Client identity](/docs/mesh/lumenize-client#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`. For admin-only UI, gate on **both** `client.claims.access?.scopeAdmin` (Galaxy/Universe scope admin) and an `admin` grant in the org-tree (app admin) — see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui).
 
-**Type — non-null on NebulaClient.** `LumenizeClient` is generic over its claims payload — `LumenizeClient<TClaims extends { sub: string } = JwtPayload>` with `get claims(): Readonly<TClaims> | null` (it has a genuine null window before first refresh). `NebulaClient extends LumenizeClient<AuthClaims>` and **re-declares the getter to drop the `| null`** — `get claims(): Readonly<AuthClaims>` — because the availability contract below guarantees it's populated by the time app code runs. The re-declaration is behaviorally neutral (the runtime getter is the inherited one; it only narrows the type). This is what lets the doc examples write `client.claims.sub` without a `!` or `?.` and still pass strict TypeScript.
+**Type — non-null on NebulaClient.** `MeshClient` is generic over its claims payload — `MeshClient<TClaims extends AuthClaims = AuthClaims>` with `get claims(): Readonly<TClaims> | null` (it has a genuine null window before first refresh). `NebulaClient extends MeshClient<AuthClaims>` and **re-declares the getter to drop the `| null`** — `get claims(): Readonly<AuthClaims>` — because the availability contract below guarantees it's populated by the time app code runs. The re-declaration is behaviorally neutral (the runtime getter is the inherited one; it only narrows the type). This is what lets the doc examples write `client.claims.sub` without a `!` or `?.` and still pass strict TypeScript.
 
 The fields app code relies on (full payload is minted by nebula-auth):
 

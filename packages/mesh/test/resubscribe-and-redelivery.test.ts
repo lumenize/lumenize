@@ -2,7 +2,7 @@
  * A push a host sends again on a new socket runs its handler once, and a Client reused under
  * another identity connects under that identity's name.
  *
- * Each limb drives a real `LumenizeClient`, logged in through Mesh's Registry, on its scope's host.
+ * Each limb drives a real `MeshClient`, logged in through Mesh's Registry, on its scope's host.
  * What a test cannot make happen through a product path — a socket dropped by the network, a frame
  * lost in flight — it makes happen at the edge: the host closes the socket from inside its Durable
  * Object, or the Client's `WebSocket` drops one frame. A missed answer's re-subscribe needs the
@@ -14,15 +14,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { parse } from '@lumenize/structured-clone';
-import { LumenizeClient, ANSWER_RECORD_SIZE, type LumenizeClientConfig } from '../src/lumenize-client';
+import { MeshClient, ANSWER_RECORD_SIZE, type MeshClientConfig } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { connectClient, loginAt, loginOf, uniqueScope } from './support/login';
 
-/** A client with nothing of its own: what a plain `LumenizeClient` does. */
-class PlainClient extends LumenizeClient {}
+/** A client with nothing of its own: what a plain `MeshClient` does. */
+class PlainClient extends MeshClient {}
 
 /** A Client whose push handlers count their runs, one of them held until the test releases it. */
-class PushedClient extends LumenizeClient {
+class PushedClient extends MeshClient {
   slowRuns = 0;
   pings = 0;
   #release!: () => void;
@@ -64,14 +64,14 @@ function countingWebSocket(Base: typeof WebSocket): typeof WebSocket & { incomin
 }
 
 /** A real Client on a fresh universe's page. */
-const connect = <T extends LumenizeClient>(Ctor: new (config: LumenizeClientConfig) => T, extra: Partial<LumenizeClientConfig> = {}) =>
+const connect = <T extends MeshClient>(Ctor: new (config: MeshClientConfig) => T, extra: Partial<MeshClientConfig> = {}) =>
   connectClient(Ctor, uniqueScope('h'), extra);
 
 /** A Client's address on its host: `h-1a2b3c4d/{sub}.tab1`. */
-const addressOf = (client: LumenizeClient) => `${loginOf(client).scope}/${client.lmz.instanceName}`;
+const addressOf = (client: MeshClient) => `${loginOf(client).scope}/${client.lmz.instanceName}`;
 
 /** Close the Client's socket from inside its host, as the network or the host itself would. */
-async function closeFromHost(client: LumenizeClient, code: number): Promise<void> {
+async function closeFromHost(client: MeshClient, code: number): Promise<void> {
   const host = env.CLIENT_HOST_DO.getByName(loginOf(client).scope);
   await runInDurableObject(host, (_instance: unknown, ctx: DurableObjectState) => {
     for (const ws of ctx.getWebSockets(addressOf(client))) ws.close(code, 'closed by the test');
@@ -79,7 +79,7 @@ async function closeFromHost(client: LumenizeClient, code: number): Promise<void
 }
 
 /** A node that has called `client`'s `method`, and what its handler kept once the answer came back. */
-async function nodeCalling(client: LumenizeClient, method: string) {
+async function nodeCalling(client: MeshClient, method: string) {
   const name = `rr_${crypto.randomUUID()}`;
   const node = env.TEST_DO.getByName(name);
   await node.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: name });

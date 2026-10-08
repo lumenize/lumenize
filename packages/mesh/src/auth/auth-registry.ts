@@ -246,7 +246,7 @@ export class AuthRegistry extends DurableObject {
    * guarded call to {@link setIdentityAdmin}, never a side effect here).
    *
    * ⚠️ **A membership never changes scope.** A different scope is a different membership, minted
-   * here with its own `sub`, and no write moves a row's `universeGalaxyStarId`. `LumenizeClient`
+   * here with its own `sub`, and no write moves a row's `universeGalaxyStarId`. `MeshClient`
    * relies on it: comparing each new token's `sub` with the last one's is how a tab learns its token
    * now rests on another membership, so moving a membership in place would leave the tab on the old
    * scope's subscriptions with no signal.

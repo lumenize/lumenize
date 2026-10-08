@@ -5,7 +5,7 @@
  * drops the in-memory token and claims, disconnects, and sends the top-level page to the platform
  * host's logout page, whose own `POST` ends every session the browser holds. Exercised against a
  * REAL Star + REAL nebula-auth:
- *   - the in-memory access token + claims are dropped (LumenizeClient.clearAccessToken)
+ *   - the in-memory access token + claims are dropped (MeshClient.clearAccessToken)
  *   - disconnect() → the factory mirrors store.lmz.connection.state = 'disconnected'
  *   - a top-level page goes to `/auth/logout` on the platform host, `?everywhere=1` when asked
  *   - the client itself sends no request: the browser's cookie still mints until that page posts

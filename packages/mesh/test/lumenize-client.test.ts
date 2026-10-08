@@ -1,5 +1,5 @@
 /**
- * Unit tests for LumenizeClient
+ * Unit tests for MeshClient
  *
  * These tests verify client-only behavior without mesh integration.
  * For mesh integration tests, see the end-to-end tests in test/for-docs/.
@@ -8,12 +8,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-// Note: LumenizeClient uses JSON.parse for incoming messages
+// Note: MeshClient uses JSON.parse for incoming messages
 // Tests use JSON.stringify to simulate gateway messages
 import {
-  LumenizeClient,
+  MeshClient,
   LoginRequiredError,
-  type LumenizeClientConfig,
+  type MeshClientConfig,
   type ConnectionState,
   mesh,
 } from '../src/index.js';
@@ -130,7 +130,7 @@ function createFakeJwt(payload: Record<string, unknown>): string {
 // Test Client Implementation
 // ============================================
 
-class TestClient extends LumenizeClient {
+class TestClient extends MeshClient {
   // Track calls to onBeforeCall
   onBeforeCallCalled = false;
   onBeforeCallContext: any = null;
@@ -271,26 +271,23 @@ describe('LumenizeClient', () => {
       client.disconnect();
     });
 
-    it('uses default gateway binding name', () => {
+    // MUTATION: leave the address out of `#handleConnectionStatus`, and the binding never arrives.
+    it('names its host\'s binding once the host\'s connection_status reports its address, and not before', () => {
       const client = new TestClient({
         instanceName: 'user.tab1',
         baseUrl: 'wss://example.com',
+        accessToken: 'token',
         WebSocket: createMockWebSocketClass(),
       });
 
-      expect(client.lmz.bindingName).toBe('LUMENIZE_CLIENT_GATEWAY');
-      client.disconnect();
-    });
-
-    it('allows custom gateway binding name', () => {
-      const client = new TestClient({
-        instanceName: 'user.tab1',
-        baseUrl: 'wss://example.com',
-        gatewayBindingName: 'CUSTOM_GATEWAY',
-        WebSocket: createMockWebSocketClass(),
-      });
-
-      expect(client.lmz.bindingName).toBe('CUSTOM_GATEWAY');
+      expect(() => client.lmz.bindingName).toThrow('bindingName is only available once the host has accepted a connection');
+      const ws = createdWebSockets[0];
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({
+        type: 'connection_status', subscriptionRequired: false, address: 'STAR/acme.crm.tenant1/user.tab1',
+      }));
+      expect(client.lmz.bindingName).toBe('STAR');
+      expect(client.lmz.instanceName).toBe('user.tab1');
       client.disconnect();
     });
 
@@ -403,7 +400,6 @@ describe('LumenizeClient', () => {
       const client = new TestClient({
         instanceName: 'alice.tab123',
         baseUrl: 'wss://example.com',
-        gatewayBindingName: 'MY_GATEWAY',
         accessToken: 'token',
         WebSocket: createMockWebSocketClass(),
       });
@@ -466,7 +462,7 @@ describe('LumenizeClient', () => {
       // Send connection_status message
       ws.simulateMessage(JSON.stringify({
         type: 'connection_status',
-        subscriptionRequired: false,
+        subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
       }));
 
       expect(client.connectionState).toBe('connected');
@@ -489,7 +485,7 @@ describe('LumenizeClient', () => {
 
       ws.simulateMessage(JSON.stringify({
         type: 'connection_status',
-        subscriptionRequired: true,
+        subscriptionRequired: true, address: 'HOST_DO/host/user.tab1',
       }));
 
       expect(subscriptionRequiredCalled).toBe(true);
@@ -711,7 +707,7 @@ describe('Message Queue', () => {
     // Send connection_status
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Now the queued message should have been sent
@@ -743,7 +739,7 @@ describe('A call after the token lapsed', () => {
     expect(mints).toBe(1);
     const stale = createdWebSockets[0];
     stale.simulateOpen();
-    stale.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    stale.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     expect(client.connectionState).toBe('connected');
 
     // The lapse: the token is 100 s past its exp, and the socket is still OPEN — exactly the state
@@ -761,7 +757,7 @@ describe('A call after the token lapsed', () => {
     expect(fresh.getSentMessages().length).toBe(0);          // nothing until the Gateway says ready
 
     fresh.simulateOpen();
-    fresh.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    fresh.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     expect(fresh.getSentMessages().length).toBe(1);          // the lapsed call, delivered
     expect(stale.getSentMessages().length).toBe(0);          // and still never on the stale one
     client.disconnect();
@@ -788,7 +784,7 @@ describe('Stale close from superseded socket', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -806,7 +802,7 @@ describe('Stale close from superseded socket', () => {
     ws2.simulateOpen();
     ws2.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -832,7 +828,7 @@ describe('Stale close from superseded socket', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -939,7 +935,7 @@ describe('Token refresh', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -974,7 +970,7 @@ describe('Token refresh', () => {
     expect(refreshCount).toBe(1);
     const ws1 = createdWebSockets[0];
     ws1.simulateOpen();
-    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     expect(client.connectionState).toBe('connected');
 
     // Network drop → reconnect with a PRESENT-but-EXPIRED token. The client MUST refresh before the
@@ -1010,7 +1006,7 @@ describe('Token refresh', () => {
     expect(refreshCount).toBe(1);
     const ws1 = createdWebSockets[0];
     ws1.simulateOpen();
-    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     expect(client.connectionState).toBe('connected');
 
     // 1st drop (generic 1006 — the unreadable upgrade-reject the browser gives us): a single drop is
@@ -1057,7 +1053,7 @@ describe('Token refresh', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Token expiry close triggers refresh, which fails
@@ -1090,7 +1086,7 @@ describe('Reconnection', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Close triggers reconnect scheduling
@@ -1134,7 +1130,7 @@ describe('Reconnection', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Should not create a new WebSocket
@@ -1162,7 +1158,7 @@ describe('Incoming calls from mesh', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Simulate incoming call from gateway
@@ -1208,7 +1204,7 @@ describe('Incoming calls from mesh', () => {
     });
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     // A chain the decoder cannot read. Decoded first, the answer would be the decoder's TypeError
     // rather than the caller check's refusal.
@@ -1244,7 +1240,7 @@ describe('Incoming calls from mesh', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     const { preprocess: pp } = await import('@lumenize/structured-clone');
@@ -1308,7 +1304,7 @@ describe('Message queue overflow', () => {
   function connect(): MockWebSocket {
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     return ws;
   }
 
@@ -1423,7 +1419,7 @@ describe('call() is one-way', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // call() should not throw and should return void
@@ -1445,7 +1441,7 @@ describe('call() is one-way', () => {
     });
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     client.lmz.call('SOME_DO', 'instance1', client.ctn<TestClient>().handleMessage('x'), client.ctn<TestClient>().handleMessage('outcome'));
 
@@ -1482,7 +1478,7 @@ describe('call() is one-way', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     const remote = client.ctn<TestClient>().handleMessage('call-with-handler');
@@ -1516,7 +1512,7 @@ describe('Message handling edge cases', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Send invalid JSON — should not throw, just log the parse error
@@ -1552,7 +1548,7 @@ describe('Message handling edge cases', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Send a message with an unknown type
@@ -1573,7 +1569,7 @@ describe('Message handling edge cases', () => {
 
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     const remote = (client.ctn() as any).someMethod();
     client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote));
@@ -1602,7 +1598,7 @@ describe('Message handling edge cases', () => {
 
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     // The handler travels in the call frame and comes back filled; nothing is kept here per call.
     const remote = (client.ctn() as any).someMethod();
@@ -1632,7 +1628,7 @@ describe('Message handling edge cases', () => {
 
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     const remote = (client.ctn() as any).someMethod();
     client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote));
@@ -1660,7 +1656,7 @@ describe('Message handling edge cases', () => {
 
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     // The node skips the success fire-back, so the Client only has to say so. Capable-of-failing:
     // drop `onErrorOnly` from the frame and the node would fire every success back.
@@ -1701,7 +1697,7 @@ describe('callAsync (client resilient awaitable)', () => {
     });
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     return [client, ws];
   }
 
@@ -1883,7 +1879,7 @@ describe('callAsync (client resilient awaitable)', () => {
     });
     const ws1 = createdWebSockets[0];
     ws1.simulateOpen();
-    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
     const sent = JSON.parse(ws1.getSentMessages()[0]);
@@ -1894,7 +1890,7 @@ describe('callAsync (client resilient awaitable)', () => {
     client.connect(); // timers mocked in unit context — trigger the reconnect manually (as elsewhere)
     const ws2 = createdWebSockets[1];
     ws2.simulateOpen();
-    ws2.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws2.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     expect(client.connectionState).toBe('connected');
     expect(client.getPendingAsyncCallCount()).toBe(1); // survived the reconnect
 
@@ -2040,7 +2036,7 @@ describe('Disconnect cleanup', () => {
 
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
 
     const remote = (client.ctn() as any).someMethod();
     client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote));
@@ -2065,7 +2061,7 @@ describe('Disconnect cleanup', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionRequired: false,
+      subscriptionRequired: false, address: 'HOST_DO/host/user.tab1',
     }));
 
     // Trigger reconnect scheduling
@@ -2091,7 +2087,7 @@ describe('WebSocket heartbeat (keepalive)', () => {
     });
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' }));
     expect(client.connectionState).toBe('connected');
 
     await new Promise(r => setTimeout(r, 75)); // a few intervals

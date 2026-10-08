@@ -35,7 +35,7 @@ export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
  * "no preservation across await" caveat (see that file).
  *
  * Isolating the `node:async_hooks` import behind a conditional keeps it out
- * of browser bundles — `@lumenize/mesh/client` (used by LumenizeClient and
+ * of browser bundles — `@lumenize/mesh/client` (used by MeshClient and
  * other browser-bundleable consumers) imports `runWithCallContext` /
  * `getCurrentCallContext` from here transitively, so the conditional split
  * is what makes the client browser-bundleable. See
@@ -47,7 +47,7 @@ export { getCurrentCallContext, runWithCallContext };
 
 /**
  * Resolve the ambient (AsyncLocalStorage-bound) CallContext for `this.lmz.callContext`,
- * throwing outside a mesh call. Shared by the DO and Worker factories. The browser `LumenizeClient`
+ * throwing outside a mesh call. Shared by the DO and Worker factories. The browser `MeshClient`
  * deliberately does NOT use this: there is no AsyncLocalStorage in the browser, so it reads
  * a synchronously-captured `#currentCallContext` field instead (its one documented divergence).
  *
@@ -305,7 +305,7 @@ async function dispatchEnvelope(
  * The only per-node-type divergence is what `ctx.waitUntil` does across the short ack hop: it
  * keeps an ephemeral `MeshWorker` alive at any compatibility date, and a DO/Container only
  * from 2026-10-01 (`durable_object_io_tasks_prevent_eviction`) — before that it is a **no-op**
- * on a DO, which the hop's few milliseconds make harmless. (The browser `LumenizeClient` does
+ * on a DO, which the hop's few milliseconds make harmless. (The browser `MeshClient` does
  * NOT use this — it sends its handler with the call through its host node, via its own `#call`.)
  *
  * @internal

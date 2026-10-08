@@ -1,5 +1,5 @@
 /**
- * The gate pair, DRIVEN — LumenizeClient → Worker → its host node → DO, both halves.
+ * The gate pair, DRIVEN — MeshClient → Worker → its host node → DO, both halves.
  *
  * ⚠️ **A fixture with no assertions passes `npm run test:doc` and the whole-suite run alike.** The
  * `@check-example` checker reads the doc block against the source and never instantiates anything,

@@ -32,10 +32,10 @@
  * a real clock. Rung 1 comes along for free.
  *
  * **A second thing it proves for free:** this file runs under Node via `tsx`, and it imports
- * `NebulaClient`, which imports `packages/resources/src/impersonation.ts`. Nothing else loads that module
- * outside workerd, so its Node-safety — the property that decided against a client-side
- * `debug.warn` importing `@lumenize/mesh/auth`'s barrel — is otherwise asserted only by reasoning.
- * If this scenario boots at all, that property holds.
+ * `NebulaClient`, whose base `MeshClient` imports `packages/mesh/src/impersonation.ts`. That module's
+ * Node-safety — the property that decided against a client-side `debug.warn` importing
+ * `@lumenize/mesh/auth`'s barrel — holds if this scenario boots at all; Mesh's
+ * `node-import.test.mjs` loads the same module in Node too.
  *
  * No DevContainer: `needsContainer = false`, so this boots without Docker.
  */

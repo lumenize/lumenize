@@ -5,7 +5,7 @@ description: Client-side class for connecting to Nebula.
 
 # NebulaClient
 
-`NebulaClient` extends [`LumenizeClient`](/docs/mesh/lumenize-client) with Nebula's **two-scope model**, which the client never configures. Its token carries both:
+`NebulaClient` extends [`MeshClient`](/docs/mesh/lumenize-client) with Nebula's **two-scope model**, which the client never configures. Its token carries both:
 
 - **`aud`** — the scope of the page's host. The platform host's refresh reads it from the page's `Origin`, so a client on `https://tenant-a.app.acme.lumenize.dev` gets `aud: "acme.app.tenant-a"`. The client takes its scope from its first token's `aud`, and a call made before that token arrives waits for it.
 - **`authScope`** — the membership whose refresh cookie minted the token: the page's own scope for a regular member, or an ancestor for an admin whose membership covers it (`acme` for a universe admin, on any page beneath `acme`).

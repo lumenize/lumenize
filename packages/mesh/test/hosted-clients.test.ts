@@ -5,7 +5,7 @@
  * vitest-plugin, because these limbs need a host that is not Nebula's, a node never stamped, or a
  * socket held unanswered; `scope-hosts-its-clients` and the other `/live` scenarios drive the same
  * code end to end through Nebula's pages. Each limb uses `ClientHostDO` from the test Worker, either
- * through a real `LumenizeClient` that logs in through Mesh's Registry (ADR-009 rung 2) and upgrades
+ * through a real `MeshClient` that logs in through Mesh's Registry (ADR-009 rung 2) and upgrades
  * at `/gateway/{id}` on its scope's host, or through a socket played by hand where a limb needs to
  * hold a frame unanswered.
  */
@@ -15,7 +15,7 @@ import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { preprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
-import { LumenizeClient, type LumenizeClientConfig } from '../src/lumenize-client';
+import { MeshClient, type MeshClientConfig } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { GatewayMessageType, WS_CLOSE_GONE } from '../src/gateway-messages';
 import type { CallEnvelope } from '../src/lmz-api';
@@ -23,7 +23,7 @@ import type { ClientHostDO, EchoDO, TestDO } from './test-worker-and-dos';
 import { loginAt, uniqueScope, type Login } from './support/login';
 
 /** A Client whose push handler answers, and which records what it was sent. */
-class HostedClient extends LumenizeClient {
+class HostedClient extends MeshClient {
   received: string[] = [];
 
   @mesh()
@@ -34,7 +34,7 @@ class HostedClient extends LumenizeClient {
 }
 
 /** A real Client on `host`'s page, logged in there, upgrading at `/gateway/{sub}.tab1`. */
-async function connect(host: string, extra: Partial<LumenizeClientConfig> = {}): Promise<HostedClient> {
+async function connect(host: string, extra: Partial<MeshClientConfig> = {}): Promise<HostedClient> {
   const login = await loginAt(host);
   const browser = new Browser();
   const client = new HostedClient({
@@ -50,7 +50,7 @@ async function connect(host: string, extra: Partial<LumenizeClientConfig> = {}):
 }
 
 /** A hosted Client's name on its host: `h-1a2b3c4d/{sub}.tab1`. */
-const nameOn = (host: string, client: LumenizeClient) => `${host}/${client.lmz.instanceName}`;
+const nameOn = (host: string, client: MeshClient) => `${host}/${client.lmz.instanceName}`;
 
 /** Upgrade straight to the host with `path` and `login`'s token, as the Worker's forward delivers it. */
 function upgrade(host: string, path: string, login: Login): Promise<Response> {

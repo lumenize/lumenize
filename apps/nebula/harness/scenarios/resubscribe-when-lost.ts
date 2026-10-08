@@ -2,7 +2,7 @@
  * **A Client re-subscribes exactly when its host node says it lost something** — never on a blip, a
  * supersede or a token rotation inside the grace period.
  *
- * Seven limbs, all run, with the verdict at the end (`live-scenarios.md`). Each drives a product
+ * Eight limbs, all run, with the verdict at the end (`live-scenarios.md`). Each drives a product
  * path. What no product path makes happen on demand happens at the edge: a debugger pause through
  * Playwright's CDP session for a tab the browser suspends, and a scenario-local socket for a
  * reconnect the network holds back. ⚠️ CDP's `Page.setWebLifecycleState: frozen` is NOT a freeze
@@ -23,6 +23,9 @@
  *     tab's token refreshes, with no reload. Mutation: skip the `scopeAdmin` comparison.
  *  7. **Accepting a broader membership in another tab** moves this tab to its new `sub`, and it keeps
  *     receiving updates. Mutation: keep the first name, and the tab loops on 403.
+ *  8. **The Profile channel, after a reconnect held 8 s**: a change to the profile while the tab is
+ *     away is reaped, the tab is told `true`, subscribes the profile again, and hears the next
+ *     change. Mutation: skip the Profile channel in `MeshClient.onSubscriptionRequired`.
  *
  * Limbs 2, 6 and 7 wait for a real token to come due: `bootVars` sets the shortest supported
  * lifetime, so a call 90 s after a token's mint rotates its socket. Those tabs open first and wait
@@ -76,7 +79,7 @@ interface SocketLog {
 
 /**
  * A `WebSocket` stand-in over a real one: it can open late, and it records each
- * `connection_status`. It implements what `LumenizeClient` uses of a socket and nothing more.
+ * `connection_status`. It implements what `MeshClient` uses of a socket and nothing more.
  */
 function socketFor(log: SocketLog): typeof WebSocket {
   return class ScenarioSocket {
@@ -329,6 +332,35 @@ export async function run(stack: DevStack): Promise<void> {
       await until(() => second.pushes > pushesBefore, 10_000, '').catch(() => {});
       limb('limb 5 — a second connection under the same name', log.statuses[0] === false && second.pushes > pushesBefore,
         `the second was told ${log.statuses[0]}; the next push ${second.pushes > pushesBefore ? 'arrived on it' : 'never arrived'}`);
+    }
+
+    // ── LIMB 8: the Profile channel, after a reconnect held 8 s ─────────────────────────────────────
+    // A member watches their own profile from a tab held away past the grace period while another of
+    // their tabs changes it, so the Profile's push fails and its reaper drops the row. The reconnect
+    // is told `true`, and the restore subscribes the profile again, so the next change arrives.
+    {
+      const browser8 = new Browser();
+      const member8 = await invitedMember(owner, browser8, galaxy, uniqueTestEmail());
+      const log: SocketLog = { statuses: [], holdMs: 0 };
+      const watcher = await openTab(browser8, galaxy, member8, { WebSocket: socketFor(log) });
+      const writer = await openTab(browser8, galaxy, member8);
+      const profileId = watcher.claims.profileId;
+      const heard: string[] = [];
+      watcher.onProfileUpdate((id, snapshot) => {
+        if (id === profileId) heard.push((snapshot?.value as { nickname?: string } | undefined)?.nickname ?? '');
+      });
+      await watcher.subscribeProfile(profileId).snapshot;
+      log.holdMs = 8_000;
+      log.current!.drop();
+      await until(() => watcher.connectionState === 'reconnecting', 5_000, 'limb 8: the tab never saw its socket drop');
+      await writer.updateMyProfile({ nickname: 'changed-while-away' }); // fails once the grace period runs out
+      await until(() => watcher.connectionState === 'connected', 20_000, 'limb 8: the tab never came back');
+      await until(() => log.statuses.length === 2, 5_000, 'limb 8: no connection_status on the reconnect');
+      await new Promise((r) => setTimeout(r, 1_000));
+      await writer.updateMyProfile({ nickname: 'changed-after' });
+      await until(() => heard.includes('changed-after'), 10_000, '').catch(() => {});
+      limb('limb 8 — the Profile channel, past the grace period', log.statuses.at(-1) === true && heard.includes('changed-after'),
+        `told ${log.statuses.at(-1)}; the next change ${heard.includes('changed-after') ? 'arrived' : 'LOST'}`);
     }
 
     // ── LIMB 1: Studio, frozen past its host node's 30 s wait ──────────────────────────────────────

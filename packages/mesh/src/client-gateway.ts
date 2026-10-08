@@ -2,7 +2,7 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { debug } from '@lumenize/debug';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from './ws-heartbeat.js';
 import { fillHandler, fireResponse, resolveStub, type CallEnvelope, type EnvelopeResponse } from './lmz-api.js';
-import { hostInstanceOf } from './client-address.js';
+import { addressOf, hostInstanceOf } from './client-address.js';
 import { validateOperationChain, type OperationChain } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, OriginAuth, OriginRequest, OriginCf } from './types.js';
 import {
@@ -306,6 +306,7 @@ export class ClientGateway {
     const statusMessage: ConnectionStatusMessage = {
       type: GatewayMessageType.CONNECTION_STATUS,
       subscriptionRequired,
+      address: addressOf({ bindingName, instanceName }),
     };
     server.send(JSON.stringify(statusMessage));
 
@@ -603,7 +604,7 @@ export class ClientGateway {
     // Build callContext - the chain is the verified origin ALONE. A client's frame carries no
     // chain (`CallMessage` has no field for one), and one a hostile frame adds is never read. A
     // receiver reads the chain to know who called: a subscribe stores `addressOf(callChain[0])` as
-    // the address to push to, and `LumenizeClient.onBeforeCall` refuses a push whose last hop is
+    // the address to push to, and `MeshClient.onBeforeCall` refuses a push whose last hop is
     // another client. A hop a client could append would be a caller it chose.
     // originRequest comes from the ATTACHMENT (snapshotted at upgrade), never from the client's
     // message — the same trust rule as originAuth: the Gateway is the boundary.

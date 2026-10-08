@@ -17,7 +17,7 @@ import { StarTest } from '../../test-apps/baseline/index';
 
 /**
  * Marker frame schema. `type` is intentionally outside `GatewayMessageType`
- * so the base `LumenizeClient` falls through to `onUnknownMessage`, which
+ * so the base `MeshClient` falls through to `onUnknownMessage`, which
  * `HarnessNebulaClient` overrides to capture arrival timestamps.
  */
 export const BENCH_MARKER_TYPE = 'bench_marker' as const;

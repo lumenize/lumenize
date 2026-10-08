@@ -12,25 +12,33 @@
  *
  * @example
  * ```typescript
- * import { LumenizeClient, mesh } from '@lumenize/mesh/client';
+ * import { MeshClient, mesh } from '@lumenize/mesh/client';
  *
- * class MyClient extends LumenizeClient {
+ * class MyClient extends MeshClient {
  *   @mesh()
  *   onNotification(msg: string) { ... }
  * }
  * ```
  */
 
-// LumenizeClient and related error types
-export { LumenizeClient, LoginRequiredError, HostDeletedError, TOKEN_REFRESH_AHEAD_SECONDS } from './lumenize-client';
+// MeshClient and related error types
+export { MeshClient, LoginRequiredError, HostDeletedError, TOKEN_REFRESH_AHEAD_SECONDS } from './mesh-client';
 export type {
-  LumenizeClientConfig,
+  MeshClientConfig,
   ConnectionState,
   LmzApiClient,
   ClientCallOptions,
   ClientBroadcastOptions,
+  ProfileChannelSnapshot,
+  ProfileSubscription,
   Continuation as ClientContinuation,
-} from './lumenize-client';
+} from './mesh-client';
+// What `impersonate()` throws, for a caller that tells its refusals apart, and what it takes.
+export { ImpersonationChainError, ImpersonationAlreadyOpenError, ImpersonationMintError } from './impersonation';
+export type { ImpersonateOptions } from './impersonation';
+// A subscribe's wait for its first push, shared by the Profile channel and a subclass's own planes.
+export { awaitFirstPush, SUBSCRIBE_TIMEOUT_MS } from './first-push';
+export type { PendingPush } from './first-push';
 // A Client's address and the `/` that tells it from a node's
 export { isClientInstanceName, hostInstanceOf, addressOf, splitAddress } from './client-address';
 

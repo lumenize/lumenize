@@ -5,10 +5,10 @@
  * from calls.mdx.
  */
 
-import { LumenizeClient, mesh } from '../../../src/index.js';
+import { MeshClient, mesh } from '../../../src/index.js';
 import type { CalculatorDO } from './calculator-do.js';
 
-export class CalculatorClient extends LumenizeClient {
+export class CalculatorClient extends MeshClient {
   // Store results received via handlers
   readonly results: number[] = [];
 

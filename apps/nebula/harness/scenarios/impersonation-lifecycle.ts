@@ -22,10 +22,11 @@
 import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient } from '@lumenize/resources/client';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
+import type { NebulaStoreAdapter } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
+import { chatPairOf, connectDriver, constructionPairs, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
 import {
   provisionStarAdmin, loginViaEmail, refreshAccessToken, acceptInviteAndLogin,
 } from '../../test/lib/email-login';
@@ -35,7 +36,7 @@ import { debugLines } from '../lib/stdio';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
-} from '../../../../packages/resources/src/impersonation';
+} from '../../../../packages/mesh/src/impersonation';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 export const needsContainer = false;
@@ -69,7 +70,7 @@ async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void
  */
 async function inviteAndLogin(
   stack: DevStack, scope: string, adminSession: { accessToken: string; sub: string },
-  email: string, testToken: string,
+  email: string, testToken: string, scopeAdmin = false,
 ): Promise<{ accessToken: string; sub: string }> {
   // The invitee's own browser: a browser holding the admin's cookie would be the admin on every
   // page beneath, since the refresh picks the broadest admin membership its cookies reach.
@@ -85,7 +86,7 @@ async function inviteAndLogin(
   const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
   try {
     // The ONE production surface: NebulaClient.invite → its host node → facade (there is no HTTP route).
-    const summary = await inviteViaMesh(stack, adminSession, scope, [{ email }]);
+    const summary = await inviteViaMesh(stack, adminSession, scope, [{ email, scopeAdmin }]);
     assert.equal(summary.errors.length, 0, `invite to ${scope} failed: ${JSON.stringify(summary.errors)}`);
     const email_ = await waiter.emailPromise;
     // ⚠️ Assert the tag's VALUE, not merely that mail arrived. What this pins is that the value comes
@@ -107,6 +108,17 @@ async function inviteAndLogin(
   } finally {
     waiter.cleanup();
   }
+}
+
+/** A store that hands each pushed Chat title to `heard`, where the factory's store would show it. */
+function recordingStore(heard: (title: string) => void): NebulaStoreAdapter {
+  const ignore = (): void => {};
+  return {
+    readResource: () => ({ value: undefined }),
+    applyServer: ignore, applyCommit: ignore, rollbackTo: ignore, applyDenied: ignore,
+    applyResolvedValue: ignore, applyOptimistic: ignore, flash: ignore,
+    applyFanout: (_rt, _rid, snapshot) => heard((snapshot.value as { title: string }).title),
+  };
 }
 
 async function until(what: string, fn: () => boolean, timeoutMs = 20_000): Promise<void> {
@@ -402,5 +414,66 @@ export async function run(stack: DevStack): Promise<void> {
   assert.equal(loginRequiredFired, false, "the admin's onLoginRequired must never fire");
   await universeAdmin.dispose();
 
-  console.error('[impersonation-lifecycle] ok — identity, refusals, a paused parent, teardown');
+  // ── 9. The child is its parent's own class, and reads and posts through what that class adds ────
+  // `impersonate()` builds the child with `new this.constructor(…)`, so a `StudioClient`'s child is
+  // a `StudioClient`, with a `ClientResources` of its own and the chat pair `childConfig()` passes
+  // on. On the galaxy's page, where the chat lives, the subject is an admin of the galaxy, invited
+  // as one, so the galaxy's Chats are theirs to read and its thread theirs to post in. The two
+  // checks each run and report, so a mutation that breaks both shows both.
+  // Mutation: build the child as a bare `MeshClient` → it has no `resources` and no
+  // `postUserMessage` → both red.
+  {
+    const galaxy = app.galaxy;
+    const galaxyPage = browser.context(scopeUrlOf(stack, galaxy));
+    const galaxyToken = await refreshAccessToken(stack.baseUrl, adminSession, galaxy, browser.fetch);
+    const studio = new StudioClient({
+      baseUrl: scopeUrlOf(stack, galaxy),
+      platformOrigin: stack.baseUrl,
+      ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+      ...constructionPairs(galaxy),
+      ...chatPairOf(galaxy),
+      accessToken: galaxyToken.accessToken,
+      instanceName: `${galaxyToken.sub}.${crypto.randomUUID().slice(0, 8)}`,
+      fetch: galaxyPage.fetch,
+      sessionStorage: galaxyPage.sessionStorage,
+      BroadcastChannel: galaxyPage.BroadcastChannel,
+    });
+    await connected(studio);
+    const galaxyAdmin = await inviteAndLogin(
+      stack, galaxy, galaxyToken, `galaxy-admin-${suffix}@lumenize-test.dev`, testToken, true,
+    );
+    const chatId = crypto.randomUUID();
+    await studio.resources.transaction({
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'before' } },
+    });
+    await studio.resources.subscribe('Chat', chatId).snapshot;
+    const asAdmin = await studio.impersonate(galaxyAdmin.sub, { ttlSeconds: SAFE_TTL });
+    await connected(asAdmin);
+    const problems: string[] = [];
+    try {
+      const titles: string[] = [];
+      asAdmin.bindStore(recordingStore((title) => titles.push(title)));
+      const first = await asAdmin.resources.subscribe('Chat', chatId).snapshot;
+      assert.equal((first?.value as { title?: string } | undefined)?.title, 'before',
+        "the child's subscribe must answer with the Chat's snapshot");
+      await studio.resources.transaction({ [chatId]: { op: 'put', typeName: 'Chat', value: { title: 'after' } } as any });
+      await until('the child to hear the rename', () => titles.includes('after'));
+    } catch (e) {
+      problems.push(`the child's resources: ${(e as Error).message}`);
+    }
+    try {
+      assert.ok(asAdmin instanceof StudioClient, "a StudioClient's child must be a StudioClient");
+      const messageId = await (asAdmin as StudioClient).postUserMessage('posted while impersonating');
+      const posted = await asAdmin.resources.read('Message', messageId);
+      assert.equal((posted?.value as { content?: string } | undefined)?.content, 'posted while impersonating',
+        "the child's post must commit as a Message");
+    } catch (e) {
+      problems.push(`the child's postUserMessage: ${(e as Error).message}`);
+    }
+    asAdmin[Symbol.dispose]();
+    await studio.dispose();
+    assert.equal(problems.length, 0, problems.join('\n'));
+  }
+
+  console.error('[impersonation-lifecycle] ok — identity, refusals, a paused parent, teardown, the child\'s own class');
 }

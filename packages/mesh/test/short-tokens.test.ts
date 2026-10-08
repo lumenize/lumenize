@@ -10,12 +10,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { parse } from '@lumenize/structured-clone';
-import { LumenizeClient, type LumenizeClientConfig } from '../src/lumenize-client';
+import { MeshClient, type MeshClientConfig } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { connectClient, loginAt, loginOf, uniqueScope } from './support/login';
 
 /** A Client whose push handler counts its runs. */
-class PingedClient extends LumenizeClient {
+class PingedClient extends MeshClient {
   pings = 0;
 
   @mesh()
@@ -26,17 +26,17 @@ class PingedClient extends LumenizeClient {
 }
 
 /** A client that can make an authenticated HTTP request, as `NebulaClient` does. */
-class FetchingClient extends LumenizeClient {
+class FetchingClient extends MeshClient {
   fetchAuthed(url: string): Promise<Response> {
     return this.authedFetch(url);
   }
 }
 
 /** A Client's address on its host: `h-1a2b3c4d/{sub}.tab1`. */
-const addressOf = (client: LumenizeClient) => `${loginOf(client).scope}/${client.lmz.instanceName}`;
+const addressOf = (client: MeshClient) => `${loginOf(client).scope}/${client.lmz.instanceName}`;
 
 /** The `exp` of the token on each socket `client`'s host still holds open for it. */
-async function socketExps(client: LumenizeClient): Promise<number[]> {
+async function socketExps(client: MeshClient): Promise<number[]> {
   const host = env.CLIENT_HOST_DO.getByName(loginOf(client).scope);
   return runInDurableObject(host, (_instance: unknown, ctx: DurableObjectState) => ctx.getWebSockets(addressOf(client))
     .filter((ws) => ws.readyState === WebSocket.OPEN)
@@ -134,7 +134,7 @@ describe('a new token reaches the socket', () => {
     using client = new FetchingClient({
       instanceName: `${first.sub}.tab1`,
       baseUrl: first.baseUrl,
-      refresh: (() => who.refresh()) as LumenizeClientConfig['refresh'],
+      refresh: (() => who.refresh()) as MeshClientConfig['refresh'],
       WebSocket: Opening,
       fetch: slowFetch,
       onSubscriptionRequired: () => { required += 1; },

@@ -2,7 +2,7 @@
  * A node's call to a Client: its host acks early, keeps the node's result handler continuation,
  * and fills it with the Client's answer the way a node's fire-back does.
  *
- * Every limb drives a real `LumenizeClient`, logged in through Mesh's Registry and hosted by a
+ * Every limb drives a real `MeshClient`, logged in through Mesh's Registry and hosted by a
  * scope's node, called by a real node, and reads what that node's own handler received at its
  * fire-back door. The direct `__executeOperation` limbs — no socket, the early ack, the spy on
  * `ctx.waitUntil` — are in `client-gateway.test.ts`, which plays the socket by hand.
@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parse } from '@lumenize/structured-clone';
-import { LumenizeClient } from '../src/lumenize-client';
+import { MeshClient } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { connectClient, loginOf } from './support/login';
 
@@ -21,7 +21,7 @@ class BoundError extends Error {
 }
 
 /** A Client whose push handlers answer with what each limb needs. */
-class AnsweringClient extends LumenizeClient {
+class AnsweringClient extends MeshClient {
   @mesh()
   rich(): Record<string, unknown> {
     const cyclic: Record<string, unknown> = { label: 'loop' };
@@ -53,7 +53,7 @@ class AnsweringClient extends LumenizeClient {
 const connect = () => connectClient(AnsweringClient);
 
 /** A Client's address on its host: `h-1a2b3c4d/{sub}.tab1`. */
-const addressOf = (client: LumenizeClient) => `${loginOf(client).scope}/${client.lmz.instanceName}`;
+const addressOf = (client: MeshClient) => `${loginOf(client).scope}/${client.lmz.instanceName}`;
 
 /** A node that calls `client`'s `method` and keeps the answer, read back once it arrives. */
 async function answerFrom(client: AnsweringClient, method: string): Promise<any> {

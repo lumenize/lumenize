@@ -2,7 +2,7 @@
  * Core factory types for `@lumenize/resources/frontend`.
  */
 import type { ConnectionState } from '@lumenize/mesh/client';
-import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, SubscriberListSubscription, SubscriberRosterDelivery } from '../nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, ProfileSubscription, SubscriberListSubscription, SubscriberRosterDelivery } from '../nebula-client';
 import type { QueryDescriptor } from '../query-hash';
 
 /**
@@ -54,7 +54,7 @@ export interface StoreClient {
   onProfileUpdate(handler: (profileId: string, snapshot: ProfileChannelSnapshot | null) => void): void;
   /** Subscribe to a global Profile by id (auto-subscribe 0→1). Returns a handle the factory holds +
    *  disposes after grace; pushes arrive via `onProfileUpdate`. Dedicated channel (not `resources.*`). */
-  subscribeProfile(profileId: string): ResourceSubscription;
+  subscribeProfile(profileId: string): ProfileSubscription;
   /** Register the factory's subscriber-list roster listener (mirrors each roster to the query-in-path
    *  surface `store.lmz.querySubscribers.<typeName>.<field>[value]`). */
   onQuerySubscribersUpdate(handler: (delivery: SubscriberRosterDelivery) => void): void;

@@ -8,7 +8,13 @@
 // the scope grammar, the verdicts and the host grammar live in `src/auth/` too, and the entries
 // re-export them on purpose. Modelled on apps/nebula/scripts/check-worker-graph.mjs; Mesh's
 // `test` script runs it ahead of vitest.
+//
+// It also holds `/client`'s graph free of decorator SYNTAX. Pipelines that do not transform TC39
+// decorators import it: Studio's `vite.config.ts` reaches it for `parseHost` through Vite's runner,
+// which failed to load the config while `MeshClient` carried `@mesh()` above a method, and nothing
+// else in Mesh's suites noticed. `mesh()` applied by a call is fine.
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +54,21 @@ for (const entry of ['index.ts', 'client-index.ts']) {
     );
   } else {
     console.log(`✓ mesh ${entry} graph holds no Registry, router, token or email-sender module (${inputs.length} modules checked)`);
+  }
+  if (entry === 'client-index.ts') {
+    // A decorator is an `@name(` opening a line; a JSDoc tag sits behind its ` * `.
+    const decorated = inputs.filter((i) => i.endsWith('.ts')
+      && /^\s*@[A-Za-z_$][\w$.]*\(/m.test(readFileSync(resolve(process.cwd(), i), 'utf8')));
+    if (decorated.length > 0) {
+      failed = true;
+      console.error(
+        `✗ Mesh's client-index.ts graph holds decorator syntax, which a pipeline that does not transform TC39 decorators cannot load:\n`
+        + decorated.map((d) => `    ${d}`).join('\n')
+        + `\n  Apply the decorator by a call below the class instead, as mesh-client.ts does for handleProfileUpdate.`,
+      );
+    } else {
+      console.log(`✓ mesh client-index.ts graph holds no decorator syntax (${inputs.filter((i) => i.endsWith('.ts')).length} TypeScript modules checked)`);
+    }
   }
 }
 if (failed) process.exit(1);

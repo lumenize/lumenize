@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject, pageOf, ORIGIN } from '../../test-helpers';
-import { childrenOf, isTornDown } from '../../../../../packages/resources/src/impersonation';
+import { childrenOf, isTornDown } from '../../../../../packages/mesh/src/impersonation';
 
 /** Outside the 30s refresh-ahead window — construction will not re-mint. */
 const SAFE_TTL = 300;
@@ -304,11 +304,11 @@ describe('lifetime — re-minting through the parent', () => {
   it.each([
     ['the typed refusal', Object.assign(new Error('The calling host\'s scope "u" does not administer this subject'),
       { name: 'ImpersonationRefusedError', terminal: true }), true],
-    ['a disconnect', new Error('LumenizeClient disconnected before the callAsync result arrived'), false],
+    ['a disconnect', new Error('MeshClient disconnected before the callAsync result arrived'), false],
     ['a timeout', Object.assign(new Error('callAsync timed out'), { name: 'TimeoutError' }), false],
     ['a refusal-shaped error without `terminal`', Object.assign(new Error('x'), { name: 'ImpersonationRefusedError' }), false],
   ])('%s classifies terminal=%s', async (_label, rejection, terminal) => {
-    const { mintImpersonation, ImpersonationMintError } = await import('../../../../../packages/resources/src/impersonation');
+    const { mintImpersonation, ImpersonationMintError } = await import('../../../../../packages/mesh/src/impersonation');
     const outcome = await mintImpersonation(() => Promise.reject(rejection), 'sub').catch((e: unknown) => e);
     // Mutation: classify every failure as terminal → the transport rows red, which is the direction
     // that matters: a build that terminates on everything kills an impersonation session on a blip.
@@ -331,7 +331,7 @@ describe('lifetime — re-minting through the parent', () => {
     const realCallAsync = admin.lmz.callAsync;
     (admin.lmz as { callAsync: unknown }).callAsync = (binding: string, ...rest: unknown[]) =>
       failMints && binding === 'AUTH_FACADE'
-        ? Promise.reject(new Error('LumenizeClient disconnected before the callAsync result arrived'))
+        ? Promise.reject(new Error('MeshClient disconnected before the callAsync result arrived'))
         : (realCallAsync as (...a: unknown[]) => unknown)(binding, ...rest);
 
     // A token inside the refresh-ahead window, so any connect drives a re-mint.

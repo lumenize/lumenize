@@ -1,8 +1,24 @@
 import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { parseJwtUnsafe, type JwtPayload } from '@lumenize/crypto';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG, WS_HEARTBEAT_INTERVAL_MS } from './ws-heartbeat.js';
 import { TOKEN_REFRESH_AHEAD_SECONDS } from './token-refresh.js';
+import { splitAddress } from './client-address.js';
+import { awaitFirstPush, type PendingPush } from './first-push.js';
+import { mesh } from './mesh-decorator.js';
+// Impersonation's own knowledge lives in its module; this class keeps the construction seam and
+// the teardown its end-of-session doors call.
+import {
+  assertCanImpersonate, childInstanceName, parentTabIdFrom, mintImpersonation, registerChild,
+  deregisterChild, childrenOf, onClientTornDown, isTornDown,
+  ImpersonationMintError, ImpersonationAlreadyOpenError,
+  type ImpersonateOptions, type RefreshFn,
+} from './impersonation.js';
+// Type-only, so nothing of the facade's or the Registry's server code reaches this Node- and
+// browser-safe module: they type the continuations below and are erased at compile.
+import type { AuthFacade } from './auth/auth-facade.js';
+import type { AffectedScope, ScopeDeletionPlan } from './auth/auth-registry.js';
+import type { AuthClaims, InviteeRequest, InviteSummary, ScopeNode } from './auth/types.js';
 import {
   newContinuation,
   executeOperationChain,
@@ -27,7 +43,7 @@ import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './
 // Browser-safe call-context threading
 // ---------------------------------------------------------------------------
 //
-// LumenizeClient runs in browsers where `node:async_hooks`'s AsyncLocalStorage
+// MeshClient runs in browsers where `node:async_hooks`'s AsyncLocalStorage
 // isn't available, and the userland Promise-then patching approach can't
 // preserve context across native `await` (V8 bypasses user-visible .then for
 // async-function resumes). So the context of the chain running now lives in a
@@ -108,18 +124,26 @@ const MAX_RECONNECT_DELAY_MS = 30000;
 const INITIAL_RECONNECT_DELAY_MS = 1000;
 
 
-/** Default gateway binding name */
-const DEFAULT_GATEWAY_BINDING = 'LUMENIZE_CLIENT_GATEWAY';
+/** The refresh route's path, on the platform host when the config names one. */
+const REFRESH_PATH = '/auth/refresh-token';
 
-/** Default token refresh endpoint */
-const DEFAULT_REFRESH_ENDPOINT = '/auth/refresh-token';
+/**
+ * The construction seam a child from {@link MeshClient.impersonate} is built through: its own
+ * `refresh`, backed by its parent's mint, where any other Client has the cookie's. Private to this
+ * module, so no config type reaches it, and a subclass's config that leaves `refresh` out still
+ * builds no Client whose token and scope disagree.
+ */
+const CHILD_REFRESH = Symbol('lumenize.mesh.impersonation.refresh');
+
+/** The companion seam: hands the child its parent, for the members that run after construction. */
+const CHILD_PARENT = Symbol('lumenize.mesh.impersonation.parent');
 
 // ============================================
 // Types
 // ============================================
 
 /**
- * Connection state for LumenizeClient
+ * Connection state for MeshClient
  */
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
@@ -159,20 +183,40 @@ export class HostDeletedError extends Error {
 }
 
 /**
- * Configuration for LumenizeClient
+ * Configuration for MeshClient
  */
-export interface LumenizeClientConfig {
+export interface MeshClientConfig {
   /**
    * The page's origin, whose host names the node that hosts this Client. The upgrade names only
    * the Client's id, `wss://tenant1.crm.acme.lumenize.dev/gateway/alice.9f2c41aa`; the Worker
-   * writes the binding and scope into the path from the hostname,
-   * `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`, and the host node names the Client
+   * routes it to the node the hostname spells, and that node names the Client
    * `acme.crm.tenant1/alice.9f2c41aa`.
    *
    * Default: current origin in browsers (e.g., `https://` → `wss://`)
    * Required in Node.js environments.
    */
   baseUrl?: string;
+
+  /**
+   * The platform host's origin, `https://platform.lumenize.dev`, where every session lives
+   * (ADR-022). The default `refresh` posts to its refresh route, the browser sending the platform
+   * host's cookies and naming this page in `Origin`, and `logout()` sends a top-level page to its
+   * logout page. Without it the refresh posts to `/auth/refresh-token` on the page's own origin.
+   */
+  platformOrigin?: string;
+
+  /**
+   * The origin a framed page tells about its session ending: its galaxy's Studio, the one page
+   * allowed to frame it. Absent on a top-level page, and a framed page without one posts nothing.
+   */
+  parentOrigin?: string;
+
+  /**
+   * How long a subscribe, `subscribeProfile` among them, waits for its first push before giving up,
+   * in ms. Default 30000, the host node's own limit on a push to a Client. Lower it in a test that
+   * asserts the abandon path; there is no reason to raise it in an app.
+   */
+  subscribeTimeoutMs?: number;
 
   /**
    * Unique client identifier
@@ -185,15 +229,6 @@ export interface LumenizeClientConfig {
    * duplicate-tab detection). Pass explicitly to override.
    */
   instanceName?: string;
-
-  /**
-   * The binding this Client names itself by in its own `callContext`, before its host stamps a call.
-   * Its host's binding is not known to the Client.
-   *
-   * Default: `LUMENIZE_CLIENT_GATEWAY`, a binding no Worker has.
-   * TEMP → target: the address the host's `connection_status` carries.
-   */
-  gatewayBindingName?: string;
 
   /**
    * Initial JWT access token
@@ -212,7 +247,9 @@ export interface LumenizeClientConfig {
    * payload (`client.claims.sub`); the refresh source only needs to return
    * the token.
    *
-   * Default: `/auth/refresh-token`
+   * Default: the platform host's refresh route, `${platformOrigin}/auth/refresh-token`, or
+   * `/auth/refresh-token` without a `platformOrigin`. A 401 or 403 there means no cookie covers this
+   * page, and `onLoginRequired` runs.
    */
   refresh?: string | (() => Promise<{ access_token: string; sub?: string }>);
 
@@ -297,7 +334,7 @@ export interface LumenizeClientConfig {
 }
 
 /**
- * LmzApi interface for LumenizeClient
+ * LmzApi interface for MeshClient
  *
  * Provides identity properties and mesh communication methods.
  */
@@ -305,10 +342,17 @@ export interface LmzApiClient {
   /** Node type - always 'LumenizeClient' */
   readonly type: 'LumenizeClient';
 
-  /** Binding name - always the gateway binding */
+  /**
+   * The binding of the node hosting this Client, `STAR` say, from the address its host's
+   * `connection_status` reports. Throws until that first arrives.
+   */
   readonly bindingName: string;
 
-  /** Instance name from config */
+  /**
+   * This Client's id on its host node, `alice.9f2c41aa`: its `sub`, a `.`, and its tab id. The host
+   * names it `acme.crm.tenant1/alice.9f2c41aa`, which a handler reads as `callContext.callee`.
+   * Throws until known: from the config, or from the first connection's token.
+   */
   readonly instanceName: string;
 
   /**
@@ -467,19 +511,52 @@ interface QueuedMessage {
   callId: string;
 }
 
+/**
+ * The snapshot the Profile channel delivers: a person's public fields and an eTag. A Profile is not
+ * a resource, so it carries no resource metadata.
+ */
+export interface ProfileChannelSnapshot {
+  value: unknown;
+  meta: { eTag: string };
+}
+
+/**
+ * A `using`-compatible handle from {@link MeshClient.subscribeProfile}. `snapshot` resolves on the
+ * first push for the profile; later pushes reach `onProfileUpdate` but do not re-resolve it. Each
+ * handle disposes once, and the subscription is released when the last handle for the profile is.
+ */
+export interface ProfileSubscription extends Disposable {
+  /** The first push: the public fields, or `null` for a profile that does not exist. */
+  readonly snapshot: Promise<ProfileChannelSnapshot | null>;
+}
+
+/**
+ * The calls the Profile channel makes, typed structurally so the Profile class, a Durable Object,
+ * never reaches this browser-bundled module. The instance is the `profileId`, never a scope.
+ */
+interface ProfileTarget {
+  subscribe(): void;
+  unsubscribe(): void;
+  writeProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void>;
+}
+
 // ============================================
-// LumenizeClient
+// MeshClient
 // ============================================
 
 /**
- * LumenizeClient - Browser/Node.js client for Lumenize Mesh
+ * MeshClient - Browser/Node.js client for Lumenize Mesh
  *
  * Clients are full mesh peers — they can both make and receive calls.
  * Extend this class and define `@mesh()` methods for incoming calls.
  *
+ * It also holds the session: the token and its `claims`, the `activeScope` its page acts in,
+ * `logout()`, `impersonate()`, `invite()`, the `scopes` the holder administers, and the Profile
+ * channel. A subclass hears about each new token through {@link onClaimsChange}.
+ *
  * @example
  * ```typescript
- * class EditorClient extends LumenizeClient {
+ * class EditorClient extends MeshClient {
  *   @mesh()
  *   handleDocumentChange(change: DocumentChange) {
  *     this.editor.applyChange(change);
@@ -491,14 +568,21 @@ interface QueuedMessage {
  * });
  * ```
  */
-export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayload> {
+export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
   // ============================================
   // Private Fields
   // ============================================
 
   #debugFactory = debug;
-  #config: Required<Pick<LumenizeClientConfig, 'gatewayBindingName' | 'refresh'>> & LumenizeClientConfig;
+  #config: Required<Pick<MeshClientConfig, 'refresh'>> & MeshClientConfig;
   #instanceName: string | null = null;
+  /**
+   * This Client's address on its host node, from the last `connection_status`: the host's binding,
+   * and the name the host holds it under. `undefined` until the first connection is accepted.
+   */
+  #address: { bindingName: string; instanceName: string } | undefined;
+  /** Whether a `connection_status` has arrived before, so a later one is known as a reconnect. */
+  #connectedBefore = false;
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
 
@@ -550,17 +634,48 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #deferInitialStateCallback = false;
   #pendingInitialState: ConnectionState | null = null;
 
+  // ── The session ───────────────────────────────────────────────────────────────────────────────
+
+  /** The page host's scope, from the first token's `aud`; `undefined` until that token arrives. */
+  #activeScope?: string;
+  #resolveActiveScope!: (scope: string) => void;
+  /** Settles with {@link #activeScope} once the first token arrives. */
+  #activeScopeKnown: Promise<string> = new Promise((resolve) => { this.#resolveActiveScope = resolve; });
+  /** The ids of children `impersonate()` is minting, each claimed until it is registered. */
+  #childrenOpening = new Set<string>();
+  /**
+   * The parent this Client was minted from, when it is an impersonated child. Read only after
+   * construction, by `logout()` and the teardown; the re-mint holds its parent in a closure instead,
+   * since a `refresh` can run during `super()`, before this field exists.
+   */
+  #mintedFrom?: MeshClient<AuthClaims>;
+
+  // ── The Profile channel ───────────────────────────────────────────────────────────────────────
+  //
+  // Keyed by bare `profileId`, apart from any subscription plane a subclass composes, so a
+  // subclass's own subscription keys never collide with a profile's.
+
+  /** Handles held per profile; the keys are the live subscriptions a restore sends again. */
+  #profileRefcount = new Map<string, number>();
+  /** Subscribes waiting for their first push. */
+  #profilePending = new Map<string, PendingPush<ProfileChannelSnapshot | null>>();
+  /** The factory's listener, which mirrors each push into its store. One at a time. */
+  #profileListener: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null = null;
+
   // ============================================
   // Constructor
   // ============================================
 
-  constructor(config: LumenizeClientConfig) {
-    // Set defaults
+  constructor(config: MeshClientConfig) {
+    // A child from `impersonate()` renews through its parent's mint; every other Client through the
+    // refresh it names, or the platform host's cookie.
+    const childRefresh = (config as unknown as Record<symbol, unknown>)[CHILD_REFRESH] as RefreshFn | undefined;
     this.#config = {
       ...config,
-      gatewayBindingName: config.gatewayBindingName ?? DEFAULT_GATEWAY_BINDING,
-      refresh: config.refresh ?? DEFAULT_REFRESH_ENDPOINT,
+      refresh: childRefresh ?? config.refresh
+        ?? (config.platformOrigin ? `${config.platformOrigin}${REFRESH_PATH}` : REFRESH_PATH),
     };
+    this.#mintedFrom = (config as unknown as Record<symbol, unknown>)[CHILD_PARENT] as MeshClient<AuthClaims> | undefined;
 
     // Store explicit instanceName if provided
     if (config.instanceName) {
@@ -584,6 +699,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         // subclass asserts the concrete claim shape via TClaims.
         this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
         this.#lastSub = parsed.payload.sub;
+        this.#learnActiveScope();
+        // A seeded token, an impersonated child's first mint, is a new token like a refresh's. Told
+        // on a microtask, once a subclass's fields exist.
+        queueMicrotask(() => this.#tellClaimsChanged());
       }
     }
 
@@ -634,13 +753,26 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * Use `client.claims.sub` for per-user keying, `client.claims.aud` for the
    * audience claim, etc. — same shape as `originAuth.claims` on the server side.
    *
-   * Typed `Readonly<TClaims> | null` — `TClaims` defaults to `JwtPayload`. A
-   * subclass scoped to a richer payload (e.g. `LumenizeClient<AuthClaims>`)
-   * may re-declare this getter to drop the `| null` once its lifecycle
-   * guarantees claims are populated before any caller runs.
+   * Typed `Readonly<TClaims> | null` — `TClaims` defaults to `AuthClaims`. A
+   * subclass whose lifecycle guarantees claims before any caller runs may
+   * re-declare this getter to drop the `| null`.
    */
   get claims(): Readonly<TClaims> | null {
     return this.#claims;
+  }
+
+  /**
+   * The page host's scope, `acme.crm.tenant1` on `tenant1.crm.acme.lumenize.dev`: the `aud` the
+   * first token carries, which the platform host's refresh set from this page's `Origin` (ADR-022).
+   * `undefined` before the first token arrives; a page's host never changes under it.
+   */
+  get activeScope(): string | undefined {
+    return this.#activeScope;
+  }
+
+  /** Settles with {@link activeScope} once the first token arrives: what a call made sooner waits on. */
+  get activeScopeKnown(): Promise<string> {
+    return this.#activeScopeKnown;
   }
 
   /**
@@ -658,7 +790,16 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
     const api: LmzApiClient = {
       type: 'LumenizeClient',
-      bindingName: self.#config.gatewayBindingName,
+
+      get bindingName(): string {
+        if (!self.#address) {
+          throw new Error(
+            'bindingName is only available once the host has accepted a connection: ' +
+            'its connection_status names the binding.'
+          );
+        }
+        return self.#address.bindingName;
+      },
 
       get instanceName(): string {
         if (!self.#instanceName) {
@@ -748,7 +889,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#ws = null;
     }
 
-    this.#stop(new Error('LumenizeClient disconnected before the callAsync result arrived'));
+    this.#stop(new Error('MeshClient disconnected before the callAsync result arrived'));
   }
 
   /**
@@ -789,10 +930,354 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   /**
-   * Symbol.dispose for `using` keyword support
+   * End this Client without ending its session: disconnect, and end any impersonation it opened.
+   * Distinct from {@link logout}, which also ends the session, so a disposed Client's page could
+   * connect again on the same cookie and a logged-out one cannot. A subclass that holds work in
+   * flight settles it first, then calls this.
+   */
+  async dispose(): Promise<void> {
+    this.disconnect();
+    this.#tearDownImpersonation();
+  }
+
+  /**
+   * `using` support. An end-of-session door, so it ends any impersonation too.
    */
   [Symbol.dispose](): void {
     this.disconnect();
+    this.#tearDownImpersonation();
+  }
+
+  /**
+   * The impersonation teardown, called from the three end-of-session doors: `dispose()`, `logout()`
+   * and `[Symbol.dispose]()`. It marks this Client unable to mint, ends its impersonated children,
+   * and takes it off its own parent's list.
+   *
+   * ⚠️ **Not on `disconnect()`, though all three doors run it.** Application code also calls
+   * `disconnect()` to pause a connection, which `connect()` reverses: tearing down there would end
+   * impersonation for a session nobody ended, where a paused parent still mints.
+   *
+   * ⚠️ **And not on a connection-state change.** A dropped socket goes to `'reconnecting'`, never
+   * `'disconnected'`, so tearing down on a state change would end an admin's impersonation on a
+   * network blip.
+   */
+  #tearDownImpersonation(): void {
+    onClientTornDown(this, this.#mintedFrom);
+  }
+
+  /**
+   * Sign out, ending every session this browser holds.
+   *
+   * Sessions live on the platform host (ADR-022), so a page cannot end them itself: a top-level
+   * page is sent to the platform host's logout page, which says what is about to end and posts the
+   * logout there, `everywhere` preselected when asked. A framed page, the dev tab inside Studio,
+   * holds its parent's session, so it disconnects and tells its parent instead. An impersonated
+   * child holds no cookie at all and only tears down. Without a window (a script, the `/live`
+   * harness) it disconnects only; the caller ends the session itself.
+   *
+   * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
+   */
+  async logout(options: { everywhere?: boolean } = {}): Promise<void> {
+    if (this.#mintedFrom) {
+      // A derived session holds no refresh cookie of its own, so any logout would spend the
+      // originator's. Ending an impersonation is teardown, whichever button was pressed
+      // (`security.md` § derived sessions).
+      await this.dispose();
+      return;
+    }
+    this.clearAccessToken();
+    this.disconnect();
+    this.#tearDownImpersonation();
+    if (typeof window === 'undefined') return;
+    if (window.top !== window.self) {
+      // The session is the parent's, and it decides. Posted only to the origin the serving layer
+      // named, and not at all without one.
+      if (this.#config.parentOrigin) window.parent.postMessage({ type: 'lumenize:logout' }, this.#config.parentOrigin);
+      return;
+    }
+    const page = new URL(`${this.#config.platformOrigin ?? ''}/auth/logout`, window.location.href);
+    if (options.everywhere) page.searchParams.set('everywhere', '1');
+    window.location.assign(page.href);
+  }
+
+  /**
+   * Produce a working Client that acts as another person: the admin's debugging tool for *"why
+   * can't this user do X?"*.
+   *
+   * Dominion-reducing: the child carries the subject's permissions, which are narrower than the
+   * caller's. It is this Client's own class, so a subclass's child keeps that subclass's surface,
+   * and its `claims` answer both questions: the top-level `sub` and `profileId` are the subject's,
+   * and an `act` claim marks the session as an impersonation.
+   *
+   * **The child acts on this Client's page.** Its `aud` is this Client's own, so no argument names
+   * a scope: to debug a tenant, impersonate from that tenant's page.
+   *
+   * **The parent is the credential.** Nothing durable is created: the child renews by minting
+   * through this Client again, so a revocation reaches it at its next token, and the session ends
+   * with this Client rather than at its term.
+   *
+   * ⚠️ **Precondition:** this Client has an `instanceName`, by connecting once or by its config,
+   * since the child's id derives from its tab id. A paused (`disconnect()`ed) parent, or one whose
+   * token expired, still mints: its mint waits for the reconnect and refreshes first.
+   *
+   * @param sub The subject's surrogate `sub`: the person to act as.
+   * @throws {ImpersonationChainError} when this Client is itself impersonating, before any network
+   *   call. Impersonation does not chain.
+   * @throws {ImpersonationAlreadyOpenError} when this Client already has an open child acting as
+   *   `sub`, before any network call. Dispose that child first.
+   * @throws {ImpersonationMintError} when the facade refuses, carrying its message.
+   */
+  async impersonate(sub: string, opts?: ImpersonateOptions): Promise<this> {
+    // Decidable here, and enforced independently by the mint's root-identity gate.
+    assertCanImpersonate(this.claims as { act?: unknown } | null);
+
+    // One mint path, captured lexically rather than through the child's `#mintedFrom`, which does
+    // not exist yet while the child's `refresh` may already run inside `super()`. `opts` rides
+    // along, so every re-mint asks for the same `ttlSeconds` and the session keeps its cadence.
+    const parent = this;
+    const activeScope = this.#activeScope ?? await this.#activeScopeKnown;
+    // A second child of one subject from this tab would share the first's id, and its host node
+    // would close the first's socket on the second's upgrade, so it is refused before any mint.
+    const instanceName = childInstanceName(sub, parentTabIdFrom(this.lmz.instanceName), activeScope);
+    if (this.#childrenOpening.has(instanceName)
+      || childrenOf(this).some((c) => (c as MeshClient).lmz.instanceName === instanceName)) {
+      throw new ImpersonationAlreadyOpenError(
+        `This tab is already impersonating ${sub}; dispose that client before opening another.`,
+      );
+    }
+    // Assigned right after construction; see the note in the terminal branch below.
+    let childRef: MeshClient | undefined;
+    const mint = async () => {
+      // Checked on every mint, the first included: ending the admin's session ends impersonation
+      // by construction, rather than when the child's token lapses.
+      if (isTornDown(parent)) {
+        throw new ImpersonationMintError('The client that created this impersonation session has been torn down');
+      }
+      return mintImpersonation(() => parent.lmz.callAsync(
+        'AUTH_FACADE', undefined,
+        parent.ctn<AuthFacade>().impersonate(sub, { ttlSeconds: opts?.ttlSeconds }),
+      ), sub);
+    };
+
+    // Mint first, then seed the child with the token. Constructing it tokenless, so that its own
+    // connect is the mint, would move a refusal inside `super()`, where it becomes a scheduled
+    // reconnect and the caller hears nothing. The id is claimed across the mint's await, so a
+    // second call meanwhile, a double click, is refused too.
+    this.#childrenOpening.add(instanceName);
+    let minted: Awaited<ReturnType<typeof mint>>;
+    try {
+      minted = await mint();
+    } finally {
+      this.#childrenOpening.delete(instanceName);
+    }
+
+    const Child = this.constructor as new (config: MeshClientConfig) => this;
+    const child = new Child({
+      ...this.childConfig(),
+      accessToken: minted.access_token,
+      instanceName,
+      [CHILD_REFRESH]: (async () => {
+        try {
+          return await mint();
+        } catch (e) {
+          // Only a mint that failed for good is terminal: the facade's typed refusal, or the
+          // torn-down parent, both `ImpersonationMintError`. Everything else is transport, and
+          // transient, so the child reconnects and retries.
+          //
+          // ⚠️ Terminal reuses `LoginRequiredError` on purpose: it is the one error the reconnect
+          // treats as terminal, so a class of its own would leave the child retrying forever. What
+          // keeps the admin from being sent to log in is that a child never holds their
+          // `onLoginRequired`; `childConfig()` leaves it out.
+          if (e instanceof ImpersonationMintError) {
+            // The child ends here and `disconnect()` will not run, so it leaves its parent's list
+            // now. Through `childRef` rather than `child`: this can run inside `super()`, where
+            // `child` is still in its temporal dead zone, and `childRef` is then undefined because
+            // the child was never registered.
+            if (childRef) deregisterChild(parent, childRef);
+            throw new LoginRequiredError(`Impersonation session ended: ${e.message}`, 403, 'impersonation_ended');
+          }
+          throw e;
+        }
+      }) as RefreshFn,
+      [CHILD_PARENT]: this,
+    } as MeshClientConfig);
+
+    childRef = child;
+    // After the mint, so a refused mint leaves no half-registered child holding a socket.
+    registerChild(this, child);
+    return child;
+  }
+
+  /**
+   * The config a child from {@link impersonate} is built with: the page, the platform host and the
+   * test overrides, never `refresh`, which the child gets from its parent's mint. It leaves out
+   * `onLoginRequired` on purpose, so someone else's session ending never sends the admin to log
+   * in. A subclass whose own config a child needs returns `{ ...super.childConfig(), … }`.
+   */
+  protected childConfig(): MeshClientConfig {
+    const c = this.#config;
+    return {
+      baseUrl: c.baseUrl,
+      platformOrigin: c.platformOrigin,
+      fetch: c.fetch,
+      // Passed through, `undefined` included: the `/live` harness supplies no `WebSocket` and relies
+      // on the Node global.
+      WebSocket: c.WebSocket,
+      sessionStorage: c.sessionStorage,
+      BroadcastChannel: c.BroadcastChannel,
+      // So a child abandons an unanswered subscribe when its parent would.
+      subscribeTimeoutMs: c.subscribeTimeoutMs,
+    };
+  }
+
+  /**
+   * Invite people into `targetScope`: a mesh call to the `AUTH_FACADE` Worker, so the verified
+   * claims ride `callContext.originAuth` and never a Bearer header. Every member may invite plain
+   * members into their own scope; dominion also permits inviting downward, and is the only thing
+   * that grants a requested `scopeAdmin`. A refusal rejects with the facade's message.
+   *
+   * The summary reports what was minted; the mail finishes after it returns. In test mode `links`
+   * carries the raw invite URLs, and a production summary never does.
+   *
+   * ⚠️ **`inviterName` is the inviter's own text, and is shown as their claim.** The invitee's
+   * consent modal renders it as "{name} (supplied by the sender)", because the person it defends
+   * against is the one who typed it. The facade caps its length and strips control characters; left
+   * out, the modal says "Someone".
+   */
+  invite(targetScope: string, invitees: InviteeRequest[], inviterName?: string): Promise<InviteSummary> {
+    return this.lmz.callAsync(
+      'AUTH_FACADE', undefined,
+      this.ctn<AuthFacade>().invite(targetScope, invitees, inviterName),
+    );
+  }
+
+  /**
+   * The scope tree a session manages: an account's apps, creating one, and deleting a scope. Each is
+   * a mesh call to the `AUTH_FACADE` Worker, so the verified claims ride `callContext.originAuth`.
+   * A deletion's Durable Objects are wiped before the answer arrives, so a caller wipes nothing.
+   */
+  get scopes() {
+    // A fresh continuation per call: a chain is recorded onto its root.
+    const facade = () => this.ctn<AuthFacade>();
+    const call = <T>(remote: unknown): Promise<T> =>
+      this.lmz.callAsync('AUTH_FACADE', undefined, remote as never) as Promise<T>;
+    return {
+      /**
+       * One more level beneath this Client's own page: a universe page's apps. The parent is the
+       * token's `aud`, never an argument. Pass the previous answer's `nextCursor` as `after` to go
+       * on; its absence means the level is exhausted.
+       */
+      expand: (after?: string): Promise<{ children: ScopeNode[]; nextCursor?: string }> =>
+        call(facade().expandScope(after ? { after } : undefined)),
+      /** Create the Galaxy `{universe}.{galaxySlug}` and its `.dev` Star (dominion over the universe). */
+      createGalaxy: (universe: string, galaxySlug: string): Promise<{ instanceName: string }> =>
+        call(facade().createGalaxy(`${universe}.${galaxySlug}`)),
+      /** What deleting `target` would take with it, for a confirm screen. Attached users never
+       *  refuse a delete (ADR-015). */
+      deletePlan: (target: string): Promise<ScopeDeletionPlan> =>
+        call(facade().planScopeDeletion(target)),
+      /** Delete `target` and every scope beneath it, answering with what went. */
+      delete: (target: string): Promise<{ affected: AffectedScope[] }> =>
+        call(facade().executeScopeDeletion(target)),
+    };
+  }
+
+  // ============================================
+  // The Profile channel
+  // ============================================
+
+  /**
+   * Subscribe to a person's public profile, `name`, `nickname` and `picture`, by `profileId`
+   * (ADR-012): any session holding the id may read it. The call goes to the `PROFILE` binding with
+   * the id as the instance, whatever scope this page is in. Pushes reach {@link onProfileUpdate}'s
+   * listener; the handle's `snapshot` resolves on the first. Handles are counted per profile, and
+   * the subscription is released when the last one is disposed.
+   */
+  subscribeProfile(profileId: string): ProfileSubscription {
+    this.#profileRefcount.set(profileId, (this.#profileRefcount.get(profileId) ?? 0) + 1);
+    const snapshot = awaitFirstPush(
+      this.#profilePending, profileId,
+      () => this.#sendProfileSubscribe(profileId),
+      (reason) => this.handleProfileUpdate(profileId, reason),
+      this.#config.subscribeTimeoutMs,
+    );
+    let disposed = false;
+    return {
+      snapshot,
+      [Symbol.dispose]: (): void => {
+        if (disposed) return;
+        disposed = true;
+        this.#releaseProfile(profileId);
+      },
+    };
+  }
+
+  /** Release one handle on a profile: what one `[Symbol.dispose]()` of a `subscribeProfile` handle does. */
+  unsubscribeProfile(profileId: string): void {
+    this.#releaseProfile(profileId);
+  }
+
+  /**
+   * Write the public fields of this session's own profile, the one its `profileId` claim names.
+   * The Profile allows its owner or an admin; under impersonation the claim names the subject, so
+   * the child edits the subject's profile as they would. The change reaches every subscriber.
+   */
+  updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
+    const profileId = this.claims?.profileId;
+    if (!profileId) return Promise.reject(new Error('updateMyProfile: this session has no profileId yet'));
+    return this.lmz.callAsync('PROFILE', profileId, this.ctn<ProfileTarget>().writeProfile(fields)) as Promise<void>;
+  }
+
+  /**
+   * Register the listener every profile push reaches: the factory's, which mirrors it into
+   * `store.lmz.profiles[profileId]`. One at a time; a later call replaces it.
+   */
+  onProfileUpdate(handler: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null): void {
+    this.#profileListener = handler;
+  }
+
+  /**
+   * A push from a Profile: the answer to a subscribe, or a later change. It reaches the listener,
+   * and settles a subscribe still waiting for its first. `null`, a profile that does not exist,
+   * reaches no listener; an Error, a refused subscribe, rejects the waiting one. `@mesh()`-decorated
+   * below the class, by a call rather than by syntax.
+   */
+  handleProfileUpdate(profileId: string, result: ProfileChannelSnapshot | null | Error): void {
+    const pending = this.#profilePending.get(profileId);
+    if (result instanceof Error) {
+      if (pending) { this.#profilePending.delete(profileId); pending.reject(result); }
+      return;
+    }
+    if (result !== null) this.#profileListener?.(profileId, result);
+    if (pending) { this.#profilePending.delete(profileId); pending.resolve(result); }
+  }
+
+  /** A profile subscribe's result handler, sent `onErrorOnly`: a refusal settles the waiting subscribe. */
+  onProfileSubscribeRefused(profileId: string, result?: unknown): void {
+    if (result instanceof Error) this.handleProfileUpdate(profileId, result);
+  }
+
+  /**
+   * The result handler for a call whose refusal leaves nothing to settle, an unsubscribe say. Sent
+   * `onErrorOnly`, so it hears only an Error, and logs it.
+   */
+  logRefusal(what: string, result?: unknown): void {
+    if (result instanceof Error) {
+      this.#debugFactory('lumenize.nebula-client').warn(`${what} was refused`, { error: result.message });
+    }
+  }
+
+  #sendProfileSubscribe(profileId: string): void {
+    this.lmz.call('PROFILE', profileId, this.ctn<ProfileTarget>().subscribe(),
+      this.ctn<this>().onProfileSubscribeRefused(profileId), { onErrorOnly: true });
+  }
+
+  #releaseProfile(profileId: string): void {
+    const n = this.#profileRefcount.get(profileId) ?? 0;
+    if (n > 1) { this.#profileRefcount.set(profileId, n - 1); return; }
+    this.#profileRefcount.delete(profileId);
+    this.lmz.call('PROFILE', profileId, this.ctn<ProfileTarget>().unsubscribe(),
+      this.ctn<this>().logRefusal('unsubscribeProfile'), { onErrorOnly: true });
   }
 
   // ============================================
@@ -804,12 +1289,13 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    *
    * Override to add authentication/authorization.
    * Default: block a DIRECT client-to-client call — one whose IMMEDIATE caller
-   * (`callChain.at(-1)`) is another LumenizeClient. DO/Worker-mediated pushes
+   * (`callChain.at(-1)`) is another Client. DO/Worker-mediated pushes
    * (fanout, direct-delivery, `lmz.broadcast`) have a DO/Worker as the caller and
    * are accepted — this is what every reactive app relies on, so no override is
-   * needed for them. Override (and skip `super`) to opt into peer communication;
-   * an app that does must then guard its own push handlers, which this refusal
-   * was protecting.
+   * needed for them. A call this Client made to itself through its host is its own,
+   * and accepted: the caller is the address its host named it by. Override (and skip
+   * `super`) to opt into peer communication; an app that does must then guard its own
+   * push handlers, which this refusal was protecting.
    *
    * ⛔ **This default refusal stays. Do not remove it to make peer calls the default.**
    * Larry 2026-10-05: "If I ever try to remove this again, remind me that we've tried
@@ -831,7 +1317,9 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // Check the IMMEDIATE caller, not the origin: a DO/Worker-mediated push has a
     // DO/Worker caller (accepted); only a direct peer call has a client caller.
     const caller = this.#currentCallContext?.callChain.at(-1);
-    if (caller?.type === 'LumenizeClient' && caller.instanceName !== this.#instanceName) {
+    const self = this.#address;
+    if (caller?.type === 'LumenizeClient'
+      && (caller.bindingName !== self?.bindingName || caller.instanceName !== self?.instanceName)) {
       throw new Error(
         'Direct client-to-client calls are disabled by default. ' +
         'Override onBeforeCall() to allow them.'
@@ -847,8 +1335,17 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * `onSubscriptionRequired` in the config, which this default calls.
    */
   onSubscriptionRequired(): void {
+    // Every live profile, sent again: a Profile whose push to this Client failed dropped its row.
+    for (const profileId of this.#profileRefcount.keys()) this.#sendProfileSubscribe(profileId);
     this.#config.onSubscriptionRequired?.();
   }
+
+  /**
+   * Called after every new token this Client takes: each refresh, and a seeded `accessToken`. Read
+   * the new token's claims from `this.claims`. A subclass whose subscriptions depend on a claim
+   * compares it here, and a reconnect after it carries the new token. Default: nothing.
+   */
+  onClaimsChange(): void {}
 
   /**
    * Called when a Gateway message arrives whose `type` is not in
@@ -967,7 +1464,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     }
 
     if (!baseUrl) {
-      throw new Error('LumenizeClient requires baseUrl in Node.js environments');
+      throw new Error('MeshClient requires baseUrl in Node.js environments');
     }
 
     // Ensure wss:// or ws:// protocol
@@ -1229,7 +1726,29 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // Trust boundary: see the constructor's claims assignment.
     this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
     this.#lastSub = parsed.payload.sub;
+    this.#learnActiveScope();
     this.#followSub(previousSub);
+    this.#tellClaimsChanged();
+  }
+
+  /** Take the page's scope from the token's `aud`, once: a page's host never changes under it. */
+  #learnActiveScope(): void {
+    if (this.#activeScope !== undefined) return;
+    const aud = (this.#claims as { aud?: unknown } | null)?.aud;
+    if (typeof aud !== 'string') return;
+    this.#activeScope = aud;
+    this.#resolveActiveScope(aud);
+  }
+
+  /** Run {@link onClaimsChange}; a throw there is logged, never thrown into the refresh. */
+  #tellClaimsChanged(): void {
+    try {
+      this.onClaimsChange();
+    } catch (err) {
+      this.#debugFactory('lmz.mesh.LumenizeClient.onClaimsChange').error('onClaimsChange threw', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**
@@ -1363,6 +1882,14 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   #handleConnectionStatus(message: ConnectionStatusMessage): void {
+    // The name the host holds this Client under, before anything reads it: `callee` on every call
+    // that arrives, and what the peer check compares a caller with. A host that names none, one
+    // still on an older version during a rollout, leaves the Client unable to call itself, which
+    // the peer check then refuses, but connected: throwing here would leave it short of `connected`.
+    this.#address = message.address ? splitAddress(message.address) : undefined;
+    const reconnect = this.#connectedBefore;
+    this.#connectedBefore = true;
+
     // Now connected
     this.#setConnectionState('connected');
 
@@ -1373,6 +1900,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // records any delivery to this Client that failed, a 4408 close included.
     if (message.subscriptionRequired) {
       this.onSubscriptionRequired();
+    } else if (reconnect) {
+      // Nothing was lost, but a profile subscribe sent just as the last socket closed may never have
+      // reached its Profile: one still waiting for its first push goes again.
+      for (const profileId of this.#profilePending.keys()) this.#sendProfileSubscribe(profileId);
     }
   }
 
@@ -1464,7 +1995,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       const callContext: ClientCallContext = {
         callChain: preprocessedCallContext.callChain,  // Plain strings - no postprocessing
         originAuth: preprocessedCallContext.originAuth,  // From JWT - no postprocessing
-        // This Client's own identity, as every receiver stamps its own: never from the wire.
+        // This Client's own address, as every receiver stamps its own: never from the wire.
         callee: this.#selfIdentity(),
       };
 
@@ -1588,7 +2119,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       'message queue full — refusing call', { callId, limit: MAX_QUEUE_SIZE },
     );
     const refusal = new DOMException(
-      `LumenizeClient holds at most ${MAX_QUEUE_SIZE} calls while its socket is down; this one was refused`,
+      `MeshClient holds at most ${MAX_QUEUE_SIZE} calls while its socket is down; this one was refused`,
       'QuotaExceededError',
     );
     setTimeout(() => onRefused(refusal), 0);
@@ -1625,9 +2156,13 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   // Private - RPC Methods
   // ============================================
 
-  /** This Client's own identity, as a node stamps its own: the Gateway it is reached through. */
-  #selfIdentity(): NodeIdentity {
-    return { type: 'LumenizeClient', bindingName: this.#config.gatewayBindingName, instanceName: this.#instanceName ?? undefined };
+  /**
+   * This Client's own identity, as a node stamps its own: the address its host named it by,
+   * `{ bindingName: 'STAR', instanceName: 'acme.crm.tenant1/alice.9f2c41aa' }`. `undefined` before
+   * the first connection, when no host has named it.
+   */
+  #selfIdentity(): NodeIdentity | undefined {
+    return this.#address && { type: 'LumenizeClient', ...this.#address };
   }
 
   /**
@@ -1660,7 +2195,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     options?.onSent?.(callId);
     this.#sendOrQueue(json, callId, (refusal) => {
       const self = this.#selfIdentity();
-      this.#runFilledChain(callId, replaceNestedOperationMarkers(handlerChain, refusal), { callChain: [self], callee: self });
+      this.#runFilledChain(callId, replaceNestedOperationMarkers(handlerChain, refusal),
+        { callChain: self ? [self] : [], callee: self });
     });
   }
 
@@ -1743,3 +2279,9 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     return this.#answers.size;
   }
 }
+
+// `@mesh()` applied by a call rather than by decorator syntax, so `@lumenize/mesh/client` holds no
+// decorator syntax and loads through any TypeScript transform. A Vite config loaded through Vite's
+// runner, which imports this module for `parseHost`, does not transform TC39 decorators, and a
+// class decorated by syntax there fails to load.
+mesh()(MeshClient.prototype.handleProfileUpdate, {} as ClassMethodDecoratorContext);

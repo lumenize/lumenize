@@ -13,7 +13,7 @@ import { expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
-import type { LumenizeClient, LumenizeClientConfig } from '../../src/lumenize-client';
+import type { MeshClient, MeshClientConfig } from '../../src/mesh-client';
 import { foundUniverse, inviteAndLogin, logoutRequest, refresh, refreshCookie, scopeOrigin } from '../auth/test-helpers';
 
 /** A universe slug no other test claims: `prefix-` and eight random characters, `h-1a2b3c4d`. */
@@ -21,7 +21,7 @@ export function uniqueScope(prefix = 'u'): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-/** A logged-in user, with what a `LumenizeClient` needs to connect on a page of `page`'s host. */
+/** A logged-in user, with what a `MeshClient` needs to connect on a page of `page`'s host. */
 export interface Login {
   sub: string;
   email: string;
@@ -33,7 +33,9 @@ export interface Login {
   admin: boolean;
   /** An access token for a page on `page`'s host, minted at login. */
   accessToken: string;
-  /** What a `LumenizeClient`'s `refresh` calls: a fresh token, from the refresh route with the cookie. */
+  /** The refresh cookie the consume set, for a test that puts it in a `Browser`'s jar. */
+  cookie: { name: string; value: string };
+  /** What a `MeshClient`'s `refresh` calls: a fresh token, from the refresh route with the cookie. */
   refresh: () => Promise<{ access_token: string; sub: string }>;
   /** The page's origin, a Client's `baseUrl`: `http://{host}.lumenize.localhost`. */
   baseUrl: string;
@@ -81,17 +83,19 @@ async function sessionOn(scope: string, cookie: string, page: string, email: str
     const resp = await SELF.fetch(logoutRequest([cookie]));
     if (resp.status !== 200) throw new Error(`logout answered ${resp.status}: ${await resp.text()}`);
   };
+  const eq = cookie.indexOf('=');
   return {
     sub, email, scope, page, admin, accessToken: access_token, refresh: mint, baseUrl: scopeOrigin(page), logout,
+    cookie: { name: cookie.slice(0, eq), value: cookie.slice(eq + 1) },
     atPage: (other) => sessionOn(scope, cookie, other, email, admin),
   };
 }
 
 /** The login each Client {@link connectClient} made was built from. */
-const logins = new WeakMap<LumenizeClient, Login>();
+const logins = new WeakMap<MeshClient, Login>();
 
 /** The login a Client from {@link connectClient} rides: its `sub`, its scope, its refresh. */
-export function loginOf(client: LumenizeClient): Login {
+export function loginOf(client: MeshClient): Login {
   const login = logins.get(client);
   if (!login) throw new Error('loginOf: this Client was not made by connectClient');
   return login;
@@ -101,10 +105,10 @@ export function loginOf(client: LumenizeClient): Login {
  * A real `Client` on a page of `scope`'s host (a fresh universe by default), logged in there and
  * connected through the test Worker as `{sub}.tab1`; resolves once it is connected.
  */
-export async function connectClient<C extends LumenizeClient>(
-  Client: new (config: LumenizeClientConfig) => C,
+export async function connectClient<C extends MeshClient>(
+  Client: new (config: MeshClientConfig) => C,
   scope: string = uniqueScope('h'),
-  extra: Partial<LumenizeClientConfig> = {},
+  extra: Partial<MeshClientConfig> = {},
 ): Promise<C> {
   const login = await loginAt(scope);
   const browser = new Browser();

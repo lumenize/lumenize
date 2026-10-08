@@ -15,7 +15,7 @@
  * Why split: when a failure happens, the per-`it` boundary tells you whether
  * the bundle, auth, or mesh path broke without reading the stack trace.
  *
- * About `WebSocket`: the config omits `WebSocket`, so LumenizeClient falls
+ * About `WebSocket`: the config omits `WebSocket`, so MeshClient falls
  * back to `globalThis.WebSocket` (Node 22's native). Browser's WebSocket
  * shim won't work here — its fetch-based upgrade relies on the Cloudflare
  * Workers / miniflare convention where the response carries a `webSocket`

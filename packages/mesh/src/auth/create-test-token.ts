@@ -88,9 +88,9 @@ export interface CreateTestTokenOptions {
 }
 
 /**
- * Returns a `refresh` callback for `LumenizeClient`/`NebulaClient` that mints a fresh
+ * Returns a `refresh` callback for `MeshClient`/`NebulaClient` that mints a fresh
  * correct-shape Nebula access token on each call (fresh `exp`/`iat`/`jti`; stable `sub`).
- * Shape matches {@link CreateTestTokenOptions}'s LumenizeClient `refresh` contract:
+ * Shape matches {@link CreateTestTokenOptions}'s MeshClient `refresh` contract:
  * `() => Promise<{ access_token, sub }>`.
  */
 export function createTestToken(

@@ -234,7 +234,7 @@ const isAppAdmin = computed(() =>
 
 `isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; passage and dominion, read from the page's host, on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
 
-`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: LumenizeClient](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
+`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: the Client](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
 
 ## Subscription lifecycle
 

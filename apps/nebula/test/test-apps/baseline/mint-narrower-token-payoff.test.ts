@@ -10,7 +10,7 @@
  * **Vehicle: `admin.impersonate(subjectSub)`** — the production client capability, driven
  * through the REAL host node of its page. It mints through `NebulaAuthFacade.impersonate` and hands
  * the result to a full `NebulaClient`, so this exercises the path the Studio actually
- * takes rather than a hand-rolled `LumenizeClient` no product code can reach.
+ * takes rather than a hand-rolled `MeshClient` no product code can reach.
  *
  * ADR-009 **rung 2**, like the whole `baseline` lane: real founding, real invite, real
  * server-issued login (test-mode issuance — the magic link is read from the response, gated by the

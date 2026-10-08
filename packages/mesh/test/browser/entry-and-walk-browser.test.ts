@@ -26,10 +26,9 @@ import type { OperationChain } from '../../src/ocan/index';
 
 
 describe('@lumenize/mesh entry + walk rules on the client executor (real chromium)', () => {
-  // it.skip until a Client knows the address its host holds it under, from the host's
-  // `connection_status`: its call to itself through the host arrives with the host-stamped address
-  // as the last hop, which the default guard compares with the bare id and refuses as a peer's.
-  it.skip('refuses what a remote caller must not reach, in the browser', async () => {
+  // The call to itself through its host arrives with the address its host stamped as the last hop,
+  // which the Client knows from the host's `connection_status`, so its default guard lets it in.
+  it('refuses what a remote caller must not reach, in the browser', async () => {
     const proxyPath = inject('wranglerBaseUrl');
     const baseUrl = globalThis.location!.origin + proxyPath;
     const scope = inject('pageScope');
