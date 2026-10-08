@@ -14,7 +14,7 @@
  *      guards against a silent parse→{} vacuous-passing the comparison);
  *   2. every durable-object export is `storage: "sqlite"` — a non-SQLite prod DO makes sync storage
  *      throw → hard deploy failure (see .claude/rules/durable-objects.md § DO class registration);
- *   3. the non-DO exports `default` (the fetch handler) and `NebulaEmailSender` (a WorkerEntrypoint)
+ *   3. the non-DO exports `default` (the fetch handler) and `AuthEmailSender` (a WorkerEntrypoint)
  *      are ABSENT from the bindings and from the durable-object exports (a `type: "worker"` export is
  *      allowed, a durable-object one is a hard failure);
  *   4. `src/worker.ts` re-exports each of the registered DO classes.
@@ -44,7 +44,7 @@
 export const EXPECTED_DO_CLASS_COUNT = 5;
 
 /** Non-DO exports that must never be a `durable_objects` binding NOR a `type: "durable-object"` export. */
-const NON_DO_EXPORTS = ['default', 'NebulaEmailSender'];
+const NON_DO_EXPORTS = ['default', 'AuthEmailSender'];
 
 /**
  * Strip `//` line and `/* *​/` block comments from JSONC, string-aware (a `//` or `/*`
@@ -210,7 +210,7 @@ export function auditMigrations({ wranglerJsonc, workerTs }) {
     errors.push(`classes in exports but not durable_objects.bindings: ${onlyInExports.join(', ')}`);
   }
 
-  // Non-DO exports (`default`, `NebulaEmailSender`) must NOT be a durable-object binding NOR a
+  // Non-DO exports (`default`, `AuthEmailSender`) must NOT be a durable-object binding NOR a
   // durable-object export. (They may legitimately be a `type: "worker"` export — hence the DO-scoped
   // check above — but never a DO.)
   for (const forbidden of NON_DO_EXPORTS) {

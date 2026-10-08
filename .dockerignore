@@ -26,9 +26,6 @@
 !packages/debug/package.json
 !packages/debug/src
 !packages/debug/src/**
-!packages/nebula-auth/package.json
-!packages/nebula-auth/src
-!packages/nebula-auth/src/**
 !packages/routing/package.json
 !packages/routing/src
 !packages/routing/src/**

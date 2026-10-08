@@ -7,7 +7,7 @@
  * test target.
  */
 import { describe, it, expect } from 'vitest';
-import { isValidSlug } from '@lumenize/nebula-auth';
+import { isValidSlug } from '@lumenize/mesh/auth';
 import {
   isStaleTestAccount, isStaleTestPack, sweepStaleTestAccounts, sweepStaleTestPacks, testLabelDate, testSlug,
 } from '../harness/lib/test-scopes';

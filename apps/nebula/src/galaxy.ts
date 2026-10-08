@@ -36,8 +36,8 @@ import {
   getParserValidatorFacet,
   type ParserValidator,
 } from '@lumenize/ts-runtime-parser-validator/runtime';
-import { NEBULA_SUB, hasDominionOver, projectActingToken } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import { NEBULA_SUB, hasDominionOver, projectActingToken } from '@lumenize/mesh/auth';
+import type { AuthClaims } from '@lumenize/mesh/auth';
 import { GATEWAY_PREFIX, NebulaDO, requireDominionHere } from './nebula-do';
 // Types only — the COMPILE itself runs in the container build job
 // (tasks/archive/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
@@ -59,7 +59,7 @@ import { afterCall, cloudflareCertificateApi, isFinalStatus, nextCall, onWake, p
 import type { CertificateApi, CertificateState } from './certificate';
 import { PUBLIC_PREFIX, PUBLIC_SCOPE_HEADER } from './page-forward';
 import { LUMENIZE_ORIGIN_META } from './page-meta';
-import { deploymentOrigin, hostOrigin } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, hostOrigin } from '@lumenize/mesh/client';
 import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
@@ -613,11 +613,11 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
    * no mesh call context at all (reading `lmz.callContext` outside a call throws, and
    * that is the one case this tolerates).
    */
-  #clientOrigin(): { clientAddress: string; claims: NebulaJwtPayload } | undefined {
+  #clientOrigin(): { clientAddress: string; claims: AuthClaims } | undefined {
     let cc: CallContextLike | undefined;
     try { cc = this.lmz.callContext; } catch { return undefined; }
     const origin = cc?.callChain[0];
-    const claims = cc?.originAuth?.claims as NebulaJwtPayload | undefined;
+    const claims = cc?.originAuth?.claims as AuthClaims | undefined;
     return origin?.type === 'LumenizeClient' && origin.instanceName && claims
       ? { clientAddress: addressOf(origin), claims }
       : undefined;
@@ -1991,8 +1991,8 @@ export class Galaxy extends NebulaDO implements ResourcesHost {
 
   /** The verified claims of the current mesh call, or `undefined` outside one (see
    *  {@link #clientOrigin}). */
-  #claimsIfAny(): NebulaJwtPayload | undefined {
-    try { return this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined; } catch { return undefined; }
+  #claimsIfAny(): AuthClaims | undefined {
+    try { return this.lmz.callContext.originAuth?.claims as AuthClaims | undefined; } catch { return undefined; }
   }
 
   /**

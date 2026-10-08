@@ -7,8 +7,8 @@
 
 import { mesh, rawRpc, splitAddress } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { AuthClaims } from '@lumenize/mesh/auth';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 // Re-export DO classes and entrypoint for wrangler bindings
 export {
@@ -19,8 +19,8 @@ export {
 } from '@lumenize/nebula';
 
 // Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
-export { AuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
-import { Profile } from '@lumenize/nebula-auth/profile';
+export { AuthRegistry, AuthEmailSender } from '@lumenize/mesh/auth';
+import { Profile } from '@lumenize/mesh/auth/profile';
 
 /** A profileId that forces `Profile`'s scoped-admin registry read to throw — the fail-closed probe. */
 export const FAIL_CLOSED_PROFILE_ID = '__fail_closed_probe__';
@@ -211,7 +211,7 @@ export class StarTest extends Star {
   @mesh(requireDominionHere)
   callFacadeFreshChain(method: string, ...args: any[]): void {
     this.ctx.storage.kv.delete('facade_call_outcome');
-    const facade = this.ctn<NebulaAuthFacade>() as any;
+    const facade = this.ctn<AuthFacade>() as any;
     this.lmz.call('AUTH_FACADE', undefined, facade[method](...args),
       (this.ctn() as any).recordFacadeCallOutcome(), { newChain: true });
   }
@@ -652,7 +652,7 @@ export class GalaxyTest extends Galaxy {
 
 // Guard for client-side methods
 function requireAdminCaller(instance: NebulaClient) {
-  const claims = instance.lmz.callContext.originAuth?.claims as unknown as NebulaJwtPayload;
+  const claims = instance.lmz.callContext.originAuth?.claims as unknown as AuthClaims;
   if (!claims?.access?.scopeAdmin) {
     throw new Error('Admin caller required');
   }

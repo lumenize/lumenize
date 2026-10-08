@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import swc from "unplugin-swc";
-import { parseHost, type HostTarget } from "@lumenize/nebula-auth/claims";
+import { parseHost, type HostTarget } from "@lumenize/mesh/client";
 
 // SWC transforms the imported @lumenize/* TS, which carries the TC39 stage-3 decorators
 // `@mesh()` uses. This plugin is REQUIRED, not an optimization.
@@ -41,7 +41,7 @@ const swcPlugin = swc.vite({
 const WORKER = process.env.NEBULA_WORKER_URL || "http://localhost:8787";
 
 // The deployment the dev server stands in for: every host is read against it, exactly as the Worker
-// reads its own (`@lumenize/nebula-auth`'s `parseHost`), so vite and the Worker agree on which page a
+// reads its own (`@lumenize/mesh/auth`'s `parseHost`), so vite and the Worker agree on which page a
 // host is. A local stack's origin, unless the harness names another.
 const DEPLOYMENT = process.env.LUMENIZE_ORIGIN || "http://lumenize.localhost";
 

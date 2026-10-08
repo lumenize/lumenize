@@ -34,7 +34,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { GALAXY_CAP_MESSAGE, MAX_GALAXIES_PER_OWNER, SIGNUP_TICKET_COOKIE } from '@lumenize/nebula-auth/claims';
+import { GALAXY_CAP_MESSAGE, MAX_GALAXIES_PER_OWNER, SIGNUP_TICKET_COOKIE } from '@lumenize/mesh/client';
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar, NEW_HOST_TIMEOUT_MS } from '../lib/harness';

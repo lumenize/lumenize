@@ -26,7 +26,7 @@ import { mkdirSync, readFileSync, copyFileSync, rmSync, existsSync } from 'node:
 import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { hostOrigin } from '@lumenize/mesh/client';
 import { bootStudioVite } from '../../harness/lib/browser';
 import { HAS_DOCKER } from './gates';
 

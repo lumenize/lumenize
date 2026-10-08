@@ -47,7 +47,7 @@ import {
   provisionAndLogin, refreshAccessToken, requestUniverseClaim, requestStarClaim, requestMagicLink,
   refreshTokenForScope, setCookieHeaders, acceptMembership, consumeLink, refreshCookie,
 } from '../../test/lib/email-login';
-import { SIGNUP_TICKET_COOKIE } from '@lumenize/nebula-auth/claims';
+import { SIGNUP_TICKET_COOKIE } from '@lumenize/mesh/client';
 
 export const needsContainer = false;
 

@@ -9,7 +9,7 @@
  * runs rather than that a session survives its token lapsing.
  *
  * ⚠️ **This header used to say pool-workers "cannot let time pass". THAT IS FALSE — measured, not
- * assumed (2026-07-30, `packages/nebula-auth`).** `vi.useFakeTimers({ shouldAdvanceTime: true })` +
+ * assumed (2026-07-30, in the auth package, now `packages/mesh/src/auth`).** `vi.useFakeTimers({ shouldAdvanceTime: true })` +
  * `vi.setSystemTime(+1 day)` moves the clock the **Worker** sees: a subsequent `/refresh-token` mint
  * came back with `iat` advanced ~86400s, and a token minted `ttlSeconds: 60` then used ten (fake)
  * minutes later got a **401** — with a no-jump control on the identical request returning something
@@ -34,7 +34,7 @@
  * **A second thing it proves for free:** this file runs under Node via `tsx`, and it imports
  * `NebulaClient`, which imports `apps/nebula/src/impersonation.ts`. Nothing else loads that module
  * outside workerd, so its Node-safety — the property that decided against a client-side
- * `debug.warn` importing `@lumenize/nebula-auth`'s barrel — is otherwise asserted only by reasoning.
+ * `debug.warn` importing `@lumenize/mesh/auth`'s barrel — is otherwise asserted only by reasoning.
  * If this scenario boots at all, that property holds.
  *
  * No DevContainer: `needsContainer = false`, so this boots without Docker.

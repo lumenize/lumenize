@@ -28,7 +28,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { GALAXY_CAP_MESSAGE, MAX_GALAXIES_PER_OWNER } from '@lumenize/nebula-auth/claims';
+import { GALAXY_CAP_MESSAGE, MAX_GALAXIES_PER_OWNER } from '@lumenize/mesh/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';

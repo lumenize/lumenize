@@ -7,8 +7,8 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasDominionOver } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import { hasDominionOver } from '@lumenize/mesh/auth';
+import type { AuthClaims } from '@lumenize/mesh/auth';
 import {
   ROOT_NODE_ID,
   validateNodeId,
@@ -168,7 +168,7 @@ export class OrgTree {
     const cc = this.#getCallContext()
     const sub = cc.originAuth?.sub
     if (!sub) throw new Error('Authentication required')
-    const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined
+    const claims = cc.originAuth?.claims as AuthClaims | undefined
     // Scope-admin bypass — being a scope admin confers no DAG grant, a Star's own admin included, so
     // without this they could not act on the tree they govern.
     //

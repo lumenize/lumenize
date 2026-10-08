@@ -9,7 +9,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { REGISTRY_INSTANCE_NAME } from '@lumenize/nebula-auth';
+import { REGISTRY_INSTANCE_NAME } from '@lumenize/mesh/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
 import { adminClientAt, pageOf, addressOfClient } from '../../test-helpers';

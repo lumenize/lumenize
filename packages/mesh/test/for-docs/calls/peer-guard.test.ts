@@ -5,7 +5,7 @@
  * caller (`callChain.at(-1)`), NOT the origin. This is the foundation-default proof, homed in
  * `@lumenize/mesh`'s own package on the BASE `LumenizeClientGateway` (its `onBeforeCallToClient` is a
  * no-op — no aud fence), so the CLIENT guard is the sole rejecter (not confounded by a Gateway fence),
- * and using `createTestRefreshFunction` (a `@lumenize/mesh` export — no `@lumenize/nebula-auth` import,
+ * and using `createTestRefreshFunction` (a `@lumenize/mesh` export — no `@lumenize/mesh/auth` import,
  * respecting the dependency direction). `EditorClient` carries NO `onBeforeCall` override → it exercises
  * the DEFAULT guard.
  *

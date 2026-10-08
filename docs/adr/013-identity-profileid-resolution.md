@@ -3,7 +3,7 @@
 **Date**: 2026-08-04
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: the `Emails.profileId` column + `idx_Emails_profileId`, reached from a `sub` through its `Memberships` row (`packages/nebula-auth/src/schemas.ts`); the `sub`-keyed grants/snapshots (`apps/nebula`); the JWT `profileId` claim riding the KV refresh record; ADR-010 (keys + the replication rule); design in `tasks/archive/nebula-profile-store.md`.
+**Evidence**: the `Emails.profileId` column + `idx_Emails_profileId`, reached from a `sub` through its `Memberships` row (`packages/mesh/src/auth/schemas.ts`); the `sub`-keyed grants/snapshots (`apps/nebula`); the JWT `profileId` claim riding the KV refresh record; ADR-010 (keys + the replication rule); design in `tasks/archive/nebula-profile-store.md`.
 
 ## Context
 

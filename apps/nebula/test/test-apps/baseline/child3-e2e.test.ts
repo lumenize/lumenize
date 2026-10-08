@@ -19,7 +19,7 @@ import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@l
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { deriveKind } from '@lumenize/nebula';
-import { NEBULA_SUB } from '@lumenize/nebula-auth';
+import { NEBULA_SUB } from '@lumenize/mesh/auth';
 import { StudioClientTest } from './index';
 
 const uniqueChatScope = () => `c3e-${crypto.randomUUID().slice(0, 8)}.app`;

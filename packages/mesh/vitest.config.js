@@ -157,6 +157,7 @@ export default defineConfig({
       reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: [
         '**/src/**',
+        '**/test/auth/test-worker-and-dos.ts',
       ],
       exclude: [
         '**/node_modules/**',
@@ -193,7 +194,39 @@ export default defineConfig({
             'test/for-docs/security/**/*.test.ts',
             'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
             'test/gateway-timing.test.ts', // Needs a short grace period — run in `gateway-timing`
+            'test/auth/**/*.test.ts', // Its own Worker and bindings — run in `auth`
           ],
+        },
+      },
+      {
+        // The auth layer — the Registry, its routes and token mints, the facade and the Profile — on
+        // its own test Worker (test/auth/wrangler.jsonc). Test mode: the Registry returns each magic
+        // link instead of mailing it (ADR-009 rung 2).
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/auth/wrangler.jsonc' },
+          miniflare: {
+            bindings: {
+              AUTH_TEST_MODE: 'true',
+              // ⚠️ Explicitly EMPTY, and load-bearing: bindings win over `.dev.vars`, so this holds
+              // Turnstile OFF for the suite on any checkout — even one whose `.dev.vars` carries a
+              // real key. `checkTurnstile` does not short-circuit on AUTH_TEST_MODE; the absent or
+              // empty secret is the one sanctioned skip. A test that wants gating ON passes a
+              // per-call env spread with the always-fail dummy secret.
+              TURNSTILE_SECRET_KEY: '',
+              // Comma-separated bootstrap-admin list. The first entry keeps every single-email test
+              // a member; the second — with a LEADING SPACE and MIXED CASE — exercises the getter's
+              // per-element trim+lowercase (auth-bootstrap-array.test.ts). A raw `String.includes` on
+              // this joined value, or a scalar index-0 getter, reds those array tests.
+              AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com, Second-Bootstrap@Example.com',
+              DEBUG: 'nebula-auth',
+            },
+          },
+        })],
+        test: {
+          name: 'auth',
+          include: ['test/auth/**/*.test.ts'],
+          testTimeout: 5000,
         },
       },
       {

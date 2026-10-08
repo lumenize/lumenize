@@ -7,19 +7,20 @@
  * only under `/_public/`, through one forward; a Client's upgrade only under `/gateway/`, which the
  * Worker rewrites from the hostname; our own code by `rawRpcStub`, never `fetch`; and a node's own
  * container at the paths its library fixes. Nothing keeps those apart at runtime but the
- * paths each forward produces, so this scans source — every `src` tree under `apps/`, and `packages/nebula-auth/src`,
- * never tests — and checks four things:
+ * paths each forward produces, so this scans source, never tests: every `src` tree under `apps/` and
+ * Mesh's auth layer (`packages/mesh/src/auth`) for all four checks, and for check 3 every class in
+ * `packages/mesh/src` that declares `HTTP_PREFIXES`. It checks four things:
  *
  *   1. Every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as
  *      something other than a Durable Object namespace.
  *   2. Every `routeDORequest` call under `apps/` passes `bindings`.
  *   3. Every mesh node's `onRequest` (or `fetch` override) compares the path only against the
  *      prefixes its class registers in a static `HTTP_PREFIXES`.
- *   4. No Durable Object stub is made except in a named forward or, inside nebula-auth, for its own
- *      Registry. Everything else reaches a node over the mesh or through `rawRpcStub`, which makes
+ *   4. No Durable Object stub is made except in a named forward or, inside Mesh's auth layer, for
+ *      its own Registry (ADR-023). Everything else reaches a node over the mesh or through `rawRpcStub`, which makes
  *      its stub inside mesh — so an inline `getByName(…).teardown()` that skips the entry fails here.
  *
- * The named forwards: the page track (`forwardPage`), nebula-auth's Registry forward (`forwardRaw`),
+ * The named forwards: the page track (`forwardPage`), the auth layer's Registry forward (`forwardRaw`),
  * and two outside this scan — `routeDORequest` in `@lumenize/routing`, whose `/gateway/` upgrade to
  * the scope's node a host spells check 2 bounds, and
  * `@cloudflare/computer`'s `WorkspaceProxy`, which dials the Galaxy's `/api`.
@@ -36,14 +37,14 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 /** Functions a Durable Object's `fetch` may be called from, and where a stub may be made. */
 const NAMED_FORWARDS = [
   { file: 'apps/nebula/src/page-forward.ts', fn: 'forwardPage', what: 'the page track' },
-  { file: 'packages/nebula-auth/src/router.ts', fn: 'forwardRaw', what: "nebula-auth's Registry forward" },
+  { file: 'packages/mesh/src/auth/router.ts', fn: 'forwardRaw', what: "the auth layer's Registry forward" },
 ];
 
 /** Member `.fetch(` sites whose receiver is a Fetcher or a service, checked against the generated `Env`. */
 const NOT_DURABLE_OBJECTS = [
   { file: 'apps/nebula/src/entrypoint.ts', fn: 'assets', binding: 'ASSETS' },
   { file: 'apps/nebula/src/entrypoint.ts', fn: 'fetch', binding: 'PLATFORM_HOST' },
-  { file: 'packages/nebula-auth/src/router.ts', fn: 'serveAuthApp', binding: 'ASSETS' },
+  { file: 'packages/mesh/src/auth/router.ts', fn: 'serveAuthApp', binding: 'ASSETS' },
 ];
 
 /** The generated `Env` of the Worker that hosts every binding above. */
@@ -61,19 +62,25 @@ const fail = (file, node, message) => {
   failures.push(`${file}:${line + 1}: ${message}`);
 };
 
+const AUTH_LAYER = 'packages/mesh/src/auth/';
+
+/** The files scanned, each with whether all four checks apply or only check 3's surfaces. */
 function sourceFiles() {
-  const out = [];
-  const walk = (dir, inSrc) => {
+  const out = new Map();
+  const walk = (dir, inSrc, checks) => {
     for (const name of readdirSync(dir)) {
       if (['node_modules', 'dist', '.wrangler', 'test', 'tests'].includes(name)) continue;
       const path = join(dir, name);
-      if (statSync(path).isDirectory()) walk(path, inSrc || name === 'src');
-      else if (inSrc && name.endsWith('.ts') && !name.endsWith('.d.ts')) out.push(relative(ROOT, path));
+      if (statSync(path).isDirectory()) walk(path, inSrc || name === 'src', checks);
+      else if (inSrc && name.endsWith('.ts') && !name.endsWith('.d.ts')) {
+        const file = relative(ROOT, path);
+        out.set(file, file.startsWith(AUTH_LAYER) ? 'all' : out.get(file) ?? checks);
+      }
     }
   };
-  walk(join(ROOT, 'apps'), false);
-  walk(join(ROOT, 'packages/nebula-auth/src'), true);
-  return out.sort();
+  walk(join(ROOT, 'apps'), false, 'all');
+  walk(join(ROOT, 'packages/mesh/src'), true, 'surfaces');
+  return [...out].sort(([a], [b]) => a.localeCompare(b));
 }
 
 /** The name of the nearest named function around `node`, or `undefined` at module scope. */
@@ -140,13 +147,13 @@ function registeredPrefixes(cls) {
 const envText = readFileSync(join(ROOT, ENV_DECLARATIONS), 'utf8');
 const counts = { fetchSites: 0, routeDORequest: 0, surfaces: 0, comparisons: 0, stubs: 0 };
 
-for (const file of sourceFiles()) {
+for (const [file, checks] of sourceFiles()) {
   const text = readFileSync(join(ROOT, file), 'utf8');
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const inNebulaAuth = file.startsWith('packages/nebula-auth/src/');
+  const inAuthLayer = file.startsWith(AUTH_LAYER);
 
   const visit = (node) => {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    if (checks === 'all' && ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
       const fn = enclosingFunction(node);
 
@@ -165,12 +172,12 @@ for (const file of sourceFiles()) {
         }
       }
 
-      // 4. A Durable Object stub is made only in a named forward, or by nebula-auth for its Registry.
+      // 4. A Durable Object stub is made only in a named forward, or by the auth layer for its Registry.
       const makesStub = STUB_MAKERS.has(method)
         || (method === 'get' && node.arguments.some((a) => /\b(idFromName|idFromString|newUniqueId)\(/.test(a.getText())));
       if (makesStub) {
         counts.stubs++;
-        const registry = inNebulaAuth && node.expression.expression.getText().includes('AUTH_REGISTRY');
+        const registry = inAuthLayer && node.expression.expression.getText().includes('AUTH_REGISTRY');
         if (!registry && !isNamedForward(file, fn)) {
           fail(file, node, `a Durable Object stub made in \`${fn ?? '(module scope)'}\` — call a node over the mesh, or a \`@rawRpc()\` method through \`rawRpcStub\``);
         }
@@ -187,8 +194,9 @@ for (const file of sourceFiles()) {
       if (!has) fail(file, node, '`routeDORequest` without a `bindings` allow-list reaches any Durable Object binding the Worker holds');
     }
 
-    // 3. A mesh node's HTTP surface compares the path only against what its class registers.
-    if (ts.isClassDeclaration(node)) {
+    // 3. A mesh node's HTTP surface compares the path only against what its class registers. In
+    // Mesh outside its auth layer, only a class that declares `HTTP_PREFIXES` is a node's surface.
+    if (ts.isClassDeclaration(node) && (checks === 'all' || registeredPrefixes(node))) {
       const base = node.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)?.types[0]?.expression.getText();
       for (const member of node.members) {
         if (!ts.isMethodDeclaration(member) || !member.body) continue;

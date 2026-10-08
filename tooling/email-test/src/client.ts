@@ -37,7 +37,7 @@ export interface WaitForEmailOptions {
    * `acme-abc.app.tenant-a`).
    *
    * **Every Nebula auth mail carries this header** — `EmailMessage.instanceName` is required on
-   * every variant and `NebulaEmailSender.headers` stamps it directly, so a new message type is
+   * every variant and `AuthEmailSender.headers` stamps it directly, so a new message type is
    * filterable here with no change to the sender and none can ship untagged. (Before 2026-07-31
    * the tag was re-parsed out of the message's URL, so mail linking to a non-instance route —
    * `/app`, say — landed untagged in the catch-all bucket.)

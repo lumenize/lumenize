@@ -16,7 +16,7 @@ Prod runs **Turnstile ON** on the public unauthenticated endpoints (`email-magic
 ## Current state (2026-07-06)
 - Prod: `TURNSTILE_SECRET_KEY` **unset** → Turnstile OFF (confirmed via `wrangler secret list`). `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN` **deployed**.
 - **No Turnstile widget provisioned** — no secret key in `.dev.vars`, no site key anywhere in the repo. Turnstile has never actually run except in unit tests + the local canary (both inject a test secret).
-- Bypass: `isTurnstileBypassed` in `packages/nebula-auth/src/router.ts` (header `x-lumenize-turnstile-bypass`, constant-time compared). Unit-tested + **end-to-end canary-verified** on a real booted worker.
+- Bypass: `isTurnstileBypassed` in `packages/mesh/src/auth/router.ts` (header `x-lumenize-turnstile-bypass`, constant-time compared). Unit-tested + **end-to-end canary-verified** on a real booted worker.
 
 ## Design decision — bypass mechanism (settled)
 Chose a **dedicated, revocable header token** over: (a) keying the bypass on automation **email / `test-` scope** — a stolen automation email would then bypass; a token is revocable and isn't an identity; (b) reusing `TURNSTILE_SECRET_KEY` — that key is server-only, so putting it in a wire-travelling header would widen its leak surface.
@@ -73,6 +73,6 @@ Bonus: this removes the standalone **unauthenticated `discover` enumeration-orac
 - The Cloudflare **fraud-detection headers** approach (backlog § Nebula Auth) — complementary, separate item.
 
 ## Links
-- Bypass: `packages/nebula-auth/src/router.ts` (`isTurnstileBypassed`, `checkTurnstile`, `TURNSTILE_ENDPOINTS`); tests `packages/nebula-auth/test/turnstile-bypass.test.ts`.
+- Bypass: `packages/mesh/src/auth/router.ts` (`isTurnstileBypassed`, `checkTurnstile`, `TURNSTILE_ENDPOINTS`); tests `packages/mesh/test/auth/turnstile-bypass.test.ts`.
 - SPA login: `apps/nebula-studio-ui/src/App.vue` — `discover()`, the `email-magic-link` POST in `sendMagicLink()`, and `claimUniverse()`.
 - Memory: [[live-prod-drive]], [[autonomous-prod-explore]].

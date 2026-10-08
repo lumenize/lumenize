@@ -17,9 +17,9 @@ import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind, deriveParticipants } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { env } from 'cloudflare:test';
-import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
-import { NEBULA_SUB } from '@lumenize/nebula-auth';
-import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
+import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
+import { NEBULA_SUB } from '@lumenize/mesh/auth';
+import { createTestToken } from '@lumenize/mesh/auth/testing';
 import { universeAdminClient, ORIGIN, pageOf } from '../../test-helpers';
 import { StudioClientTest, GalaxyTest } from './index';
 
@@ -164,7 +164,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     const userProfile = crypto.randomUUID();
     const coachSub = crypto.randomUUID();
     const coachProfile = crypto.randomUUID();
-    const { access_token } = await createNebulaTestToken({
+    const { access_token } = await createTestToken({
       issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope: scope, instanceName: scope, scopeAdmin: true,

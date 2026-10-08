@@ -87,8 +87,6 @@ COPY packages/crypto/package.json /node_modules/@lumenize/crypto/package.json
 COPY packages/crypto/src /node_modules/@lumenize/crypto/src
 COPY packages/debug/package.json /node_modules/@lumenize/debug/package.json
 COPY packages/debug/src /node_modules/@lumenize/debug/src
-COPY packages/nebula-auth/package.json /node_modules/@lumenize/nebula-auth/package.json
-COPY packages/nebula-auth/src /node_modules/@lumenize/nebula-auth/src
 COPY packages/routing/package.json /node_modules/@lumenize/routing/package.json
 COPY packages/routing/src /node_modules/@lumenize/routing/src
 COPY packages/structured-clone/package.json /node_modules/@lumenize/structured-clone/package.json

@@ -8,20 +8,20 @@
  * subscriber rows for a SPECIFIC `profileId` and drive clients that must share or differ on it. Real
  * issuance assigns `profileId` server-side, so the identities under test are unreachable through it.
  *
- * Harness: mesh clients with `refresh: createNebulaTestToken(...)` in DISTINCT scopes so the subscriber
+ * Harness: mesh clients with `refresh: createTestToken(...)` in DISTINCT scopes so the subscriber
  * (X) and the writer (Y) sit in different universes, so neither has passage into the other's scope (rung-2/3;
  * ADR-009). A `SubscriberProbe` (a `LumenizeClient` capturing the dedicated `@mesh handleProfileUpdate`
  * channel) is the receive side; a `NebulaClient` exercises the real `subscribeProfile` client API.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { LumenizeClient, mesh, type CallEnvelope, type OriginAuth } from '@lumenize/mesh';
 import { preprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { Browser } from '@lumenize/testing';
-import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
-import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
+import { createTestToken } from '@lumenize/mesh/auth/testing';
+import type { Profile, ProfileSnapshot } from '@lumenize/mesh/auth/profile';
 import { NebulaClientTest } from './index';
 import { ORIGIN, pageOf } from '../../test-helpers';
 
@@ -59,7 +59,7 @@ async function meshClient(opts: {
   const client = new SubscriberProbe({
     baseUrl: pageOf(activeScope),
     hostFromHostname: true,
-    refresh: createNebulaTestToken({
+    refresh: createTestToken({
       issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope, instanceName: opts.instanceName ?? activeScope,
@@ -78,7 +78,7 @@ async function meshClient(opts: {
  * baked cookie refresh). This is the production receive-side — NOT a hand-rolled probe.
  */
 async function nebulaClient(opts: { activeScope: string; profileId?: string }): Promise<NebulaClientTest> {
-  const { access_token, sub } = await createNebulaTestToken({
+  const { access_token, sub } = await createTestToken({
     issuer: platformOrigin(deploymentOrigin(env)),
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.activeScope, instanceName: opts.activeScope, scopeAdmin: false, ttlSeconds: 3600,

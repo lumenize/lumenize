@@ -6,9 +6,9 @@
 import { expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/crypto';
-import { RESERVED_STAR_SLUGS } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { RESERVED_STAR_SLUGS } from '@lumenize/mesh/auth';
+import type { AuthClaims } from '@lumenize/mesh/auth';
+import { hostOrigin } from '@lumenize/mesh/client';
 import { NebulaClient } from '@lumenize/nebula';
 import type { NebulaClientConfig } from '@lumenize/nebula';
 import {
@@ -164,7 +164,7 @@ export async function foundStarAndLogin(
   star: string,
   email: string,
   activeScope?: string,
-): Promise<{ accessToken: string; payload: NebulaJwtPayload; authScope: string }> {
+): Promise<{ accessToken: string; payload: AuthClaims; authScope: string }> {
   const [universe, galaxySlug] = star.split('.');
   const galaxy = `${universe}.${galaxySlug}`;
 
@@ -260,7 +260,7 @@ export async function createSubject(
   options: { scopeAdmin?: boolean } = {},
 ): Promise<void> {
   const adminSub = (parseJwtUnsafe(adminAccessToken)!.payload as { sub: string }).sub;
-  const adminClaims = parseJwtUnsafe(adminAccessToken)!.payload as unknown as NebulaJwtPayload;
+  const adminClaims = parseJwtUnsafe(adminAccessToken)!.payload as unknown as AuthClaims;
   const adminBrowser = new Browser(); // own context — never the SUBJECT's cookie jar below
   const ctx = adminBrowser.context(pageOf(adminClaims.aud));
   const inviter = new NebulaClient({
@@ -317,14 +317,14 @@ export async function acceptMembershipVia(browser: Browser, scope: string): Prom
 export async function refreshToken(
   browser: Browser,
   page: string,
-): Promise<{ accessToken: string; payload: NebulaJwtPayload }> {
+): Promise<{ accessToken: string; payload: AuthClaims }> {
   const refreshResp = await browser.context(pageOf(page)).fetch(authUrl('refresh-token'), { method: 'POST' });
   expect(refreshResp.status).toBe(200);
   const { access_token, sub } = await refreshResp.json() as any;
   expect(access_token).toBeDefined();
 
   const { payload } = parseJwtUnsafe(access_token)!;
-  return { accessToken: access_token, payload: payload as unknown as NebulaJwtPayload };
+  return { accessToken: access_token, payload: payload as unknown as AuthClaims };
 }
 
 /**
@@ -339,7 +339,7 @@ export async function browserLogin(
   authScope: string,
   email: string,
   activeScope?: string,
-): Promise<{ accessToken: string; payload: NebulaJwtPayload }> {
+): Promise<{ accessToken: string; payload: AuthClaims }> {
   // Request the magic link. Test mode is decided ENTIRELY by the `AUTH_TEST_MODE`
   // binding — there is no per-request opt-in here, so no `?_test=true`.
   //
@@ -377,7 +377,7 @@ export async function foundAndLogin(
   scope: string,
   email: string,
   activeScope?: string,
-): Promise<{ accessToken: string; payload: NebulaJwtPayload; authScope: string }> {
+): Promise<{ accessToken: string; payload: AuthClaims; authScope: string }> {
   const universe = universeOf(scope);
   const claimed = await bootstrapAdmin(browser, scope, email);
   // A galaxy exists in the Registry before anything is written into it, as in production: its
@@ -463,7 +463,7 @@ export async function adminClientAt<T extends NebulaClient, C extends NebulaClie
   email: string,
   ontologyVersion: string = 'v1',
   extraConfig?: Partial<C>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+): Promise<{ client: T; payload: AuthClaims; accessToken: string }> {
   const segments = scope.split('.');
   if (segments.length !== 3) {
     throw new Error(
@@ -515,7 +515,7 @@ export async function universeAdminClient<T extends NebulaClient, C extends Nebu
   email: string,
   ontologyVersion: string = 'v1',
   extraConfig?: Partial<C>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
+): Promise<{ client: T; payload: AuthClaims; accessToken: string; authScope: string }> {
   return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, ontologyVersion, extraConfig);
 }
 
@@ -553,7 +553,7 @@ export async function createAuthenticatedClient<T extends NebulaClient, C extend
   /** Optional extra config to pass through to the client constructor —
    *  e.g. `{ onShouldRefreshUI: fn }` for the staleness tests. */
   extraConfig?: Partial<C>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
+): Promise<{ client: T; payload: AuthClaims; accessToken: string; authScope: string }> {
   const { accessToken, payload, authScope } = await foundAndLogin(browser, scope, email, activeScope);
   const client = await connectClient(ClientClass, browser, activeScope, ontologyVersion, extraConfig);
   // ⚠️ `authScope` is RETURNED because it is NOT the `scope` you passed — `foundAndLogin` founds the
@@ -584,7 +584,7 @@ export async function createPlatformAdminClient<T extends NebulaClient, C extend
   activeScope: string,
   ontologyVersion: string = 'v1',
   extraConfig?: Partial<C>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+): Promise<{ client: T; payload: AuthClaims; accessToken: string }> {
   const { accessToken, payload } = await browserLogin(browser, PLATFORM_SCOPE, BOOTSTRAP_EMAIL, activeScope);
   const client = await connectClient(ClientClass, browser, activeScope, ontologyVersion, extraConfig);
   return { client, payload, accessToken };
@@ -603,7 +603,7 @@ export async function createInvitedClient<T extends NebulaClient, C extends Nebu
   email: string,
   ontologyVersion: string = 'v1',
   extraConfig?: Partial<C>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+): Promise<{ client: T; payload: AuthClaims; accessToken: string }> {
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
   const client = await connectClient(ClientClass, browser, activeScope, ontologyVersion, extraConfig);
   return { client, payload, accessToken };

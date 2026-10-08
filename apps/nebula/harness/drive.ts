@@ -19,7 +19,7 @@
  */
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
 import { stopOrphanedContainers } from './lib/containers';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { hostOrigin } from '@lumenize/mesh/client';
 import { cloudflareCertificateApi, packNamesGalaxy } from '../src/certificate';
 import { isStaleTestAccount, sweepStaleTestAccounts, sweepStaleTestPacks } from './lib/test-scopes';
 import { superuserAccounts } from './lib/superuser-accounts';

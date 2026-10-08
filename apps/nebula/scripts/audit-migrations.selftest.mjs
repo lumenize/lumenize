@@ -6,7 +6,7 @@
  *   (a) a 9th class only in `exports`                    → set-size + set-equality red
  *   (b) a DO class removed from worker.ts re-exports      → re-export red
  *   (c) a durable-object export flipped to legacy-kv      → SQLite-invariant red (the non-SQLite ban)
- *   (d) NebulaEmailSender as a durable-object export      → non-DO-exclusion red
+ *   (d) AuthEmailSender as a durable-object export      → non-DO-exclusion red
  *   (e) a `Profil` export (a PREFIX of the real `Profile`) not re-exported → re-export red
  *       (a SUBSTRING grep for `Profil` false-passes on `Profile` — this proves we PARSE, not grep)
  *   (f) malformed JSONC                                   → parse failure, NOT a vacuous pass
@@ -68,10 +68,10 @@ expectRed('(c) durable-object export storage:legacy-kv',
       '"Universe": { "type": "durable-object", "storage": "legacy-kv" }'), workerTs },
   /must be storage:"sqlite"/);
 
-// (d) NebulaEmailSender (a WorkerEntrypoint, not a DO) registered as a durable-object export.
-expectRed('(d) NebulaEmailSender as a durable-object export',
-  { wranglerJsonc: addExport('NebulaEmailSender'), workerTs },
-  /NebulaEmailSender must NOT be a durable-object export/);
+// (d) AuthEmailSender (a WorkerEntrypoint, not a DO) registered as a durable-object export.
+expectRed('(d) AuthEmailSender as a durable-object export',
+  { wranglerJsonc: addExport('AuthEmailSender'), workerTs },
+  /AuthEmailSender must NOT be a durable-object export/);
 
 // (e) parse-not-grep: register `Profil` (a PREFIX of the real, re-exported `Profile`) — worker.ts
 //     does NOT re-export `Profil`, so the tokenized re-export check reds. A substring grep for

@@ -20,8 +20,8 @@ export * from './client-index';
 // What a served page knows about its deployment, and the host grammar that turns its host into a
 // scope — for a page that navigates between hosts (Studio, the auth app).
 export { deploymentOriginOfPage, platformOriginOf } from './page-origin';
-export { parseHost, hostOrigin, checkedReturnTo, isAtOrAbove } from '@lumenize/nebula-auth/claims';
-export type { HostTarget } from '@lumenize/nebula-auth/claims';
+export { parseHost, hostOrigin, checkedReturnTo, isAtOrAbove } from '@lumenize/mesh/client';
+export type { HostTarget } from '@lumenize/mesh/client';
 
 // Vue-reactive factory + helpers (this entry pulls in `vue`).
 export { createNebulaClient } from './frontend/create-nebula-client';

@@ -15,12 +15,12 @@
 import { LumenizeClient, mesh, LoginRequiredError } from '@lumenize/mesh/client';
 import type { ConnectionState, ClientContinuation, LumenizeClientConfig } from '@lumenize/mesh/client';
 import type {
-  NebulaJwtPayload, AffectedScope, ScopeDeletionPlan, InviteeRequest, InviteSummary,
+  AuthClaims, AffectedScope, ScopeDeletionPlan, InviteeRequest, InviteSummary,
   ScopeSummary, ScopeNode,
-} from '@lumenize/nebula-auth';
+} from '@lumenize/mesh/auth';
 // Type-only, so nothing of the facade's mesh-server chain reaches this Node/browser-safe module —
 // it types the continuation below and is erased at compile.
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import { debug } from '@lumenize/debug';
 import { isOntologyStaleError, NoOntologyInstalledError } from './errors';
 // Impersonation's own knowledge lives in its module — this client keeps only the two touchpoints
@@ -424,7 +424,7 @@ function scopeAdminOf(accessToken: string): boolean | undefined {
   }
 }
 
-export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
+export class NebulaClient extends LumenizeClient<AuthClaims> {
   /** The page host's scope, from the first token's `aud`; `undefined` until that token arrives. */
   #activeScope?: string;
   #resolveActiveScope!: (scope: string) => void;
@@ -458,7 +458,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /**
    * Decoded JWT payload — **non-null on NebulaClient**.
    *
-   * Base `LumenizeClient` types `claims` as `Readonly<NebulaJwtPayload> | null`
+   * Base `LumenizeClient` types `claims` as `Readonly<AuthClaims> | null`
    * (a genuine null window before the first token refresh). NebulaClient
    * narrows it to non-null: the factory's `ready` promise resolves only after
    * that first refresh populates claims, so by the time component / app code
@@ -469,8 +469,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * one (this only drops `| null` from the type). Code that runs **before**
    * `ready` — admin tools, scripts — must still guard with `?.`.
    */
-  get claims(): Readonly<NebulaJwtPayload> {
-    return super.claims as Readonly<NebulaJwtPayload>;
+  get claims(): Readonly<AuthClaims> {
+    return super.claims as Readonly<AuthClaims>;
   }
 
   /** Store adapter the conflict-outcome engine drives; the factory swaps in a
@@ -1001,7 +1001,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       }
       return mintImpersonation(() => parent.lmz.callAsync(
         'AUTH_FACADE', undefined,
-        parent.ctn<NebulaAuthFacade>().impersonate(sub, { ttlSeconds: opts?.ttlSeconds }),
+        parent.ctn<AuthFacade>().impersonate(sub, { ttlSeconds: opts?.ttlSeconds }),
       ), sub);
     };
 
@@ -1098,7 +1098,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   invite(targetScope: string, invitees: InviteeRequest[], inviterName?: string): Promise<InviteSummary> {
     return this.lmz.callAsync(
       'AUTH_FACADE', undefined,
-      this.ctn<NebulaAuthFacade>().invite(targetScope, invitees, inviterName),
+      this.ctn<AuthFacade>().invite(targetScope, invitees, inviterName),
     );
   }
 
@@ -1112,7 +1112,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   get scopes() {
     // A fresh continuation per call: a chain is built by recording operations onto its root.
-    const facade = () => this.ctn<NebulaAuthFacade>();
+    const facade = () => this.ctn<AuthFacade>();
     const call = <T>(remote: unknown): Promise<T> =>
       this.lmz.callAsync('AUTH_FACADE', undefined, remote as never) as Promise<T>;
     return {

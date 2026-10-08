@@ -16,8 +16,8 @@ import { Browser } from '@lumenize/testing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
 import { Galaxy, Universe, requireDominionHere, requireChatWrite, requirePassage, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, ROOT_NODE_ID, DEFAULT_CHAT_ID } from '@lumenize/nebula';
-import { isAtOrAbove } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import { isAtOrAbove } from '@lumenize/mesh/auth';
+import type { AuthClaims } from '@lumenize/mesh/auth';
 import { meshEntries } from '../mesh-surface';
 import {
   adminClientAt, universeAdminClient,
@@ -660,14 +660,14 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
 
 // Minimal verified claims. `requirePassage` reads `aud`, the scope of the host the token was minted
 // for, and takes the admin bit from the membership (the host rule, ADR-015 and ADR-022); `authScope`
-// is the membership the token rests on. verifyNebulaAccessToken upstream guarantees the rest, a
+// is the membership the token rests on. verifyAccessToken upstream guarantees the rest, a
 // plain membership's `aud` equal to its `authScope` among it, so the gate never sees an unverified
 // token.
-function claims(opts: { aud?: string; authScope?: string; scopeAdmin?: boolean }): NebulaJwtPayload {
+function claims(opts: { aud?: string; authScope?: string; scopeAdmin?: boolean }): AuthClaims {
   const access: { authScope?: string; scopeAdmin?: boolean } = {};
   if (opts.authScope !== undefined) access.authScope = opts.authScope;
   if (opts.scopeAdmin) access.scopeAdmin = true;
-  return { aud: opts.aud, access } as unknown as NebulaJwtPayload;
+  return { aud: opts.aud, access } as unknown as AuthClaims;
 }
 
 describe('requirePassage (pure shared guard — admin-gated dominion + branch matrix)', () => {
@@ -810,7 +810,7 @@ describe('access.scopeAdmin is confined to the node it covers', () => {
   // Drive the Universe DO directly with the star-scoped admin token's REAL claims. Isolated-DO tier: the claims
   // come from a real login; only the transport is synthetic (a NebulaClient refreshes from a
   // Path-scoped cookie at the STAR, so it cannot drive the Universe DO under these claims).
-  const driveUniverse = (universe: string, claims: NebulaJwtPayload, method: string, args: unknown[] = []) =>
+  const driveUniverse = (universe: string, claims: AuthClaims, method: string, args: unknown[] = []) =>
     (env as any).UNIVERSE.getByName(universe).__executeOperation({
       version: 1,
       chain: preprocess([{ type: 'get', key: method }, { type: 'apply', args }]),

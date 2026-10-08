@@ -87,7 +87,7 @@ justification is worse than none: the next reader treats it as a decision (`cali
 retires a named thing and a criterion greps for it, that grep MUST cover `test/` and `harness/` too.
 Those lanes justify their assertions in the same words as the source they test, nothing compiles a
 comment, and the copy that survives is the one nobody pointed a grep at. Bit 2026-09-08: `grep -rn
-'Profile owner guard' packages/nebula-auth/src apps/nebula/src` came back clean while the identical
+'Profile owner guard' packages/mesh/src/auth apps/nebula/src` came back clean while the identical
 justification sat in `mint-narrower-token.test.ts` — a file that same phase was editing — and in
 `email-mutable.test.ts`, which instructed a future builder to copy the shape of the comment the phase
 had just deleted.

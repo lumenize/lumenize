@@ -13,7 +13,7 @@ export interface StoredEmail {
   receivedAt: string;
   /**
    * Value of the `X-Lumenize-Auth-Instance` header (populated by
-   * `NebulaEmailSender.headers`). Used by concurrent test runs to
+   * `AuthEmailSender.headers`). Used by concurrent test runs to
    * subscribe to only their own scope's emails — see fetch('/ws?instance=...').
    * Empty string if the header was absent.
    */

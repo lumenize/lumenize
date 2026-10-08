@@ -2,12 +2,12 @@
  * Entrypoint auth-scope verification (unit tests)
  *
  * Tests the belt-and-suspenders isAtOrAbove(authScope, aud) check
- * inside verifyNebulaAccessToken using crafted JWTs.
+ * inside verifyAccessToken using crafted JWTs.
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
-import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 
 /**
  * Craft a JWT with specific authScope and aud for unit testing.
@@ -50,8 +50,8 @@ describe('isAtOrAbove(authScope, aud) verification', () => {
       scopeAdmin: true,
     });
 
-    const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');
-    const result = await verifyNebulaAccessToken(token, env);
+    const { verifyAccessToken } = await import('@lumenize/mesh/auth');
+    const result = await verifyAccessToken(token, env);
     expect(result).not.toBeNull();
     expect(result!.aud).toBe('acme.app.tenant-a');
     expect(result!.access.authScope).toBe('acme');
@@ -63,8 +63,8 @@ describe('isAtOrAbove(authScope, aud) verification', () => {
       aud: 'acme.app.tenant-a',
     });
 
-    const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');
-    const result = await verifyNebulaAccessToken(token, env);
+    const { verifyAccessToken } = await import('@lumenize/mesh/auth');
+    const result = await verifyAccessToken(token, env);
     expect(result).not.toBeNull();
     expect(result!.aud).toBe('acme.app.tenant-a');
   });
@@ -75,8 +75,8 @@ describe('isAtOrAbove(authScope, aud) verification', () => {
       aud: 'acme.app',  // aud is broader than authScope
     });
 
-    const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');
-    const result = await verifyNebulaAccessToken(token, env);
+    const { verifyAccessToken } = await import('@lumenize/mesh/auth');
+    const result = await verifyAccessToken(token, env);
     expect(result).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ Nebula uses [nebula-auth](/docs/auth) for passwordless authentication. Every sco
 
 :::info[Where the pieces live]
 
-There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the **default Worker** (`routeNebulaAuthRequest`) on the platform host: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only when KV's answer would refuse**: a miss, or a membership still pending. Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
+There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the **default Worker** (`routeAuthRequest`) on the platform host: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only when KV's answer would refuse**: a miss, or a membership still pending. Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
 
 :::
 
@@ -215,7 +215,7 @@ sequenceDiagram
     rect rgba(200, 220, 240, 0.3)
         Note over C,EP: Layer 1 — Entrypoint JWT verification
         C->>EP: WebSocket upgrade<br/>(JWT in subprotocol)
-        Note over EP: verifyNebulaAccessToken:<br/>signature and issuer<br/>aud at or below authScope<br/>a plain membership's aud equals its authScope<br/>then aud is the scope this host spells<br/>and the id begins with the token's sub
+        Note over EP: verifyAccessToken:<br/>signature and issuer<br/>aud at or below authScope<br/>a plain membership's aud equals its authScope<br/>then aud is the scope this host spells<br/>and the id begins with the token's sub
         alt Invalid JWT
             EP-->>C: 401/403 (no DO instantiated)
         end

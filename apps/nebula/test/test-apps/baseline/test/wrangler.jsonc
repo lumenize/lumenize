@@ -29,7 +29,7 @@
     {
       "binding": "AUTH_EMAIL_SENDER",
       "service": "nebula-baseline-test",
-      "entrypoint": "NebulaEmailSender"
+      "entrypoint": "AuthEmailSender"
     },
     // The mesh-speaking invite facade — reached by clients via
     // `lmz.call('AUTH_FACADE', undefined, …)` (Worker binding, no instance name).

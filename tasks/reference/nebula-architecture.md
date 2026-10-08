@@ -2,7 +2,7 @@
 
 **License**: UNLICENSED (until external launch)
 **Primary App**: `apps/nebula/` in the Lumenize monorepo (not published to npm)
-**Auth Package**: `@lumenize/nebula-auth` (separate package in `packages/`, `"private": true`)
+**Auth Package**: `@lumenize/mesh/auth` (separate package in `packages/`, `"private": true`)
 **Built on**: `@lumenize/mesh` (MIT) — extends its classes, and composes its `ClientGateway` so every scope's node hosts the Clients on its pages
 
 ---
@@ -28,18 +28,18 @@ Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, w
 └──────────────────────┘            │ Universe, Galaxy, Star       │
                                     │                              │
                                     │ entrypoint.ts (Worker router)│
-@lumenize/nebula-auth (UNLICENSED)  │ Access Control (DAG tree)    │
+@lumenize/mesh/auth (UNLICENSED)  │ Access Control (DAG tree)    │
 ┌───────────────────────┐           │ Snapshots engine (DWL)       │
 │ NebulaAuth DO         │─ import ─▶│ Schema evolution             │
 │ NebulaAuthRegistry    │           │ ResourcesWorker (DWL base)   │
-│ routeNebulaAuthRequest│           │ Vue frontend factory         │
+│ routeAuthRequest│           │ Vue frontend factory         │
 │ Types & utilities     │           └──────────────────────────────┘
 └───────────────────────┘
 ```
 
 **Extends, not forks.** All Nebula classes extend their Lumenize Mesh counterparts: `NebulaDO extends LumenizeDO`, `NebulaClient extends LumenizeClient`. `NebulaDO` composes mesh's `ClientGateway` and implements its hooks (the instance-name check, the claims a call carries, and the check on a call to a Client), so every scope's node hosts the Clients on its pages. No forking needed.
 
-**Auth**: `@lumenize/nebula-auth` is a separate package (`"private": true`). It exports `routeNebulaAuthRequest` for the entrypoint to compose into its routing. Everything else new goes into `apps/nebula/`.
+**Auth**: `@lumenize/mesh/auth` is a separate package (`"private": true`). It exports `routeAuthRequest` for the entrypoint to compose into its routing. Everything else new goes into `apps/nebula/`.
 
 ---
 
@@ -51,7 +51,7 @@ Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, w
 | **NebulaDO** | Base class extends `LumenizeDO`; `Universe`, `Galaxy`, `Star` extend `NebulaDO` | `onBeforeCall` reserved for base class (universeGalaxyStarId binding); subclasses use `@mesh(guard)` |
 | **Client hosting** | `NebulaDO` composes mesh's `ClientGateway` | A page's Client upgrades at `/gateway/{id}` on its host and is held by that scope's node; `onBeforeCallToClient` checks the tab's passage into the sender's scope |
 | **NebulaClient** | Extends `LumenizeClient` | Gets WebSocket management, token refresh, tab detection, Browser injection for testing |
-| **Access control** | Four layers: entrypoint `verifyNebulaAccessToken` → the host node's `onBeforeCallToClient` passage check → `onBeforeCall` scope binding → `@mesh(guard)` | Entrypoint rejects early; the host node refuses a push from a scope the tab has no passage into; base class locks DO to active scope (also admits when an **admin** caller's `authScopePattern` covers the target — shipped via the shared `requirePassage` guard; see `tasks/archive/nebula-onbeforecall-higher-admin-reach.md`); guards handle method-level auth |
+| **Access control** | Four layers: entrypoint `verifyAccessToken` → the host node's `onBeforeCallToClient` passage check → `onBeforeCall` scope binding → `@mesh(guard)` | Entrypoint rejects early; the host node refuses a push from a scope the tab has no passage into; base class locks DO to active scope (also admits when an **admin** caller's `authScopePattern` covers the target — shipped via the shared `requirePassage` guard; see `tasks/archive/nebula-onbeforecall-higher-admin-reach.md`); guards handle method-level auth |
 | **DAG permissions** | Grant if any ancestor path grants | Simple model: admin > write > read. Roll-down through tree. |
 | **DWL architecture** | Inverted — DO calls OUT to DWL | DWL is callback provider. DO owns storage, subscriptions, fanout. |
 | **`transaction()` API** | Mixed upserts/deletes, single-phase pessimistic eTag check inside `transactionSync` | Minimizes DWL round-trips (billing), ensures atomicity despite input gate opening |

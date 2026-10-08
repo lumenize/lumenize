@@ -31,7 +31,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { MINT_ALL_COOKIE_CAP } from '@lumenize/nebula-auth/claims';
+import { MINT_ALL_COOKIE_CAP } from '@lumenize/mesh/client';
 import type { Page } from 'playwright';
 import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar, waitForHost, NEW_HOST_TIMEOUT_MS, superuserEmail } from '../lib/harness';

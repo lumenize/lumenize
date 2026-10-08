@@ -8,8 +8,8 @@
 import { ClientGateway, LumenizeDO, WS_CLOSE_GONE, mesh, rawRpc } from '@lumenize/mesh';
 import type { CallContext, CallEnvelope, ClientGatewayHost, GatewayConnectionInfo } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload, VerdictClaims } from '@lumenize/nebula-auth';
+import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from '@lumenize/mesh/auth';
+import type { AuthClaims, VerdictClaims } from '@lumenize/mesh/auth';
 
 /**
  * The minimal structural shape `requireDominionHere` reads (`lmz.callContext` +
@@ -55,7 +55,7 @@ export const GATEWAY_PREFIX = '/gateway';
  * guard binds to what it reads, not to a class hierarchy.
  */
 export function requireDominionHere(instance: HasCallContext) {
-  const claims = instance.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined;
+  const claims = instance.lmz.callContext.originAuth?.claims as AuthClaims | undefined;
   const name = instance.lmz.instanceName;
   if (!name) {
     throw new Error('Admin check failed: missing callee instance name');
@@ -183,7 +183,7 @@ export function requirePassageIntoSender(envelope: CallEnvelope, connectionInfo:
   const senderScope = scopeNamed(sender.instanceName);
   if (senderScope === undefined) return;
 
-  const claims = connectionInfo.claims as unknown as NebulaJwtPayload;
+  const claims = connectionInfo.claims as unknown as AuthClaims;
   if (!hasPassageInto(claims, senderScope)) {
     throw new Error(noPassageMessage(claims?.aud, senderScope));
   }
@@ -358,7 +358,7 @@ export class NebulaDO extends LumenizeDO implements ClientGatewayHost {
  * name always contains a `/`, `acme.crm.tenant1/alice.9f2c41aa`, so it never parses as one.
  */
 function claimsForPassage(callContext: CallContext): VerdictClaims | undefined {
-  const claims = callContext.originAuth?.claims as NebulaJwtPayload | undefined;
+  const claims = callContext.originAuth?.claims as AuthClaims | undefined;
   if (claims) return claims;
   const starter = callContext.callChain[0];
   if (!starter?.instanceName) return undefined;

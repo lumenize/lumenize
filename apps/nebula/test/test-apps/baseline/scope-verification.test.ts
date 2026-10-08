@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { env } from 'cloudflare:test';
-import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { pageOf } from '../../test-helpers';
 
 /**

@@ -11,7 +11,7 @@
  */
 import { isAtOrAbove } from '@lumenize/nebula/frontend';
 
-/** The wire shapes, mirrored from `@lumenize/nebula-auth`'s `types.ts`. */
+/** The wire shapes, mirrored from `@lumenize/mesh/auth`'s `types.ts`. */
 export type Tier = 'universe' | 'galaxy' | 'star';
 
 export interface ScopeNode {

@@ -21,7 +21,7 @@
  * `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
-import { NEBULA_SUB } from '@lumenize/nebula-auth/claims';
+import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';

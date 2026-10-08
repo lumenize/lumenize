@@ -7,7 +7,7 @@
  *
  * ⚠️ **Every payload is harmless.** `__defineGetter__` leaves an ENUMERABLE accessor, which would
  * be the one lasting hazard here — but nothing in `apps/nebula/src`, `packages/mesh/src` or
- * `packages/nebula-auth/src` uses `for...in` (checked 2026-09-24), and the key is one nothing reads,
+ * `packages/mesh/src/auth` uses `for...in` (checked 2026-09-24), and the key is one nothing reads,
  * so the write is inert for the life of the boot it lands in. `svc.sql(['SELECT 1'])` proves arbitrary SQL runs exactly as
  * well as a `DELETE` would; the env read names `PRIMARY_JWT_KEY`, a key SELECTOR (`"BLUE"`) and
  * never a key; the prototype write uses a key nothing in the system reads — never `scopeAdmin`,

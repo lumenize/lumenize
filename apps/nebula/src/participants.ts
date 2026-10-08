@@ -14,7 +14,7 @@
  * needs no data rewrite.
  */
 
-import { NEBULA_SUB } from '@lumenize/nebula-auth/claims';
+import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { WireActingToken } from './snapshots';
 
 /** A message participant's kind — `agent` for a Nebula-actor-stamped message, else `human`. */

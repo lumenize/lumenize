@@ -26,7 +26,7 @@ import { resolve as resolvePath } from 'node:path';
 import { execSync } from 'node:child_process';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { hostOrigin } from '@lumenize/mesh/client';
 
 /** The deployment this lane's Worker serves — `LUMENIZE_ORIGIN` in its `wrangler.jsonc`. */
 const DEPLOYMENT = 'https://lumenize.localhost';

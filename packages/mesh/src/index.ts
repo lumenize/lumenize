@@ -29,8 +29,8 @@ export type { BroadcastFn, BroadcastTarget, BroadcastOptions } from './broadcast
 
 // Re-export Lumenize infrastructure API
 export type { LmzApi, CallEnvelope } from './lmz-api';
-// ComposedMeshDO — the DO-flavored mesh-composition mixin (VALUE export; consumed cross-package,
-// e.g. the Profile DO in @lumenize/nebula-auth does `extends ComposedMeshDO(DurableObject, 'Profile')`).
+// ComposedMeshDO — the DO-flavored mesh-composition mixin (VALUE export; the Profile DO in
+// `auth/profile.ts` does `extends ComposedMeshDO(DurableObject, 'Profile')`).
 export { ComposedMeshDO } from './lmz-api';
 
 // Re-export mesh node identity and call context types
@@ -91,3 +91,37 @@ export type { TabIdDeps } from './tab-id';
 // Test helpers
 export { createTestRefreshFunction } from './create-test-refresh-function';
 export type { CreateTestRefreshFunctionOptions } from './create-test-refresh-function';
+
+// The scope grammar, the passage and dominion verdicts, and the host grammar: what a node checks
+// and a Client reads, from `auth/` but reaching neither the Registry nor `cloudflare:workers`.
+export {
+  parseId,
+  isValidSlug,
+  MAX_SLUG_LENGTH,
+  isPlatformScope,
+  getParentId,
+  isAtOrAbove,
+  isAtOrBelow,
+  hasDominionOver,
+  hasPassageInto,
+  noPassageMessage,
+} from './auth/parse-id';
+export type { VerdictClaims } from './auth/parse-id';
+export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo } from './auth/hosts';
+export type { HostTarget } from './auth/hosts';
+export { projectActingToken, prependActor } from './auth/access-claims';
+export type { ActingTokenRecord } from './auth/access-claims';
+export {
+  PLATFORM_SCOPE,
+  RESERVED_STAR_SLUGS,
+  NEBULA_SUB,
+  ACCESS_TOKEN_TTL,
+  RECOMMENDED_MIN_TTL_SECONDS,
+  SIGNUP_TICKET_COOKIE,
+  MINT_ALL_COOKIE_CAP,
+  MAX_GALAXIES_PER_OWNER,
+  GALAXY_CAP_MESSAGE,
+  ImpersonationRefusedError,
+  isImpersonationRefused,
+} from './auth/types';
+export type { Tier, ParsedId, AccessEntry, ActClaim, AuthClaims } from './auth/types';

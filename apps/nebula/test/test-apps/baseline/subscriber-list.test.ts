@@ -8,16 +8,16 @@
  * Harness — **rung 3 is LOAD-BEARING here, not a shortcut** (ADR-009 requires the justification in place):
  * the assertions name the exact identity values, e.g. `roster).toContainEqual({ sub: aSub, profileId: aPid })`.
  * Real issuance assigns `sub`/`profileId` server-side, so a test cannot choose them through it. (`profile-channel-collision` had no such need and moved to rung 2.) `NebulaClientTest`
- * + `createNebulaTestToken` → real host node → Star/DevStudio. A WATCHER uses `client.subscribeQuerySubscribers`
+ * + `createTestToken` → real host node → Star/DevStudio. A WATCHER uses `client.subscribeQuerySubscribers`
  * and asserts on the `handleQuerySubscribersUpdate` capture (`lastQuerySubscribersUpdate`/count). Data
  * churn uses `client.resources.subscribeQuery`. Server branch decisions are asserted via the debug marker
  * `nebula.Resources.subscribers`. Every test is capable-of-failing.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { Browser } from '@lumenize/testing';
-import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
+import { createTestToken } from '@lumenize/mesh/auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { canonicalQueryHash, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { QueryDescriptor, OntologyVersionConfig } from '@lumenize/nebula';
@@ -40,7 +40,7 @@ async function connect(opts: {
   binding?: 'STAR' | 'GALAXY';
 }): Promise<NebulaClientTest> {
   const sub = opts.sub ?? uuid();
-  const { access_token } = await createNebulaTestToken({
+  const { access_token } = await createTestToken({
     issuer: platformOrigin(deploymentOrigin(env)),
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.star, instanceName: opts.star,

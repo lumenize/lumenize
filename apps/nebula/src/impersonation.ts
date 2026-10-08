@@ -13,13 +13,13 @@
  *
  * ⚠️ **Node/browser-safe on purpose.** This module is reachable from `nebula-client.ts`, which must
  * stay importable from Node and from the Studio bundle, so it must never import
- * `@lumenize/nebula-auth`'s main barrel (that re-exports a `DurableObject` → `cloudflare:workers`).
- * Its one value import is `@lumenize/nebula-auth/claims`, the pure subpath, for the refusal test.
+ * `@lumenize/mesh/auth`'s main barrel (that re-exports a `DurableObject` → `cloudflare:workers`).
+ * Its one value import is `@lumenize/mesh/client`, the pure subpath, for the refusal test.
  *
  * @see tasks/archive/nebula-impersonation-client.md
  */
 import { debug } from '@lumenize/debug';
-import { isImpersonationRefused } from '@lumenize/nebula-auth/claims';
+import { isImpersonationRefused } from '@lumenize/mesh/client';
 
 /** What a caller may tune about the minted token. */
 export interface ImpersonateOptions {

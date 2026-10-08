@@ -33,7 +33,7 @@
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, uniqueTestEmail, extractMagicLink } from '@lumenize/email-test/client';
-import { RECOMMENDED_MIN_TTL_SECONDS } from '@lumenize/nebula-auth/claims';
+import { RECOMMENDED_MIN_TTL_SECONDS } from '@lumenize/mesh/client';
 import { NebulaClient, StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, constructionPairs, readDevVar, scopeUrlOf, waitForHost, NEW_HOST_TIMEOUT_MS } from '../lib/harness';

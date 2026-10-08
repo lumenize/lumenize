@@ -23,7 +23,7 @@
  * shape, which admits no separator, so a key can never name anything outside the prefix.
  */
 import { debug } from '@lumenize/debug';
-import { verifyNebulaAccessToken } from '@lumenize/nebula-auth';
+import { verifyAccessToken } from '@lumenize/mesh/auth';
 
 export const PICTURES_PREFIX = '/pictures';
 /** A display avatar, not an archive — the SPA downscales before upload, so this is a hard ceiling
@@ -64,7 +64,7 @@ export async function handlePictureUpload(request: Request, env: Env): Promise<R
   const log = debug('nebula.pictures.upload');
   const auth = request.headers.get('Authorization') ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
-  const jwt = token ? await verifyNebulaAccessToken(token, env) : null;
+  const jwt = token ? await verifyAccessToken(token, env) : null;
   if (!jwt) return refuse(401, 'invalid_token', 'A valid access token is required');
   if (!jwt.profileId) return refuse(403, 'no_profile', 'This session carries no profile to attach a picture to');
 

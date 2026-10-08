@@ -33,7 +33,7 @@ import {
   Star, Galaxy, Resources, ROOT_NODE_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID,
   canonicalQueryHash,
 } from '@lumenize/nebula';
-import { NEBULA_SUB } from '@lumenize/nebula-auth';
+import { NEBULA_SUB } from '@lumenize/mesh/auth';
 import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula';
 import { adminClientAt, universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';

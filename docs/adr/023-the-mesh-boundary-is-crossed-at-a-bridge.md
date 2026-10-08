@@ -3,7 +3,7 @@
 **Date**: 2026-10-01
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: `NebulaAuthFacade` (`packages/nebula-auth/src/nebula-auth-facade.ts`), the bridge into raw infrastructure, built for scope invites; the consent path's raw RPC into the `Profile` node (`worker-token.ts`'s `profile()`), which reaches a mesh node with no bridge at all; two routes specified on 2026-10-01, `POST /_teardown` and `POST /_order-certificate`, which put operations only our own code may invoke on a Durable Object's `fetch` and were reversed the same day; and the same day's question of whether components we control should talk free of claims in general.
+**Evidence**: `AuthFacade` (`packages/mesh/src/auth/auth-facade.ts`), the bridge into raw infrastructure, built for scope invites; the consent path's raw RPC into the `Profile` node (`worker-token.ts`'s `profile()`), which reaches a mesh node with no bridge at all; two routes specified on 2026-10-01, `POST /_teardown` and `POST /_order-certificate`, which put operations only our own code may invoke on a Durable Object's `fetch` and were reversed the same day; and the same day's question of whether components we control should talk free of claims in general.
 
 ## Context
 
@@ -39,7 +39,7 @@ Three rules hold for both:
 - creating a galaxy;
 - minting an impersonation token.
 
-**How:** the infrastructure package exports a `LumenizeWorker`, which is a Cloudflare `WorkerEntrypoint`, bound as a service binding, and mesh code calls it like any node: `lmz.call('AUTH_FACADE', undefined, ctn<NebulaAuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
+**How:** the infrastructure package exports a `LumenizeWorker`, which is a Cloudflare `WorkerEntrypoint`, bound as a service binding, and mesh code calls it like any node: `lmz.call('AUTH_FACADE', undefined, ctn<AuthFacade>().invite('acme.crm', invitees))`. A call through it takes three steps:
 
 1. The facade refuses on the verified claims, `callContext.originAuth`, before its hop. That is rule 2's check, made in the facade, so a refused call never wakes the infrastructure ([ADR-018](018-singleton-is-the-scarce-resource.md)).
 2. It makes the one raw call, beside the invariants it enforces.
@@ -82,8 +82,6 @@ The method name becomes a string only inside the stub, and the arguments and res
 ### What this does not cover
 
 Code in Mesh's auth layer, `@lumenize/mesh/auth`, reaching the Registry that layer owns needs no facade, since the facade exists to put the raw hop in that layer, beside the rules it serves. The `Profile` sits there and reads the Registry by raw RPC, mid-call, to learn who administers a profile. Mesh's other code reaches the Registry through the facade, as an app's does. Nor does this cover `ClientGateway`, which a host node composes, and which builds envelopes by hand because it is part of what the mesh is built from.
-
-> **Today's code differs.** The Registry, the facade and the `Profile` are in `@lumenize/nebula-auth`, a package of their own, so the auth layer and its package are the same thing.
 
 ## Alternatives considered
 

@@ -5,7 +5,7 @@
  * login" (`testing.md` § Philosophy) the *easy* thing rather than the
  * aspirational one. Before it existed, real login was reachable only through a
  * browser harness (Playwright) or `prodLogin` (deployed prod only), so anything
- * API-level and local reached for `createNebulaTestToken` — the last resort —
+ * API-level and local reached for `createTestToken` — the last resort —
  * by default.
  *
  * Deliberately free of `node:` imports and of `cloudflare:*` imports, so the
@@ -20,8 +20,8 @@
  */
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
 import { LumenizeClient } from '@lumenize/mesh/client';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import { hostOrigin } from '@lumenize/mesh/client';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 /** Cookie-aware fetch. `@lumenize/testing`'s `Browser` satisfies this, as does global `fetch`. */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -709,7 +709,7 @@ export async function createGalaxyViaFacade(options: {
   } as ConstructorParameters<typeof LumenizeClient>[0]);
   try {
     await client.lmz.callAsync('AUTH_FACADE', undefined,
-      client.ctn<NebulaAuthFacade>().createGalaxy(universeGalaxyId));
+      client.ctn<AuthFacade>().createGalaxy(universeGalaxyId));
   } catch (e) {
     if ((e as { errorCode?: string }).errorCode !== 'slug_taken') throw e;
   } finally {
@@ -720,7 +720,7 @@ export async function createGalaxyViaFacade(options: {
 /**
  * The one-call path: real login, then an access token for `activeScope`
  * (defaults to the login scope). Use this wherever a test or harness previously
- * reached for `createNebulaTestToken`.
+ * reached for `createTestToken`.
  *
  * Requires an identity to already exist at `authScope` — for a scope that does not
  * exist yet, use {@link provisionAndLogin}.

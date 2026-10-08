@@ -20,9 +20,10 @@
 
 import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
-import { verifyNebulaAccessToken, createRouter, parseId } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { deploymentOrigin, hostOrigin, parseHost, type HostTarget } from '@lumenize/nebula-auth/claims';
+import { verifyAccessToken, parseId } from '@lumenize/mesh/auth';
+import { createRouter } from './route-pipeline';
+import type { AuthClaims } from '@lumenize/mesh/auth';
+import { deploymentOrigin, hostOrigin, parseHost, type HostTarget } from '@lumenize/mesh/client';
 import { handlePictureUpload, servePicture } from './profile-pictures';
 import { forwardPage } from './page-forward';
 import { GATEWAY_PREFIX } from './nebula-do';
@@ -71,7 +72,7 @@ function handleVersion(request: Request): Response | undefined {
 }
 
 /** The token an upgrade carries in its subprotocol, verified, or the refusal. */
-async function verifiedUpgradeToken(request: Request): Promise<{ token: string; jwt: NebulaJwtPayload } | Response> {
+async function verifiedUpgradeToken(request: Request): Promise<{ token: string; jwt: AuthClaims } | Response> {
   const log = debug('nebula.entrypoint.hostedUpgrade');
   const token = extractWebSocketToken(request);
   if (!token) {
@@ -80,7 +81,7 @@ async function verifiedUpgradeToken(request: Request): Promise<{ token: string; 
     log.debug('rejected: missing access token', { path: new URL(request.url).pathname });
     return new Response('Unauthorized: missing access token', { status: 401 });
   }
-  const jwt = await verifyNebulaAccessToken(token, env);
+  const jwt = await verifyAccessToken(token, env);
   if (!jwt) {
     log.debug('rejected: invalid JWT', { path: new URL(request.url).pathname });
     return new Response('Forbidden: invalid JWT', { status: 403 });
@@ -195,10 +196,10 @@ async function servePage(request: Request, url: URL, target: HostTarget | null, 
 
 /**
  * The routes every host answers by path, as ONE table — the Registry's routes-and-steps convention
- * (`createRouter` from nebula-auth's route-pipeline). `/_version` is the FIRST row, so it cannot be
- * reordered behind a future handler. The gateway row answers everything under its prefix: a
- * Client's upgrade on a scope's host or a persona's, and 404 on any other, so the runner's
- * ran-out-of-steps 500 stays what it means.
+ * (`createRouter`, this Worker's copy of the runner Mesh's auth routes use). `/_version` is the
+ * FIRST row, so it cannot be reordered behind a future handler. The gateway row answers everything
+ * under its prefix: a Client's upgrade on a scope's host or a persona's, and 404 on any other, so
+ * the runner's ran-out-of-steps 500 stays what it means.
  */
 const router = createRouter([
   { path: '/_version', steps: [(request) => handleVersion(request)] },

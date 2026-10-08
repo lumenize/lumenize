@@ -31,19 +31,19 @@ export {
   PlatformHost,
 } from '@lumenize/nebula';
 // The consent route reaches a person's Profile through the `@rawRpc()` bridge.
-export { Profile } from '@lumenize/nebula-auth/profile';
+export { Profile } from '@lumenize/mesh/auth/profile';
 
 // Bench Worker binds GALAXY and STAR to host nodes that emit the bench marker, re-exported under
 // the names the wrangler.jsonc class bindings already use.
 export { InstrumentedGalaxy as Galaxy, InstrumentedStar as StarTest } from './instrumented-hosts';
 
-export { AuthRegistry } from '@lumenize/nebula-auth';
+export { AuthRegistry } from '@lumenize/mesh/auth';
 
 
-import { NebulaEmailSender } from '@lumenize/nebula-auth';
+import { AuthEmailSender } from '@lumenize/mesh/auth';
 
 /**
- * Test-harness email sender — overrides production NebulaEmailSender's
+ * Test-harness email sender — overrides production AuthEmailSender's
  * `from` (`noreply@lumenize.io`) to `test@lumenize.io`, the sender the other
  * test lanes use.
  *
@@ -57,10 +57,10 @@ import { NebulaEmailSender } from '@lumenize/nebula-auth';
  * (incl. the secret-less Claude-hosted lane); the CF Email Sending path is
  * covered by packages/auth/test/e2e-email.
  *
- * This subclass is harness-only — production NebulaEmailSender ships
+ * This subclass is harness-only — production AuthEmailSender ships
  * unchanged with its real branded from-address.
  */
-export class TestNebulaEmailSender extends NebulaEmailSender {
+export class TestNebulaEmailSender extends AuthEmailSender {
   override from = 'test@lumenize.io';
 }
 

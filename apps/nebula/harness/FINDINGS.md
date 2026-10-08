@@ -16,7 +16,7 @@ re-discover it.
   pre-alpha deferral, confirmed via `wrangler secret list` 2026-07-06), and `checkTurnstile`
   short-circuits on the no-secret skip *before* the bypass check — so the live prod drive currently
   clears via that skip and the bypass header is a **no-op today**. The bypass is verified by unit
-  tests (`packages/nebula-auth/test/turnstile-bypass.test.ts`, mutation-checked) and becomes
+  tests (`packages/mesh/test/auth/turnstile-bypass.test.ts`, mutation-checked) and becomes
   load-bearing the moment `TURNSTILE_SECRET_KEY` is set at alpha (backlog § Nebula Auth).
 - **claude@ routing** — the harness identity's magic-link must reach the email-test Worker. This needs
   an Email Routing **Routing rule** `claude@lumenize.io → email-test Worker` (a *Destination Worker*
@@ -87,7 +87,7 @@ any send). All 5 passed:
 
 ## Identity — local mint (API) vs real login (browser)
 
-- **API driver (Phase 1):** `createNebulaTestToken` mints the correct `access:{authScope,admin}`
+- **API driver (Phase 1):** `createTestToken` mints the correct `access:{authScope,admin}`
   shape with the `.dev.vars` key — no email. Verified: the correct-shape token connects + round-trips;
   a base flat-`isAdmin` token and a nebula-shaped-but-no-`access` token both `403` at the gateway.
 - **Browser driver (Phase 2):** the SPA drives its own **cookie-based** refresh (App.vue →

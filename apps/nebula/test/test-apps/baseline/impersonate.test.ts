@@ -19,7 +19,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject, browserLogin, ORIGIN, pageOf } from '../../test-helpers';
 import { ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown } from '../../../src/impersonation';
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { NebulaClient } from '@lumenize/nebula';
 
 /** Comfortably outside the client's 30s refresh-ahead window, so construction does not re-mint. */
@@ -257,7 +257,7 @@ describe('impersonate() — the child acts on its parent\'s page', () => {
     const { payload: member } = await createInvitedClient(
       NebulaClientTest, new Browser(), star, star, 'member@example.com',
     );
-    const facade = admin.ctn<NebulaAuthFacade>() as any;
+    const facade = admin.ctn<AuthFacade>() as any;
     await expect(admin.lmz.callAsync('AUTH_FACADE', undefined,
       facade.impersonate(member.sub, { ttlSeconds: SAFE_TTL }, star)))
       .rejects.toThrow(`This page's scope "${galaxy}" is outside the subject's own scope`);

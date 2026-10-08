@@ -1,0 +1,469 @@
+/**
+ * Registry unit tests — AuthRegistry: discovery, existence (`Scopes`), admin-minting claim
+ * flows, admin-gated in-session creation, scope-tree, and cascade deletion (sub-first).
+ *
+ * Uses Workers RPC to call registry methods directly (the Registry is raw-DO infrastructure). Each test
+ * gets a FRESH registry (unique name) for isolation; identities/scopes for the deletion tests are
+ * seeded via `runInDurableObject` (the surrogate `sub` is minted only at authority points, so there is
+ * no `registerEmail` seam anymore).
+ */
+import { describe, it, expect } from 'vitest';
+import { env, runInDurableObject } from 'cloudflare:test';
+import { membershipsOf } from './test-helpers';
+import type { AccessEntry, AuthClaims } from '@lumenize/mesh/auth';
+
+/** A fresh, isolated registry stub (unique name → own migrated storage). */
+function freshRegistry(): any {
+  return env.AUTH_REGISTRY.getByName(`reg-${crypto.randomUUID()}`);
+}
+
+/** Seed `Scopes` + `Emails` + `Memberships` directly (bypassing the authority-point mint) for deletion
+ *  tests. One `Emails` row per distinct address — which is the schema's rule, not a convenience: the
+ *  same address in two scopes is ONE address row with two memberships, and seeding it any other way
+ *  would build a shape the real mint cannot produce. */
+async function seed(
+  stub: any, scopes: string[], members: Array<{ sub: string; scope: string; email: string; scopeAdmin?: boolean }>,
+): Promise<void> {
+  // Ids the real mint supplies. Generated outside the callback (no crypto reliance inside it).
+  const emailIds = new Map<string, { emailId: string; profileId: string }>();
+  for (const m of members) {
+    const lc = m.email.toLowerCase();
+    if (!emailIds.has(lc)) emailIds.set(lc, { emailId: crypto.randomUUID(), profileId: crypto.randomUUID() });
+  }
+  const seeded = members.map(m => ({ ...m, lc: m.email.toLowerCase() }));
+  await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
+    for (const s of scopes) ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', s);
+    for (const [lc, ids] of emailIds) {
+      ctx.storage.sql.exec(
+        'INSERT OR IGNORE INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES (?,?,?,1,?)',
+        ids.emailId, lc, ids.profileId, '2026-01-01T00:00:00.000Z',
+      );
+    }
+    for (const m of seeded) {
+      ctx.storage.sql.exec(
+        'INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES (?,?,?,?,?,?)',
+        m.sub, emailIds.get(m.lc)!.emailId, m.scope, m.scopeAdmin ? 1 : 0,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+      );
+    }
+  });
+}
+
+const ADMIN_OVER = (u: string): AccessEntry => ({ authScope: `${u}`, scopeAdmin: true });
+
+/**
+ * The verified claims a facade method hands the Registry, built around one `access` entry: the
+ * Registry checks that entry and records the whole token (ADR-016). Hand-built because these tests
+ * drive the Registry by direct RPC, below the facade, to pin its own check.
+ */
+const CLAIMS = (access: AccessEntry, sub: string = crypto.randomUUID()) =>
+  ({ sub, access, aud: access.authScope, profileId: crypto.randomUUID() } as unknown as AuthClaims);
+
+/** Claims for `sub` holding dominion over universe `u`. */
+const ACTING = (sub: string, u: string) => CLAIMS(ADMIN_OVER(u), sub);
+
+/**
+ * Claim universe `u` with its first app and accept the founder's membership, as the consent screen
+ * does — nothing may be created beneath a universe nobody accepted. Returns the founder's `sub`, the
+ * caller `createGalaxy` counts the cap against.
+ */
+async function founded(r: any, u: string, email: string): Promise<string> {
+  await r.claimUniverse(u, 'first', email, 'http://localhost');
+  const rows = await (runInDurableObject as any)(r, (_i: any, c: any) => [...c.storage.sql.exec(
+    `SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+     WHERE e.email = ? AND m.universeGalaxyStarId = ?`, email, u)]);
+  const outcome = await r.acceptMembership(rows[0].sub, { credential: 'link', operationId: 'test' });
+  expect(outcome.outcome).toBe('accepted');
+  return rows[0].sub as string;
+}
+
+describe('AuthRegistry', () => {
+  // ── membership rows — what the mint/delete paths actually wrote ───────────────────────────────
+  // These asserted through the retired `discover` endpoint; the endpoint was only ever the READ.
+  // `membershipsOf` reads the same rows without an unauthenticated oracle in front of them, so every
+  // assertion below keeps the mutation it was written against.
+  describe('membership rows', () => {
+    it('returns empty array for unknown email', async () => {
+      expect(await membershipsOf(freshRegistry(), 'nobody@example.com')).toEqual([]);
+    });
+
+    it('returns { universeGalaxyStarId, scopeAdmin } for a claimed universe admin (sub-FREE)', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('acme', 'first', 'scope-admin@example.com', 'http://localhost');
+      const entries = await membershipsOf(r, 'scope-admin@example.com');
+      expect(entries).toEqual([{ universeGalaxyStarId: 'acme', scopeAdmin: true }]);
+      expect(entries[0]).not.toHaveProperty('sub'); // never leak the surrogate identity key
+    });
+
+    it('case-insensitive email lookup', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('caseu', 'first', 'FRANK@Example.COM', 'http://localhost');
+      expect(await membershipsOf(r, 'frank@example.com')).toHaveLength(1);
+    });
+
+    it('returns all scopes for an email across universes', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('one', 'first', 'carol@example.com', 'http://localhost');
+      await r.claimUniverse('two', 'first', 'carol@example.com', 'http://localhost');
+      const names = (await membershipsOf(r, 'carol@example.com')).map((e) => e.universeGalaxyStarId).sort();
+      expect(names).toEqual(['one', 'two']);
+    });
+  });
+
+  // ⚠️ `describe('getAndVerifyIdentity')` lived here and is GONE with the method. Both of its
+  // properties are asserted through the path that replaced it: the reject-if-none case by
+  // identity-mint-point.test.ts § *login verify NEVER mints*, and the find-and-flip by
+  // mint-all-and-acceptance.test.ts, which drives a real consume. Deleting them lost no coverage.
+
+  // ── checkSlugAvailable (Scopes existence) ───────────────────────────────────────────────────────
+  describe('checkSlugAvailable', () => {
+    it('true for unused, false after a Scopes row exists', async () => {
+      const r = freshRegistry();
+      expect(await r.checkSlugAvailable('brand-new')).toBe(true);
+      await r.claimUniverse('taken', 'first', 'x@example.com', 'http://localhost');
+      expect(await r.checkSlugAvailable('taken')).toBe(false);
+    });
+  });
+
+  // ── claimUniverse (admin-minting self-signup) ─────────────────────────────────────────────────
+  describe('claimUniverse', () => {
+    it('claims a universe, mints the claiming admin identity, and returns the magic link', async () => {
+      const r = freshRegistry();
+      const result = await r.claimUniverse('my-universe', 'first', 'scope-admin@example.com', 'http://localhost');
+      // Every link opens the platform host's link page; the scope rides the record, not the URL.
+      expect(result.magicLinkUrl).toMatch(/^http:\/\/platform\.lumenize\.localhost\/auth\/magic-link\?token=/);
+      expect(await r.checkSlugAvailable('my-universe')).toBe(false);
+      expect(await membershipsOf(r, 'scope-admin@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', scopeAdmin: true }]);
+    });
+
+    it('rejects duplicate / reserved / invalid slug / invalid email', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('taken-univ', 'first', 'first@example.com', 'http://localhost');
+      await expect(r.claimUniverse('taken-univ', 'first', 'second@example.com', 'http://localhost')).rejects.toThrow(/already claimed/);
+      await expect(r.claimUniverse('platform', 'first', 'h@example.com', 'http://localhost')).rejects.toThrow(/reserved/);
+      await expect(r.claimUniverse('INVALID SLUG!', 'first', 'x@example.com', 'http://localhost')).rejects.toThrow(/Invalid/);
+      await expect(r.claimUniverse('email-val', 'first', 'not-an-email', 'http://localhost')).rejects.toThrow(/invalid.*email/i);
+    });
+  });
+
+  // A tenant Star comes into being one way: `claimStar`, OPEN self-signup, which mints an exact-star
+  // `scopeAdmin` and emails a claim link, and refuses reserved environment names. The `.dev` Star is
+  // born with its galaxy. The open claim is safe because a star-scoped admin's exact-star pattern is
+  // inert above its own Star (ADR-015: dominion flows strictly downward).
+
+  // ── createGalaxy (Scopes-only, admin-gated) ─────────────────────────────────────────────────────
+  describe('createGalaxy', () => {
+    it('creates a galaxy Scopes row under an existing universe (no identity minted)', async () => {
+      const r = freshRegistry();
+      const founder = await founded(r, 'gal-univ', 'admin@example.com');
+      const result = await r.createGalaxy('gal-univ.my-galaxy', ACTING(founder, 'gal-univ'));
+      expect(result.instanceName).toBe('gal-univ.my-galaxy');
+      expect(await r.checkSlugAvailable('gal-univ.my-galaxy')).toBe(false);
+      // Born WITH its `.dev` workspace star — both rows from the one synchronous method,
+      // so a galaxy without a dev workspace is structurally impossible (this used to be a
+      // second client call with a client-side lazy repair for the missed-call window).
+      expect(await r.checkSlugAvailable('gal-univ.my-galaxy.dev')).toBe(false);
+      // wildcard-managed: no identity minted in the galaxy OR its `.dev` (the creator's
+      // dominion from the universe IS the access) — the membership set stays exactly the universe row.
+      expect(await membershipsOf(r, 'admin@example.com')).toEqual([{ universeGalaxyStarId: 'gal-univ', scopeAdmin: true }]);
+    });
+
+    it('rejects non-admin / nonexistent-parent / non-galaxy tier / wrong-scope / duplicate', async () => {
+      const r = freshRegistry();
+      const founder = await founded(r, 'gu', 'x@example.com');
+      await expect(r.createGalaxy('gu.g', CLAIMS({ authScope: 'gu', scopeAdmin: false }))).rejects.toThrow(/admin access/);
+      await expect(r.createGalaxy('nonexistent.g', CLAIMS(ADMIN_OVER('nonexistent')))).rejects.toThrow(/does not exist/);
+      await expect(r.createGalaxy('just-a-universe', CLAIMS({ authScope: '_platform', scopeAdmin: true }))).rejects.toThrow(/2-segment/);
+      await expect(r.createGalaxy('gu.g', CLAIMS({ authScope: 'other', scopeAdmin: true }))).rejects.toThrow(/admin access/);
+      await r.createGalaxy('gu.g', ACTING(founder, 'gu'));
+      await expect(r.createGalaxy('gu.g', ACTING(founder, 'gu'))).rejects.toThrow(/already claimed/);
+    });
+  });
+
+  // ── the scope-summary tree ──────────────────────────────────────────────────────────────────
+  describe('the scope-summary tree', () => {
+    async function galaxy(r: any, u: string) {
+      const founder = await founded(r, u, 'owner@example.com');
+      await r.createGalaxy(`${u}.app`, ACTING(founder, u));
+    }
+
+    /**
+     * The founder's own accepted admin membership, and the summary read through it.
+     *
+     * ⚠️ **The summary is keyed on the PERSON (`profileId`), not on a synthetic `AccessEntry`** —
+     * which is why these no longer hand a hand-built claim to the method. It also descends only
+     * beneath an ACCEPTED admin membership, so the accept is part of the fixture rather than
+     * ceremony: without it the tree is a bare row and every assertion below would be vacuous.
+     */
+    async function summaryFor(r: any, u: string, email = 'owner@example.com') {
+      const rows = await (runInDurableObject as any)(r, (_i: any, c: any) => [...c.storage.sql.exec(
+        `SELECT m.sub AS sub, e.profileId AS profileId FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+         WHERE e.email = ? AND m.universeGalaxyStarId = ?`, email, u)]);
+      await r.acceptMembership(rows[0].sub, { credential: 'link', operationId: 'test' });
+      const summary = await r.getScopeSummary(rows[0].profileId);
+      return summary.emails[0].memberships[0];
+    }
+    /** Every scope the tree reaches, flattened — the shape the old flat enumeration returned. */
+    const flatten = (node: any): string[] =>
+      [node.scope, ...(node.children ?? []).flatMap((c: any) => flatten(c))];
+
+    it('the tree returns the universe + descendants, with tiers; an UNACCEPTED admin gets no subtree', async () => {
+      const r = freshRegistry();
+      await galaxy(r, 'cs-tree'); // the `.dev` star is born with the galaxy
+      const root = await summaryFor(r, 'cs-tree');
+      // ⚠️ The member-LESS galaxy and its `.dev` star are both here: the descent reads `Scopes`,
+      // never `Memberships`, which is the property the retired `myScopeTree` existed to provide.
+      expect(flatten(root).sort()).toEqual([
+        'cs-tree', 'cs-tree.app', 'cs-tree.app.dev', 'cs-tree.first', 'cs-tree.first.dev',
+      ]);
+      expect(root.tier).toBe('universe');
+      expect(root.children[0].tier).toBe('galaxy');
+
+      // An admin membership that has NOT been taken up renders bare — reds if the descent stops
+      // checking acceptance, which would answer with authority nobody has agreed to hold. The
+      // claim's own first app is the subtree it must not render.
+      const r2 = freshRegistry();
+      await r2.claimUniverse('cs-bare', 'first', 'owner@example.com', 'http://localhost');
+      const rows = await (runInDurableObject as any)(r2, (_i: any, c: any) => [...c.storage.sql.exec(
+        `SELECT m.sub AS sub, e.profileId AS profileId FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+         WHERE m.universeGalaxyStarId = 'cs-bare'`)]);
+      const bare = (await r2.getScopeSummary(rows[0].profileId)).emails[0].memberships[0];
+      expect(bare.children).toBeUndefined();
+    });
+
+    // 🔒 The SQL half of the whole-segment contract. The summary's containment is a
+    // `descendantRange`, not a call to `isAtOrAbove`, and it is allow-listed off the predicate
+    // deliberately — the query IS the bound, and routing per row would mean fetching every scope
+    // first. So the boundary has to be asserted HERE, separately: the enumeration test above passes
+    // under either spelling because `cs-tree` has no prefix sibling.
+    //
+    // Mutation: drop the dot from `descendantRange`'s `lo` and a `bnd` admin enumerates all of
+    // `bnd-2`, while every other tree assertion stays green.
+    it('enumeration honours WHOLE segment boundaries — a universe does not cover a prefix sibling', async () => {
+      const r = freshRegistry();
+      await galaxy(r, 'bnd');
+      await galaxy(r, 'bnd-2');            // a legal slug that `bnd` merely prefixes; both `.dev`s born bundled
+
+      const root = await summaryFor(r, 'bnd');
+      expect(flatten(root).sort()).toEqual(['bnd', 'bnd.app', 'bnd.app.dev', 'bnd.first', 'bnd.first.dev']);
+
+      // The star-tier form of the same collision: `s1` must not cover `s10`.
+      await seed(r, ['bnd.app.s1', 'bnd.app.s10'], []);
+      const again = await summaryFor(r, 'bnd');
+      expect(flatten(again)).toContain('bnd.app.s1');
+      expect(flatten(again)).toContain('bnd.app.s10');
+      expect(flatten(again).filter((s: string) => s.startsWith('bnd-2'))).toEqual([]);
+    });
+
+    // 🔒 A galaxy whose children's prefix passes 50 bytes. The SQLite inside a Durable Object refuses
+    // a longer `LIKE` pattern, so a level read built as `LIKE ${parent + '.%'}` threw for any galaxy
+    // named near the slug limit, and Home failed for its owner — found 2026-10-03 by `/live`'s
+    // `impersonation-lifecycle`, whose run-named test scopes are that long. A universe's prefix stays
+    // under 50 bytes at any legal length, so the galaxy is the case. In this lane rather than live
+    // because the cap is the runtime's SQLite, which this lane runs, and each read needs a limb.
+    describe('a galaxy named at the slug limit', () => {
+      const u = 'u'.repeat(30);
+      const g = `${u}.${'g'.repeat(30)}`;
+      async function longGalaxy(r: any) {
+        const founder = await founded(r, u, 'owner@example.com');
+        await r.createGalaxy(g, ACTING(founder, u));
+      }
+
+      // The summary counts each galaxy's children before it descends into them, so either read
+      // reds it. Mutation: build `#directChildCount`'s clause as `LIKE ${parent + '.%'}` → reds.
+      it('summarizes, down to the galaxy\'s Stars', async () => {
+        const r = freshRegistry();
+        await longGalaxy(r);
+        const galaxyNode = (await summaryFor(r, u)).children.find((c: any) => c.scope === g);
+        expect(galaxyNode.children.map((c: any) => c.scope)).toEqual([`${g}.dev`]);
+      });
+
+      // Mutation: build `#childLevel`'s clause as `LIKE ${parent + '.%'}` → reds.
+      it('expands to the galaxy\'s Stars from the galaxy\'s page', async () => {
+        const r = freshRegistry();
+        await longGalaxy(r);
+        const [{ profileId }] = await (runInDurableObject as any)(r, (_i: any, c: any) => [...c.storage.sql.exec(
+          `SELECT e.profileId AS profileId FROM Emails e WHERE e.email = 'owner@example.com'`)]);
+        const claims = { ...ACTING(crypto.randomUUID(), u), profileId, aud: g };
+        const { children } = await r.expandScope(claims);
+        expect(children.map((c: any) => c.scope)).toEqual([`${g}.dev`]);
+      });
+    });
+  });
+
+  // ── scope deletion (cascade teardown — sub-first) ───────────────────────────────────────────────
+  describe('scope deletion (cascade teardown)', () => {
+    it('plan: a solo `.dev` star → affected is just that star, no attached users (carries tier + isDev)', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d1.app.dev'], [{ sub: owner, scope: 'd1.app.dev', email: 'o@x.com', scopeAdmin: true }]);
+      const plan = await r.planScopeDeletion('d1.app.dev', CLAIMS(ADMIN_OVER('d1'), owner));
+      expect(plan.affectedUsers).toEqual({ total: 0, sample: [] });
+      expect(plan.affected).toEqual([{ instanceName: 'd1.app.dev', tier: 'star', isDev: true }]);
+    });
+
+    // Deletion cascades DOWN only — the prune-up was REMOVED. This test used to assert the opposite
+    // ("prune-up wipes a registered ancestor left empty + user-less"); it now pins that an emptied
+    // ancestor SURVIVES. Case 1 is the one that reds against the old prune-up code.
+    it('plan: an EMPTY ancestor left behind is NOT wiped — the cascade never climbs', async () => {
+      const r1 = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r1, ['d3', 'd3.app.dev'], [
+        { sub: owner, scope: 'd3', email: 'o@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd3.app.dev', email: 'o@x.com', scopeAdmin: true },
+      ]);
+      // `d3` is the only-parent of the only-child being deleted, holds no OTHER user, and the caller
+      // admins it — every condition the prune-up used to fire on. It must still survive.
+      const plan = await r1.planScopeDeletion('d3.app.dev', CLAIMS(ADMIN_OVER('d3'), owner));
+      expect(plan.affected.map((a: any) => a.instanceName)).toEqual(['d3.app.dev']);
+
+      const r2 = freshRegistry();
+      const owner2 = crypto.randomUUID();
+      await seed(r2, ['d4', 'd4.app.dev', 'd4.app.other'], [
+        { sub: owner2, scope: 'd4', email: 'o@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd4.app.dev', email: 'o@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd4.app.other', email: 'o@x.com', scopeAdmin: true },
+      ]);
+      const plan2 = await r2.planScopeDeletion('d4.app.dev', CLAIMS(ADMIN_OVER('d4'), owner2));
+      expect(plan2.affected.map((a: any) => a.instanceName)).toEqual(['d4.app.dev']);
+    });
+
+    it('plan and execute agree — a vanished identity cannot enlarge the wipe set', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      const otherSub = crypto.randomUUID();
+      await seed(r, ['d9', 'd9.app.dev'], [
+        { sub: owner, scope: 'd9', email: 'o@x.com', scopeAdmin: true },
+        { sub: otherSub, scope: 'd9.app.dev', email: 'other@x.com', scopeAdmin: false },
+      ]);
+      const planned = await r.planScopeDeletion('d9.app.dev', CLAIMS(ADMIN_OVER('d9'), owner));
+      expect(planned.affectedUsers.total).toBe(1);
+
+      // The attached identity disappears between confirm and execute — the window the removed 409
+      // used to mask. With the prune-up gone, `affected` is `down` and cannot grow.
+      await (runInDurableObject as any)(r, (_i: any, ctx: any) => {
+        ctx.storage.sql.exec('DELETE FROM Memberships WHERE sub = ?', otherSub);
+      });
+
+      const executed = await r.executeScopeDeletion('d9.app.dev', ACTING(owner, 'd9'));
+      expect(executed.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
+    });
+
+    // 🔒 The cascade is built from a `descendantRange`, not `LIKE ${target + '.%'}`: the SQLite inside
+    // a Durable Object refuses a `LIKE` pattern past 50 bytes, so deleting a galaxy named near the
+    // slug limit threw (found 2026-10-03 by `/live`'s `impersonation-lifecycle`).
+    // Mutation: build `#scopesAtOrBeneath` as `LIKE ${scope + '.%'}` → reds.
+    it('plan: a galaxy named at the slug limit cascades to its Stars', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      const u = 'u'.repeat(30);
+      const g = `${u}.${'g'.repeat(30)}`;
+      await seed(r, [u, g, `${g}.dev`], [{ sub: owner, scope: u, email: 'o@x.com', scopeAdmin: true }]);
+      const plan = await r.planScopeDeletion(g, CLAIMS(ADMIN_OVER(u), owner));
+      expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual([g, `${g}.dev`]);
+    });
+
+    it('plan: deleting a higher node cascades DOWN to descendants', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d2', 'd2.app.dev'], [{ sub: owner, scope: 'd2', email: 'o@x.com', scopeAdmin: true }]);
+      const plan = await r.planScopeDeletion('d2', CLAIMS(ADMIN_OVER('d2'), owner));
+      expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual(['d2', 'd2.app.dev']);
+    });
+
+    // Renamed from "another user on the target BLOCKS the delete": under ADR-015 an attached user is
+    // a WARNING, never a refusal. The old title asserted the opposite of the shipped behavior.
+    it('warning: another user on the target is reported, and the delete still succeeds', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d5.app.dev'], [
+        { sub: owner, scope: 'd5.app.dev', email: 'owner@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd5.app.dev', email: 'other@x.com', scopeAdmin: false },
+      ]);
+      const plan = await r.planScopeDeletion('d5.app.dev', CLAIMS(ADMIN_OVER('d5'), owner));
+      expect(plan.affectedUsers).toEqual({
+        total: 1, sample: [{ instanceName: 'd5.app.dev', email: 'other@x.com' }],
+      });
+      // Reds against the removed `409 scope_in_use`: the attached user no longer refuses the delete.
+      const executed = await r.executeScopeDeletion('d5.app.dev', ACTING(owner, 'd5'));
+      expect(executed.affected.map((a: any) => a.instanceName)).toEqual(['d5.app.dev']);
+    });
+
+    it('warning is BOUNDED — >25 attached users yield a full count and a <=25 sample', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      const members = [{ sub: owner, scope: 'd8.app.dev', email: 'owner@x.com', scopeAdmin: true }];
+      for (let i = 0; i < 30; i++) {
+        members.push({
+          sub: crypto.randomUUID(), scope: 'd8.app.dev',
+          email: `u${String(i).padStart(2, '0')}@x.com`, scopeAdmin: false,
+        });
+      }
+      await seed(r, ['d8.app.dev'], members);
+      const plan = await r.planScopeDeletion('d8.app.dev', CLAIMS(ADMIN_OVER('d8'), owner));
+      expect(plan.affectedUsers.total).toBe(30);                 // the full count, not the sample size
+      expect(plan.affectedUsers.sample).toHaveLength(25);        // reds if the plan carries every email
+      expect(plan.affectedUsers.sample.every((b: any) => b.instanceName === 'd8.app.dev')).toBe(true);
+    });
+
+    it('execute: solo delete removes the rows (no memberships, slug free)', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d6.app.dev'], [{ sub: owner, scope: 'd6.app.dev', email: 'solo@x.com', scopeAdmin: true }]);
+      const result = await r.executeScopeDeletion('d6.app.dev', ACTING(owner, 'd6'));
+      expect(result.affected.map((a: any) => a.instanceName)).toEqual(['d6.app.dev']);
+      expect(await membershipsOf(r, 'solo@x.com')).toEqual([]);
+      expect(await r.checkSlugAvailable('d6.app.dev')).toBe(true);
+    });
+
+    // 🔒 The same whole-segment contract on the DESTRUCTIVE side, where a dropped dot widens what
+    // gets deleted rather than what gets listed. `#scopesAtOrBeneath` is the SQL site allow-listed
+    // off the predicate whose slip costs data.
+    //
+    // Mutation: drop the dot from `descendantRange`'s `lo` and `del-1`'s plan swallows `del-1-2`.
+    // The sibling goes on with `-` because `-` is the one slug character sorting between `del-1.`
+    // and `del-1/`; a `del-1x` sorts past both and stays out under the mutation.
+    it('a deletion plan honours WHOLE segment boundaries — it never lists a prefix sibling', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(
+        r,
+        ['del-1', 'del-1.app', 'del-1.app.dev', 'del-1-2', 'del-1-2.app', 'del-1-2.app.dev'],
+        [{ sub: owner, scope: 'del-1', email: 'o@x.com', scopeAdmin: true }],
+      );
+      const plan = await r.planScopeDeletion('del-1', CLAIMS(ADMIN_OVER('del-1'), owner));
+      expect(plan.affected.map((a: any) => a.instanceName).sort())
+        .toEqual(['del-1', 'del-1.app', 'del-1.app.dev']);
+    });
+
+    it('authz: a non-admin / wrong-scope caller is rejected (403); reserved platform cannot be deleted', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d8.app.dev'], [{ sub: owner, scope: 'd8.app.dev', email: 'o@x.com', scopeAdmin: true }]);
+      await expect(r.planScopeDeletion('d8.app.dev', CLAIMS({ authScope: 'd8', scopeAdmin: false }, owner))).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('d8.app.dev', CLAIMS({ authScope: 'other', scopeAdmin: true }, owner))).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('_platform', CLAIMS({ authScope: '_platform', scopeAdmin: true }, owner))).rejects.toThrow(/cannot be deleted/);
+    });
+
+    // Retitled: the prune-up is gone, so "does not prune" now holds for EVERY caller and would be a
+    // duplicate of the cascade-never-climbs test above. What this uniquely covers is the AUTHZ shape —
+    // an exact-star (non-wildcard) pattern satisfying `#hasDominionOver` on its own star.
+    it('authz: an exact-star (non-wildcard) pattern can delete its own star', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d9', 'd9.app.dev'], [
+        { sub: owner, scope: 'd9.app.dev', email: 'o@x.com', scopeAdmin: true },
+      ]);
+      const plan = await r.planScopeDeletion('d9.app.dev', CLAIMS({ authScope: 'd9.app.dev', scopeAdmin: true }, owner));
+      expect(plan.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
+    });
+
+    it('fail-closed (M2): a callerSub with no identity is refused (403), never "no other users → wipe"', async () => {
+      const r = freshRegistry();
+      await seed(r, ['d10.app.dev'], [{ sub: crypto.randomUUID(), scope: 'd10.app.dev', email: 'o@x.com', scopeAdmin: true }]);
+      await expect(
+        r.planScopeDeletion('d10.app.dev', CLAIMS(ADMIN_OVER('d10'), 'ghost-sub')),
+      ).rejects.toThrow(/not found|forbidden/i);
+    });
+  });
+});

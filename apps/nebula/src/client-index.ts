@@ -31,12 +31,12 @@ export { StudioClient } from './studio-client';
 export type { StudioClientConfig } from './studio-client';
 
 // Scope-deletion wire types — re-exported so a frontend (which depends on `@lumenize/nebula`, not on
-// `@lumenize/nebula-auth`) can type the confirm screen against the SHARED shape instead of hand-copying
+// `@lumenize/mesh/auth`) can type the confirm screen against the SHARED shape instead of hand-copying
 // it. A hand-copy silently rots: `nebula-studio-ui` has no `vue-tsc` and is the sole `SKIP_PACKAGES`
 // entry, so a field rename there surfaces only as a runtime TypeError.
 export type {
   AffectedScope, ScopeDeletionBlocker, ScopeDeletionAffectedUsers, ScopeDeletionPlan,
-} from '@lumenize/nebula-auth';
+} from '@lumenize/mesh/auth';
 
 // Resource types and the END_OF_TIME constant — used when constructing
 // transactions and reading snapshots. These types reference @lumenize/mesh

@@ -10,7 +10,7 @@
  *
  * Lifted from the ui-smoke lane (`test/ui-smoke/global-setup.ts`) + the bench harness
  * (`test/browser/multi-client.ts`), generalized off vitest. Runs in plain Node: imports only
- * the Node-safe entries (`@lumenize/nebula/client`, `@lumenize/nebula-auth/testing`,
+ * the Node-safe entries (`@lumenize/nebula/client`, `@lumenize/mesh/auth/testing`,
  * `@lumenize/crypto`, `@lumenize/testing`) — none pull `cloudflare:workers`.
  *
  * Local `wrangler dev` needs Docker Desktop when the boot builds the container image — the
@@ -25,8 +25,8 @@ import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { NebulaClientConfig } from '@lumenize/nebula/client';
-import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
-import { hostOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
+import type { InviteSummary, AuthClaims } from '@lumenize/mesh/auth/testing';
+import { hostOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { waitForHost } from './wait-for-host';
 export { waitForHost, NEW_HOST_TIMEOUT_MS } from './wait-for-host';
@@ -306,7 +306,7 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
  * which is the only way to get a genuine NON-admin. That is still rung 1: the claim is the
  * server's either way, and this only spares a second login for an identity that already exists.
  *
- * ⚠️ There is deliberately NO mint entry. One existed (rung 3, `createNebulaTestToken`, with a
+ * ⚠️ There is deliberately NO mint entry. One existed (rung 3, `createTestToken`, with a
  * per-site `reason`) and was deleted 2026-09-02 when its last two callers turned out to be
  * constructible by real paths — one of them under a justification that was simply stale. A
  * synthetic identity here is a fixture that happens to be a function, which is what `live.md`
@@ -444,7 +444,7 @@ export async function inviteViaMesh(
   page: { scopeUrl: (scope: string) => string; platformOrigin: string } =
     { scopeUrl: (scope) => scopeUrlOf(stack, scope), platformOrigin: stack.baseUrl },
 ): Promise<InviteSummary> {
-  const claims = parseJwtUnsafe(session.accessToken)!.payload as unknown as NebulaJwtPayload;
+  const claims = parseJwtUnsafe(session.accessToken)!.payload as unknown as AuthClaims;
   await waitForHost(page.scopeUrl(claims.aud));
   const browser = new Browser();
   const ctx = browser.context(page.scopeUrl(claims.aud));

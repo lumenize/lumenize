@@ -23,10 +23,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { deploymentOrigin, platformOrigin } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Star, TransactionResult, Snapshot } from '@lumenize/nebula';
-import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
+import { createTestToken } from '@lumenize/mesh/auth/testing';
 import { universeAdminClient, createInvitedClient, createSubject, ORIGIN, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -199,7 +199,7 @@ describe('the impersonation mint — the DAG verdict', () => {
       const client = new NebulaClientTest({
         baseUrl: pageOf(star), platformOrigin: ORIGIN, ontologyVersion: 'v1',
         resourceHostBinding: 'STAR',
-        accessToken: (await createNebulaTestToken({
+        accessToken: (await createTestToken({
           issuer: platformOrigin(deploymentOrigin(env)),
           privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
           activeScope: star, instanceName, scopeAdmin: true, profileId, sub, ttlSeconds: 3600,

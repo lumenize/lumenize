@@ -4,7 +4,7 @@
 
 **Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry); **Phase 1 BUILT 2026-09-02** (see the banner), Phases 2–3 on hold. Its original consumer — placing a Star near its founder, § *Star placement — the first consumer, deferred* — was DEFERRED 2026-06-15, so there's no immediate driver. Pick up when a real pre-create provisioning entry point lands.
 
-**The placement fact that motivates the `locationHint` half (recorded 2026-08-20):** a Star is placed near its *founder* at provisioning and Cloudflare never migrates it toward its traffic — an admin in Philadelphia founds a Star and members in Sydney talk to Philadelphia forever. Today no user-serving DO is placed by anything a link scanner can reach (the magic-link consume path's invariant — `consumeAndLogin`'s JSDoc in `packages/nebula-auth/src/worker-token.ts`), so founder-placement is the only placement unfairness in the system, and `CallOptions.locationHint` is its lever.
+**The placement fact that motivates the `locationHint` half (recorded 2026-08-20):** a Star is placed near its *founder* at provisioning and Cloudflare never migrates it toward its traffic — an admin in Philadelphia founds a Star and members in Sydney talk to Philadelphia forever. Today no user-serving DO is placed by anything a link scanner can reach (the magic-link consume path's invariant — `consumeAndLogin`'s JSDoc in `packages/mesh/src/auth/worker-token.ts`), so founder-placement is the only placement unfairness in the system, and `CallOptions.locationHint` is its lever.
 
 ## Objective
 

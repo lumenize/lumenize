@@ -83,3 +83,37 @@ export type {
   CallContext,
   CallOptions,
 } from './types';
+
+// The scope grammar, the passage and dominion verdicts, and the host grammar: what a node checks
+// and a Client reads, from `auth/` but reaching neither the Registry nor `cloudflare:workers`.
+export {
+  parseId,
+  isValidSlug,
+  MAX_SLUG_LENGTH,
+  isPlatformScope,
+  getParentId,
+  isAtOrAbove,
+  isAtOrBelow,
+  hasDominionOver,
+  hasPassageInto,
+  noPassageMessage,
+} from './auth/parse-id';
+export type { VerdictClaims } from './auth/parse-id';
+export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo } from './auth/hosts';
+export type { HostTarget } from './auth/hosts';
+export { projectActingToken, prependActor } from './auth/access-claims';
+export type { ActingTokenRecord } from './auth/access-claims';
+export {
+  PLATFORM_SCOPE,
+  RESERVED_STAR_SLUGS,
+  NEBULA_SUB,
+  ACCESS_TOKEN_TTL,
+  RECOMMENDED_MIN_TTL_SECONDS,
+  SIGNUP_TICKET_COOKIE,
+  MINT_ALL_COOKIE_CAP,
+  MAX_GALAXIES_PER_OWNER,
+  GALAXY_CAP_MESSAGE,
+  ImpersonationRefusedError,
+  isImpersonationRefused,
+} from './auth/types';
+export type { Tier, ParsedId, AccessEntry, ActClaim, AuthClaims } from './auth/types';

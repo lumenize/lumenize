@@ -5,7 +5,7 @@
  * No storage, no CallContext dependency — operates entirely on the in-memory OrgTreeState.
  */
 
-import { isValidSlug, MAX_SLUG_LENGTH } from '@lumenize/nebula-auth/claims'
+import { isValidSlug, MAX_SLUG_LENGTH } from '@lumenize/mesh/client'
 
 /**
  * Reserved sentinel id for the root orgTree node. A v4-shaped UUID (matching

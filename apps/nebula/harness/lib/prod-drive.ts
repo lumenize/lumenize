@@ -19,7 +19,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { hostOrigin } from '@lumenize/mesh/client';
 import { readDevVar } from './harness';
 // The real-login flow itself is shared with the vitest lanes (rung 1, ADR-009) —
 // this module adds only what is prod-specific: the stored cookie jar.

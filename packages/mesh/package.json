@@ -8,7 +8,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client-index.ts",
-    "./raw-rpc": "./src/raw-rpc.ts"
+    "./raw-rpc": "./src/raw-rpc.ts",
+    "./auth": "./src/auth/index.ts",
+    "./auth/facade": "./src/auth/auth-facade.ts",
+    "./auth/profile": "./src/auth/profile.ts",
+    "./auth/testing": "./src/auth/testing.ts"
   },
   "imports": {
     "#lmz-api-context": {
@@ -24,7 +28,7 @@
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run && npm run test:node-import",
+    "test": "node ../../scripts/check-mesh-graph.mjs && vitest --run && npm run test:node-import",
     "test:coverage": "vitest --coverage --run",
     "test:node-import": "tsx --test test/node-import.test.mjs",
     "coverage": "COVERAGE=true vitest --run --coverage",
@@ -45,7 +49,9 @@
   "dependencies": {
     "@lumenize/crypto": "^0.26.0",
     "@lumenize/debug": "^0.26.0",
+    "@lumenize/email": "^0.26.0",
     "@lumenize/routing": "^0.26.0",
+    "@lumenize/sql-migrations": "^0.26.0",
     "@lumenize/structured-clone": "^0.26.0",
     "cron-schedule": "^6.0.0",
     "ulid-workers": "^2.1.0"

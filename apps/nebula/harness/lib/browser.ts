@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
-import { hostOrigin } from '@lumenize/nebula-auth/claims';
+import { hostOrigin } from '@lumenize/mesh/client';
 import { claimedUniverses } from '../../test/lib/email-login';
 import { NEW_HOST_TIMEOUT_MS } from './wait-for-host';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.

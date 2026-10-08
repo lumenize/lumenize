@@ -21,7 +21,7 @@
  *
  * ⚠️ **Why this exists when two in-lane tests already cover it.** They cover it on **stacked
  * fixtures** — `profile-do.test.ts` hand-`INSERT`s the registry rows (`seedIdentity`) *and* mints a
- * synthetic token (`createNebulaTestToken`, ADR-009 rung 3), while `identity-mint-point.test.ts`
+ * synthetic token (`createTestToken`, ADR-009 rung 3), while `identity-mint-point.test.ts`
  * asserts at the registry level rather than on the refusal a caller actually receives. Neither proves
  * an attacker is refused; they prove a hand-built approximation of one is.
  *
@@ -43,7 +43,7 @@
 import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
-import type { Profile } from '@lumenize/nebula-auth/profile';
+import type { Profile } from '@lumenize/mesh/auth/profile';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';

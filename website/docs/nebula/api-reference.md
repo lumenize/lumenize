@@ -683,12 +683,12 @@ Example — a "who's here" roster for a chat session, with each person's avatar 
 
 NebulaClient extends [`LumenizeClient`](/docs/mesh/lumenize-client), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `access`, etc.) is available with no Nebula-specific wrapping. See [mesh: LumenizeClient § Client identity](/docs/mesh/lumenize-client#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`. For admin-only UI, gate on **both** `client.claims.access?.scopeAdmin` (Galaxy/Universe scope admin) and an `admin` grant in the org-tree (app admin) — see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui).
 
-**Type — non-null on NebulaClient.** `LumenizeClient` is generic over its claims payload — `LumenizeClient<TClaims extends { sub: string } = JwtPayload>` with `get claims(): Readonly<TClaims> | null` (it has a genuine null window before first refresh). `NebulaClient extends LumenizeClient<NebulaJwtPayload>` and **re-declares the getter to drop the `| null`** — `get claims(): Readonly<NebulaJwtPayload>` — because the availability contract below guarantees it's populated by the time app code runs. The re-declaration is behaviorally neutral (the runtime getter is the inherited one; it only narrows the type). This is what lets the doc examples write `client.claims.sub` without a `!` or `?.` and still pass strict TypeScript.
+**Type — non-null on NebulaClient.** `LumenizeClient` is generic over its claims payload — `LumenizeClient<TClaims extends { sub: string } = JwtPayload>` with `get claims(): Readonly<TClaims> | null` (it has a genuine null window before first refresh). `NebulaClient extends LumenizeClient<AuthClaims>` and **re-declares the getter to drop the `| null`** — `get claims(): Readonly<AuthClaims>` — because the availability contract below guarantees it's populated by the time app code runs. The re-declaration is behaviorally neutral (the runtime getter is the inherited one; it only narrows the type). This is what lets the doc examples write `client.claims.sub` without a `!` or `?.` and still pass strict TypeScript.
 
 The fields app code relies on (full payload is minted by nebula-auth):
 
-```typescript @check-example('packages/nebula-auth/src/types.ts')
-export interface NebulaJwtPayload {
+```typescript @check-example('packages/mesh/src/auth/types.ts')
+export interface AuthClaims {
   iss: string;
   aud: string;
   sub: string;

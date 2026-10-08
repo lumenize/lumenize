@@ -649,7 +649,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * audience claim, etc. — same shape as `originAuth.claims` on the server side.
    *
    * Typed `Readonly<TClaims> | null` — `TClaims` defaults to `JwtPayload`. A
-   * subclass scoped to a richer payload (e.g. `LumenizeClient<NebulaJwtPayload>`)
+   * subclass scoped to a richer payload (e.g. `LumenizeClient<AuthClaims>`)
    * may re-declare this getter to drop the `| null` once its lifecycle
    * guarantees claims are populated before any caller runs.
    */

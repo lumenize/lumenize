@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import { ROOT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
@@ -136,7 +136,7 @@ export async function run(stack: DevStack): Promise<void> {
     // Mutation: honour the argument as the parent → the other universe's app appears → reds.
     await atOther.client.scopes.createGalaxy(otherUniverse, 'app2');
     const listed = await atUniverse.client.lmz.callAsync('AUTH_FACADE', undefined,
-      (atUniverse.client.ctn<NebulaAuthFacade>() as any).expandScope(otherUniverse)) as { children: { scope: string }[] };
+      (atUniverse.client.ctn<AuthFacade>() as any).expandScope(otherUniverse)) as { children: { scope: string }[] };
     assert.deepEqual(listed.children.map((c) => c.scope), [galaxy, `${universe}.first`],
       "the universe page's list must answer for its own scope, whatever the call names");
 

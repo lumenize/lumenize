@@ -35,7 +35,7 @@ import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childrenOf, isTornDown,
 } from '../../src/impersonation';
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 export const needsContainer = false;
 export const bootVars = { DEBUG: 'nebula-auth.facade.impersonate,lmz.mesh.ClientGateway.acceptUpgrade' };
@@ -74,7 +74,7 @@ async function inviteAndLogin(
   // page beneath, since the refresh picks the broadest admin membership its cookies reach.
   const browser = new Browser();
   // NO `instance` FILTER, but we DO assert the tag's value below — two different things, and the
-  // reason for each has changed over time. The filter could once not work at all (`NebulaEmailSender`
+  // reason for each has changed over time. The filter could once not work at all (`AuthEmailSender`
   // stamped `X-Lumenize-Auth-Instance` per message TYPE and covered magic-link only, so an invite
   // landed in the catch-all bucket and an `instance: scope` filter silently never matched — one 60s
   // timeout to find). Since 2026-07-31 the tag is stamped from `EmailMessage.instanceName`, required
@@ -225,7 +225,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(subjectClaims.access.authScope, star, "the subject's own token must carry the star as authScope");
     assert.equal(subjectClaims.access.scopeAdmin, true, "the subject's own token must carry scopeAdmin");
     const { access_token: derivedToken } = await realCallAsync('AUTH_FACADE', undefined,
-      adminClient.ctn<NebulaAuthFacade>().impersonate(subject.sub, {})) as { access_token: string };
+      adminClient.ctn<AuthFacade>().impersonate(subject.sub, {})) as { access_token: string };
     const derived = parseJwtUnsafe(derivedToken)!.payload as any;
     assert.equal(derived.access.authScope, subjectClaims.access.authScope,
       "the derived token's authScope must be the SUBJECT's membership scope, verbatim");
@@ -246,14 +246,14 @@ export async function run(stack: DevStack): Promise<void> {
     const asSubject = await connectDriver(stack, { scope: star, session: { accessToken: subject.accessToken, sub: subject.sub } });
     try {
       const own = await asSubject.client.lmz.callAsync('AUTH_FACADE', undefined,
-        asSubject.client.ctn<NebulaAuthFacade>().impersonate(below.sub, {})) as { access_token: string };
+        asSubject.client.ctn<AuthFacade>().impersonate(below.sub, {})) as { access_token: string };
       assert.equal((parseJwtUnsafe(own.access_token)!.payload as any).sub, below.sub,
         "the subject's OWN token must mint for someone beneath them — the positive control");
     } finally {
       asSubject.dispose();
     }
     const chained = await child.lmz.callAsync('AUTH_FACADE', undefined,
-      child.ctn<NebulaAuthFacade>().impersonate(below.sub, {})).then(() => null, (e: unknown) => (e as Error).message);
+      child.ctn<AuthFacade>().impersonate(below.sub, {})).then(() => null, (e: unknown) => (e as Error).message);
     assert.match(chained ?? '(it minted)', /root identity/,
       'a derived (act-bearing) token must be refused the mint, by the root-identity message');
   }

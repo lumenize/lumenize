@@ -8,7 +8,7 @@
  * registry rows carrying a CHOSEN `profileId` so `getScopesForProfile(profileId)` resolves to a known
  * scope. Real issuance assigns `profileId` server-side, so the fixture could not be constructed through it.
  *
- * Harness: a plain `LumenizeClient` (mesh) with `refresh: createNebulaTestToken(...)` (ADR-009 rung 3,
+ * Harness: a plain `LumenizeClient` (mesh) with `refresh: createTestToken(...)` (ADR-009 rung 3,
  * justified per-site: these tests need PRECISE control over the `profileId` / `access` / scope claims,
  * which the cookie login can't give — and the baseline login lane is expectedly red mid-turnover). The
  * client connects to the REAL host node of its token's scope; the JWT is verified normally at the entrypoint.
@@ -17,12 +17,12 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { deploymentOrigin, platformOrigin, NEBULA_SUB } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, platformOrigin, NEBULA_SUB } from '@lumenize/mesh/client';
 import { LumenizeClient, mesh } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
-import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
+import { createTestToken } from '@lumenize/mesh/auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
+import type { Profile, ProfileSnapshot } from '@lumenize/mesh/auth/profile';
 import {
   createSubject, universeAdminClient, createInvitedClient, addressOfClient, pageOf } from '../../test-helpers';
 import { FAIL_CLOSED_PROFILE_ID, NebulaClientTest } from './index';
@@ -62,7 +62,7 @@ async function makeClient(opts: {
   const client = new MeshProbe({
     baseUrl: pageOf(activeScope),
     hostFromHostname: true,
-    refresh: createNebulaTestToken({
+    refresh: createTestToken({
       issuer: platformOrigin(deploymentOrigin(env)),
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope,

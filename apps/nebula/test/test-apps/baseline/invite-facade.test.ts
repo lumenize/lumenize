@@ -17,8 +17,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { hasDominionOver, type InviteSummary, type NebulaJwtPayload } from '@lumenize/nebula-auth';
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import { hasDominionOver, type InviteSummary, type AuthClaims } from '@lumenize/mesh/auth';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { NebulaClient } from '@lumenize/nebula';
 import { NebulaClientTest, type StarTest } from './index';
 import {
@@ -35,7 +35,7 @@ function facadeInvite(
 ): Promise<InviteSummary> {
   return client.lmz.callAsync(
     'AUTH_FACADE', undefined,
-    client.ctn<NebulaAuthFacade>().invite(targetScope, invitees as any),
+    client.ctn<AuthFacade>().invite(targetScope, invitees as any),
   );
 }
 
@@ -44,7 +44,7 @@ function facadeInvite(
  *  the link and takes the invitation up in one click, so the cookie it sets mints at once; Home's
  *  Accept after it is a no-op that also proves the cookie names the scope. `page` defaults to the
  *  scope; the platform root has no page, so its token is minted on a scope's. */
-async function acceptInvite(link: string, scope: string, page = scope): Promise<NebulaJwtPayload> {
+async function acceptInvite(link: string, scope: string, page = scope): Promise<AuthClaims> {
   const browser = new Browser();
   // AS SENT: the facade mints against the origin the inviter connected on, and the invite's page
   // is its consent screen, whose Accept consumes and accepts.
@@ -193,7 +193,7 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
         admin.ctn<NebulaClientTest>().recordCallFailure(), { onErrorOnly: true });
       await vi.waitFor(async () => {
         expect(await admin.lmz.callAsync('STAR', star, admin.ctn<StarTest>().facadeCallOutcome()))
-          .toBe('error: NebulaAuthFacade requires a verified identity: this call carried no origin claims');
+          .toBe('error: AuthFacade requires a verified identity: this call carried no origin claims');
       });
     } finally { admin.disconnect(); }
   });

@@ -17,7 +17,7 @@ kind, so the constructor argument that introduces it lands here. That keeps the 
 four constructor arguments since its D22 collapsed the host bridge into an `lmz` handle, which is
 what the Universe sibling states it inherits.
 
-**Today, on disk:** `packages/nebula-auth/src/profile.ts` — `class Profile extends
+**Today, on disk:** `packages/mesh/src/auth/profile.ts` — `class Profile extends
 ComposedMeshDO(DurableObject, 'Profile')`, storing a bespoke `ProfileFields (field, value)` k-v
 table, composing no plane and holding no `OrgTree`. The access-control half already shipped
 (`tasks/archive/nebula-profile-access-control.md`); what remains is the storage.

@@ -11,7 +11,7 @@
  */
 import { debug } from '@lumenize/debug';
 import { rawRpcStub } from '@lumenize/mesh/raw-rpc';
-import type { ScopeLifecycleHooks, ScopeTarget } from '@lumenize/nebula-auth';
+import type { ScopeLifecycleHooks, ScopeTarget } from '@lumenize/mesh/auth';
 
 /** The Durable Object binding each tier's scope lives at. */
 const BINDING: Record<ScopeTarget['tier'], 'UNIVERSE' | 'GALAXY' | 'STAR'> = {

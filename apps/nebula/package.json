@@ -75,7 +75,6 @@
     "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
-    "@lumenize/nebula-auth": "*",
     "@lumenize/routing": "*",
     "@lumenize/sql-migrations": "*",
     "@lumenize/structured-clone": "*",

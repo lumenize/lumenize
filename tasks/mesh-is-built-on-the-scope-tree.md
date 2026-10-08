@@ -494,3 +494,22 @@ Each row records who decided it and when; § *Design intent* carries the reasons
 - **Suites:** `nebula-auth` 34 files, 496 tests passed and 4 skipped, its 15 unhandled rejections the typed `RegistryError` refusals its tests assert; `apps/nebula` 119 files and 1032 tests, unchanged from Phase 1; `drive.ts all --fast` 53 of 53.
 
 **Close-out notes:** the backlog's *DECIDE: does `nebula-auth`'s test-mode gate get a second factor?* row records the move, as § *Relationships* says.
+
+### Phase 3 — `nebula-auth`'s code lives in Mesh under `/auth`
+
+**For the human:**
+- **Three names did not simply drop `Nebula`.** `buildNebulaJwtPayload` became `buildAuthClaims`, matching the type it builds, rather than `buildJwtPayload`. The email templates became `defaultMagicLinkHtml`, `defaultInviteNewHtml` and `defaultInviteExistingHtml`, since the bare names are the sender's own method names, and `@lumenize/auth` uses the same `default…Html` convention. `verifyNebulaTurnstileToken` took the bare `verifyTurnstileToken`, though `@lumenize/auth` still has a copy of that name, as D12 already accepted for `AuthClaims`; `turnstile.ts`'s header now says so.
+- **The test files dropped their `nebula-` prefixes too** (`auth-registry.test.ts`, `auth-routes.test.ts`, `auth-email-sender.test.ts`, and three more), and the auth test Worker is named `mesh-auth`.
+- **`@lumenize/mesh/auth` still exports the scope grammar and the verdicts the old root exported,** beside the same names on Mesh's root and `/client`. Importers rewritten from `@lumenize/nebula-auth` reach them there; nothing forces the one path yet.
+- **Guidance prose that names `nebula-auth` as a package** — `raw-comm.md`, `mesh.md`, `workers-projects.md`, `coding-style.md`, `security.md`'s bullets, `auth-flows.md` — waits for Phase 8's content pass, as § *What changes in standing guidance* says. This phase changed only paths, the rules' `paths:` globs, CLAUDE.md's "Loads when" cells, `security.md`'s opening, its disclaimer and its two instruments, and `raw-comm.md`'s description of the audit this phase widened.
+- **`website/docs/introduction.md`'s package table still lists `@lumenize/nebula-auth`;** [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 1*, which rewrites that table, now says so.
+
+**Retro notes:**
+- The path rewrite hit four lines that only looked like paths, all caught in the diff walk: the Dockerfile's `COPY` pair and the `.dockerignore` pair it turned into `packages/mesh/src/auth`, ADR-023's "Today's code differs" block (deleted, as the phase says), and ADR-010's dated history line, restored to `@lumenize/nebula-auth`. A comment in `packages/auth` it had renamed was restored too.
+- Two test comments in `auth-email-sender.test.ts` said `invite-existing` is never sent; `buildInviteMessage` sends it to an invitee who already accepted. Corrected while removing the two deleted types' rows.
+- Stale generated `worker-configuration.d.ts` files typed every `rawRpcStub` call `never` after the move, through an import of the renamed email sender that `skipLibCheck` hid. `npm run types` cleared it.
+- **Startup, `packaging.md`'s two commands:** the Worker bundle went from 2807.19 to 2806.23 KiB. Active startup measured 19.3 to 20.5 ms before and 19.7 to 22.7 ms after, over three alternating runs of each; the first after-run's 38.4 ms did not repeat.
+- **Gate, as run so far:** Mesh's `auth` project runs 34 files, 494 passed and 4 skipped, which is `nebula-auth`'s 500 less the two deleted email rows; `vitest list` puts all 34 in `[auth]` alone. Flipping `hasPassageInto`'s upward arm reddened 4 tests in `parse-id.test.ts`. `check-mesh-graph.mjs` passed, and reddened when Mesh's root exported `AuthRegistry`. A Mesh class declaring `HTTP_PREFIXES` and dispatching on an unregistered path now fails `audit:do-http`, whose counts are unchanged. `security.md`'s two instruments return the same files as at `8b81924`, at their new paths.
+- **Suites:** Mesh 75 files, 967 passed and 4 skipped; `apps/nebula` 119 files and 1032 tests, unchanged, its second unhandled rejection a vitest teardown race in `update-identity.test.ts`; `drive.ts all --fast` 53 of 53; `build-box` and `first-app-built` pass on the image without `nebula-auth`'s vendor pair; `test:doc` passes.
+
+**Close-out notes:** the backlog's *The Registry as a mesh node* row closes, declined by D13; *Admin notification controls* closes with the deleted email types; *Adopt hono* now names Mesh's router and says its question is a Mesh dependency.

@@ -1,7 +1,6 @@
 ---
 paths:
   - "packages/auth/**/*.ts"
-  - "packages/nebula-auth/**/*.ts"
   - "packages/testing/**/*.ts"
   - "packages/ts-runtime-parser-validator/**/*.ts"
   - "packages/mesh/**/*.ts"
@@ -19,7 +18,7 @@ How a DO is invoked and how it talks when it is **not** on the Mesh abstraction.
 ## Route pattern (`fetch()`)
 HTTP routes SHOULD be handled in `fetch()` via URL path matching, delegating to `#`-prefixed handler methods. Direct `if` matching is efficient enough for a handful of routes.
 
-**A third-party router dependency MUST NOT be added.** Where a route *table* with ordered middleware is genuinely warranted, that shape is already in-repo — `packages/nebula-auth/src/route-pipeline.ts`, a small runner written against the path-parameter and middleware-list patterns those libraries popularised, with no dependency and no public-API commitment. It is `nebula-auth`-local by design (`@lumenize/routing` is published MIT, so a runner there would be semver-bound); another package that outgrows `if` matching writes its own rather than importing this one or adding a dep.
+**A third-party router dependency MUST NOT be added.** Where a route *table* with ordered middleware is genuinely warranted, that shape is already in-repo — `packages/mesh/src/auth/route-pipeline.ts`, a small runner written against the path-parameter and middleware-list patterns those libraries popularised, with no dependency and no public-API commitment. It is `nebula-auth`-local by design (`@lumenize/routing` is published MIT, so a runner there would be semver-bound); another package that outgrows `if` matching writes its own rather than importing this one or adding a dep.
 
 ```typescript
 async fetch(request: Request): Promise<Response> {
@@ -60,12 +59,12 @@ A node's `onRequest` MUST compare the path only against the prefixes its class r
 
 One other forward carries page traffic into a Durable Object's `fetch`, and its target is no mesh node: nebula-auth's `forwardRaw` sends the claim `POST`s to the Registry, a raw Durable Object that reads no identity header.
 
-**`npm run audit:do-http` is the proof.** It scans every `src` tree under `apps/` and `packages/nebula-auth/src`, never tests, and checks four things:
+**`npm run audit:do-http` is the proof.** It scans source, never tests: every `src` tree under `apps/` and Mesh's auth layer, `packages/mesh/src/auth`, for all four checks, and for the third every class in `packages/mesh/src` that declares `HTTP_PREFIXES`. It checks four things:
 
 1. every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as something other than a Durable Object namespace;
 2. every `routeDORequest` call under `apps/` passes `bindings`;
 3. every mesh node's `onRequest` compares the path only against its `HTTP_PREFIXES`;
-4. no Durable Object stub is made except in a named forward or, inside nebula-auth, for its own Registry — so an inline `getByName(…).teardown()` that skips `rawRpcStub` fails it.
+4. no Durable Object stub is made except in a named forward or, inside Mesh's auth layer, for its own Registry — so an inline `getByName(…).teardown()` that skips `rawRpcStub` fails it.
 
 It prints what it checked on every run, so a pass is never an empty line. A new forward or a new non-Durable-Object `.fetch(` MUST be added to its tables by name, with the reason.
 

@@ -3,7 +3,7 @@
 **Date**: 2026-08-04
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: the Profile DO (`packages/nebula-auth/src/profile.ts` — open `read()`/`subscribe()`, `requireOwnerOrAdmin` gates public writes + the private fields); the registry's acceptance predicates on this ADR's two sites (`getScopesForProfile` and `getIdentityScope`, pinned by the capable-of-failing manufacture test in `packages/nebula-auth/test/identity-mint-point.test.ts` and the acceptance test in `packages/nebula-auth/test/impersonation-mint.test.ts`); ADR-008 (intra-Star tree visibility); ADR-010 (random opaque keys); design + capable-of-failing tests in `tasks/archive/nebula-profile-store.md`.
+**Evidence**: the Profile DO (`packages/mesh/src/auth/profile.ts` — open `read()`/`subscribe()`, `requireOwnerOrAdmin` gates public writes + the private fields); the registry's acceptance predicates on this ADR's two sites (`getScopesForProfile` and `getIdentityScope`, pinned by the capable-of-failing manufacture test in `packages/mesh/test/auth/identity-mint-point.test.ts` and the acceptance test in `packages/mesh/test/auth/impersonation-mint.test.ts`); ADR-008 (intra-Star tree visibility); ADR-010 (random opaque keys); design + capable-of-failing tests in `tasks/archive/nebula-profile-store.md`.
 
 ## Context
 
@@ -76,5 +76,5 @@ A caller who claims a Universe and invites an address they guessed therefore get
 ### Negative / mitigations
 - The trust rests on the **public/private field split being enforced at the DO**, and on the mesh admitting no anonymous caller (§ *Decision*).
 - **An admin of one intersecting scope can write a global object.** Accepted in § *Decision*. The mitigation that matters meanwhile is that acceptance requires mailbox proof, so the population holding this is people the person actually joined.
-- **Acceptance is load-bearing AUTHZ and it lives in a query rather than a gate** — a place nobody expects to find a security control. Each conjunct must therefore be pinned by a test that reds when it is dropped: `getScopesForProfile`'s by the manufacture test in `packages/nebula-auth/test/identity-mint-point.test.ts`, `getIdentityScope`'s by the acceptance test in `packages/nebula-auth/test/impersonation-mint.test.ts`.
+- **Acceptance is load-bearing AUTHZ and it lives in a query rather than a gate** — a place nobody expects to find a security control. Each conjunct must therefore be pinned by a test that reds when it is dropped: `getScopesForProfile`'s by the manufacture test in `packages/mesh/test/auth/identity-mint-point.test.ts`, `getIdentityScope`'s by the acceptance test in `packages/mesh/test/auth/impersonation-mint.test.ts`.
 - A future *protected-class public field* would need its own gate — the open read is public-fields-**only** by construction, not a blanket "the Profile DO is open."

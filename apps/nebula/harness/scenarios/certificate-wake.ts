@@ -32,7 +32,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { SIGNUP_TICKET_COOKIE } from '@lumenize/nebula-auth/claims';
+import { SIGNUP_TICKET_COOKIE } from '@lumenize/mesh/client';
 import type { Galaxy } from '../../src/galaxy';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';

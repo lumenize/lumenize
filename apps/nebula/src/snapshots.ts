@@ -7,13 +7,13 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import type { AuthClaims } from '@lumenize/mesh/auth';
 // ⚠️ VALUE import from the `/claims` subpath, NEVER the root barrel: this module sits in the Node-safe
 // client value graph (`client-index.ts` re-exports `END_OF_TIME`), and the barrel exports the Registry
 // DO, which pulls `cloudflare:workers`. `/claims` is pure by construction — its own header says so —
 // and it is ADR-016's ONE shared projection; no site assembles its own record.
-import { projectActingToken, prependActor } from '@lumenize/nebula-auth/claims';
-import type { ActingTokenRecord } from '@lumenize/nebula-auth/claims';
+import { projectActingToken, prependActor } from '@lumenize/mesh/client';
+import type { ActingTokenRecord } from '@lumenize/mesh/client';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError, WipedMidTransactionError } from './errors';
 import type {
@@ -43,7 +43,7 @@ export const END_OF_TIME = '9999-01-01T00:00:00.000Z';
 export interface WireActingToken {
   /** The token's SUBJECT. ⚠️ Under impersonation this is the person acted UPON; the actor is `act.sub`. */
   sub: string;
-  act?: NebulaJwtPayload['act'];
+  act?: AuthClaims['act'];
   profileId: string;
 }
 
@@ -248,7 +248,7 @@ export class Snapshots {
    *  two-level chain; a flatten would drop the delegation). */
   #buildActingToken(actor?: { sub: string; profileId: string }): ActingTokenRecord {
     const cc = this.#getCallContext();
-    const payload = cc.originAuth?.claims as unknown as NebulaJwtPayload;
+    const payload = cc.originAuth?.claims as unknown as AuthClaims;
     const record = projectActingToken(payload);
     if (actor) return { ...record, act: prependActor(record.act, actor) };
     return record;

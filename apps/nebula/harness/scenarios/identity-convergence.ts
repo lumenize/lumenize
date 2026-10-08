@@ -8,7 +8,7 @@
  * resulting JWTs.
  *
  * ⚠️ **Why this belongs at the live tier even though an in-lane version now exists.** The in-lane
- * test (`packages/nebula-auth/test/identity-mint-point.test.ts`) asserts the same property and is
+ * test (`packages/mesh/test/auth/identity-mint-point.test.ts`) asserts the same property and is
  * mutation-checked, so this is not about capability — vitest-plugin CAN assert it. It is about the
  * thing that keeps going wrong: every assertion in-lane rests on a fixture somebody built, and this
  * build lost time twice to fixtures that were the *safe* shape (a mutation-restore that corrupted a

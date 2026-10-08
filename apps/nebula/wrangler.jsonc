@@ -38,7 +38,7 @@
   // CLOUDFLARE_API_TOKEN in the environment — not with anything in .dev.vars.
   "ai": { "binding": "AI", "remote": true },
   // Magic-link / invite email. Registry/facade → AUTH_EMAIL_SENDER (self-ref service binding
-  // → the NebulaEmailSender WorkerEntrypoint re-exported from src/worker.ts) → the provider
+  // → the AuthEmailSender WorkerEntrypoint re-exported from src/worker.ts) → the provider
   // `@lumenize/email` selects from env: Resend, by EMAIL_PROVIDER in `vars` below, in every lane.
   // Production chose it for deliverability (2026-08-09). The local and test lanes send there too
   // because a `send_email` binding send to a per-run test address counts against Cloudflare's daily
@@ -48,11 +48,11 @@
   // The from-address comes from AUTH_EMAIL_FROM in `vars` below, and a lane that overrides it must
   // still name a sender Resend has verified, or Resend rejects the send.
   "services": [
-    { "binding": "AUTH_EMAIL_SENDER", "service": "nebula", "entrypoint": "NebulaEmailSender" },
+    { "binding": "AUTH_EMAIL_SENDER", "service": "nebula", "entrypoint": "AuthEmailSender" },
     // The mesh-speaking facade for authenticated-session Registry mutations (invites). Clients and
     // platform nodes reach it with an ordinary `lmz.call('AUTH_FACADE', undefined, …)` — a
     // service binding with no instance name routes as a LumenizeWorker; the one raw Registry hop
-    // lives inside the facade (@lumenize/nebula-auth/facade, re-exported from src/worker.ts).
+    // lives inside the facade (@lumenize/mesh/auth/facade, re-exported from src/worker.ts).
     { "binding": "AUTH_FACADE", "service": "nebula", "entrypoint": "NebulaAuthFacade" },
     // The platform host's own routes — login, Home, a link's page, acceptance, logout and the
     // refresh — as an app of its own, which the default fetch reaches for `/` and `/auth/*` on
@@ -184,7 +184,7 @@
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     // The deployment's origin, named once: every host parses against it and the JWT issuer
-    // (`https://platform.lumenize.dev`) derives from it (`@lumenize/nebula-auth`'s `hosts.ts`).
+    // (`https://platform.lumenize.dev`) derives from it (`@lumenize/mesh/auth`'s `hosts.ts`).
     // `scripts/local-config.mjs` rewrites it for a local stack, `scripts/test-deploy-config.mjs`
     // for the deployed test target.
     "LUMENIZE_ORIGIN": "https://lumenize.dev",

@@ -13,7 +13,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID, Subscriptions, canonicalQueryHash } from '@lumenize/nebula';
-import { ensureSubscribersTable } from '@lumenize/nebula-auth/profile';
+import { ensureSubscribersTable } from '@lumenize/mesh/auth/profile';
 import type { QueryDescriptor, SubscriptionKind, TransactionResult } from '@lumenize/nebula';
 import { adminClientAt, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';

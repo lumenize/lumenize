@@ -32,8 +32,8 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasDominionOver } from '@lumenize/nebula-auth';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import { hasDominionOver } from '@lumenize/mesh/auth';
+import type { AuthClaims } from '@lumenize/mesh/auth';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
 import { stringify } from '@lumenize/structured-clone';
@@ -202,7 +202,7 @@ export class Subscriptions {
     const cc = this.#getCallContext();
     const sub = cc.originAuth?.sub;
     if (!sub) throw new Error('Authentication required');
-    const claims = cc.originAuth?.claims as unknown as NebulaJwtPayload;
+    const claims = cc.originAuth?.claims as unknown as AuthClaims;
     const hostName = this.#getHostName();
     return {
       sub,

@@ -28,8 +28,8 @@
 import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import type { Profile } from '@lumenize/nebula-auth/profile';
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { Profile } from '@lumenize/mesh/auth/profile';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
@@ -174,7 +174,7 @@ export async function run(stack: DevStack): Promise<void> {
     let after: string | undefined;
     do {
       const page = await atUniverse.client.lmz.callAsync('AUTH_FACADE', undefined,
-        (atUniverse.client.ctn<NebulaAuthFacade>() as any).expandScope(after ? { after } : undefined),
+        (atUniverse.client.ctn<AuthFacade>() as any).expandScope(after ? { after } : undefined),
       ) as { children: { scope: string }[]; nextCursor?: string };
       listed.push(...page.children.map((c) => c.scope));
       after = page.nextCursor;

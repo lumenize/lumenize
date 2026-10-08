@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { deploymentOrigin, hostOrigin } from '@lumenize/nebula-auth/claims';
+import { deploymentOrigin, hostOrigin } from '@lumenize/mesh/client';
 import { rawRpcStub } from '@lumenize/mesh/raw-rpc';
 import { scopeLifecycleHooks } from '../../../src/scope-lifecycle-hooks';
 import { packHosts, type CertificateResult } from '../../../src/certificate';

@@ -30,12 +30,12 @@ import { addressOf, newContinuation, splitAddress } from '@lumenize/mesh';
 import type { AnyContinuation, BroadcastTarget, Continuation, LmzApi } from '@lumenize/mesh';
 // Type-only: the facade continuation and the client pushes are typed without pulling a second
 // mesh entry, or the client, into this module's value graph.
-import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { NebulaClient } from './nebula-client';
 import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runtime';
-import type { InviteSummary, InviteeError, NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { projectActingToken } from '@lumenize/nebula-auth/claims';
+import type { InviteSummary, InviteeError, AuthClaims } from '@lumenize/mesh/auth';
+import { projectActingToken } from '@lumenize/mesh/client';
 import type { PermissionTier } from './org-ops';
 import { OrgTree } from './org-tree';
 import { Snapshots } from './snapshots';
@@ -533,7 +533,7 @@ export class Resources {
     if (!(segs.length === 3 && segs[2] === 'dev')) {
       throw new Error('A wipe is only permitted on the .dev sandbox Star');
     }
-    const claims = this.#lmz().callContext.originAuth?.claims as NebulaJwtPayload | undefined;
+    const claims = this.#lmz().callContext.originAuth?.claims as AuthClaims | undefined;
     debug('nebula.Resources.wipe').info('wipe', {
       instanceName: host, ...cause, actingToken: claims ? projectActingToken(claims) : null,
     });
@@ -666,7 +666,7 @@ export class Resources {
       const lmz = this.#lmz();
       lmz.call(
         'AUTH_FACADE', undefined,
-        this.#ctn<NebulaAuthFacade>().invite(lmz.instanceName!, valid.map(({ email }) => ({ email }))),
+        this.#ctn<AuthFacade>().invite(lmz.instanceName!, valid.map(({ email }) => ({ email }))),
         this.#ctn<ResourcesHost>().resourcesResults.onInviteResult(nodeId, Object.fromEntries(valid.map((v) => [v.email, v.tier]))),
       );
     }

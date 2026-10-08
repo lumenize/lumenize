@@ -14,7 +14,7 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 
 **Goal:** `website/docs` describes Mesh 1.0, and the `@check-example` checker covers every page again.
 
-- **What it rewrites:** `docs/mesh`, `docs/auth`, `docs/debug/index.mdx`, and the package table in `docs/introduction.md`, which still lists `@lumenize/auth` as current and `@lumenize/rpc` as the foundation of `@lumenize/testing`.
+- **What it rewrites:** `docs/mesh`, `docs/auth`, `docs/debug/index.mdx`, and the package table in `docs/introduction.md`, which still lists `@lumenize/auth` as current, `@lumenize/rpc` as the foundation of `@lumenize/testing`, and `@lumenize/nebula-auth`, which is now Mesh's `/auth`.
 - **What it removes:** the checker exclusion `mesh-is-built-on-the-scope-tree.md`'s D8 adds to `website/scripts/check-examples.mjs` and `website/docusaurus.config.ts`, labelled `TEMP → target: the Mesh 1.0-alpha docs rewrite`. The run passes with it gone.
 - **It lands before Item 4 deletes `packages/auth`,** since `docs/auth` and `docs/debug/index.mdx` carry `@check-example` blocks that name its files.
 - **It draws on § *Docs ideas*,** the running list at the end of this file.
