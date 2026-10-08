@@ -1,6 +1,6 @@
 # Mesh is built on the scope tree
 
-**Status:** Pass 1, with D1–D23 decided 2026-10-06 and 07. Stage 1 `/review-task` ran twice on 2026-10-07, and this version applies the second gate's decisions. Lands before ⑥ the wipe; what can wait for adopters is in [mesh-1-alpha.md](mesh-1-alpha.md). Task-file-first, because the Mesh and auth website docs are rewritten later (D5).
+**Status:** Pass 2 written 2026-10-07, with D1–D23 decided 2026-10-06 and 07. Stage 1 `/review-task` ran twice on 2026-10-07; Stage 2 is next. Lands before ⑥ the wipe; what can wait for adopters is in [mesh-1-alpha.md](mesh-1-alpha.md). Task-file-first, because the Mesh and auth website docs are rewritten later (D5).
 
 ## Objective
 
@@ -38,11 +38,11 @@ The goals below say what that bet asks of this task, and § *Design intent* how 
 
 Each goal says how today's design misses it.
 
-1. **Eliminate a layer of indirection that serves no purpose.** A Star today is `class Star extends NebulaDO`. `NebulaDO` lives in `apps/nebula` and adds passage to `LumenizeDO`, which lives in `@lumenize/mesh`, using predicates from a third package, `@lumenize/nebula-auth`. After this task a Star is `class Star extends ScopedMeshDO`, and one package holds all three. Today the layers duplicate each other rather than build on each other:
+1. **Eliminate a layer of indirection that serves no additional purpose.** A Star today is `class Star extends NebulaDO`. `NebulaDO` lives in `apps/nebula` and adds passage to `LumenizeDO`, which lives in `@lumenize/mesh`, using predicates from a third package, `@lumenize/nebula-auth`. After this task a Star is `class Star extends ScopedMeshDO`, and one package holds all three. Today the layers duplicate each other rather than build on each other:
    - **Two test-token helpers.** `create-nebula-test-token.ts` exists in `nebula-auth` because Mesh's `createTestRefreshFunction` signs `@lumenize/auth`'s claims (`emailVerified`, `adminApproved`, `isAdmin`), with no `access` claim for passage to read, and was never exported from `@lumenize/mesh/client`.
    - **Two auth packages.** `packages/auth` and `nebula-auth` fork the handler orchestration, as `tasks/backlog.md`'s orchestration-body de-fork row records, and Nebula runs only one of them. This task leaves nothing importing `packages/auth`, so [mesh-1-alpha.md](mesh-1-alpha.md) can delete it.
 2. **Take one more shot at an MIT platform useful enough on its own to be adopted.** The adoption has to lift the commercial product more than it costs it in customers who stop at the MIT part. Today the MIT half is a generic Mesh and an auth Nebula does not run, while the multi-tenant structure, sessions and coarse-grained authorization are UNLICENSED.
-3. **Consolidate test coverage into Mesh, the one layer Lumenize's commercial success rests on.** Today Mesh's suites test a stack Nebula does not ship: `git grep -l "@lumenize/auth'" -- packages/mesh/test` lists the files, the for-docs mini-apps among them, that run on `@lumenize/auth`, and `git grep -l LumenizeClientGateway -- packages/mesh/test` those that run on a Gateway no Nebula page uses. Passage and dominion, meanwhile, are tested in `apps/nebula` and `nebula-auth`, out of Mesh's sight.
+3. **Consolidate test coverage into a single layer that Lumenize's commercial success rests on.** Today Mesh's suites test a stack Nebula does not ship: `git grep -l "@lumenize/auth'" -- packages/mesh/test` lists the files, the for-docs mini-apps among them, that run on `@lumenize/auth`, and `git grep -l LumenizeClientGateway -- packages/mesh/test` those that run on a Gateway no Nebula page uses. Passage and dominion, meanwhile, are tested in `apps/nebula` and `nebula-auth`, out of Mesh's sight.
 4. **Clear the way to deprecate what is already all but deprecated.** `@lumenize/auth` has 31 downloads a month and no counterpart left in Nebula, yet Mesh's suites run on it. `@lumenize/fetch` depends on Mesh, and nobody runs it in production, so nothing is built to keep it working. [mesh-1-alpha.md](mesh-1-alpha.md) deprecates both.
 
 ## Relationships
@@ -54,6 +54,19 @@ Each goal says how today's design misses it.
 - **Gates ⑥ the wipe** in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*, as a `data` item (§ *What waits for mesh-1-alpha*). It lands after every pre-wipe row above it there that edits a file it moves or repoints, because those are product work riskier than a move: ② Personas (`container/app/src/nebula.ts`, `AGENTS.md`), ③ Capture live (the scaffold's `src/nebula.ts`), ⑤ The ontology history, which may reshape the ontology-version row `resources.ts` reads, *A `computed()` misses its subscription* (`frontend/create-nebula-client.ts`), *Generated apps are pure Vapor* (`scaffold-seed.ts`, `AGENTS.md`), *Denied access shows in the app* (`AGENTS.md`, `api-reference.md`), and *Shared pages* (`nebula-auth`'s claim paths).
 - **Gates [mesh-1-alpha.md](mesh-1-alpha.md),** which comes before the npm publish and holds what can land after pre-alpha launches without breaking anything Nebula runs.
 - **Comes before the backlog row *A Client resends a call its socket lost*** (`tasks/backlog.md` § *Lumenize Mesh*, decided 2026-10-07), which builds on two seams this task moves: the gateway's message types and the Client's send queue, `#sendOrQueue`. This task keeps both intact under their new names.
+- **Rows in `tasks/backlog.md` this task changes, each in the phase named:**
+  - *The Registry as a mesh node, deleting the facade and the hook seam* closes, declined by D13 (Phase 3).
+  - *Adopt hono in `nebula-auth`'s router* becomes a question about Mesh's `/auth` dependencies (Phase 3).
+  - *Admin notification controls* (§ *Nebula Auth*) closes with the email type Phase 3 deletes.
+  - *DECIDE: does `nebula-auth`'s test-mode gate get a second factor?* records that the audit moved with the renames (Phase 2).
+  - *`createTestRefreshFunction` is still not exported from `@lumenize/mesh/client`* closes, since the surviving helper is exported from `/auth/testing` (Phase 5).
+  - A new *Flag in the next release notes, as BREAKING* row opens in Phase 5 and gains each break to Mesh's public surface through Phase 7. [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 5* carries it into the release notes.
+  - *OPEN QUESTION — `Resources` with a pluggable access-control model* loses its `Profile` half, since `Profile` cannot move onto Resources while it is MIT and Resources is not (Phase 6).
+  - *Add retry + skip logic for alarm handler failures* gains a pointer to D21 (Phase 6).
+  - *Mesh product feedback: there is no supported way to construct a client with a caller-supplied `refresh`* is answered by D15, and its premise that `LumenizeClientConfig` omits `refresh` is false (Phase 7).
+  - *A Client learns the name its host node holds it under* closes with D15 (Phase 7).
+  - *A Client resends a call its socket lost* records that, landing after the wipe, its receipt is a frame an older Client ignores (`onUnknownMessage`), since every built app carries the Client's code (Phase 7).
+- **`@lumenize/fetch`'s suites, which Phase 6 skips, have no un-skip owner here:** a revival for streaming (§ *Future state*) un-skips them.
 
 ## Current state
 
@@ -62,7 +75,7 @@ Each goal says how today's design misses it.
 **`@lumenize/nebula-auth`** (`packages/nebula-auth`, UNLICENSED, 0.24.0):
 - **Adapted — its code moves into Mesh** (D11), renamed (D12): the Registry, `NebulaAuthRegistry`, with its router and HTTP routes; `worker-token.ts`, which verifies and mints tokens; the scope grammar and the predicates `parseId`, `hasPassageInto` and `hasDominionOver`; the host grammar in `hosts.ts`; the facade base, `NebulaAuthFacade`; `Profile`, onto `UnscopedMeshDO` (D7); `NebulaEmailSender`; and the package's tests.
 - **Adapted — its entry points** (D11): `./facade`, `./profile` and `./testing` move under `@lumenize/mesh/auth`, and `./claims` into Mesh's root and `/client`.
-- **Carried over until [mesh-1-alpha.md](mesh-1-alpha.md) — what is Nebula's product, not auth** (D17): the page each of six GET routes serves, `/auth/coming-soon`, the agent's profile seed, and the email sender's app name and `from` address. They move into Mesh as they are, and mesh-1-alpha makes each one configuration the app supplies. The agent's `sub` changes value here (D19).
+- **Carried over until [mesh-1-alpha.md](mesh-1-alpha.md) — what is Nebula's product, not auth** (D17): the page each of six GET routes serves, `/auth/coming-soon`, the agent's profile seed, the email sender's app name and `from` address, and the galaxy cap, `MAX_GALAXIES_PER_OWNER` with `GALAXY_CAP_MESSAGE`. They move into Mesh as they are, and mesh-1-alpha makes each one configuration the app supplies. The agent's `sub` changes value here (D19).
 - **Deleted — the `admin-notification` and `approval-confirmation` email types**, with their templates and their test (D17).
 
 **`apps/nebula`** (`@lumenize/nebula`, UNLICENSED, 0.24.0):
@@ -74,7 +87,8 @@ Each goal says how today's design misses it.
 - **Adapted — the Resources plane, into `@lumenize/resources`** (D10): `resources.ts`, `subscriptions.ts`, `snapshots.ts`, `org-tree.ts`, `org-ops.ts`, `query-hash.ts`, and `errors.ts`, whose errors are all Resources' (`OntologyStaleError`, `PermissionDeniedError` and the rest). `resources.ts` names the facade's binding, which D12 renames.
 - **Adapted — `frontend/` and the two client entries,** into three homes (§ *The package line, by example*).
 - **Adapted — the Galaxy's preview push,** which names `StudioClient` (D20).
-- **Left behind:** `Universe`, `Star`, the entrypoint, `PlatformHost`, the certificate machine, the codegen loop, and the facade subclass that supplies `scopeLifecycleHooks`. Each changes only what it imports and extends.
+- **Adapted — the entrypoint's `hostedUpgrade`,** whose checks port into Mesh's auth layer with its tier-to-binding table as a parameter, so Mesh's own test Workers verify a socket the way Nebula's Worker does (Phase 5).
+- **Left behind:** `Universe`, `Star`, the rest of the entrypoint, `PlatformHost`, the certificate machine, the codegen loop, and the facade subclass that supplies `scopeLifecycleHooks`. Each changes only what it imports and extends.
 
 **`@lumenize/mesh`** (`packages/mesh`, MIT, 0.26.0):
 - **Carried over:** the call core in `lmz-api.ts`, `ClientGateway`, the operation-chain executor, alarms, broadcast and `@rawRpc`.
@@ -115,7 +129,7 @@ The design intent below opens with what waits for mesh-1-alpha, then shows the p
 
 The rest change only code in this repo.
 
-**What waits is docs, configuration, and adopter-facing work Nebula does not need,** such as each auth route serving a page the app supplies (D17), Mesh verifying a socket's claims before a host node accepts it, and deleting `packages/auth` (D9). Until then Nebula's values stay hard-wired in Mesh, which nobody outside the repo sees before the publish.
+**What waits is docs, configuration, and adopter-facing work Nebula does not need,** such as each auth route serving a page the app supplies (D17), Mesh running a scope's teardown itself, and deleting `packages/auth` (D9). Until then Nebula's values stay hard-wired in Mesh, which nobody outside the repo sees before the publish.
 
 ### The package line, by example
 
@@ -175,7 +189,7 @@ class StudioClient extends NebulaClient { @mesh() handlePreviewReady(…) { … 
 **A thin `NebulaClient` composes `ClientResources` (D6),** the Client's half of the plane the server composes as `Resources`, which can be tested alone. It holds the `resources` and `orgTree` APIs, `bindStore`, `flush`, `subscribeQuerySubscribers`, the resource, query and roster refusal hooks, and the state behind the five push methods. `NebulaClient`'s members delegate to it, so an app's calls do not change. The two meet in four places:
 - **Server pushes.** Resources calls back with `ctn<NebulaClient>().handleResourceUpdate(…)` and ten more like it, reaching five push methods. They stay top-level `@mesh()`-decorated methods on `NebulaClient`, each forwarding to `ClientResources`, so the wire does not change. That is the shape `LumenizeClient`'s class JSDoc teaches an adopter for a Client's incoming calls: `@mesh()`-decorated methods on a subclass. `client.resources`, the API apps call (`client.resources.transaction(…)`), stays undecorated, so nothing local reaches the wire.
 - **New tokens and reconnects (D15).** On each new token today's `NebulaClient` records `activeScope`, the scope its host spells, and when the admin bit flips it re-subscribes resources, queries, rosters, profiles and the org tree. After the split `MeshClient` owns the refresh, records `activeScope`, re-subscribes its own Profile channel on `onSubscriptionRequired()`, and calls an override, `onClaimsChange()`, after every new token. `NebulaClient` hands that, `onConnectionStateChange` and `onSubscriptionRequired()` to `ClientResources`, which restores the rest. `refresh` stays public on `MeshClientConfig`, where Mesh's own tests pass one, and stays left out of `NebulaClientConfig`, so no app builds a Client whose token and scope disagree.
-- **The impersonation child.** `impersonate` builds a second Client acting as Carol, which needs a `ClientResources` of its own, as its parent has, or Carol's page has no store. Living in `MeshClient`, it builds the child with `new this.constructor(…)`. The child's refresh, backed by the impersonation mint, and its link to its parent travel through two symbols private to `MeshClient`'s module, which replace `INTERNAL_REFRESH` and `INTERNAL_PARENT`.
+- **The impersonation child.** `impersonate` builds a second Client acting as Carol, which needs a `ClientResources` of its own, as its parent has, or Carol's page has no store. Living in `MeshClient`, it builds the child with `new this.constructor(…)`, from a protected `childConfig()` each layer extends with its own fields, so a `StudioClient`'s child carries the chat host pair and a `NebulaClient`'s the ontology version. The child's refresh, backed by the impersonation mint, and its link to its parent travel through two symbols private to `MeshClient`'s module, which replace `INTERNAL_REFRESH` and `INTERNAL_PARENT`.
 - **Its own address (D15).** A hosted Client's `#selfIdentity()` reports `gatewayBindingName`, by default `LUMENIZE_CLIENT_GATEWAY`, a binding no Nebula Worker has, so a Client calling itself through the mesh is refused as a peer: it compares the last hop with its bare id, `alice.9f2c41aa`, where its host stamps `acme.crm.tenant1/alice.9f2c41aa`. `connection_status` carries the address instead, and `#selfIdentity()` reports it.
 
 **Studio's methods live on `StudioClient`, in `apps/nebula` (D20),** because the Galaxy, in `apps/nebula`, names the class it pushes to, and `apps/nebula-studio-ui` depends on `apps/nebula`, not the reverse. Studio gets one from the factory a generated app calls, by passing the class:
@@ -197,7 +211,7 @@ The config and the returned `client` are typed by the class passed, so a generat
 - **A name the grammar refuses is refused outright.** A `profileId` is a 36-character UUID, past the 30-character slug cap.
 - **A name the grammar accepts is a scope, whether or not anyone meant one.** A test Durable Object named `room-1` is the Universe `room-1`, and a call to it needs passage into that Universe.
 
-**An unscoped Durable Object extends `UnscopedMeshDO` (D7).** It carries what `ScopedMeshDO` carries, `svc`, alarms and `onStart`, except the passage step, so each `@mesh()` method decides with a guard or a check at its top, as `Profile`'s writes do today and its public reads deliberately do not. Its base refuses to run under a name that parses as a scope, which `Profile` checks by hand today in its own `onBeforeCall`. Passage reads a claimless chain's scope from the name of the node that started it (`claimsForPassage`), which is sound only while every object under a scope-shaped name checks passage. The two bases hold that structurally: `UnscopedMeshDO` refuses such a name, and no subclass of `ScopedMeshDO` can remove its passage step.
+**An unscoped Durable Object extends `UnscopedMeshDO` (D7).** It carries what `ScopedMeshDO` carries, `svc`, alarms and `onStart`, except the passage step, so each `@mesh()` method decides with a guard or a check at its top, as `Profile`'s writes do today and its public reads deliberately do not. Its base refuses to run under a name that parses as a scope, at the identity stamp every entry reaches, which `Profile` checks by hand today in its own `onBeforeCall`. Passage reads a claimless chain's scope from the name of the node that started it (`claimsForPassage`), which is sound only while every object under a scope-shaped name checks passage. The two bases hold that structurally: `UnscopedMeshDO` refuses such a name, and no subclass of `ScopedMeshDO` can remove its passage step.
 
 **An unscoped node that holds anyone's data is its own gatekeeper, in both directions.** A host lets a sender whose name is no scope push to any of its tabs, so the receiving side checks nothing for it (`requirePassageIntoSender` in `nebula-do.ts`). A document node `5e0f0a2c-8d1b-4c6e-9f7a-2b3c4d5e6f70`, owned at acme and shared with a user at globex, shows the rule:
 - **Calls in:** a guard on `subscribe` checks the caller against the document's own share list.
@@ -309,41 +323,139 @@ Each row records who decided it and when; § *Design intent* carries the reasons
 | D18 | **Universe, Galaxy and Star, with `universeGalaxyStarId`, stay Mesh's names in code** (Larry, 2026-10-07). They collide with nothing, where Account, App and Tenant collide with a person's login account, with `apps/nebula`, and with a generated app; the labels people see are [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 3*'s. | **Renaming only Mesh's public surface** — two vocabularies for one tree. **Renaming everything** — the collisions in every sentence, and a migration for stored Client addresses such as `STAR/acme.crm.tenant1/alice.9f2c41aa`. |
 | D19 | **The platform agent's `sub` is configuration the app supplies, and Nebula's becomes `'agent:lumenize'`** (Larry, 2026-10-07). The value changes in this task; [mesh-1-alpha.md](mesh-1-alpha.md) builds the configuration. Any value keeps a `:`, which the slug grammar refuses, so `UnscopedMeshDO`'s scope-name refusal never refuses the agent's Profile. | **Keeping `'agent:nebula'`** — the codename would stay in stored records for good. **A Mesh constant renamed `AGENT_SUB`** — it would bake Nebula's agent into MIT Mesh. |
 | D20 | **Studio's Client methods, `postUserMessage`, `handlePreviewReady` and `uploadProfilePicture`, live on `StudioClient extends NebulaClient`, in `apps/nebula`, and Studio builds one by passing the class to `createNebulaClient`** (Larry, 2026-10-07). § *The Client splits along the same line*. `nebula-pre-alpha-fast-follow.md` § *Item 8* fans the same push to every collaborator. | **Announcing a build through Resources** — a new platform resource type and a write into history per build, where Item 8 settled on fanning the push. **Studio's methods on `NebulaClient`** — every generated app would carry three methods it never calls. **Studio building its `StudioClient` itself** — a second way to assemble a client, repeating the factory's `ready`, login and host-deleted wiring. |
-
-## Criteria to carry into Pass 2
-
-Settled behaviour a phase must prove, collected at the Pass 1 gate.
-
-- **`drive.ts all` passes, containers included, and so does the deployed pass on `test-nebula`,** at the end of the task.
-- **Mesh imports nothing from `@lumenize/resources` or `apps/`,** checked by a script under `scripts/audit-*` rather than by review.
-- **A generated app built after this task boots on its new import,** on the `build-box` scenario.
-- **A Worker that imports only Mesh's root does no more work at import than before,** measured with `packaging.md`'s two commands.
-- **No passage or dominion verdict changes:** their tests move with their assertions untouched.
-- **After this task, `git grep -nE "agent:nebula|NEBULA_SUB" -- apps packages docs .claude` finds nothing,** the literal in `nebula-auth-registry.ts`'s superseded-claims record among what it catches.
-- **A `ScopedMeshDO` subclass whose `onBeforeCall` never calls `super` still refuses a call with no passage** (D22). Mutation check: move the passage step back into `onBeforeCall`, and the test goes red.
-- **`npm run test:doc` passes after every phase,** with D8's exclusion in both entry points from the phase that first breaks a block.
-- **After this task, `grep -rnE 'NEBULA_AUTH_' scripts apps/nebula/scripts .github .claude docs/adr` finds only dated history,** and committing `AUTH_TEST_MODE`, then separately `AUTH_BOOTSTRAP_EMAIL`, to a `wrangler.jsonc` turns `npm run audit:test-mode` red. The `LUMENIZE_AUTH_` names go with `packages/auth`, in [mesh-1-alpha.md](mesh-1-alpha.md).
-- **Every rule whose `paths:` match a moved file before the move still matches it after,** and a rule that newly matches one is listed as intended. **Every `scripts/audit-*` and `check-*` that scans a moved file today scans it at its new path,** `audit-do-http.mjs` among them, which pins `packages/nebula-auth/src/router.ts`.
-- **A hosted Client knows the name its host holds it under** (Larry, 2026-10-07, deferred here from `nebula-clients-connect-to-their-scope`): a phase proves both the `callee` its handlers see and that a Client can call itself.
-
 | D21 | **Mesh's alarm table, `__lmz_alarms`, keeps `time` and `created_at` as epoch seconds, documented at its `CREATE TABLE` in `alarms.ts` as a local exception to ADR-011** (Larry, 2026-10-07). Alarms may be refactored soon, and that refactor revisits both. | **Converting both to ISO text in this task** — a rewrite of every Galaxy's table is free before the wipe, but a refactor of alarms may replace the table anyway. **Adding the retry row's `retryCount` and `status` columns now** — they are additive with defaults, so they can wait for that refactor. |
-
 | D22 | **`ScopedMeshDO` runs passage in a step of its own, keyed by a symbol private to Mesh, before the subclass's `onBeforeCall`, which stays every node's hook for a check every call must meet** (Larry, 2026-10-07). § *Scoped and unscoped nodes*. | **Removing `onBeforeCall`** — the facade refuses a call with no verified claims there, every Client refuses a peer's call there, Mesh's mini-apps put their authentication checks there, and ADR-007 lists it in the core every node composes. **Passage in `onBeforeCall`, with `super.onBeforeCall()` taught** — Mesh's own examples override that hook, and one forgotten line drops passage silently, the hazard D7 cites. **An audit that fails an override never calling `super`** — it catches this repo's code and no adopter's. |
-
 | D23 | **Mesh's suites log in through Mesh's own Registry in test mode, ADR-009 rung 2; real mail only where a suite tests login itself** (Larry, 2026-10-07). § *Packages, tests and checks*. | **Real mail by default, rung 1** — 70 to 150 messages a Mesh run, on a Resend plan of 50,000 a month that testing already nears (11,000 in the 7 days to 2026-10-07), for an email hop Mesh's browser suites and `/live` already cover. **A minted token for the port, rung 3** — ADR-009 justifies each mint where it is used, never a suite at a time. |
 
-## Relationships to complete in Pass 2
+## Phases
 
-Rows in `tasks/backlog.md` this task changes, each edited in the phase that changes it:
+**Every phase ends green on the same checks,** so each commit is a working system:
+- `npm test` in every workspace the phase touches, `npm run type-check`, and `npm run test:doc`, with D8's exclusion in both entry points from the phase that first breaks a block.
+- `npm run audit:test-mode`, `audit:do-http`, `audit:email-isolation` and `audit:test-assertions`, and `audit:dep-direction` from Phase 4. Workspace `npm test` runs none of them. `audit:do-http`'s counts, recorded before Phase 2, stay the same, or the phase names each change.
+- `npx tsx apps/nebula/harness/drive.ts all --fast`, since every phase touches imports a scenario rides (`live.md`). Phases 3, 4, 7 and 8 change the container image or the module graph it vendors, so they also run `build-box` and `first-app-built`.
+- **A phase that moves a file keeps every check on it.** Every rule whose `paths:` match a moved file before the move still matches it after, and a rule that newly matches one is named as intended. CLAUDE.md's "Loads when" cell for that rule follows. Every `scripts/audit-*` and `check-*`, and every grep a rule gives as its instrument, that covers a moved file covers it at its new path.
+- **A phase that changes a backlog row's premise edits the row** (§ *Relationships*).
+- **Source cites an ADR, a rule, or nothing,** never this file's handles: `grep -nE '\b[SD][0-9]{1,2}\b|\bPhase[ -][0-9]+\b|\bItem [0-9]+\b'` over the phase's changed source finds none (`workflow.md` § *Referring to things across files*). A temporary site says its target in prose, `TEMP → target: …`.
+- **Debug namespaces keep today's strings,** as D16 keeps the `NodeType` strings, so no zero-count assertion on one goes vacuous. [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 7* renames them.
 
-- **"The Registry as a mesh node, deleting the facade and the hook seam"** closes, declined by D13.
-- **"OPEN QUESTION — `Resources` with a pluggable access-control model"** loses its `Profile` half: `Profile` cannot move onto Resources while it is MIT and Resources is not.
-- **"Mesh product feedback: there is no supported way to construct a client with a caller-supplied `refresh`"** is answered by D15, and its premise that `LumenizeClientConfig` omits `refresh` is false.
-- **"Add retry + skip logic for alarm handler failures"** (§ *Lumenize Mesh*) gains a pointer to D21, so the refactor of alarms sees the epoch columns too.
-- **"`createTestRefreshFunction` is still not exported from `@lumenize/mesh/client`"** closes: the surviving helper is exported from `/auth/testing`.
-- **"Adopt hono in `nebula-auth`'s router"** becomes a question about Mesh's `/auth` dependencies.
-- **"DECIDE: does `nebula-auth`'s test-mode gate get a second factor?"** holds only while `audit-test-mode.sh` does, so its row records that the audit moved with the renames.
-- **"A Client learns the name its host node holds it under"** closes with D15.
-- **"Admin notification controls"** (§ *Nebula Auth*) closes with the `admin-notification` email type this task deletes (D17).
-- **"A Client resends a call its socket lost"** records that, landing after the wipe, its receipt is a frame an older Client ignores (`onUnknownMessage`), since every built app carries the Client's code.
-- **A new "Flag in the next release notes, as BREAKING" row** for this task's breaks to Mesh's public surface, filled in phase by phase: D16's renames, `ComposedMeshDO` unexported, `LumenizeClientGateway` and `createTestRefreshFunction` deleted, and the session moving into `MeshClient`. [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 5* carries it into the release notes.
+1. **Studio's three Client methods live on `StudioClient`, and Studio builds one through the factory (D20).** This empties `NebulaClient` of everything only Studio uses, so Phase 4 can move it out of the app.
+   - `StudioClient extends NebulaClient`, in `apps/nebula/src/studio-client.ts`, takes `postUserMessage` with the chat host pair only it reads (`chatHostBinding`, `chatScope`, `#chatHost`), `handlePreviewReady` with `onPreviewReady`, and `uploadProfilePicture`. The private members those methods read, `#requireOntologyVersion` and `#baseUrl` among them, become protected on `NebulaClient`.
+   - `createNebulaClient` takes `Client`, defaulting to `NebulaClient`, and types its config and returned `client` by the class passed. `App.vue` passes `StudioClient`. The Galaxy's preview push names `ctn<StudioClient>()`. The harness builds a `StudioClient` for the scenarios that post to chat or upload a picture.
+   - The baseline fixture splits: `NebulaClientTest extends NebulaClient` for the Resources suites, and `StudioClientTest extends StudioClient` for the files that post, so the Resources suites keep running on the class a generated app builds.
+   - **Success criteria:**
+     - `NebulaClient.prototype` has none of the three methods and `StudioClient.prototype` has all three. *Mutation:* leave `uploadProfilePicture` on `NebulaClient`.
+     - A client built as `createNebulaClient({ Client: StudioClient, … })` is a `StudioClient`, and its `onPreviewReady` fires on the build reply, beside `nebula-client-preview-ready.test.ts` and `build-reply.test.ts`, which pass. *Mutation:* the factory ignores `Client`.
+     - `signup-to-first-app`, whose limbs post through Studio's composer and upload a picture, passes, with `four-party-chat`, `studio-guidance-loop`, `resubscribe-when-lost`, `hosts-and-frames` and `studio-codegen-rest`. *Mutation:* `App.vue` omits `Client: StudioClient`.
+
+2. **The names a deployed worker, a built app and a stored row hold take their new values (D12, D19).** These are the first four rows of § *What gets renamed*.
+   - `NebulaAuthRegistry` becomes `AuthRegistry`. `apps/nebula/wrangler.jsonc` and `apps/nebula/test/browser/worker/wrangler.jsonc` keep a `"state": "deleted"` tombstone for the old class while a deployed worker holds it, and `audit-migrations.mjs` names the new class.
+   - `NEBULA_AUTH_FACADE` becomes `AUTH_FACADE`, and every other `NEBULA_AUTH_*` binding and variable becomes `AUTH_*`, wherever code, config, scripts, the harness, rules or ADRs name one. ADR-009's "Today's code differs" block drops its `NEBULA_AUTH_TEST_MODE` clause, and `nebula-pre-alpha.md` § *⑥ The wipe*'s secrets list follows. The keys in the local, gitignored `.dev.vars` are renamed too.
+   - `bootDevStack` refuses a boot variable the generated `Env` does not declare, so a stale name fails at boot instead of falling back silently.
+   - `NEBULA_SUB` becomes `'agent:lumenize'`, and so does the literal in the Registry's superseded-claims record. The constant keeps its name, labelled `TEMP → target: configuration the app supplies`, which [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 7* builds. `auth.md` § *When Nebula is the actor* and ADR-016 name the new value.
+   - **Success criteria:**
+     - After `npm run types`, `git grep -nE 'NEBULA_AUTH_' -- . ':!tasks' ':!experiments' ':!**/worker-configuration.d.ts'` finds only `NEBULA_AUTH_PREFIX`, which Phase 3 renames. Task files are history and experiments are never fixed (`workflow.md` § *Experiments*).
+     - The connection rate limiter is bound: a local stack's logs show no `nebula-auth.Registry.protections` error. *Mutation:* rename only `router.ts`'s literal.
+     - Committing `AUTH_TEST_MODE`, then `AUTH_BOOTSTRAP_EMAIL`, then `AUTH_TURNSTILE_BYPASS_TOKEN`, each alone, to `apps/nebula/wrangler.jsonc` turns `npm run audit:test-mode` red. *Mutation:* the audit keeps the old names.
+     - `required-secrets.mjs`'s selftest exits 1 for a list holding every other required secret plus `NEBULA_AUTH_BOOTSTRAP_EMAIL`, with stderr matching `/(^|[^_A-Z])AUTH_BOOTSTRAP_EMAIL/`.
+     - `npm run audit:migrations` and its selftest pass.
+     - `git grep -n "agent:nebula" -- apps packages docs .claude` finds nothing, and `four-party-chat` still finds the agent as the stamped actor. *Mutation:* `participants.ts` compares against the old literal.
+
+3. **`nebula-auth`'s code lives in Mesh under `/auth`, with its tests (D11, D12, D17).**
+   - `packages/nebula-auth/src` moves to `packages/mesh/src/auth/`. `@lumenize/mesh/auth` takes the old root (the Registry, router, email sender and types), beside `/auth/facade`, `/auth/profile` and `/auth/testing`. `./claims` folds into Mesh's root and `/client`: the scope grammar, the predicates and the host grammar. The route runner stays unexported, as `raw-comm.md` § *Route pattern* keeps it, and `apps/nebula`'s entrypoint keeps a runner of its own.
+   - The code names drop `Nebula` (D12), and the wrangler configs whose `entrypoint` names the email sender, with `audit-migrations.mjs`'s rule for it, follow. The app's own facade subclass, `apps/nebula/src/nebula-auth-facade.ts`, keeps its name, and its JSDoc gives the reason that still holds. `Profile` stays on `ComposedMeshDO` until Phase 6.
+   - The `admin-notification` and `approval-confirmation` email types go, with their templates and their test.
+   - Mesh's manifest gains `@lumenize/email` and `@lumenize/sql-migrations`. `packages/nebula-auth` leaves the workspaces, and its lockfile entries are removed by a JSON parse and stringify (`packaging.md` § *`package-lock.json`*) before `npm install` adds the new ones. Every importer repoints, and the container image loses `nebula-auth`'s `COPY` and `.dockerignore` pairs.
+   - Its 34 test files become Mesh's `auth` vitest project, with the renamed bindings and a coverage include, and Mesh's catch-all projects exclude that directory.
+   - `security.md`'s scope paragraph, its disclaimer (narrowed to `@lumenize/auth` and `@lumenize/crypto`) and its two instruments' paths change here, the phase that makes them false. `audit-do-http.mjs` states its scan structurally, as `raw-comm.md` does: apps' sources and Mesh's `src/auth/` for its checks 1, 2 and 4, with the Registry-stub exemption confined to `src/auth/` (ADR-023), and for check 3 every class in `packages/mesh/src` that declares `HTTP_PREFIXES`.
+   - A new `scripts/check-mesh-graph.mjs`, modelled on `check-worker-graph.mjs` and run by Mesh's `test` script, bundles Mesh's root and `/client` and fails if the graph holds the Registry, router, token or email-sender modules, `@lumenize/email` or `@lumenize/sql-migrations`.
+   - ADR-023's "Today's code differs" block goes.
+   - **Success criteria:**
+     - No passage or dominion verdict changes: `git diff -M --word-diff` over `parse-id.test.ts` and the other predicate tests shows only import lines and renamed identifiers. *Mutation:* flip `hasPassageInto`'s upward arm.
+     - `check-mesh-graph.mjs` passes. *Mutation:* export `AuthRegistry` from Mesh's root. `packaging.md` § *Startup cost is work at import, not bytes*'s two commands, run before and after, are recorded here as supporting evidence.
+     - Mesh's `auth` project runs 34 test files with nebula-auth's case count, and a full Mesh run counts no file twice.
+     - `git grep -l "@lumenize/nebula-auth" -- apps packages` finds nothing, and the lockfile holds no `nebula-auth` key.
+     - `security.md`'s opening names no package the Registry is not in.
+
+4. **`@lumenize/resources` holds the plane, server and client, and every importer reads it (D10).**
+   - `packages/resources`, `private` and UNLICENSED, takes `resources.ts`, `subscriptions.ts`, `snapshots.ts`, `org-tree.ts`, `org-ops.ts`, `query-hash.ts` and `errors.ts`. It also takes `nebula-client.ts` with `impersonation.ts` (Phase 7 moves the session on to Mesh), `frontend/`, and the ontology-version types from `ontology-compile.ts`. Its entry points are `.`, `/client` and `/frontend`.
+   - Its manifest pins `@vue/reactivity` and `@vue/runtime-core` to exactly `3.6.0-rc.10`, and the `vue-36-rc-pin` memory lists it as a pin site.
+   - `nebula-client.ts`'s `ctn<Star>()` and `ctn<Galaxy>()` calls are typed against `ResourcesRequests`.
+   - `page-origin.ts` and `page-meta.ts` move to Mesh's `/client`, beside the host grammar.
+   - `@lumenize/nebula` keeps `/client` for Studio (`StudioClient`, `chat-constants`, `participants`, `turn-liveness`), and `/frontend` goes.
+   - Every importer repoints: the scaffold through `gen-scaffold.mjs`, the platform guidance through `gen-platform.mjs`, `website/docs/nebula` (D5), Studio, the harness, the app's tests, and the container image. The image's `Dockerfile` and `.dockerignore` pairs for `@lumenize/resources` replace `@lumenize/nebula`'s vendor pair, alongside `container/app/src/nebula.ts` and `vite.config.ts`. `.dockerignore` keeps letting the compiler stage through to `ontology-compile.ts`, `sfc-contract.ts` and `build-report.ts`.
+   - `apps/nebula`'s coverage sets `allowExternal` and includes `packages/resources/src/**`, so the moved plane stays in a coverage report.
+   - A new `scripts/audit-dep-direction.mjs`, run as `npm run audit:dep-direction`, fails on any import from Mesh into `@lumenize/resources` or `apps/`, and from `@lumenize/resources` into `apps/`. It parses `import type`, `export … from` and dynamic `import()`, resolves package names and relative paths to their workspace, and covers test files.
+   - **Success criteria:**
+     - `build-box` builds and boots a generated app on `@lumenize/resources/frontend`. *Mutation:* leave the image's `COPY` pair out.
+     - `npm run audit:dep-direction` passes. *Mutation:* `import type { Star } from '@lumenize/nebula'` in `packages/resources/src`, then an import of `@lumenize/resources` in `packages/mesh/src`.
+     - `git grep -n "@lumenize/nebula/frontend" -- apps packages website/docs` finds nothing.
+     - `apps/nebula`'s `npm test`, whose `gen-scaffold` and `gen-platform` checks fail on a stale scaffold or embed, passes.
+     - The moved files' statement and branch coverage, before and after, are recorded here, and the single-copy check finds one copy of each Vue package.
+
+5. **Mesh's suites run on Mesh's own auth and on host nodes, and `LumenizeClientGateway` and `createTestRefreshFunction` go (D9, D23).**
+   - **Nebula's `hostedUpgrade` ports into Mesh's auth layer** with its tier-to-binding table as a parameter: the upgrade and id-shape checks, token verification, the `aud` and `sub`-prefix checks, and the `x-lumenize-*` scrub. Nebula's entrypoint and every Mesh test Worker call it.
+   - The files goal 3's two commands list are rewritten. Each test Worker binds Mesh's Registry, router and facade, and logs in through test mode (ADR-009 rung 2). The browser suites keep real mail (rung 1), and a minted token (rung 3) is justified where it is used.
+   - **Every test Durable Object class takes a base Phase 6 gives it, recorded here.** A claimless chain reaches a scoped node only where passage admits it: the callee is at or above the node that started the chain, so `acme.app.t1` calling `acme.app`, and a chain a Worker starts reaches only unscoped nodes. The for-docs mini-apps' document nodes take ids the scope grammar refuses, and keep a share list, checked on `subscribe` and again before each push.
+   - `LumenizeClientGateway` goes, with its exports and test bindings, and `node-import.test.mjs` keeps its check with only its comment changed. `createTestRefreshFunction` goes with its own test, and so does Mesh's dev dependency on `@lumenize/auth`.
+   - ADR-009's "Today's code differs" block keeps only its `LUMENIZE_AUTH_TEST_MODE` clause, which leaves with `packages/auth` in mesh-1-alpha.
+   - **Success criteria:**
+     - A test Worker refuses a `/gateway/` upgrade carrying a forged token (403) and one carrying none (401), in a named Mesh test. *Mutation:* skip the verify call.
+     - `git grep -lE "from '@lumenize/auth(/[a-z-]+)?'|\"@lumenize/auth\"" -- packages apps` lists only `packages/auth`. *Mutation:* leave Mesh's dev dependency.
+     - `git grep -nE "LumenizeClientGateway|createTestRefreshFunction" -- packages apps` finds only `node-import.test.mjs`'s comment.
+     - Each Mesh vitest project's `Test Files` and `Tests` counts, before and after, match, or each case the phase drops is named with its reason. `LumenizeClientGateway`'s 4403 case may go.
+     - A document node refuses a subscribe from a user off its share list, and stops pushing to a user unshared mid-subscription, each with its refusal message matched. *Mutations:* drop the `subscribe` guard, then skip the push-time check.
+
+6. **`ScopedMeshDO` and `UnscopedMeshDO` are Mesh's Durable Object bases, and passage runs in a step no subclass removes (D7, D14, D16, D22).**
+   - `LumenizeDO` becomes `ScopedMeshDO` and absorbs `NebulaDO`. The passage step (`requirePassage`, `claimsForPassage`), keyed by a symbol private to Mesh, runs in the core before `onBeforeCall` on both entries, and emits a debug marker carrying the node's `instanceName`. `requireDominionHere`, `teardown`, `beforeTeardown`, `onRequest` with `HTTP_PREFIXES`, and the composed `ClientGateway` with `requirePassageIntoSender` move too.
+   - `UnscopedMeshDO` carries `svc`, alarms and `onStart`, and composes neither `ClientGateway` nor `teardown`. It refuses to run under a name that parses as a scope, at the identity stamp every entry reaches, `lmz.__init`. That check sits in neither `onBeforeCall`, which a subclass can override, nor the constructor, since a throwing Durable Object constructor hangs the test pool. `Profile` moves onto it, and its hand check goes.
+   - `ComposedMeshDO` stops being exported, and `LumenizeWorker` becomes `MeshWorker`, in code and in `audit-do-http.mjs`'s list of bases.
+   - `Universe`, `Galaxy` and `Star` extend `ScopedMeshDO`, and `nebula-do.ts` goes. `scope-isolation.test.ts`'s T-local-skip and `certificate-wake`'s limb 4 read the passage step's marker, and T-local-skip asserts it fired on the scheduling call before it clears the window.
+   - Mesh gains tests for what moved into it: `requirePassage`'s matrix beside the function, and `requireDominionHere` and `teardown` on a test node that logs in at rung 2.
+   - `alarms.ts`'s `CREATE TABLE` records its exception to ADR-011, epoch seconds kept until alarms are refactored (D21).
+   - `@lumenize/fetch` leaves the run, since the renames break it at load (§ *Current state*): its `test` script is renamed and it joins `SKIP_PACKAGES` in `scripts/type-check.sh`, with the reason recorded in its README.
+   - `auth.md`'s block above its M-list (*"Passage runs inside `onBeforeCall()` itself…"*) and ADR-007's block go. `auth.md`'s other blocks stay.
+   - **Success criteria:**
+     - A `ScopedMeshDO` subclass whose `onBeforeCall` never calls `super` refuses a call with no passage, matching `No passage from`, and runs the method for a token that has passage. *Mutation:* move the passage step back into `onBeforeCall`.
+     - `UnscopedMeshDO` refuses to run as `room-1`, both for a subclass whose `onBeforeCall` skips `super` and on a first touch through `rawRpcStub`, and runs as a UUID. *Mutation:* move the check into `onBeforeCall`.
+     - The suites Phase 5 ported pass unchanged now that passage runs, which shows their tokens carry it, and so do `apps/nebula`'s passage tests, `node-chain-passage.test.ts` among them. Each Mesh project's counts match Phase 5's. *Mutation:* a ported test's token without `access`.
+     - T-local-skip goes red when the passage step runs from the local executor.
+     - `audit-do-http`'s surface count is unchanged. *Mutation:* compare a path outside `HTTP_PREFIXES` in `ScopedMeshDO.onRequest`.
+     - Mesh's coverage of the files moved into it, before and after, is recorded here against the repo's targets (branch over 80%, statement over 90%).
+     - Mesh's root and `/client` export no `ComposedMeshDO`, `LumenizeDO` or `LumenizeWorker`.
+
+7. **`MeshClient` holds the session, `NebulaClient` composes `ClientResources`, and a hosted Client knows its own address (D6, D15, D16).**
+   - `LumenizeClient` becomes `MeshClient` and takes the session from `NebulaClient`, all of it as § *The Client splits along the same line* sets out.
+   - That covers: `claims`, `activeScope`, `impersonate` with `impersonation.ts`, `logout`, `invite`, `scopes`, the refresh, the Profile channel restored on `onSubscriptionRequired()`, `onClaimsChange()`, and the two private symbols that replace `INTERNAL_REFRESH` and `INTERNAL_PARENT`. The impersonated child takes its config from a protected `childConfig()` each layer extends, the base leaving out `onLoginRequired`.
+   - `ClientResources` lives in `@lumenize/resources/client`. `NebulaClient`'s members delegate to it, and its five push methods stay top-level `@mesh()`-decorated methods that forward.
+   - The host's `connection_status` carries the Client's address, and `#selfIdentity()` reports it.
+   - `packages/resources` gains a test scaffold of its own: package scripts, a test `wrangler.jsonc` with `LOADER`, and a minimal ontology it compiles itself.
+   - Mesh gains tests for `impersonate` and `logout`.
+   - **Success criteria:**
+     - A hosted Client's handlers see its address, `STAR/acme.crm.tenant1/alice.9f2c41aa` in shape, as the `callee`, and the Client can call itself through its host, both in a Mesh test. `client-sender-passage`'s limb 2, another tab of the same `sub` on the same Star, is still refused. *Mutations:* drop the address from `connection_status`, then loosen `onBeforeCall`'s comparison to the host part.
+     - `impersonation-lifecycle` gains a limb in which the child subscribes through `child.resources` and gets a snapshot and a later push, and a `StudioClient`'s child is a `StudioClient` that can call `postUserMessage`. *Mutation:* `impersonate` builds a bare `MeshClient`, and both go red.
+     - `resubscribe-when-lost` gains a Profile limb. *Mutation:* `MeshClient.onSubscriptionRequired` skips the Profile channel.
+     - `resubscribe-on-signal.test.ts`, `impersonation-expiry`, `session-survives-token-lapse` and `push-survives-token-lapse` pass unchanged.
+     - `ClientResources`'s suite, whose header says why it sits below `/live`, asserts that `onSubscriptionRequired()` restores resources, queries, rosters and the org tree, and that `onClaimsChange()` re-subscribes when the admin bit flips. *Mutation:* each restore skipped in turn.
+     - Mesh's root, `/client` and the moved session exports, `MeshClient`, `parseHost`, `hostOrigin` and `hasPassageInto` among them, load in Node, asserted by `node-import.test.mjs`.
+
+8. **Standing guidance describes one MIT package beside the UNLICENSED code, and the whole system passes, locally and deployed.**
+   - The content changes in § *What changes in standing guidance* land here, in the last phase that changes what they describe. That includes `security.md`'s words for the two kinds of node (D14) and the control sites it names, each at its new path.
+   - The release-notes row this task opened records every break to Mesh's public surface.
+   - **Before the deploy:**
+     - From a checkout of `8b81924`, against the old worker, the harness's account sweep runs with `isStaleTestAccount` at a zero-day window, so the renamed Registry starts with nothing orphaned. The `refresh:*` keys in `test-nebula`'s Workers KV are emptied, and its secrets are set again under the new names.
+     - `grep -rlnE 'HARNESS_TARGET_URL|stack\.logs' apps/nebula/harness` lists the deployed-only paths, and each is checked against Phase 2's renames and Phase 7's `connection_status`, recorded here (`live.md` § *Two venues, one registry*).
+   - **Success criteria:**
+     - No guidance file names an old path: every file `git diff -M --name-status 8b81924..HEAD` lists as renamed or deleted is cited by no file in `CLAUDE.md`, `.claude`, `docs/adr` or `docs/vision`, and § *What changes in standing guidance*'s grep lists only dated history and the `NodeType` strings D16 keeps.
+     - `security.md`'s two instruments return every file they returned at `8b81924`, at its new path.
+     - `grep -rn '^> \*\*Today' docs/adr docs/vision/auth.md` lists no block describing what this task built.
+     - `drive.ts all` passes, containers included.
+     - After the sweep and before the deploy, the old worker's Registry lists no test universe, and after the deploy a refresh with a cookie from before the rename returns 401.
+     - `bash apps/nebula/scripts/deploy-test.sh`, then `HARNESS_TARGET_URL=<test-nebula> npx tsx apps/nebula/harness/drive.ts all --concurrency=2` beside `wrangler tail test-nebula --format json`, passes.
+
+## Non-goals
+
+- **What waits for adopters,** in [mesh-1-alpha.md](mesh-1-alpha.md): the docs rewrite, the auth pages' seam and Nebula's product configuration, scope teardown in Mesh, test-mode and Turnstile defaults, hosts and certificates, the deprecations, `packages/auth`'s deletion, the version and the dist-tag.
+- **The Registry as a mesh node** (D13).
+- **`__lmz_alarms` in ISO text, and the retry row's columns** (D21).
+- **Keeping `@lumenize/fetch` working** (§ *Current state*).
+- **Moving `nebula-auth`'s own suites off ADR-009 rung 2.** They already log in through test mode and move with their assertions untouched.

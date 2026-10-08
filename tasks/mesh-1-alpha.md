@@ -6,7 +6,7 @@
 
 **An adopter can install `@lumenize/mesh`, read its docs, and run a multi-tenant app on it without anything from Nebula.**
 
-After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adopter on their own would find routes serving Nebula's pages, sockets whose claims only Nebula's Worker verifies, website docs describing 0.26, and labels that only fit an app builder. The items below close that gap. Items 5, 9 and 10 must be decided before the publish, and the rest must land. There is no Item 6: the Registry stays raw (`mesh-is-built-on-the-scope-tree.md` D13).
+After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adopter on their own would find routes serving Nebula's pages, scope deletions whose teardown only Nebula's Worker runs, website docs describing 0.26, and labels that only fit an app builder. The items below close that gap. Items 5, 9 and 10 must be decided before the publish, and the rest must land. There is no Item 6: the Registry stays raw (`mesh-is-built-on-the-scope-tree.md` D13).
 
 **No item here risks a schema change.** They are docs, configuration, and adopter-facing work Nebula does not need: adding a step that serves an adopter's login page changes what a route serves and nothing anyone stores. Anything that could need a schema change belongs in `mesh-is-built-on-the-scope-tree.md`, before the wipe (its § *What waits for mesh-1-alpha*). Every built app carries the Client's code, so an item here changes the wire, and the exports a generated app imports, only by addition.
 
@@ -62,16 +62,17 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 **Goal:** an adopter's app shows its own pages and its own name, and Nebula's still show Nebula's (`mesh-is-built-on-the-scope-tree.md` D17 and D19).
 
 - **Each of the six page routes serves a step the app supplies,** the way the facade subclass supplies `scopeLifecycleHooks`, and Nebula's step serves Studio's auth app (`mesh-is-built-on-the-scope-tree.md` § *What stays Nebula's*). Item 2's default sits behind the same seam.
-- **Nebula's product content becomes configuration:** `POST /auth/coming-soon` and its tags, the agent's profile seed and `sub`, and the email sender's app name and `from` address. Nebula passes today's values, so nothing it shows changes.
+- **Nebula's product content becomes configuration:** `POST /auth/coming-soon` and its tags, the agent's profile seed and `sub`, the email sender's app name and `from` address, and the galaxy cap, `MAX_GALAXIES_PER_OWNER` with `GALAXY_CAP_MESSAGE`. Nebula passes today's values, so nothing it shows changes.
+- **Debug namespaces that name Nebula, `nebula-auth.*` and `nebula.scope.teardown` among them, take Mesh's `lmz.mesh.*` form,** and every test that asserts a zero count on one is mutation-checked again, since a renamed namespace turns that assertion vacuous.
 - **Open: one configuration mechanism for all of them.**
 
-## Item 8: Mesh verifies a Client's socket and tears down a scope itself
+## Item 8: Mesh tears down a scope itself
 
-**Goal:** an adopter who forwards `/gateway/*` to Mesh gets the checks Nebula's Worker makes, and deleting a scope wipes its nodes without the adopter writing the loop.
+**Goal:** deleting a scope wipes its nodes without the adopter writing the loop.
 
-- **Today Nebula's Worker does both.** `hostedUpgrade` in `apps/nebula/src/entrypoint.ts` verifies the token, refuses one whose `aud` is not the host's scope or whose `sub` does not begin the Client's id, and drops every client-sent `x-lumenize-*` header. `NebulaDO.onBeforeAccept` relies on that, since `ClientGateway.acceptUpgrade` only decodes the token. The teardown loop is the facade subclass's `scopeLifecycleHooks`, in `apps/nebula/src/scope-lifecycle-hooks.ts`.
-- **Mesh takes the generic half of each,** driven by one map from tier to binding that the app configures. Nebula holds that map twice today, as `TIER_BINDING` in `entrypoint.ts` and `BINDING` in `scope-lifecycle-hooks.ts`. Ordering a certificate stays the app's hook (Item 10).
-- **Proof:** a Worker built only from Mesh's exports refuses a `/gateway/` upgrade with a bad signature, and the test goes red when the verify step is skipped.
+- **Today the facade subclass's `scopeLifecycleHooks` runs it,** in `apps/nebula/src/scope-lifecycle-hooks.ts`, with `rawRpcStub`, `isOrderedReset` and a tier-to-binding table of its own.
+- **Mesh takes the generic half,** driven by the same tier-to-binding table the app already passes to the upgrade checks `mesh-is-built-on-the-scope-tree.md` ported into Mesh. Ordering a certificate stays the app's hook (Item 10).
+- **Proof:** a scope deleted in a Worker built only from Mesh's exports leaves its nodes empty, and the test goes red when the loop skips a tier.
 
 ## Item 9: Safe defaults for test mode and Turnstile
 
