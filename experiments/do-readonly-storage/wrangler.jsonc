@@ -1,0 +1,24 @@
+{
+  "name": "experiment-do-readonly-storage",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  // One class per arm, so each arm is a namespace of its own and its objects list apart.
+  "durable_objects": {
+    "bindings": [
+      { "name": "NOTHING", "class_name": "NothingDO" },
+      { "name": "SCHEMA_READ", "class_name": "SchemaReadDO" },
+      { "name": "KV_GET", "class_name": "KvGetDO" },
+      { "name": "WRITE_DELETE_ALL", "class_name": "WriteThenDeleteAllDO" },
+      { "name": "WRITE", "class_name": "WriteDO" }
+    ]
+  },
+  "exports": {
+    "NothingDO": { "type": "durable-object", "storage": "sqlite" },
+    "SchemaReadDO": { "type": "durable-object", "storage": "sqlite" },
+    "KvGetDO": { "type": "durable-object", "storage": "sqlite" },
+    "WriteThenDeleteAllDO": { "type": "durable-object", "storage": "sqlite" },
+    "WriteDO": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "observability": { "enabled": false }
+}

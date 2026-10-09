@@ -1,0 +1,106 @@
+{
+  "at": "2026-10-09T14:25:20.667Z",
+  "run": "r1",
+  "report": {
+    "NOTHING": {
+      "namespaceObjects": 2,
+      "touched": [
+        {
+          "name": "nothing-r1-0",
+          "listed": true,
+          "hasStoredData": false
+        },
+        {
+          "name": "nothing-r1-1",
+          "listed": false,
+          "hasStoredData": null
+        },
+        {
+          "name": "nothing-r1-2",
+          "listed": true,
+          "hasStoredData": false
+        }
+      ]
+    },
+    "SCHEMA_READ": {
+      "namespaceObjects": 1,
+      "touched": [
+        {
+          "name": "schema_read-r1-0",
+          "listed": false,
+          "hasStoredData": null
+        },
+        {
+          "name": "schema_read-r1-1",
+          "listed": false,
+          "hasStoredData": null
+        },
+        {
+          "name": "schema_read-r1-2",
+          "listed": true,
+          "hasStoredData": false
+        }
+      ]
+    },
+    "KV_GET": {
+      "namespaceObjects": 1,
+      "touched": [
+        {
+          "name": "kv_get-r1-0",
+          "listed": false,
+          "hasStoredData": null
+        },
+        {
+          "name": "kv_get-r1-1",
+          "listed": true,
+          "hasStoredData": false
+        },
+        {
+          "name": "kv_get-r1-2",
+          "listed": false,
+          "hasStoredData": null
+        }
+      ]
+    },
+    "WRITE_DELETE_ALL": {
+      "namespaceObjects": 2,
+      "touched": [
+        {
+          "name": "write_delete_all-r1-0",
+          "listed": true,
+          "hasStoredData": false
+        },
+        {
+          "name": "write_delete_all-r1-1",
+          "listed": false,
+          "hasStoredData": null
+        },
+        {
+          "name": "write_delete_all-r1-2",
+          "listed": true,
+          "hasStoredData": false
+        }
+      ]
+    },
+    "WRITE": {
+      "namespaceObjects": 0,
+      "touched": [
+        {
+          "name": "write-r1-0",
+          "listed": false,
+          "hasStoredData": null
+        },
+        {
+          "name": "write-r1-1",
+          "listed": false,
+          "hasStoredData": null
+        },
+        {
+          "name": "write-r1-2",
+          "listed": false,
+          "hasStoredData": null
+        }
+      ]
+    }
+  }
+}
