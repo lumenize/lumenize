@@ -63,6 +63,7 @@ import * as grantRevealsDenied from './scenarios/grant-reveals-denied';
 import * as clientSenderPassage from './scenarios/client-sender-passage';
 import * as nodeChainPassage from './scenarios/node-chain-passage';
 import * as subscribeRefusalArrives from './scenarios/subscribe-refusal-arrives';
+import * as clientRoutes from './scenarios/client-routes';
 import * as forgedContinuation from './scenarios/forged-continuation';
 import * as lateAnswerDropped from './scenarios/late-answer-dropped';
 import * as resubscribeWhenLost from './scenarios/resubscribe-when-lost';
@@ -177,6 +178,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'client-sender-passage': clientSenderPassage, // a tab's call to another tab is refused by the receiving Client, before it decodes the chain (no Docker)
   'node-chain-passage': nodeChainPassage, // a Profile refuses to run under a scope's name; every real profile id still answers (no Docker)
   'subscribe-refusal-arrives': subscribeRefusalArrives, // a refused subscribe rejects at once, refused before or after the ack (no Docker)
+  'client-routes': clientRoutes, // a Client's frame runs in place, goes by a declared route, or is refused before anything wakes (no Docker)
   'forged-continuation': forgedContinuation, // a Client aims its continuation only at itself; only `lmz` offered → 426 (no Docker)
   'late-answer-dropped': lateAnswerDropped, // an answer meant for an earlier load is dropped by the Client that receives it (no Docker)
   'resubscribe-when-lost': resubscribeWhenLost, // a Client re-subscribes exactly when its host node says it lost something: a 4408, past the grace period, a new admin verdict or sub (no Docker)

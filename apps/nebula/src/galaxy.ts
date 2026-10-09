@@ -420,6 +420,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *  two runs on 2026-10-03 one stopped inside `git.add` while the other finished, until the
    *  runtime reset it at 30 s, so its teardown never ran and its storage was never wiped. */
   override async onStart(): Promise<void> {
+    // Construction is observable: `ctx.id.name`, since `onStart` runs before any identity is
+    // stamped. A Gateway that refuses a frame proves itself by this never appearing.
+    debug('nebula.Galaxy.onStart').debug('started', { name: this.ctx.id.name });
     this.#constructWorkspace();
     // Compose the resources plane — the chat Chat/Message host. The plane installs the chat
     // ontology from the source below on first touch, the way a Star installs its app ontology.

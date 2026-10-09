@@ -8,16 +8,18 @@
  * meets in practice: a client whose `resourceHostBinding` names the wrong binding.
  *
  * Two limbs, both run, with the verdict at the end (`live-scenarios.md`):
- *  1. **`'PROFILE'`: refused at the early ack.** The Profile refuses to run under the galaxy's
- *     name, so the host node hands the refusal straight back.
+ *  1. **`'PROFILE'`, from a tab on the galaxy's host: refused at the Gateway.** The `PROFILE` route
+ *     serves nodes named by an id, and the galaxy's name is a scope's, so the tab's own host
+ *     refuses the frame and hands the refusal straight back.
  *     Mutation: drop the subscribe's handler, and the refusal arrives only at the 30 s timer.
- *  2. **`'UNIVERSE'`: refused after the ack.** The Universe admits the call, then finds no member
- *     named `resources`, and the refusal rides the fire-back.
+ *  2. **`'UNIVERSE'`, from a tab on the Universe's host: refused after the ack.** The call is for
+ *     the tab's own host, which runs it in place, admits it, then finds no member named
+ *     `resources`, and the refusal rides the fire-back.
  *     Mutation: the same, on the road after the ack.
  *
- * Each limb is its own positive control for the other: the same subscribe, the same login, a
- * different road. A real login throughout (ADR-009 rung 1): the run's shared app's owner, signed
- * in by email. `needsContainer = false`.
+ * Each limb is its own positive control for the other: the same subscribe, the same owner, a
+ * different road. Real logins throughout (ADR-009 rung 1): the run's shared app's owner, signed in
+ * by email on the galaxy's host and on the Universe's. `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
@@ -37,14 +39,18 @@ export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
   const app = await sharedApp(stack, testToken);
-  const session = await provisionAndLogin({ baseUrl: origin, scope: app.galaxy, email: app.ownerEmail, testToken });
+  const sessions = {
+    [app.galaxy]: await provisionAndLogin({ baseUrl: origin, scope: app.galaxy, email: app.ownerEmail, testToken }),
+    [app.universe]: await provisionAndLogin({ baseUrl: origin, scope: app.universe, email: app.ownerEmail, testToken }),
+  };
   const failures: string[] = [];
 
-  /** A tab on the galaxy's host whose resource ops go to `resourceHostBinding`. */
-  async function tabWithHost(resourceHostBinding: string): Promise<NebulaClient> {
-    const ctx = new Browser().context(scopeUrlOf(stack, app.galaxy));
+  /** A tab on `scope`'s host whose resource ops go to `resourceHostBinding`. */
+  async function tabWithHost(scope: string, resourceHostBinding: string): Promise<NebulaClient> {
+    const session = sessions[scope]!;
+    const ctx = new Browser().context(scopeUrlOf(stack, scope));
     const client = new NebulaClient({
-      baseUrl: scopeUrlOf(stack, app.galaxy),
+      baseUrl: scopeUrlOf(stack, scope),
       platformOrigin: stack.baseUrl,
       ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
       resourceHostBinding,
@@ -76,14 +82,14 @@ export async function run(stack: DevStack): Promise<void> {
     }
   }
 
-  const limbs: Array<{ n: number; binding: string; road: string; expected: RegExp }> = [
-    { n: 1, binding: 'PROFILE', road: 'at the early ack',
+  const limbs: Array<{ n: number; scope: string; binding: string; road: string; expected: RegExp }> = [
+    { n: 1, scope: app.galaxy, binding: 'PROFILE', road: 'at the Gateway',
       expected: new RegExp(`^"${app.galaxy.replace(/\./g, '\\.')}" parses as a scope, and an UnscopedMeshDO never runs under a scope's name`) },
-    { n: 2, binding: 'UNIVERSE', road: 'after the ack',
+    { n: 2, scope: app.universe, binding: 'UNIVERSE', road: 'after the ack',
       expected: /^No member named 'resources' exists on this node/ },
   ];
   for (const limb of limbs) {
-    const client = await tabWithHost(limb.binding);
+    const client = await tabWithHost(limb.scope, limb.binding);
     try {
       const { refusal, ms } = await subscribeOutcome(client);
       if (refusal !== null && limb.expected.test(refusal) && ms < PROMPT_MS) {

@@ -1,15 +1,19 @@
 /**
- * **A call from another tab reaches the receiving Client, which refuses it before decoding it.**
+ * **A call from another tab that has passage into the receiving tab's host reaches the receiving
+ * Client, which refuses it before decoding it.**
  *
  * A tab is named `{scope}/{sub}.{tabId}`, which is no scope, so it offers none for the receiving
- * tab's host node to check passage into. The host node passes a Client sender through, and the receiving Client's
- * default `onBeforeCall` refuses it with its own message. Two plain members, each invited into one
- * of two sibling Stars, make limb 1 lateral.
+ * tab's host node to check passage into. The sending tab's own Gateway checks its passage into the
+ * receiving tab's host, the receiving host passes a Client sender through, and the receiving
+ * Client's default `onBeforeCall` refuses it with its own message. A sideways call, from a Star to
+ * its sibling, is refused at the sender's Gateway instead, which `client-routes` drives.
  *
  * Two limbs:
- *  1. **A tab on Star B calling a tab on Star A reaches A's Client and is refused there**, matched
- *     on *Direct client-to-client calls are disabled by default*, never a passage message.
- *     Mutation: check a Client sender's passage in the host node, and the passage refusal arrives instead.
+ *  1. **A tab on Star A calling a tab on its Galaxy's host reaches that tab and is refused there**,
+ *     matched on *Direct client-to-client calls are disabled by default*, never a passage message.
+ *     The sender has passage up into the Galaxy; the receiver, a plain member of the Galaxy, has
+ *     none down into Star A. Mutation: check a Client sender's passage in the receiving host node,
+ *     and the passage refusal arrives instead.
  *  2. **A tab whose frame carries a chain no decoder can read is still refused with that message.**
  *     Its socket nulls the chain of each CALL frame it sends while armed, and nothing else. The
  *     tab is on Star A, so it passes any host node's check, and the refusal shows the caller check ran
@@ -20,7 +24,8 @@
  * other visible (`live-scenarios.md`).
  *
  * Real logins throughout (ADR-009 rung 1): the owner is the run's shared app's, signed in by email,
- * and each member arrives by a real invite email, accepts, and refreshes onto their Star.
+ * and each member arrives by a real invite email, accepts, and refreshes onto the scope they were
+ * invited into, one Star A and one the Galaxy.
  * `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
@@ -68,30 +73,27 @@ async function refusal(op: Promise<unknown>): Promise<string | null> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  // The run's shared app, with two sibling Stars of this scenario's own beneath it.
+  // The run's shared app, with a Star of this scenario's own beneath it.
   const app = await sharedApp(stack, testToken);
   const galaxy = app.galaxy;
   const starA = `${galaxy}.${testSlug('a')}`;
-  const starB = `${galaxy}.${testSlug('b')}`;
 
   const ownerSession = await provisionAndLogin({ baseUrl: origin, scope: galaxy, email: app.ownerEmail, testToken });
-  // Each Star founded as a tenant founds one: its own claim, accepted by its claimer. Nothing is
+  // The Star founded as a tenant founds one: its own claim, accepted by its claimer. Nothing is
   // invited into a Star whose founder is pending; the owner's dominion is what reaches them.
-  for (const star of [starA, starB]) {
-    assert.notEqual(await foundTenantStar({ baseUrl: origin, star, testToken }), null, `claim-star found ${star} already claimed`);
-  }
+  assert.notEqual(await foundTenantStar({ baseUrl: origin, star: starA, testToken }), null, `claim-star found ${starA} already claimed`);
   const owner = await connectDriver(stack, {
     scope: galaxy, session: { accessToken: ownerSession.accessToken, sub: ownerSession.sub },
   });
 
-  /** A plain member of `star`: invited by the owner, the email followed as sent, accepted. */
-  async function member(star: string): Promise<{ accessToken: string; sub: string }> {
+  /** A plain member of `scope`: invited by the owner, the email followed as sent, accepted. */
+  async function member(scope: string): Promise<{ accessToken: string; sub: string }> {
     const email = uniqueTestEmail();
-    const waiter = waitForEmail({ testToken, instance: star, to: email, timeout: 60_000 });
+    const waiter = waitForEmail({ testToken, instance: scope, to: email, timeout: 60_000 });
     let inviteLink: string;
     try {
-      const summary = await owner.client.invite(star, [{ email }]);
-      assert.equal(summary.errors.length, 0, `invite into ${star} failed: ${JSON.stringify(summary.errors)}`);
+      const summary = await owner.client.invite(scope, [{ email }]);
+      assert.equal(summary.errors.length, 0, `invite into ${scope} failed: ${JSON.stringify(summary.errors)}`);
       const html = (await waiter.emailPromise).html ?? '';
       const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(html)?.[1];
       assert.ok(href, `invite email carried no magic link (starts: ${html.slice(0, 60)})`);
@@ -99,22 +101,20 @@ export async function run(stack: DevStack): Promise<void> {
     } finally {
       waiter.cleanup();
     }
-    const { refreshToken } = await acceptInviteAndLogin({ baseUrl: origin, inviteLink, scope: star });
-    return refreshAccessToken(origin, { refreshToken, authScope: star }, star);
+    const { refreshToken } = await acceptInviteAndLogin({ baseUrl: origin, inviteLink, scope });
+    return refreshAccessToken(origin, { refreshToken, authScope: scope }, scope);
   }
 
   const memberA = await member(starA);
-  const memberB = await member(starB);
+  const memberG = await member(galaxy);
   const drivers: Driver[] = [owner];
   try {
     const tabA = await connectDriver(stack, { scope: starA, session: memberA });
-    const tabB = await connectDriver(stack, { scope: starB, session: memberB });
-    drivers.push(tabA, tabB);
-    // Tab A's address on its host node, the Star of its page.
+    const tabG = await connectDriver(stack, { scope: galaxy, session: memberG });
+    drivers.push(tabA, tabG);
+    // Each tab's address on its host node: the Star of tab A's page, the Galaxy of tab G's.
     const tabAName = `${starA}/${tabA.client.lmz.instanceName}`;
-    const callTabA = (from: Driver) => from.client.lmz.callAsync(
-      'STAR', tabAName,
-      (from.client.ctn() as any).handleOrgTreeUpdate({ value: {} }));
+    const tabGName = `${galaxy}/${tabG.client.lmz.instanceName}`;
 
     const failures: string[] = [];
     const limb = (name: string, got: string | null, why: string) => {
@@ -122,9 +122,11 @@ export async function run(stack: DevStack): Promise<void> {
       else { console.log(`  ✗ ${name} — got ${got ?? '(succeeded)'}`); failures.push(`${name}: ${why} Got: ${got ?? '(succeeded)'}`); }
     };
 
-    // ── LIMB 1: a tab on a sibling Star reaches the receiving Client, which refuses it ────────────
-    limb(`limb 1 — a tab on ${starB} reached ${starA}'s Client and was refused there`,
-      await refusal(callTabA(tabB)), 'a tab on a sibling Star did not meet the receiving Client\'s refusal.');
+    // ── LIMB 1: a tab with passage into the Galaxy reaches a tab there, which refuses it ─────────
+    limb(`limb 1 — a tab on ${starA} reached a tab on ${galaxy}'s host and was refused there`,
+      await refusal(tabA.client.lmz.callAsync('GALAXY', tabGName,
+        (tabA.client.ctn() as any).handleOrgTreeUpdate({ value: {} }))),
+      'a tab with passage into the receiving host did not meet the receiving Client\'s refusal.');
 
 
     // ── LIMB 2: a chain no decoder can read is refused by the caller check, before decoding ──────

@@ -26,8 +26,8 @@
  *  4. **On a persona's host the same upgrade reaches the `.dev` Star.** Its accept line names
  *     `{galaxy}.dev/{persona id}`.
  *  5. **A tab's save runs in place on its own Star, and its read of the Galaxy is relayed; both
- *     answers arrive.** The Star logs `ran in place` for the save. Mutation: send a Client's call
- *     to its host by RPC; the line is missing.
+ *     answers arrive.** The Star's Gateway logs the save's frame with the outcome `ran in place`.
+ *     Mutation: send a Client's call to its host by RPC; the outcome is `sent on`.
  *  6. **Two tabs on one Star keep their own sockets.** Alice reconnects under the same id, which
  *     closes her old socket and not Dana's, and a later push reaches both. Then Dana stops
  *     answering, as a paused tab does, and Alice reconnects again while a push to Dana waits: no
@@ -57,7 +57,7 @@ import { testSlug } from '../lib/test-scopes';
 import { debugLines } from '../lib/stdio';
 
 export const needsContainer = false;
-export const bootVars = { DEBUG: 'nebula.Star.onStart,lmz.mesh.ClientGateway.acceptUpgrade,lmz.mesh.ClientGateway.handleClientCall' };
+export const bootVars = { DEBUG: 'nebula.Star.onStart,lmz.mesh.ClientGateway.acceptUpgrade,lmz.mesh.ClientGateway.route' };
 
 /** A push or a reconnect crosses one process boundary. Past this it is a failure, not slowness. */
 const WAIT_MS = 15_000;
@@ -289,8 +289,8 @@ export async function run(stack: DevStack): Promise<void> {
       console.log('  · whether the save ran in place is not observable on a deployed target');
     } else {
       limb('limb 5 — the save ran in place on the Star', await eventually(() => entries().some((e) =>
-        e.namespace === 'lmz.mesh.ClientGateway.handleClientCall' && e.message === 'ran in place' && e.data.instance === star)),
-      `no \`ran in place\` line names ${star}`);
+        e.namespace === 'lmz.mesh.ClientGateway.route' && e.data.outcome === 'ran in place' && e.data.instance === star)),
+      `no frame line with the outcome \`ran in place\` names ${star}`);
     }
 
     // ── LIMB 6: two tabs on one Star keep their own sockets ───────────────────────────────────

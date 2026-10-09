@@ -40,9 +40,11 @@ export async function run(stack: DevStack): Promise<void> {
   const instanceName = `${session.sub}.late-${crypto.randomUUID().slice(0, 8)}`;
   // On the app's own page, so the Galaxy hosts both Clients under one name.
   const gatewayUrl = `${scopeUrlOf(stack, app.galaxy).replace(/^http/, 'ws')}/gateway/${instanceName}`;
-  // `UNIVERSE` at the Galaxy's name admits the call, then finds no member named `resources`: a
-  // refusal after the ack, which reaches the Client by the fire-back road the grace period covers.
-  const refusedAfterAck = [{ type: 'get', key: 'resources' }, { type: 'get', key: 'subscribeTree' }, { type: 'apply', args: [] }];
+  // The caller's own Profile, a node a hop away, admits the call, then finds no member named
+  // `noSuchMember`: a refusal after the ack, which reaches the Client by the fire-back road the grace
+  // period covers. A hop away so the answer cannot beat the earlier socket's close.
+  const profileId = JSON.parse(Buffer.from(session.accessToken.split('.')[1]!, 'base64url').toString('utf8')).profileId as string;
+  const refusedAfterAck = [{ type: 'get', key: 'noSuchMember' }, { type: 'apply', args: [] }];
 
   const entries: Array<{ namespace: string; level: string; message: string; data?: Record<string, unknown> }> = [];
   setDebugSink((e) => entries.push(e as never));
@@ -58,7 +60,7 @@ export async function run(stack: DevStack): Promise<void> {
       earlier.addEventListener('error', () => reject(new Error('the earlier socket did not open')));
     });
     earlier.send(JSON.stringify({
-      type: 'call', callId: 'late-1', loadId: RAW_LOAD, binding: 'UNIVERSE', instance: app.galaxy,
+      type: 'call', callId: 'late-1', loadId: RAW_LOAD, binding: 'PROFILE', instance: profileId,
       chain: preprocess(refusedAfterAck),
       handler: preprocess([{ type: 'get', key: 'logRefusal' }, { type: 'apply', args: ['late-answer'] }]),
       onErrorOnly: true,
@@ -79,7 +81,7 @@ export async function run(stack: DevStack): Promise<void> {
       BroadcastChannel: ctx.BroadcastChannel,
     });
     // Its own call, to the same refusing target: the positive control.
-    second.lmz.call('UNIVERSE', app.galaxy, (second.ctn() as any).resources.subscribeTree(),
+    second.lmz.call('PROFILE', profileId, (second.ctn() as any).noSuchMember(),
       second.ctn().logRefusal('own-answer'), { onErrorOnly: true });
 
     const refused = (what: string) => entries.some((e) => e.level === 'warn' && e.message === `${what} was refused`);

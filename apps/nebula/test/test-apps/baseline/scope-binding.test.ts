@@ -6,7 +6,11 @@
  * trust-on-first-use lock. This suite is the per-tier positive/negative grid;
  * the broader capable-of-failing matrix (pre-claim, fail-closed branches,
  * widening invariant, platform sink, malformed names) lives in
- * `scope-isolation.test.ts`.
+ * `scope-isolation.test.ts`. *
+ * A Client's call meets `requirePassage` first at its own host's Gateway, which refuses a call with
+ * no passage before it leaves, with the message the node would give. So each refusal here is the
+ * Gateway's, and the target never wakes. The node's own passage step, the authority for a node's
+ * call, is tested node to node in `node-chain-passage.test.ts` and Mesh's `passage-step.test.ts`.
  *
  * @see tasks/archive/nebula-do-scope-isolation.md
  */

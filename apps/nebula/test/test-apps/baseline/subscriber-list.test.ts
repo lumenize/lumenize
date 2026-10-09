@@ -259,16 +259,17 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
   });
 
   it('GENERICITY — the standalone subscriber-list rides a Galaxy host too (the same plane, composed on the Galaxy)', async () => {
-    const scope = `sublist-ds-${uuid().slice(0, 8)}.app.tenant`;
+    // A galaxy's name, on its own host: a Client's Gateway sends `GALAXY` only to a galaxy scope.
+    const galaxy = `sublist-ds-${uuid().slice(0, 8)}.app`;
     const query: QueryDescriptor = {
       queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
     };
     // A WATCHER on the Galaxy host (resourceHostBinding routes subscribeQuerySubscribers to GALAXY).
-    const w = await connect({ star: scope, binding: 'GALAXY' });
+    const w = await connect({ star: galaxy, binding: 'GALAXY' });
     await w.subscribeQuerySubscribers(query).ready;
 
     const bSub = uuid();
-    const b = await connect({ star: scope, sub: bSub, binding: 'GALAXY' });
+    const b = await connect({ star: galaxy, sub: bSub, binding: 'GALAXY' });
     await b.resources.subscribeQuery(query).ready;
     // The watcher sees the grown roster → the plane's roster send works on the Galaxy (ADR-007 composition).
     await vi.waitFor(() => expect(rosterSubs(w).has(bSub)).toBe(true));

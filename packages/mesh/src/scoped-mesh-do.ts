@@ -14,7 +14,7 @@ import type { GatewayConnectionInfo } from './gateway-messages';
 import { rawRpc } from './raw-rpc-decorator';
 import type { CallEnvelope } from './lmz-api';
 import type { CallContext } from './types';
-import { PASSAGE_STEP } from './node-kinds';
+import { GATEWAY_PASSAGE, PASSAGE_STEP } from './node-kinds';
 import { hasDominionOver, hasPassageInto, isPlatformScope, noPassageMessage, parseId } from './auth/parse-id';
 import type { VerdictClaims } from './auth/parse-id';
 import type { AuthClaims } from './auth/types';
@@ -177,14 +177,15 @@ function scopeNamed(instanceName: string | undefined): string | undefined {
  * push that starts a fresh chain passes it.
  *
  * A sender that is itself a Client is not checked here: its name does not parse as a scope, so it
- * offers none to check passage into. The receiving Client decides, and `MeshClient.onBeforeCall`
- * refuses it by default.
+ * offers none to check passage into. Its own host's Gateway checked its passage into this host
+ * before sending the call, and the receiving Client decides whether to take it:
+ * `MeshClient.onBeforeCall` refuses it by default.
  */
 export function requirePassageIntoSender(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
   const sender = envelope.callContext.callChain.at(-1);
   if (!sender) throw new Error('Call to a client names no sender');
 
-  // Another Client: the receiving Client decides (see above).
+  // Another Client: its own host's Gateway checked passage into this host (see above).
   if (sender.type === 'LumenizeClient') return;
 
   const senderScope = scopeNamed(sender.instanceName);
@@ -344,6 +345,17 @@ export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements Cli
     // self-continuations) must NOT run the passage step, and a test asserts its absence there.
     debug('lmz.mesh.ScopedMeshDO.passage').debug('entry', { instanceName: name });
     requirePassage(name, claimsForPassage(this.lmz.callContext));
+  }
+
+  /**
+   * The Gateway's passage check, before a hosted Client's call to a scoped node `name` is sent on:
+   * {@link requirePassage} over the same claims the node's own step reads, from the context
+   * `onBeforeCallToMesh` returned, so the two agree. Keyed by a symbol private to Mesh, so no subclass
+   * can override it away; for a call addressed to a Client it is the only passage check.
+   * @internal
+   */
+  [GATEWAY_PASSAGE](name: string, callContext: CallContext): void {
+    requirePassage(name, claimsForPassage(callContext));
   }
 }
 

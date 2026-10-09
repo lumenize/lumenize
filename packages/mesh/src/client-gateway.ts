@@ -1,7 +1,10 @@
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { debug } from '@lumenize/debug';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from './ws-heartbeat.js';
-import { fillHandler, fireResponse, resolveStub, type CallEnvelope, type EnvelopeResponse } from './lmz-api.js';
+import { fillHandler, fireResponse, namesScope, resolveStub, scopeNameRefusal, type CallEnvelope, type EnvelopeResponse } from './lmz-api.js';
+import { registeredRoutes, routeFor, noRouteMessage, FIELD_REFUSAL, tierMessage, clientAddressMessage, noInstanceMessage, workerInstanceMessage } from './routes.js';
+import { GATEWAY_PASSAGE } from './node-kinds.js';
+import { parseId } from './auth/parse-id.js';
 import { addressOf, hostInstanceOf } from './client-address.js';
 import { validateOperationChain, type OperationChain } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, OriginAuth, OriginRequest, OriginCf } from './types.js';
@@ -74,9 +77,10 @@ interface GracePeriod {
 }
 
 /**
- * What `ClientGateway` needs from the node that hosts it: the three hooks every host implements, and
- * the node's own request door. `ScopedMeshDO` is the host, and implements each hook; a subclass
- * overrides one to add to it.
+ * What `ClientGateway` needs from the node that hosts it: the three hooks every host implements, the
+ * passage check it runs before sending a Client's call to a scoped node, and the node's own request
+ * door. `ScopedMeshDO` is the host, and implements each; a subclass overrides a hook to add to it,
+ * and cannot override the passage check, which is keyed by a symbol private to Mesh.
  */
 export interface ClientGatewayHost {
   /**
@@ -101,6 +105,11 @@ export interface ClientGatewayHost {
    * `void` so that an `async` override, whose rejected Promise would refuse nothing, does not compile.
    */
   onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): undefined;
+  /**
+   * Throws unless the call, with the context `onBeforeCallToMesh` returned, has passage into the
+   * scope `name`: the check a scoped node's own passage step makes, run before the call leaves.
+   */
+  [GATEWAY_PASSAGE](name: string, callContext: CallContext): void;
   /**
    * The host node's own request door. A Client's call to the node that hosts it runs through it as a
    * method call, so it passes the passage step, `onBeforeCall` and the `@mesh()` check exactly as an
@@ -135,8 +144,14 @@ export interface ClientGatewayHost {
  * delivery that failed is recorded on the grace period and on every socket the Client still holds,
  * open or closing, and the next connection is told `true` whatever the row says.
  *
+ * **It routes each call a Client makes** (`#handleClientCall`). A call to the host, or to another
+ * Client the host holds, runs in place. A call to a binding the Worker declared with `defineRoutes`
+ * is sent on once that route's check passes: passage and the tier for a scoped node, an id-shaped
+ * name for an unscoped one, no instance for a Worker. Anything else is refused, so a Client reaches
+ * no binding the Worker left out, the Registry included.
+ *
  * The host reaches it only through its entry points and hands it only its `ctx`, its `env` and the
- * hooks in {@link ClientGatewayHost}.
+ * hooks in {@link ClientGatewayHost}; the routes it reads from the Worker's declaration.
  */
 export class ClientGateway {
   #ctx: DurableObjectState;
@@ -560,7 +575,9 @@ export class ClientGateway {
   // ============================================
 
   /**
-   * Handle a call from the client to a mesh node
+   * A call frame from a hosted Client: refuse a continuation that cannot travel, then route it
+   * ({@link #routeClientCall}). Logs `lmz.mesh.ClientGateway.route` once per frame, last, with the
+   * frame's `callId` and what became of it.
    */
   async #handleClientCall(
     ws: WebSocket,
@@ -568,7 +585,7 @@ export class ClientGateway {
     attachment: GatewayConnectionInfo | null
   ): Promise<void> {
     const log = debug('lmz.mesh.ClientGateway.handleClientCall');
-    const { callId, loadId, binding, instance, chain, handler, onErrorOnly } = message;
+    const { callId, binding, instance, handler } = message;
 
     // Guard: attachment must be present (set during WebSocket accept)
     if (!attachment) {
@@ -577,15 +594,39 @@ export class ClientGateway {
       return;
     }
 
-    // The Client wrote its continuation, and it comes back to it alone, so the only harm a bad one
-    // can do is to that Client. It is still checked before anything is dispatched: one the
-    // executor cannot run, or one that does not end in the call an answer is filled into, would
-    // otherwise be carried to the node and back for nothing.
-    const refusal = refuseContinuation(handler);
-    if (refusal) {
-      log.warn('refused a call whose result handler continuation is malformed', { callId, binding, instance, refusal });
-      return;
+    // One line per frame, logged last: after any dispatch's ack, so whatever the frame woke has
+    // logged before it, and a reader waiting for a frame's line has nothing still to come.
+    let outcome = 'refused at the Gateway';
+    try {
+      // The Client wrote its continuation, and it comes back to it alone, so the only harm a bad
+      // one can do is to that Client. It is still checked before anything is dispatched: one the
+      // executor cannot run, or one that does not end in the call an answer is filled into, would
+      // otherwise be carried to the node and back for nothing.
+      const refusal = refuseContinuation(handler);
+      if (refusal) {
+        log.warn('refused a call whose result handler continuation is malformed', { callId, binding, instance, refusal });
+        outcome = 'continuation refused';
+        return;
+      }
+      await this.#routeClientCall(ws, message, attachment, (o) => { outcome = o; });
+    } finally {
+      debug('lmz.mesh.ClientGateway.route').debug('frame', { callId, binding, instance, outcome });
     }
+  }
+
+  /**
+   * The body of {@link #handleClientCall}, past the attachment and continuation checks: check the
+   * frame's fields, then run in place, send on a declared route, or refuse. `settle` records what
+   * became of the frame, for the line its caller logs.
+   */
+  async #routeClientCall(
+    ws: WebSocket,
+    message: CallMessage,
+    attachment: GatewayConnectionInfo,
+    settle: (outcome: string) => void,
+  ): Promise<void> {
+    const log = debug('lmz.mesh.ClientGateway.handleClientCall');
+    const { callId, loadId, binding, instance, chain, handler, onErrorOnly } = message;
 
     // Build origin identity from VERIFIED sources (WebSocket attachment)
     // This replaces whatever the client sent - Gateway is the trust boundary
@@ -613,6 +654,18 @@ export class ClientGateway {
       originAuth,
       originRequest: attachment.originRequest,
     };
+
+    // The frame's fields, before anything reads them. An array such as ['acme.crm.tenant2'] would
+    // pass a check that reads a non-string as no scope, then name that scope once a stub makes it a
+    // string; a non-string binding would be looked up as whatever it stringifies to.
+    if (!isNonEmptyString(binding) || (instance !== undefined && !isNonEmptyString(instance))) {
+      const named: NodeIdentity = {
+        type: 'LumenizeDO', bindingName: String(binding),
+        instanceName: instance === undefined ? undefined : String(instance),
+      };
+      this.#refuseToClient(ws, message, baseContext, named, new Error(FIELD_REFUSAL));
+      return;
+    }
 
     // Determine callee type for metadata
     const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
@@ -660,30 +713,72 @@ export class ClientGateway {
         response,
       };
 
+      // The three steps. (1) A call to the host node itself, or to another Client it hosts, runs in
+      // place through the host's own request door, so it passes the same checks an RPC would and
+      // costs no request. (2) A call to a route the Worker declared is sent on once that route's
+      // check passes. (3) Anything else is refused here, before any other object is touched.
+      const inPlace = this.#isHostNode(binding, instance, attachment);
+      const routeRefusal = inPlace ? undefined : this.#routeRefusal(binding, instance, callContext);
+      if (routeRefusal) {
+        this.#refuseToClient(ws, message, callContext, refusedBy, routeRefusal);
+        return;
+      }
+
       // Early ack: the callee acks on admission, BEFORE the chain runs, and its answer arrives
       // later at our __handleResponse door. A refusal at the ack takes the same road back: the
       // Client's continuation, filled with the Error, with the node that refused as the last hop.
-      // A call to the host node itself, or to another Client it hosts, runs in place through the
-      // host's own request door, so it passes the same checks an RPC would and costs no request.
       let ack: any;
       try {
-        if (this.#isHostNode(binding, instance, attachment)) {
-          log.debug('ran in place', { callId, binding, instance });
-          ack = await this.#host.__executeOperation(envelope);
-        } else {
-          ack = await resolveStub(this.#env, binding, instance).__executeOperation(envelope);
-        }
+        ack = inPlace
+          ? await this.#host.__executeOperation(envelope)
+          : await resolveStub(this.#env, binding, instance).__executeOperation(envelope);
+        settle(inPlace ? 'ran in place' : 'sent on');
       } catch (error) {
         log.error('Call dispatch failed', { callId, binding, instance, error });
         ack = { $error: preprocess(error) };
+        settle('dispatch failed');
       }
       if (ack && '$error' in ack) {
+        settle('refused by the destination');
         this.#refuseToClient(ws, message, callContext, refusedBy, postprocess(ack.$error));
       }
 
     } catch (error) {
       log.error('Call dispatch failed', { callId, binding, instance, error });
       this.#refuseToClient(ws, message, baseContext, refusedBy, error);
+    }
+  }
+
+  /**
+   * Why a Client's call to (`binding`, `instance`) may not leave its host, or `undefined` when its
+   * route admits it. A binding the Worker declared no route for is refused. A scoped route checks
+   * passage into the address's host part, through the host's {@link GATEWAY_PASSAGE} check, then
+   * that the scope's tier is one the route serves; passage first, so `_platform` and an unparseable
+   * name keep `requirePassage`'s own messages. An unscoped route needs an instance that is neither a
+   * Client's address nor a scope's name, and a worker route needs none.
+   */
+  #routeRefusal(binding: string, instance: string | undefined, callContext: CallContext): Error | undefined {
+    const route = routeFor(registeredRoutes(), binding);
+    if (route === undefined) return new Error(noRouteMessage(binding));
+    switch (route.kind) {
+      case 'worker':
+        return instance === undefined ? undefined : new Error(workerInstanceMessage(binding, instance));
+      case 'unscoped':
+        if (instance === undefined) return new Error(noInstanceMessage(binding, false));
+        if (instance.includes('/')) return new Error(clientAddressMessage(binding, instance));
+        if (namesScope(instance)) return new Error(scopeNameRefusal(instance));
+        return undefined;
+      case 'scoped': {
+        if (instance === undefined) return new Error(noInstanceMessage(binding, true));
+        const scope = hostInstanceOf(instance);
+        try {
+          this.#host[GATEWAY_PASSAGE](scope, callContext);
+        } catch (error) {
+          return error instanceof Error ? error : new Error(String(error));
+        }
+        const { tier } = parseId(scope);
+        return route.tiers.includes(tier) ? undefined : new Error(tierMessage(scope, tier, binding));
+      }
     }
   }
 
@@ -957,6 +1052,10 @@ function writeAttachment(ws: WebSocket, attachment: GatewayConnectionInfo): void
  * name, returned or thrown, is renamed before it fills the node's continuation, and only the
  * Gateway can say a Client is gone. The original name stays at the front of the message.
  */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
 function renameClientDisconnected<T>(value: T): T {
   if (value instanceof Error && value.name === 'ClientDisconnectedError') {
     value.message = `${value.name}: ${value.message}`;

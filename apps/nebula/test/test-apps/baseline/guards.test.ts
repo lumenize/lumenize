@@ -142,8 +142,8 @@ describe('guard enforcement', () => {
         NebulaClientTest, browserB, starB, starB, 'bob@example.com',
       );
 
-      // Client B calls whoAmI on Star A → rejected by onBeforeCall (scope mismatch)
-      // NOT by guard (whoAmI has no guard)
+      // Client B calls whoAmI on Star A → refused at Client B's own Gateway for lack of passage,
+      // before Star A wakes, NOT by a guard (whoAmI has none)
       clientB.callStarWhoAmI(starA);
       await vi.waitFor(() => {
         expect(clientB.lastError).toContain('No passage from');

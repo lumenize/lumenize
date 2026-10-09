@@ -97,6 +97,9 @@ export class Profile extends UnscopedMeshDO<Env> {
 
   /** Schema and seed, before any request (`durable-objects.md` § *Initialization*). */
   onStart(): void {
+    // Construction is observable: `ctx.id.name`, since `onStart` runs before any identity is
+    // stamped. A Gateway that refuses a frame proves itself by this never appearing.
+    debug('nebula-auth.Profile.onStart').debug('started', { name: this.ctx.id.name });
     const ctx = this.ctx;
     // WITHOUT ROWID on the TEXT PKs (write-cost — durable-objects.md).
     ctx.storage.sql.exec(

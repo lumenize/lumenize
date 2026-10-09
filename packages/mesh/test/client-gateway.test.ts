@@ -581,6 +581,63 @@ describe('ClientGateway, on a host node', () => {
     });
   });
 
+  describe('the Gateway\'s passage check, on a host that overrides every hook', () => {
+    // `CustomHostDO` overrides `onBeforeAccept`, `onBeforeCallToMesh` and `onBeforeCallToClient`, none
+    // calling `super`. The check is keyed by a symbol private to Mesh, so it still runs. MUTATION: run
+    // it from the default `onBeforeCallToMesh` instead, which `CustomHostDO` replaces, and the target's
+    // own passage step refuses the call, logging the entry this asserts is absent.
+    it('refuses a call into a scope it has no passage into before the target wakes, and sends one it has', async () => {
+      const entries: DebugLogOutput[] = [];
+      setDebugSink((e) => entries.push(e));
+      try {
+        // A plain member of HOST: passage into HOST and above it, none sideways.
+        const token = createFakeJwt({
+          sub: 'custom', aud: HOST, access: { authScope: HOST, scopeAdmin: false }, exp: Math.floor(Date.now() / 1000) + 900,
+        });
+        const response = await customHost().fetch(upgradeUrl('custom.tab1', 'CUSTOM_HOST_DO'), {
+          headers: {
+            'Upgrade': 'websocket',
+            'Sec-WebSocket-Protocol': 'lmz.2',
+            'Authorization': `Bearer ${token}`,
+            'X-Lumenize-DO-Instance-Name-Or-Id': HOST,
+            'X-Lumenize-DO-Binding-Name': 'CUSTOM_HOST_DO',
+          },
+        });
+        expect(response.status).toBe(101);
+        const ws = response.webSocket!;
+        ws.accept();
+
+        const elsewhere = uniqueScope('gw');
+        const refused = new Promise<Answer>((resolve) => {
+          ws.addEventListener('message', function handler(event: MessageEvent) {
+            const msg = JSON.parse(event.data as string);
+            if (msg.type === GatewayMessageType.RESPONSE && msg.callId === 'lateral') {
+              ws.removeEventListener('message', handler);
+              resolve(answerOf(msg));
+            }
+          });
+        });
+        ws.send(JSON.stringify({
+          type: GatewayMessageType.CALL, loadId: LOAD_ID, handler: HANDLER, callId: 'lateral',
+          binding: 'CLIENT_HOST_DO', instance: elsewhere,
+          chain: preprocess([{ type: 'get', key: 'echo' }, { type: 'apply', args: ['lateral'] }]),
+        } satisfies CallMessage));
+        const answer = await refused;
+        expect(answer.success).toBe(false);
+        expect(answer.error.message).toBe(`No passage from "${HOST}" into "${elsewhere}"`);
+        expect(entries.filter((e) => e.namespace === 'lmz.mesh.ScopedMeshDO.passage' && e.data?.instanceName === elsewhere))
+          .toHaveLength(0);
+
+        // The same scope under the plain host's binding: not this host node, so it is sent on.
+        expect(await callAndAwait(ws, 'own', 'CLIENT_HOST_DO', HOST, [{ type: 'get', key: 'echo' }, { type: 'apply', args: ['own'] }]))
+          .toBe('own');
+        ws.close();
+      } finally {
+        clearDebugSink();
+      }
+    });
+  });
+
   describe('the call chain — stamped whole at the Trust DMZ', () => {
     // The MECHANISM, in the lane CI runs. The proof is the `/live` scenario
     // `gateway-stamps-the-chain` (apps/nebula/harness), which drives the three readers a forged hop

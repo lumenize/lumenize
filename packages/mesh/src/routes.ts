@@ -74,6 +74,31 @@ export function noRouteMessage(binding: string): string {
   return `No route from a Client to "${binding}": a Client reaches only the bindings declared in defineRoutes()`;
 }
 
+/** What a Client is told when its frame's `binding` or `instance` is not a string. */
+export const FIELD_REFUSAL = "A call frame's binding must be a non-empty string, and its instance, if present, one too";
+
+/** What a Client is told when it names a scope of a tier the route does not serve. */
+export function tierMessage(scope: string, tier: Tier, binding: string): string {
+  return `"${scope}" is a ${tier} scope, which "${binding}" does not serve`;
+}
+
+/** What a Client is told when it names a Client's address on a route that reaches only nodes. */
+export function clientAddressMessage(binding: string, instance: string): string {
+  return `"${binding}" serves nodes, and "${instance}" is a Client's address`;
+}
+
+/** What a Client is told when it names no instance on a route to a node. */
+export function noInstanceMessage(binding: string, scoped: boolean): string {
+  return scoped
+    ? `"${binding}" serves nodes named by a scope; the call names none`
+    : `"${binding}" serves nodes named by an id; the call names none`;
+}
+
+/** What a Client is told when it names an instance on a route to a Worker. */
+export function workerInstanceMessage(binding: string, instance: string): string {
+  return `"${binding}" is a Worker, which takes no instance; the call names "${instance}"`;
+}
+
 /** What an upgrade is told when no route hosts its scope's tier. */
 export function noHostRouteMessage(tier: Tier): string {
   return `No route hosts the "${tier}" tier: declare one with hosts: true in defineRoutes()`;

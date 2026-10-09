@@ -150,7 +150,8 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     const host = alice.ctn<ClientHostDO>();
 
     expect(await alice.lmz.callAsync('CLIENT_HOST_DO', h, host.echo('in place'))).toBe('in place');
-    expect(marked('ran in place', (d) => d.instance === h)).toHaveLength(1);
+    // The Gateway's one line for the frame says it ran in place.
+    expect(marked('frame', (d) => d.instance === h && d.outcome === 'ran in place')).toHaveLength(1);
     expect(marked('host admitted a call', (d) => d.instanceName === h)).toHaveLength(1);
 
     await expect(alice.lmz.callAsync('CLIENT_HOST_DO', h, host.secret())).rejects.toThrow(/secret/);
@@ -184,6 +185,9 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     expect(alice.connectionState).toBe('disconnected');
   });
 
+  // On the same host the receiving Client refuses it; on a host the caller has no passage into, its
+  // own Gateway does, before the other host wakes. MUTATION: drop the Gateway's passage check, and
+  // the second call meets Carol's refusal instead.
   it('refuses a Client\'s call to another Client, on the same host and on another', async () => {
     const h5 = uniqueScope('h');
     const h6 = uniqueScope('h');
@@ -191,11 +195,10 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     using dana = await connect(h5);
     using carol = await connect(h6);
 
-    const refusal = 'Direct client-to-client calls are disabled by default';
     await expect(alice.lmz.callAsync('CLIENT_HOST_DO', nameOn(h5, dana), alice.ctn<HostedClient>().receive('x')))
-      .rejects.toThrow(refusal);
+      .rejects.toThrow('Direct client-to-client calls are disabled by default');
     await expect(alice.lmz.callAsync('CLIENT_HOST_DO', nameOn(h6, carol), alice.ctn<HostedClient>().receive('x')))
-      .rejects.toThrow(refusal);
+      .rejects.toThrow(`No passage from "${h5}" into "${h6}"`);
     expect([...dana.received, ...carol.received]).toEqual([]);
   });
 });

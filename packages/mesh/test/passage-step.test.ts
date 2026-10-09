@@ -1,7 +1,9 @@
 /**
  * What Mesh's two Durable Object bases guarantee whatever a subclass overrides: a scoped node checks
  * passage on every call in a step ahead of `onBeforeCall`, and an unscoped node refuses to run under
- * a name that parses as a scope. Then the two members that moved into Mesh with the scoped base,
+ * a name that parses as a scope. A Client's call meets the same two checks at its host's Gateway
+ * first, so each guarantee is shown on a node's call, which crosses no Gateway, and the Gateway's
+ * refusal beside it. Then the two members that moved into Mesh with the scoped base,
  * `requireDominionHere` and `teardown`, on a test node.
  *
  * vitest-plugin, because the nodes under test are Mesh's own test nodes, which no running Nebula
@@ -31,10 +33,16 @@ beforeEach(() => {
 });
 afterEach(() => clearDebugSink());
 
-describe('a scoped node checks passage in a step no override removes', { timeout: 20000 }, () => {
-  // MUTATION: move the passage step back into `ScopedMeshDO.onBeforeCall`, and `ClientHostDO`, whose
-  // override never calls `super`, runs the call from another universe.
-  it('refuses a caller with no passage, though onBeforeCall never calls super, and runs one with it', async () => {
+const answerAt = (host: string, tag: string) => vi.waitFor(async () => {
+  const kept = await (env.CLIENT_HOST_DO.getByName(host) as unknown as { answerFor(t: string): Promise<unknown> }).answerFor(tag);
+  expect(kept).toBeDefined();
+  return kept;
+}, { timeout: 5000 });
+
+describe('a Client\'s call into a scope it has no passage into is refused at its host\'s Gateway', { timeout: 20000 }, () => {
+  // MUTATION: drop the Gateway's passage check, and the target's own step refuses the call instead,
+  // logging the entry this asserts is absent.
+  it('refuses it before the target\'s own step runs, and runs a call to its own host', async () => {
     const mine = uniqueScope('h');
     const theirs = uniqueScope('h');
     using client = await connectClient(PlainClient, mine);
@@ -42,10 +50,7 @@ describe('a scoped node checks passage in a step no override removes', { timeout
 
     await expect(client.lmz.callAsync('CLIENT_HOST_DO', theirs, host.echo('lateral')))
       .rejects.toThrow(`No passage from "${mine}" into "${theirs}"`);
-    // Refused in the step, before the subclass's own hook ran.
     expect(entries.filter((e) => e.namespace === 'lmz.mesh.ScopedMeshDO.passage' && e.data?.instanceName === theirs))
-      .toHaveLength(1);
-    expect(entries.filter((e) => e.message === 'host admitted a call' && e.data?.instanceName === theirs))
       .toHaveLength(0);
 
     expect(await client.lmz.callAsync('CLIENT_HOST_DO', mine, host.echo('own'))).toBe('own');
@@ -53,14 +58,10 @@ describe('a scoped node checks passage in a step no override removes', { timeout
 });
 
 describe('a claimless chain is held to the scope of the node that started it', { timeout: 20000 }, () => {
-  const answerAt = (host: string, tag: string) => vi.waitFor(async () => {
-    const kept = await (env.CLIENT_HOST_DO.getByName(host) as unknown as { answerFor(t: string): Promise<unknown> }).answerFor(tag);
-    expect(kept).toBeDefined();
-    return kept;
-  }, { timeout: 5000 });
-
   // The rule `claimsForPassage` states: a chain a node started acts from that node's scope, as a
-  // plain member. MUTATION: give such a chain no scope, and the upward call is refused.
+  // plain member. MUTATIONS: give such a chain no scope, and the upward call is refused; move the
+  // passage step into `ScopedMeshDO.onBeforeCall`, and `ClientHostDO`, whose override never calls
+  // `super`, answers the sideways call. A node's call crosses no Gateway, so only the step refuses it.
   it('passes upward from a scoped starter, and is refused sideways', async () => {
     const universe = uniqueScope('h');
     const app = `${universe}.first`;
@@ -89,11 +90,6 @@ describe('a node\'s push to a Client checks passage into the node that sent it',
       return `${value}!`;
     }
   }
-  const answerAt = (host: string, tag: string) => vi.waitFor(async () => {
-    const kept = await (env.CLIENT_HOST_DO.getByName(host) as unknown as { answerFor(t: string): Promise<unknown> }).answerFor(tag);
-    expect(kept).toBeDefined();
-    return kept;
-  }, { timeout: 5000 });
 
   // `requirePassageIntoSender`: the sibling's push is lateral to the Client's page. MUTATION: skip
   // it in `ScopedMeshDO.onBeforeCallToClient`, and the push is delivered.
@@ -120,9 +116,21 @@ describe('an unscoped node refuses a scope-shaped name at the identity stamp', {
   // `room-1` parses as the Universe `room-1`; a UUID is past the 30-character slug cap.
   const refusal = /"room-1" parses as a scope, and an UnscopedMeshDO never runs under a scope's name/;
 
-  // MUTATION: move the check into `UnscopedMeshDO.onBeforeCall`, and `RoomDO`, whose override never
-  // calls `super`, runs as `room-1`.
-  it('refuses a mesh call to a subclass whose onBeforeCall skips super, and runs it as a UUID', async () => {
+  // A node's call crosses no Gateway, so the stamp is what refuses it. MUTATION: move the check into
+  // `UnscopedMeshDO.onBeforeCall`, and `RoomDO`, whose override never calls `super`, runs as `room-1`.
+  it('refuses a node\'s call to a subclass whose onBeforeCall skips super, and runs it as a UUID', async () => {
+    const host = uniqueScope('h');
+    await rawRpcStub('CLIENT_HOST_DO', host).callRoom('room-1', 'scope-shaped');
+    expect(await answerAt(host, 'scope-shaped')).toMatch(refusal);
+
+    const id = crypto.randomUUID();
+    await rawRpcStub('CLIENT_HOST_DO', host).callRoom(id, 'uuid');
+    expect(await answerAt(host, 'uuid')).toBe(id);
+  });
+
+  // A Client's call is refused at its host's Gateway, by the predicate and message the stamp uses
+  // (`namesScope`), before the room wakes.
+  it('refuses a Client\'s call under a scope-shaped name with the same message, and runs it as a UUID', async () => {
     using client = await connectClient(PlainClient);
     const room = client.ctn<RoomDO>();
     await expect(client.lmz.callAsync('ROOM_DO', 'room-1', room.whoAmI())).rejects.toThrow(refusal);

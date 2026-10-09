@@ -11,10 +11,21 @@ import type { ClientGateway } from './client-gateway.js';
 import { PASSAGE_STEP, REFUSES_SCOPE_NAME } from './node-kinds.js';
 import { parseId, isPlatformScope } from './auth/parse-id.js';
 
-/** Whether a node name parses as a scope (`acme`, `acme.crm`, `acme.crm.tenant1`) or is the platform's. */
-function namesScope(instanceName: string): boolean {
+/**
+ * Whether a name is a scope's (`acme`, `acme.crm`, `acme.crm.tenant1`), the reserved `_platform` included. Not a string reads as a scope, so a
+ * check refusing scope names fails closed on a frame that sent an array. Shared by `lmz.__init` and a
+ * host's Gateway, so the two refuse the same names. Internal to Mesh, not exported from an entry.
+ */
+export function namesScope(instanceName: unknown): boolean {
+  if (typeof instanceName !== 'string') return true;
   if (isPlatformScope(instanceName)) return true;
   try { parseId(instanceName); return true; } catch { return false; }
+}
+
+/** What an unscoped node, or a Gateway on its behalf, says to a call under a scope's name. */
+export function scopeNameRefusal(instanceName: string): string {
+  return `"${instanceName}" parses as a scope, and an UnscopedMeshDO never runs under a scope's ` +
+    'name — name it by an id, such as a UUID, or extend ScopedMeshDO';
 }
 
 // Re-export types for convenience
@@ -734,10 +745,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       // to check passage into its scope, and an unscoped node checks none.
       if (options.instanceName !== undefined && doInstance?.[REFUSES_SCOPE_NAME] === true
         && namesScope(options.instanceName)) {
-        throw new Error(
-          `"${options.instanceName}" parses as a scope, and an UnscopedMeshDO never runs under a scope's ` +
-          'name — name it by an id, such as a UUID, or extend ScopedMeshDO',
-        );
+        throw new Error(scopeNameRefusal(options.instanceName));
       }
 
       if (options.bindingName !== undefined) {

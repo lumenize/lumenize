@@ -328,6 +328,27 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
 - `security.md`'s `paths:` gained `packages/mesh/src/client-gateway.ts` and `packages/mesh/src/routes.ts`.
 - Mutations, each caught by exactly its intended test or by the unused-directive error: two `hosts` routes for one tier, a plain property lookup, a superset accepted on redeclaration, a resolver that never refuses, a worker route on a node binding and the reverse, and an open string index on `Routes`. 7 of 7.
 
+### Phase 2 — built 2026-10-08
+
+**For Larry:**
+- **One baseline test built a Galaxy at a Star's name, the reach this phase closes.** `subscriber-list.test.ts`'s GENERICITY test connected on `sublist-ds-….app.tenant`'s host with its resource ops sent to `GALAXY`, so the Galaxy-class node it subscribed through ran under a Star's name. The tier check refused it. It now runs on a galaxy's own name and host, which is what it meant to show: the subscriber list rides a Galaxy too.
+- **The mutation note *"making the passage hook a public method reds the `CUSTOM_HOST_DO` limb"* was not runnable as written.** A public method `CustomHostDO` has never heard of is not one it overrides, so renaming the symbol reds nothing. The mutation run instead moves the check into the public `onBeforeCallToMesh` hook, which `CustomHostDO` overrides without `super`, and that reds the limb and nothing else.
+
+**Retro:**
+- **The `CUSTOM_HOST_DO` limb's first fixture was the safe shape.** Its fake JWT carried an `aud` and no `access`, so `hasPassageInto` refused the lateral call for missing claims, not for lack of passage. The positive control, a call into the caller's own scope, failed, and that is what showed it. The token now carries `access: { authScope, scopeAdmin: false }`.
+- **Dropping the field check alone does not wake a Profile under an array**, though the task file expected limb 1's `started` line to red. The `PROFILE` route's `namesScope` fails closed on a non-string, so the array is refused by the scope-name check instead. Limb 1 reds on its messages; the `started` line is the second fence holding.
+- **The Nebula baseline project stalled at exit twice**, both times after every test had reported, as the `workerd-zombie-hang` memory describes. Run with `--reporter=verbose`, 557 of 558 passed before the stall. The one failure, `resubscribe-on-signal`'s org-tree test, was a 30-second `callAsync` timeout under load, and the file passed twice alone.
+- **`hosted-clients.test.ts` and `scope-hosts-its-clients` read a `ran in place` marker** that the routing replaced with the per-frame line's outcome. Both read the frame line now; the scenario was found by the sweep, not by the phase's own inventory.
+- **`late-answer-dropped` got its refusal after the ack from `UNIVERSE` at a Galaxy's name**, the same tier reach. Its first fix, the page's own Galaxy with a missing member, ran in place and answered before the earlier socket closed, so the second Client never saw it. It now calls the caller's own Profile, a hop away, as the Universe was. The loadId mutation still reds it.
+- **The phase's inventory grep could not see either scenario.** It matched refusal messages, and neither scenario asserts one of those; both depended on what the Gateway let through. The sweep is what found them, 52 of 54 on its first run.
+
+**Close-out:**
+- The backlog row *A host node checks a Client's passage before relaying to a target whose name is a scope* is deleted.
+- `node-chain-passage`'s limb 1 folded into `client-routes`' limb 5; its NEBULA_SUB positive control stays.
+- `passage-step.test.ts`: the Client-to-sibling limb now asserts the target's own step ran zero times. The node's own step keeps its mutation in the claimless-chain sideways test, and the stamp keeps its in a new node-to-node `ROOM_DO` limb, through `ClientHostDO.callRoom`.
+- Mesh 1000 passed with 4 skipped, 2 more than Phase 1: the `CUSTOM_HOST_DO` limb and the node-to-node limb. Resources 2. Nebula: unit 100, frontend 237, dev-studio 115, browser 4 with 2 skipped, baseline as above. The sweep, with `client-routes` registered, passed 52 of 54, and the two it failed pass after the fixes above.
+- Mutations, all caught. In the mesh suite: the Gateway's passage check dropped, moved into the public hook, the node's own step dropped, and the stamp's refusal dropped. Against `client-routes`, one per limb: the field check, an undeclared binding forwarded, a plain lookup, passage, the tier, the unscoped scope-name check, the Client's-address check, both instance checks, and refuse-then-send. The tier ahead of passage reds `scope-isolation`'s `_platform` row. A Client sender checked at the receiving host reds `client-sender-passage`'s limb 1, and a dropped subscribe handler reds both limbs of `subscribe-refusal-arrives`.
+
 ## Non-goals
 
 - **A per-`sub` limit at the Gateway.** `tasks/backlog.md` § *Nebula Auth* holds it, with its trigger.

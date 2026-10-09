@@ -6,7 +6,11 @@
  * replacing the old trust-on-first-use `aud`-lock.
  *
  * Every test here is capable-of-failing: it flips RED if the gate reverts to
- * TOFU (first-caller-wins) or drops the structural check.
+ * TOFU (first-caller-wins) or drops the structural check. *
+ * A Client's call meets `requirePassage` first at its own host's Gateway, which refuses a call with
+ * no passage before it leaves, with the message the node would give. So each refusal here is the
+ * Gateway's, and the target never wakes. The node's own passage step, the authority for a node's
+ * call, is tested node to node in `node-chain-passage.test.ts` and Mesh's `passage-step.test.ts`.
  *
  * @see tasks/archive/nebula-do-scope-isolation.md (the test matrix)
  */
@@ -112,7 +116,8 @@ describe('structural scope isolation (Fix 1)', () => {
     );
 
     // First-ever call to the fresh victim Star, with the attacker's aud.
-    // TOFU: succeeds + pre-claims (RED). Structural: 'No passage from …'.
+    // TOFU: succeeds + pre-claims (RED). Structural: 'No passage from …', at the attacker's own
+    // Gateway, so the victim's Star never wakes.
     atkClient.callStarWhoAmI(victimStar);
     await vi.waitFor(() => { expect(atkClient.callCompleted).toBe(true); });
     expect(atkClient.lastError).toContain('No passage from');
@@ -158,7 +163,8 @@ describe('structural scope isolation (Fix 1)', () => {
     expect(client.lastResult).toEqual({ coalesceWindowMs: 3600000 });
 
     // Negative: the SAME admin calls an admin method on foreign Galaxy Y.
-    // Tenant boundary rejects before requireDominionHere → 'No passage from …'.
+    // The Gateway's passage check refuses it before Y wakes, so requireDominionHere never runs →
+    // 'No passage from …'.
     client.callGalaxySetConfig(galaxyY, 'k', 'v');
     await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
     expect(client.lastError).toContain('No passage from');
@@ -274,7 +280,8 @@ describe('structural scope isolation (Fix 1)', () => {
   // `_platform` is the ROOT of the scope tree (covers every name). A tenant DO
   // addressed at that name must be hard-rejected by the isPlatformScope
   // guard (branch b) before the gate could collapse to accept-all.
-  // Mutation-validated: remove branch b and this call succeeds.
+  // Mutation-validated: remove branch b and this call succeeds. The Gateway runs `requirePassage`
+  // before its tier check, which is why the reserved-scope message, not the tier's, comes back.
   it('T-platform: a tenant DO addressed at "_platform" is rejected for a foreign aud', async () => {
     const browser = new Browser();
     const scope = uniqueStar();

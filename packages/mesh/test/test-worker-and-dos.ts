@@ -1825,6 +1825,16 @@ export class ClientHostDO extends ScopedMeshDO<Env> {
     this.lmz.call('CLIENT_HOST_DO', target, this.ctn<ClientHostDO>().echo(tag), this.ctn<ClientHostDO>().keepAnswer(tag));
   }
 
+  /**
+   * Call `whoAmI` on the `RoomDO` named `room` from this node, keeping the answer, or the refusal,
+   * under `tag`. A node's call crosses no Gateway, so only the room's own identity stamp can refuse
+   * a scope-shaped name here.
+   */
+  @rawRpc()
+  callRoom(room: string, tag: string): void {
+    this.lmz.call('ROOM_DO', room, this.ctn<RoomDO>().whoAmI(), this.ctn<ClientHostDO>().keepAnswer(tag));
+  }
+
   /** {@link pushTo}, reached by our own code rather than a Client, so the push starts here. */
   @rawRpc()
   pushFromHere(clientName: string, value: string, tag: string): void {
