@@ -202,7 +202,7 @@ Opening a Star's page gives the admin a token whose **`aud`** is that Star, but 
 
 ## Security layers during connection
 
-Every `NebulaClient` connection passes through four security layers before any `lmz.call()` reaches a Nebula DO. This diagram shows what happens at each layer for a single connection attempt. (These are the mesh **connection** layers, independent of the token flow above.)
+Every `NebulaClient` call passes through five security layers before a method on a Nebula DO runs: two when the connection opens, and three for each `lmz.call()`. This diagram shows what happens at each layer for a single connection and one call. (These are the mesh **connection** layers, independent of the token flow above.)
 
 ```mermaid
 sequenceDiagram
@@ -230,12 +230,20 @@ sequenceDiagram
 
     Note over C: Connection established. Now lmz.call() happens:
 
-    rect rgba(240, 220, 200, 0.3)
-        Note over C,DO: Layer 3 — passage into the node
+    rect rgba(250, 235, 200, 0.3)
+        Note over C,GW: Layer 3 — the host's Gateway routes the call
         C->>GW: lmz.call(binding, node, ...)
+        Note over GW: binding and instance are strings<br/>the binding is declared in defineRoutes<br/>passage into the node from the host's scope (aud)<br/>and a scope of a tier the route serves
+        alt Undeclared, no passage, or the wrong tier
+            GW-->>C: Error from the Gateway (the node never wakes)
+        end
+    end
+
+    rect rgba(240, 220, 200, 0.3)
+        Note over GW,DO: Layer 4 — the node's own passage step
         Note over GW: stamp the verified claims onto callContext.originAuth
-        GW->>DO: the call, in place or relayed, with its callContext
-        Note over DO: the passage step, ahead of onBeforeCall, requirePassage:<br/>the host's scope (aud) at or below this node,<br/>or dominion over it from that host
+        GW->>DO: the call, in place or sent on, with its callContext
+        Note over DO: the passage step, ahead of onBeforeCall, requirePassage:<br/>the host's scope (aud) at or below this node,<br/>or dominion over it from that host<br/>the authority for every call, a node's own included
         alt No passage
             DO-->>GW: Error: No passage from the host's scope into this node
             GW-->>C: Error propagated
@@ -243,7 +251,7 @@ sequenceDiagram
     end
 
     rect rgba(200, 240, 200, 0.3)
-        Note over DO,M: Layer 4 — Method-level guard
+        Note over DO,M: Layer 5 — Method-level guard
         Note over M: requireDominionHere(instance):<br/>scopeAdmin, and the host's scope (aud)<br/>at or above this node
         alt Guard rejects
             M-->>DO: Error: Admin access required for this node, naming the host's scope

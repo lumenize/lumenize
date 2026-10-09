@@ -312,6 +312,13 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
 
 ## Build notes
 
+**Open for Larry, in the order they depend on each other.** Each is detailed in the phase notes below.
+1. **ADR-007's "persistent" and three sentences of `auth.md`**: drafted under Phase 4, left unmade because you review those files.
+2. **`ClientGatewayHost` stays exported, or goes**: under the verifier panel. Nobody outside Mesh can implement it now; I lean to stop exporting it.
+3. **`updateMyProfile` re-sends only the writer's own never-written profile**, a reading of D7 recorded under Phase 3.
+
+Everything else below is a record: what each phase changed from the plan, what it taught, and what it closed.
+
 ### Phase 1 — built 2026-10-08
 
 **For Larry:**
@@ -347,7 +354,7 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
 - `node-chain-passage`'s limb 1 folded into `client-routes`' limb 5; its NEBULA_SUB positive control stays.
 - `passage-step.test.ts`: the Client-to-sibling limb now asserts the target's own step ran zero times. The node's own step keeps its mutation in the claimless-chain sideways test, and the stamp keeps its in a new node-to-node `ROOM_DO` limb, through `ClientHostDO.callRoom`.
 - Mesh 1000 passed with 4 skipped, 2 more than Phase 1: the `CUSTOM_HOST_DO` limb and the node-to-node limb. Resources 2. Nebula: unit 100, frontend 237, dev-studio 115, browser 4 with 2 skipped, baseline as above. The sweep, with `client-routes` registered, passed 52 of 54, and the two it failed pass after the fixes above.
-- Mutations, all caught. In the mesh suite: the Gateway's passage check dropped, moved into the public hook, the node's own step dropped, and the stamp's refusal dropped.
+- Mutations, all caught. In the mesh suite: the Gateway's passage check dropped, moved into the public hook, the node's own step dropped, and the stamp's refusal dropped. Against `client-routes`, one per limb: the field check, an undeclared binding forwarded, a plain lookup, passage, the tier, the unscoped scope-name check, the Client's-address check, both instance checks, and refuse-then-send. The tier ahead of passage reds `scope-isolation`'s `_platform` row. A Client sender checked at the receiving host reds `client-sender-passage`'s limb 1, and a dropped subscribe handler reds both limbs of `subscribe-refusal-arrives`. The loadId mutation reds `late-answer-dropped` after its move.
 
 ### Phase 3 — built 2026-10-09
 
@@ -367,7 +374,7 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
 - `REFUSES_SCOPE_NAME` is `UNSCOPED_NODE`; `git grep -n REFUSES_SCOPE_NAME -- packages apps` prints nothing.
 - The `null` profile case is gone: `git grep -nE 'ProfileChannelSnapshot \| null|// absent profile|profile that does not exist' -- packages apps website/docs` prints nothing, and `platform-embed.ts` is regenerated.
 - Mesh 1007 passed with 4 skipped: the disposed-handle test and six stamp tests.
-- Mutations, all caught. Mesh: persist every envelope stamp, drop the alarm-row persistence, hold a scoped node's stamp, hold the `@rawRpc()` stamp, drop `Alarms.schedule`'s persistence, drop the name check, keep a released profile in the never-written set, drop the re-send after `updateMyProfile`, and skip profiles in `onSubscriptionRequired`. Baseline: a subtraction snapshot (the rogue-field test), the reaper's `subscribedAt` guard and its delete, and the re-send on a new socket (the back-fill leg). Live: the schema in `onStart`, the schema ahead of the write's guard, and the envelope stamp persisted, each against the storage limb; both re-sends against `unwritten-profile-heals`; the agent's seed against `node-chain-passage`; an unguarded `readDisplayNames` against `invite-consent`. Against `client-routes`, one per limb: the field check, an undeclared binding forwarded, a plain lookup, passage, the tier, the unscoped scope-name check, the Client's-address check, both instance checks, and refuse-then-send. The tier ahead of passage reds `scope-isolation`'s `_platform` row. A Client sender checked at the receiving host reds `client-sender-passage`'s limb 1, and a dropped subscribe handler reds both limbs of `subscribe-refusal-arrives`.
+- Mutations, all caught. Mesh: persist every envelope stamp, drop the alarm-row persistence, hold a scoped node's stamp, hold the `@rawRpc()` stamp, drop `Alarms.schedule`'s persistence, drop the name check, keep a released profile in the never-written set, drop the re-send after `updateMyProfile`, and skip profiles in `onSubscriptionRequired`. Baseline: a subtraction snapshot (the rogue-field test), the reaper's `subscribedAt` guard and its delete, and the re-send on a new socket (the back-fill leg). Live: the schema in `onStart`, the schema ahead of the write's guard, and the envelope stamp persisted, each against the storage limb; both re-sends against `unwritten-profile-heals`; the agent's seed against `node-chain-passage`; an unguarded `readDisplayNames` against `invite-consent`.
 
 ### Phase 4 — built 2026-10-09
 
@@ -377,6 +384,33 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
   - **M2** says a node records the name it was reached by when it is created. Proposed: *"A node records the name it was reached by, and any later mismatch throws: a node can never change its name. A scoped node writes it to storage at its first call; an unscoped node holds it from each call, checked against the name its namespace addressed, and writes it once it can act with no call to bring it, as an alarm does."*
   - **§ *The layers a call passes*** has no layer for the Gateway's route. The M-numbers are cited a dozen times inside `auth.md`, and `prose-voice.md` holds up M1–M7 as its numbered path, so the proposal adds a bullet to M3 rather than renumbering: *"For a Client's call, the host's Gateway first checks that the frame names a binding the Worker declared, then the same passage, then the route's tier, before the call leaves the host, so a refused call wakes nothing. The node's own step stays the authority, since a node's call crosses no Gateway."*
   - **§ *Coarse-grained access control*** says a lateral call *"is refused at the boundary, before anything at the target runs"*. True now for a Client's call; a node's call still builds its target, whose `onStart` runs before passage refuses. Proposed: *"the call is refused at the boundary: a Client's at its own host's Gateway, before the target wakes, and a node's at the target's passage step, before its `onBeforeCall()` or any method runs."*
+
+**What landed:**
+- **The rules:** `mesh.md` § *`ClientGateway` is the server-side half of a Client* gains the three steps, the field check, the declaration and the per-frame line, and its list of what the Gateway checks is restated by structure; § *Node identity is stamped on every first-contact entry (not just mesh calls)* says where each node kind keeps its stamp; `durable-objects.md` § *Initialization* gains create-on-first-write for an unscoped node a Client can name; `security.md`'s scope sentence names the Gateway's checks.
+- **The docs:** `auth-flows.md`'s diagram draws five layers, the Gateway's route among them, and its sentence counts them that way; `platform-embed.ts` is regenerated, and the `@check-example` checker passes.
+- **The other task files:** the BREAKING row, the sweep row and the Profile GC row in `backlog.md`; `mesh-1-alpha.md` § *Item 8* and its docs ideas; the personas task's question 3; the master plan's row.
+
+**The deployed pass, 2026-10-09:** `deploy-test.sh` deployed `test-nebula` at `ca5244f`, and all eleven scenarios passed against it: `client-routes`, `unwritten-profile-heals`, `four-party-chat`, and the eight others this task changed. `scope-hosts-its-clients` and `invite-consent` ran their panel-fixed versions. The `wrangler tail` capture beside it held 4,567 `ok` invocations, 48 `aborted` with `scope-deleted` (the teardowns), and the canceled and disconnected streams of closing sockets, with no error-level log and no other exception. The panel's later fixes to `client-gateway.ts` change only the per-frame line's outcome and comments, so they were run locally and not redeployed.
+
+### The verifier panel — 2026-10-09
+
+Three verifiers read Phases 1–3 against the tree. Phases 1 and 2 conformed with minor findings; Phase 3 did not, on one major. Every finding below is fixed in Phase 4's commit unless it says otherwise.
+
+- **Major, Phase 3: two tests subscribed before a first write and no longer showed what they claimed.** `client-session.test.ts`'s first Profile channel test asserted only that the first answer had an eTag, so it passed by the re-send after `updateMyProfile` without saying so; it now asserts `NEVER_WRITTEN_ETAG` and names the re-send as one of its mutations. `scope-hosts-its-clients` limb 3 heard its push as the answer to that same re-send, not as the Profile's fan-out to a stored row; the tab now writes first, subscribes, then writes again. The inventory grep listed both files, and I read past them.
+- **Fixed, minor:**
+  - `#routeClientCall` overwrote `dispatch failed` with `refused by the destination` on every transport failure.
+  - `isNonEmptyString` sat between `renameClientDisconnected` and its JSDoc.
+  - `defineRoutes`'s own redeclaration call had no test that could fail, since no Worker declares twice. A test now declares in the test file's own copy of the module, which is not the Worker's; replacing the check with `registered = next` reds it.
+  - The disposed-handle test now asserts no push as well as no row.
+  - `client-routes` limb 7 now claims only what it asserts, a subscribe and an unsubscribe admitted. Its positive control now requires the caller's write to add the table to a file that had none. Limb 5 gains a scoped route with no instance.
+  - `invite-consent` limb 6's positive control matches `nebula-auth.worker.lookup` by namespace, not a substring the Registry also logs.
+  - The back-fill leg's time jump was deleted as a mutation of the test itself, and the leg went red.
+  - Stale prose in the scope-isolation, scope-binding, guards, client-gateway-passage and passage-step tests and in `drive.ts`; `Alarms.schedule`'s JSDoc; `ProfileSubscription.snapshot`'s JSDoc and `api-reference.md`, which now say another page hears a first write at its next reconnect.
+  - Phase 2's mutation results had been split under Phase 3's notes by an edit; they are back under Phase 2.
+- **Not fixed, recorded:**
+  - **Phase 1's mutation note overclaims the `TIER_BINDING` grep.** It catches only that identifier; a tier-map parameter under another name would pass it. The signature is what holds the criterion today.
+  - **`hostedUpgrade`'s own 404 branch is untested.** Only the resolver is; the branch fails closed either way.
+- **For Larry, from the panel: `ClientGatewayHost` is exported from `@lumenize/mesh` and now requires a member keyed by a Mesh-private symbol**, so nobody outside Mesh can implement it. An adopter composing `ClientGateway` into a Durable Object of their own would see every scoped call refused with a `TypeError`. It fails closed, with a confusing message. Stop exporting the type, or document that only `ScopedMeshDO` hosts Clients; I lean to stop exporting it, which `mesh-1-alpha.md`'s docs rewrite would then not have to explain.
 
 ## Non-goals
 

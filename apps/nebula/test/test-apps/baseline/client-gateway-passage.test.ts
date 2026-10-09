@@ -5,8 +5,9 @@
  * The sender is the call's last hop, `callChain.at(-1)`, which the mesh stamps. A node's scope is
  * its name when that parses as one, so a Galaxy reaches a tab on one of its Stars (upward is free)
  * and a sibling Star does not (lateral). A node whose name is no scope, the `Profile`, passes. A
- * Client sender is not checked here, since a tab offers no scope: the receiving Client decides.
- * An envelope that names no sender is refused.
+ * Client sender is not checked here, since a tab offers no scope: the sender's own host's Gateway
+ * checked its passage into this host before sending, and the receiving Client decides whether to
+ * take it. An envelope that names no sender is refused.
  *
  * A pure sync hook (envelope + connection info in, throw-or-return out), exercised directly. An
  * envelope with an empty chain is a branch no running system produces; a Client sender is one

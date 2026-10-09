@@ -4,13 +4,15 @@
  * the upgrade's resolver for a tier no route hosts.
  *
  * In the vitest-plugin lane with no running system because every function here is pure: each takes a
- * declaration as an argument and registers nothing. The registered routes are module-global, so a
- * test calling `defineRoutes` itself would collide with this Worker's own declaration. The resolver
- * is reachable only here, since every Worker declares a `hosts` route for all three tiers.
+ * declaration as an argument and registers nothing. The one test of `defineRoutes` itself registers
+ * in this test file's copy of the module, which is not the Worker's: the Worker's declaration lives in
+ * the module instance its own entry loaded. The resolver is reachable only here, since every Worker
+ * declares a `hosts` route for all three tiers.
  */
 import { describe, it, expect } from 'vitest';
 import {
   defineRoutes,
+  registeredRoutes,
   validateRoutes,
   checkRedeclaration,
   routeFor,
@@ -84,6 +86,21 @@ describe('checkRedeclaration', () => {
     const first = validateRoutes(NEBULA_SHAPE);
     const changed = validateRoutes({ ...NEBULA_SHAPE, STAR: { tier: 'star' } });
     expect(() => checkRedeclaration(first, changed)).toThrow('was called again with different routes');
+  });
+});
+
+describe('defineRoutes', () => {
+  // MUTATION: replace the redeclaration check with `registered = next`, and the wider declaration lands.
+  it('registers once, ignores an equal second call, and refuses a different one, keeping the first', () => {
+    expect(registeredRoutes()).toBeUndefined();
+    defineRoutes(NEBULA_SHAPE as never);
+    const declared = registeredRoutes();
+    expect(declared?.routes.get('PROFILE')).toEqual({ kind: 'unscoped' });
+    defineRoutes(NEBULA_SHAPE as never);
+    expect(registeredRoutes()).toBe(declared);
+    expect(() => defineRoutes({ ...NEBULA_SHAPE, AUTH_REGISTRY: 'unscoped' } as never)).toThrow(
+      'defineRoutes() was called again with different routes; a Worker declares its routes once');
+    expect(registeredRoutes()).toBe(declared);
   });
 });
 

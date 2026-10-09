@@ -35,15 +35,16 @@
  *     message, and neither target starts in its own namespace. Mutation: drop the tier check.
  *  5. **The unscoped and worker routes.** `PROFILE` at `B` and at `_platform` is refused with
  *     `lmz.__init`'s message and no Profile of either name starts; `PROFILE` at `B/x`, `PROFILE`
- *     with no instance, and `AUTH_FACADE` at `x` each get their own message. Mutation: drop each check.
+ *     and `STAR` with no instance, and `AUTH_FACADE` at `x` each get their own message. Mutation:
+ *     drop each check.
  *  6. **Positive controls.** A `GALAXY` call to the app's Galaxy, a `PROFILE` read of the caller's
  *     own profile and an `AUTH_FACADE` call each answer, and each matcher is shown able to fire.
- *  7. **A Profile nobody created stores nothing.** A subscribe, a read and an unsubscribe under one
- *     random UUID each answer as never written, and a write there from the caller is refused by
- *     the Profile's owner-or-admin check. The local stack's Profile files then hold no table and no
- *     row that a UUID's frames could have made, and, before trusting that, the same reader finds
- *     the table the caller's own first write creates. Mutation: create the schema in `onStart`, or
- *     ahead of the write's guard, or persist the stamp at `executeEnvelope`.
+ *  7. **A Profile nobody created stores nothing.** Under one random UUID a read answers never
+ *     written, a subscribe and an unsubscribe are admitted, and a write from the caller is refused
+ *     by the Profile's owner-or-admin check. The local stack's Profile files then hold no table and
+ *     no row that a UUID's frames could have made, and, before trusting that, the same reader finds
+ *     the table the caller's own first write creates in a file that had none. Mutation: create the
+ *     schema in `onStart`, or ahead of the write's guard, or persist the stamp at `executeEnvelope`.
  *
  * Real logins (ADR-009 rung 1): the shared app's owner for the account above, and two strangers who
  * found `A` and `B` by email. `needsContainer = false`.
@@ -264,6 +265,9 @@ export async function run(stack: DevStack): Promise<void> {
     const noInstance = await send('PROFILE', undefined, op('read'));
     limb('limb 5 — PROFILE with no instance is refused with its own message',
       refusedWith(noInstance, /^"PROFILE" serves nodes named by an id/), said(noInstance));
+    const scopedNoInstance = await send('STAR', undefined, op('getOntologyVersion', 'x'));
+    limb('limb 5 — STAR with no instance is refused with its own message',
+      refusedWith(scopedNoInstance, /^"STAR" serves nodes named by a scope/), said(scopedNoInstance));
     const workerInstance = await send('AUTH_FACADE', 'x', op('expandScope'));
     limb('limb 5 — AUTH_FACADE at an instance is refused with its own message',
       refusedWith(workerInstance, /^"AUTH_FACADE" is a Worker, which takes no instance/), said(workerInstance));
@@ -296,9 +300,10 @@ export async function run(stack: DevStack): Promise<void> {
       // The reader can see a Profile's storage: the caller's own first write creates its table.
       const ownWrite = await send('PROFILE', profileId, op('writeProfile', { nickname: 'Routes' }));
       limb('limb 7 — the caller\'s write of its own Profile is admitted', ownWrite.ok, said(ownWrite));
-      const written = [...profileFiles().values()].some((s) => s.tables.includes('ProfileFields'));
+      const written = [...profileFiles()].some(([file, s]) =>
+        s.tables.includes('ProfileFields') && !(after.get(file)?.tables.includes('ProfileFields') ?? false));
       limb('limb 7 — the reader finds the table the caller\'s own first write created', written,
-        'no Profile file holds a ProfileFields table');
+        'no Profile file gained a ProfileFields table at the caller\'s write');
     }
   } finally {
     ws.close();

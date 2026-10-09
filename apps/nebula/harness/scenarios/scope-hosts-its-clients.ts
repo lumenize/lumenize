@@ -244,8 +244,12 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 3: a push from a Profile and one from the Galaxy above reach the hosted tab ───────
     const profileId = tab.claims.profileId;
+    // Written first, so the subscribe stores a row and the next write reaches the tab as the Profile's
+    // fan-out to it, not as the answer to a re-sent subscribe: a Profile nobody has written stores none.
+    await tab.updateMyProfile({ nickname: 'hosted-first' });
     using profile = tab.subscribeProfile(profileId);
-    await profile.snapshot;
+    assert.equal((await profile.snapshot).meta.eTag === '00000000000000000000000000', false,
+      'the tab\'s own profile still answered never-written after its first write');
     const nickname = `hosted-${crypto.randomUUID().slice(0, 6)}`;
     await tab.updateMyProfile({ nickname });
     limb('limb 3 — a Profile\'s push reaches the hosted tab', await eventually(() => tab.nicknames.includes(nickname)),

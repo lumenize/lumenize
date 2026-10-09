@@ -530,7 +530,8 @@ export interface ProfileSubscription extends Disposable {
   /**
    * The first push: the public fields, or, for a profile nobody has written, `{}` under the eTag
    * `NEVER_WRITTEN_ETAG`. A never-written answer registers nothing, so the Client sends the subscribe
-   * again on its next new socket and after its own `updateMyProfile`.
+   * again on its next new socket, and, for its own profile, after its own `updateMyProfile`. A page
+   * watching someone else's profile hears their first write at its next new socket or reload.
    */
   readonly snapshot: Promise<ProfileChannelSnapshot>;
 }

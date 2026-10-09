@@ -57,7 +57,7 @@ async function alarmAnswer(name: string): Promise<unknown> {
 
 describe('an unscoped node holds a call\'s stamp in memory', { timeout: 20000 }, () => {
   // MUTATION: persist the stamp at `executeEnvelope` for every node, and the row appears.
-  it('persists nothing for a call, and still knows its name while it runs', async () => {
+  it('persists nothing for a call it admits', async () => {
     const name = `plain-${crypto.randomUUID()}`;
     const stub = env.STAMP_ALARM_DO.getByName(name);
     expect(await (stub as any).__executeOperation(callTo('STAMP_ALARM_DO', name, 'ping'))).toEqual({ $ack: true });

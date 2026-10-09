@@ -108,7 +108,9 @@ export class Alarms {
   }
 
   /**
-   * Schedule a task to execute in the future.
+   * Schedule a task to execute in the future. An unscoped node's identity stamp, held in memory from
+   * the call that scheduled it, is persisted here, since the alarm may wake the node with no call to
+   * bring it.
    * @param when Date, seconds delay, or cron expression
    * @param continuation OCAN chain from `this.ctn()`
    * @see https://lumenize.com/docs/mesh/alarms#scheduling-tasks

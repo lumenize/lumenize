@@ -186,8 +186,11 @@ describe('logout', { timeout: 30000 }, () => {
 });
 
 describe('the Profile channel', { timeout: 30000 }, () => {
-  // MUTATION: drop the listener call in `handleProfileUpdate`, and the write's push reaches nothing.
-  it('subscribes by profileId, settles on the first push, and hears its own later write', async () => {
+  // The Client's own profile, never written: the Profile answers never-written and stores no row,
+  // so the Client hears its own first write only because it sends that subscribe again after the
+  // write lands. MUTATIONS: drop the listener call in `handleProfileUpdate`, or drop the re-send
+  // after `updateMyProfile`, and the write reaches nothing.
+  it('subscribes by profileId, is answered never-written, and hears its own first write', async () => {
     using client = await connectClient(SessionClient, uniqueScope('s'));
     const profileId = client.claims!.profileId;
     const heard: ProfileChannelSnapshot[] = [];
@@ -195,7 +198,7 @@ describe('the Profile channel', { timeout: 30000 }, () => {
 
     using handle = client.subscribeProfile(profileId);
     const first = await handle.snapshot;
-    expect(first?.meta.eTag).toBeDefined();
+    expect(first.meta.eTag).toBe(NEVER_WRITTEN_ETAG);
 
     await client.updateMyProfile({ nickname: 'Ada' });
     await vi.waitFor(() => expect(heard.map((s) => (s?.value as { nickname?: string })?.nickname)).toContain('Ada'));
@@ -210,6 +213,10 @@ describe('the Profile channel', { timeout: 30000 }, () => {
     using watcher = await connectClient(SessionClient, host);
     using owner = await connectClient(SessionClient, uniqueScope('s'));
     const profileId = owner.claims!.profileId!;
+    const heard: string[] = [];
+    watcher.onProfileUpdate((id, snapshot) => {
+      if (id === profileId) heard.push((snapshot.value as { nickname?: string }).nickname ?? '(none)');
+    });
     {
       using handle = watcher.subscribeProfile(profileId);
       expect((await handle.snapshot).meta.eTag).toBe(NEVER_WRITTEN_ETAG);
@@ -227,6 +234,8 @@ describe('the Profile channel', { timeout: 30000 }, () => {
     const rows = await runInDurableObject(env.PROFILE.getByName(profileId), (_i: unknown, ctx: DurableObjectState) =>
       ctx.storage.sql.exec('SELECT clientAddress FROM Subscribers').toArray());
     expect(rows).toEqual([]);
+    // The read above answered the read, not a push: the watcher heard only its first answer.
+    expect(heard).toEqual(['(none)']);
   });
 
   // The loss is real: aborting the host drops its record of the Client, so the reconnect is told

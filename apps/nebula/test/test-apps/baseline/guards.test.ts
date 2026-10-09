@@ -2,7 +2,7 @@
  * Guard enforcement tests
  *
  * Tests @mesh(guard) decorators: admin-only methods, guard rejection,
- * lifecycle ordering (onBeforeCall rejects before guard runs),
+ * lifecycle ordering (a call with no passage is refused before any guard runs),
  * and cross-admin access.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -121,7 +121,7 @@ describe('guard enforcement', () => {
   });
 
   describe('lifecycle ordering', () => {
-    it('onBeforeCall rejects wrong active scope before guard runs', async () => {
+    it('a call from another Star\'s host is refused for lack of passage before any guard runs', async () => {
       const browser = new Browser();
       const starA = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
       const starB = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-b`;

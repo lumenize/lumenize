@@ -177,7 +177,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'grant-reveals-denied': grantRevealsDenied, // a grant with no write reveals what a real member was denied (Docker — one real Apply)
   // ── a call from another tab reaches the receiving Client, which refuses it ─────────────────
   'client-sender-passage': clientSenderPassage, // a tab's call to another tab is refused by the receiving Client, before it decodes the chain (no Docker)
-  'node-chain-passage': nodeChainPassage, // a Profile refuses to run under a scope's name; every real profile id still answers (no Docker)
+  'node-chain-passage': nodeChainPassage, // every real profile id answers, NEBULA_SUB's included, though none is a UUID (no Docker)
   'subscribe-refusal-arrives': subscribeRefusalArrives, // a refused subscribe rejects at once, refused before or after the ack (no Docker)
   'client-routes': clientRoutes, // a Client's frame runs in place, goes by a declared route, or is refused before anything wakes (no Docker)
   'unwritten-profile-heals': unwrittenProfileHeals, // a page subscribed to a Profile nobody wrote hears its first write, at its own write or its next socket (no Docker, ~1 min)

@@ -6,11 +6,14 @@
  * replacing the old trust-on-first-use `aud`-lock.
  *
  * Every test here is capable-of-failing: it flips RED if the gate reverts to
- * TOFU (first-caller-wins) or drops the structural check. *
+ * TOFU (first-caller-wins) or drops the structural check.
+ *
  * A Client's call meets `requirePassage` first at its own host's Gateway, which refuses a call with
- * no passage before it leaves, with the message the node would give. So each refusal here is the
- * Gateway's, and the target never wakes. The node's own passage step, the authority for a node's
- * call, is tested node to node in `node-chain-passage.test.ts` and Mesh's `passage-step.test.ts`.
+ * no passage before it leaves, with the message the node would give. So a Client's call refused here
+ * for lack of passage is refused by the Gateway, and its target never wakes. The tests that drive
+ * `__executeOperation` directly, and the refusals by dominion or by the node's name stamp, still
+ * meet the node. The node's own passage step, the authority for a node's call, is tested node to
+ * node in `node-chain-passage.test.ts` and Mesh's `passage-step.test.ts`.
  *
  * @see tasks/archive/nebula-do-scope-isolation.md (the test matrix)
  */

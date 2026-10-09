@@ -732,14 +732,13 @@ export class ClientGateway {
         ack = inPlace
           ? await this.#host.__executeOperation(envelope)
           : await resolveStub(this.#env, binding, instance).__executeOperation(envelope);
-        settle(inPlace ? 'ran in place' : 'sent on');
+        settle(ack && '$error' in ack ? 'refused by the destination' : inPlace ? 'ran in place' : 'sent on');
       } catch (error) {
         log.error('Call dispatch failed', { callId, binding, instance, error });
         ack = { $error: preprocess(error) };
         settle('dispatch failed');
       }
       if (ack && '$error' in ack) {
-        settle('refused by the destination');
         this.#refuseToClient(ws, message, callContext, refusedBy, postprocess(ack.$error));
       }
 
@@ -1046,16 +1045,16 @@ function writeAttachment(ws: WebSocket, attachment: GatewayConnectionInfo): void
   }
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
 /**
  * The name `ClientDisconnectedError` is the Gateway's verdict that a Client is gone, and a reaper
  * drops the subscriber row of the Client it hears it from. So a Client's own answer carrying that
  * name, returned or thrown, is renamed before it fills the node's continuation, and only the
  * Gateway can say a Client is gone. The original name stays at the front of the message.
  */
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
 function renameClientDisconnected<T>(value: T): T {
   if (value instanceof Error && value.name === 'ClientDisconnectedError') {
     value.message = `${value.name}: ${value.message}`;

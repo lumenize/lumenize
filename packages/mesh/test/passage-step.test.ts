@@ -129,7 +129,8 @@ describe('an unscoped node refuses a scope-shaped name at the identity stamp', {
   });
 
   // A Client's call is refused at its host's Gateway, by the predicate and message the stamp uses
-  // (`namesScope`), before the room wakes.
+  // (`namesScope`). The message is the stamp's too, so this shows the Client hears the same refusal;
+  // `client-routes` shows the room never wakes.
   it('refuses a Client\'s call under a scope-shaped name with the same message, and runs it as a UUID', async () => {
     using client = await connectClient(PlainClient);
     const room = client.ctn<RoomDO>();

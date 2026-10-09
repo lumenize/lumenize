@@ -44,6 +44,7 @@ import {
   refreshCookie, refreshFromPage, homeSummary, requestMagicLink,
 } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
+import { debugLines } from '../lib/stdio';
 
 export const needsContainer = false;
 
@@ -154,8 +155,8 @@ export async function run(stack: DevStack): Promise<void> {
 
   // ── LIMB 6: the card's names come from a Profile nobody has written, without a failed read ─────
   // The Worker logs a failed read before it answers, and wrangler logs the request after, so once
-  // the card's request line is here a failure would be too. The lookup's own line in limb 1 is the
-  // positive control that this Worker's `nebula-auth` lines reach the capture at all.
+  // the card's request line is here a failure would be too. The lookup's own line in limb 1, a sibling
+  // namespace under `nebula-auth.worker`, is the positive control that those lines reach the capture.
   if (stack.logs === undefined) {
     console.error('  · limb 6 — a failed display-name read is not observable on a deployed target');
   } else {
@@ -164,7 +165,8 @@ export async function run(stack: DevStack): Promise<void> {
     while (!stack.logs().includes(cardLine) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
     const stdio = stack.logs();
     assert.ok(stdio.includes(cardLine), 'the card\'s request line never reached the captured stdio');
-    assert.ok(stdio.includes('looked up'), 'the lookup\'s nebula-auth line never reached the capture, so a failed read could not either');
+    assert.ok(debugLines(stdio).some((l) => l.namespace === 'nebula-auth.worker.lookup' && l.message === 'looked up'),
+      'the Worker\'s nebula-auth.worker lines never reached the capture, so a failed read could not either');
     assert.ok(!stdio.includes('display-name read failed'),
       'reading the card failed to read the invitee\'s names from their never-written Profile');
     console.error('  ✓ limb 6 — the card read a never-written Profile\'s names without a failed read');

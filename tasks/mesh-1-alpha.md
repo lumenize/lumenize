@@ -72,7 +72,8 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 **Goal:** deleting a scope wipes its nodes without the adopter writing the loop.
 
 - **Today the facade subclass's `scopeLifecycleHooks` runs it,** in `apps/nebula/src/scope-lifecycle-hooks.ts`, with `rawRpcStub`, `isOrderedReset` and a tier-to-binding table of its own.
-- **Mesh takes the generic half,** driven by the same tier-to-binding table the app already passes to the upgrade checks `mesh-is-built-on-the-scope-tree.md` ported into Mesh. Ordering a certificate stays the app's hook (Item 10).
+- **Mesh takes the generic half.** Ordering a certificate stays the app's hook (Item 10).
+- **The tier-to-binding table is the routes marked `hosts` in the Worker's `defineRoutes`** (built 2026-10-09 by `mesh-gateway-routes-client-calls.md`): `hostedUpgrade` no longer takes a table, and `TierBindings` lives only in Mesh's test support. Teardown can read the same declaration, so no adopter passes the table twice.
 - **Proof:** a scope deleted in a Worker built only from Mesh's exports leaves its nodes empty, and the test goes red when the loop skips a tier.
 
 ## Item 9: Safe defaults for test mode and Turnstile
@@ -94,6 +95,9 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 ## Docs ideas
 
 A running list of examples and explanations worth a place in the Mesh 1.0 docs, added as they come up. Item 1 draws on it.
+
+- **`defineRoutes`: a Client reaches only what its Worker declares** (`mesh-gateway-routes-client-calls.md`). One declaration at module scope names every binding a Client may call, a scoped node by its tiers, an unscoped node, a Worker; the route marked `hosts` is where a page's socket opens. Show a Client naming the Registry, refused at its own host before anything wakes.
+- **Create on first write, for a node a Client can name by id** (same task). A `DocumentDO` named by a UUID builds its tables at its first admitted write, as `Profile` does, so an id a Client invents leaves nothing; until then a read answers from a constant.
 
 - **A Client that adds its own incoming calls, layer on layer** (from `mesh-is-built-on-the-scope-tree.md` D6 and D20). `MeshClient` carries the session; `NebulaClient` extends it, composes `ClientResources`, and declares the five push methods the server calls, each a top-level `@mesh()` method forwarding to it; `StudioClient` extends that and adds `@mesh() handlePreviewReady`, which the Galaxy pushes when a build is ready. It shows an adopter where a Client's incoming calls live, and why the class the server pushes to sits in the package the server can import.
 - **Scoped and unscoped nodes, with `Profile` as the unscoped example** (D7, D14). A Star `acme.crm.tenant1` is guarded by passage; a `Profile`, named by its `profileId`, runs no passage check and lets each method decide, its public reads open and its writes checking owner-or-admin.
