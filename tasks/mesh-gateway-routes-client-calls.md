@@ -195,7 +195,7 @@ The `fetch` handler and every Durable Object load that module, so `ScopedMeshDO`
 - ⚠️ Design consideration: **if an empty byline that never fills is ever reported, the Profile is written earlier, not re-asked for.** Studio could require a name on the way into the chat, and the pattern could be taught to the codegen model, so a generated app asks the same way (D7). `nebula-pre-alpha.md` § *A person with no name is asked for one* carries it.
 - ⚠️ Design consideration: **the data plane could heal the same way.** It refuses a subscribe before create, so it holds no unregistered subscription today. If subscribing to a resource that will exist is ever wanted, D7's re-send of an unregistered subscribe is the mechanism to reuse.
 - ⚠️ Design consideration: **an adopter's `'unscoped'` route opens every name a Client invents,** and whether that leaves storage depends on the adopter's `onStart`, which `website/docs/mesh/sql.mdx` and `lumenize-do.mdx` teach to create tables. `UnscopedMeshDO` could warn when a fresh instance's `onStart` writes, naming create-on-first-write with `Profile` as the pattern; mesh-1-alpha's docs rewrite teaches the same.
-- **Out of scope, and must stay that way:** a node's own `lmz.call`. Its binding names are written by our code, and nothing here routes it through the Worker's declaration.
+- **Out of scope, and must stay that way:** a node's own `lmz.call`. Its binding names are written by our code, and nothing here routes it through the app's declaration.
 
 ## Open questions
 
@@ -412,11 +412,42 @@ Three verifiers read Phases 1–3 against the tree. Phases 1 and 2 conformed wit
   - **`hostedUpgrade`'s own 404 branch is untested.** Only the resolver is. A test that can verify a token imports `cloudflare:test`, whose import runs the test Worker's entry and its declaration of every tier, so no test in this lane reaches the branch; it needs a Worker that declares fewer (tried and measured 2026-10-09, at close-out).
 - **For Larry, from the panel: `ClientGatewayHost` is exported from `@lumenize/mesh` and now requires a member keyed by a Mesh-private symbol**, so nobody outside Mesh can implement it. An adopter composing `ClientGateway` into a Durable Object of their own would see every scoped call refused with a `TypeError`. It fails closed, with a confusing message. Stop exporting the type, or document that only `ScopedMeshDO` hosts Clients; I lean to stop exporting it, which `mesh-1-alpha.md`'s docs rewrite would then not have to explain.
 
+## Phase Retro
+
+Answered at the close-out, 2026-10-09, from § *Build notes*, the hand-off and the close-out.
+
+**1. What did we learn?**
+- **Local `wrangler dev` creates a Durable Object's SQLite file the moment anything builds it,** holding the runtime's `_cf_*` tables and miniflare's `__miniflare_do_name`. "Left nothing behind" is therefore a claim about the tables and rows our code wrote, never about a file existing (`reference_local_do_sqlite_file_on_construct`).
+- **Under vitest-plugin, `ctx.abort()` keeps an object's storage, and a stub to the aborted object stays broken.** That is what let the stamp tests reset an object and run its alarm on a fresh instance.
+- **A test file and its Worker share one module instance, and importing `cloudflare:test` runs the Worker's entry.** The build recorded the opposite, a separate copy, from one file that never imported it; the close-out's test of `hostedUpgrade`'s 404 branch saw the Worker's declaration and exposed it. The memory, `routes.test.ts`'s header and the panel note are corrected.
+- **The published baseline is v0.26.0, and the BREAKING rows had drifted from it.** Checked against the tag at the hand-off, a dozen bullets named things 0.26.0 never shipped, and the `originRequest` row had been false since it was written. All of them are gone now, by the release policy below.
+
+**2. What did we struggle with?**
+- **Fixtures in the safe shape.** `CUSTOM_HOST_DO`'s fake token carried no `access`, so a lateral call was refused for missing claims rather than for passage; its positive control is what showed it.
+- **Tests that kept passing for a reason they did not state.** Once a never-written Profile registered nothing and `updateMyProfile` re-sent, two tests heard the re-send instead of the fan-out they claimed to test. The verifier panel found both; the phase's inventory grep had listed the files, and they were read past.
+- **The Nebula suite stalling at exit** with every test reported, which cost a project-by-project rerun each time (`workerd-zombie-hang`).
+- **A word.** "A Worker declares its routes" read as a node the Gateway calls, since Mesh also names the stateless node a Client calls a Worker. Renamed at the hand-off to "the app declares", once you asked.
+
+**3. Did any tests fail unexpectedly?**
+- **`subscriber-list`'s GENERICITY test built a Galaxy at a Star's name,** and **`late-answer-dropped` called `UNIVERSE` at a galaxy's name**: the reach this task closed, so both reds were right. The second's first fix ran in place and answered before the socket closed; it now calls a Profile, a hop away.
+- **`hosted-clients` and `scope-hosts-its-clients` read a `ran in place` marker** the routing replaced with the per-frame line. The sweep found the scenario; the phase's grep, which matched refusal messages, could not.
+- **The close-out's `hostedUpgrade` 404 test got a 101.** Root cause above: the module instance is shared, and every test Worker declares all three tiers, so the branch stays untested and the reason is recorded.
+
+**4. Impact on follow-on work?**
+- **Personas comes next,** and inherits question 3, who writes a persona's name; D5 and D7 cover a persona until then.
+- **Pre-alpha's no-name row reads the never-written answer,** and now carries your fallback if an empty byline is ever reported: write the Profile earlier, by asking for a name on the way into the chat, and teach the codegen model the same.
+- **Mesh 1.0-alpha** gained Item 10's rewrite (certificates; the path-routed upgrade is gone) and Item 5's framing: the notes present the model, not a diff.
+- **The backlog gained** the `@longform` build and the one plain `Error` left in `requirePermission`. Two rows gained a second source of orphans: the scope sweep, from an admin's call to a scope nobody created, and Profile GC, from a persona's tab on a slug nobody defined. It lost the seven BREAKING rows and most of the typed-errors row.
+
+**5. Process changes?**
+- **Done at the hand-off:** `workflow.md` § *Releases* stops recording breaks while no one we know of builds on a published package, and `/release-workflow`, `/build-task` and mesh-1-alpha's Item 5 follow it.
+- **Proposed, for `/build-task` step 2's diff walk:** *"A runtime fact you record, in a memory, a rule or a test's header, owes the probe that rules out its nearest rival explanation. Name the rival, and make the one change that tells them apart."* The separate-copy claim had a rival, that the Worker's entry had not run yet, one added import away, and the false version shipped in a memory, a test header and a task note before a test leaned on it.
+
 ## Non-goals
 
 - **A per-`sub` limit at the Gateway.** `tasks/backlog.md` § *Nebula Auth* holds it, with its trigger.
 - **The no-name form.** `nebula-pre-alpha.md` § *A person with no name is asked for one*.
-- **A timer that heals an idle page sooner**, and **lazy schema for scoped nodes.** § *Future state* keeps both, each with its reason.
+- **A timer that heals an idle page sooner**, declined 2026-10-09; § *Future state* says what replaces it. **Lazy schema for scoped nodes**, which § *Future state* keeps with its reason.
 - **Scope teardown's map**, `BINDING`. mesh-1-alpha's § *Item 8* owns it.
 - **Who writes a persona's name.** The personas task's question 3.
 - **Routing a node's own `lmz.call`.** Our code writes its binding names.
