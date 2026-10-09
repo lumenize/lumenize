@@ -64,12 +64,12 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 
 ### A persona's host
 
-**A page on a persona's host gets an access token as that persona, and nothing else can.** Studio frames `manny--dev.crm.acme.lumenize.dev` to show the app exactly as Manny sees it. Manny has no email address, membership or cookie, so his tab refreshes off the cookies of whoever opened it. The token is plain: Manny's `sub` and `profileId`, his Star `acme.crm.dev` as `authScope` and `aud`, and no `act` or `scopeAdmin`. The refresh mints it only when both hold, and otherwise answers 401:
+**A page on a persona's host gets an access token as that persona, and nothing else can.** Studio frames `manny--dev.crm.acme.lumenize.dev` to show the app exactly as Manny sees it. Manny has no email address, membership or cookie, so his tab refreshes off the cookies of whoever opened it. The token is plain: Manny's `sub` and `profileId`, his Star `acme.crm.dev` as `authScope` and `aud`, and no `act`. It carries `scopeAdmin` only when the Star marks Manny as its account's admin, which the refresh asks the Star. The refresh mints it only when both hold, and otherwise answers 401:
 
 1. **The host names a persona in a Star with no real users**, today only `dev`: `manny--dev.crm.acme` names `manny` in `acme.crm.dev`.
-2. **The browser holds a refresh cookie whose membership has dominion over that Star.**
+2. **The browser holds a refresh cookie that would open that Star's own page**: a membership at the Star, or one with dominion over it.
 
-**Manny's `sub` and `profileId` are one name-based UUID computed from his host**, so every refresh mints the same value and nothing stores it. A slug nobody provisioned is a persona too, with no grants and an empty profile. The Galaxy records every persona it provisions, so deleting the galaxy can reap their Profiles.
+**Manny's `sub` and `profileId` are one name-based UUID computed from his host**, so every refresh mints the same value and nothing stores it. A slug nobody provisioned is a persona too, with no grants and an empty profile. Nothing reaps a persona's Profile: anyone can compute its id from the host, so its public fields are readable already.
 
 **Three things keep this to personas.** A persona has no email address, so no login leads to it and this refresh is the only way to its token. Its ids carry version digit 5 where a person's random ones carry 4, so this path never mints a token for a real person. And the token names only the persona and Star its host spells; nothing the page sends is an input.
 
@@ -102,7 +102,7 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 - **Every universe shares one site**, since a Public Suffix List entry would make the refresh's cookies third-party ([ADR-021](021-every-scope-has-its-own-host.md)). Our rules keep universes apart instead: `__Host-` names for cookies, and the `Sec-Fetch-Site` check for posts.
 - **All of `lumenize.dev` shares one cookie jar.** A generated app can fill it until the browser evicts refresh cookies, signing people out. `HttpOnly` and `__Host-` stop a script replacing or planting ours, not that eviction. The cost is a new login, never a takeover.
 - **Requests to the platform host carry every refresh cookie**, because `__Host-` fixes `Path=/`. They are `HttpOnly` and never logged.
-- **A persona's identity comes back with its name.** Whoever re-claims a deleted `acme.crm` gets the old Manny at `manny--dev`, Profile included, if deletion missed him, and a persona nobody provisioned is in no record to reap.
+- **A persona's identity comes back with its name.** Whoever re-claims a deleted `acme.crm` gets the old Manny at `manny--dev`, Profile included, until their own provisioning writes his name again.
 
 ### Deliberately open
 
