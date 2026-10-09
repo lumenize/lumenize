@@ -30,7 +30,7 @@ node scripts/probe.mjs list r1   # needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_WO
 | `WRITE`, a write kept (the control) | 3 of 3 | **true, true, true** |
 
 - **The control is what makes the falses mean something.** Each object that kept one write lists with stored data, so the listing reports stored data when there is some.
-- **`deleteAll()` returns an object to no stored data.** `test-nebula`'s Star namespace fits it: 1,513 of its listed Stars have none and 71 have some, and every scope a sweep deletes is torn down by `ScopedMeshDO.teardown()`, which calls `deleteAll()`. How many of the 1,513 were torn down rather than only touched is not measured.
+- **`deleteAll()` returns an object to no stored data.** `test-nebula`'s Star namespace fits it: 1,513 of its listed Stars have none and 71 have some, and a scope deleted or re-created is torn down by `ScopedMeshDO.teardown()`, which calls `deleteAll()`. How many of the 1,513 were torn down rather than only touched is not measured.
 - **An object is listed whether or not it stored anything.** Every `NOTHING` object is listed, so "listed" means the object was built, never that it holds data.
 - **The listing lags, by minutes to tens of minutes.** Nothing was listed at 2 or 5 minutes; the first objects appeared by 10, the control's by 15, and one `SCHEMA_READ` object was still missing at 46. Read a listing only after its positive control appears.
 
