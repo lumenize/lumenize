@@ -28,7 +28,7 @@ async function verifiedUpgradeToken(request: Request, env: Env): Promise<{ token
  * A Client's upgrade at `/gateway/{id}` on a scope's host, forwarded to the node the host spells,
  * which hosts it: on `tenant1.crm.acme.lumenize.dev`, `/gateway/alice.9f2c41aa` reaches the Star
  * `acme.crm.tenant1` as `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`. The caller names the
- * scope its host spells; the binding is the route the Worker declared with `defineRoutes` as
+ * scope its host spells; the binding is the route the app declared with `defineRoutes` as
  * hosting that scope's tier, and a tier with none is refused with a 404 naming `defineRoutes()`.
  *
  * These refusals come before routing, so no upgrade reaches a node without a valid token for its

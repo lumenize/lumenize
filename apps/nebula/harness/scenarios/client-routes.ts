@@ -3,7 +3,7 @@
  * other Durable Object or Worker is touched.**
  *
  * A Client's frame names a binding and an instance. Its host's Gateway runs a call for the host in
- * place, sends a call to a route the Worker declared with `defineRoutes` once that route's check
+ * place, sends a call to a route the app declared with `defineRoutes` once that route's check
  * passes, and refuses everything else with a message saying why. The refusal is the Gateway's, not
  * the destination's, so the scenario checks two things per refused frame: the message, and that the
  * destination never woke.

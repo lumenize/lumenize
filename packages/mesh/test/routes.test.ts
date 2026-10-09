@@ -79,7 +79,7 @@ describe('checkRedeclaration', () => {
     const first = validateRoutes(NEBULA_SHAPE);
     const wider = validateRoutes({ ...NEBULA_SHAPE, AUTH_REGISTRY: 'unscoped' });
     expect(() => checkRedeclaration(first, wider)).toThrow(
-      'defineRoutes() was called again with different routes; a Worker declares its routes once');
+      'defineRoutes() was called again with different routes; an app declares its routes once');
   });
 
   it('refuses a changed value', () => {
@@ -99,7 +99,7 @@ describe('defineRoutes', () => {
     defineRoutes(NEBULA_SHAPE as never);
     expect(registeredRoutes()).toBe(declared);
     expect(() => defineRoutes({ ...NEBULA_SHAPE, AUTH_REGISTRY: 'unscoped' } as never)).toThrow(
-      'defineRoutes() was called again with different routes; a Worker declares its routes once');
+      'defineRoutes() was called again with different routes; an app declares its routes once');
     expect(registeredRoutes()).toBe(declared);
   });
 });

@@ -176,13 +176,13 @@ A client and its server-side half together are the equivalent of a mesh node. Th
 1. **It MUST honor every transport rule a node's framework honors.** It acks a node's call early, keeps that call's continuation, fills it with the client's answer using `fireResponse`'s code, and fires it back. It hands the client's own filled continuation down to whatever socket the client is on now.
 2. **It MUST NOT act as a node of its own.** It never appears in a `callChain`, holds no `@mesh()` members, and decides nothing that belongs to the client. What it checks is what must not depend on the browser's honesty: who connects and whether the token is live, every check a Client's frame meets before it leaves its host (below), and whether the tab has passage into what is sent down to it.
 
-`ClientGateway` (`packages/mesh/src/client-gateway.ts`) keeps no storage and is handed only its host's `ctx`, `env` and the hooks of `ClientGatewayHost`, and reads the routes its Worker declared, so **`this.lmz.call(...)` is unavailable** to it. It builds each client call's mesh envelope itself. A frame whose `binding` is not a non-empty string, or whose `instance` is present and not one, is refused; then `#handleClientCall` routes it in three steps:
+`ClientGateway` (`packages/mesh/src/client-gateway.ts`) keeps no storage and is handed only its host's `ctx`, `env` and the hooks of `ClientGatewayHost`, and reads the routes its app declared, so **`this.lmz.call(...)` is unavailable** to it. It builds each client call's mesh envelope itself. A frame whose `binding` is not a non-empty string, or whose `instance` is present and not one, is refused; then `#handleClientCall` routes it in three steps:
 
 1. **A call to the host, or to another Client on it, runs in place** through the host's own request door.
-2. **A call to a binding the Worker declared is sent on**, by `resolveStub(...).__executeOperation(envelope)`, once that route's check passes. A scoped node: passage into the instance's host part, through a hook keyed by a Mesh-private symbol so no host override drops it, then the tier. An unscoped node: an instance that is neither a Client's address nor a scope's name. A Worker: no instance.
+2. **A call to a binding the app declared is sent on**, by `resolveStub(...).__executeOperation(envelope)`, once that route's check passes. A scoped node: passage into the instance's host part, through a hook keyed by a Mesh-private symbol so no host override drops it, then the tier. An unscoped node: an instance that is neither a Client's address nor a scope's name. A Worker: no instance.
 3. **Anything else is refused at the Gateway**, before any other object is touched: the Registry, an email sender, a binding added later.
 
-The Worker declares its routes once, at module scope beside its `fetch`, with `defineRoutes` (`packages/mesh/src/routes.ts`). Nebula's, in `apps/nebula/src/entrypoint.ts`:
+The app declares its routes once, with `defineRoutes` (`packages/mesh/src/routes.ts`), at module scope in its entry module or a module it imports. The `fetch` handler and every Durable Object load the entry module, so each reads the table from its own memory, and the Gateway's check is a lookup with no hop. Nebula's, in `apps/nebula/src/entrypoint.ts`:
 
 ```ts
 defineRoutes({

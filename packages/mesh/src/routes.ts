@@ -1,11 +1,12 @@
 /**
- * The routes a Worker declares for its Clients: which bindings a Client's call may name, and how
+ * The routes an app declares for its Clients: which bindings a Client's call may name, and how
  * each is checked before a host node's Gateway sends the call on.
  *
- * A Worker that hosts Clients calls {@link defineRoutes} once, at module scope, beside its `fetch`.
- * Every Durable Object class in the Worker shares that module, so each host node's Gateway reads the
- * one declaration with no code of its own, and `hostedUpgrade` opens a socket on the route marked
- * `hosts` for the scope's tier. Nebula's, in `apps/nebula/src/entrypoint.ts`:
+ * An app that hosts Clients calls {@link defineRoutes} once, at module scope in its entry module or
+ * a module it imports. The `fetch` handler and every Durable Object load the entry module, so each
+ * reads the declaration from its own memory: a host node's Gateway with no code of its own, and
+ * `hostedUpgrade` to open a socket on the route marked `hosts` for the scope's tier. Nebula's, in
+ * `apps/nebula/src/entrypoint.ts`:
  *
  * ```ts
  * defineRoutes({
@@ -66,7 +67,7 @@ export type NormalizedRoute =
   | { kind: 'unscoped' }
   | { kind: 'worker' };
 
-/** What a Client is told when its call names a binding the Worker declared no route for. */
+/** What a Client is told when its call names a binding the app declared no route for. */
 export function noRouteMessage(binding: string): string {
   return `No route from a Client to "${binding}": a Client reaches only the bindings declared in defineRoutes()`;
 }
@@ -155,7 +156,7 @@ export function checkRedeclaration(previous: ValidatedRoutes, next: ValidatedRou
       return other !== undefined && sameRoute(route, other);
     });
   if (!same) {
-    throw new Error('defineRoutes() was called again with different routes; a Worker declares its routes once');
+    throw new Error('defineRoutes() was called again with different routes; an app declares its routes once');
   }
 }
 
@@ -173,8 +174,8 @@ export function resolveHostBinding(routes: ValidatedRoutes | undefined, tier: Ti
 let registered: ValidatedRoutes | undefined;
 
 /**
- * Declare the routes a Client of this Worker may call. Call it once, at module scope; a second
- * call with equal routes does nothing, and any other throws.
+ * Declare the routes a Client of this app may call. Call it once, at module scope in the entry
+ * module or a module it imports; a second call with equal routes does nothing, and any other throws.
  */
 export function defineRoutes<E = Cloudflare.Env>(declaration: Routes<E>): void {
   const next = validateRoutes(declaration);
@@ -185,7 +186,7 @@ export function defineRoutes<E = Cloudflare.Env>(declaration: Routes<E>): void {
   registered = next;
 }
 
-/** The routes this Worker declared, or `undefined` if it declared none. */
+/** The routes this app declared, or `undefined` if it declared none. */
 export function registeredRoutes(): ValidatedRoutes | undefined {
   return registered;
 }

@@ -4,8 +4,8 @@
  * hooks, and a `fetch` that answers `/auth/*` and a Client's upgrade at `/gateway/{id}` on a scope's
  * host.
  *
- * A Worker exports the classes for its wrangler bindings, declares the routes its Clients may call
- * with `defineRoutes`, and builds its `fetch` with {@link meshTestFetch}, naming the binding each tier
+ * A test app's entry module exports the classes for its wrangler bindings, declares the routes its
+ * Clients may call with `defineRoutes`, and builds its `fetch` with {@link meshTestFetch}, naming the binding each tier
  * of scope lives under for teardown:
  *
  * ```ts
@@ -75,7 +75,7 @@ export function authFacadeFor(tiers: TierBindings): typeof AuthFacade {
 
 /**
  * The Worker's `fetch`: a Client's upgrade on a scope's host goes to the node that host spells, at
- * the route the Worker declared as hosting its tier; every `/auth/*` route goes to Mesh's router,
+ * the route the app declared as hosting its tier; every `/auth/*` route goes to Mesh's router,
  * whose creation teardown reaches each tier's node at the binding `tiers` names; anything else is
  * `fallthrough`'s, or a 404.
  */

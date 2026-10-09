@@ -145,7 +145,7 @@ export interface ClientGatewayHost {
  * open or closing, and the next connection is told `true` whatever the row says.
  *
  * **It routes each call a Client makes** (`#handleClientCall`). A call to the host, or to another
- * Client the host holds, runs in place. A call to a binding the Worker declared with `defineRoutes`
+ * Client the host holds, runs in place. A call to a binding the app declared with `defineRoutes`
  * is sent on once that route's check passes: passage and the tier for a scoped node, an id-shaped
  * name for an unscoped one, no instance for a Worker. Anything else is refused, so a Client reaches
  * no binding the Worker left out, the Registry included.
@@ -715,7 +715,7 @@ export class ClientGateway {
 
       // The three steps. (1) A call to the host node itself, or to another Client it hosts, runs in
       // place through the host's own request door, so it passes the same checks an RPC would and
-      // costs no request. (2) A call to a route the Worker declared is sent on once that route's
+      // costs no request. (2) A call to a route the app declared is sent on once that route's
       // check passes. (3) Anything else is refused here, before any other object is touched.
       const inPlace = this.#isHostNode(binding, instance, attachment);
       const routeRefusal = inPlace ? undefined : this.#routeRefusal(binding, instance, callContext);
@@ -750,7 +750,7 @@ export class ClientGateway {
 
   /**
    * Why a Client's call to (`binding`, `instance`) may not leave its host, or `undefined` when its
-   * route admits it. A binding the Worker declared no route for is refused. A scoped route checks
+   * route admits it. A binding the app declared no route for is refused. A scoped route checks
    * passage into the address's host part, through the host's {@link GATEWAY_PASSAGE} check, then
    * that the scope's tier is one the route serves; passage first, so `_platform` and an unparseable
    * name keep `requirePassage`'s own messages. An unscoped route needs an instance that is neither a
