@@ -28,8 +28,11 @@ ctx.storage.kv.put(k, v); await new Promise(r => setTimeout(r, 0)); ctx.abort();
 
 (Sync `kv` and async `storage` share one keyspace, which is why swapping APIs changes nothing.) ⚠️ **This is
 deploy-only verifiable**: under local `wrangler dev` (miniflare), `ctx.abort()` reconstructs the DO with
-**wiped** storage, so *no* write survives locally regardless — a local test can neither confirm the fix nor
-catch the bug. Bit us on an abort-cooldown timestamp that never persisted.
+**wiped** storage, so *no* write survives locally regardless — a test there can neither confirm the fix nor
+catch the bug. Bit us on an abort-cooldown timestamp that never persisted. The vitest-plugin lane's
+`ctx.abort()` keeps what was persisted, as a deployed eviction does, so a test that an object's state
+survives a reset belongs there (`packages/mesh/test/identity-stamp.test.ts`, measured 2026-10-09);
+whether it drops a write made just before the abort is unmeasured.
 
 ## Initialization (schema setup, in-DO migrations)
 One-time setup — `CREATE TABLE IF NOT EXISTS`, in-DO schema migration, config — MUST run at startup so it completes before any request.
