@@ -104,12 +104,13 @@ Production should launch at compatibility date 2026-10-01, and our pinned test t
 
 ## A person with no name is asked for one
 
-**A page whose own profile answers as never written asks its person for a name.** [mesh-gateway-routes-client-calls.md](mesh-gateway-routes-client-calls.md) makes a Profile nobody has written answer with the empty profile and a fixed never-written `eTag` (its D5), and has a page watching it subscribe again once a name is written (its D7). Nothing yet tells the person their name is missing.
+**A page whose own profile answers as never written asks its person for a name.** [mesh-gateway-routes-client-calls.md](mesh-gateway-routes-client-calls.md) makes a Profile nobody has written answer with the empty profile and a fixed never-written `eTag` (its D5), and has a page watching it subscribe again at its next new socket, or at once after the page's own write (its D7). Nothing yet tells the person their name is missing.
 
 - **Who reaches it:** a persona until its name is written; a programmatic accepter, since the harness's `provisionAndLogin` and `acceptInviteAndLogin` accept with no nickname; and a person whose display-name write at consent failed, which `settleAcceptance` logs and carries on past.
 - **What the harness does:** its accept sends a nickname, as the consent screen always does, so a Studio-driving scenario never meets the form. The form does not special-case tests.
-- **What Studio does:** on finding its own profile never written, it opens the profile form, with *Remind me later*, which asks again at a later visit. Saving it is the first write, which every page watching that profile then picks up.
+- **What Studio does:** on finding its own profile never written, it opens the profile form, with *Remind me later*, which asks again at a later visit. Saving it is the first write: the person's own page shows it at once, and another page watching that profile picks it up at its next new socket or reload.
 - **Generated apps:** whether a generated app does the same, through its guidance, is decided when this is picked up.
+- **If an empty byline is ever reported,** the fix is to write the Profile earlier, before anyone else reads it. Studio could require a name on the way into the chat rather than offer *Remind me later*, and the pattern could then be taught to the codegen model, so a generated app asks the same way. A Client that re-asks on a timer was weighed and declined (Larry, 2026-10-09).
 
 It lands after the Gateway task, which builds the never-written answer.
 
