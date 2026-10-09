@@ -5,9 +5,10 @@
  *
  * In the vitest-plugin lane with no running system because every function here is pure: each takes a
  * declaration as an argument and registers nothing. The one test of `defineRoutes` itself registers
- * in this test file's copy of the module, which is not the Worker's: the Worker's declaration lives in
- * the module instance its own entry loaded. The resolver is reachable only here, since every Worker
- * declares a `hosts` route for all three tiers.
+ * in the module instance the Worker's entry also uses, and starts from nothing only because this file
+ * never imports `cloudflare:test`, whose import runs that entry and its declaration (measured
+ * 2026-10-09). The resolver is reachable only here, since every test Worker declares a `hosts` route
+ * for all three tiers.
  */
 import { describe, it, expect } from 'vitest';
 import {

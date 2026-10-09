@@ -400,7 +400,7 @@ Three verifiers read Phases 1–3 against the tree. Phases 1 and 2 conformed wit
 - **Fixed, minor:**
   - `#routeClientCall` overwrote `dispatch failed` with `refused by the destination` on every transport failure.
   - `isNonEmptyString` sat between `renameClientDisconnected` and its JSDoc.
-  - `defineRoutes`'s own redeclaration call had no test that could fail, since no app declares twice. A test now declares in the test file's own copy of the module, which is not the Worker's; replacing the check with `registered = next` reds it.
+  - `defineRoutes`'s own redeclaration call had no test that could fail, since no app declares twice. A test now declares in the module the Worker's entry also uses, before anything runs that entry: the test file never imports `cloudflare:test`, whose import does; replacing the check with `registered = next` reds it.
   - The disposed-handle test now asserts no push as well as no row.
   - `client-routes` limb 7 now claims only what it asserts, a subscribe and an unsubscribe admitted. Its positive control now requires the caller's write to add the table to a file that had none. Limb 5 gains a scoped route with no instance.
   - `invite-consent` limb 6's positive control matches `nebula-auth.worker.lookup` by namespace, not a substring the Registry also logs.
@@ -409,7 +409,7 @@ Three verifiers read Phases 1–3 against the tree. Phases 1 and 2 conformed wit
   - Phase 2's mutation results had been split under Phase 3's notes by an edit; they are back under Phase 2.
 - **Not fixed, recorded:**
   - **Phase 1's mutation note overclaims the `TIER_BINDING` grep.** It catches only that identifier; a tier-map parameter under another name would pass it. The signature is what holds the criterion today.
-  - **`hostedUpgrade`'s own 404 branch is untested.** Only the resolver is; the branch fails closed either way.
+  - **`hostedUpgrade`'s own 404 branch is untested.** Only the resolver is. A test that can verify a token imports `cloudflare:test`, whose import runs the test Worker's entry and its declaration of every tier, so no test in this lane reaches the branch; it needs a Worker that declares fewer (tried and measured 2026-10-09, at close-out).
 - **For Larry, from the panel: `ClientGatewayHost` is exported from `@lumenize/mesh` and now requires a member keyed by a Mesh-private symbol**, so nobody outside Mesh can implement it. An adopter composing `ClientGateway` into a Durable Object of their own would see every scoped call refused with a `TypeError`. It fails closed, with a confusing message. Stop exporting the type, or document that only `ScopedMeshDO` hosts Clients; I lean to stop exporting it, which `mesh-1-alpha.md`'s docs rewrite would then not have to explain.
 
 ## Non-goals
