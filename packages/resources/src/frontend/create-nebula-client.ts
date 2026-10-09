@@ -695,7 +695,6 @@ export function createNebulaStore(
   // Reads of store.lmz.profiles[id] auto-subscribe via `subscribeProfile` (the read-matcher above); this
   // is the write-back. Like orgTree, lmz.* is invisible to the `^resources\.` transaction matcher.
   client.onProfileUpdate((profileId, snapshot) => {
-    if (!snapshot) return; // absent profile — leave the slot undefined
     withContext({ source: 'remote' }, () => {
       internalDeepWrite(['lmz', 'profiles', profileId, 'value'], snapshot.value);
       internalDeepWrite(['lmz', 'profiles', profileId, 'meta'], snapshot.meta);

@@ -19,6 +19,7 @@ import {
 import type { AuthFacade } from './auth/auth-facade.js';
 import type { AffectedScope, ScopeDeletionPlan } from './auth/auth-registry.js';
 import type { AuthClaims, InviteeRequest, InviteSummary, ScopeNode } from './auth/types.js';
+import { NEVER_WRITTEN_ETAG } from './auth/types.js';
 import {
   newContinuation,
   executeOperationChain,
@@ -526,8 +527,12 @@ export interface ProfileChannelSnapshot {
  * handle disposes once, and the subscription is released when the last handle for the profile is.
  */
 export interface ProfileSubscription extends Disposable {
-  /** The first push: the public fields, or `null` for a profile that does not exist. */
-  readonly snapshot: Promise<ProfileChannelSnapshot | null>;
+  /**
+   * The first push: the public fields, or, for a profile nobody has written, `{}` under the eTag
+   * `NEVER_WRITTEN_ETAG`. A never-written answer registers nothing, so the Client sends the subscribe
+   * again on its next new socket and after its own `updateMyProfile`.
+   */
+  readonly snapshot: Promise<ProfileChannelSnapshot>;
 }
 
 /**
@@ -658,9 +663,16 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
   /** Handles held per profile; the keys are the live subscriptions a restore sends again. */
   #profileRefcount = new Map<string, number>();
   /** Subscribes waiting for their first push. */
-  #profilePending = new Map<string, PendingPush<ProfileChannelSnapshot | null>>();
+  #profilePending = new Map<string, PendingPush<ProfileChannelSnapshot>>();
+  /**
+   * Profiles this Client holds whose last answer was the never-written one: their subscribe
+   * registered nothing at the Profile, so it is sent again on each new socket and after this
+   * Client's own profile write. Only a held profile enters, and releasing it removes it, so a
+   * disposed handle is never sent again.
+   */
+  #profilesNeverWritten = new Set<string>();
   /** The factory's listener, which mirrors each push into its store. One at a time. */
-  #profileListener: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null = null;
+  #profileListener: ((profileId: string, snapshot: ProfileChannelSnapshot) => void) | null = null;
 
   // ============================================
   // Constructor
@@ -1220,35 +1232,40 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
   /**
    * Write the public fields of this session's own profile, the one its `profileId` claim names.
    * The Profile allows its owner or an admin; under impersonation the claim names the subject, so
-   * the child edits the subject's profile as they would. The change reaches every subscriber.
+   * the child edits the subject's profile as they would. The change reaches every subscriber. A
+   * subscribe of this Client's own that was answered never-written registered nothing, so once the
+   * write lands it is sent again, and this Client hears its own change.
    */
-  updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
+  async updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
     const profileId = this.claims?.profileId;
-    if (!profileId) return Promise.reject(new Error('updateMyProfile: this session has no profileId yet'));
-    return this.lmz.callAsync('PROFILE', profileId, this.ctn<ProfileTarget>().writeProfile(fields)) as Promise<void>;
+    if (!profileId) throw new Error('updateMyProfile: this session has no profileId yet');
+    await this.lmz.callAsync('PROFILE', profileId, this.ctn<ProfileTarget>().writeProfile(fields));
+    if (this.#profilesNeverWritten.has(profileId)) this.#sendProfileSubscribe(profileId);
   }
 
   /**
    * Register the listener every profile push reaches: the factory's, which mirrors it into
    * `store.lmz.profiles[profileId]`. One at a time; a later call replaces it.
    */
-  onProfileUpdate(handler: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null): void {
+  onProfileUpdate(handler: ((profileId: string, snapshot: ProfileChannelSnapshot) => void) | null): void {
     this.#profileListener = handler;
   }
 
   /**
    * A push from a Profile: the answer to a subscribe, or a later change. It reaches the listener,
-   * and settles a subscribe still waiting for its first. `null`, a profile that does not exist,
-   * reaches no listener; an Error, a refused subscribe, rejects the waiting one. `@mesh()`-decorated
-   * below the class, by a call rather than by syntax.
+   * and settles a subscribe still waiting for its first. An Error, a refused subscribe, rejects the
+   * waiting one. An answer under `NEVER_WRITTEN_ETAG` is remembered, since it registered nothing.
+   * `@mesh()`-decorated below the class, by a call rather than by syntax.
    */
-  handleProfileUpdate(profileId: string, result: ProfileChannelSnapshot | null | Error): void {
+  handleProfileUpdate(profileId: string, result: ProfileChannelSnapshot | Error): void {
     const pending = this.#profilePending.get(profileId);
     if (result instanceof Error) {
       if (pending) { this.#profilePending.delete(profileId); pending.reject(result); }
       return;
     }
-    if (result !== null) this.#profileListener?.(profileId, result);
+    if (result.meta?.eTag !== NEVER_WRITTEN_ETAG) this.#profilesNeverWritten.delete(profileId);
+    else if (this.#profileRefcount.has(profileId)) this.#profilesNeverWritten.add(profileId);
+    this.#profileListener?.(profileId, result);
     if (pending) { this.#profilePending.delete(profileId); pending.resolve(result); }
   }
 
@@ -1276,6 +1293,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
     const n = this.#profileRefcount.get(profileId) ?? 0;
     if (n > 1) { this.#profileRefcount.set(profileId, n - 1); return; }
     this.#profileRefcount.delete(profileId);
+    this.#profilesNeverWritten.delete(profileId);
     this.lmz.call('PROFILE', profileId, this.ctn<ProfileTarget>().unsubscribe(),
       this.ctn<this>().logRefusal('unsubscribeProfile'), { onErrorOnly: true });
   }
@@ -1902,8 +1920,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       this.onSubscriptionRequired();
     } else if (reconnect) {
       // Nothing was lost, but a profile subscribe sent just as the last socket closed may never have
-      // reached its Profile: one still waiting for its first push goes again.
-      for (const profileId of this.#profilePending.keys()) this.#sendProfileSubscribe(profileId);
+      // reached its Profile: one still waiting for its first push goes again. So does one answered
+      // never-written, which registered nothing: the profile may have been written since.
+      const again = new Set([...this.#profilePending.keys(), ...this.#profilesNeverWritten]);
+      for (const profileId of again) this.#sendProfileSubscribe(profileId);
     }
   }
 

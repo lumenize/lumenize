@@ -53,6 +53,7 @@ import type { QueryDescriptor, ResourcesHost, SubscriptionKind, TransactionResul
 import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import { splitAddress } from '@lumenize/mesh';
+import { rawRpcStub } from '@lumenize/mesh/raw-rpc';
 
 const VERSION = 'v1';
 const TYPES = [
@@ -313,14 +314,24 @@ describe('the first answer to a new subscriber reaps a tab that is already gone'
   });
 
   it('9: the Profile\'s first snapshot (onProfileBroadcastResult)', async () => {
-    const { star, accessToken } = await starWithParent();
-    const profileId = uuid();
-    await subscribeAsAbsentTab('PROFILE', profileId, star, accessToken, through('subscribe')());
-    await vi.waitFor(async () => {
-      const n = await (runInDurableObject as any)((env as any).PROFILE.getByName(profileId), (_i: any, c: any) =>
-        c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers').toArray()[0].n as number);
-      expect(n).toBe(0);
-    });
+    const entries: DebugLogOutput[] = [];
+    setDebugSink((e) => entries.push(e));
+    try {
+      const { star, accessToken } = await starWithParent();
+      const profileId = uuid();
+      // Created first, through the consent route's own write: a Profile nobody has written stores no row.
+      await rawRpcStub('PROFILE', profileId).setDisplayNames({ nickname: 'Ada' });
+      const tab = await subscribeAsAbsentTab('PROFILE', profileId, star, accessToken, through('subscribe')());
+      // Fixture guard: the push went to the tab's address, so its row was written under it.
+      await vi.waitFor(() => expect(reaped(entries, tab)).toBe(true));
+      await vi.waitFor(async () => {
+        const n = await (runInDurableObject as any)((env as any).PROFILE.getByName(profileId), (_i: any, c: any) =>
+          c.storage.sql.exec('SELECT COUNT(*) AS n FROM Subscribers').toArray()[0].n as number);
+        expect(n).toBe(0);
+      });
+    } finally {
+      clearDebugSink();
+    }
   });
 });
 
@@ -390,6 +401,8 @@ describe('a re-subscribe that lands before its reaper keeps its row', () => {
     const { star } = await starWithParent();
     const tab = await adminTab(star);
     const profileId = uuid();
+    // Created first, so the subscribe stores the row the reaper races for.
+    await rawRpcStub('PROFILE', profileId).setDisplayNames({ nickname: 'Ada' });
     await tab.subscribeProfile(profileId).snapshot;
     const id = addressOfClient(tab);
     const profile = (env as any).PROFILE.getByName(profileId);

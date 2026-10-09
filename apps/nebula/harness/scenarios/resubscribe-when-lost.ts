@@ -351,6 +351,8 @@ export async function run(stack: DevStack): Promise<void> {
       watcher.onProfileUpdate((id, snapshot) => {
         if (id === profileId) heard.push((snapshot?.value as { nickname?: string } | undefined)?.nickname ?? '');
       });
+      // Written first: a Profile nobody has written registers no subscriber, so its push could not fail.
+      await writer.updateMyProfile({ nickname: 'before' });
       await watcher.subscribeProfile(profileId).snapshot;
       log.holdMs = 8_000;
       log.current!.drop();

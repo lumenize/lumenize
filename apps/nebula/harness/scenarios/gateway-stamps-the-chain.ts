@@ -292,6 +292,9 @@ export async function run(stack: DevStack): Promise<void> {
     }));
     const writerChat = writer.client.resources.subscribe('Chat', chatId);
     const honestChat = honest.client.resources.subscribe('Chat', chatId);
+    // The writer's profile is written first: a Profile nobody has written registers no subscriber,
+    // and a row is what each limb below forges a hop onto.
+    await step('the writer names itself', 30_000, () => writer.client.updateMyProfile({ nickname: 'chain-0' }));
     const honestProfile = honest.client.subscribeProfile(profileId);
     disposers.push(
       () => writerChat[Symbol.dispose](), () => honestChat[Symbol.dispose](), () => honestProfile[Symbol.dispose](),

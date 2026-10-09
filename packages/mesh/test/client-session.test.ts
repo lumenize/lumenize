@@ -17,6 +17,7 @@ import { mesh } from '../src/mesh-decorator';
 import { isTornDown } from '../src/impersonation';
 import type { NodeIdentity } from '../src/types';
 import type { ClientHostDO } from './test-worker-and-dos';
+import { NEVER_WRITTEN_ETAG } from '../src/auth/types';
 import { PLATFORM } from './auth/test-helpers';
 import { connectClient, loginAt, loginOf, uniqueScope, type Login } from './support/login';
 
@@ -189,7 +190,7 @@ describe('the Profile channel', { timeout: 30000 }, () => {
   it('subscribes by profileId, settles on the first push, and hears its own later write', async () => {
     using client = await connectClient(SessionClient, uniqueScope('s'));
     const profileId = client.claims!.profileId;
-    const heard: Array<ProfileChannelSnapshot | null> = [];
+    const heard: ProfileChannelSnapshot[] = [];
     client.onProfileUpdate((id, snapshot) => { if (id === profileId) heard.push(snapshot); });
 
     using handle = client.subscribeProfile(profileId);
@@ -198,6 +199,34 @@ describe('the Profile channel', { timeout: 30000 }, () => {
 
     await client.updateMyProfile({ nickname: 'Ada' });
     await vi.waitFor(() => expect(heard.map((s) => (s?.value as { nickname?: string })?.nickname)).toContain('Ada'));
+  });
+
+  // A never-written answer is sent again on each new socket, for a profile the Client still holds.
+  // The owner writes before the watcher's new socket, so a re-send would now register a row.
+  // MUTATION: keep a released profile in `#profilesNeverWritten`, and the disposed handle's
+  // subscribe goes again and leaves the watcher's row.
+  it('does not send a disposed handle\'s never-written subscribe again on a new socket', async () => {
+    const host = uniqueScope('s');
+    using watcher = await connectClient(SessionClient, host);
+    using owner = await connectClient(SessionClient, uniqueScope('s'));
+    const profileId = owner.claims!.profileId!;
+    {
+      using handle = watcher.subscribeProfile(profileId);
+      expect((await handle.snapshot).meta.eTag).toBe(NEVER_WRITTEN_ETAG);
+    }
+    await owner.updateMyProfile({ nickname: 'written after the dispose' });
+
+    // A new socket inside the grace period, which the host reports as nothing lost.
+    watcher.lmz.call('CLIENT_HOST_DO', host, watcher.ctn<ClientHostDO>().closeEveryClient(4000),
+      watcher.ctn().logRefusal('closeEveryClient'), { onErrorOnly: true });
+    await vi.waitFor(() => expect(watcher.connectionState).toBe('reconnecting'), { timeout: 5000 });
+    await vi.waitFor(() => expect(watcher.connectionState).toBe('connected'), { timeout: 10000 });
+    // A read on the new socket reaches the Profile after any subscribe sent ahead of it.
+    await watcher.lmz.callAsync('PROFILE', profileId, watcher.ctn<{ read(): unknown }>().read());
+
+    const rows = await runInDurableObject(env.PROFILE.getByName(profileId), (_i: unknown, ctx: DurableObjectState) =>
+      ctx.storage.sql.exec('SELECT clientAddress FROM Subscribers').toArray());
+    expect(rows).toEqual([]);
   });
 
   // The loss is real: aborting the host drops its record of the Client, so the reconnect is told
@@ -212,8 +241,11 @@ describe('the Profile channel', { timeout: 30000 }, () => {
     client.onProfileUpdate((_id, snapshot) => {
       heard.push((snapshot?.value as { nickname?: string })?.nickname ?? '(none)');
     });
+    // Written first, so the subscribe registers a row for the loss to take away: a never-written
+    // Profile stores none, and the Client's own write would re-send that subscribe by itself.
+    await client.updateMyProfile({ nickname: 'before the loss' });
     using handle = client.subscribeProfile(profileId);
-    await handle.snapshot;
+    expect((await handle.snapshot).meta.eTag).not.toBe(NEVER_WRITTEN_ETAG);
 
     await runInDurableObject(env.PROFILE.getByName(profileId), (_i: unknown, ctx: DurableObjectState) => {
       ctx.storage.sql.exec('DELETE FROM Subscribers');

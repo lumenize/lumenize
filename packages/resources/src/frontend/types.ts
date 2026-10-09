@@ -51,7 +51,7 @@ export interface StoreClient {
   onOrgTreeUpdate(handler: (state: unknown) => void): void;
   /** Register the factory's global-Profile listener (mirrors each pushed snapshot to
    *  store.lmz.profiles[id].value/meta — the DEDICATED profile channel, never resources.*). */
-  onProfileUpdate(handler: (profileId: string, snapshot: ProfileChannelSnapshot | null) => void): void;
+  onProfileUpdate(handler: (profileId: string, snapshot: ProfileChannelSnapshot) => void): void;
   /** Subscribe to a global Profile by id (auto-subscribe 0→1). Returns a handle the factory holds +
    *  disposes after grace; pushes arrive via `onProfileUpdate`. Dedicated channel (not `resources.*`). */
   subscribeProfile(profileId: string): ProfileSubscription;

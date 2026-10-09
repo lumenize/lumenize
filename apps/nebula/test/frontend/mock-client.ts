@@ -23,6 +23,7 @@ import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, 
 import type { QueryDescriptor, SubscriberEntry } from '../../../../packages/resources/src/query-hash';
 import type { StoreClient } from '../../../../packages/resources/src/frontend/types';
 import type { ConnectionState } from '@lumenize/mesh/client';
+import { NEVER_WRITTEN_ETAG } from '@lumenize/mesh/client';
 import type { QueueSubmission } from '../../../../packages/resources/src/frontend/debounce';
 import type { Snapshot as WireSnapshot } from '../../../../packages/resources/src/snapshots';
 
@@ -50,8 +51,9 @@ export class MockClient implements StoreClient {
 
   /** Programmable subscribe response (reject to exercise the auto-subscribe error path). */
   subscribeResponder: (rt: string, rid: string) => Promise<unknown> = async () => null;
-  /** Programmable profile-subscribe response. */
-  profileSubscribeResponder: (profileId: string) => Promise<unknown> = async () => null;
+  /** Programmable profile-subscribe response. Default: the never-written profile, as a real Profile answers one. */
+  profileSubscribeResponder: (profileId: string) => Promise<unknown> =
+    async () => ({ value: {}, meta: { eTag: NEVER_WRITTEN_ETAG } });
 
   connectionState: ConnectionState = 'disconnected';
 
@@ -59,7 +61,7 @@ export class MockClient implements StoreClient {
   #engine: ConflictOutcomeEngine;
   #connHandler: ((state: ConnectionState) => void) | null = null;
   #orgTreeHandler: ((state: unknown) => void) | null = null;
-  #profileHandler: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null = null;
+  #profileHandler: ((profileId: string, snapshot: ProfileChannelSnapshot) => void) | null = null;
   #querySubscribersHandler: ((delivery: SubscriberRosterDelivery) => void) | null = null;
 
   constructor(opts: { quietMs?: number; maxWaitMs?: number; timeoutMs?: number } = {}) {
@@ -96,7 +98,7 @@ export class MockClient implements StoreClient {
     this.#orgTreeHandler = handler;
   }
 
-  onProfileUpdate(handler: (profileId: string, snapshot: ProfileChannelSnapshot | null) => void): void {
+  onProfileUpdate(handler: (profileId: string, snapshot: ProfileChannelSnapshot) => void): void {
     this.#profileHandler = handler;
   }
 
@@ -189,7 +191,7 @@ export class MockClient implements StoreClient {
   }
 
   /** Test helper: simulate a global-Profile delivery (subscribeProfile snapshot / fanout). */
-  simulateProfileFanout(profileId: string, snapshot: ProfileChannelSnapshot | null): void {
+  simulateProfileFanout(profileId: string, snapshot: ProfileChannelSnapshot): void {
     this.#profileHandler?.(profileId, snapshot);
   }
 

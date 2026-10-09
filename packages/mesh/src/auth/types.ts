@@ -414,6 +414,14 @@ export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
  */
 export const NEBULA_SUB = 'agent:lumenize';
 
+/**
+ * The eTag of a profile nobody has written: a Profile answers a read or a subscribe with
+ * `{ value: {}, meta: { eTag: NEVER_WRITTEN_ETAG } }` until its first write. It sorts before every
+ * real ULID, so any written eTag is newer (ADR-005). A Client re-sends the subscribe of a profile
+ * whose last answer carried it, since that subscribe registered nothing.
+ */
+export const NEVER_WRITTEN_ETAG = '00000000000000000000000000';
+
 /** Default URL prefix for all auth routes */
 export const AUTH_PREFIX = '/auth';
 

@@ -214,6 +214,9 @@ export class Alarms {
         VALUES (${id}, ${serialized}, ${type}, ${extra.cron!}, ${time})
       `;
     }
+    // The alarm may wake this node with no call to stamp it from, so an unscoped node's identity,
+    // held in memory from the call that scheduled it, is persisted now.
+    this.#doInstance.lmz?.__persistIdentity?.();
   }
 
   /**

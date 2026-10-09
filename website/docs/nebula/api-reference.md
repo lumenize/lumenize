@@ -582,7 +582,7 @@ interface OrgTreeState {
 subscribeProfile(profileId: string): ProfileSubscription;
 ```
 
-Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by their `profileId` — a global, cross-Star identity handle, delivered on a dedicated channel to [`store.lmz.profiles[profileId]`](#lmzprofiles). Returns a `using`-compatible `ProfileSubscription`: `.snapshot` resolves with the first snapshot (`{ value, meta: { eTag } }`, or `null` for a profile that does not exist), and `[Symbol.dispose]()` releases on the last handle. No permission ever denies a profile, so it has no `deniedNodes`.
+Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by their `profileId` — a global, cross-Star identity handle, delivered on a dedicated channel to [`store.lmz.profiles[profileId]`](#lmzprofiles). Returns a `using`-compatible `ProfileSubscription`: `.snapshot` resolves with the first snapshot, `{ value, meta: { eTag } }`. A profile nobody has written yet resolves as `{ value: {}, meta: { eTag: '00000000000000000000000000' } }`, and its name arrives at `store.lmz.profiles[profileId]` once the person sets one. The handle's `[Symbol.dispose]()` releases on the last handle. No permission ever denies a profile, so it has no `deniedNodes`.
 
 You rarely call this directly — **reading `store.lmz.profiles[profileId].value` inside a component auto-subscribes it** (refcounted, grace-period-aware, windowed), exactly like reading a resource. The common pattern is resolving display identity for ids you already hold (the current user's own `client.claims.profileId` for the app chrome, or each `profileId` in a roster).
 

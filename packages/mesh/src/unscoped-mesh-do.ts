@@ -15,14 +15,20 @@
  * check passage into (`requirePassageIntoSender`). So it guards `subscribe` against its own list of
  * who may read, and checks that list again before each push.
  *
+ * **A call to an id nobody created leaves nothing behind, if the node lets it.** The stamp a call
+ * brings is held in memory, and persisted only where the node may later act with no call to stamp
+ * from: a routed request, a `@rawRpc()` entry, or an alarm row (`createLmzApiForDO`). So a node a
+ * Client can name should create its storage at its first admitted write rather than in `onStart`,
+ * as `Profile` does, or every id a Client invents leaves its tables behind.
+ *
  * It carries `svc`, alarms and `onStart`, and hosts no Clients and has no `teardown`.
  */
 import { MeshDO } from './mesh-do';
-import { REFUSES_SCOPE_NAME } from './node-kinds';
+import { UNSCOPED_NODE } from './node-kinds';
 
 export abstract class UnscopedMeshDO<Env = any> extends MeshDO<Env> {
-  /** @internal Read by `lmz.__init`, which refuses a scope-shaped name for this node. */
-  get [REFUSES_SCOPE_NAME](): true {
+  /** @internal Read by `lmz.__init`, which refuses a scope-shaped name and holds a call's stamp in memory. */
+  get [UNSCOPED_NODE](): true {
     return true;
   }
 }

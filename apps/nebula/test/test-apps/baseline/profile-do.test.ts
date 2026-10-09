@@ -41,7 +41,7 @@ class MeshProbe extends MeshClient {
    */
   forgedVictim?: string;
   @mesh()
-  override handleProfileUpdate(profileId: string, snapshot: ProfileChannelSnapshot | null | Error): void {
+  override handleProfileUpdate(profileId: string, snapshot: ProfileChannelSnapshot | Error): void {
     if (this.forgedVictim) {
       throw Object.assign(new Error('client went away'), {
         name: 'ClientDisconnectedError', clientInstanceName: this.forgedVictim,
@@ -146,6 +146,8 @@ describe('Profile DO', () => {
     using victim = await makeClient({ activeScope: 'acme.app.tenant' });
     using attacker = await makeClient({ activeScope: 'acme.app.tenant' });
 
+    // Written first: a Profile nobody has written stores no subscriber, so there is no row to reap.
+    await write(owner, pid, { name: 'zero' });
     await victim.lmz.callAsync('PROFILE', pid, victim.ctn<Profile>().subscribe());
     await attacker.lmz.callAsync('PROFILE', pid, attacker.ctn<Profile>().subscribe());
 
@@ -207,6 +209,10 @@ describe('Profile DO', () => {
   it('a field in NEITHER list is private WITHOUT being named — a seeded row outside the allow-list rides neither read() nor subscribe()', async () => {
     const pid = uuid();
     const ROGUE = `ROGUE-${uuid()}`;
+    // Written first, so the Profile exists and answers from its storage: a never-written one answers
+    // a constant, and a rogue row beside no eTag would prove nothing about the snapshot's build.
+    using owner = await makeClient({ profileId: pid });
+    await write(owner, pid, { name: 'Ada' });
     // No API writes such a field — itself the point: private-by-default must hold for a field nobody
     // classified. Seed it straight into ProfileFields with the DO's real ctx.
     const stub: any = (env as any).PROFILE.getByName(pid);

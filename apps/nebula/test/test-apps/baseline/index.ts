@@ -8,6 +8,7 @@
 import { mesh, rawRpc, splitAddress, requireDominionHere } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import type { AuthClaims } from '@lumenize/mesh/auth';
+import type { ProfileChannelSnapshot } from '@lumenize/mesh/client';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 // Re-export DO classes and entrypoint for wrangler bindings
@@ -686,7 +687,7 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
   // --- handleProfileUpdate capture (the DEDICATED global-Profile channel — tasks/nebula-subscriber-lists.md).
   //     Separate from resourceUpdate so a dev-user `Profile` resource and a platform profile never share a
   //     counter. CUMULATIVE count. ---
-  lastProfileUpdate: { profileId: string; snapshot: Snapshot | null } | undefined = undefined;
+  lastProfileUpdate: { profileId: string; snapshot: ProfileChannelSnapshot } | undefined = undefined;
   profileUpdateCount = 0;
 
   // --- handleOrgTreeUpdate capture (the dedicated org-tree channel) ---
@@ -1140,7 +1141,7 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
    *  to base for pending-settle + the factory `#profileListener`, then records the latest snapshot + counts
    *  pushes. Kept SEPARATE from resourceUpdate so a dev-user `Profile` resource can't inflate this counter. */
   @mesh()
-  override handleProfileUpdate(profileId: string, result: Snapshot | null | Error): void {
+  override handleProfileUpdate(profileId: string, result: ProfileChannelSnapshot | Error): void {
     super.handleProfileUpdate(profileId, result);
     this.profileUpdateCount++;
     if (result instanceof Error) {

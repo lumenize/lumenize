@@ -8,9 +8,10 @@
  * - {@link GATEWAY_PASSAGE} — the method a host's `ClientGateway` runs to check a Client's passage
  *   into a scoped node before sending the call on. For a call addressed to a Client it is the only
  *   passage check, since the receiving host hands it to its Gateway before any passage step runs.
- * - {@link REFUSES_SCOPE_NAME} — set by `UnscopedMeshDO`. The identity stamp every entry reaches,
- *   `lmz.__init`, then refuses a name that parses as a scope.
+ * - {@link UNSCOPED_NODE} — set by `UnscopedMeshDO`. The identity stamp every entry reaches,
+ *   `lmz.__init`, then refuses a name that parses as a scope, and holds a call's stamp in memory
+ *   rather than persisting it.
  */
 export const PASSAGE_STEP = Symbol('lmz.passageStep');
 export const GATEWAY_PASSAGE = Symbol('lmz.gatewayPassage');
-export const REFUSES_SCOPE_NAME = Symbol('lmz.refusesScopeName');
+export const UNSCOPED_NODE = Symbol('lmz.unscopedNode');

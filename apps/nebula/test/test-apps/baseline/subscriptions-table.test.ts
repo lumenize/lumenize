@@ -312,7 +312,8 @@ describe('a subscriber table keyed on clientId migrates to the address', () => {
     const seen = await (runInDurableObject as any)(profile, (_i: unknown, s: DurableObjectState) => {
       const sql = s.storage.sql;
       const cols = () => sql.exec('PRAGMA table_info(Subscribers)').toArray().map((c: any) => c.name);
-      sql.exec('DROP TABLE Subscribers');
+      // A Profile nobody has written has no table yet; the old one is built here as a live one held it.
+      sql.exec('DROP TABLE IF EXISTS Subscribers');
       sql.exec(`CREATE TABLE Subscribers (clientId TEXT PRIMARY KEY, subscriberBinding TEXT NOT NULL,
         subscribedAt TEXT NOT NULL DEFAULT '') WITHOUT ROWID`);
       sql.exec(`INSERT INTO Subscribers (clientId, subscriberBinding) VALUES ('old.tab1', 'NEBULA_CLIENT_GATEWAY')`);

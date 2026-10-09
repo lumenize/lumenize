@@ -8,7 +8,7 @@ import { broadcastShared, type BroadcastTarget, type BroadcastOptions } from './
 import { findRawRpcMethod } from './raw-rpc-decorator.js';
 import { isClientInstanceName, hostInstanceOf } from './client-address.js';
 import type { ClientGateway } from './client-gateway.js';
-import { PASSAGE_STEP, REFUSES_SCOPE_NAME } from './node-kinds.js';
+import { PASSAGE_STEP, UNSCOPED_NODE } from './node-kinds.js';
 import { parseId, isPlatformScope } from './auth/parse-id.js';
 
 /**
@@ -514,7 +514,8 @@ export interface LmzApi {
   /**
    * Binding name for this DO or Worker (e.g., 'USER_DO')
    *
-   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_binding_name')`
+   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_binding_name')`; an unscoped node holds a
+   *   call's in memory until it persists it (`createLmzApiForDO`)
    * - **MeshWorker**: Stored in private field
    *
    * **Validation**: Cannot be changed once set to a different value
@@ -524,7 +525,8 @@ export interface LmzApi {
   /**
    * Instance name for this DO (undefined for Workers)
    *
-   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_instance_name')`
+   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_instance_name')`; an unscoped node holds a
+   *   call's in memory until it persists it (`createLmzApiForDO`)
    * - **MeshWorker**: Always undefined (Workers are ephemeral)
    *
    * **Validation**: Cannot be changed once set to a different value
@@ -563,11 +565,21 @@ export interface LmzApi {
   /**
    * Initialize identity - internal use only
    *
-   * Called by `__initFromHeaders()` and envelope processing. Not for external use.
+   * Called by `__initFromHeaders()`, the `@rawRpc()` entry and envelope processing, which passes
+   * `'envelope'`: there an unscoped node holds the stamp in memory rather than persisting it.
+   * Not for external use.
    *
    * @internal
    */
-  __init(options: { bindingName?: string; instanceName?: string }): void;
+  __init(options: { bindingName?: string; instanceName?: string }, from?: 'envelope'): void;
+
+  /**
+   * Persist an identity stamp held in memory, as an unscoped node must once it can act with no call
+   * to stamp from. `Alarms.schedule` calls it. Absent on a Worker, which persists nothing.
+   *
+   * @internal
+   */
+  __persistIdentity?(): void;
 
   /**
    * One-way call whose outcome reaches a result handler continuation
@@ -675,56 +687,75 @@ export function initIdentityFromHeaders(
 /**
  * Create LmzApi implementation for MeshDO
  *
- * Identity stored in Durable Object storage:
+ * Identity is persisted in Durable Object storage:
  * - `bindingName` → `ctx.storage.kv.get/put('__lmz_do_binding_name')`
  * - `instanceName` → `ctx.storage.kv.get/put('__lmz_do_instance_name')`
+ *
+ * A scoped node persists both at its first contact. An unscoped node, named by an id such as a
+ * `profileId`, keeps the stamp a call brings in memory, so a call naming an id nobody created
+ * leaves nothing behind. It persists the stamp only where it may later act with no call to stamp
+ * from: a routed request, which can accept a socket that wakes knowing its name but not its
+ * binding; a `@rawRpc()` entry; and once it has an alarm row, whichever comes first, the alarm or
+ * the call. The held stamp is a cache, not state: every call brings it again.
  *
  * @internal Used by MeshDO.lmz getter
  */
 export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance: any): LmzApi {
+  // An unscoped node's stamp from the call that woke it, until something needs it persisted.
+  let heldBindingName: string | undefined;
+  let heldInstanceName: string | undefined;
+
+  const storedBindingName = () => ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+  const storedInstanceName = () => ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
+
+  /** Whether this node has scheduled an alarm, which may wake it with no call to stamp from. */
+  function hasAlarmRow(): boolean {
+    const table = ctx.storage.sql.exec(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '__lmz_alarms'`).toArray();
+    return table.length > 0 && ctx.storage.sql.exec(`SELECT 1 FROM __lmz_alarms LIMIT 1`).toArray().length > 0;
+  }
+
   // Private method to set bindingName (used internally by __init)
   // __init runs on EVERY incoming envelope/routed request, so the already-stamped
   // re-init is the hot path — skip the redundant put (SQLite writes bill 1000× reads).
-  function setBindingName(value: string): void {
-    const stored = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+  function setBindingName(value: string, persist: boolean): void {
+    const current = storedBindingName() ?? heldBindingName;
 
-    if (stored !== undefined && stored !== value) {
+    if (current !== undefined && current !== value) {
       throw new Error(
-        `DO binding name mismatch: stored '${stored}' but received '${value}'. ` +
+        `DO binding name mismatch: stored '${current}' but received '${value}'. ` +
         `A DO instance cannot change its binding name.`
       );
     }
 
-    if (stored === undefined) {
-      ctx.storage.kv.put('__lmz_do_binding_name', value);
-    }
+    if (!persist) heldBindingName = value;
+    else if (storedBindingName() === undefined) ctx.storage.kv.put('__lmz_do_binding_name', value);
   }
 
   // Private method to set instanceName (used internally by __init)
-  function setInstanceName(value: string): void {
-    const stored = ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
+  function setInstanceName(value: string, persist: boolean): void {
+    const current = storedInstanceName() ?? heldInstanceName;
 
-    if (stored !== undefined && stored !== value) {
+    if (current !== undefined && current !== value) {
       throw new Error(
-        `DO instance name mismatch: stored '${stored}' but received '${value}'. ` +
+        `DO instance name mismatch: stored '${current}' but received '${value}'. ` +
         `A DO instance cannot change its name.`
       );
     }
 
-    if (stored === undefined) {
-      ctx.storage.kv.put('__lmz_do_instance_name', value);
-    }
+    if (!persist) heldInstanceName = value;
+    else if (storedInstanceName() === undefined) ctx.storage.kv.put('__lmz_do_instance_name', value);
   }
 
   return {
     // --- Getters (all readonly) ---
 
     get bindingName(): string | undefined {
-      return ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+      return storedBindingName() ?? heldBindingName;
     },
 
     get instanceName(): string | undefined {
-      return ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
+      return storedInstanceName() ?? heldInstanceName;
     },
 
     get type(): 'LumenizeDO' {
@@ -740,20 +771,39 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     /**
      * @internal Initialize identity - not for external use
      */
-    __init(options: { bindingName?: string; instanceName?: string }): void {
+    __init(options: { bindingName?: string; instanceName?: string }, from?: 'envelope'): void {
+      const unscoped = doInstance?.[UNSCOPED_NODE] === true;
       // An `UnscopedMeshDO` never runs under a scope's name: passage trusts a scope-shaped name
       // to check passage into its scope, and an unscoped node checks none.
-      if (options.instanceName !== undefined && doInstance?.[REFUSES_SCOPE_NAME] === true
-        && namesScope(options.instanceName)) {
+      if (options.instanceName !== undefined && unscoped && namesScope(options.instanceName)) {
         throw new Error(scopeNameRefusal(options.instanceName));
       }
 
+      // A call to an unscoped node is held in memory, under the name the namespace addressed: the
+      // name a call brings must be `ctx.id.name`, so the name held is the one the refusals checked.
+      const persist = !(from === 'envelope' && unscoped && ctx.id.name !== undefined && !hasAlarmRow());
+      if (!persist && options.instanceName !== undefined && options.instanceName !== ctx.id.name) {
+        throw new Error(
+          `DO instance name mismatch: this object is '${ctx.id.name}' but the call names '${options.instanceName}'. ` +
+          `A DO instance cannot change its name.`
+        );
+      }
+
       if (options.bindingName !== undefined) {
-        setBindingName(options.bindingName);
+        setBindingName(options.bindingName, persist);
       }
 
       if (options.instanceName !== undefined) {
-        setInstanceName(options.instanceName);
+        setInstanceName(options.instanceName, persist);
+      }
+    },
+
+    __persistIdentity(): void {
+      if (heldBindingName !== undefined && storedBindingName() === undefined) {
+        ctx.storage.kv.put('__lmz_do_binding_name', heldBindingName);
+      }
+      if (heldInstanceName !== undefined && storedInstanceName() === undefined) {
+        ctx.storage.kv.put('__lmz_do_instance_name', heldInstanceName);
       }
     },
 
@@ -867,7 +917,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 export interface EnvelopeExecutorNode {
   lmz: {
     /** Initialize node identity from envelope metadata */
-    __init(opts: { bindingName?: string; instanceName?: string }): void;
+    __init(opts: { bindingName?: string; instanceName?: string }, from?: 'envelope'): void;
     readonly type: NodeType;
     readonly bindingName?: string;
     readonly instanceName?: string;
@@ -1101,7 +1151,7 @@ export async function executeEnvelope(
       node.lmz.__init({
         bindingName: envelope.metadata.callee.bindingName,
         instanceName: includeInstanceName ? envelope.metadata.callee.instanceName : undefined,
-      });
+      }, 'envelope');
     }
 
     // Postprocess the chain (aliases/cycles, custom Error types).

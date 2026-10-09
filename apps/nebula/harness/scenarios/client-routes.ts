@@ -38,11 +38,21 @@
  *     with no instance, and `AUTH_FACADE` at `x` each get their own message. Mutation: drop each check.
  *  6. **Positive controls.** A `GALAXY` call to the app's Galaxy, a `PROFILE` read of the caller's
  *     own profile and an `AUTH_FACADE` call each answer, and each matcher is shown able to fire.
+ *  7. **A Profile nobody created stores nothing.** A subscribe, a read and an unsubscribe under one
+ *     random UUID each answer as never written, and a write there from the caller is refused by
+ *     the Profile's owner-or-admin check. The local stack's Profile files then hold no table and no
+ *     row that a UUID's frames could have made, and, before trusting that, the same reader finds
+ *     the table the caller's own first write creates. Mutation: create the schema in `onStart`, or
+ *     ahead of the write's guard, or persist the stamp at `executeEnvelope`.
  *
  * Real logins (ADR-009 rung 1): the shared app's owner for the account above, and two strangers who
  * found `A` and `B` by email. `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
@@ -64,6 +74,33 @@ const WAIT_MS = 15_000;
 
 const NO_ROUTE = (binding: string) =>
   `No route from a Client to "${binding}": a Client reaches only the bindings declared in defineRoutes()`;
+
+/** The local stack's Profile objects, one SQLite file each, as `wrangler dev` persists them. */
+const PROFILE_STATE = resolve(dirname(fileURLToPath(import.meta.url)), '../../.wrangler/state/v3/do/nebula-Profile');
+
+/**
+ * Every Profile file's tables and KV keys, by file, read without writing. Building any object under
+ * local `wrangler dev` creates its file, holding the runtime's own tables, `_cf_*` and miniflare's
+ * `__miniflare_do_name` (measured 2026-10-09); those are left out, so what remains is what Mesh and
+ * the Profile wrote.
+ */
+function profileFiles(): Map<string, { tables: string[]; kv: string[] }> {
+  const out = new Map<string, { tables: string[]; kv: string[] }>();
+  if (!existsSync(PROFILE_STATE)) return out;
+  for (const file of readdirSync(PROFILE_STATE).filter((f) => f.endsWith('.sqlite') && f !== 'metadata.sqlite')) {
+    const db = new DatabaseSync(resolve(PROFILE_STATE, file), { readOnly: true });
+    try {
+      const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{ name: string }>)
+        .map((r) => r.name);
+      const kv = tables.includes('_cf_KV')
+        ? (db.prepare('SELECT key FROM _cf_KV').all() as Array<{ key: string }>).map((r) => r.key) : [];
+      out.set(file, { tables: tables.filter((n) => !n.startsWith('_cf_') && !n.startsWith('__miniflare')), kv });
+    } finally {
+      db.close();
+    }
+  }
+  return out;
+}
 
 /** What a frame came back with: the value its handler was filled with, or the Error's message. */
 type Answer = { ok: true; value: unknown } | { ok: false; message: string };
@@ -230,6 +267,39 @@ export async function run(stack: DevStack): Promise<void> {
     const workerInstance = await send('AUTH_FACADE', 'x', op('expandScope'));
     limb('limb 5 — AUTH_FACADE at an instance is refused with its own message',
       refusedWith(workerInstance, /^"AUTH_FACADE" is a Worker, which takes no instance/), said(workerInstance));
+
+    // ── LIMB 7: a Profile nobody created stores nothing ─────────────────────────────────────────
+    const before = profileFiles();
+    const invented = crypto.randomUUID();
+    const neverWritten = (a: Answer) => a.ok && (a.value as { meta?: { eTag?: string } } | undefined)?.meta?.eTag
+      === '00000000000000000000000000';
+    const inventedRead = await send('PROFILE', invented, op('read'));
+    limb('limb 7 — a read of a Profile nobody created answers never written', neverWritten(inventedRead), said(inventedRead));
+    const inventedSubscribe = await send('PROFILE', invented, op('subscribe'));
+    limb('limb 7 — a subscribe there is admitted', inventedSubscribe.ok, said(inventedSubscribe));
+    const inventedUnsubscribe = await send('PROFILE', invented, op('unsubscribe'));
+    limb('limb 7 — an unsubscribe there is admitted', inventedUnsubscribe.ok, said(inventedUnsubscribe));
+    const inventedWrite = await send('PROFILE', invented, op('writeProfile', { nickname: 'not mine' }));
+    limb('limb 7 — the caller\'s write there is refused by the owner-or-admin check',
+      refusedWith(inventedWrite, /^Forbidden: /), said(inventedWrite));
+    if (!observable) {
+      console.log('  · whether a Profile nobody created stored anything is not observable on a deployed target');
+    } else {
+      const after = profileFiles();
+      const madeByTheUuid = [...after].filter(([file, s]) => {
+        const was = before.get(file);
+        return s.tables.length > (was?.tables.length ?? 0) || s.kv.length > (was?.kv.length ?? 0);
+      });
+      limb('limb 7 — no Profile file gained a table or a row from the invented id\'s frames',
+        madeByTheUuid.length === 0, `changed: ${JSON.stringify(madeByTheUuid)}`);
+      console.log(`  · ${after.size - before.size} new Profile file(s) under the invented id's frames`);
+      // The reader can see a Profile's storage: the caller's own first write creates its table.
+      const ownWrite = await send('PROFILE', profileId, op('writeProfile', { nickname: 'Routes' }));
+      limb('limb 7 — the caller\'s write of its own Profile is admitted', ownWrite.ok, said(ownWrite));
+      const written = [...profileFiles().values()].some((s) => s.tables.includes('ProfileFields'));
+      limb('limb 7 — the reader finds the table the caller\'s own first write created', written,
+        'no Profile file holds a ProfileFields table');
+    }
   } finally {
     ws.close();
   }

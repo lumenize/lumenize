@@ -32,6 +32,7 @@ defineRoutes({
   TEST_DO: 'unscoped',
   ECHO_DO: 'unscoped',
   ROOM_DO: 'unscoped',
+  STAMP_ALARM_DO: 'unscoped',
   REJECTING_DO: 'unscoped',
   MARKER_REJECTING_DO: 'unscoped',
   MEMBER_KIND_DO: 'unscoped',
@@ -1863,6 +1864,39 @@ export class RoomDO extends UnscopedMeshDO<Env> {
   @rawRpc()
   rawWhoAmI(): string | undefined {
     return this.lmz.instanceName;
+  }
+}
+
+/**
+ * An unscoped node whose alarm makes a mesh call, which needs the node's own binding: the alarm wakes
+ * it with no call to stamp it from. A name starting `onstart-` arms the alarm in `onStart`, before any
+ * call has brought a stamp; any other arms it from `arm()`, on its first call.
+ */
+export class StampAlarmDO extends UnscopedMeshDO<Env> {
+  override onStart(): void {
+    if (this.ctx.id.name?.startsWith('onstart-') && !this.svc.alarms.getSchedule('out')) {
+      this.svc.alarms.schedule(60, this.ctn().callOut(), { id: 'out' });
+    }
+  }
+
+  @mesh()
+  arm(): void {
+    this.svc.alarms.schedule(60, this.ctn().callOut(), { id: 'out' });
+  }
+
+  @mesh()
+  ping(): string {
+    return 'pong';
+  }
+
+  /** The alarm's work: a call to `ECHO_DO`, whose answer comes back here and is kept. */
+  callOut(): void {
+    this.lmz.call('ECHO_DO', `stamp-${crypto.randomUUID()}`, this.ctn<EchoDO>().echo('from the alarm'),
+      this.ctn<StampAlarmDO>().keepAnswer());
+  }
+
+  keepAnswer(result?: unknown): void {
+    this.ctx.storage.kv.put('answer', result instanceof Error ? `Error: ${result.message}` : (result as { message: string }).message);
   }
 }
 

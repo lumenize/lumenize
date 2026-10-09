@@ -21,6 +21,8 @@ import { preprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { Browser } from '@lumenize/testing';
 import { createTestToken } from '@lumenize/mesh/auth/testing';
+import { rawRpcStub } from '@lumenize/mesh/raw-rpc';
+import { NEVER_WRITTEN_ETAG, type ProfileChannelSnapshot } from '@lumenize/mesh/client';
 import type { Profile, ProfileSnapshot } from '@lumenize/mesh/auth/profile';
 import { NebulaClientTest } from './index';
 import { ORIGIN, pageOf } from '../../test-helpers';
@@ -63,6 +65,28 @@ async function meshClient(opts: {
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope, instanceName: opts.instanceName ?? activeScope,
       scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId ?? uuid(), sub: uuid(),
+    }),
+    fetch: ctx.fetch, WebSocket: ctx.WebSocket,
+    sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
+  });
+  await vi.waitFor(() => expect(client.connectionState).toBe('connected'));
+  return client;
+}
+
+/** A Client with no override of the Profile channel, so the base's own bookkeeping runs. */
+class PlainClient extends MeshClient {}
+
+/** A connected {@link PlainClient}, renewing its token by a fresh `createTestToken` mint. */
+async function healingClient(opts: { activeScope: string }): Promise<PlainClient> {
+  const browser = new Browser();
+  const ctx = browser.context(pageOf(opts.activeScope));
+  const client = new PlainClient({
+    baseUrl: pageOf(opts.activeScope),
+    refresh: createTestToken({
+      issuer: platformOrigin(deploymentOrigin(env)),
+      privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
+      activeScope: opts.activeScope, instanceName: opts.activeScope,
+      scopeAdmin: false, profileId: uuid(), sub: uuid(),
     }),
     fetch: ctx.fetch, WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
@@ -114,6 +138,8 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     // Y owns the profile and lives in scope Y; X subscribes from a DISTINCT scope X (neither an admin).
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
+    // Written first: a Profile nobody has written registers no subscriber for the update to reach.
+    await writeProfile(owner, pid, { name: 'Ada' });
 
     // X subscribes → the INITIAL snapshot is delivered inside X's own subscribe call, carrying X's
     // own claims (asserted here as the open-read demonstration).
@@ -148,6 +174,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
+    await writeProfile(owner, pid, { name: 'Ada' });         // created, so a subscribe stores a row
     await subscribe(x, pid);
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1)); // row present
 
@@ -229,38 +256,48 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(0));
   });
 
-  it('updateMyProfile writes MY profile and a live subscriber receives the name — the back-fill leg', async () => {
+  it('updateMyProfile writes MY profile, and a subscriber answered never-written hears it on its next socket — the back-fill leg', async () => {
     const pid = uuid();
-    // The thread-rendering side: a client already holding the per-author Profile subscription
-    // the byline rides. Its initial snapshot is the empty profile #mintIdentity leaves behind.
-    // ⚠️ A human no longer reaches a surface in that state — the nickname is collected at the
-    // consent modal (`canAccept`) — but a PROGRAMMATIC identity still can (a persona, an agent
-    // seeded later), so the empty-then-filled back-fill this asserts is the path that keeps it.
-    const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
-    await subscribe(x, pid);
-    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(1));
-    expect(x.profileUpdates[0].snapshot.value).toEqual({});
+    // The thread-rendering side: a client holding the per-author Profile subscription the byline
+    // rides, subscribed before the author has written anything. The Profile answers never-written and
+    // registers nothing, so the author's write reaches no one. A person reaches that state when the
+    // harness's or a persona's login writes no name; the pre-alpha no-name prompt closes it for people.
+    const x = await healingClient({ activeScope: 'universe-x.app.tenant' });
+    const heard: ProfileChannelSnapshot[] = [];
+    x.onProfileUpdate((id, snapshot) => { if (id === pid) heard.push(snapshot); });
+    let required = 0;
+    const restore = x.onSubscriptionRequired.bind(x);
+    x.onSubscriptionRequired = () => { required += 1; restore(); };
+    using handle = x.subscribeProfile(pid);
+    expect((await handle.snapshot).meta.eTag).toBe(NEVER_WRITTEN_ETAG);
 
     // The completing owner: a REAL NebulaClient whose claims carry profileId = pid.
     // ⚠️ `updateMyProfile` routes on the CLAIM, not a parameter, which is what makes it safe to
-    // expose to a client at all — a caller cannot name someone else's profile. It is the client-side
-    // write path (a later profile edit); the first nickname arrives by the auth Worker's seam at
-    // accept-membership instead, and both land in the same slot this subscriber is watching.
+    // expose to a client at all — a caller cannot name someone else's profile. MUTATION-CHECKED:
+    // route updateMyProfile at `this.#activeScope` instead of the profileId claim → the write lands
+    // on the wrong Profile instance and the heal below never brings the name.
     const owner = await nebulaClient({ activeScope: 'universe-y.app.tenant', profileId: pid });
     await owner.updateMyProfile({ name: 'Sydney' });
 
-    // The subscriber's live sub receives the completed name — the back-fill: every earlier
-    // message by this author re-renders its byline from this same slot. ⚠️ MUTATION-CHECKED:
-    // route updateMyProfile at `this.#activeScope` instead of the profileId claim → the write
-    // lands on the wrong Profile instance and this second update never arrives.
-    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
-    expect(x.profileUpdates[1].snapshot.value).toEqual({ name: 'Sydney' });
+    // A token rotation opens a new socket that supersedes the old one, which its host reports as
+    // nothing lost. The re-send of the never-written subscribe there is what heals the byline.
+    // MUTATION: drop that re-send in `#handleConnectionStatus`, and the name never arrives.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(Date.now() + 2 * 3_600_000);
+      await x.lmz.callAsync('PROFILE', pid, x.ctn<Profile>().read());
+    } finally {
+      vi.useRealTimers();
+    }
+    await vi.waitFor(() => expect(heard.map((s) => (s.value as { name?: string }).name)).toContain('Sydney'));
+    expect(required).toBe(0);
   });
 
   it('an UPDATE carries none of the writer\'s claims — the Profile starts each push\'s chain afresh', async () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
+    await writeProfile(owner, pid, { name: 'Ada' });         // created, so a subscribe stores a row
 
     // POSITIVE CONTROL: the initial snapshot rides X's OWN subscribe call, so X's own claims arrive on
     // it — which shows the probe records `originAuth` at all.
@@ -283,6 +320,8 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     // chain that reaches the Profile through a relaying node can, and this hands the Profile one.
     const pid = uuid();
     const clientId = `${uuid()}.tab1`;
+    // Created first, through the consent route's own write, so the subscribe stores a row.
+    await rawRpcStub('PROFILE', pid).setDisplayNames({ nickname: 'Ada' });
     const stub: any = (env as any).PROFILE.getByName(pid);
     const envelope: CallEnvelope = {
       version: 1,

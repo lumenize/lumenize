@@ -81,6 +81,10 @@
         "name": "ROOM_DO",
         "class_name": "RoomDO"
       },
+      {
+        "name": "STAMP_ALARM_DO",
+        "class_name": "StampAlarmDO"
+      },
       // Mesh's auth: the Registry every login goes through, and the Profile the consent route reaches.
       {
         "name": "AUTH_REGISTRY",
@@ -109,6 +113,7 @@
     "MarkerRejectingDO": { "type": "durable-object", "storage": "sqlite" },
     "MemberKindDO": { "type": "durable-object", "storage": "sqlite" },
     "RoomDO": { "type": "durable-object", "storage": "sqlite" },
+    "StampAlarmDO": { "type": "durable-object", "storage": "sqlite" },
     "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "Profile": { "type": "durable-object", "storage": "sqlite" }
   },

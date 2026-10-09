@@ -32,6 +32,14 @@
  *
  * A private field NEVER rides a pushed/subscribed snapshot — it is served solely by a separate gated read.
  *
+ * **A Profile is created by its first admitted write**, and stores nothing before it, so a `profileId`
+ * a Client invents leaves no storage behind. Each write runs its guard, then `#create` builds the
+ * tables and seeds a real `eTag`, then the write lands, so a refused write leaves nothing either.
+ * Until then a read or a subscribe answers the never-written profile,
+ * `{ value: {}, meta: { eTag: NEVER_WRITTEN_ETAG } }`, and registers no subscriber; a Client sends
+ * that subscribe again later. The agent's own Profile, which nobody owns and so nobody writes,
+ * seeds itself in `onStart`.
+ *
  * @see docs/adr/012-global-profile-visibility.md — authz; docs/adr/013-identity-profileid-resolution.md
  *      — data model; tasks/archive/nebula-profile-store.md — the frozen design record
  */
@@ -42,7 +50,7 @@ import { rawRpc } from '../raw-rpc-decorator';
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
 import { hasDominionOver, isPlatformScope } from './parse-id';
-import { NEBULA_SUB, REGISTRY_INSTANCE_NAME } from './types';
+import { NEBULA_SUB, NEVER_WRITTEN_ETAG, REGISTRY_INSTANCE_NAME } from './types';
 import type { AuthClaims } from './types';
 
 /** The PUBLIC OIDC fields — the ONLY fields a read/subscribed/pushed snapshot carries. */
@@ -82,7 +90,7 @@ const PUBLIC_FIELDS = ['name', 'nickname', 'picture'] as const;
  * The Profile's `Subscribers` table: one row per subscriber, keyed on its address, such as
  * `STAR/acme.crm.tenant1/alice.9f2c41aa`. A table still keyed on `clientId` is dropped first: its
  * rows are disposable, since every client re-subscribes, and the check drops it once, never on a
- * later wake. Run by the constructor; exported so a test can run it over a seeded old table.
+ * later wake. Run when the Profile is created; exported so a test can run it over a seeded old table.
  * @internal
  */
 export function ensureSubscribersTable(sql: SqlStorage): void {
@@ -95,21 +103,17 @@ export class Profile extends UnscopedMeshDO<Env> {
   /** Monotonic ULID factory — the forward-only per-write `eTag` (a statically-init utility; loss-safe). */
   #ulid = ulidFactory({ monotonic: true });
 
-  /** Schema and seed, before any request (`durable-objects.md` § *Initialization*). */
+  /**
+   * Nothing, for a person's Profile: it is created by its first admitted write (`#create`), so a
+   * `profileId` a Client invents leaves no storage. The agent's own Profile seeds itself here.
+   */
   onStart(): void {
     // Construction is observable: `ctx.id.name`, since `onStart` runs before any identity is
     // stamped. A Gateway that refuses a frame proves itself by this never appearing.
     debug('nebula-auth.Profile.onStart').debug('started', { name: this.ctx.id.name });
     const ctx = this.ctx;
-    // WITHOUT ROWID on the TEXT PKs (write-cost — durable-objects.md).
-    ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ProfileFields (field TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID`,
-    );
-    ensureSubscribersTable(ctx.storage.sql);
-    // Seed a baseline eTag once so an unwritten profile still delivers a client-usable snapshot.
-    ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),
-    );
+    if (ctx.id.name !== NEBULA_SUB) return;
+    this.#create();
     // The reserved Nebula LLM profile SELF-SEEDS — never a deploy step, never a manual one. An
     // instance whose own id is the reserved agent id writes ALL THREE public fields (a partial
     // seed would render Nebula unlike every human — the set is exactly the PUBLIC_FIELDS
@@ -119,18 +123,38 @@ export class Profile extends UnscopedMeshDO<Env> {
     // statement in `onStart`'s established seed pattern, and a later super-admin edit is
     // never clobbered on reconstruct. Write-authz is `#requireOwnerOrAdmin`'s branch (3), which lets
     // a super-admin edit this one profile, since an ownerless, not-in-Registry profile has no scope
-    // the scoped arm could find.
-    if (ctx.id.name === NEBULA_SUB) {
-      for (const [field, value] of [
-        ['name', 'Lumenize'],
-        ['nickname', 'Lumenize'],
-        ['picture', 'https://lumenize.com/img/logo.svg'],
-      ] as const) {
-        ctx.storage.sql.exec(
-          `INSERT OR IGNORE INTO ProfileFields (field, value) VALUES (?, ?)`, field, value,
-        );
-      }
+    // the scoped arm could find. Nobody owns it, so no write would ever create it.
+    for (const [field, value] of [
+      ['name', 'Lumenize'],
+      ['nickname', 'Lumenize'],
+      ['picture', 'https://lumenize.com/img/logo.svg'],
+    ] as const) {
+      ctx.storage.sql.exec(
+        `INSERT OR IGNORE INTO ProfileFields (field, value) VALUES (?, ?)`, field, value,
+      );
     }
+  }
+
+  /**
+   * Create this Profile, if no write has yet: its tables, and a seeded `eTag`. Every write calls it
+   * after its guard admits the caller, so a refused write leaves nothing (`durable-objects.md`
+   * § *Initialization*).
+   */
+  #create(): void {
+    const sql = this.ctx.storage.sql;
+    // WITHOUT ROWID on the TEXT PKs (write-cost — durable-objects.md).
+    sql.exec(`CREATE TABLE IF NOT EXISTS ProfileFields (field TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID`);
+    ensureSubscribersTable(sql);
+    sql.exec(`INSERT OR IGNORE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid());
+  }
+
+  /** Whether a write has created this Profile: it has an `eTag` row. Reads only, so it creates nothing. */
+  #written(): boolean {
+    const sql = this.ctx.storage.sql;
+    if (sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ProfileFields'`).toArray().length === 0) {
+      return false;
+    }
+    return sql.exec(`SELECT 1 FROM ProfileFields WHERE field = 'eTag'`).toArray().length > 0;
   }
 
   // ── Reads (OPEN — no gate, NO registry read) ─────────────────────────────────────────────────────
@@ -145,7 +169,9 @@ export class Profile extends UnscopedMeshDO<Env> {
    * Subscribe the calling client to public-field updates: store its subscriber row, then deliver the
    * INITIAL snapshot. The initial push is fired INSIDE this subscribe call, so it carries the
    * subscriber's own `originAuth`: it answers the subscriber's call, where every later push is this
-   * Profile speaking and carries none.
+   * Profile speaking and carries none. A Profile nobody has written answers the never-written
+   * profile and stores no row, so an invented id leaves nothing; the Client sends the subscribe
+   * again once the profile may have been written.
    * Open — no authz.
    *
    * The row is the client's address, built from `callChain[0]`, the element its server-side half
@@ -159,6 +185,12 @@ export class Profile extends UnscopedMeshDO<Env> {
     const clientAddress = addressOf(origin);
 
     const subscribedAt = new Date().toISOString();
+    if (!this.#written()) {
+      this.lmz.call(origin.bindingName, origin.instanceName,
+        this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()),
+        this.ctn().onProfileBroadcastResult(subscribedAt), { onErrorOnly: true });
+      return;
+    }
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO Subscribers (clientAddress, subscribedAt) VALUES (?, ?)`,
       clientAddress, subscribedAt,
@@ -175,7 +207,9 @@ export class Profile extends UnscopedMeshDO<Env> {
   @mesh()
   unsubscribe(): void {
     const origin = this.lmz.callContext.callChain[0];
-    if (origin?.instanceName) this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientAddress = ?`, addressOf(origin));
+    if (origin?.instanceName && this.#written()) {
+      this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientAddress = ?`, addressOf(origin));
+    }
   }
 
   // ── Writes (gated by requireOwnerOrAdmin) ────────────────────────────────────────────────────────
@@ -187,6 +221,7 @@ export class Profile extends UnscopedMeshDO<Env> {
   @mesh()
   async writeProfile(fields: ProfilePublicFields): Promise<void> {
     await this.#requireOwnerOrAdmin();
+    this.#create();
     for (const f of PUBLIC_FIELDS) {
       this.ctx.storage.sql.exec(
         `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES (?, ?)`, f, fields[f] ?? null,
@@ -221,6 +256,7 @@ export class Profile extends UnscopedMeshDO<Env> {
   @rawRpc()
   readDisplayNames(): { nickname?: string; name?: string } {
     const out: { nickname?: string; name?: string } = {};
+    if (!this.#written()) return out;
     for (const row of this.ctx.storage.sql.exec(
       `SELECT field, value FROM ProfileFields WHERE field IN ('nickname', 'name')`,
     )) {
@@ -241,6 +277,7 @@ export class Profile extends UnscopedMeshDO<Env> {
    */
   @rawRpc()
   setDisplayNames(fields: { nickname: string; name?: string }): void {
+    this.#create();
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('nickname', ?)`, fields.nickname,
     );
@@ -299,7 +336,8 @@ export class Profile extends UnscopedMeshDO<Env> {
     const clientAddress = callee?.instanceName ? addressOf(callee) : undefined;
     // The reaper's receipt, so a run can see which tab an update failed to reach, and why.
     debug('nebula-auth.Profile.reap').info('update not delivered', { clientAddress, name: result.name });
-    if (result.name === 'ClientDisconnectedError' && clientAddress) {
+    // A never-written Profile stored no row, and has no table to delete one from.
+    if (result.name === 'ClientDisconnectedError' && clientAddress && this.#written()) {
       // Only a row no newer than the failed push: a re-subscribe that landed first keeps its own.
       this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientAddress = ? AND subscribedAt <= ?`, clientAddress, sentAt);
     }
@@ -309,6 +347,7 @@ export class Profile extends UnscopedMeshDO<Env> {
   @mesh()
   async readPrivateNotes(): Promise<string | undefined> {
     await this.#requireOwnerOrAdmin();
+    if (!this.#written()) return undefined;
     const rows = [...this.ctx.storage.sql.exec(`SELECT value FROM ProfileFields WHERE field = 'privateNotes'`)];
     return rows.length ? (rows[0].value as string | undefined) ?? undefined : undefined;
   }
@@ -317,6 +356,7 @@ export class Profile extends UnscopedMeshDO<Env> {
   @mesh()
   async writePrivateNotes(notes: string): Promise<void> {
     await this.#requireOwnerOrAdmin();
+    this.#create();
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('privateNotes', ?)`, notes,
     );
@@ -340,6 +380,7 @@ export class Profile extends UnscopedMeshDO<Env> {
    *  from the one constant (placeholders, parameter-bound), so a stored field outside it is excluded
    *  without being named anywhere. Never a subtraction of known-private keys (see the header). */
   #publicSnapshot(): ProfileSnapshot {
+    if (!this.#written()) return { value: {}, meta: { eTag: NEVER_WRITTEN_ETAG } };
     const value: ProfilePublicFields = {};
     for (const row of this.ctx.storage.sql.exec(
       `SELECT field, value FROM ProfileFields WHERE field IN (${PUBLIC_FIELDS.map(() => '?').join(', ')})`,
