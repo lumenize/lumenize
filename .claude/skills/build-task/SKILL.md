@@ -197,7 +197,7 @@ return {
 From the close-out notes, then by checking:
 
 - **Fix what the build's own verification found when it is small, whatever its age.** A bug older than the task is still this build's finding, and deferring it past the archive leaves it only in the transcript. (2026-10-07: a stale-KV refusal the deployed pass exposed was first offered as a follow-up "after close-out"; Larry asked why not as part of it, and there was no reason.)
-- **Delete every backlog row the work closed or made obsolete**, as `tasks/README.md` § *Backlog* requires, and update any row whose status it changed. A BREAKING-notes row stays until a release carries it.
+- **Delete every backlog row the work closed or made obsolete**, as `tasks/README.md` § *Backlog* requires, and update any row whose status it changed.
 - **Update every active file that names the task**, the master plan and sibling task files included: the pointer, and the status beside it.
 - **Tell any session waiting on the work.**
 - **Answer § *Phase Retro*, then walk Larry through it, before the archive move.** Fold in what the hand-off and the close-out found, since the move freezes the file. (2026-10-07: a retro written during the last phase missed the close-out's most user-facing finding, and the file was archived before anyone read it.)

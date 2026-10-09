@@ -314,7 +314,7 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
 
 **Open for Larry, in the order they depend on each other.** Each is detailed in the phase notes below.
 1. ~~**ADR-007's "persistent" and three sentences of `auth.md`**~~: applied 2026-10-09 after your review, with two clarifications: M3's sub-bullet names *a call a Client makes*, and ADR-007 says the stamp waits for *something that can wake the node with no call to bring it*.
-2. ~~**`ClientGatewayHost` stays exported, or goes**~~: gone, 2026-10-09. Neither `ClientGateway` nor `ClientGatewayHost` is exported from `@lumenize/mesh`; a node hosts Clients by extending `ScopedMeshDO`. The BREAKING row leaves it out, since published 0.26.0 exported neither.
+2. ~~**`ClientGatewayHost` stays exported, or goes**~~: gone, 2026-10-09. Neither `ClientGateway` nor `ClientGatewayHost` is exported from `@lumenize/mesh`; a node hosts Clients by extending `ScopedMeshDO`.
 3. ~~**`updateMyProfile` re-sends only the writer's own never-written profile**~~: kept, 2026-10-09, and D7 now says so. Re-sending every never-written profile would heal another byline only by coincidence, and a heartbeat-driven re-send with a backoff was weighed and declined: if an empty byline is ever reported, the Profile is written earlier instead.
 
 Everything else below is a record: what each phase changed from the plan, what it taught, and what it closed.
@@ -388,7 +388,7 @@ Everything else below is a record: what each phase changed from the plan, what i
 **What landed:**
 - **The rules:** `mesh.md` § *`ClientGateway` is the server-side half of a Client* gains the three steps, the field check, the declaration and the per-frame line, and its list of what the Gateway checks is restated by structure; § *Node identity is stamped on every first-contact entry (not just mesh calls)* says where each node kind keeps its stamp; `durable-objects.md` § *Initialization* gains create-on-first-write for an unscoped node a Client can name; `security.md`'s scope sentence names the Gateway's checks.
 - **The docs:** `auth-flows.md`'s diagram draws five layers, the Gateway's route among them, and its sentence counts them that way; `platform-embed.ts` is regenerated, and the `@check-example` checker passes.
-- **The other task files:** the BREAKING row, the sweep row and the Profile GC row in `backlog.md`; `mesh-1-alpha.md` § *Item 8* and its docs ideas; the personas task's question 3; the master plan's row.
+- **The other task files:** the BREAKING row (deleted 2026-10-09 with every other, since no release note lists a break while no one we know of builds on a published package: `workflow.md` § *Releases*), the sweep row and the Profile GC row in `backlog.md`; `mesh-1-alpha.md` § *Item 8* and its docs ideas; the personas task's question 3; the master plan's row.
 
 **The deployed pass, 2026-10-09:** `deploy-test.sh` deployed `test-nebula` at `ca5244f`, and all eleven scenarios passed against it: `client-routes`, `unwritten-profile-heals`, `four-party-chat`, and the eight others this task changed. `scope-hosts-its-clients` and `invite-consent` ran their panel-fixed versions. The `wrangler tail` capture beside it held 4,567 `ok` invocations, 48 `aborted` with `scope-deleted` (the teardowns), and the canceled and disconnected streams of closing sockets, with no error-level log and no other exception. The panel's later fixes to `client-gateway.ts` change only the per-frame line's outcome and comments, so they were run locally and not redeployed.
 

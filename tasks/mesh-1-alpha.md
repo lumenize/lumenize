@@ -56,7 +56,7 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 
 - **Lerna is in fixed mode**, at 0.26.0 in `lerna.json`, so moving Mesh to 1.0.0-alpha moves every public package with it.
 - **`scripts/release.sh` runs `lerna publish from-package` with no dist-tag**, so 1.0.0-alpha.1 becomes `latest` unless this decides otherwise. The script's post-publish check reads `dist-tags.latest`, so an `alpha` tag would change it too.
-- **The release notes carry every "Flag in the next release notes, as BREAKING" row in `tasks/backlog.md`,** and each row closes once carried. `/release-workflow` collects none of them today, so this item is their owner.
+- **The release notes present the model, not a diff from 0.26.0:** we learned a lot building Nebula and decided its model should be Mesh's core, and here it is (Larry, 2026-10-09). No package has an adopter we know of, so no break is listed (`workflow.md` § *Releases*).
 
 ## Item 7: The app supplies its auth pages and its product content
 
