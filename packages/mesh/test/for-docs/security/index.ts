@@ -9,6 +9,7 @@
 
 import { ScopedMeshDO } from '../../../src/index.js';
 import { authFacadeFor, meshTestFetch } from '../../support/test-auth.js';
+import { defineRoutes } from '../../../src/routes.js';
 
 export { AuthRegistry, Profile } from '../../support/test-auth.js';
 export { UserProfileDO } from './user-profile-do.js';
@@ -20,6 +21,19 @@ export class WorkspaceDO extends ScopedMeshDO<Env> {}
 
 /** Every tier of scope is a workspace here. */
 const TIERS = { universe: 'WORKSPACE_DO', galaxy: 'WORKSPACE_DO', star: 'WORKSPACE_DO' } as const;
+
+/**
+ * Every binding this app's Clients may name; any other is refused at its host's Gateway. Typed
+ * against this Worker's own bindings, which Mesh's shared generated `Env` does not carry.
+ */
+defineRoutes<Env & { USER_PROFILE_DO: DurableObjectNamespace; TEAM_DOC_DO: DurableObjectNamespace; GATE_PAIR_DO: DurableObjectNamespace }>({
+  WORKSPACE_DO: { tier: ['universe', 'galaxy', 'star'], hosts: true },
+  GATE_PAIR_DO: { tier: ['universe', 'galaxy', 'star'] },
+  USER_PROFILE_DO: 'unscoped',
+  TEAM_DOC_DO: 'unscoped',
+  PROFILE: 'unscoped',
+  AUTH_FACADE: 'worker',
+});
 
 export const AuthFacade = authFacadeFor(TIERS);
 

@@ -6,7 +6,7 @@
  * Galaxy: a `Board`, and a `Note` whose `board` relationship a query follows. Every tier's page
  * connects to it under the `STAR` binding, the one `NebulaClient` names by default.
  */
-import { mesh, ScopedMeshDO } from '@lumenize/mesh';
+import { defineRoutes, mesh, ScopedMeshDO } from '@lumenize/mesh';
 import { Resources } from '@lumenize/resources';
 import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { OntologyVersionRow } from '@lumenize/resources/ontology-version';
@@ -64,6 +64,13 @@ export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost 
 }
 
 const TIERS = { universe: 'STAR', galaxy: 'STAR', star: 'STAR' } as const;
+
+/** Every binding this Worker's Clients may name; any other is refused at its host's Gateway. */
+defineRoutes({
+  STAR: { tier: ['universe', 'galaxy', 'star'], hosts: true },
+  PROFILE: 'unscoped',
+  AUTH_FACADE: 'worker',
+});
 
 export const AuthFacade = authFacadeFor(TIERS);
 

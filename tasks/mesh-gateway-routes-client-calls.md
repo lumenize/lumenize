@@ -76,7 +76,7 @@ Built already, and what becomes of each part:
 - **`resolveStub(env, binding, instance)`** — carried over unchanged. It stays the dispatch for a routed call, and for node-to-node `lmz.call` and fire-backs, whose binding names our own code writes.
 - **`#refuseToClient`** — carried over unchanged, as the road a refusal at the Gateway takes back to the Client.
 - **`requirePassage(name, claims)` and `claimsForPassage(callContext)`** in `scoped-mesh-do.ts` — adapted: the Gateway reaches them through a hook keyed by a Mesh-private symbol in `node-kinds.ts`, beside `PASSAGE_STEP`, which `ScopedMeshDO` implements. A public `ClientGatewayHost` method would invite an override that skips `super`, as `CustomHostDO` already does with `onBeforeCallToClient`, and for a call to a Client this check is the only one. `claimsForPassage` is private to `scoped-mesh-do.ts`, which imports `ClientGateway`, so the Gateway cannot import it back.
-- **`hostedUpgrade`'s `TierBindings` argument** — replaced by the routes the Worker declares (D8), and `TIER_BINDING` in `entrypoint.ts` gives way to the declaration. `meshTestFetch` keeps a `TierBindings` argument for teardown alone, since its claim and accept routes tear down a creation through `scopeLifecycleHooks`. The `TierBindings` type stays as scope teardown's map, which mesh-1-alpha's Item 8 owns: Nebula's `BINDING` in `scope-lifecycle-hooks.ts`, and the test support's `scopeLifecycleHooks` and `authFacadeFor`.
+- **`hostedUpgrade`'s `TierBindings` argument** — replaced by the routes the Worker declares (D8), and `TIER_BINDING` in `entrypoint.ts` gives way to the declaration. `meshTestFetch` keeps a `TierBindings` argument for teardown alone, since its claim and accept routes tear down a creation through `scopeLifecycleHooks`. The `TierBindings` type moves into the test support, its only reader once the upgrade stops taking it: Nebula's teardown names its own bindings in `BINDING` in `scope-lifecycle-hooks.ts`, and where teardown's map lives is mesh-1-alpha's Item 8.
 - **The identity stamp in `createLmzApiForDO`** — adapted for an unscoped node (D6), § *What a name nobody created leaves behind*. Its mark, `REFUSES_SCOPE_NAME`, is renamed `UNSCOPED_NODE`, since it now decides two things.
 - **`Profile`** — adapted (D1, D5), § *What a name nobody created leaves behind*. The agent's self-seed still runs at construction, and the reaper `onProfileBroadcastResult` does nothing until the Profile has its tables.
 - **`MeshClient`'s profile channel**, `#profileRefcount`, `#sendProfileSubscribe` and the re-send in `#handleConnectionStatus` — adapted (D7). Its unreachable `null` case is deleted, here and in `@lumenize/resources`' frontend types and store mirror.
@@ -309,6 +309,24 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
 - **The deployed pass,** since what a Client hears back changes (`live.md`): `deploy-test.sh`, then each scenario below with `HARNESS_TARGET_URL`, beside a `wrangler tail --format json` capture. The set is `client-routes`, `unwritten-profile-heals` and `four-party-chat`, plus every file `git diff --name-only <this task's base commit>.. -- apps/nebula/harness/scenarios` lists, which will include `node-chain-passage`. Before the deploy, the deployed-only paths are checked, as `live.md` lists them.
 - **Success criteria (capable of failing):** every scenario in that set passes deployed; `node scripts/check-prose.mjs` passes on every edited rule and task file; `npm run audit:mesh-vocab` passes; and each guidance section named above, read against the code, states what the code does.
 - **Mutation note:** the guidance has none of its own. The deployed runs red under the same mutations as Phases 2 and 3.
+
+## Build notes
+
+### Phase 1 — built 2026-10-08
+
+**For Larry:**
+- **`hostedUpgrade` lost its tier-map argument**, so it is now `hostedUpgrade(request, scope, env)`. It is a published `@lumenize/mesh` export, so the BREAKING row Phase 4 writes names it beside `defineRoutes`.
+- **`TierBindings` left `@lumenize/mesh/auth`.** § *Current state* had kept it as scope teardown's map, but its only production reader was the upgrade: Nebula's teardown names its own bindings (`BINDING` in `scope-lifecycle-hooks.ts`), and only the test support's teardown hooks read the type. It now lives in `packages/mesh/test/support/test-auth.ts`. Where teardown's map lives stays mesh-1-alpha's Item 8.
+
+**Retro:**
+- **`Fetcher<any, any>` in `RouteFor`'s conditional type tripped TS2589**, and while it was live an unrelated `@ts-expect-error` in `alarms.test.ts` read as unused, so the first type-check looked like two failures. A service binding is told by its shape now, a `fetch` and a `connect`, and `RouteFor`'s JSDoc says why.
+- **The Nebula suite stalled at 0% CPU about a minute in**, with nothing to reap, as the `workerd-zombie-hang` memory records for an earlier run the same day. Killed, reaped, and run one project at a time, every project passed: unit 100, frontend 237, baseline 558, dev-studio 115, browser 4 with 2 skipped. Mesh passed 998 with 4 skipped, Resources 2, and the container-free sweep 53 of 53 in 22 minutes.
+- **Comments written now describe Phase 2's enforcement.** `routes.ts`'s header and the declarations' comments say a binding left out is unreachable from a Client, which holds once the Gateway reads the declaration at Phase 2's commit. Phase 1 alone only opens sockets from it.
+
+**Close-out:**
+- `TIER_BINDING` is gone: `git grep -nw TIER_BINDING -- packages apps` prints nothing.
+- `security.md`'s `paths:` gained `packages/mesh/src/client-gateway.ts` and `packages/mesh/src/routes.ts`.
+- Mutations, each caught by exactly its intended test or by the unused-directive error: two `hosts` routes for one tier, a plain property lookup, a superset accepted on redeclaration, a resolver that never refuses, a worker route on a node binding and the reverse, and an open string index on `Routes`. 7 of 7.
 
 ## Non-goals
 

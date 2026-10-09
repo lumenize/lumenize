@@ -4,12 +4,13 @@
  * hooks, and a `fetch` that answers `/auth/*` and a Client's upgrade at `/gateway/{id}` on a scope's
  * host.
  *
- * A Worker exports the classes for its wrangler bindings and builds its `fetch` with
- * {@link meshTestFetch}, naming the binding each tier of scope lives under:
+ * A Worker exports the classes for its wrangler bindings, declares the routes its Clients may call
+ * with `defineRoutes`, and builds its `fetch` with {@link meshTestFetch}, naming the binding each tier
+ * of scope lives under for teardown:
  *
  * ```ts
- * const TIERS = { universe: 'CLIENT_HOST_DO', galaxy: 'CLIENT_HOST_DO', star: 'CLIENT_HOST_DO' } as const;
- * export default { fetch: meshTestFetch(TIERS) };
+ * defineRoutes({ CLIENT_HOST_DO: { tier: ['universe', 'galaxy', 'star'], hosts: true }, PROFILE: 'unscoped', AUTH_FACADE: 'worker' });
+ * export default { fetch: meshTestFetch({ universe: 'CLIENT_HOST_DO', galaxy: 'CLIENT_HOST_DO', star: 'CLIENT_HOST_DO' }) };
  * ```
  *
  * The suites run with `AUTH_TEST_MODE` in their vitest bindings, so the Registry hands each magic link
@@ -17,12 +18,15 @@
  */
 import { debug } from '@lumenize/debug';
 import { routeAuthRequest } from '../../src/auth/router';
-import { hostedUpgrade, type TierBindings } from '../../src/auth/hosted-upgrade';
+import { hostedUpgrade } from '../../src/auth/hosted-upgrade';
 import { AuthFacade } from '../../src/auth/auth-facade';
 import { deploymentOrigin, parseHost } from '../../src/auth/hosts';
 import { rawRpcStub, type RawRpcSurface } from '../../src/raw-rpc';
 import type { ScopedMeshDO } from '../../src/scoped-mesh-do';
-import type { ScopeLifecycleHooks } from '../../src/auth/types';
+import type { ScopeLifecycleHooks, Tier } from '../../src/auth/types';
+
+/** The binding of the node each tier of scope names, which the teardown hooks here wake by name. */
+type TierBindings = Readonly<Record<Tier, string>>;
 
 export { AuthRegistry } from '../../src/auth/auth-registry';
 export { Profile } from '../../src/auth/profile';
@@ -71,8 +75,9 @@ export function authFacadeFor(tiers: TierBindings): typeof AuthFacade {
 
 /**
  * The Worker's `fetch`: a Client's upgrade on a scope's host goes to the node that host spells, at
- * the binding `tiers` names for its tier; every `/auth/*` route goes to Mesh's router; anything else
- * is `fallthrough`'s, or a 404.
+ * the route the Worker declared as hosting its tier; every `/auth/*` route goes to Mesh's router,
+ * whose creation teardown reaches each tier's node at the binding `tiers` names; anything else is
+ * `fallthrough`'s, or a 404.
  */
 export function meshTestFetch(
   tiers: TierBindings,
@@ -84,7 +89,7 @@ export function meshTestFetch(
     if (url.pathname.startsWith('/gateway/')) {
       const target = parseHost(url.host, deploymentOrigin(env));
       if (target?.kind === 'scope' || target?.kind === 'persona') {
-        return hostedUpgrade(request, target.scope, tiers, env);
+        return hostedUpgrade(request, target.scope, env);
       }
       return new Response('Not Found', { status: 404 });
     }

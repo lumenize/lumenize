@@ -20,6 +20,7 @@
 
 import { env } from 'cloudflare:workers';
 import { parseId, hostedUpgrade } from '@lumenize/mesh/auth';
+import { defineRoutes } from '@lumenize/mesh';
 import { createRouter } from './route-pipeline';
 import { deploymentOrigin, hostOrigin, parseHost, type HostTarget } from '@lumenize/mesh/client';
 import { handlePictureUpload, servePicture } from './profile-pictures';
@@ -66,8 +67,18 @@ function handleVersion(request: Request): Response | undefined {
   return Response.json({ match, dirty: buildDirty() });
 }
 
-/** The binding of the node each tier of scope names, which Mesh's `hostedUpgrade` routes by. */
-const TIER_BINDING = { universe: 'UNIVERSE', galaxy: 'GALAXY', star: 'STAR' } as const;
+/**
+ * Every binding a Client of this Worker may name, and how each is checked before a scope's node
+ * sends the call on. A binding left out, the Registry or the email sender among them, is refused at
+ * the Gateway. `hostedUpgrade` opens a page's socket on the route marked `hosts` for its tier.
+ */
+defineRoutes({
+  UNIVERSE: { tier: 'universe', hosts: true },
+  GALAXY: { tier: 'galaxy', hosts: true },
+  STAR: { tier: 'star', hosts: true },
+  PROFILE: 'unscoped',
+  AUTH_FACADE: 'worker',
+});
 
 /** `response`, with `frame-ancestors` set to `ancestors`. */
 function framed(response: Response, ancestors: string): Response {
@@ -141,7 +152,7 @@ const router = createRouter([
       const url = new URL(request.url);
       const target = parseHost(url.host, deploymentOrigin(env));
       if (target?.kind !== 'scope' && target?.kind !== 'persona') return new Response('Not Found', { status: 404 });
-      return hostedUpgrade(request, target.scope, TIER_BINDING, env);
+      return hostedUpgrade(request, target.scope, env);
     }],
   },
   // `/auth/*` answers only on the platform host, which step 1 already took.

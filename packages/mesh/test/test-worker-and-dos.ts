@@ -13,12 +13,37 @@ import { debug } from '@lumenize/debug';
 import type { GatewayConnectionInfo } from '../src/gateway-messages';
 import type { CallContext } from '../src/types';
 import { authFacadeFor, meshTestFetch } from './support/test-auth';
+import { defineRoutes } from '../src/routes';
 
 // Mesh's own auth, which every Client here logs in through (test/support/login.ts).
 export { AuthRegistry, Profile } from './support/test-auth';
 
-/** The binding each tier of scope lives under: every scope's node here is a `ClientHostDO`. */
+/** The binding each tier of scope lives under, for teardown: every scope's node here is a `ClientHostDO`. */
 const TIERS = { universe: 'CLIENT_HOST_DO', galaxy: 'CLIENT_HOST_DO', star: 'CLIENT_HOST_DO' } as const;
+
+/**
+ * Every binding a Client in these suites may name. A binding no Client here calls is left out, the
+ * Registry and the for-docs example nodes among them, so a Client's call naming one is refused at
+ * its host's Gateway.
+ */
+defineRoutes({
+  CLIENT_HOST_DO: { tier: ['universe', 'galaxy', 'star'], hosts: true },
+  CUSTOM_HOST_DO: { tier: ['universe', 'galaxy', 'star'] },
+  TEST_DO: 'unscoped',
+  ECHO_DO: 'unscoped',
+  ROOM_DO: 'unscoped',
+  REJECTING_DO: 'unscoped',
+  MARKER_REJECTING_DO: 'unscoped',
+  MEMBER_KIND_DO: 'unscoped',
+  ON_REQUEST_TEST_DO: 'unscoped',
+  ONSTART_TEST_DO: 'unscoped',
+  ONSTART_ERROR_DO: 'unscoped',
+  ALARM_TEST_DO: 'unscoped',
+  NADIS_PLUGIN_TEST_DO: 'unscoped',
+  PROFILE: 'unscoped',
+  TEST_WORKER: 'worker',
+  AUTH_FACADE: 'worker',
+});
 
 /** The facade, bound as `AUTH_FACADE`, whose deletions tear down `ClientHostDO`s. */
 export const AuthFacade = authFacadeFor(TIERS);

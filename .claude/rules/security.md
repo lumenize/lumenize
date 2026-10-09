@@ -7,6 +7,8 @@ paths:
   - "packages/mesh/src/impersonation.ts"
   - "packages/mesh/src/unscoped-mesh-do.ts"
   - "packages/mesh/src/node-kinds.ts"
+  - "packages/mesh/src/client-gateway.ts"
+  - "packages/mesh/src/routes.ts"
   - "packages/mesh/src/lmz-api.ts"
   - "packages/mesh/src/page-origin.ts"
   - "packages/mesh/src/page-meta.ts"

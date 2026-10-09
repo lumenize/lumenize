@@ -44,7 +44,6 @@ export { verifyAccessToken } from './router';
 
 // A Client's upgrade on a scope's host, checked and forwarded to the node the host spells.
 export { hostedUpgrade } from './hosted-upgrade';
-export type { TierBindings } from './hosted-upgrade';
 
 // universeGalaxyStarId parsing, plus the two structural containment predicates the
 // coarse-grained verdicts are built from (ADR-015 § *Predicate pair*).

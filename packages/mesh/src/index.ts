@@ -9,6 +9,8 @@
 // its pages' Clients; a node named by an id decides per method — and the Worker base.
 export { ScopedMeshDO, requirePassage, requireDominionHere, requirePassageIntoSender } from './scoped-mesh-do';
 export { GATEWAY_PREFIX } from './gateway-messages';
+export { defineRoutes } from './routes';
+export type { Routes, RouteKind, ScopedRoute } from './routes';
 export { UnscopedMeshDO } from './unscoped-mesh-do';
 export type { Continuation, AnyContinuation } from './mesh-do';
 

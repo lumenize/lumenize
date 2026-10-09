@@ -3,10 +3,8 @@ import { routeDORequest } from '@lumenize/routing';
 import { GATEWAY_PREFIX, extractWebSocketToken } from '../gateway-messages';
 import { parseId } from './parse-id';
 import { verifyAccessToken } from './router';
-import type { AuthClaims, Tier } from './types';
-
-/** The binding of the node each tier of scope names: `{ universe: 'UNIVERSE', galaxy: 'GALAXY', star: 'STAR' }`. */
-export type TierBindings = Readonly<Record<Tier, string>>;
+import { registeredRoutes, resolveHostBinding } from '../routes';
+import type { AuthClaims } from './types';
 
 /** The token an upgrade carries in its subprotocol, verified, or the refusal. */
 async function verifiedUpgradeToken(request: Request, env: Env): Promise<{ token: string; jwt: AuthClaims } | Response> {
@@ -30,7 +28,8 @@ async function verifiedUpgradeToken(request: Request, env: Env): Promise<{ token
  * A Client's upgrade at `/gateway/{id}` on a scope's host, forwarded to the node the host spells,
  * which hosts it: on `tenant1.crm.acme.lumenize.dev`, `/gateway/alice.9f2c41aa` reaches the Star
  * `acme.crm.tenant1` as `/gateway/STAR/acme.crm.tenant1/alice.9f2c41aa`. The caller names the
- * scope its host spells and the binding each tier's node lives under.
+ * scope its host spells; the binding is the route the Worker declared with `defineRoutes` as
+ * hosting that scope's tier, and a tier with none is refused with a 404 naming `defineRoutes()`.
  *
  * These refusals come before routing, so no upgrade reaches a node without a valid token for its
  * host whose `sub` begins the id: not an upgrade (426), not exactly one id segment (400), no token
@@ -40,7 +39,7 @@ async function verifiedUpgradeToken(request: Request, env: Env): Promise<{ token
  * from holding a socket on another's. Every client-sent `x-lumenize-*` header is dropped, since
  * mesh stamps a node's name from them.
  */
-export async function hostedUpgrade(request: Request, scope: string, tierBindings: TierBindings, env: Env): Promise<Response> {
+export async function hostedUpgrade(request: Request, scope: string, env: Env): Promise<Response> {
   const log = debug('nebula.entrypoint.hostedUpgrade');
   const url = new URL(request.url);
   const path = url.pathname;
@@ -65,7 +64,13 @@ export async function hostedUpgrade(request: Request, scope: string, tierBinding
     log.debug('refused: the id is not the token\'s', { path, sub: jwt.sub });
     return new Response('Forbidden: identity mismatch', { status: 403 });
   }
-  const binding = tierBindings[parseId(scope).tier];
+  const routes = registeredRoutes();
+  const resolved = resolveHostBinding(routes, parseId(scope).tier);
+  if ('refusal' in resolved) {
+    log.warn('refused: no route hosts the scope\'s tier', { path, scope });
+    return new Response(resolved.refusal, { status: 404 });
+  }
+  const { binding } = resolved;
   const headers = new Headers();
   request.headers.forEach((value, name) => {
     if (!name.toLowerCase().startsWith('x-lumenize-')) headers.set(name, value);
@@ -74,6 +79,6 @@ export async function hostedUpgrade(request: Request, scope: string, tierBinding
   const forwarded = new Request(new URL(`${GATEWAY_PREFIX}/${binding}/${scope}/${id}`, url), {
     method: request.method, headers,
   });
-  return (await routeDORequest(forwarded, env, { prefix: 'gateway', bindings: Object.values(tierBindings) }))
+  return (await routeDORequest(forwarded, env, { prefix: 'gateway', bindings: [...new Set(routes!.hostsByTier.values())] }))
     ?? new Response('Not Found', { status: 404 });
 }
