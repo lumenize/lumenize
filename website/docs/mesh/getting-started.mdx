@@ -306,7 +306,7 @@ export class EditorClient extends LumenizeClient {
 **Key patterns:**
 - Unlike for DOs, instance variables are fine
 - `onSubscriptionRequired` handles (re)subscription. It fires whenever subscriptions may have been lost, and not on an ordinary reconnect within the 5-second grace period
-- The client can call any mesh node using the same `this.lmz.call()` API
+- The client can call any mesh node its Worker declares with `defineRoutes`, using the same `this.lmz.call()` API; a binding left out of that declaration is refused at the client's host
 - Results can be `Error` — always check before using
 
 ## Step 4: Connect from the Browser
