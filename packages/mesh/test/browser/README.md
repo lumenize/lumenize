@@ -8,7 +8,7 @@ Why this exists: the `@lumenize/debug` lazy-`import('cloudflare:workers')` regre
 
 | File | What it catches |
 |---|---|
-| `../lumenize-client-browser.test.ts` | Bundle-time regressions — any `cloudflare:workers` / `node:async_hooks` / browser-incompatible import slipped into `@lumenize/mesh/client` fails Vite resolution and the test never starts. Constructor-time runtime regressions (env-specific API access). |
+| `../mesh-client-browser.test.ts` | Bundle-time regressions — any `cloudflare:workers` / `node:async_hooks` / browser-incompatible import slipped into `@lumenize/mesh/client` fails Vite resolution and the test never starts. Constructor-time runtime regressions (env-specific API access). |
 | `ws-roundtrip-browser.test.ts` | End-to-end runtime regressions — real Cloudflare Email Sending → Email Routing → email-test Worker → cookie → JWT → real WebSocket → `@mesh()` call. Any break anywhere in this pipeline trips the test. The login half runs **once in `global-setup.ts`**, not per file; `auth-bootstrap.ts` says why. |
 
 ## Architecture
@@ -111,7 +111,7 @@ Storage cleanup happens automatically (DOs get reaped). The bundled artifacts ca
 
 ## Reference files
 
-- `../lumenize-client-browser.test.ts` — bundle + instantiate test
+- `../mesh-client-browser.test.ts` — bundle + instantiate test
 - `ws-roundtrip-browser.test.ts` — full e2e test
 - `auth-bootstrap.ts` — magic-link helper used by the e2e
 - `global-setup.ts` — wrangler-dev spawner

@@ -88,8 +88,8 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 
 **Goal:** an adopter knows how a Client reaches its scope's node without Nebula's certificate machine.
 
-- **A Client reaches its host node through its page's host,** `hostFromHostname`, and under ADR-021 every Galaxy has hosts of its own, for which Nebula's `certificate.ts` orders a pack.
-- **Open: a certificate hook, a Mesh default, or path routing.** `hostFromHostname: false` upgrades at `/gateway/{binding}/{instance}`, which a host node could serve with no certificate per Galaxy. Whether that mode stays, with `gatewayBindingName`, is this item's to settle. Nebula never sets either, since `NebulaClientConfig` omits both.
+- **A Client reaches its host node through its page's own host.** It upgrades at `wss://tenant1.crm.acme.lumenize.dev/gateway/alice.9f2c41aa`, and the Worker's `hostedUpgrade` routes it to the node that host spells, by the route `defineRoutes` marks `hosts` for that tier. Under ADR-021 every Galaxy has hosts of its own, for which Nebula's `certificate.ts` orders a pack.
+- **Open: a certificate hook, or a Mesh default.** Every scope's page needs a host that serves TLS, so an adopter running Mesh's tiers needs certificates for them. The path-routed upgrade that once avoided that was deleted with `hostFromHostname`.
 - **Nebula's Galaxy keeps its own certificate machine and the state it stores,** whatever Mesh offers adopters, so nothing here migrates a Galaxy.
 
 ## Docs ideas

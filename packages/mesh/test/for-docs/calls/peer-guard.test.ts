@@ -98,7 +98,7 @@ it('#2 default guard BLOCKS a direct client→client call (caller = a client), v
   expect(bobContents).not.toContain('DIRECT-FROM-ALICE');
 }, 20000);
 
-it('#3 default guard ACCEPTS a Worker-mediated push (caller = a LumenizeWorker) — no DO-only regression', async () => {
+it('#3 default guard ACCEPTS a Worker-mediated push (caller = a MeshWorker) — no DO-only regression', async () => {
   using client = await connectEditor(await loginAt(uniqueScope('acme')));
   const documentId = crypto.randomUUID();
   await client.createDocument(documentId);
@@ -108,7 +108,7 @@ it('#3 default guard ACCEPTS a Worker-mediated push (caller = a LumenizeWorker) 
   await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
 
   // Writing "teh" triggers DocumentDO → SpellCheckWorker, which DIRECT-DELIVERS handleSpellFindings
-  // back to this client. The client sees callChain.at(-1) = the SpellCheckWorker (a LumenizeWorker),
+  // back to this client. The client sees callChain.at(-1) = the SpellCheckWorker (a MeshWorker),
   // which the default guard must accept.
   doc.saveContent('teh quick brown fox');
 

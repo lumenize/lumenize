@@ -3,7 +3,7 @@
  * for wrangler bindings. Lives next to test/wrangler.jsonc.
  */
 import { routeAuthRequest } from '../../src/auth/router';
-import { AuthEmailSender as ProdNebulaEmailSender } from '../../src/auth/auth-email-sender';
+import { AuthEmailSender as ProdAuthEmailSender } from '../../src/auth/auth-email-sender';
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import type { ResolvedEmail } from '@lumenize/email';
@@ -68,7 +68,7 @@ export class BareStorageDO extends DurableObject {}
  */
 export const capturedEmails: EmailMessage[] = [];
 
-export class AuthEmailSender extends ProdNebulaEmailSender {
+export class AuthEmailSender extends ProdAuthEmailSender {
   override async send(message: EmailMessage): Promise<void> {
     capturedEmails.push(message);
     await super.send(message);

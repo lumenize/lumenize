@@ -124,4 +124,4 @@ These tests could live in a new `test/for-docs/resilience/` mini-app or be added
 - `packages/mesh/src/lumenize-client-gateway.ts` — Grace period, alarm, supersession, token expiry logic
 - `packages/mesh/src/lumenize-client.ts` — Reconnection, `onSubscriptionRequired`, `onLoginRequired`, stale close handling
 - `packages/mesh/test/lumenize-client-gateway.test.ts` — Existing Gateway unit tests (these scenarios are unit-tested here)
-- `packages/mesh/test/lumenize-client.test.ts` — Existing Client unit tests
+- `packages/mesh/test/mesh-client.test.ts` — Existing Client unit tests

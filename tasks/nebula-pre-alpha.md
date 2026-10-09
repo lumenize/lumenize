@@ -278,9 +278,9 @@ Don't re-derive these; the code is the authority.
 
 - **Super-admin** is an ordinary membership at the reserved platform scope, `PLATFORM_SCOPE`, and that scope is the ROOT of the scope tree — so dominion everywhere is the downward rule applied from the top, one branch inside `isAtOrAbove` and never a special arm at a call site. Driven by `superuser-front-door.ts` and `superuser-end-to-end.ts`.
 - **Impersonation** is one mint endpoint (RFC-8693 `act.sub`, recursive chain, audited), reached from the client as `NebulaClient.impersonate`. Act-as downscopes automatically because DAG checks key off the delegated token's `sub`, never `act`.
-- **A galaxy-tier invite mints a membership at the galaxy itself, and a second at its `.dev` workspace.** The invitee authenticates at the galaxy, and one acceptance takes up both. The workspace membership's admin bit is the inviter's dominion verdict, so a peer's invite enrolls the invitee without it. `issueInvites` in `nebula-auth-registry.ts`; driven by `four-party-chat.ts`.
-- **Enumerate-all-users** is `NebulaAuthRegistry`, the singleton with the global email → scope index.
-- **The `onBeforeCall` passage guard** is `requirePassage(name, claims)` in `nebula-do.ts`, one audit point on every Nebula node — what lets the inspection instrument and a support engineer read, write and admin anywhere with one identity.
+- **A galaxy-tier invite mints a membership at the galaxy itself, and a second at its `.dev` workspace.** The invitee authenticates at the galaxy, and one acceptance takes up both. The workspace membership's admin bit is the inviter's dominion verdict, so a peer's invite enrolls the invitee without it. `issueInvites` in `packages/mesh/src/auth/auth-registry.ts`; driven by `four-party-chat.ts`.
+- **Enumerate-all-users** is the Registry (`AuthRegistry`), the singleton with the global email → scope index.
+- **The passage step** is `requirePassage(name, claims)` in `packages/mesh/src/scoped-mesh-do.ts`, which `ScopedMeshDO` runs on every call, one audit point on every scoped node — what lets the inspection instrument and a support engineer read, write and admin anywhere with one identity.
 
 ## Caveats
 

@@ -1,6 +1,6 @@
 /**
  * `prependActor` — the ONE shared RFC 8693 §4.1 chain-nesting implementation
- * (access-claims.ts), called by `apps/nebula`'s `#buildActingToken` and any later
+ * (access-claims.ts), called by the Resources plane's `#buildActingToken` and any later
  * cross-node mint path so the two cannot drift on the semantics.
  *
  * The property under test is PRESERVATION: the new actor becomes the OUTERMOST entry

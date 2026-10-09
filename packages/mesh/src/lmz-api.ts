@@ -536,10 +536,10 @@ export interface LmzApi {
   /**
    * Type of this DO or Worker
    *
-   * - **LumenizeDO**: Returns `'LumenizeDO'`
-   * - **LumenizeWorker**: Returns `'LumenizeWorker'`
+   * - **`ScopedMeshDO`, `UnscopedMeshDO`**: Returns `'LumenizeDO'`
+   * - **`MeshWorker`**: Returns `'LumenizeWorker'`
    *
-   * Getter-only property determined by class type.
+   * Getter-only property determined by class type. The strings predate the class names.
    */
   readonly type: NodeType;
 

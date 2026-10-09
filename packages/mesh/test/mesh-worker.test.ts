@@ -4,7 +4,7 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 import type { TestWorker } from './test-worker-and-dos';
 import { getOperationChain } from '../src/ocan/index.js';
 
-describe('LumenizeWorker - Identity Management (this.lmz.*)', () => {
+describe('MeshWorker - Identity Management (this.lmz.*)', () => {
   test('this.lmz.type returns "LumenizeWorker"', async () => {
     const result = await env.TEST_WORKER.getType();
     expect(result).toBe('LumenizeWorker');
@@ -36,14 +36,14 @@ describe('LumenizeWorker - Identity Management (this.lmz.*)', () => {
   // NOTE: instanceNameOrId property and setters removed - properties are now readonly
 });
 
-describe('LumenizeWorker - Continuation Support (this.ctn())', () => {
+describe('MeshWorker - Continuation Support (this.ctn())', () => {
   test('this.ctn() creates a working continuation', async () => {
     const result = await env.TEST_WORKER.testContinuationCreation();
     expect(result).toBe('continuation_works');
   });
 });
 
-describe('LumenizeWorker - RPC Receiver (__executeOperation)', () => {
+describe('MeshWorker - RPC Receiver (__executeOperation)', () => {
   test('validates envelope version (rejects missing version)', async () => {
     // __executeOperation expects envelope with only chain preprocessed
     const invalidEnvelope = {
@@ -72,7 +72,7 @@ describe('LumenizeWorker - RPC Receiver (__executeOperation)', () => {
   // Valid envelope and auto-init are tested via callRaw() tests below
 });
 
-describe('LumenizeWorker - Direct Method Execution', () => {
+describe('MeshWorker - Direct Method Execution', () => {
   test('executes simple methods', async () => {
     const result = await env.TEST_WORKER.workerEcho('hello');
     expect(result).toBe('worker-echo: hello');
@@ -88,7 +88,7 @@ describe('LumenizeWorker - Direct Method Execution', () => {
   });
 });
 
-describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
+describe('MeshWorker - call() Fire-and-Forget with Result Handlers', () => {
   test('Worker→Worker call: result handler forwards to a store DO', async () => {
     const storeDO = env.TEST_DO.getByName('worker_to_worker_store_1');
 

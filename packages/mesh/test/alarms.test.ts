@@ -1,7 +1,7 @@
 /**
  * Core tests for Alarms built-in service in @lumenize/mesh
  *
- * Note: Alarms is now a built-in service in LumenizeDO - no separate import needed.
+ * Note: Alarms is a built-in service on every MeshDO - no separate import needed.
  * Uses triggerAlarms() instead of flaky testing package alarm simulation.
  */
 import { describe, test, expect, vi } from 'vitest';

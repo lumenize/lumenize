@@ -51,7 +51,7 @@ collecting one.
 **`universe.ts` in full, today** — the whole class:
 
 ```ts
-export class Universe extends NebulaDO {
+export class Universe extends ScopedMeshDO {
   @mesh(requireDominionHere)
   setUniverseConfig(key: string, value: unknown) { /* KV blob */ }
 
@@ -143,7 +143,7 @@ criterion a fixture, a mutation and a positive control.
   widen the read to any authenticated caller and the second read succeeds.
 - **The Universe exposes one door.** Derive the Universe's mesh entries with `meshEntries(Universe)`
   (`apps/nebula/test/test-apps/mesh-surface.ts`), which walks the whole prototype chain and so sees
-  the inherited `NebulaDO.teardown` a `grep` of `universe.ts` misses; `scope-isolation.test.ts`'s
+  any entry a base class adds, which a `grep` of `universe.ts` misses; `scope-isolation.test.ts`'s
   Universe row freezes it today. The phase names the expected set by symbol. Mutation: re-expose a
   resource operation on the host and the set grows. ⚠️ `resourcesResults` carries no decorator by
   design, so it never appears there, and a separate assertion owes that absence — read off the

@@ -280,7 +280,7 @@ export default defineConfig({
           include: ['test/**/*-browser.test.ts'],
           // global-setup spawns wrangler dev against the dedicated
           // test/browser/worker config so the WS round-trip test can hit a
-          // real Worker. Bundle-only tests (lumenize-client-browser.test.ts)
+          // real Worker. Bundle-only tests (mesh-client-browser.test.ts)
           // don't use the URL it provides — they just ignore the inject.
           globalSetup: ['./test/browser/global-setup.ts'],
           browser: {

@@ -10,9 +10,6 @@
  */
 declare const ContinuationBrand: unique symbol;
 
-/** @internal */
-export type ContinuationBrandType = typeof ContinuationBrand;
-
 /**
  * Base type that any continuation can be assigned to.
  * Use this in function signatures that accept any continuation.

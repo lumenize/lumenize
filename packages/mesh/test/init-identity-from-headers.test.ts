@@ -1,5 +1,5 @@
 /**
- * initIdentityFromHeaders — the fetch()-path identity stamp LumenizeDO.__initFromHeaders
+ * initIdentityFromHeaders — the fetch()-path identity stamp MeshDO.__initFromHeaders
  * composes (ADR-007 identity-on-every-entry-path). Pure function, so unit-testable here.
  */
 import { describe, it, expect } from 'vitest';

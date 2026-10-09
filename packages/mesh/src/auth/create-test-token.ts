@@ -1,34 +1,25 @@
 /**
- * `createTestToken` — mint a correct-shape access token locally, with no magic-link email loop,
- * for driving a running app from a Node harness.
+ * `createTestToken` — mint a correct-shape access token locally, with no magic-link email loop:
+ * ADR-009 rung 3, the last resort, justified at each call site.
  *
- * This is the **local** identity path of the live self-verification harness
- * (`tasks/archive/claude-live-verification.md`). It composes the shared {@link buildAuthClaims}
- * claim-builder, so the token carries the `access: { authScope, scopeAdmin? }` shape a scope
- * admin's server-minted token would, which verification requires (`router.verifyAccessToken`, the
- * `access.authScope` gate) — verified normally against the corresponding public key, no
- * test-mode, all production verification paths exercised.
+ * Its callers are vitest-plugin fixtures that need a token no real login produces, most as a
+ * plain `MeshClient`'s `refresh` (`apps/nebula/test/test-apps/baseline/profile-do.test.ts`'s
+ * `makeClient`). The `/live` harness has no mint entry; `connectDriver`'s JSDoc says why. It
+ * composes the shared {@link buildAuthClaims} claim-builder, so the token carries the
+ * `access: { authScope, scopeAdmin? }` shape a server-minted token would, which verification
+ * requires (`router.verifyAccessToken`, the `access.authScope` gate) — verified normally against
+ * the corresponding public key, no test-mode, all production verification paths exercised.
  *
  * NOT a login: the token carries only a `sub` (identity is the surrogate `sub`, never email —
- * `email` is no longer a JWT claim), and no email is sent and no identity is DB-minted. For local
- * `wrangler dev` an admin token for one's own sandbox scope needs neither (scope-admin-equivalent by
- * construction). Prod tokens must still come via audited login / stored-refresh — never this
- * local mint (security invariant).
+ * `email` is no longer a JWT claim), and no email is sent and no identity is DB-minted. Prod
+ * tokens must still come via audited login / stored-refresh — never this local mint (security
+ * invariant).
  *
  * Node-safe by construction: imports only `./access-claims` (pure) and `@lumenize/crypto`'s
- * signing primitives — that package has no `cloudflare:workers` anywhere in its graph — so it
- * runs under plain Node (tsx) against a real `wrangler dev`.
+ * signing primitives — that package has no `cloudflare:workers` anywhere in its graph.
  *
  * @example
- * ```typescript
- * const refresh = createTestToken({
- *   privateKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),   // the .dev.vars signing key
- *   issuer: platformOrigin(LOCAL_ORIGIN),              // the verifying Worker's own issuer
- *   activeScope: 'claude.sandbox.dev',                 // own sandbox star scope
- *   profileId: crypto.randomUUID(),                    // every token carries one
- * });
- * const client = new NebulaClient({ baseUrl, authScope, activeScope, refresh, ... });
- * ```
+ * new MeshClient({ baseUrl, refresh: createTestToken({ privateKey, issuer, activeScope, profileId }) });
  */
 import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { buildAuthClaims } from './access-claims';
@@ -88,7 +79,7 @@ export interface CreateTestTokenOptions {
 }
 
 /**
- * Returns a `refresh` callback for `MeshClient`/`NebulaClient` that mints a fresh
+ * Returns a `refresh` callback for a plain `MeshClient` that mints a fresh
  * correct-shape Nebula access token on each call (fresh `exp`/`iat`/`jti`; stable `sub`).
  * Shape matches {@link CreateTestTokenOptions}'s MeshClient `refresh` contract:
  * `() => Promise<{ access_token, sub }>`.

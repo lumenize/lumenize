@@ -240,7 +240,7 @@ function responseFor(
   });
 }
 
-describe('LumenizeClient', () => {
+describe('MeshClient', () => {
   beforeEach(() => {
     createdWebSockets = [];
   });
@@ -840,7 +840,7 @@ describe('Stale close from superseded socket', () => {
   });
 });
 
-describe('@mesh(guard) on LumenizeClient', () => {
+describe('@mesh(guard) on MeshClient', () => {
   beforeEach(() => {
     createdWebSockets = [];
   });

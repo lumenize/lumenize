@@ -600,5 +600,3 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
     isIdle,
   };
 }
-
-export type DebounceQueue = ReturnType<typeof createDebounceQueue>;

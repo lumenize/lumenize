@@ -93,9 +93,9 @@ export function buildAccessEntry(
  * RFC 8693 §4.1 chain nesting, written ONCE: prepend `actor` as the NEW OUTERMOST `act` entry,
  * preserving any pre-existing verified chain beneath it. Flattening/overwriting DROPS the
  * delegation chain — the wrong shape this helper exists to make unwritable. Callers: the
- * server-composed actor on an `actingToken` RECORD (`apps/nebula` snapshots.ts
- * `#buildActingToken`) and any later cross-node mint path, so the two cannot drift on the
- * RFC semantics.
+ * server-composed actor on an `actingToken` RECORD (the Resources plane's `#buildActingToken`,
+ * `packages/resources/src/snapshots.ts`) and any later cross-node mint path, so the two cannot
+ * drift on the RFC semantics.
  *
  * ⚠️ **Applies to an actingToken RECORD only — never to a TOKEN.** A live refusal keys on an actor
  * chain being PRESENT and would fire on a session token that grew one: `worker-token.ts`'s
