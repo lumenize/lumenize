@@ -156,51 +156,9 @@ export interface AuthClaims {
 }
 
 // ---------------------------------------------------------------------------
-// Registry row shapes (AuthRegistry SQLite — see schemas.ts)
+// The refresh record. The Registry's own tables, and what each column means, are in schemas.ts.
 // Timestamps are ISO 8601 Zulu strings (ADR-011); bearer tokens stored HASHED (`tokenHash`).
 // ---------------------------------------------------------------------------
-
-/** `Scopes` row — scope existence (was `Instances`). */
-export interface Scope {
-  universeGalaxyStarId: string;
-}
-
-/** `Emails` row — one per ADDRESS, across every scope that address belongs to. */
-export interface EmailRecord {
-  /** Opaque surrogate PK (UUID). Everything that must survive an address change references THIS. */
-  emailId: string;
-  /** MUTABLE current login address, NORMALIZED (lowercased + trimmed). The ONLY copy in the registry. */
-  email: string;
-  /** Registry-minted PUBLIC display handle (UUID) — a distinct namespace from `sub`, and a property of
-   *  the ADDRESS, so every membership this address holds resolves to the same one. */
-  profileId: string;
-  /** Proof of the MAILBOX — global to the address, never re-proved per scope. */
-  emailVerified: boolean;
-  createdAt: string;
-}
-
-/** `Memberships` row — one per (address, scope); the join table. */
-export interface Membership {
-  /** Registry-minted surrogate identity key (UUID). The membership key AND the FK every resource,
-   *  grant and snapshot records (ADR-013) — so it is never re-keyed. */
-  sub: string;
-  /** FK → `Emails.emailId`. Never the address itself: an address changes, this does not. */
-  emailId: string;
-  universeGalaxyStarId: string;
-  scopeAdmin: boolean;
-  /** When THIS membership was taken up, or absent if never. Distinct from `emailVerified`, which is a
-   *  property of the address — an invitation that was never accepted has no value here, and that is
-   *  what the Profile's scoped-admin authz check keys on (ADR-012). */
-  acceptedAt?: string;
-  createdAt: string;
-}
-
-/** `RefreshTokenIndex` row — live-token index for reliable KV invalidation. */
-export interface RefreshTokenIndex {
-  tokenHash: string;
-  sub: string;
-  expiresAt: string;
-}
 
 /** The Workers-KV refresh record (`refresh:{tokenHash}`), read at the edge on refresh — no registry.
  *  `expiresAt` (absolute) is re-applied on a convergence re-put (CF KV drops expirationTtl on put). */

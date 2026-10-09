@@ -160,24 +160,6 @@ export function isPlatformScope(id: string): boolean {
 }
 
 /**
- * Derive the parent instanceName from a parsed id.
- * Universe-tier instances have no parent (returns undefined).
- *
- * @example
- * ```typescript
- * getParentId(parseId("acme.crm.tenant")) // "acme.crm"
- * getParentId(parseId("acme.crm"))        // "acme"
- * getParentId(parseId("acme"))            // undefined
- * ```
- */
-export function getParentId(parsed: ParsedId): string | undefined {
-  if (parsed.tier === 'universe') return undefined;
-  if (parsed.tier === 'galaxy') return parsed.universe;
-  // star tier
-  return `${parsed.universe}.${parsed.galaxy}`;
-}
-
-/**
  * Structural fact: does `myScope` cover `targetScope` — the same scope, or an ancestor of it?
  *
  * The reserved platform scope is the **root** of the scope tree, so it is at or above every scope.

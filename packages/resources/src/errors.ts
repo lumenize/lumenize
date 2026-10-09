@@ -82,6 +82,11 @@ export class PermissionDeniedError extends Error {
   }
 }
 
+/**
+ * For code across the wire, where `instanceof` fails: a refused `client.orgTree.*` mutation reaches
+ * the Client as an `Error` named `PermissionDeniedError`, its `tier` and `nodeId` intact. No caller
+ * yet; a generated app that shows a refusal, as pre-alpha's *Denied access shows in the app* plans, is one.
+ */
 export function isPermissionDeniedError(err: unknown): err is PermissionDeniedError {
   return (
     err instanceof Error &&
@@ -104,6 +109,11 @@ export class NodeNotFoundError extends Error {
   }
 }
 
+/**
+ * For code across the wire, where `instanceof` fails: a `client.orgTree.*` mutation naming a node the
+ * tree lacks reaches the Client as an `Error` named `NodeNotFoundError`. No caller yet; kept beside
+ * {@link isPermissionDeniedError} so a client can tell a stale local tree from a refusal.
+ */
 export function isNodeNotFoundError(err: unknown): err is NodeNotFoundError {
   return (
     err instanceof Error &&

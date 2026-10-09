@@ -51,7 +51,6 @@ export {
   parseId,
   isValidSlug,
   isPlatformScope,
-  getParentId,
   isAtOrAbove,
   isAtOrBelow,
   hasDominionOver,

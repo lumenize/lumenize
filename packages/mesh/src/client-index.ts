@@ -99,7 +99,6 @@ export {
   isValidSlug,
   MAX_SLUG_LENGTH,
   isPlatformScope,
-  getParentId,
   isAtOrAbove,
   isAtOrBelow,
   hasDominionOver,

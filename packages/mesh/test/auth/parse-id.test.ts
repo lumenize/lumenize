@@ -9,7 +9,6 @@ import {
   parseId,
   isValidSlug,
   isPlatformScope,
-  getParentId,
   isAtOrAbove,
   isAtOrBelow,
   hasDominionOver,
@@ -217,24 +216,6 @@ describe('isPlatformScope', () => {
   it('rejects other instances', () => {
     expect(isPlatformScope('acme')).toBe(false);
     expect(isPlatformScope('_platform.something')).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getParentId
-// ---------------------------------------------------------------------------
-
-describe('getParentId', () => {
-  it('returns undefined for universe tier', () => {
-    expect(getParentId(parseId('acme'))).toBeUndefined();
-  });
-
-  it('returns universe for galaxy tier', () => {
-    expect(getParentId(parseId('acme.crm'))).toBe('acme');
-  });
-
-  it('returns galaxy for star tier', () => {
-    expect(getParentId(parseId('acme.crm.tenant-a'))).toBe('acme.crm');
   });
 });
 

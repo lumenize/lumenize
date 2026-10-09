@@ -24,7 +24,7 @@ export type { AccessClaimInput } from './access-claims';
 // never re-inline the `scopeAdmin && isAtOrAbove(...)` conjunction, nor passage's two-arm union,
 // which the shared predicates collapse (ADR-007, one guard path / one place to audit).
 export {
-  parseId, isValidSlug, isPlatformScope, getParentId, isAtOrAbove, isAtOrBelow,
+  parseId, isValidSlug, isPlatformScope, isAtOrAbove, isAtOrBelow,
   hasDominionOver, hasPassageInto,
 } from './parse-id';
 

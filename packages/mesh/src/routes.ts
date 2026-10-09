@@ -37,9 +37,6 @@ export interface ScopedRoute {
   hosts?: boolean;
 }
 
-/** One binding's route: a scoped node, a node named by an id (`'unscoped'`), or a Worker with no instance. */
-export type RouteKind = ScopedRoute | 'unscoped' | 'worker';
-
 /**
  * The route kinds a binding of type `V` may take: a Durable Object namespace is a node, a service
  * binding a Worker. A service binding is told by its shape, a `fetch` and a `connect`, since

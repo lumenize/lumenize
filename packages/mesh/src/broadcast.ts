@@ -64,9 +64,6 @@ export interface BroadcastOptions extends Pick<CallOptions, 'newChain'> {
   onResult: AnyContinuation;
 }
 
-/** The type of `lmz.broadcast` on every node. */
-export type BroadcastFn = LmzApi['broadcast'];
-
 /**
  * The shared body of every node's `lmz.broadcast`, written against the one member it reads:
  * `lmz.call`. Mirrors `callShared` in `lmz-api.ts`.

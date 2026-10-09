@@ -10,7 +10,7 @@
 export { ScopedMeshDO, requirePassage, requireDominionHere, requirePassageIntoSender } from './scoped-mesh-do';
 export { GATEWAY_PREFIX } from './gateway-messages';
 export { defineRoutes } from './routes';
-export type { Routes, RouteKind, ScopedRoute } from './routes';
+export type { Routes, ScopedRoute } from './routes';
 export { UnscopedMeshDO } from './unscoped-mesh-do';
 export type { Continuation, AnyContinuation } from './mesh-do';
 
@@ -29,7 +29,7 @@ import './alarms';
 export type { Schedule, ScheduledAlarm, DelayedAlarm, CronAlarm } from './alarms';
 
 // broadcast is a member of every node's `lmz` (LmzApi, and LmzApiClient on the client), beside `call`
-export type { BroadcastFn, BroadcastTarget, BroadcastOptions } from './broadcast';
+export type { BroadcastTarget, BroadcastOptions } from './broadcast';
 
 // Re-export Lumenize infrastructure API
 export type { LmzApi, CallEnvelope } from './lmz-api';
@@ -101,7 +101,6 @@ export {
   isValidSlug,
   MAX_SLUG_LENGTH,
   isPlatformScope,
-  getParentId,
   isAtOrAbove,
   isAtOrBelow,
   hasDominionOver,
