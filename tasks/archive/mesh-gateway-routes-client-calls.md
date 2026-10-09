@@ -1,6 +1,6 @@
 # The Gateway routes a Client's call, and a call it refuses wakes nothing
 
-**Status:** Pass 2 written 2026-10-08, after Stage 1 ran three times and D1–D8 were decided. Stage 2 is next. Builds on [mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md); lands before the first invites after ⑥ the wipe.
+**Status:** ✅ **Built 2026-10-08/09 in four phases, and archived 2026-10-09.** The local sweep passed 55 of 55 and the deployed pass 11 of 11 against `test-nebula` (§ *Build notes*). Built on [mesh-is-built-on-the-scope-tree.md](mesh-is-built-on-the-scope-tree.md).
 
 ## Objective
 
@@ -41,7 +41,7 @@ What a Client on `tenant1.crm.acme.lumenize.dev` can send:
 
 **The HTTP side already routes; the `lmz.call()` path does not.** The Worker's `fetch` answers every host from one table of routes in `entrypoint.ts`, and Mesh's `hostedUpgrade` picks the binding a socket opens on from the scope's tier, `tierBindings[parseId(scope).tier]`, never from anything the browser sends. The `lmz.call()` path has one route, `#isHostNode`, and a default that has access to all bindings and instances via `env`. The Worker cannot close this from its side: it sees a socket's upgrade, and every frame after that goes straight to the node holding the socket. So the routing has to live in the Gateway.
 
-This turned up on 2026-10-06, while weighing whether the Registry should become a mesh node. [mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md) § *The Registry stays raw* settled that question on other grounds (its D13). The hole does not depend on the answer: a raw Registry is reached the same way, and leaves more behind.
+This turned up on 2026-10-06, while weighing whether the Registry should become a mesh node. [mesh-is-built-on-the-scope-tree.md](mesh-is-built-on-the-scope-tree.md) § *The Registry stays raw* settled that question on other grounds (its D13). The hole does not depend on the answer: a raw Registry is reached the same way, and leaves more behind.
 
 The sections that follow say what the routing must achieve, what it starts from, and the contract its phases will conform to.
 
@@ -56,9 +56,9 @@ Each goal says how today's design misses it.
 
 ## Relationships
 
-- **Builds on [mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md), built 2026-10-08,** which folded `ClientGateway` into `ScopedMeshDO`, moved `Profile` and the facade into `@lumenize/mesh/auth`, and renamed the bindings named here.
-- **Changes the premise of [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 8: Mesh tears down a scope itself*,** which builds on the tier-to-binding table the app passes to the upgrade. After this task that table is the routes marked `hosts` in `defineRoutes`, and its § *Item 1* docs rewrite teaches `defineRoutes`.
-- **Hands a question to [nebula-testing-with-personas.md](nebula-testing-with-personas.md)'s question 3: who writes a persona's name.** The persona's own token can, since `#requireOwnerOrAdmin`'s owner branch admits it. The confirming admin cannot, since `getScopesForProfile` finds no membership for a persona, and a second caller of the `@rawRpc()`-decorated `setDisplayNames` would be a security decision. Until a persona's name is written, D5 and D7 cover it.
+- **Builds on [mesh-is-built-on-the-scope-tree.md](mesh-is-built-on-the-scope-tree.md), built 2026-10-08,** which folded `ClientGateway` into `ScopedMeshDO`, moved `Profile` and the facade into `@lumenize/mesh/auth`, and renamed the bindings named here.
+- **Changes the premise of [mesh-1-alpha.md](../mesh-1-alpha.md) § *Item 8: Mesh tears down a scope itself*,** which builds on the tier-to-binding table the app passes to the upgrade. After this task that table is the routes marked `hosts` in `defineRoutes`, and its § *Item 1* docs rewrite teaches `defineRoutes`.
+- **Hands a question to [nebula-testing-with-personas.md](../nebula-testing-with-personas.md)'s question 3: who writes a persona's name.** The persona's own token can, since `#requireOwnerOrAdmin`'s owner branch admits it. The confirming admin cannot, since `getScopesForProfile` finds no membership for a persona, and a second caller of the `@rawRpc()`-decorated `setDisplayNames` would be a security decision. Until a persona's name is written, D5 and D7 cover it.
 - **Comes before the pre-alpha row *A person with no name is asked for one*,** which reads the never-written answer this task builds: `{ value: {}, meta: { eTag: '00000000000000000000000000' } }`.
 - **Supersedes** `tasks/archive/nebula-clients-connect-to-their-scope.md` § *How a host node checks a call* (D4).
 - **Changes these `tasks/backlog.md` rows, each in the phase named:**
@@ -66,7 +66,7 @@ Each goal says how today's design misses it.
   - *A periodic sweep removes scope Durable Objects that no `Scopes` row names* gains D2's leftover as a second source of orphans (Phase 4).
   - *Profile GC — a later sweep, NOT teardown on scope deletion* gains the persona Profile left on a slug nobody defined, which the persona reaper never sees (Phase 4).
   - A new row flags for the next release notes, as BREAKING, that a Client reaches only the bindings declared in `defineRoutes` (Phase 4).
-- **Gates the first invites after ⑥ the wipe** in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*, since the first people outside the team are the first who could send these frames. Its gate there is `deploy`: a Profile that already has its tables when it lands reads as written, so nothing it changes needs the wipe.
+- **Gates the first invites after ⑥ the wipe** in [nebula-pre-alpha.md](../nebula-pre-alpha.md) § *What remains*, since the first people outside the team are the first who could send these frames. Its gate there is `deploy`: a Profile that already has its tables when it lands reads as written, so nothing it changes needs the wipe.
 
 ## Current state
 
@@ -417,7 +417,7 @@ Three verifiers read Phases 1–3 against the tree. Phases 1 and 2 conformed wit
 Answered at the close-out, 2026-10-09, from § *Build notes*, the hand-off and the close-out.
 
 **1. What did we learn?**
-- **Local `wrangler dev` creates a Durable Object's SQLite file the moment anything builds it,** holding the runtime's `_cf_*` tables and miniflare's `__miniflare_do_name`. "Left nothing behind" is therefore a claim about the tables and rows our code wrote, never about a file existing (`reference_local_do_sqlite_file_on_construct`).
+- **On Cloudflare, an id nobody wrote costs a request, not storage.** Our code still reads on such a touch: `MeshDO`'s constructor, `hasAlarmRow()` and the Profile's `#written()` each read `sqlite_master`. `experiments/do-readonly-storage/RESULTS.md` measured that a touch which only reads lists with `hasStoredData: false`, against a kept write that lists `true`, so no `deleteAll()` is owed. Locally the question cannot be asked, since `wrangler dev` creates every object's SQLite file at construction; the live limb therefore checks the tables and rows our code wrote (`reference_local_do_sqlite_file_on_construct`).
 - **Under vitest-plugin, `ctx.abort()` keeps an object's storage, and a stub to the aborted object stays broken.** That is what let the stamp tests reset an object and run its alarm on a fresh instance.
 - **A test file and its Worker share one module instance, and importing `cloudflare:test` runs the Worker's entry.** The build recorded the opposite, a separate copy, from one file that never imported it; the close-out's test of `hostedUpgrade`'s 404 branch saw the Worker's declaration and exposed it. The memory, `routes.test.ts`'s header and the panel note are corrected.
 - **The published baseline is v0.26.0, and the BREAKING rows had drifted from it.** Checked against the tag at the hand-off, a dozen bullets named things 0.26.0 never shipped, and the `originRequest` row had been false since it was written. All of them are gone now, by the release policy below.
