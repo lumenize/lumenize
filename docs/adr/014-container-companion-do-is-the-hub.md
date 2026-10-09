@@ -39,7 +39,7 @@ The mechanism (state machines, the `running`×`status` trap, what's verifiable o
 ### Positive
 - The entire wake-ordering class of bug **dissolves** — one node, one lifecycle, no cross-node cold-start choreography.
 - The hub sits **one hop from the outside world and one hop from the container** — minimal latency to either side.
-- Vertical scale (`instance_type`) is available if a single tenant ever outgrows the default instance, so a tenant-sharded system can let its one container do everything ill-suited to JS/WASM.
+- Vertical scale is available if a single tenant ever outgrows the default instance, so a tenant-sharded system can let its one container do everything ill-suited to JS/WASM. Under the `durable_object` scheduling policy the hub names the size in each `start()`, so one tenant's container can be sized up without touching any other's.
 
 ### Negative / open
 - The hub is a plain `ScopedMeshDO` driving raw `ctx.container` — never `extends Container`. The base's homework transfers to the drive: attach `monitor()`, bound the readiness poll, serialize lifecycle transitions on a promise-chain latch. `.claude/rules/containers.md` § *The `Container` base is optional* carries the checklist. Skip an item and the hub wedges on the next container death.
