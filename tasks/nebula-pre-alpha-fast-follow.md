@@ -291,15 +291,14 @@ If both land and the model still cannot close a loop it should be able to close,
 - **Extras install once per lockfile change, not once per build.** On vite 8 the install is the largest term in a build with extras (`experiments/computer-vfs-build/RESULTS.md` § *ROUND 5*).
 - **The `@lumenize` frontend packages arrive through npm instead of a `COPY` into the image.** That needs no npmjs.org release: npm installs a tarball URL, and our own Worker can serve one.
 
-**What blocks it today:**
+**What blocked it — all cleared by 2026-10-08:**
 - ✅ **`@cloudflare/computer` passes an image and a snapshot through `start()` — cleared 2026-10-02 by 0.4.0.** Its launch spec takes `name`, a key into `ctx.container.images` defaulting to `app`, or `containerSnapshot`, plus the rest of `start()`'s options. It does not wrap `snapshotContainer()`; the Galaxy calls that on its own `ctx.container`.
-- **From 0.4.0 computer's main container backend runs only under the `durable_object` policy.** A default-policy container needs `@cloudflare/computer/backends/container-legacy`, so moving past 0.3.x — we run 0.3.2 — is either this item or a switch to that import.
 - ✅ **The `durable_object` scheduling policy needs wrangler 4.135 or later — cleared 2026-10-04.** The move to `@cloudflare/vitest-plugin` 1.3.6 pins wrangler 4.147.0.
-- **A container application cannot change its scheduling policy in place**; switching creates a new one.
+- ✅ **The build box runs the `durable_object` policy — built 2026-10-08 (`4c6e1d4`), still baking its deps.** Computer 0.4.1, a `build-box` entry in the containers block's `images` map, and a new container application for the test target, since a policy cannot change in place. Production gets its first Galaxy container application, under this policy, at the wipe ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *⑥ The wipe*).
 
-The experiment turned up two more things any design has to handle: after a deploy a snapshot restores its own, older image, and `@swc/core` 1.16.12+ will not load under the new policy's filesystem. Both are in its `RESULTS.md` § *Findings*.
+The experiment turned up two more things any design has to handle. `@swc/core` 1.16.12+ refusing to load under the policy's filesystem is handled: the build job hands `/` back to root, marked TEMP. A snapshot restoring its own, older image after a deploy is this item's to design. Both are in the experiment's `RESULTS.md` § *Findings*.
 
-**Demand trigger: fired 2026-10-02**, when computer 0.4.0 shipped the passthrough. The wipe gate is the cheap moment, because the new container application lands there and the vitest-plugin move already has.
+**Demand trigger: fired 2026-10-02**, when computer 0.4.0 shipped the passthrough, and nothing blocks it now. The next step is the child task file, drafted with `/write-task` from the outline at the end of the experiment's `RESULTS.md`.
 
 ## Item 12: `cf` and `cloudflare.config.ts` replace `wrangler` and `wrangler.jsonc`
 
