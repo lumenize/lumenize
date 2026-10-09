@@ -47,7 +47,7 @@ test('MeshClient imports cleanly from @lumenize/mesh/client', async () => {
 });
 
 test('main @lumenize/mesh barrel correctly fails to load in Node (by design)', async () => {
-  // The main barrel re-exports ScopedMeshDO / MeshWorker / ClientGateway,
+  // The main barrel re-exports ScopedMeshDO / MeshWorker,
   // which transitively `import { DurableObject } from "cloudflare:workers"`.
   // Node can't resolve that, so the barrel must throw at module load.
   //

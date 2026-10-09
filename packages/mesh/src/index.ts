@@ -57,11 +57,9 @@ export { mesh, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from '.
 export { rawRpc } from './raw-rpc-decorator';
 export type { MeshGuard } from './mesh-decorator';
 
-// A Client's server-side half, which a scoped node composes to host the Clients on its pages, and
-// the frames it exchanges with them
-export { ClientGateway } from './client-gateway';
+// The frames a Client's server-side half exchanges with it. The half itself, `ClientGateway`, is
+// internal to Mesh: a node hosts the Clients on its pages by extending `ScopedMeshDO`.
 export { ClientDisconnectedError, GatewayMessageType, WS_CLOSE_GONE } from './gateway-messages';
-export type { ClientGatewayHost } from './client-gateway';
 export type {
   GatewayConnectionInfo,
   GatewayMessage,

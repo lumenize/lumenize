@@ -50,6 +50,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **`hostedUpgrade(request, scope, env)` takes no tier map.** It opens a socket on the route marked `hosts` for the scope's tier, and `TierBindings` is no longer exported from `@lumenize/mesh/auth`.
   - **A Client's call to a scoped node meets passage and the route's tier at its own host's Gateway**, so a call into a sibling scope, or to a Client on one, is refused there rather than by its target.
   - **`ProfileSubscription.snapshot` never resolves `null`, and `onProfileUpdate`'s listener never receives it.** A profile nobody has written resolves `{ value: {}, meta: { eTag: NEVER_WRITTEN_ETAG } }`, a constant `@lumenize/mesh/client` exports.
+  - **`ClientGateway` and `ClientGatewayHost` are no longer exported from `@lumenize/mesh`.** A node hosts the Clients on its pages by extending `ScopedMeshDO`; the host type requires a passage check keyed by a symbol only Mesh can name, so no outside host could implement it.
   - **An `UnscopedMeshDO` persists the identity stamp a mesh call brings only once it can act without one**: at a routed request, at the `@rawRpc()` entry, or once it has an alarm row. A node only ever called holds no `__lmz_do_*` keys.
 
 - [ ] **Flag in the next release notes, as BREAKING: what [mesh-is-built-on-the-scope-tree.md](archive/mesh-is-built-on-the-scope-tree.md) changes in `@lumenize/mesh` (recorded 2026-10-08, as each phase builds).** [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 5* carries it into the release notes.

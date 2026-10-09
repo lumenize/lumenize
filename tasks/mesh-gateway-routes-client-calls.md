@@ -314,7 +314,7 @@ The JSDoc at each site says what it now does: the `LmzApi` getters, `createLmzAp
 
 **Open for Larry, in the order they depend on each other.** Each is detailed in the phase notes below.
 1. ~~**ADR-007's "persistent" and three sentences of `auth.md`**~~: applied 2026-10-09 after your review, with two clarifications: M3's sub-bullet names *a call a Client makes*, and ADR-007 says the stamp waits for *something that can wake the node with no call to bring it*.
-2. **`ClientGatewayHost` stays exported, or goes**: under the verifier panel. Nobody outside Mesh can implement it now; I lean to stop exporting it.
+2. ~~**`ClientGatewayHost` stays exported, or goes**~~: gone, 2026-10-09. Neither `ClientGateway` nor `ClientGatewayHost` is exported from `@lumenize/mesh`; a node hosts Clients by extending `ScopedMeshDO`, and the BREAKING row says so.
 3. **`updateMyProfile` re-sends only the writer's own never-written profile**, a reading of D7 recorded under Phase 3.
 
 Everything else below is a record: what each phase changed from the plan, what it taught, and what it closed.
