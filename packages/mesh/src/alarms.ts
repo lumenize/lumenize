@@ -297,18 +297,21 @@ export class Alarms {
 
   /**
    * Execute pending alarms. Used internally by `alarm()` and for testing.
-   * @param count Alarms to execute (default: all overdue)
+   * @param count How many of the earliest alarms to execute, due or not. Omitted, every alarm already
+   *   due runs and nothing later does, so a job scheduled ahead needs a count.
    * @see https://lumenize.com/docs/mesh/alarms#testing
    */
   async triggerAlarms(count?: number): Promise<string[]> {
     const now = Math.floor(Date.now() / 1000);
     const executedIds: string[] = [];
 
-    // If count not specified, execute all overdue alarms, or 1 if none overdue
+    // With no count, run what the runtime's alarm would run now: every job already due, and none when
+    // nothing is. A count runs the earliest jobs whatever their time, which is how a test runs one
+    // scheduled ahead.
     let effectiveCount: number;
     if (count === undefined) {
       const overdueResult = this.#sql`SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}`;
-      effectiveCount = overdueResult[0]?.count ?? 1;
+      effectiveCount = overdueResult[0].count;
     } else {
       effectiveCount = count;
     }

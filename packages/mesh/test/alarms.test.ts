@@ -257,6 +257,29 @@ describe('Alarms', () => {
       const executedIds = await stub.triggerAlarms();
       expect(executedIds.length).toBe(0);
     });
+
+    // A job scheduled in the past races the runtime, which delivers a due job by itself (see Edge
+    // Cases), so these are made due by moving the clock the test and the Durable Object both see. The
+    // runtime's own alarm keeps real time and stays a minute out.
+    test('triggerAlarms with no count runs every job already due and none still ahead', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const stub = env.ALARM_TEST_DO.getByName('default_count_test');
+        const start = Date.now();
+        const first = await stub.scheduleAlarm(new Date(start + 60_000), { order: 1 });
+        const second = await stub.scheduleAlarm(new Date(start + 61_000), { order: 2 });
+        const ahead = await stub.scheduleAlarm(new Date(start + 120_000), { order: 3 });
+
+        // Nothing is due, so nothing runs: not even the earliest job.
+        expect(await stub.triggerAlarms()).toEqual([]);
+
+        vi.setSystemTime(start + 90_000);
+        expect(await stub.triggerAlarms()).toEqual([first.id, second.id]);
+        expect((await stub.getSchedules()).map((s: Schedule) => s.id)).toEqual([ahead.id]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('Error Handling', () => {
