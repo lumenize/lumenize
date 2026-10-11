@@ -66,7 +66,7 @@ Run the Workflow below with `args.stage = 'framing'`. This is the altitude pass:
 ### 3. Gate — resolve Stage 1 and edit the file (this is the cure, not the catch-net)
 Present the Stage-1 synthesis, then work through it one finding per turn as `workflow.md` § *Teeing up decisions for Larry* sets out, and **make the edits**: positive rewrites, scope-cuts, deferrals to on-hold files with a one-line pointer left behind. The file should leave this gate clean and correctly scoped. If Stage 1 surfaced nothing structural, say so and proceed.
 
-⚠️ **Before moving on, walk your own DIFF the way you told the panel to walk the file.** Step 1.5 tells the lenses to *"verify every cited symbol's stated PROPERTY against disk, not merely that it exists"* — that instruction applies to the sentences **you just wrote**, and the asymmetry is a live defect, not a hypothetical one. Re-read the diff and, for **every new sentence asserting something about existing code**, either cite the check you ran or run it now. Diff-scoped, so it is a dozen lines and not a file.
+⚠️ **Before moving on, walk your own DIFF the way you told the panel to walk the file.** Step 1.5 tells the lenses to *"verify every cited symbol's stated PROPERTY against disk, not merely that it exists"* — that instruction applies to the sentences **you just wrote**, and holding the panel to it while exempting yourself is a live defect, not a hypothetical one. Re-read the diff and, for **every new sentence asserting something about existing code**, either cite the check you ran or run it now. Diff-scoped, so it is a dozen lines and not a file.
 
 **The discriminator is sharp enough to trust** (2026-07-30, `nebula-impersonation-client`): of the claims written at that gate, **every one verified with a targeted tool call was right, and every one inferred from adjacent context was wrong** — five of them, all caught later by Stage 2, one of which reintroduced *the exact defect class the file was in review for* (a criterion in a phase that cannot satisfy it). ⚠️ **"I already read that file" is NOT the check.** In the worst instance the disproving line (`const browserB = new Browser()` — a cookie-less browser under a claim about a refresh cookie) was **in the session's own earlier tool output**; the failure was not looking, it was not asking what the read implied for the claim being written. So the check is per-*claim*, not per-file.
 
@@ -80,6 +80,8 @@ Present the Stage-1 synthesis, then work through it one finding per turn as `wor
 
 ### 4. Stage 2 — Conformance (Workflow), against the revised file
 Run the **same** Workflow with `args.stage = 'conformance'` and the re-scouted spec. This is the technical trio — architecture/mesh+DO, security, test-strategy — each handed its rule file as the checklist (the rules are the single source of truth). Now they review clean, correctly-scoped prose: no findings anchored to text that was about to change.
+
+**Stage 2 is the only review the phases get.** Larry stops reading at the end of Stage 1 (2026-10-11; `/write-task` § *Where the review stages go*), so at Stage 2's gate tee up only what is genuinely his, meaning a decision Pass 1 lacks, and apply the rest yourself.
 
 Both stages share one Workflow body (Review → Verify → Synthesize) and are invoked separately because the human gate between them requires edits a workflow can't pause for. The verify pass is tuned to err toward *keeping* (it only drops clear false positives), and every dropped finding is reported back so you can veto an over-eager refutation. Pass `args` as `{ taskFile, spec, priorFindings, stage }` — the script normalizes it whether the harness delivers an object or a JSON-encoded string.
 
@@ -220,7 +222,7 @@ return {
 
 ### 4.5 Read the SHAPE of the result set before you process it
 
-A synthesis is not a work queue until you have asked what its shape says. Two cheap reads, both from
+A synthesis is not a work queue until you have asked what the spread of its findings says. Two cheap reads, both from
 numbers the Workflow already returns:
 
 - **Refutation rate is the FRAME signal — not the count.** `raised` vs `survived` is the diagnostic.

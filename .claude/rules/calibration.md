@@ -240,6 +240,29 @@ or not at all.
 where its page runs, and the justification is that it can then do less. If the move it stops is
 vertical rather than lateral, this is the bias.
 
+## 15. You will reach for least agency, and call it safety
+
+**What you'll do:** gate what Studio's agent may do — a confirm step, a staged action, a rule keeping its
+tools at the lowest privilege — because prompt injection is unsolved and your training ranks "excessive
+agency" among the top risks of an LLM.
+
+**What to do instead:** rank an action by whether it can be undone, not by how much it can do. A
+reversible, traceable action needs no gate; only the small tail that cannot be undone earns one, and the
+feedback loop earns it there. `docs/vision/_ai-security.md` § *Reversibility, not agency, is the risk
+variable* argues it. The `_` keeps that file out of the pitch, not out of your reading.
+
+**Where it bit (2026-10-09, `nebula-testing-with-personas.md`):** asked to let the agent invite a
+collaborator from a chat request, the recommendation was a confirmation the Galaxy writes, answered by a
+typed `yes`, and then a confirm card. Both defended against a collaborator planting a line in `AGENTS.md`
+to steer the owner's turn, and both leaned on a 2026-09-04 rule keeping every loop tool at the chat floor.
+Larry retired the rule: the planted line is visible and traceable, the owner answers for whom they
+invited, and a Star's data can be restored. *"The fix for OWASP LLM top 10 number 3, 'Too much agency',
+is more agency."*
+
+**How to catch yourself:** you are proposing a confirm step, a staging area or a privilege cap on the
+agent, and the threat is someone's text steering it. Ask what the action reaches that cannot be undone. If
+nothing, the trace is the control.
+
 ## 10. Opening with a sweep — moved
 
 Now `prose-voice.md` § *The moves that make the difference*. It is prose guidance rather than a training bias, and belongs where it loads at drafting time. The handle stays because archived files cite it and they are frozen.

@@ -2,7 +2,7 @@
 
 Lumenize is two things:
 1. A de✨light✨ful suite of MIT-licensed packages any developer can use on Cloudflare's Workers Development Platform, with particular focus on Durable Objects. Its foundation, `@lumenize/mesh`, is built on the scope tree Nebula runs on: Universe, Galaxy and Star, the passage and dominion checks between them, and the auth that mints the tokens those checks read.
-2. A SaaS platform, Nebula, for solopreneurs and intrapreneurs to agenticly build products that are secure by default. Nebula's **user-developers** (always this term — never "vibe-coder") are domain experts who may not be experienced coders. Opinionated where it matters, flexible where it counts; no foot-guns — even when we let you break a rule, you're loudly warned. Nebula code, and the Resources plane it builds on (`@lumenize/resources`), is `UNLICENSED` until external launch.
+2. A SaaS platform, Nebula, for solopreneurs and intrapreneurs to agentically build products that are secure by default. Nebula's **user-developers** (always this term — never "vibe-coder") are domain experts who may not be experienced coders. Opinionated where it matters, flexible where it counts; no foot-guns — even when we let you break a rule, you're loudly warned. Nebula code, and the Resources plane it builds on (`@lumenize/resources`), is `UNLICENSED` until external launch.
 
 Nebula is the **only app** and the packages' **first consumer** — building Nebula is dogfooding Mesh and friends. When Nebula code fights a package API (missing capability *or* awkward ergonomics), that's product feedback for the package: surface it (backlog item, or extend the package), don't quietly work around it in Nebula.
  

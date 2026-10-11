@@ -118,6 +118,8 @@ also let a late scope change land *before* Stage 1, so Stage 1 reviewed the real
 a defect that lives only in the delta between decisions (a Decisions row whose second rationale a
 later-added phase silently stranded), which no single-snapshot review can catch.
 
+**Larry stops reading at the end of Stage 1 (2026-10-11).** He reads Pass 1 and decides the Stage 1 items that need him; Pass 2 and everything after it are reviewed by the Stage 2 panel and `/build-task`'s verifiers, not by him. So **a phase MUST NOT carry a decision Pass 1 lacks.** When writing phases surfaces one, it goes back into Pass 1, § *Design intent* or § *Decisions*, and to Larry as a teed-up item before Stage 2 runs. A phase that quietly settles a design question is one nobody he trusts will read. The same holds at Stage 2's gate: tee up only what is genuinely his, and apply the rest without asking.
+
 ⚠️ **If the task exercises a `Proposed` ADR, ratify it between Stage 2 and `/build-task`** — Stage 2 is the stage that reads ADRs in full, and build is when code starts depending on the commitment. Conditional, not a step: most tasks exercise none. See `docs/adr/README.md` § *Lifecycle*.
 
 ## Pass 2 — the rest, written against the approved contract
