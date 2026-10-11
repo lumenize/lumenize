@@ -1,6 +1,6 @@
 /**
  * The source entries at the CHAT FLOOR (`.claude/rules/security.md`'s design-floor line): `readSource`,
- * `writeSource`, `buildNow` and `applyOntology` carry `requireChatWrite` — DAG
+ * `writeSource` and `buildNow` carry `requireChatWrite` — DAG
  * `write` at the chat node, the same check a Message create passes at the door — so a
  * collaborator whose message triggers a turn that writes and builds under their own claims
  * can make the same calls directly. Real invited identities, the shape of the real-host
@@ -12,12 +12,10 @@
  *    catching a collapse).
  *  - F2 the path rule, in the ENTRY: a chat-`write` caller's direct write to a reserved path
  *    (`.nebula/…`, `.env`) or a traversal (`../x`) is refused with the reserved-path /
- *    traversal message — distinct from the DAG denial and from a shape error — and neither
- *    the tree nor the registry moves; `./src/App.vue` normalises and lands.
- *  - F3 the wipe bit keeps DOMINION, decided in the body: the same chat-floor caller with no
- *    bit has `{ wipe: false }` accepted and `{ wipe: true }` refused with a message naming the
- *    `.dev` Star; the covering owner's `{ wipe: true }` writes the row, and the debug sink
- *    carries the acting principal's projection.
+ *    traversal message — distinct from the DAG denial and from a shape error — and nothing
+ *    lands: no commit, and no row file where a build reads its compiled row back;
+ *    `./src/App.vue` normalises and lands.
+ *  - F3 retired with the wipe bit it tested: installing a version no longer wipes.
  *  - F4 a direct write is RECORDED: `writeSource`'s debug line carries the caller's
  *    projection (ADR-016 — a direct edit answers "who and when" as a turn's does).
  */
@@ -26,17 +24,14 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
-import type { OntologyVersionRow, Snapshot } from '@lumenize/resources';
+import type { Snapshot } from '@lumenize/resources';
+import { ROW_PATH } from '../../../src/build-report';
 import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
 
 const uniqueScope = () => `scf-${crypto.randomUUID().slice(0, 8)}.app`;
 const PAIR = (_scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const OID_RE = /^[0-9a-f]{40}$/;
-const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
-const TODO_V2 = `interface Todo { title: string; done: boolean; priority: string; }`;
-/** The in-lane Apply compiles in place (typia) — well inside this, and a hang still reds. */
-const APPLY_TIMEOUT_MS = 60_000;
 const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
 
 type SinkEntry = { namespace: string; level: string; message: string; data?: Record<string, unknown> };
@@ -76,9 +71,6 @@ const galaxy = (c: NebulaClientTest, scope: string) => ({
   head: async () => (await c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().readSource('.git/refs/heads/main')) as string).trim(),
   write: (path: string, content: string) =>
     c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().writeSource(path, content)) as Promise<{ oid: string; path: string }>,
-  apply: (opts: { wipe?: boolean }) =>
-    c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().applyOntology(opts), { timeoutMs: APPLY_TIMEOUT_MS }) as Promise<{ version: string }>,
-  current: () => c.lmz.callAsync('GALAXY', scope, c.ctn<Galaxy>().getCurrentOntology()) as Promise<OntologyVersionRow | null>,
 });
 
 describe('the source entries sit at the chat floor', () => {
@@ -111,22 +103,21 @@ describe('the source entries sit at the chat floor', () => {
     await grantWrite();
     const g = galaxy(member, scope);
 
-    // Baselines the refused writes must not move: the branch head, and the registry.
+    // Baselines the refused writes must not move: the branch head, and the row file.
     const headBefore = await g.head();
     expect(headBefore).toMatch(OID_RE);
-    expect(await g.current()).toBeNull();
+    expect(await refusal(g.read(ROW_PATH))).not.toBeNull();
 
-    // A registry row `#registryRows()` WOULD parse (a 40-hex label — the read-by-label
-    // door refuses anything else), so this negative is capable of failing: without the
-    // entry's rule the row lands and `getCurrentOntology()` answers it.
+    // The row file a build reads its compiled row back from, so this negative is capable of
+    // failing: without the entry's rule the planted row lands there for the next build to read.
     const label = '0123456789abcdef0123456789abcdef01234567';
-    const row = JSON.stringify({ version: label, appliedAt: '2026-01-01T00:00:00.000Z' });
-    expect(await refusal(g.write(`.nebula/ontology/${label}.json`, row))).toMatch(/^Reserved path rejected/);
+    const row = JSON.stringify({ version: label, types: '', validatorBundle: '', relationships: {} });
+    expect(await refusal(g.write(ROW_PATH, row))).toMatch(/^Reserved path rejected/);
     expect(await refusal(g.write('.env', 'SECRET=1'))).toMatch(/^Reserved path rejected/);
     expect(await refusal(g.write('../x', 'escaped'))).toMatch(/'\.\.' segment rejected/);
 
     expect(await g.head()).toBe(headBefore); // no new commit
-    expect(await g.current()).toBeNull(); // the registry is unchanged
+    expect(await refusal(g.read(ROW_PATH))).not.toBeNull(); // no row file
 
     // The normalisation: a model- or client-written `./` names the same file, and the
     // commit that lands names it without the prefix.
@@ -134,48 +125,6 @@ describe('the source entries sit at the chat floor', () => {
     expect(oid).toMatch(OID_RE);
     expect(path).toBe('src/App.vue');
     expect(await g.head()).toBe(oid);
-
-    owner[Symbol.dispose](); member[Symbol.dispose]();
-  });
-
-  it('F3: the wipe bit keeps DOMINION — a chat-floor caller with no bit may apply but not wipe; the owner\'s wipe writes the row', async () => {
-    const scope = uniqueScope();
-    const { owner, member, payload, grantWrite } = await ownerAndMember(scope);
-    await grantWrite();
-    const m = galaxy(member, scope);
-    const o = galaxy(owner, scope);
-
-    // A NEW ontology, so the Apply has something to compile (an unchanged source is the
-    // already-applied no-op, which decides nothing). The write is the member's own — the
-    // chat floor covers `src/ontology.d.ts` like any source file.
-    await m.write('src/ontology.d.ts', TODO_V1);
-    // The destructive half is refused, naming the Star it would wipe; the plain Apply is
-    // the same caller's to make.
-    const refused = await refusal(m.apply({ wipe: true }));
-    expect(refused).toMatch(/^Wipe refused: dominion over /);
-    expect(refused).toContain(`${scope}.dev`);
-    expect(await m.current()).toBeNull(); // the refused Apply appended nothing
-    const { version } = await m.apply({ wipe: false });
-    const applied = await m.current();
-    expect(applied?.version).toBe(version);
-    expect(applied?.wipeOnInstall).toBeUndefined();
-
-    // The covering owner holds dominion over `{scope}.dev` → the wipe rides the row.
-    await o.write('src/ontology.d.ts', TODO_V2);
-    entries = [];
-    const { version: v2 } = await o.apply({ wipe: true });
-    expect(v2).not.toBe(version);
-    const head = await o.current();
-    expect(head?.version).toBe(v2);
-    expect(head?.wipeOnInstall).toBe(true);
-    // The ADR-016 record a wipe owes: the acting principal's projection on the decision line.
-    const decided = entries.filter((e) =>
-      e.namespace === 'nebula.Galaxy.applyOntology' && e.message === 'wipe on install decided');
-    expect(decided).toHaveLength(1);
-    const token = decided[0]!.data?.actingToken as { sub?: string; access?: { authScope?: string } } | undefined;
-    expect(token?.sub).toBe(owner.claims.sub);
-    expect(token?.sub).not.toBe(payload.sub);
-    expect(token?.access?.authScope).toBe(scope.split('.')[0]);
 
     owner[Symbol.dispose](); member[Symbol.dispose]();
   });

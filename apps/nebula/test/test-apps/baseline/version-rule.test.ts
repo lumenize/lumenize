@@ -24,6 +24,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
+import git from 'isomorphic-git';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/resources';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
@@ -39,7 +40,7 @@ const TYPES_V2 = 'interface TestResource { title: string; note?: string }\ninter
 const CHAT_V2 = { version: 'chat-v2', types: `${CHAT_MESSAGE_TYPES}\ninterface Extra { note: string }` };
 const GALAXY_PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const CHAT_QUERY: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
-/** The Galaxy's install and the Apply compile in place (typia); a hang still reds. */
+/** The Galaxy's install and the faked build's compile run in place (typia); a hang still reds. */
 const COMPILE_TIMEOUT_MS = 60_000;
 
 type SinkEntry = { namespace: string; level: string; message: string; data?: Record<string, any> };
@@ -190,7 +191,8 @@ describe('the source is asked only on a mismatch', () => {
 
 describe('every op on an empty host takes the same path', () => {
   // The FIRST answer of a raw op, because the client's own retry repairs the end state. The Star's
-  // Galaxy has applied nothing, so the Star stays empty and every op keeps being told `installing`.
+  // Galaxy answers a tenant Star no row until something is published, so the Star stays empty and
+  // every op keeps being told `installing`.
   it('each op on an empty Star is first told `installing`', async () => {
     const star = newStar();
     const admin = await starAdmin(star);
@@ -247,25 +249,28 @@ describe('every op on an empty host takes the same path', () => {
 });
 
 /**
- * A Galaxy with `types` applied to its registry when given, and a fresh empty Star beneath it whose
- * admin pins that version — so the admin's first subscribe is told `installing` while the Star pulls.
+ * A Galaxy whose build landed `types` when given, and its fresh, empty `.dev` Star, whose admin
+ * pins that version — so the admin's first subscribe is told `installing` while the Star pulls.
+ * The `.dev` Star, because it is the one Star a build's row reaches before anything is published.
  */
 async function emptyStarUnderGalaxy(types?: string) {
   const galaxy = newGalaxy();
   const owner = await galaxyOwner(galaxy);
-  const version = types ? await apply(owner, galaxy, types) : 'never-applied';
-  const star = `${galaxy}.tenant-a`;
+  const version = types ? await build(owner, galaxy, types) : 'never-built';
+  const star = `${galaxy}.dev`;
   const onShouldRefreshUI = vi.fn();
-  const client = await starAdmin(star, version, { onShouldRefreshUI });
+  const client = (await universeAdminClient(
+    NebulaClientTest, new Browser(), galaxy, star, 'admin@example.com', version, { onShouldRefreshUI },
+  )).client;
   return { galaxy, owner, client, star, onShouldRefreshUI };
 }
 
-/** Write `types` as the Galaxy's ontology source and Apply it; returns the registry version. */
-async function apply(owner: NebulaClientTest, galaxy: string, types: string): Promise<string> {
+/** Write `types` as the Galaxy's ontology source and build, over the faked job, so the row lands
+ *  as the `.dev` Star's current one; returns its version. */
+async function build(owner: NebulaClientTest, galaxy: string, types: string): Promise<string> {
   await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().writeSource('src/ontology.d.ts', types));
-  const { version } = await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().applyOntology({}),
-    { timeoutMs: COMPILE_TIMEOUT_MS }) as { version: string };
-  return version;
+  await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().buildNow({}), { timeoutMs: COMPILE_TIMEOUT_MS });
+  return (await git.hashBlob({ object: types })).oid;
 }
 
 const CHILD = () => ({ queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: uuid() });
@@ -286,7 +291,7 @@ describe('the client retries each kind of subscribe while its host installs', ()
   }, 30_000);
 
   it.each(EMPTY_STAR_KINDS)('$kind: when the retries run out it ends at the stale signal', async ({ land }) => {
-    // The Galaxy has applied nothing, so every answer stays `installing`.
+    // No build has landed, so every answer stays `installing`.
     const { owner, client, onShouldRefreshUI } = await emptyStarUnderGalaxy();
     try {
       await expect(land(client)).rejects.toMatchObject({ name: 'OntologyStaleError' });
@@ -295,7 +300,7 @@ describe('the client retries each kind of subscribe while its host installs', ()
   }, 30_000);
 
   // A resource subscribe needs a resource that exists, so its `installing` arises on an UPGRADE: the
-  // Star serves V1 and holds a resource, the Galaxy applies V2, and a client pinned to V2 subscribes.
+  // Star serves V1 and holds a resource, a build lands V2, and a client pinned to V2 subscribes.
   async function starHoldingAResource() {
     const { galaxy, owner, client: v1Admin, star } = await emptyStarUnderGalaxy(TYPES_V1);
     const rid = uuid();
@@ -308,9 +313,11 @@ describe('the client retries each kind of subscribe while its host installs', ()
 
   it('resource: lands after `installing` without firing the refresh signal', async () => {
     const { galaxy, owner, v1Admin, star, rid } = await starHoldingAResource();
-    const v2 = await apply(owner, galaxy, TYPES_V2);
+    const v2 = await build(owner, galaxy, TYPES_V2);
     const onShouldRefreshUI = vi.fn();
-    const client = await starAdmin(star, v2, { onShouldRefreshUI });
+    const client = (await universeAdminClient(
+      NebulaClientTest, new Browser(), galaxy, star, 'admin@example.com', v2, { onShouldRefreshUI },
+    )).client;
     try {
       sink = [];
       const snap = await client.resources.subscribe('TestResource', rid).snapshot;
@@ -321,9 +328,11 @@ describe('the client retries each kind of subscribe while its host installs', ()
   }, 60_000);
 
   it('resource: when the retries run out it ends at the stale signal', async () => {
-    const { owner, v1Admin, star, rid } = await starHoldingAResource();
+    const { galaxy, owner, v1Admin, star, rid } = await starHoldingAResource();
     const onShouldRefreshUI = vi.fn();
-    const client = await starAdmin(star, 'never-applied', { onShouldRefreshUI });
+    const client = (await universeAdminClient(
+      NebulaClientTest, new Browser(), galaxy, star, 'admin@example.com', 'never-built', { onShouldRefreshUI },
+    )).client;
     try {
       await expect(client.resources.subscribe('TestResource', rid).snapshot).rejects.toMatchObject({ name: 'OntologyStaleError' });
       expect(onShouldRefreshUI).toHaveBeenCalled();

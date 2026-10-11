@@ -1,28 +1,33 @@
 /**
- * **A Star serves its Galaxy's CURRENT ontology — a stale tab cannot move it, and a revert is
- * served.** Every data op names the ontology version the client was built against, and a Star
- * holds one installed version. When they differ, the Star must ask its Galaxy what is current and
- * converge on THAT — never on whatever version the asking tab happens to carry.
+ * **Each Star runs the ontology its Galaxy calls current for it (ADR-024) — a tenant runs none
+ * before a publish, a stale tab cannot move the `.dev` Star, and a revert is served once built.**
+ * Every data op names the ontology version the client was built against, and a Star holds one
+ * installed version. When they differ, the Star asks its Galaxy what is current and converges on
+ * THAT — never on whatever version the asking tab happens to carry.
  *
- * Both limbs are driven on real infrastructure: two real Applies on the parent Galaxy (a container
- * compile each), real tabs on two real Stars, and the Star's own lazy pull. Nothing is installed by
- * hand, so there is no fixture to build in the wrong shape.
+ * Every limb is driven on real infrastructure: real builds of the app (a container compile each),
+ * real tabs on two real Stars, and the Star's own lazy pull. Nothing is installed by hand, so there
+ * is no fixture to build in the wrong shape.
  *
- *  1. **A stale tab cannot move the Star off the current version.** A tab still on v1 after v2 was
- *     applied — a collaborator's preview, say, since a build reloads only the requester's — asks the
- *     tenant Star for something. It is answered `OntologyStaleError`, and the Star stays on v2: a
- *     v2 tab's subscription still hears the next write, and a type only v2 defines still validates.
- *     The failure this guards is a Star that installs the stale tab's version: it drops every
- *     subscriber and validates current tabs against the old schema.
- *  2. **A reverted ontology is served.** The `.dev` Star installs v1 and then v2; the source file is
- *     written back to v1's exact bytes, which makes v1 current again with no second Apply. A tab on
- *     v1 then commits. The failure this guards is a Star whose record of what is installed still
- *     says v2 after it installed v1, so the tab is answered `installing` until it gives up.
+ *  1. **A tenant Star installs nothing a build compiled.** A tab on the tenant pinned to the
+ *     version the `.dev` page carries is answered `ontology-stale`: nothing is published, so the
+ *     Galaxy answers the tenant no row. The failure this guards is a build reaching a Star with
+ *     real users.
+ *  2. **A stale tab cannot move the `.dev` Star off the current version.** A tab still on v1 after
+ *     v2 landed — a collaborator's preview, say, since a build reloads only the requester's — asks
+ *     the `.dev` Star for something. It is answered `OntologyStaleError`, and the Star stays on v2:
+ *     a v2 tab's subscription still hears the next write, and a type only v2 defines still
+ *     validates. The failure this guards is a Star that installs the stale tab's version.
+ *  3. **A reverted ontology is served once it is built.** The `.dev` Star installs v1 and then v2;
+ *     the source file is written back to v1's exact bytes, and the page still carries v2 until a
+ *     build lands v1 again. A tab on v1 then commits. The failure this guards is a Star whose record
+ *     of what is installed still says v2 after it installed v1, so the tab is answered `installing`
+ *     until it gives up.
  *
  * Each limb carries its own positive control, and every limb is RECORDED rather than asserted in
  * turn, so the first red one cannot hide a later one's result.
  *
- * `needsContainer = true` — each Apply compiles the ontology in the build container.
+ * `needsContainer = true` — each build compiles the ontology in the build container.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
@@ -30,6 +35,7 @@ import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { servedOntologyVersion } from '../lib/own-app';
 import { testSlug } from '../lib/test-scopes';
 import { provisionAndLogin, refreshAccessToken } from '../../test/lib/email-login';
 
@@ -38,7 +44,7 @@ export const needsContainer = true;
 /** How long a write may take to reach a subscriber before the scenario calls it unheard. */
 const PUSH_TIMEOUT_MS = 8_000;
 
-/** v2 adds a type and changes nothing else — additive, so the Apply needs no wipe. */
+/** v2 adds a type and changes nothing else — additive, so the `.dev` data needs no reset. */
 const TAG_TYPE = '\n/** @title Tag */\nexport interface Tag {\n  /** @title Label */\n  label: string;\n}\n';
 
 /**
@@ -176,8 +182,8 @@ export async function run(stack: DevStack): Promise<void> {
   await step("the app's host answers", NEW_HOST_TIMEOUT_MS, () => waitForHost(scopeUrlOf(stack, galaxy)));
   const admin = await step('admin connects', 45_000, () => connectDriver(stack, { scope: tenant, session: tenantSession }));
   disposers.push(() => admin.dispose());
-  // The galaxy's source and Apply are asked from Studio, its own page, where the universe admin
-  // holds dominion over it (the host rule); the tenant page's driver stays for the Stars.
+  // The galaxy's source and builds are asked from Studio, its own page (the host rule); the tenant
+  // page's driver stays for the Stars.
   const studio = await step('studio connects', 45_000, async () => connectDriver(stack, {
     scope: galaxy, session: await refreshAccessToken(origin, provisioned.session, galaxy, loginBrowser.fetch),
   }));
@@ -186,40 +192,45 @@ export async function run(stack: DevStack): Promise<void> {
     studio.client.lmz.callAsync('GALAXY', galaxy, chain as any, { timeoutMs }) as Promise<T>;
 
   try {
-    // ── v1: the seed ontology, applied, and installed on both Stars ─────────────────────────
+    /** Build the app, and return the version the `.dev` page then carries. */
+    const build = async (name: string): Promise<string | undefined> => {
+      await step(name, 240_000, () => galaxyCall(studio.client.ctn<Galaxy>().buildNow(), 240_000));
+      return servedOntologyVersion(stack, dev);
+    };
+
+    // ── v1: the seed ontology, built, and installed on the `.dev` Star ──────────────────────
     const seed = await step('read the seed ontology', 30_000,
       () => galaxyCall<string>(studio.client.ctn<Galaxy>().readSource('src/ontology.d.ts')));
     assert.match(seed, /interface Item\b/, 'the seed ontology has no Item type — every write below assumes one');
-    const { version: v1 } = await step('apply v1', 240_000,
-      () => galaxyCall<{ version: string }>(studio.client.ctn<Galaxy>().applyOntology(), 240_000));
+    const v1 = await build('build v1');
+    assert.ok(v1, 'the first build should land the seed ontology');
 
-    const tenantOld = await step('v1 tab on the tenant', 45_000,
+    // ── LIMB 1: a tenant Star installs nothing a build compiled ─────────────────────────────
+    const tenantTab = await step('v1 tab on the tenant', 45_000,
       () => openTab(tenant, tenantSession, v1, NebulaClient));
+    const tenantOutcome = await step('the tenant tab writes', 45_000, () => tenantTab.client.resources.transaction({
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Item', nodeId: ROOT_NODE_ID, value: { title: 'never lands' } },
+    }));
+    record('a tenant Star installs nothing a build compiled',
+      tenantOutcome.kind === 'ontology-stale',
+      `a tenant tab pinned to the built version was answered ${tenantOutcome.kind}`);
+
     const devOld = await step('v1 tab on .dev', 45_000, () => openTab(dev, devSession, v1, NebulaClient));
     const xId = crypto.randomUUID();
-    const seeded = await step('tenant installs v1', 45_000,
-      () => create(tenantOld, 'Item', { title: 'x-0' }, 30_000, xId));
-    assert.equal(seeded, 'committed', `the tenant Star never installed v1 (last outcome: ${seeded})`);
-    const devSeeded = await step('.dev installs v1', 45_000, () => create(devOld, 'Item', { title: 'dev-0' }));
+    const devSeeded = await step('.dev installs v1', 45_000,
+      () => create(devOld, 'Item', { title: 'x-0' }, 30_000, xId));
     assert.equal(devSeeded, 'committed', `the .dev Star never installed v1 (last outcome: ${devSeeded})`);
 
-    // ── v2: adds a type, applied, and installed on both Stars ──────────────────────────────
+    // ── v2: adds a type, built, and installed on the `.dev` Star ───────────────────────────
     await step('write v2', 30_000,
       () => galaxyCall(studio.client.ctn<Galaxy>().writeSource('src/ontology.d.ts', seed + TAG_TYPE)));
-    const { version: v2 } = await step('apply v2', 240_000,
-      () => galaxyCall<{ version: string }>(studio.client.ctn<Galaxy>().applyOntology(), 240_000));
-    assert.notEqual(v2, v1, 'the edit to the ontology did not produce a new version');
+    const v2 = await build('build v2');
+    assert.ok(v2 && v2 !== v1, `the edit to the ontology did not land a new version (v1 ${v1}, now ${v2})`);
 
-    const writer = await step('v2 writer on the tenant', 45_000,
-      () => openTab(tenant, tenantSession, v2, NebulaClient));
-    const watcher = await step('v2 watcher on the tenant', 45_000,
-      () => openTab(tenant, tenantSession, v2, WatchingClient));
-    const tenantMoved = await step('tenant installs v2', 45_000,
-      () => create(writer, 'Tag', { label: 'moves the tenant to v2' }));
-    assert.equal(tenantMoved, 'committed', `the tenant Star never installed v2 (last outcome: ${tenantMoved})`);
-    const devNew = await step('v2 tab on .dev', 45_000, () => openTab(dev, devSession, v2, NebulaClient));
+    const writer = await step('v2 writer on .dev', 45_000, () => openTab(dev, devSession, v2, NebulaClient));
+    const watcher = await step('v2 watcher on .dev', 45_000, () => openTab(dev, devSession, v2, WatchingClient));
     const devMoved = await step('.dev installs v2', 45_000,
-      () => create(devNew, 'Tag', { label: 'moves .dev to v2' }));
+      () => create(writer, 'Tag', { label: 'moves .dev to v2' }));
     assert.equal(devMoved, 'committed', `the .dev Star never installed v2 (last outcome: ${devMoved})`);
 
     // The writer subscribes too, so its `put` eTags auto-derive; the watcher is the one measured.
@@ -247,17 +258,17 @@ export async function run(stack: DevStack): Promise<void> {
       return { outcome, heard: watcher.client.pushes > before };
     };
 
-    // ── LIMB 1: a stale tab cannot move the tenant Star off v2 ─────────────────────────────
+    // ── LIMB 2: a stale tab cannot move the `.dev` Star off v2 ─────────────────────────────
     //    Positive control first: with no stale tab in play, the watcher hears a write — so its
     //    silence afterwards means its subscription was dropped, not that it was never live.
     const control = await bumpAndSee();
     assert.ok(control.outcome === 'committed' && control.heard,
       `before any stale request the watcher must hear a write (write ${control.outcome}, heard ${control.heard}) — ` +
-      'otherwise limb 1 measures nothing');
+      'otherwise limb 2 measures nothing');
 
     let staleAnswer: string;
     try {
-      await step('the v1 tab reads', 30_000, () => tenantOld.client.resources.read('Item', xId));
+      await step('the v1 tab reads', 30_000, () => devOld.client.resources.read('Item', xId));
       staleAnswer = 'served';
     } catch (err) {
       staleAnswer = (err as Error)?.name ?? String(err);
@@ -266,27 +277,25 @@ export async function run(stack: DevStack): Promise<void> {
     const after = await bumpAndSee();
     const tagAfter = await step('a v2-only type, after', 45_000,
       () => create(writer, 'Tag', { label: 'still v2' }, 5_000));
-    record('a stale tab cannot move the Star off the current version',
+    record('a stale tab cannot move the .dev Star off the current version',
       staleAnswer === 'OntologyStaleError' && after.outcome === 'committed' && after.heard && tagAfter === 'committed',
       `the v1 tab was answered ${staleAnswer}; afterwards the watcher ${after.heard ? 'still heard the next write' : 'HEARD NOTHING — its subscription was dropped'} (write ${after.outcome}), and a v2-only Tag was ${tagAfter}`);
 
-    // ── LIMB 2: a reverted ontology is served on a Star that already moved past it ─────────
-    //    Setup control: writing v1's exact bytes back must make v1 current again, or this limb
-    //    measures something other than a revert.
+    // ── LIMB 3: a reverted ontology is served once it is built ─────────────────────────────
+    //    Setup control: writing v1's exact bytes back moves nothing until a build lands them.
     await step('revert the file to v1', 30_000,
       () => galaxyCall(studio.client.ctn<Galaxy>().writeSource('src/ontology.d.ts', seed)));
-    const current = await step('read current', 30_000,
-      () => galaxyCall<{ version: string } | null>(studio.client.ctn<Galaxy>().getCurrentOntology()));
-    assert.equal(current?.version, v1, 'writing v1 back did not make v1 current — nothing below measures a revert');
+    const unbuilt = await servedOntologyVersion(stack, dev);
+    const rebuilt = await build('build the revert');
+    assert.equal(rebuilt, v1, 'building v1\'s bytes did not land v1 again — nothing below measures a revert');
     const devBack = await step('v1 tab on .dev, after the revert', 45_000,
       () => openTab(dev, devSession, v1, NebulaClient));
     const reverted = await step('the v1 tab writes', 45_000,
       () => create(devBack, 'Item', { title: 'served after the revert' }, 20_000));
-    record('a reverted ontology is served on a Star that already moved past it',
-      reverted === 'committed',
-      reverted === 'committed'
-        ? 'a v1 tab on the .dev Star committed once v1 was current again'
-        : `a v1 tab on the .dev Star never committed (last outcome: ${reverted})`);
+    record('a reverted ontology is served once it is built',
+      unbuilt === v2 && reverted === 'committed',
+      `before the build the page carried ${unbuilt === v2 ? 'v2' : unbuilt}; after it, a v1 tab on the .dev Star ` +
+      (reverted === 'committed' ? 'committed' : `never committed (last outcome: ${reverted})`));
 
     const open = results.filter((r) => !r.ok);
     assert.equal(open.length, 0,

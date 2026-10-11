@@ -1,31 +1,31 @@
 /**
  * The in-container build job — every build-like step runs HERE, and the Worker only
  * orchestrates and stores (tasks/archive/nebula-move-compilers-out-of-the-worker.md, the prime
- * directive). Bundled to `/build/job.cjs` at image build; the Galaxy execs
- * `node /build/job.cjs` against the FUSE-mounted `/workspace` and parses the report
- * line off stdout.
+ * directive). `./main.ts` is the entry, bundled to `/build/job.cjs` at image build; the Galaxy
+ * execs `node /build/job.cjs` against the FUSE-mounted `/workspace` and parses the report
+ * line off stdout. This module only exports {@link runJob}, so a test can import it without
+ * running a job.
  *
- * Three steps, run UNCONDITIONALLY in order — no step gates another (a type finding
- * never stops the bundle: `@vitejs/plugin-vue` transpiles rather than type-checks, so a
- * `.vue` carrying a real TS2339 still produces a `dist`, and stopping there would make
- * the model's preview override unreachable by construction). Only `bundle`'s own
- * failure means there is no `dist`:
+ * Three steps, in order. One gate only: a failed ontology compile skips the bundle, so a
+ * page never lands over types that did not compile — the page and its types move together
+ * or not at all. A type finding never stops the bundle: `@vitejs/plugin-vue` transpiles
+ * rather than type-checks, so a `.vue` carrying a real TS2339 still produces a `dist`, and
+ * stopping there would make the model's preview override unreachable by construction.
  *
  *   1. ontology  — when the host passed ONTOLOGY_VERSION: compile
  *                  `src/ontology.d.ts` to its OntologyVersionRow and write the row
  *                  JSON at ROW_PATH in the mount (the Galaxy reads it back host-side
  *                  with `ws.fs.readFile`; `runtime.exec` returns only stdio, and a
  *                  bulky emitted module has no reader in the model's tool result).
- *                  `version` + `wipeOnInstall` are HOST-computed and passed IN, never
- *                  read back out — `version` keys the Star's Worker Loader cache, and
- *                  the wipe bit was decided under a dominion check in the turn that
- *                  changed the ontology.
+ *                  `version` is HOST-computed and passed IN, never read back out: it
+ *                  keys the Star's Worker Loader cache, and the host checks the row it
+ *                  reads back against it before the row lands.
  *   2. typeCheck — both SFC passes over every `.vue` under `src/` (see ./sfc-check).
  *                  `checked` lists what tsc actually looked at, so a file written,
  *                  checked and unimplicated is KNOWN CLEAN. No `ok` — advisory by
  *                  type, the model judges the findings.
  *   3. bundle    — `vite build` (the baked image deps at `/node_modules`, per the
- *                  Dockerfile header).
+ *                  Dockerfile header), skipped when step 1 ran and failed.
  *
  * The report rides ONE stdout line prefixed REPORT_MARKER; step tails are bounded
  * RAW output (never summarized — line numbers and error codes are what a model
@@ -37,7 +37,7 @@ import { join } from 'node:path';
 import { compileOntologyVersion } from '../../src/ontology-compile';
 // The report SHAPE + marker live in the shared leaf so the Worker side cannot drift.
 import { createHash } from 'node:crypto';
-import { REPORT_MARKER, ROW_PATH } from '../../src/build-report';
+import { ROW_PATH, SKIPPED_FOR_ONTOLOGY } from '../../src/build-report';
 import type { JobReport, StepResult } from '../../src/build-report';
 import { checkVueSfc } from './sfc-check';
 
@@ -64,7 +64,7 @@ function walkVueFiles(dir: string, rel = 'src'): string[] {
   return out;
 }
 
-export function runJob(workspace: string, opts: { ontologyVersion?: string; wipeOnInstall?: boolean }): JobReport {
+export function runJob(workspace: string, opts: { ontologyVersion?: string }): JobReport {
   // ── 1. ontology ─────────────────────────────────────────────────────────
   let ontology: JobReport['ontology'];
   if (!opts.ontologyVersion) {
@@ -72,11 +72,7 @@ export function runJob(workspace: string, opts: { ontologyVersion?: string; wipe
   } else {
     try {
       const types = readFileSync(join(workspace, 'src/ontology.d.ts'), 'utf8');
-      const row = compileOntologyVersion({
-        version: opts.ontologyVersion,
-        types,
-        ...(opts.wipeOnInstall ? { wipeOnInstall: true } : {}),
-      });
+      const row = compileOntologyVersion({ version: opts.ontologyVersion, types });
       mkdirSync(join(workspace, '.nebula'), { recursive: true });
       writeFileSync(join(workspace, ROW_PATH), JSON.stringify(row));
       ontology = { ran: true, ok: true, rowPath: ROW_PATH };
@@ -124,6 +120,11 @@ export function runJob(workspace: string, opts: { ontologyVersion?: string; wipe
     return `[mount] /dev/fuse=${devFuse}; ${mounts}; ${workspace} entries=${wsEntries}`;
   };
   let bundle: JobReport['bundle'];
+  if (ontology.ran && ontology.ok === false) {
+    // The one gate (header).
+    bundle = { ran: false, why: SKIPPED_FOR_ONTOLOGY };
+    return { ontology, typeCheck, bundle };
+  }
   // ⚠️ `--emptyOutDir=false`, and it is load-bearing under local `wrangler dev`: with FUSE
   // absent, computerd materializes the workspace onto disk and pulls changes back after
   // the exec, and its pull LOSES vite's default empty-then-rewrite of an unchanged dist —
@@ -173,15 +174,3 @@ export function runJob(workspace: string, opts: { ontologyVersion?: string; wipe
 
   return { ontology, typeCheck, bundle };
 }
-
-// ── entry ─────────────────────────────────────────────────────────────────
-const workspace = process.env.WORKSPACE ?? '/workspace';
-const report = runJob(workspace, {
-  ontologyVersion: process.env.ONTOLOGY_VERSION || undefined,
-  wipeOnInstall: process.env.WIPE_ON_INSTALL === '1',
-});
-console.log(REPORT_MARKER + JSON.stringify(report));
-// Exit 0 whether or not steps failed: step outcomes ride the REPORT, and a non-zero
-// exit would be read by the host's exec classification as the JOB itself dying
-// (container-step infra failure) rather than a step outcome.
-process.exit(0);

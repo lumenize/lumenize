@@ -150,10 +150,10 @@ describe('each host has one door, and the per-op entries are gone', () => {
   it('each host\'s own @mesh surface is exactly its inventory — the door, and what is not a resource op', () => {
     // A getter carries `@mesh()` on its `get` function, which a `descriptor.value` walk misses — so
     // `resources` appearing here is the proof the walk reads getters. The two lists differ, so
-    // neither is written as one: the Galaxy's source entries and registry reads are its own. No
+    // neither is written as one: the Galaxy's source entries and ontology read are its own. No
     // reaper is left on either host; they answer through `resourcesResults`.
     expect(meshSurface(Galaxy)).toEqual([
-      'applyOntology', 'buildNow', 'getCurrentOntology', 'getGalaxyConfig', 'getOntologyVersion',
+      'buildNow', 'getCurrentOntology', 'getGalaxyConfig',
       'readSource', 'resources', 'setGalaxyConfig', 'writeSource',
     ]);
     expect(meshSurface(Star)).toEqual(['getStarConfig', 'resetDevData', 'resources', 'setStarConfig']);

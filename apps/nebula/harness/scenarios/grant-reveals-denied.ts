@@ -6,7 +6,9 @@
  * grant is the client itself. Every client `createNebulaClient` builds watches the org tree, and at
  * each tree change it re-subscribes exactly what its last update denied. This scenario walks that
  * end to end with nothing hand-built: a real login, a real invite email, a factory client
- * refreshing on the member's own cookie, and an ontology that arrives by the real Apply.
+ * refreshing on the member's own cookie, and an ontology that arrives by a real build. It runs on
+ * the `.dev` Star of an app of its own (`ownApp`): the `.dev` Star is the one Star a build's row
+ * reaches before anything is published (ADR-024), and a Galaxy has only one.
  *
  *  1. The member, invited to the `pub` node only, subscribes to an Item on the sibling `priv` node.
  *     The subscribe is not refused: `.snapshot` resolves `null`, and the store entry names `priv`
@@ -16,7 +18,7 @@
  *     *Live-mutation-checked: drop the client's ask-again and this limb reds while limb 1 stays
  *     green (run 2026-09-28).*
  *
- * `needsContainer = true` — the Apply compiles the seed ontology in the build container, since a
+ * `needsContainer = true` — the build compiles the seed ontology in the build container, since a
  * Star serves resources only for an installed ontology. The in-lane twins, one mutation per limb,
  * are `nebula-client-denied.test.ts` and `child2-query-permission.test.ts`.
  */
@@ -29,10 +31,8 @@ import type { Galaxy, Star } from '@lumenize/nebula';
 import type { NodeInviteAck } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
-import { sharedApp } from '../lib/shared-app';
-import { testSlug } from '../lib/test-scopes';
-import { refreshAccessToken } from '../../test/lib/email-login';
-import { provisionAndLogin, acceptInviteAndLogin } from '../../test/lib/email-login';
+import { ownApp, servedOntologyVersion } from '../lib/own-app';
+import { acceptInviteAndLogin } from '../../test/lib/email-login';
 
 export const needsContainer = true;
 
@@ -55,12 +55,11 @@ async function whileInstalling<T>(op: () => Promise<T>): Promise<T> {
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  // A tenant Star of this scenario's own, beneath the run's shared app, founded by its owner.
-  const app = await sharedApp(stack, testToken);
-  const star = `${app.galaxy}.${testSlug('grd')}`;
+  // The `.dev` Star of an app of this scenario's own.
+  const app = await ownApp(stack, 'grd', testToken);
+  const star = app.dev;
   const memberEmail = uniqueTestEmail();
-
-  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, email: app.ownerEmail, testToken });
+  const adminSession = app.devToken;
   let admin: Driver | undefined;
   let member: ReturnType<typeof createNebulaClient> | undefined;
   const memberBrowser = new Browser();
@@ -71,18 +70,17 @@ export async function run(stack: DevStack): Promise<void> {
       session: { accessToken: adminSession.accessToken, sub: adminSession.sub },
     });
 
-    // The ontology arrives by the REAL path: the dev Apply on the parent Galaxy, asked from Studio,
-    // the galaxy's own page (the host rule), then the Star's first-touch pull when an op needs it.
-    const galaxy = star.split('.').slice(0, 2).join('.');
-    const studio = await connectDriver(stack, { scope: galaxy, session: await refreshAccessToken(origin, adminSession.session, galaxy) });
-    let version: string;
+    // The ontology arrives by the REAL path: a build asked from Studio, the galaxy's own page (the
+    // host rule), lands it as the `.dev` Star's current row; then the Star's first-touch pull when
+    // an op needs it.
+    const studio = await connectDriver(stack, { scope: app.galaxy, session: app.studio });
     try {
-      ({ version } = await studio.client.lmz.callAsync(
-        'GALAXY', galaxy, studio.client.ctn<Galaxy>().applyOntology(), { timeoutMs: 240_000 },
-      ) as { version: string });
+      await studio.client.lmz.callAsync('GALAXY', app.galaxy, studio.client.ctn<Galaxy>().buildNow(), { timeoutMs: 240_000 });
     } finally {
       studio.dispose();
     }
+    const version = await servedOntologyVersion(stack, star);
+    assert.ok(version, 'the `.dev` page should carry the version the build landed');
 
     const pub = await admin.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'pub', 'Pub');
     const priv = await admin.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'priv', 'Priv');

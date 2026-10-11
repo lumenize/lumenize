@@ -6,14 +6,14 @@
  * "Galaxy ontology" registry block died with the Galaxy's test-install method
  * (tasks/archive/nebula-move-compilers-out-of-the-worker.md phase 3) — its duplicate-label /
  * index-listing / latest-round-trip assertions covered that method's own behaviour
- * and cannot outlive it; the surviving registry write path is the dev Apply
- * (`applyOntology`), covered in the dev-studio project.
+ * and cannot outlive it; a build that lands is how the `.dev` Star gets a row now, covered in the
+ * dev-studio project.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
 import type { Snapshot, TransactionResult, TransactionError } from '@lumenize/resources';
-import { adminClientAt } from '../../test-helpers';
+import { adminClientAt, universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -122,9 +122,9 @@ describe('Star ontology cache', () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
 
-    // No ontology applied to the Star yet. Phase 4 retired the Galaxy lazy-pull, so a
-    // versioned op against an ontology-less Star is a version mismatch (current = '')
-    // rather than the old "not found" — the client is told to refresh.
+    // No ontology installed on the Star, and its Galaxy answers a tenant Star none until something
+    // is published, so a versioned op is a version mismatch (current = '') rather than the old
+    // "not found" — the client is told to refresh.
     client.callStarTransaction(star, 'v1', {
       [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
     });
@@ -410,5 +410,40 @@ describe('read integration', () => {
     expect(error).toContain('version mismatch');
 
     client[Symbol.dispose]();
+  });
+});
+
+// ─── The `.dev` Star's own validator cache key ───────────────────────
+
+describe('the .dev Star keeps its validator apart from its tenants\'', () => {
+  // A build's row comes from a `vite.config.ts` a chat collaborator can shape, so the `.dev` Star
+  // keys its bundle on its own name and no tenant can load it under the same version. In one
+  // isolate, the two Stars install different types under ONE label; each must validate by its own.
+  // Mutation: key the `.dev` Star's bundle on the Galaxy, as a tenant's is — the tenant then loads
+  // the `.dev` bundle cached first and accepts what its own types refuse.
+  it('the same version label, different types: each Star validates by its own', async () => {
+    const galaxy = `acme-${crypto.randomUUID().slice(0, 8)}.app`;
+    const dev = `${galaxy}.dev`;
+    const tenant = `${galaxy}.tenant-a`;
+    const label = 'v-shared';
+    const { client: devAdmin } = await universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', label);
+    const { client: tenantAdmin } = await adminClientAt(NebulaClientTest, new Browser(), tenant, tenant, 'admin@example.com', label);
+    const note = (value: object) => ({ [crypto.randomUUID()]: { op: 'create' as const, typeName: 'Note', nodeId: ROOT_NODE_ID, value } });
+
+    // `.dev` first, so its bundle is the one a shared key would have cached.
+    devAdmin.callStarInstallOntology(dev, { version: label, types: 'interface Note { body: string }' });
+    await waitForSuccess(devAdmin);
+    devAdmin.callStarTransaction(dev, label, note({ body: 'x' }));
+    expect(((await waitForSuccess(devAdmin)) as TransactionResult).ok).toBe(true);
+
+    tenantAdmin.callStarInstallOntology(tenant, { version: label, types: 'interface Note { body: string; level: number }' });
+    await waitForSuccess(tenantAdmin);
+    tenantAdmin.callStarTransaction(tenant, label, note({ body: 'x' }));
+    const refused = await waitForSuccess(tenantAdmin) as TransactionResult;
+    expect(refused.ok).toBe(false); // the tenant's own types require `level`
+    tenantAdmin.callStarTransaction(tenant, label, note({ body: 'x', level: 1 }));
+    expect(((await waitForSuccess(tenantAdmin)) as TransactionResult).ok).toBe(true);
+
+    devAdmin[Symbol.dispose](); tenantAdmin[Symbol.dispose]();
   });
 });

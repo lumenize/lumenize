@@ -109,6 +109,5 @@ export function compileOntologyVersion(
     types: versionConfig.types,
     validatorBundle,
     relationships: md.relationships,
-    ...(versionConfig.wipeOnInstall ? { wipeOnInstall: true } : {}),
   };
 }

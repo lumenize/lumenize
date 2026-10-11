@@ -62,7 +62,8 @@ import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources';
 // The compile fn left the barrel with the Worker's compilers — a test Worker may
 // still carry it (this app never deploys), imported from the leaf directly.
 import { compileOntologyVersion } from '../../../src/ontology-compile';
-import { ROW_PATH, wsPath } from '../../../src/build-report';
+import { fakeBuildJob } from '../fake-build';
+import type { BuildFaults } from '../fake-build';
 import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
 import type { StudioClientConfig } from '@lumenize/nebula';
 import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
@@ -247,9 +248,9 @@ export class StarTest extends Star {
    * Test-only (smoke/browser harness): compile an ontology version and hand it to this Star the
    * way its Galaxy's answer arrives — `resourcesResults.onOntologyPulled`, the path a production
    * install takes — so a test pins a Star's ontology without a Galaxy loop. An installed version
-   * is skipped and a `wipeOnInstall` row wipes, exactly as a pulled row does. It takes SOURCE and
-   * compiles here, in the test Worker, because the only alternative is a remote entry taking a
-   * compiled row — a caller handing a Star a validator bundle from outside the registry, which
+   * is skipped, exactly as a pulled row is. It takes SOURCE and compiles here, in the test Worker,
+   * because the only alternative is a remote entry taking a compiled row — a caller handing a Star
+   * a validator bundle from outside its Galaxy, which
    * the undecorated `resourcesResults` gate refuses. It is NOT an import limit: `ontology-compile.ts`
    * loads in plain Node, so the Node-side callers could compile. It does keep the compiler, which
    * is not browser-safe, out of the chromium lane's bundle (`test/chromium/ontology-admin.ts`).
@@ -261,7 +262,7 @@ export class StarTest extends Star {
   }
 
   /** Hand `resourcesResults.onOntologyPulled` an answer that is not a row — the Galaxy's `null`
-   *  (nothing applied yet) or a delivered Error — the two shapes a real pull can come back as. */
+   *  (no row for this Star) or a delivered Error — the two shapes a real pull can come back as. */
   @mesh(requireDominionHere)
   deliverOntologyAnswerForTest(answer: 'null' | 'error'): void {
     this.resourcesResults.onOntologyPulled(answer === 'null' ? null : new Error('the pull failed'));
@@ -526,36 +527,17 @@ export class GalaxyTest extends Galaxy {
       return next;
     }
   }
-  protected override async build(
-    opts: { ontology?: { version: string; wipe: boolean } } = {},
-  ): Promise<BuildReport> {
-    // A clean report, shaped exactly as the real job's (preview is the layer above's
-    // decision — the seam's placeholder, overwritten by #buildAndAnnounce). When the host
-    // passes an ontology job, compile IN PLACE and write the row where the real job
-    // does (an fs write at ROW_PATH — the dev-studio probe's shape), so the Apply's
-    // host-side read-back, version check and append run unchanged in this lane too.
-    let ontology: BuildReport['ontology'] = { ran: false, why: 'no ontology change (host passed no version)' };
-    if (opts.ontology) {
-      try {
-        const types = await this.workspaceFs().readFile(wsPath('src/ontology.d.ts'), 'utf8');
-        const row = compileOntologyVersion({
-          version: opts.ontology.version, types,
-          ...(opts.ontology.wipe ? { wipeOnInstall: true } : {}),
-        });
-        await this.workspaceFs().mkdir(wsPath('.nebula'), { recursive: true });
-        await this.workspaceFs().writeFile(wsPath(ROW_PATH), JSON.stringify(row));
-        ontology = { ran: true, ok: true, rowPath: ROW_PATH };
-      } catch (e) {
-        ontology = { ran: true, ok: false, tail: e instanceof Error ? e.message : String(e) };
-      }
-    }
-    return {
-      container: { ran: true, ok: true },
-      ontology,
-      typeCheck: { ran: true, checked: ['src/App.vue'], findings: [] },
-      bundle: { ran: true, ok: true },
-      preview: { refreshed: false, why: 'not decided at the build layer' },
-    };
+  /** The build job, faked as the real one behaves where the Galaxy reads it (`fake-build.ts`),
+   *  so the landing, the preview decision and the announcement above it run unchanged. */
+  protected override async build(opts: { ontology?: { version: string } } = {}): Promise<BuildReport> {
+    return fakeBuildJob(this.workspaceFs(), opts, this.#buildFaults);
+  }
+
+  #buildFaults: BuildFaults = {};
+  /** What the next builds do wrong, until set again. Ephemeral, as the fake is. */
+  @mesh(requireDominionHere)
+  setBuildFaultsForTest(faults: BuildFaults): void {
+    this.#buildFaults = faults;
   }
 
   /** No script seeded → NO turn. Tests that post user Messages without a script assert on

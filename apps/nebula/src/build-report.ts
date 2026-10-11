@@ -61,14 +61,19 @@ export type BuildReport = JobReport & {
   preview: { refreshed: boolean; why: string };
 };
 
+/** The bundle's `why` when a failed ontology compile skipped it: the job's one gate, so a page
+ *  never lands over types that did not compile. The model reads it, so it says what to do. */
+export const SKIPPED_FOR_ONTOLOGY = 'skipped: src/ontology.d.ts did not compile — fix it, then build again';
+
 /** True iff a step ran and failed (a skipped step is not a failure). */
 export function stepFailed(s: StepResult): boolean {
   return s.ran && s.ok === false;
 }
 
-/** Where the compiled `OntologyVersionRow` lands in the mount, workspace-relative.
- *  Outside `dist/` on purpose — vite empties `dist/` at build, which runs after the
- *  ontology step. Never committed: git tracks only what `git.add` is handed. */
+/** Where the compiled `OntologyVersionRow` lands in the mount, workspace-relative. Outside
+ *  `dist/`, which the build writes after the ontology step. Never committed: git tracks only
+ *  what `git.add` is handed. The Galaxy reads it back when the build lands, checks it against
+ *  the version it asked for, and keeps its own copy. */
 export const ROW_PATH = '.nebula/ontology-row.json';
 
 /**

@@ -67,7 +67,9 @@ export async function run(stack: DevStack): Promise<void> {
       {
         name: 'the same env read, nested as an argument to a `@mesh()`-decorated method',
         pattern: NOT_MESH_CALLABLE,
-        run: () => call((c) => c.getOntologyVersion(c.env.PRIMARY_JWT_KEY)),
+        // A read-only member takes no argument; the refusal comes before the method runs, so its
+        // arity does not matter, and a member that wrote would run on the deployed pass.
+        run: () => call((c) => c.getCurrentOntology(c.env.PRIMARY_JWT_KEY)),
       },
       {
         name: 'svc.sql runs arbitrary SQL on the host',
@@ -77,7 +79,7 @@ export async function run(stack: DevStack): Promise<void> {
       {
         name: 'a nested svc chain as an argument to a `@mesh()`-decorated method',
         pattern: NOT_MESH_CALLABLE,
-        run: () => call((c) => c.getOntologyVersion(c.svc.sql(['SELECT 1']))),
+        run: () => call((c) => c.getGalaxyConfig(c.svc.sql(['SELECT 1']))),
       },
 
       // ── the walk rules: past a real gate, the doors JavaScript opens on every object ──────

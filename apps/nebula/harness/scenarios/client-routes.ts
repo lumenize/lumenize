@@ -188,7 +188,7 @@ export async function run(stack: DevStack): Promise<void> {
     };
 
     // ── LIMB 6 first: positive controls, so every matcher is shown able to fire ─────────────────
-    const galaxyCall = await send('GALAXY', app.galaxy, op('getOntologyVersion', 'no-such-version'));
+    const galaxyCall = await send('GALAXY', app.galaxy, op('getCurrentOntology'));
     limb('limb 6 — a GALAXY call to the app\'s Galaxy answers', galaxyCall.ok, said(galaxyCall));
     const profileCall = await send('PROFILE', profileId, op('read'));
     limb('limb 6 — a PROFILE read of the caller\'s own profile answers', profileCall.ok, said(profileCall));
@@ -231,22 +231,22 @@ export async function run(stack: DevStack): Promise<void> {
     const passageEntriesB = () => named('lmz.mesh.ScopedMeshDO.passage', starB, 'instanceName').length;
     const passageBefore = passageEntriesB();
     const noPassage = (into: string) => `No passage from "${starA}" into "${into}"`;
-    const sibling = await send('STAR', starB, op('getOntologyVersion', 'x'));
+    const sibling = await send('STAR', starB, op('getCurrentOntology'));
     limb('limb 3 — STAR at the sibling is refused for lack of passage', refusedWith(sibling, noPassage(starB)), said(sibling));
     const siblingClient = await send('STAR', `${starB}/someone.tab1`, op('receive'));
     limb('limb 3 — STAR at a Client on the sibling is refused for lack of passage',
       refusedWith(siblingClient, noPassage(starB)), said(siblingClient));
     logHalf('limb 3 — the sibling\'s passage step never ran', () => passageEntriesB() === passageBefore, 'the sibling\'s passage step ran');
-    const none = await send('STAR', uncreated, op('getOntologyVersion', 'x'));
+    const none = await send('STAR', uncreated, op('getCurrentOntology'));
     limb('limb 3 — STAR at a scope nobody created is refused for lack of passage', refusedWith(none, noPassage(uncreated)), said(none));
     logHalf('limb 3 — the uncreated Star never started', () => named('nebula.Star.onStart', uncreated).length === 0, 'it started');
 
     // ── LIMB 4: the tier ────────────────────────────────────────────────────────────────────────
-    const starAtGalaxy = await send('STAR', app.galaxy, op('getOntologyVersion', 'x'));
+    const starAtGalaxy = await send('STAR', app.galaxy, op('getCurrentOntology'));
     limb('limb 4 — STAR at the app\'s Galaxy is refused with the tier message',
       refusedWith(starAtGalaxy, `"${app.galaxy}" is a galaxy scope, which "STAR" does not serve`), said(starAtGalaxy));
     logHalf('limb 4 — no Star named the app\'s Galaxy started', () => named('nebula.Star.onStart', app.galaxy).length === 0, 'it started');
-    const galaxyAtStar = await send('GALAXY', starA, op('getOntologyVersion', 'x'));
+    const galaxyAtStar = await send('GALAXY', starA, op('getCurrentOntology'));
     limb('limb 4 — GALAXY at the caller\'s own Star is refused with the tier message',
       refusedWith(galaxyAtStar, `"${starA}" is a star scope, which "GALAXY" does not serve`), said(galaxyAtStar));
     logHalf('limb 4 — no Galaxy named the caller\'s Star started', () => named('nebula.Galaxy.onStart', starA).length === 0, 'it started');
@@ -265,7 +265,7 @@ export async function run(stack: DevStack): Promise<void> {
     const noInstance = await send('PROFILE', undefined, op('read'));
     limb('limb 5 — PROFILE with no instance is refused with its own message',
       refusedWith(noInstance, /^"PROFILE" serves nodes named by an id/), said(noInstance));
-    const scopedNoInstance = await send('STAR', undefined, op('getOntologyVersion', 'x'));
+    const scopedNoInstance = await send('STAR', undefined, op('getCurrentOntology'));
     limb('limb 5 — STAR with no instance is refused with its own message',
       refusedWith(scopedNoInstance, /^"STAR" serves nodes named by a scope/), said(scopedNoInstance));
     const workerInstance = await send('AUTH_FACADE', 'x', op('expandScope'));

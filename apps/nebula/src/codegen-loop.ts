@@ -14,12 +14,12 @@
  * arrive as {@link CodegenLoopDeps.tools}, built by the Galaxy from its `LOOP_TOOL_ENTRIES`
  * table, and it holds **no reference** to the `.dev` Star binding or the install/wipe
  * methods (`compileAndInstallOntology` / `resetDevData` / `onOntologyPulled`) — that absence is
- * the secure-by-default D2 guarantee (an autonomous tool can read, write and build but
+ * the secure-by-default guarantee (an autonomous tool can read, write and build but
  * never install or wipe; install/wipe stays the human-gated apply step fired AFTER the
  * loop). Path safety is the ENTRY's rule (`assertModelPath`, in `galaxy.ts`), so a refused
  * path reaches the loop as a thrown tool dep and is captured like any other tool error.
  *
- * @see tasks/archive/nebula-codegen-loop.md § Phases 2–3 (D1, D2, D4, D5, D6, D7, D8)
+ * @see tasks/archive/nebula-codegen-loop.md
  */
 import { stepFailed } from './build-report';
 import type { BuildReport, Finding, StepResult } from './build-report';
@@ -55,8 +55,8 @@ export const TOOL_ARG_TYPE: Record<string, string> = {
 };
 
 /**
- * The tool definitions handed to the model (OpenAI-shaped `tools` array, D5
- * "convert to JSON for the model"). This is a **prompt artifact**, not the
+ * The tool definitions handed to the model (an OpenAI-shaped `tools` array, converted to JSON for
+ * the model). This is a **prompt artifact**, not the
  * validation authority — typia (derived from `tool-args-constants.ts`'s
  * `TOOL_ARGS_TYPES`) is — but its `parameters.properties` ARE the authority for
  * {@link unknownToolArgKeys}. Kept in sync with those types by hand (the surface is
@@ -135,8 +135,9 @@ export const CODEGEN_TOOLS = [
     function: {
       name: 'build',
       description:
-        'Check and bundle the whole app in a clean build box — one call runs every ' +
-        'step and reports each: ontology (compiles src/ontology.d.ts when it changed), ' +
+        'Check and bundle the whole app in a clean build box — one call runs the ' +
+        'steps and reports each: ontology (compiles src/ontology.d.ts when it changed; if it ' +
+        'does not compile, the bundle is skipped, so fix it first), ' +
         'typeCheck (advisory findings over every .vue — a checked file with no findings ' +
         'is clean), bundle (vite build), and preview (whether the .dev preview refreshed, ' +
         'and why). A failed container step is infrastructure: read its tail, which says ' +
@@ -292,8 +293,9 @@ export interface LoopToolDeps {
    *  `writeSource`. */
   edit_file(path: string, anchor: string, replacement: string): Promise<{ oid: string; path: string }>;
   /**
-   * One ephemeral container build cycle — the job runs EVERY step (ontology compile,
-   * SFC type check, `vite build`) against the FUSE-mounted workspace and reports each
+   * One ephemeral container build cycle — the job runs each step (ontology compile,
+   * SFC type check, `vite build`, which a failed compile skips) against the FUSE-mounted
+   * workspace and reports each
    * (Galaxy's `buildNow`, serialized by its promise-chain latch). `preview` is the
    * model's override (BuildArgs). A throw is captured by the loop into a report whose
    * `container` step failed; it never aborts the turn.
@@ -312,7 +314,7 @@ export interface CodegenLoopDeps {
   /** typia shape validation of tool args (+ the unknown-key refusal). Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
-   * Progress/thought emit seam (Child 3 Phase 3). Called per round with the model's
+   * Progress/thought emit seam. Called per round with the model's
    * reasoning and per file with `wrote <path>` — the coarse, step-level content the
    * assistant progress stream fans to session subscribers (NOT model tokens; `callModel`
    * is non-streaming). Optional + synchronous fire-and-forget: a slow/throwing sink must
@@ -327,7 +329,7 @@ export interface CodegenLoopDeps {
 }
 
 export interface CodegenLoopConfig {
-  /** Max model inferences per turn (D4 — the runaway stop). */
+  /** Max model inferences per turn (the runaway stop). */
   maxToolDepth: number;
   /** Per-call params: full temp for the first/generate pass. */
   generateParams: ModelParams;
@@ -422,7 +424,7 @@ export function renderHistoryBundle(entries: HistoryEntry[]): string {
 }
 
 /** The user-layer self-correction message after a build with failures or findings
- *  (D1/D7/D8's successor): the report's tails + findings plus the files written this
+ *  (the per-write compile feedback's successor): the report's tails + findings plus the files written this
  *  turn, pushed back so the model fixes and rebuilds. A per-build findings list is not
  *  attached to one file, so no single file's source is re-echoed — the diagnostics
  *  carry file and line themselves. It says "fix and call build again" and nothing
@@ -462,7 +464,7 @@ function buildReportFeedback(report: BuildReport, touchedPaths: string[]): strin
   );
 }
 
-// ─── Model-response parsing (D5, m2) ─────────────────────────────────────
+// ─── Model-response parsing ──────────────────────────────────────────────
 
 /**
  * Extract tool_calls + text from a raw `env.AI.run` response, defensively (m2):
@@ -530,7 +532,7 @@ function toolResultMessage(id: string, payload: unknown): ChatMessage {
  * Drive the bounded, self-correcting tool-calling loop. Returns when the model
  * signals completion, a bound trips, or it stops emitting tool calls — never by
  * throwing on model/tool misbehavior (every such case is captured into the
- * `toolCalls` recorder slot + the transcript; D4/m2). A tool dep that itself
+ * `toolCalls` recorder slot + the transcript). A tool dep that itself
  * throws is also captured, not propagated.
  *
  * Per call, in order: malformed arguments JSON, an unknown tool, and a shape/unknown-key
@@ -552,7 +554,7 @@ export async function runCodegenLoop(
   let lastBuild: BuildReport | undefined;
   let lastText = '';
   let round = 0;
-  let fixMode = false; // D6: drop to fixParams once self-correcting on an error
+  let fixMode = false; // drop to fixParams once self-correcting on an error
   let containerFailures = 0; // a box that did not run: told once, ended on the second
 
   const done = (stop: StopReason, detail: string): LoopResult => ({
@@ -574,7 +576,7 @@ export async function runCodegenLoop(
     const turn = parseModelTurn(raw);
     lastText = turn.text;
     if (turn.reasoning.trim().length > 0) reasoningParts.push(turn.reasoning);
-    // Phase 3: emit this round's thinking as a progress step (coarse, not tokens) — unless it
+    // Emit this round's thinking as a progress step (coarse, not tokens) — unless it
     // already streamed live through `onDelta`, in which case only a line break separates rounds.
     const step = turn.reasoning.trim() || turn.text.trim();
     if (step.length > 0) deps.onProgress?.(deps.onDelta ? '\n' : step);
@@ -613,7 +615,7 @@ export async function runCodegenLoop(
         fail(tc, `unknown tool '${tc.name}'`); // m2b
         continue;
       }
-      // D5: typia shape validation (+ the unknown-key refusal) of untrusted model output
+      // typia shape validation (+ the unknown-key refusal) of untrusted model output
       // BEFORE dispatch — for every tool alike, `mark_complete` included: a stray key on
       // it is refused like any other and the turn continues, rather than ending on a call
       // that was never checked.
@@ -679,7 +681,7 @@ export async function runCodegenLoop(
           stepFailed(report.bundle) || report.typeCheck.findings.length > 0;
         if (problems) {
           sawError = true;
-          // D1/D7/D8's successor: findings-plus-touched-files, in the USER layer.
+          // The per-write feedback's successor: findings-plus-touched-files, in the USER layer.
           messages.push({ role: 'user', content: buildReportFeedback(report, appliedPaths) });
         }
         continue;
@@ -723,7 +725,7 @@ export async function runCodegenLoop(
       const { path, content } = tc.args as { path: string; content: string };
       try {
         const written = await deps.tools.write_file(path, content);
-        deps.onProgress?.(`wrote ${written.path}`); // Phase 3: per-file progress step
+        deps.onProgress?.(`wrote ${written.path}`); // per-file progress step
         appliedPaths.push(written.path);
         const result = { written: written.path };
         recorded.push({ name: tc.name, args: tc.args, result });

@@ -8,10 +8,14 @@
  * (`apps/nebula/test/test-apps/baseline/node-invite.test.ts`, mutation-checked per criterion —
  * grant write, already-member heal, validation, the no-bit cap, convergence, the flip). What only
  * THIS tier adds is fixture-freedom + the real mail: the ontology arrives by the REAL path —
- * the dev Apply on the parent Galaxy (a container compile of the seed ontology) and then the
- * Star's server-originated FIRST-TOUCH pull-current, exercised by inviting before anyone has
- * ever used the app (the invite answers `installing` and the retry converges) — the letter is
- * the one that actually arrived, and the login is a real click.
+ * a build of the app in its build container, which lands the seed ontology as the `.dev` Star's
+ * current row, and then the Star's server-originated FIRST-TOUCH pull-current, exercised by
+ * inviting before anyone has ever used the app (the invite answers `installing` and the retry
+ * converges) — the letter is the one that actually arrived, and the login is a real click.
+ *
+ * It runs on the app's `.dev` Star because that is the one Star a build's row reaches before
+ * anything is published (ADR-024), and on an app of its own (`ownApp`), since a Galaxy has one
+ * `.dev` Star and other scenarios rebuild and wipe theirs.
  *
  *  1. The ack returns from `callAsync` with `{ accepted, errors: [] }` — after the first-touch
  *     install converges, which is this limb's other half: a fresh Star with no client op ever
@@ -27,7 +31,7 @@
  *  6. A negative control: a SECOND real member of the star with no node invite is refused the same
  *     write — proving limb 4 was the grant, not an open node.
  *
- * `needsContainer = true` — the Apply compiles the seed ontology in the build container.
+ * `needsContainer = true` — the build compiles the seed ontology in the build container.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
@@ -37,11 +41,8 @@ import type { Galaxy, Star } from '@lumenize/nebula';
 import type { NodeInviteAck } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
-import { sharedApp } from '../lib/shared-app';
-import { testSlug } from '../lib/test-scopes';
-import {
-  provisionAndLogin, refreshAccessToken, acceptInviteAndLogin,
-} from '../../test/lib/email-login';
+import { ownApp, servedOntologyVersion } from '../lib/own-app';
+import { refreshAccessToken, acceptInviteAndLogin } from '../../test/lib/email-login';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 
 export const needsContainer = true;
@@ -49,12 +50,11 @@ export const needsContainer = true;
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  // A tenant Star of this scenario's own, beneath the run's shared app, founded by its owner.
-  const app = await sharedApp(stack, testToken);
-  const star = `${app.galaxy}.${testSlug('ninv')}`;
+  // The `.dev` Star of an app of this scenario's own.
+  const app = await ownApp(stack, 'ninv', testToken);
+  const star = app.dev;
   const inviteeEmail = uniqueTestEmail();
-
-  const adminSession = await provisionAndLogin({ baseUrl: origin, scope: star, email: app.ownerEmail, testToken });
+  const adminSession = app.devToken;
   let admin: Driver | undefined;
   let invitee: NebulaClient | undefined;
   const inviteeBrowser = new Browser();
@@ -66,23 +66,23 @@ export async function run(stack: DevStack): Promise<void> {
     });
 
     // A running Star needs an installed ontology for ANY resource write — and it arrives by the
-    // REAL path, never a direct set. The dev Apply on the parent Galaxy compiles the SEED
-    // ontology in the build container and appends it to the registry. It is asked from Studio,
-    // the galaxy's own page, where the universe admin holds dominion over the galaxy (the host
-    // rule); the Star then has NOTHING installed until the invite itself triggers the
+    // REAL path, never a direct set. A build from Studio, the galaxy's own page, compiles the
+    // SEED ontology in the build container, and the build landing makes it the `.dev` Star's
+    // current row; the Star then has NOTHING installed until the invite itself triggers the
     // first-touch pull-current below. _InviteStatus rides every version (platform-unioned).
-    const galaxy = star.split('.').slice(0, 2).join('.');
-    const studio = await connectDriver(stack, { scope: galaxy, session: await refreshAccessToken(origin, adminSession.session, galaxy) });
-    let appended: { version: string };
+    const studio = await connectDriver(stack, { scope: app.galaxy, session: app.studio });
     try {
-      appended = await studio.client.lmz.callAsync(
-        'GALAXY', galaxy, studio.client.ctn<Galaxy>().applyOntology(),
-        { timeoutMs: 240_000 },
-      ) as { version: string };
+      const report = await studio.client.lmz.callAsync(
+        'GALAXY', app.galaxy, studio.client.ctn<Galaxy>().buildNow(), { timeoutMs: 240_000 },
+      ) as { ontology: { ran: boolean; ok?: boolean }; bundle: { ran: boolean; ok?: boolean } };
+      assert.ok(report.ontology.ran && report.ontology.ok && report.bundle.ran && report.bundle.ok,
+        `the build should compile the seed ontology and bundle: ${JSON.stringify(report).slice(0, 600)}`);
     } finally {
       studio.dispose();
     }
-    assert.ok(appended.version.length > 0, 'the Apply should return the appended seed version');
+    const version = await servedOntologyVersion(stack, star);
+    assert.ok(version, 'the `.dev` page should carry the version the build landed');
+    const appended = { version };
 
     // ── LIMB 1: the ack, via the first-touch install ──────────────────────────────────────────
     // The FIRST invite lands on a Star that has never seen a client op: the gate answers

@@ -3,9 +3,9 @@
  *
  * The collapse of three former nodes (Galaxy + DevStudio + DevContainer) into one class
  * (tasks/archive/nebula-galaxy-collapse-and-chat.md). It owns:
- *  - the per-galaxy **ontology registry**: `applyOntology()` (the dev Apply)
- *    compiles the Workspace's `.d.ts` to a `validatorBundle` row and stores it as an
- *    immutable per-version row; Stars fetch rows on cache miss.
+ *  - the **`.dev` Star's current ontology row**: the build compiles the Workspace's `.d.ts`
+ *    to a `validatorBundle` row, and the Galaxy stores it when the build lands; the `.dev`
+ *    Star pulls it on a version mismatch ({@link Galaxy.getCurrentOntology}).
  *  - the **git Workspace** (source of truth for the user-developer's app source) — a
  *    `@cloudflare/computer` SQLite-backed VFS in this DO's own storage, with host-side git
  *    (no container involved in fs or git work).
@@ -17,7 +17,7 @@
  *
  * `extends ScopedMeshDO` for the structural tenant isolation its passage step enforces (passage into
  * `{u}.{g}`). Three guard tiers sit on top of it. The source entries — `readSource`,
- * `writeSource`, `buildNow`, `applyOntology` — carry `@mesh(requireChatWrite)`,
+ * `writeSource`, `buildNow` — carry `@mesh(requireChatWrite)`,
  * the chat floor: DAG `write` at the chat node, the same check a Message create passes
  * at the door, so a collaborator's direct call and the turn their message triggers agree.
  * Galaxy configuration (`setGalaxyConfig`) keeps `@mesh(requireDominionHere)`.
@@ -37,7 +37,7 @@ import {
   getParserValidatorFacet,
   type ParserValidator,
 } from '@lumenize/ts-runtime-parser-validator/runtime';
-import { NEBULA_SUB, hasDominionOver, projectActingToken } from '@lumenize/mesh/auth';
+import { NEBULA_SUB, projectActingToken } from '@lumenize/mesh/auth';
 import type { AuthClaims } from '@lumenize/mesh/auth';
 import { GATEWAY_PREFIX, ScopedMeshDO, requireDominionHere } from '@lumenize/mesh';
 // Types only — the COMPILE itself runs in the container build job
@@ -45,7 +45,7 @@ import { GATEWAY_PREFIX, ScopedMeshDO, requireDominionHere } from '@lumenize/mes
 // stores, and does not build). No value import of the compile half may return here;
 // scripts/check-worker-graph.mjs is the tripwire.
 import type { OntologyVersionRow } from './ontology-compile';
-import { stepFailed, REPORT_MARKER, ROW_PATH, WS_ROOT, wsPath } from './build-report';
+import { REPORT_MARKER, ROW_PATH, WS_ROOT, wsPath } from './build-report';
 import { withHeartbeat } from './turn-heartbeat';
 import { assembleStream } from './model-stream';
 import { TURN_HEARTBEAT_MS } from './turn-liveness';
@@ -97,24 +97,13 @@ export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-compi
 // ─── Constants ───────────────────────────────────────────────────────
 
 /**
- * The workspace ontology REGISTRY is a DIRECTORY OF FILES, not keyed storage: the
- * compiled row is born as a file (the job writes it at {@link ROW_PATH}), and the
- * Apply moves it to `.nebula/ontology/<version>.json` — reading the registry means
- * reading those files, the same way reading the ontology means reading
- * `src/ontology.d.ts`. There is no index and no "latest" pointer to keep in sync;
- * the applied head is DERIVED per read ({@link #appliedHead}). Untracked, like
- * {@link ROW_PATH}: git tracks only what `git.add` is handed.
+ * Where the `.dev` Star's current row lives: this Galaxy's own storage, copied there when a build
+ * lands. Never the mount — the job writes its row at {@link ROW_PATH} before `vite build` runs
+ * the Workspace's own `vite.config.ts`, which could overwrite a file there, and nothing a build
+ * runs can write this key. One row, replaced by each landing: during development a version
+ * nothing runs is never read again.
  */
-const REGISTRY_DIR = '.nebula/ontology';
-/** A version is a `git.hashBlob` oid — 40 hex — and it becomes a FILENAME, so every
- *  read-by-label door MUST refuse anything else (a remote caller's version string
- *  must never traverse the VFS). */
-const VERSION_RE = /^[0-9a-f]{40}$/;
-const registryPath = (version: string) => `${REGISTRY_DIR}/${version}.json`;
-/** The stored file: the compiled row plus the append-time stamp that orders the
- *  registry (ISO 8601 UTC — ADR-011). `appliedAt` is an APPLY fact, so the Galaxy
- *  stamps it at append; the job never writes it. */
-type RegistryFile = OntologyVersionRow & { appliedAt: string };
+const DEV_ONTOLOGY_ROW_KEY = 'galaxy:devOntologyRow';
 
 /** The ontology source file — compiled to the runtime validator (the ontology is just
  *  another source file in the Workspace). */
@@ -147,8 +136,8 @@ export const GENERATION_DEADLINE_MS = 840_000;
 
 const BUILD_TIMEOUT_MS = 180_000;
 
-/** Per-cycle job options: the host-computed ontology work, when the `.d.ts` changed. */
-type BuildJobOpts = { ontology?: { version: string; wipe: boolean } };
+/** Per-cycle job options: the host-computed ontology version, when the `.d.ts` changed. */
+type BuildJobOpts = { ontology?: { version: string } };
 
 /** The seam's placeholder `preview` — {@link Galaxy.#buildAndAnnounce} overwrites it
  *  with the real decision, so a faked `build()` never decides the refresh either. */
@@ -175,13 +164,43 @@ export function decidePreview(report: BuildReport, override?: boolean): BuildRep
   if (override === false) {
     return { refreshed: false, why: 'the model declined to refresh the preview' };
   }
-  if (stepFailed(report.ontology)) {
-    return { refreshed: false, why: 'ontology compile failed — preview refresh withheld by default' };
-  }
   if (report.typeCheck.findings.length > 0) {
     return { refreshed: false, why: 'type findings — preview refresh withheld by default (the model may override)' };
   }
   return { refreshed: true, why: 'clean build' };
+}
+
+/**
+ * Whether a build LANDS: the moment the `.dev` Star's types move with the page it serves. A build
+ * lands when its bundle succeeded and its `dist` arrived; when the host passed it an ontology
+ * version, the compile must have run and succeeded too, so a page never lands over types that did
+ * not compile. A withheld preview refresh does not stop a landing, since the page is served from
+ * the new `dist` either way. Pure and exported so every arm is unit-testable.
+ */
+export function decideLanding(
+  report: BuildReport, opts: { arrived: boolean; ontologyVersion?: string },
+): { lands: boolean; why: string } {
+  if (!(report.bundle.ran && report.bundle.ok === true)) return { lands: false, why: 'the bundle did not succeed' };
+  if (!opts.arrived) return { lands: false, why: 'the built dist did not arrive' };
+  if (opts.ontologyVersion !== undefined && !(report.ontology.ran && report.ontology.ok === true)) {
+    return { lands: false, why: 'the ontology compile did not succeed' };
+  }
+  return { lands: true, why: opts.ontologyVersion !== undefined ? 'landed with its ontology' : 'landed, ontology unchanged' };
+}
+
+/**
+ * Whether the node that called is `galaxy`'s own `.dev` Star, read from the LAST hop of the call's
+ * chain: the framework appends each hop, and a Client's chain is stamped by its Gateway from the
+ * verified socket, so no caller writes it. The binding and the whole name must match, so
+ * `acme.crm.devops` does not pass for `acme.crm.dev`, and neither does a Client on its page, whose
+ * name always carries a `/` (`acme.crm.dev/alice.x`).
+ */
+export function isDevStarCall(
+  callChain: ReadonlyArray<{ bindingName: string; instanceName?: string }> | undefined,
+  galaxy: string,
+): boolean {
+  const last = callChain?.at(-1);
+  return last?.bindingName === 'STAR' && last.instanceName === `${galaxy}.dev`;
 }
 
 /** The build box's image: its key in the `images` map of `wrangler.jsonc`'s containers block, which
@@ -269,8 +288,8 @@ function tail(text: string, n: number): string {
 
 /**
  * Guard: the CHAT FLOOR — DAG `write` at the chat node, the check a Message create runs
- * at the door. Every source entry (`readSource`, `writeSource`, `buildNow`,
- * `applyOntology`) carries `@mesh(requireChatWrite)`, so a collaborator who can
+ * at the door. Every source entry (`readSource`, `writeSource`, `buildNow`) carries
+ * `@mesh(requireChatWrite)`, so a collaborator who can
  * post — and whose post therefore triggers a turn that writes and builds under their own
  * claims — can make the same calls directly. A Galaxy admin passes through the confined
  * scope-admin bypass inside `requirePermission`, so nothing changes for the owner.
@@ -483,7 +502,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * The chat ontology's current row — the platform seed. `protected` so a test subclass can answer
-   * a newer or a `wipeOnInstall` row, the way a Star's Galaxy would.
+   * a newer row, the way a Star's Galaxy would.
    */
   protected ontologySource(): OntologyVersionRow {
     return chatOntologySeedRow();
@@ -509,82 +528,33 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     return this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
   }
 
-  // ─── Ontology registry ───────────────────────────────────────────────
-  // The one WRITE path is `applyOntology` (the dev Apply); the deleted
-  // caller-supplied-types append was a test-install path with no production caller.
+  // ─── The ontology each Star runs ────────────────────────────────────
 
   /**
-   * The row every Star under this Galaxy should run — what a Star's lazy-pull asks for,
-   * whether a client op pinned a version or a server-originated write like `Star.resources.invite`
-   * found nothing installed. A Star converges on this row and never on the version a
-   * client pinned, so one tab on an older bundle cannot move it. **The ontology IS the workspace file**: the version is derived
-   * here by READING `src/ontology.d.ts` and hashing it, never by trusting a stored
-   * pointer — storage holds only the immutable compiled row per version, keyed by
-   * that hash. A row exists only for an APPLIED version, so when the file is
-   * mid-draft (its hash has no row yet) the last APPLIED row answers instead —
-   * tenants run applied versions; the draft is Studio's alone. Bare `@mesh()` like
-   * {@link getOntologyVersion}: an upward call every descendant member has passage for.
+   * The row the asking Star should run, chosen by which Star asks (ADR-024). The `.dev` Star gets
+   * the last landed build's row ({@link isDevStarCall}). Every other caller gets the last
+   * published row, and nothing is published until `publish()` exists, so a tenant Star installs
+   * nothing and runs no data operation until then; tenant-Star tests come back with `publish()`.
+   * A call with no context, such as a direct in-DO test call, gets the published answer too.
+   * Bare `@mesh()`: an upward read every member of a descendant scope has passage for.
    */
   @mesh() // open to a descendant Star's member: the Star's own ontology pull reads it
-  async getCurrentOntology(): Promise<OntologyVersionRow | null> {
-    return this.#appliedHead();
+  getCurrentOntology(): OntologyVersionRow | null {
+    let callChain: CallContextLike['callChain'] | undefined;
+    try { callChain = this.lmz.callContext.callChain; } catch { callChain = undefined; }
+    const dev = isDevStarCall(callChain, this.lmz.instanceName ?? '');
+    const row = dev ? this.#devOntologyRow() : null;
+    // One marker per ask, stamped with the asking node, so a test can count asks per Star.
+    debug('nebula.Galaxy.ontology').debug('current asked', {
+      instanceName: this.lmz.instanceName, caller: callChain?.at(-1)?.instanceName, dev, version: row?.version,
+    });
+    return row;
   }
 
-  /** One registry row file, parsed — `null` for an unapplied (or malformed) label.
-   *  The sanitize is load-bearing: `version` becomes a FILENAME and arrives from
-   *  remote callers via {@link getOntologyVersion}. */
-  async #registryRow(version: string): Promise<RegistryFile | null> {
-    if (!VERSION_RE.test(version)) return null;
-    try {
-      return JSON.parse(await (await this.#workspace()).fs.readFile(wsPath(registryPath(version)), 'utf8')) as RegistryFile;
-    } catch {
-      return null;
-    }
-  }
-
-  /** Every registry row file, parsed, oldest applied first. */
-  async #registryRows(): Promise<RegistryFile[]> {
-    let names: string[];
-    try {
-      names = (await (await this.#workspace()).fs.readdir(wsPath(REGISTRY_DIR))).map((d) => d.name);
-    } catch {
-      return []; // no registry directory yet — nothing has been applied
-    }
-    const rows = await Promise.all(names
-      .filter((n) => n.endsWith('.json'))
-      .map((n) => this.#registryRow(n.slice(0, -'.json'.length))));
-    return (rows.filter(Boolean) as RegistryFile[])
-      .sort((a, b) => a.appliedAt.localeCompare(b.appliedAt) || a.version.localeCompare(b.version));
-  }
-
-  /** The row tenants run NOW — file-first: the workspace ontology file's own hash
-   *  answers when that version has been applied; while the file is a mid-draft whose
-   *  hash has no row yet, the most recently APPLIED row answers instead. The serve's
-   *  scope meta and {@link getCurrentOntology} both derive from here, so there is
-   *  exactly one definition of "current". */
-  async #appliedHead(): Promise<RegistryFile | null> {
-    try {
-      const { version } = await this.#readOntology();
-      const fromFile = await this.#registryRow(version);
-      if (fromFile) return fromFile;
-    } catch { /* no ontology file yet — fall through to the applied rows */ }
-    return (await this.#registryRows()).at(-1) ?? null;
-  }
-
-  /** Specific row by label, or `null` if absent. Bare `@mesh()`: an upward read every member of
-   *  a descendant scope has passage for. No Star calls it since the lazy-pull asks for the
-   *  CURRENT row ({@link getCurrentOntology}) instead of the version a client pinned. */
-  @mesh() // open to a descendant Star's member: one applied registry row, as `getCurrentOntology` serves them
-  async getOntologyVersion(version: string): Promise<OntologyVersionRow | null> {
-    return this.#registryRow(version);
-  }
-
-  /** Ordered version labels (oldest applied → newest). Registry introspection —
-   *  deliberately NOT `@mesh` (nothing remote needs the history; the in-DO registry
-   *  tests read it, and a future Studio admin surface would re-expose it as a
-   *  decision, not a leftover). */
-  async listOntologyVersions(): Promise<string[]> {
-    return (await this.#registryRows()).map((r) => r.version);
+  /** The `.dev` Star's current row, copied here when its build landed — the one reader for
+   *  {@link getCurrentOntology}, the served page's version, and personas' hand-off. */
+  #devOntologyRow(): OntologyVersionRow | null {
+    return this.ctx.storage.kv.get<OntologyVersionRow>(DEV_ONTOLOGY_ROW_KEY) ?? null;
   }
 
   // ─── Source of truth: the git Workspace ─────────────────────────────
@@ -652,80 +622,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const types = await (await this.#workspace()).fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8');
     const { oid: version } = await git.hashBlob({ object: types });
     return { types, version };
-  }
-
-  /**
-   * The dev apply step: compile the Workspace's ontology `.d.ts` and APPEND it to this
-   * Galaxy's registry — there is NO downward push (deleted 2026-08-28, the second of the
-   * two system hops the collapse removes). A Star acquires the version by LAZY-PULL: on
-   * a data op whose expected version it doesn't hold, it pulls this Galaxy's CURRENT row
-   * ({@link getCurrentOntology}) inside that op's own call context —
-   * upward passage is free for every member, so it works under any claims (the auth
-   * story the eager push never had), and dev unifies with the prod (Flow 2b) design.
-   *
-   * The COMPILE runs in the container build job (one ephemeral cycle, shared with
-   * `vite build` — the Worker never compiles); the row rides the mount at `ROW_PATH`
-   * and is read back HOST-side here. `version` + `wipeOnInstall` are host-computed and
-   * passed IN, never read back out of the container — `version` keys the Star's
-   * Worker Loader cache, and the wipe bit is decided in this method's body. The Galaxy
-   * keeps the append-only check, the write and the `transactionSync` unchanged — only
-   * the compile moved.
-   *
-   * The entry sits at the chat floor ({@link requireChatWrite}) like every source
-   * operation; the WIPE is the one destructive effect on that surface and is priced
-   * where it lands: the body requires dominion over the `.dev` Star this row will wipe
-   * before it writes `wipeOnInstall`, because the plane's install wipes a `.dev` Star on the
-   * row's say-so with no permission check of its own, and a caller with the chat floor and no bit
-   * exists (a node inviter may hold none). The decision rides the row as
-   * `wipeOnInstall` — written once, immutable, never consumed-and-cleared — and the
-   * acting principal is logged with it (the ADR-016 record a wipe owes). A Star pulling
-   * this version from an older one wipes first; one already on it never asks (install
-   * idempotent).
-   *
-   * `version` is content-addressed (`git.hashBlob` of the ontology source) so a
-   * re-apply of unchanged source is a no-op and the Star-side Worker Loader cache
-   * (`bundleId = galaxyId/version`) never serves a stale validator.
-   */
-  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
-  async applyOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
-    const { version } = await this.#readOntology();
-    if (await this.#registryRow(version)) return { version }; // unchanged source → already applied
-    if (wipe) {
-      const devStar = `${this.lmz.instanceName}.dev`;
-      const origin = this.#clientOrigin();
-      const claims = origin?.claims ?? this.#claimsIfAny();
-      if (!hasDominionOver(claims, devStar)) {
-        throw new Error(`Wipe refused: dominion over ${devStar} is required to wipe its data on install`);
-      }
-      debug('nebula.Galaxy.applyOntology').info('wipe on install decided', {
-        version, devStar, actingToken: projectActingToken(claims!),
-      });
-    }
-    const report = await this.#buildAndAnnounce({ ontology: { version, wipe } });
-    if (!(report.ontology.ran && report.ontology.ok === true)) {
-      const detail = stepFailed(report.ontology)
-        ? (report.ontology as { tail: string }).tail
-        : stepFailed(report.container)
-          ? `build job failed: ${(report.container as { tail: string }).tail}`
-          : 'the ontology step did not run';
-      throw new Error(`Ontology compile failed:\n${detail}`);
-    }
-    const rowJson = await (await this.#workspace()).fs.readFile(wsPath(ROW_PATH), 'utf8');
-    const row = JSON.parse(rowJson) as OntologyVersionRow;
-    if (row.version !== version) {
-      // A stale row file from an earlier cycle — never append it under this label:
-      // the Star's Worker Loader cache keys on the version, and a content-address
-      // disagreeing with its source serves a STALE validator forever.
-      throw new Error(`Ontology row/version drift: expected '${version}', mount holds '${row.version}'`);
-    }
-    // The registry write IS a file write — the row was born as one (ROW_PATH); the
-    // Apply gives it its durable name and the append-time stamp that orders the
-    // directory. One write, no index to keep consistent with it.
-    await (await this.#workspace()).fs.mkdir(wsPath(REGISTRY_DIR), { recursive: true });
-    const stored: RegistryFile = { ...row, appliedAt: new Date().toISOString() };
-    await (await this.#workspace()).fs.writeFile(wsPath(registryPath(row.version)), JSON.stringify(stored));
-    debug('nebula.Galaxy.applyOntology').debug('appended', { version, wipeOnInstall: wipe });
-    return { version };
   }
 
   // ─── HTTP surface: the built app's serve + the build-box dial-back ──
@@ -803,15 +699,15 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         // The origin a framed page posts its auth state to: this galaxy's Studio, the only page
         // allowed to frame it (`frame-ancestors`, set by the Worker's page step).
         parentOrigin: hostOrigin({ kind: 'scope', scope: galaxy }, deployment, url.origin),
-        // The SAME derivation getCurrentOntology serves — one definition of "current",
-        // so the version a client pins here is always one a Star can pull.
+        // The row getCurrentOntology answers the `.dev` Star with — one definition of
+        // "current", so the version a client pins here is the one its Star will install.
         //
-        // ⚠️ ABSENT rather than empty when nothing has been applied, and `JSON.stringify` drops it.
-        // An app with no resources never applies an ontology, and it is still an app: the client
-        // boots without a version and refuses only resource ops. The `?? ''` this replaces made
-        // that case indistinguishable from a real version to every reader, and the scaffold's
+        // ⚠️ ABSENT rather than empty when no build has landed an ontology, and `JSON.stringify`
+        // drops it. An app with no resources never compiles one, and it is still an app: the
+        // client boots without a version and refuses only resource ops. A `?? ''` made that case
+        // indistinguishable from a real version to every reader, and the scaffold's
         // `createNebulaClient` threw on it — a freshly generated preview blanked at mount.
-        ontologyVersion: (await this.#appliedHead())?.version,
+        ontologyVersion: this.#devOntologyRow()?.version,
       }).replace(/'/g, '&#39;'); // the meta rides a single-quoted attribute
       return new HTMLRewriter()
         .on('head', {
@@ -846,42 +742,41 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * A build plus its preview decision + announcement — **the only way callers should
-   * build.** A build that refreshes the preview tells whoever asked for it (see
-   * {@link announceBuildToRequester}), and that belongs to the EVENT (new `dist` in
-   * the VFS) rather than to whichever caller produced it: the codegen loop's `build`
-   * tool (through the `buildNow` entry), a direct `buildNow()` and the dev Apply all
-   * go through here.
+   * A build plus its landing, its preview decision and its announcement — **the only way
+   * callers should build.** The codegen loop's `build` tool (through the `buildNow` entry)
+   * and a direct `buildNow()` both go through here. A build that refreshes the preview tells
+   * whoever asked for it (see {@link announceBuildToRequester}), and that belongs to the EVENT
+   * (new `dist` in the VFS) rather than to whichever caller produced it.
    *
-   * When the caller passes no explicit ontology job, the Workspace's own pending
-   * ontology change rides along (compiled for FEEDBACK — the row is written to the
-   * mount but NOT appended to the registry; only {@link applyOntology}, the
-   * Apply — chat floor, with its wipe bit decided at dominion — appends; the loop
-   * cannot reach it, which is the secure-by-default line).
+   * When `src/ontology.d.ts` differs from the `.dev` Star's current row, its version rides
+   * the job, and the row the job compiles becomes current when the build lands
+   * ({@link decideLanding}). So the `.dev` Star runs what was just built, and nothing a build
+   * compiles reaches any other Star.
    *
    * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
    * `build()` made every faked build silently stop announcing — the suite caught it.
    */
-  async #buildAndAnnounce(opts: BuildJobOpts & { preview?: boolean } = {}): Promise<BuildReport> {
-    const jobOpts: BuildJobOpts = {
-      ontology: opts.ontology ?? await this.#pendingOntology(),
-    };
+  async #buildAndAnnounce(opts: { preview?: boolean } = {}): Promise<BuildReport> {
+    const jobOpts: BuildJobOpts = { ontology: await this.#pendingOntology() };
     // Marker: the cycle's start — "the warm precedes the build" is asserted on the order
     // of this marker and the warm's, within one Galaxy (`instanceName` is the discriminator
     // `testing.md` asks every marker to carry).
     debug('nebula.Galaxy.build').debug('cycle start', { instanceName: this.lmz.instanceName, ontology: Boolean(jobOpts.ontology) });
     const report = await this.build(jobOpts);
-    let preview = decidePreview(report, opts.preview);
     // A clean report does not prove the dist ARRIVED: the vendor's post-exec pull
     // swallows its own failure (outcome resolves `status: "pending"`, applied 0, no
     // throw), and local materialize-mode change detection can miss vite's last writes
     // on the bracket — either way the serve would 404 behind a "clean build". The
     // DELIVERY fix is upstream: the job never empties `dist` (job.ts says why the pull
     // lost the empty-then-rewrite), and {@link #buildOnce} verifies arrival by digest
-    // before its teardown. This gate is the
-    // backstop that keeps the residual loss loud instead of a silent 404. Only where a
-    // container actually ran — vitest-plugin' faked builds have no dist.
-    if (preview.refreshed && this.ctx.container && !(await this.#distArrived(report.bundle.indexSha256))) {
+    // before its teardown. This check is the backstop that keeps the residual loss loud
+    // instead of a silent 404, and the landing reads it. It runs whether or not a
+    // container ran, so the test seams write the dist they report.
+    const arrived = report.bundle.ran && report.bundle.ok === true
+      && await this.#distArrived(report.bundle.indexSha256);
+    await this.#land(report, { arrived, ontologyVersion: jobOpts.ontology?.version });
+    let preview = decidePreview(report, opts.preview);
+    if (preview.refreshed && !arrived) {
       preview = {
         refreshed: false,
         why: 'the built dist did not arrive back from the container (sync pull incomplete) — retry the build',
@@ -892,26 +787,61 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * The Workspace's pending ontology change, if any — the content-addressed version
-   * (`git.hashBlob` of `src/ontology.d.ts`) when it is not yet in the registry index.
-   * Rides every default build so the model gets compile feedback on an ontology it
-   * just wrote; the wipe bit is always false here (wipe is the Apply's
-   * dominion-checked decision, never the loop's).
+   * The Workspace's pending ontology change, if any: the content-addressed version
+   * (`git.hashBlob` of `src/ontology.d.ts`) when it differs from the `.dev` Star's current
+   * row. A build that did not touch the file compiles nothing.
    */
-  async #pendingOntology(): Promise<{ version: string; wipe: boolean } | undefined> {
+  async #pendingOntology(): Promise<{ version: string } | undefined> {
     let version: string;
     try {
       ({ version } = await this.#readOntology());
     } catch {
       return undefined; // no ontology file yet
     }
-    return (await this.#registryRow(version)) ? undefined : { version, wipe: false };
+    return version === this.#devOntologyRow()?.version ? undefined : { version };
+  }
+
+  /**
+   * Make the build's compiled row current for the `.dev` Star, if the build landed
+   * ({@link decideLanding}) with an ontology version. The row is read back from the mount and
+   * stored only when its own types hash to the version the host asked for: a stale row file from
+   * an earlier build, or a file a chat write changed between the host's hash and the job's
+   * compile, would otherwise land a validator under the wrong version, and the Star's Worker
+   * Loader cache keys on the version. The hash is the whole check, since a version IS the hash of
+   * its types, so the label the file carries is never read. The stored row is built from its named
+   * fields, never spread from the file. A refusal lands nothing and is logged; the next build
+   * recompiles.
+   */
+  async #land(report: BuildReport, opts: { arrived: boolean; ontologyVersion?: string }): Promise<void> {
+    const log = debug('nebula.Galaxy.ontology');
+    const landing = decideLanding(report, opts);
+    log.debug('landing', { instanceName: this.lmz.instanceName, lands: landing.lands, why: landing.why, version: opts.ontologyVersion });
+    if (!landing.lands || opts.ontologyVersion === undefined) return;
+    const expected = opts.ontologyVersion;
+    try {
+      const file = JSON.parse(await (await this.#workspace()).fs.readFile(wsPath(ROW_PATH), 'utf8')) as OntologyVersionRow;
+      const { oid } = await git.hashBlob({ object: file.types });
+      if (oid !== expected) {
+        log.warn('landing refused: the compiled row does not match the version asked for', {
+          instanceName: this.lmz.instanceName, expected, typesHash: oid,
+        });
+        return;
+      }
+      const row: OntologyVersionRow = {
+        version: expected, types: file.types, validatorBundle: file.validatorBundle, relationships: file.relationships,
+      };
+      this.ctx.storage.kv.put(DEV_ONTOLOGY_ROW_KEY, row);
+      log.info('landed', { instanceName: this.lmz.instanceName, version: expected });
+    } catch (e) {
+      log.error('landing failed', { instanceName: this.lmz.instanceName, expected, error: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   /**
    * One ephemeral container cycle running the BUILD JOB (`node /build/job.cjs` — the
    * image-bundled `container/compiler/job.ts`): ontology compile, SFC type check and
-   * `vite build`, every step reported, no step gating another. Then destroy — a fresh
+   * `vite build`, every step reported, and the bundle skipped when the compile it ran
+   * failed, so a page never lands over types that did not compile. Then destroy — a fresh
    * container per build, so the stuck state is designed away rather than recovered
    * from. The backend owns start + readiness (health-probed, never `.running`-gated)
    * + the `monitor()` attach on every start (`WorkspaceContainerAPI.start` installs
@@ -946,16 +876,14 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       return skipped('no build container attached (local test config)');
     }
     try {
-      // `cwd` is the mount root: the workspace IS the app project. `version` +
-      // `wipeOnInstall` are HOST-computed and passed IN via env, never read back out.
+      // `cwd` is the mount root: the workspace IS the app project. `version` is
+      // HOST-computed and passed IN via env; the landing checks the row against it.
       const handle = await (await this.#workspace()).runtime.exec('node /build/job.cjs', {
         cwd: '/workspace',
         encoding: 'utf8',
         env: {
           ...BUILD_ENV,
-          ...(opts.ontology
-            ? { ONTOLOGY_VERSION: opts.ontology.version, WIPE_ON_INSTALL: opts.ontology.wipe ? '1' : '0' }
-            : {}),
+          ...(opts.ontology ? { ONTOLOGY_VERSION: opts.ontology.version } : {}),
         },
         timeoutMs: BUILD_TIMEOUT_MS,
       });
@@ -1290,8 +1218,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * sequential/overlap/teardown contract through it — the model's own `build` calls are
    * not deterministically drivable). Same latch, same ephemeral cycle; the report
    * returns to the caller's `callAsync`. `preview` is the model's override
-   * ({@link decidePreview}); the pending-ontology job rides by default (compiled for
-   * feedback, never appended — the Apply appends).
+   * ({@link decidePreview}); a changed `src/ontology.d.ts` rides the job, and its row becomes
+   * the `.dev` Star's when the build lands ({@link decideLanding}).
    */
   @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {

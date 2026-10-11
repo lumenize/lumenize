@@ -3,7 +3,7 @@
  * collapse of DevStudio into Galaxy). Galaxy `extends ScopedMeshDO` (a constructable SQLite
  * DO), so it runs under vitest-plugin — this project exercises the real node: the
  * `@cloudflare/computer` Workspace + host-side git (writeSource / commit / readSource)
- * and the compile-and-apply into the registry, which the derived `{u}.{g}.dev` star pulls on its
+ * and the build that lands a compiled row, which the derived `{u}.{g}.dev` star pulls on its
  * next op. Driven via `__executeOperation` envelopes (the
  * interim-dev-loop pattern) — no client/JWT infra.
  *
@@ -17,11 +17,10 @@ import { requireDominionHere } from '@lumenize/mesh';
 import { DEFAULT_LOOP_CONFIG } from '../../../src/codegen-loop';
 import { TOOL_ARGS_BUNDLE_ID } from '../../../src/tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from '../../../src/validator-seeds';
-import { ROW_PATH, wsPath } from '../../../src/build-report';
+import { wsPath } from '../../../src/build-report';
 import type { BuildReport } from '../../../src/build-report';
-// A test Worker never deploys, so compiling here is licensed — the probe's faked
-// build seam compiles in place of the container.
-import { compileOntologyVersion } from '../../../src/ontology-compile';
+import { fakeBuildJob } from '../fake-build';
+import type { BuildFaults } from '../fake-build';
 import type { ChatMessage, ModelParams, CodegenLoopConfig, LoopResult } from '../../../src/codegen-loop';
 import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { ParseResult } from '@lumenize/ts-runtime-parser-validator/runtime';
@@ -51,41 +50,21 @@ export class GalaxyLoopProbe extends Galaxy {
   }
 
   /**
-   * The BUILD SEAM, faked faithfully: no container exists under vitest-plugin, so the
-   * probe compiles IN PLACE (a test Worker may carry the compiler) and writes the row
-   * exactly where the real job does — an fs write at ROW_PATH via `workspaceFs()`,
-   * never `writeSource` (the mount does not git-commit). `applyOntology`'s
-   * host-side read-back, version check and append-only transaction then run
-   * UNCHANGED, which is what the registry + lazy-pull suite exercises.
+   * The BUILD SEAM, faked as the real job behaves where the Galaxy reads it (`fake-build.ts`):
+   * no container exists under vitest-plugin, so the probe compiles in place, writes the row at
+   * ROW_PATH and the `dist` it reports, through `workspaceFs()` — never `writeSource`, since
+   * the mount does not git-commit. The landing, the preview decision and the announcement
+   * above it then run unchanged.
    */
-  protected override async build(
-    opts: { ontology?: { version: string; wipe: boolean } } = {},
-  ): Promise<BuildReport> {
-    let ontology: BuildReport['ontology'];
-    if (!opts.ontology) {
-      ontology = { ran: false, why: 'no ontology change (host passed no version)' };
-    } else {
-      try {
-        const types = await this.workspaceFs().readFile(wsPath('src/ontology.d.ts'), 'utf8');
-        const row = compileOntologyVersion({
-          version: opts.ontology.version,
-          types,
-          ...(opts.ontology.wipe ? { wipeOnInstall: true } : {}),
-        });
-        await this.workspaceFs().mkdir(wsPath('.nebula'), { recursive: true });
-        await this.workspaceFs().writeFile(wsPath(ROW_PATH), JSON.stringify(row));
-        ontology = { ran: true, ok: true, rowPath: ROW_PATH };
-      } catch (e) {
-        ontology = { ran: true, ok: false, tail: e instanceof Error ? e.message : String(e) };
-      }
-    }
-    return {
-      container: { ran: true, ok: true },
-      ontology,
-      typeCheck: { ran: true, checked: [], findings: [] },
-      bundle: { ran: true, ok: true },
-      preview: { refreshed: false, why: 'not decided at the build layer' },
-    };
+  protected override async build(opts: { ontology?: { version: string } } = {}): Promise<BuildReport> {
+    return fakeBuildJob(this.workspaceFs(), opts, this.#buildFaults);
+  }
+
+  #buildFaults: BuildFaults = {};
+  /** What the next builds do wrong, until set again. Ephemeral, as the fake is. */
+  @mesh(requireDominionHere)
+  setBuildFaultsForTest(faults: BuildFaults): void {
+    this.#buildFaults = faults;
   }
 
   /** Seed the fake-model script (subclass-reachable — the `#` fields are class-private). */

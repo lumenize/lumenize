@@ -32,13 +32,17 @@ export class Star extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * The Star's ontology source: its parent Galaxy's CURRENT row, asked by a call whose answer
-   * lands at `resourcesResults.onOntologyPulled`, so `current()` answers `null` and the op is told
-   * `installing`. The call rides the asking op's context — an upward call every member has
-   * passage for — and asks for CURRENT, never for the version the op pinned: a Star serves its
-   * Galaxy's current version, so a tab on an older bundle is told to refresh rather than
-   * installed back onto. Sibling Stars share one validator bundle per version, keyed on the
-   * Galaxy.
+   * The Star's ontology source: its parent Galaxy's CURRENT row for this Star, asked by a call
+   * whose answer lands at `resourcesResults.onOntologyPulled`, so `current()` answers `null` and
+   * the op is told `installing`. The call rides the asking op's context — an upward call every
+   * member has passage for — and asks for CURRENT, never for the version the op pinned: a Star
+   * serves the version its Galaxy chooses for it (ADR-024), so a tab on an older bundle is told to
+   * refresh rather than installed back onto.
+   *
+   * The `.dev` Star keys its validator bundle on its own name, and the Galaxy's other Stars share
+   * one per version, keyed on the Galaxy. The `.dev` Star's row comes from a build whose
+   * `vite.config.ts` a chat collaborator can shape, so no bundle it cached may ever be the one a
+   * tenant loads under the same version.
    */
   #ontologySource(): OntologySource {
     return {
@@ -48,7 +52,9 @@ export class Star extends ScopedMeshDO implements ResourcesHost {
           this.ctn<Star>().resourcesResults.onOntologyPulled());
         return null
       },
-      bundleId: (version) => `${this.galaxyId}/${version}`,
+      bundleId: (version) => this.lmz.instanceName === `${this.galaxyId}.dev`
+        ? `${this.lmz.instanceName}/${version}`
+        : `${this.galaxyId}/${version}`,
     }
   }
 
@@ -86,7 +92,7 @@ export class Star extends ScopedMeshDO implements ResourcesHost {
    * answer and this Star's ontology pull land. Deliberately NOT `@mesh()`: those answers arrive
    * locally or at the fire-back door, and neither checks for `@mesh()`. `@mesh()` would let any
    * caller with passage call `onOntologyPulled`, which checks no permission and installs whatever
-   * row it is handed — a validator of their own, and on the `.dev` Star, the install's wipe.
+   * row it is handed — a validator of their own.
    */
   get resourcesResults(): ResourcesResults {
     return this.#resources.results

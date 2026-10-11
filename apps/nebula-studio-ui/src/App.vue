@@ -501,15 +501,13 @@ async function wipe() {
   busy.value = true;
   try {
     const client = nebula.value.client;
-    // One-way under the continuation-only model (no awaited callRaw). The wipe's effect is
-    // reflected when the preview reloads; a refused wipe reaches `logRefusal`, so the
-    // confirmation log here is optimistic.
-    client.lmz.call("STAR", previewStar(activeScope!), client.ctn<Star>().resetDevData(),
-      client.ctn().logRefusal("resetDevData"), { onErrorOnly: true });
+    // Awaited, so the log says what the Star answered: a collaborator with no passage into
+    // `.dev`, or no dominion over it, is refused, and saying it worked would be false.
+    await client.lmz.callAsync("STAR", previewStar(activeScope!), client.ctn<Star>().resetDevData());
     log("studio", "Wiped the development test data.");
     reloadPreview();
   } catch (e) {
-    log("error", `wipe failed: ${(e as Error).message}`);
+    log("error", `Wipe refused: ${(e as Error).message}`);
   } finally {
     busy.value = false;
   }

@@ -87,7 +87,17 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**', 'test/ui-smoke/**'],
+          exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**', 'test/ui-smoke/**', 'test/offline/**'],
+        },
+      },
+      // Offline project — plain Node, for what runs in the build container rather than a Worker:
+      // the build job reads and writes a real filesystem, which only Node gives it.
+      {
+        extends: true,
+        test: {
+          name: 'offline',
+          environment: 'node',
+          include: ['test/offline/**/*.test.ts'],
         },
       },
       // Frontend project — the @lumenize/resources/frontend layer (factory + the
@@ -117,7 +127,7 @@ export default defineConfig({
               TURNSTILE_SECRET_KEY: '',
               AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'nebula',
-              // Phase 5.3.5: shorten the Gateway grace period so
+              // Shorten the Gateway grace period so
               // drop-on-failed-fanout tests can observe ClientDisconnectedError
               // settle in well under a second. Production-safe (binding only
               // set here in test config).
@@ -178,10 +188,10 @@ export default defineConfig({
           include: ['test/test-apps/egress-choke/**/*.test.ts'],
         },
       },
-      // DevStudio node (Phase 3.5b) — shell Workspace + isomorphic-git source-of-truth
-      // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends ScopedMeshDO
-      // (constructable under vitest-plugin, unlike DevContainer). Own wrangler
-      // (DEV_STUDIO + STAR probe + LOADER). nodejs_compat for shell/isomorphic-git.
+      // The Galaxy's codegen project (named for DevStudio, which folded into Galaxy) — the
+      // Workspace + isomorphic-git source of truth, and the build that lands the `.dev` Star's
+      // row. Galaxy extends ScopedMeshDO, so it constructs under vitest-plugin. Own wrangler
+      // (GALAXY + STAR probe + LOADER). nodejs_compat for isomorphic-git.
       {
         extends: true,
         plugins: [swcPlugin, cloudflareTest({

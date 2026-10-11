@@ -4,10 +4,9 @@
  *
  * Driven via `__executeOperation` envelopes (no client/JWT), so the real receive seam
  * runs (onBeforeCall passage guard + requireDominionHere). Proves:
- *  - **append + lazy-pull**: `applyOntology` compiles the Workspace's ontology
- *    `.d.ts` into the Galaxy's registry (no downward push exists), and a Star data op
- *    naming that version — under a plain MEMBER's claims — pulls + installs it, honoring
- *    the row's `wipeOnInstall`;
+ *  - **landing + lazy-pull**: a build that lands makes its compiled row the `.dev` Star's,
+ *    a build that does not land moves nothing, and a `.dev` data op — under a plain MEMBER's
+ *    claims — pulls and installs it, while a tenant Star asks and installs nothing;
  *  - the version is **content-addressed** (the Worker Loader `bundleId` cache guard);
  *  - the command surface is **admin-gated** (the guard's operands, tested pure).
  *
@@ -19,15 +18,24 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
 import { requireDominionHere } from '@lumenize/mesh';
 import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
+import git from 'isomorphic-git';
+import { ROW_PATH, SKIPPED_FOR_ONTOLOGY } from '../../../src/build-report';
 
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
 const TODO_V2 = `interface Todo { title: string; done: boolean; priority: string; }`;
-const OID_RE = /^[0-9a-f]{40}$/;
+const TODO_V3 = `interface Todo { title: string; done: boolean; priority: string; due?: string; }`;
+const BROKEN = `interface Todo { title: string`;
+const DEV_ROW_KEY = 'galaxy:devOntologyRow';
+type SinkEntry = { namespace: string; message: string; data?: Record<string, any> };
 
 // The Galaxy is addressed by a parseId-valid {u}.{g} galaxy-tier id; its workspace
 // Star is the derived {u}.{g}.dev.
 const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
+
+/** The version a source hashes to — the same `git.hashBlob` the Galaxy computes. */
+const versionOf = async (types: string) => (await git.hashBlob({ object: types })).oid;
 
 // Direct in-DO call — returns the method's result. For LOCAL methods (no cross-DO): the mesh
 // early-ack path returns {$ack}, not the result, and these methods read only this.ctx/this.env
@@ -69,99 +77,99 @@ const fire = (
     metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName: instance } },
   });
 
-describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)', () => {
-  // The dev apply is APPEND-ONLY on the Galaxy's registry; a Star acquires a version by
-  // pulling it on a data op whose expected version it doesn't hold — under the asking
-  // member's OWN claims (upward passage), which is the auth story the eager downward
-  // push never had.
-  it('applyOntology appends a content-addressed version to the REGISTRY — no Star involvement', async () => {
-    const galaxy = uniqueGalaxyScope();
-    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    await vi.waitFor(async () => {
-      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
-      expect(versions.length).toBe(1);
-      expect(versions[0]).toMatch(OID_RE);
-    }, { timeout: 15000 });
-    // Capable-of-failing on the DELETED push: the .dev Star holds nothing until it pulls.
-    expect(await inDO(env.STAR, `${galaxy}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
-  });
+/** The `.dev` Star's current row's version, read straight from the Galaxy's storage. */
+const devRowVersion = (galaxy: string) => inDO(env.GALAXY, galaxy, (s) =>
+  s.ctx.storage.kv.get(DEV_ROW_KEY)?.version ?? null) as Promise<string | null>;
 
-  // getCurrentOntology is FILE-FIRST (the ontology IS the workspace file — the version is
-  // derived by reading + hashing it, never a stored pointer), with the last APPLIED row as
-  // the fallback while the file is a mid-draft whose hash has no row yet. Both arms:
-  // mutation for arm 1 = answer from the applied index without reading the file → the
-  // applied-and-current case still passes but proves nothing; the DRAFT case below is what
-  // pins file-reading + fallback apart (skip the file read → null; skip the fallback → null).
-  it('getCurrentOntology: the applied file version answers; a mid-draft file falls back to the last APPLIED row', async () => {
+/** One real `buildNow`, in-DO, with the faked job doing `faults` until they are set again. */
+const build = (galaxy: string, faults?: object) => inDO(env.GALAXY, galaxy, (s) => {
+  if (faults) s.setBuildFaultsForTest(faults);
+  return s.buildNow({});
+}) as Promise<any>;
+
+describe('the .dev Star runs the last landed build\'s row; nothing else moves it', () => {
+  // A build lands when its bundle succeeded and arrived, and, when the file changed, its compile
+  // succeeded too (`decideLanding`). The landed row is the Galaxy's own copy, read back from the
+  // mount and checked against the version the host hashed. These cases drive the real
+  // `buildNow` over the faked job (`fake-build.ts`), so the landing runs unchanged.
+  it('a landed build makes its row current; editing or reverting the file without a build moves nothing', async () => {
     const galaxy = uniqueGalaxyScope();
+    const v1 = await versionOf(TODO_V1);
+    const v2 = await versionOf(TODO_V2);
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    await vi.waitFor(async () => {
-      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
-    }, { timeout: 15000 });
-    const applied = ((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[])[0];
-    // Arm 1 — file == applied head: the row comes back keyed by the FILE's hash.
-    const current = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
-    expect(current?.version).toBe(applied);
-    // Arm 2 — edit the file WITHOUT applying: its hash has no row, so the last applied
-    // row still answers (tenants run applied versions; the draft is Studio's alone).
+    expect(await devRowVersion(galaxy)).toBeNull(); // a write is not a build
+    const first = await build(galaxy);
+    expect(first.ontology).toMatchObject({ ran: true, ok: true });
+    expect(await devRowVersion(galaxy)).toBe(v1);
+    // A draft moves nothing until it is built; then the revert is a build like any other.
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
-    const drafted = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
-    expect(drafted?.version).toBe(applied);
-    // Arm 3 — the DISCRIMINATOR (arms 1–2 pass under an index-head-only impl too): apply
-    // v2, then revert the FILE to v1's content without applying. File-first answers v1's
-    // row — the file IS the ontology — where an index-head read would answer v2.
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    await vi.waitFor(async () => {
-      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
-    }, { timeout: 15000 });
+    expect(await devRowVersion(galaxy)).toBe(v1);
+    await build(galaxy);
+    expect(await devRowVersion(galaxy)).toBe(v2);
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    const reverted = (await inDO(env.GALAXY, galaxy, (s) => s.getCurrentOntology())) as { version: string } | null;
-    expect(reverted?.version).toBe(applied);
-    // The version sanitize is LOAD-BEARING, not hygiene: a version is a filename under
-    // `.nebula/ontology/`, `getOntologyVersion` is @mesh (remote input), and the job's
-    // pending row sits one directory up at ROW_PATH — so without the oid check,
-    // '../ontology-row' resolves to it and serves the UNAPPLIED draft as if applied
-    // (a Star would install it). Mutation: drop VERSION_RE → this returns the row → red.
-    expect(await inDO(env.GALAXY, galaxy, (s) => s.getOntologyVersion('../ontology-row'))).toBeNull();
+    expect(await devRowVersion(galaxy)).toBe(v2);
+    await build(galaxy);
+    expect(await devRowVersion(galaxy)).toBe(v1);
+    // Content-addressed: a build of an unchanged file compiles nothing.
+    const unchanged = await build(galaxy);
+    expect(unchanged.ontology).toMatchObject({ ran: false });
+    expect(await devRowVersion(galaxy)).toBe(v1);
   });
 
-  it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version; unchanged is a no-op', async () => {
+  // Mutations: drop the hash check in `#land` (the mislabeled and stale cases red), or skip the
+  // store (every case reds). `decideLanding`'s own conjuncts are mutated in its table
+  // (`test/ontology-landing.test.ts`), since arrival here also requires the bundle.
+  it('a build that does not land leaves the row where it was, and the next good build lands', async () => {
     const galaxy = uniqueGalaxyScope();
+    const v1 = await versionOf(TODO_V1);
+    const v2 = await versionOf(TODO_V2);
+    const v3 = await versionOf(TODO_V3);
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    await vi.waitFor(async () => {
-      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
-    }, { timeout: 15000 });
-    // Unchanged source re-applied → already appended → still 1.
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    await new Promise((r) => setTimeout(r, 250));
-    expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(1);
-    // Edit → a DIFFERENT content hash → a second version appended.
+    await build(galaxy);
+    expect(await devRowVersion(galaxy)).toBe(v1);
+
+    // A failed bundle: the compile ran, the page did not change, so the types do not either.
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    await vi.waitFor(async () => {
-      expect(((await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[]).length).toBe(2);
-    }, { timeout: 15000 });
+    const failed = await build(galaxy, { failBundle: true });
+    expect(failed.ontology).toMatchObject({ ran: true, ok: true });
+    expect(await devRowVersion(galaxy)).toBe(v1);
+    // Recovery: the same types, rebuilt, land.
+    await build(galaxy, {});
+    expect(await devRowVersion(galaxy)).toBe(v2);
+
+    // A failed compile skips the bundle, and says why in words the model can act on.
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, BROKEN));
+    const broken = await build(galaxy);
+    expect(broken.ontology).toMatchObject({ ran: true, ok: false });
+    expect(broken.bundle).toEqual({ ran: false, why: SKIPPED_FOR_ONTOLOGY });
+    expect(await devRowVersion(galaxy)).toBe(v2);
+
+    // A file changed between the host's hash and the compile: the types do not hash to the version.
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V3));
+    const mislabeled = await build(galaxy, { compileTypes: TODO_V1 });
+    expect(mislabeled.bundle).toMatchObject({ ran: true, ok: true });
+    expect(await devRowVersion(galaxy)).toBe(v2);
+
+    // A stale row file: the compile reported success, but ROW_PATH holds an earlier build's row.
+    await inDO(env.GALAXY, galaxy, (s) =>
+      s.workspaceFs().writeFile(`/workspace/${ROW_PATH}`, JSON.stringify(s.ctx.storage.kv.get(DEV_ROW_KEY))));
+    await build(galaxy, { loseRow: true });
+    expect(await devRowVersion(galaxy)).toBe(v2);
+
+    await build(galaxy, {});
+    expect(await devRowVersion(galaxy)).toBe(v3);
   });
 
-  it('LAZY-PULL: a data op with the appended version, under NON-ADMIN claims, installs it on the Star', async () => {
+  it('LAZY-PULL: a data op on the .dev Star, under NON-ADMIN claims, installs the landed row', async () => {
     const galaxy = uniqueGalaxyScope();
     const star = `${galaxy}.dev`;
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    let version = '';
-    await vi.waitFor(async () => {
-      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
-      expect(versions.length).toBe(1);
-      version = versions[0];
-    }, { timeout: 15000 });
-    // A data op naming the new version, from a plain MEMBER at the star — no `scopeAdmin`
+    await build(galaxy);
+    const version = (await devRowVersion(galaxy))!;
+    // A data op naming the landed version, from a plain MEMBER at the star — no `scopeAdmin`
     // anywhere in the claims. The pull is an upward call under these same claims, so it
-    // works for every member (the auth story the deleted eager push never had). The op
-    // itself answers `installing`-stale (a cross-node pull cannot be awaited, ADR-003);
-    // the traveling handler installs, which is the durable effect asserted here.
+    // works for every member. The op itself answers `installing`-stale (a cross-node pull
+    // cannot be awaited, ADR-003); the traveling handler installs, the durable effect here.
     await fire(env.STAR, 'STAR', star, ['resources', 'read'], [version, crypto.randomUUID()],
       { aud: star, access: { authScope: star } });
     await vi.waitFor(async () => {
@@ -170,19 +178,38 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     }, { timeout: 15000 });
   });
 
-  it('wipeOnInstall: a version appended with { wipe: true } wipes the OLDER install first; a plain append does not', async () => {
+  // The Galaxy answers by which Star asks (`isDevStarCall`), so a build's row never reaches a
+  // tenant before something is published. Mutation: answer every caller with the `.dev` row.
+  it('a tenant Star asks its Galaxy and installs nothing', async () => {
+    const galaxy = uniqueGalaxyScope();
+    const tenant = `${galaxy}.tenant1`;
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await build(galaxy);
+    const version = (await devRowVersion(galaxy))!;
+    const entries: SinkEntry[] = [];
+    setDebugSink((e) => entries.push(e as unknown as SinkEntry));
+    try {
+      await fire(env.STAR, 'STAR', tenant, ['resources', 'read'], [version, crypto.randomUUID()],
+        { aud: tenant, access: { authScope: tenant } });
+      await vi.waitFor(() => {
+        expect(entries.some((e) => e.namespace === 'nebula.Resources.ontology'
+          && e.message === 'ontology pull returned no row' && e.data?.instanceName === tenant)).toBe(true);
+      }, { timeout: 15000 });
+      const asked = entries.filter((e) => e.namespace === 'nebula.Galaxy.ontology' && e.message === 'current asked');
+      expect(asked.map((e) => e.data)).toEqual([expect.objectContaining({ caller: tenant, dev: false })]);
+    } finally {
+      clearDebugSink();
+    }
+    expect(await inDO(env.STAR, tenant, (s) => s.inspectOntologyIndex())).toEqual([]);
+  });
+
+  it('installing a newer version keeps the older data, and the new validator judges new writes', async () => {
     const galaxy = uniqueGalaxyScope();
     const star = `${galaxy}.dev`;
     const member = { aud: star, access: { authScope: star } };
-    // V1 → pull-install on the star.
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{}]);
-    let v1 = '';
-    await vi.waitFor(async () => {
-      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
-      expect(versions.length).toBe(1);
-      v1 = versions[0];
-    }, { timeout: 15000 });
+    await build(galaxy);
+    const v1 = (await devRowVersion(galaxy))!;
     await fire(env.STAR, 'STAR', star, ['resources', 'read'], [v1, crypto.randomUUID()], member);
     await vi.waitFor(async () => {
       expect((await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[]).toContain(v1);
@@ -198,22 +225,16 @@ describe('Galaxy ontology registry + Star LAZY-PULL (the eager push is deleted)'
     await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
       [v1, crypto.randomUUID(), { [warm]: todo({ title: 'v1', done: false }) }], admin, client);
     await vi.waitFor(async () => expect(await rows(warm)).toBe(1), { timeout: 15000 });
-    // V2 appended WITH the wipe decision → the pull wipes before installing, so ONLY v2
-    // remains. Capable-of-failing on the WIPE: a no-wipe install yields [v1, v2].
+
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
-    await fire(env.GALAXY, 'GALAXY', galaxy, 'applyOntology', [{ wipe: true }]);
-    let v2 = '';
-    await vi.waitFor(async () => {
-      const versions = (await inDO(env.GALAXY, galaxy, (s) => s.listOntologyVersions())) as string[];
-      expect(versions.length).toBe(2);
-      v2 = versions[1];
-    }, { timeout: 15000 });
+    await build(galaxy);
+    const v2 = (await devRowVersion(galaxy))!;
     await fire(env.STAR, 'STAR', star, ['resources', 'read'], [v2, crypto.randomUUID()], member);
     await vi.waitFor(async () => {
-      const index = (await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[];
-      expect(index).toContain(v2);
-      expect(index).not.toContain(v1); // the wipe cleared the older install
+      expect((await inDO(env.STAR, star, (s) => s.inspectOntologyIndex())) as string[]).toContain(v2);
     }, { timeout: 15000 });
+    // Installing never wipes: the v1 row is still there for a person to reset.
+    expect(await rows(warm)).toBe(1);
 
     // What the replacement plane SERVES, not only what its index says: v2's validator judges a
     // v2 write — the create lacking v2's required `priority` is refused and the one carrying it

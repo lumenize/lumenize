@@ -1,9 +1,8 @@
 /**
- * An app with no applied ontology is still an app.
+ * An app with no ontology is still an app.
  *
- * The serving layer injects the version the Galaxy has **applied**, and `applyOntology` is the
- * explicit dev Apply — so a freshly generated app has no version at all, and a "counter with an
- * increment button" never needs one. Until 2026-09-25 `createNebulaClient` refused to construct
+ * The serving layer injects the version of the last build that landed an ontology, so a freshly
+ * generated app has no version at all, and a "counter with an increment button" never needs one. Until 2026-09-25 `createNebulaClient` refused to construct
  * without one, which meant that app could not render: the Studio preview served its shell and sat
  * on `<div id="app"></div>` with a mount-time throw as the only trace.
  *
@@ -24,12 +23,12 @@ function uniqueStar(): string {
   return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
-/** A client whose config carries NO ontologyVersion — what the shell injects before any Apply. */
+/** A client whose config carries NO ontologyVersion — what the shell injects before any build lands one. */
 async function versionlessClientAt(star: string) {
   const { client } = await adminClientAt(
     NebulaClientTest, new Browser(), star, star, 'admin@example.com', ONTOLOGY_VERSION,
     // `extraConfig` spreads last, so this overrides the positional default with nothing — the
-    // shape `readInjectedScope()` produces when `#appliedHead()` is empty and the meta omits it.
+    // shape `readInjectedScope()` produces when no build has landed a row and the meta omits it.
     { ontologyVersion: undefined },
   );
   return client;
@@ -59,7 +58,7 @@ describe('a client with no ontology version', () => {
     }
     expect(isNoOntologyInstalledError(thrown), `expected NoOntologyInstalledError, got ${thrown}`).toBe(true);
     expect((thrown as { operation: string }).operation).toBe('subscribe');
-    expect((thrown as Error).message).toMatch(/Run Apply in Studio/);
+    expect((thrown as Error).message).toMatch(/Define its data types in src\/ontology\.d\.ts and build/);
 
     client[Symbol.dispose]();
   });

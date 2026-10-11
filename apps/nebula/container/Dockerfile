@@ -137,14 +137,14 @@ COPY apps/nebula/container/compiler /build/apps/nebula/container/compiler
 # `instanceof ts.Node`).
 RUN node packages/ts-runtime-parser-validator/scripts/bundle-tsc.mjs
 
-# The job bundle the Galaxy execs (`node /build/job.cjs` — see compiler/job.ts).
+# The job bundle the Galaxy execs (`node /build/job.cjs` — compiler/main.ts runs compiler/job.ts).
 # format=cjs is the defensive pick for a bundle full of CJS deps (probed 2026-08-29:
 # esm also runs for TODAY's graph, so this is preference, not necessity). The
 # compiler-sfc alias dodges its CJS build's lazy requires of ~36 OPTIONAL template
 # engines (pug, ejs, …) that are never installed — the esm-browser build is
 # self-contained, and the SFC passes are pure text transforms with no node-builtin
 # dependency.
-RUN node_modules/.bin/esbuild apps/nebula/container/compiler/job.ts --bundle --platform=node --format=cjs "--alias:@vue/compiler-sfc=./node_modules/@vue/compiler-sfc/dist/compiler-sfc.esm-browser.js" --outfile=/build/job.cjs
+RUN node_modules/.bin/esbuild apps/nebula/container/compiler/main.ts --bundle --platform=node --format=cjs "--alias:@vue/compiler-sfc=./node_modules/@vue/compiler-sfc/dist/compiler-sfc.esm-browser.js" --outfile=/build/job.cjs
 
 WORKDIR /
 

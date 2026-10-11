@@ -142,8 +142,8 @@ const PLANE_KEYS = ['__sql_migrations_Subscriptions'] as const;
  * off, or runs locally when a target refuses at admission. Neither path checks for `@mesh()`, so
  * the gate has none. `@mesh()` would open every member to any caller
  * with passage, and `onOntologyPulled` is the one that matters: it checks no permission and installs
- * whatever row it is handed, so a caller could load a validator of their own — and on a `.dev`
- * Star, run the install's wipe. (`onInviteResult` is not the reason: a forged call runs under the
+ * whatever row it is handed, so a caller could load a validator of their own on any Star it has
+ * passage into. (`onInviteResult` is not the reason: a forged call runs under the
  * forger's own claims, and `setPermission` re-checks `admin` at the node.) Built from closures over
  * the plane, like {@link ResourcesRequests}.
  */
@@ -459,18 +459,14 @@ export class Resources {
    * Make `row` THE installed version, recorded in one write: a row installed while the record
    * named another is the drift that once made every op throw after an eviction. A row already
    * installed changes nothing. Replacing a version first drains what the change invalidates —
-   * every subscriber when the row wipes, the resource, query and roster subscribers otherwise —
-   * and tells each client once, after the row is recorded. A first install drains nothing and
-   * never wipes. Throws, before anything changes, when the row would wipe a host that is not a
-   * `.dev` Star.
+   * the resource, query and roster subscribers — and tells each client once, after the row is
+   * recorded. A first install drains nothing. Installing never wipes: data a new version no
+   * longer fits stays until a person resets it.
    */
   #install(row: OntologyVersionRow): void {
     const installed = this.#installedVersion();
     if (installed === row.version) return;
-    const wipes = Boolean(installed && row.wipeOnInstall);
-    const tell: DroppedAddress[] = wipes
-      ? this.#wipe({ cause: 'install', version: row.version })
-      : installed ? this.#subscriptions.clear(['resource', 'query', 'roster']) : [];
+    const tell: DroppedAddress[] = installed ? this.#subscriptions.clear(['resource', 'query', 'roster']) : [];
     this.#ctx.storage.transactionSync(() => {
       const history = (this.#ctx.storage.kv.get<string[]>(INDEX_KEY) ?? []).filter((v) => v !== row.version);
       const prior = history.at(-1);
@@ -482,26 +478,27 @@ export class Resources {
     this.#facet = null;
     this.#notifyStale(tell, row.version);
     debug('nebula.Resources.ontology').debug('installed', {
-      instanceName: this.#lmz().instanceName, version: row.version, prior: installed, wiped: wipes,
+      instanceName: this.#lmz().instanceName, version: row.version, prior: installed,
     });
   }
 
   /**
    * Where a source's fire-back lands — a Star's `getCurrentOntology()` answer, through
-   * `results.onOntologyPulled`. Installs the row unless it is installed already. `null` (nothing applied yet) and an
+   * `results.onOntologyPulled`. Installs the row unless it is installed already. `null` (no row for this host) and an
    * Error install nothing, so a client's `installing` retries run out at the stale signal. Never
    * rethrows: a fire-back handler's throw vanishes.
    */
   #onOntologyPulled(result?: unknown): void {
     const log = debug('nebula.Resources.ontology');
+    const instanceName = this.#lmz().instanceName;
     try {
       if (result instanceof Error) {
-        log.warn('ontology pull failed', { error: result.message });
+        log.warn('ontology pull failed', { instanceName, error: result.message });
         return;
       }
       const row = result as OntologyVersionRow | null;
       if (!row) {
-        log.warn('ontology pull returned no row — nothing applied yet');
+        log.warn('ontology pull returned no row', { instanceName });
         return;
       }
       this.#install(row);
@@ -513,21 +510,21 @@ export class Resources {
   /**
    * Erase everything the plane owns and rebuild it — the `.dev` sandbox reset behind Studio's
    * Wipe (`Star.resetDevData`). Records no ontology row, so the next op's install is a first
-   * install and nothing wipes twice, and tells every subscriber of every kind once. Throws, before
+   * install, and tells every subscriber of every kind once. Throws, before
    * it records or changes anything, unless the host is a `.dev` Star.
    */
   wipe(): void {
-    this.#notifyStale(this.#wipe({ cause: 'reset' }), '');
+    this.#notifyStale(this.#wipe(), '');
   }
 
   /**
-   * The wipe both paths share, all synchronous so no other event runs in between: refuse unless
-   * the host is a `.dev` Star; write one ADR-016 record of the claims in context and the cause;
+   * The wipe, all synchronous so no other event runs in between: refuse unless the host is a
+   * `.dev` Star; write one ADR-016 record of the claims in context;
    * capture every subscriber to tell; drop every table and key the plane owns and rebuild its
    * parts, so a grant the wipe erased stops authorizing at once; and bump the generation, so a
    * transaction paused across it refuses to commit.
    */
-  #wipe(cause: { cause: 'reset' } | { cause: 'install'; version: string }): DroppedAddress[] {
+  #wipe(): DroppedAddress[] {
     const host = this.#lmz().instanceName ?? '';
     const segs = host.split('.');
     if (!(segs.length === 3 && segs[2] === 'dev')) {
@@ -535,7 +532,7 @@ export class Resources {
     }
     const claims = this.#lmz().callContext.originAuth?.claims as AuthClaims | undefined;
     debug('nebula.Resources.wipe').info('wipe', {
-      instanceName: host, ...cause, actingToken: claims ? projectActingToken(claims) : null,
+      instanceName: host, cause: 'reset', actingToken: claims ? projectActingToken(claims) : null,
     });
     const tell = this.#subscriptions.clear(['resource', 'query', 'roster', 'tree']);
     this.#ctx.storage.transactionSync(() => {
@@ -1092,7 +1089,7 @@ export class Resources {
     }
   }
 
-  // ─── Query subscriptions (Child 2) ─────────────────────────────────
+  // ─── Query subscriptions ───────────────────────────────────────────
 
   /**
    * Register a query subscriber (Flow 1) + push the initial membership state.

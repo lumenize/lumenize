@@ -343,7 +343,8 @@ describe('the build report round-trips into the next round', () => {
     ], {
       build: async () => cleanReport({
         ontology: { ran: true, ok: false, tail: 'Ontology type name "_Bad" starts with "_"' },
-        preview: { refreshed: false, why: 'ontology compile failed — preview refresh withheld by default' },
+        bundle: { ran: false, why: SKIPPED_FOR_ONTOLOGY },
+        preview: { refreshed: false, why: `bundle did not run (${SKIPPED_FOR_ONTOLOGY}) — there is no new dist` },
       }),
     });
     const r = await runCodegenLoop(INITIAL, h.deps);
@@ -803,21 +804,28 @@ describe('integration — real Galaxy loop (probe replays a script)', () => {
     expect(result.appliedPaths).toEqual([]);
   });
 
-  it('SECURE-BY-DEFAULT: a hostile ontology write_file NEVER installs/wipes the .dev Star', async () => {
+  // The line the loop may not cross: a tool reads, writes and builds; a build that lands moves
+  // only the `.dev` Star's types, and only when that Star next asks; nothing is pushed, and only
+  // a person wipes. Mutation: install the landed row on the `.dev` Star from the build path.
+  it('SECURE-BY-DEFAULT: a turn\'s ontology lands only through its build, and is pushed to no Star', async () => {
     const dev = uniqueGalaxyScope();
-    const { result } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
+    const devRow = () => inDO(env.GALAXY, dev, (s) => s.ctx.storage.kv.get('galaxy:devOntologyRow')?.version ?? null);
+    const { result: written } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
       'add a Todo type',
       [aiResp([tc('write_file', { path: 'src/ontology.d.ts', content: VALID_ONTOLOGY })]), aiResp([tc('mark_complete', {})])],
     ))) as any;
-    expect(result.stop).toBe('complete');
-    // The ontology was written to the Workspace (a pure write — the container `build`
-    // is where compiling happens now, and this turn never called it)…
+    expect(written.stop).toBe('complete');
+    // A write is a pure write: nothing compiles until a build, and nothing lands.
     expect(await inDO(env.GALAXY, dev, (s) => s.readSource('src/ontology.d.ts'))).toBe(VALID_ONTOLOGY);
-    expect(result.lastBuild).toBeUndefined();
-    // …and it was NEVER installed on the derived .dev Star (no onOntologyPulled /
-    // compileAndInstallOntology) and nothing was wiped. Capable-of-failing: an install
-    // would leave a version in the Star's index. Only the dominion-gated
-    // applyOntology appends; the loop cannot reach it.
+    expect(written.lastBuild).toBeUndefined();
+    expect(await devRow()).toBeNull();
+
+    const { result: built } = (await inDO(env.GALAXY, dev, (s) => s.runLoopForTest(
+      'build it', [aiResp([tc('build', {})]), aiResp([tc('mark_complete', {})])],
+    ))) as any;
+    expect(built.lastBuild?.ontology).toMatchObject({ ran: true, ok: true });
+    expect(await devRow()).toBe((await git.hashBlob({ object: VALID_ONTOLOGY })).oid);
+    // The landed row waits for the `.dev` Star to ask: no Star holds it yet, and none was wiped.
     expect(await inDO(env.STAR, `${dev}.dev`, (s) => s.inspectOntologyIndex())).toEqual([]);
   });
 
@@ -970,6 +978,8 @@ describe('Workers-AI REST envelope unwrap feeds parseModelTurn', () => {
 
 // ─── The preview decision (every arm — pure, exported for exactly this) ─────────
 import { decidePreview } from '../../../src/galaxy';
+import { SKIPPED_FOR_ONTOLOGY } from '../../../src/build-report';
+import git from 'isomorphic-git';
 
 describe('decidePreview — refresh-on-clean by default; the model may override; a failed bundle is structural', () => {
   it('clean build → refreshes by default', () => {
@@ -984,11 +994,12 @@ describe('decidePreview — refresh-on-clean by default; the model may override;
     expect(decidePreview(cleanReport(), false)).toEqual({ refreshed: false, why: 'the model declined to refresh the preview' });
   });
 
-  it('a failed ontology step withholds by default (override still wins)', () => {
-    const ontologyFailed = cleanReport({ ontology: { ran: true, ok: false, tail: 'boom' } });
-    expect(decidePreview(ontologyFailed).refreshed).toBe(false);
-    expect(decidePreview(ontologyFailed).why).toContain('ontology compile failed');
-    expect(decidePreview(ontologyFailed, true).refreshed).toBe(true);
+  it('a failed ontology step skips the bundle, so not even the override refreshes, and the why says what to fix', () => {
+    const ontologyFailed = cleanReport({
+      ontology: { ran: true, ok: false, tail: 'boom' }, bundle: { ran: false, why: SKIPPED_FOR_ONTOLOGY },
+    });
+    expect(decidePreview(ontologyFailed)).toEqual({ refreshed: false, why: `bundle did not run (${SKIPPED_FOR_ONTOLOGY}) — there is no new dist` });
+    expect(decidePreview(ontologyFailed, true).refreshed).toBe(false);
   });
 
   it('no dist is STRUCTURAL — even override:true cannot refresh from a failed or never-run bundle', () => {

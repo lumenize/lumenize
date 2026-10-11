@@ -415,9 +415,9 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
   // shared data any descendant Star may read, or checks the caller itself. The host's own bare
   // set is frozen here; what the `resources` door hands back is classified member by member.
   it('B5: Galaxy non-admin @mesh surface equals the frozen shared-data allow-list', () => {
-    // The ontology reads serve a Star's upward pull; the config read is shared galaxy data; the door
+    // The ontology read serves a Star's upward pull; the config read is shared galaxy data; the door
     // is where every resource op, the tree and the node invite live, each checking itself.
-    expect(nonAdminMeshMethods(Galaxy)).toEqual(['getCurrentOntology', 'getGalaxyConfig', 'getOntologyVersion', 'resources']);
+    expect(nonAdminMeshMethods(Galaxy)).toEqual(['getCurrentOntology', 'getGalaxyConfig', 'resources']);
   });
 
   it('B5: the Galaxy CHAT-FLOOR surface (requireChatWrite) equals the frozen source-entry list', () => {
@@ -425,7 +425,7 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
     // them from dominion to the chat floor (DAG `write` at the chat node). A `.dev`-scoped
     // member has no grant on the Galaxy's tree by construction, so the `.*` widening does not
     // reach them either. Mutation: restore requireDominionHere on one → it leaves this set.
-    expect(chatFloorMeshMethods(Galaxy)).toEqual(['applyOntology', 'buildNow', 'readSource', 'writeSource']);
+    expect(chatFloorMeshMethods(Galaxy)).toEqual(['buildNow', 'readSource', 'writeSource']);
     expect(chatFloorMeshMethods(Universe)).toEqual([]);
   });
 
@@ -481,8 +481,7 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
  * open entry fails the sweep below until its reason is written here (ADR-015 § *Deliberately open*).
  */
 const OPEN_REASONS: Record<string, string> = {
-  getCurrentOntology: 'shared galaxy data a descendant Star pulls upward',
-  getOntologyVersion: 'shared galaxy data a descendant Star pulls upward',
+  getCurrentOntology: 'a descendant Star pulls its row upward; only the `.dev` Star gets one',
   getGalaxyConfig: 'shared galaxy configuration, the read beside the dominion-gated write',
   getUniverseConfig: 'shared universe configuration, the read beside the dominion-gated write',
 };
@@ -531,7 +530,6 @@ describe('the upward arm is bounded by the callee, not by the barrier (the host 
       const open = [...nonAdminMeshMethods(Galaxy).filter((n) => n !== 'resources'), ...nonAdminMeshMethods(Universe)];
       expect(open.sort()).toEqual(Object.keys(OPEN_REASONS).sort());
       expect(await call('GALAXY', galaxy, g().getCurrentOntology())).toBe('(admitted)');
-      expect(await call('GALAXY', galaxy, g().getOntologyVersion('v1'))).toBe('(admitted)');
       expect(await call('GALAXY', galaxy, g().getGalaxyConfig())).toBe('(admitted)');
       expect(await call('UNIVERSE', universe, (c.ctn<Universe>() as any).getUniverseConfig())).toBe('(admitted)');
       // The door: `transaction` is callable at all (the positive control), and answers each op by

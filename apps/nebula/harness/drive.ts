@@ -41,6 +41,7 @@ import * as studioCodegenRest from './scenarios/studio-codegen-rest';
 import * as upwardInviteRefused from './scenarios/upward-invite-refused';
 import * as inviteRoundtrip from './scenarios/invite-roundtrip';
 import * as nodeInviteRoundtrip from './scenarios/node-invite-roundtrip';
+import * as devStarFollowsTheBuild from './scenarios/dev-star-follows-the-build';
 import * as buildBox from './scenarios/build-box';
 import * as fourPartyChat from './scenarios/four-party-chat';
 import * as loginTwoMemberships from './scenarios/login-two-memberships';
@@ -151,6 +152,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'upward-invite-refused': upwardInviteRefused, // a real star admin's upward invite rejected by the facade's dominion message (no Docker)
   'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → acts through the bypass (no Docker)
   'node-invite-roundtrip': nodeInviteRoundtrip, // Star.resources.invite → both planes → real email → invitee acts at the node (no Docker)
+  'dev-star-follows-the-build': devStarFollowsTheBuild, // the `.dev` Star runs the last landed build's row; a tenant installs nothing; Wipe reports a refusal
   'build-box': buildBox,                   // ephemeral build drive: per-step BuildReport, sequential + overlap + failed-bundle + serve readback (Docker)
   'four-party-chat': fourPartyChat,        // HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
   // ── prove-then-choose: the login re-order, driven end to end on real mail (no Docker) ──────────

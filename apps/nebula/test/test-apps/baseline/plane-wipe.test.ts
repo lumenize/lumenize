@@ -1,16 +1,15 @@
 /**
  * The plane's wipe erases what the plane owns and rebuilds it, and runs only on the `.dev` Star.
  *
- * Two paths reach it: an install whose row carries `wipeOnInstall`, replacing an installed version,
- * and Studio's Wipe (`resetDevData`). Each limb below is one property of that:
- *   - an install-triggered wipe completes, sends its notice, and leaves no plane row but the root;
+ * One path reaches it, Studio's Wipe (`resetDevData`); installing a version never wipes. Each limb
+ * below is one property of that:
+ *   - the wipe completes, sends its notice, and leaves no plane row but the root;
  *   - every kind of subscriber hears the notice;
- *   - its ADR-016 record names who triggered it, and on Studio's path who pressed Wipe;
+ *   - its ADR-016 record names who pressed Wipe;
  *   - a grant the wipe erased stops authorizing at once, on a warm isolate;
- *   - a first install never wipes;
- *   - off `.dev`, a replacing row changes nothing, on a Star and on a Galaxy;
+ *   - installing a version, first or replacing, keeps the data and the tree;
  *   - a transaction or invite held at the validator's await across a wipe writes nothing;
- *   - Studio's Wipe records no ontology, so the next op installs once and wipes nothing;
+ *   - the wipe records no ontology, so the next op installs once and wipes nothing;
  *   - a second answer for the installed row, or an answer that is no row, changes nothing.
  *
  * In-lane rather than `/live`: every limb reads server-internal state — plane tables, the install
@@ -19,15 +18,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
+import git from 'isomorphic-git';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { QueryDescriptor, Snapshot, TransactionResult, OntologyVersionConfig } from '@lumenize/resources';
 import {
   adminClientAt, universeAdminClient, foundAndLogin, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest, StudioClientTest } from './index';
-import type { GalaxyTest, StarTest } from './index';
+import { NebulaClientTest } from './index';
+import type { StarTest } from './index';
 
 const uuid = () => crypto.randomUUID();
 const V1 = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
@@ -91,8 +91,10 @@ async function planeRows(binding: 'STAR' | 'GALAXY', instance: string): Promise<
   });
 }
 const heardNotice = (c: NebulaClientTest) => c.lastErrorObject?.name === 'OntologyStaleError';
+/** Studio's Wipe, as its button sends it. */
+const resetDev = (a: NebulaClientTest, dev: string) => a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().resetDevData());
 
-describe('an install-triggered wipe on the .dev Star', () => {
+describe('Studio\'s Wipe on the .dev Star', () => {
   it('completes, sends its notice, and leaves no plane row but the org tree\'s root', async () => {
     const { galaxy, dev } = newDev();
     const a = await admin(galaxy, dev);
@@ -106,10 +108,9 @@ describe('an install-triggered wipe on the .dev Star', () => {
     const listener = await admin(galaxy, dev);
     await listener.lmz.callAsync('STAR', dev, door(listener).subscribeTree());
 
-    await install(a, dev, { version: 'v2', types: V2, wipeOnInstall: true });
+    await resetDev(a, dev);
 
-    expect(marks('nebula.Resources.ontology', 'installed').some((e) => e.data?.version === 'v2' && e.data?.wiped === true)).toBe(true);
-    expect(marks('nebula.Resources.ontology', 'ontology pull handling failed')).toEqual([]);
+    expect(wipes(dev).map((e) => e.data!.cause)).toEqual(['reset']);
     // A send straight after the wipe goes through: the tree subscriber hears the notice.
     await vi.waitFor(() => expect(heardNotice(listener)).toBe(true));
     // Nothing the plane owned survives but the root the rebuilt tree seeds.
@@ -134,41 +135,15 @@ describe('an install-triggered wipe on the .dev Star', () => {
     await roster.lmz.callAsync('STAR', dev, door(roster).subscribeQuerySubscribers(query));
     await tree.lmz.callAsync('STAR', dev, door(tree).subscribeTree());
 
-    await install(a, dev, { version: 'v2', types: V2, wipeOnInstall: true });
+    await resetDev(a, dev);
     await vi.waitFor(() => expect({
       resource: heardNotice(resource), query: heardNotice(q), roster: heardNotice(roster), tree: heardNotice(tree),
     }).toEqual({ resource: true, query: true, roster: true, tree: true }));
     for (const c of [a, resource, q, roster, tree]) c[Symbol.dispose]();
   });
 
-  it('its ADR-016 record names who triggered the install, with the Apply\'s version; Studio\'s names who pressed Wipe', async () => {
+  it('its ADR-016 record names who pressed Wipe', async () => {
     const { galaxy, dev } = newDev();
-    const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));
-    const writeAndApply = async (types: string, wipe: boolean) => {
-      await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().writeSource('src/ontology.d.ts', types));
-      return (await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().applyOntology({ wipe }),
-        { timeoutMs: COMPILE_TIMEOUT_MS }) as { version: string }).version;
-    };
-    const v1 = await writeAndApply(V1, false);
-    // B, a plain member of the `.dev` Star, triggers every pull.
-    const { client: b, payload: bClaims } = await devMember(galaxy, dev, 'member@example.com', v1);
-    const inspector = await admin(galaxy, dev);
-    const index = async () => (await ontologyKv(inspector, dev)).index;
-    await answer(b.lmz.callAsync('STAR', dev, door(b).read(v1, uuid())));
-    await vi.waitFor(async () => expect(await index()).toEqual([v1]));
-
-    const v2 = await writeAndApply(V2, true);
-    const applied = marks('nebula.Galaxy.applyOntology', 'wipe on install decided').at(-1)!;
-    await answer(b.lmz.callAsync('STAR', dev, door(b).read(v2, uuid())));
-    await vi.waitFor(() => expect(wipes(dev)).toHaveLength(1));
-    const record = wipes(dev)[0].data!;
-    expect(record.cause).toBe('install');
-    expect(record.version).toBe(applied.data!.version);
-    expect(record.actingToken).toEqual({
-      sub: bClaims.sub, act: undefined, profileId: bClaims.profileId, access: bClaims.access, aud: bClaims.aud,
-    });
-
-    // Studio's path: whoever pressed Wipe.
     const presser = await admin(galaxy, dev);
     presser.callStarResetDevData(dev);
     await vi.waitFor(() => expect(presser.callCompleted).toBe(true));
@@ -176,8 +151,8 @@ describe('an install-triggered wipe on the .dev Star', () => {
     const reset = wipes(dev).at(-1)!.data!;
     expect(reset.cause).toBe('reset');
     expect(reset.actingToken.sub).toBe(presser.claims.sub);
-    for (const c of [owner, b, inspector, presser]) c[Symbol.dispose]();
-  }, 120_000);
+    presser[Symbol.dispose]();
+  });
 
   it('a grant the wipe erased stops authorizing at once, on a warm isolate', async () => {
     const { galaxy, dev } = newDev();
@@ -187,7 +162,8 @@ describe('an install-triggered wipe on the .dev Star', () => {
     await a.orgTree.setPermission(ROOT_NODE_ID, payload.sub, 'write');
     expect((await create(b, dev, 'v1')).out.ok).toBe(true); // the positive control
 
-    await install(a, dev, { version: 'v2', types: V2, wipeOnInstall: true });
+    await resetDev(a, dev);
+    await install(a, dev, { version: 'v2', types: V2 });
     const { rid, out } = await create(b, dev, 'v2');
     expect(out).toEqual({ ok: false, errors: { [rid]: { type: 'permission', requiredTier: 'write', nodeId: ROOT_NODE_ID } } });
     const state = await a.lmz.callAsync('STAR', dev, door(a).orgTree.getState()) as { nodes: Map<string, unknown>; permissions: Map<string, unknown> };
@@ -197,94 +173,41 @@ describe('an install-triggered wipe on the .dev Star', () => {
   });
 });
 
-describe('a first install never wipes', () => {
-  it('a fresh non-.dev Star installs a `wipeOnInstall` row and the op proceeds', async () => {
-    const star = `pw-${uuid().slice(0, 8)}.app.tenant-a`;
-    const { client: a } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    await install(a, star, { version: 'v1', types: V1, wipeOnInstall: true });
-    expect(await answer(a.lmz.callAsync('STAR', star, door(a).read('v1', uuid())))).toBeNull();
-    expect(wipes(star)).toEqual([]);
-    a[Symbol.dispose]();
-  });
-
+describe('installing a version never wipes', () => {
   it('a fresh .dev Star keeps an org tree built before its first install', async () => {
     const { galaxy, dev } = newDev();
     const a = await admin(galaxy, dev);
     const kept = await a.orgTree.createNode(uuid(), ROOT_NODE_ID, 'kept', 'Kept');
-    await install(a, dev, { version: 'v1', types: V1, wipeOnInstall: true });
+    await install(a, dev, { version: 'v1', types: V1 });
     const state = await a.lmz.callAsync('STAR', dev, door(a).orgTree.getState()) as { nodes: Map<string, unknown> };
     expect(state.nodes.has(kept)).toBe(true);
     expect(wipes(dev)).toEqual([]);
     a[Symbol.dispose]();
   });
-});
 
-describe('off the .dev Star, a replacing `wipeOnInstall` row changes nothing', () => {
-  it('a Star: the version, the index and a committed Resource are unchanged, no wipe is recorded, and a client pinned to the row ends at the stale signal', async () => {
-    const galaxy = `pw-${uuid().slice(0, 8)}.app`;
-    const star = `${galaxy}.tenant-a`;
-    const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));
-    const writeAndApply = async (types: string, wipe: boolean) => {
-      await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().writeSource('src/ontology.d.ts', types));
-      return (await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().applyOntology({ wipe }),
-        { timeoutMs: COMPILE_TIMEOUT_MS }) as { version: string }).version;
-    };
-    const v1 = await writeAndApply(V1, false);
-    const { client: a } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com', v1);
-    const kept = uuid();
-    const created = await a.resources.transaction({
-      [kept]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'kept' } } as any,
-    });
-    expect(created.kind).toBe('committed');
+  // Mutation: restore a wipe in `#install` when a version is replaced.
+  it('a replacing install on the .dev Star keeps a committed Resource, a grant and the tree', async () => {
+    const { galaxy, dev } = newDev();
+    const a = await admin(galaxy, dev);
+    await install(a, dev, { version: 'v1', types: V1 });
+    const node = await a.orgTree.createNode(uuid(), ROOT_NODE_ID, 'kept', 'Kept');
+    await a.orgTree.setPermission(node, 'grantee-sub', 'read');
+    const { rid, out } = await create(a, dev, 'v1');
+    expect(out.ok).toBe(true);
 
-    const v2 = await writeAndApply(V2, true);
-    const onShouldRefreshUI = vi.fn();
-    const { client: pinned } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com', v2, { onShouldRefreshUI });
-    try {
-      await expect(pinned.resources.read('TestResource', kept)).rejects.toMatchObject({ name: 'OntologyStaleError' });
-      expect(onShouldRefreshUI).toHaveBeenCalled();
-      expect(marks('nebula.Resources.ontology', 'ontology pull handling failed').length).toBeGreaterThan(0);
-      expect(wipes(star)).toEqual([]);
-      expect(await ontologyKv(a, star)).toEqual({ index: [v1], rowVersions: [v1] });
-      expect(((await a.resources.read('TestResource', kept)) as Snapshot).value).toEqual({ title: 'kept' });
-    } finally { for (const c of [owner, a, pinned]) c[Symbol.dispose](); }
-  }, 120_000);
-
-  it('a Galaxy — including one whose slug is `dev`: the version, a committed Message and an org-tree grant all survive', async () => {
-    // `dev` is a legal galaxy slug, so the check has to be segment-precise: `{u}.dev` is a Galaxy.
-    const scope = `pw-${uuid().slice(0, 8)}.dev`;
-    const { client: owner } = await universeAdminClient(
-      StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
-      { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
-    );
-    const posted = await owner.postUserMessage('kept');
-    await owner.lmz.callAsync('GALAXY', scope, door(owner).orgTree.setPermission(CHAT_NODE_ID, 'grantee-sub', 'write'));
-    await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().setChatSourceForTest({
-      version: 'chat-w2', types: `${CHAT_MESSAGE_TYPES}\ninterface Extra { note: string }`, wipeOnInstall: true,
-    }), { timeoutMs: COMPILE_TIMEOUT_MS });
-
-    // The op pinned to the refused row is told stale — not `installing`, since the source answered.
-    const refused = await answer(owner.lmz.callAsync('GALAXY', scope, door(owner).read('chat-w2', uuid()), { timeoutMs: COMPILE_TIMEOUT_MS }));
-    expect(refused?.name).toBe('OntologyStaleError');
-    expect((refused as any).installing).toBeFalsy();
-    expect(await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().installedChatVersionForTest())).toBe(CHAT_MESSAGE_ONTOLOGY_VERSION);
-    expect(((await owner.resources.read('Message', posted)) as Snapshot).value).toMatchObject({ content: 'kept' });
-    expect(await owner.lmz.callAsync('GALAXY', scope, door(owner).orgTree.getEffectivePermission(CHAT_NODE_ID, 'grantee-sub'))).toBe('write');
-    expect(wipes(scope)).toEqual([]);
-    owner[Symbol.dispose]();
-  }, 120_000);
+    await install(a, dev, { version: 'v2', types: V2 });
+    expect(wipes(dev)).toEqual([]);
+    expect(((await a.lmz.callAsync('STAR', dev, door(a).read('v2', rid))) as Snapshot).value).toEqual({ title: 'x' });
+    expect(await a.lmz.callAsync('STAR', dev, door(a).orgTree.getEffectivePermission(node, 'grantee-sub'))).toBe('read');
+    a[Symbol.dispose]();
+  });
 });
 
 describe('a transaction or invite held at the validator across a wipe writes nothing', () => {
   // The seam: a row whose validator holds `parseBatch`, and the plane's own cold-load marker, which
   // fires exactly when the first op reaches that validator — so the wipe lands inside the await.
   const HOLD_MS = 3000;
-  const paths = [
-    { path: 'resetDevData', wipe: (a: NebulaClientTest, dev: string) => a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().resetDevData()) },
-    { path: 'an install', wipe: (a: NebulaClientTest, dev: string) => install(a, dev, { version: `v2-${uuid().slice(0, 4)}`, types: V2, wipeOnInstall: true }) },
-  ];
-
-  it.each(paths)('a transaction held across $path answers stale, and no snapshot lands', async ({ wipe }) => {
+  it('a transaction held across the wipe answers stale, and no snapshot lands', async () => {
     const { galaxy, dev } = newDev();
     const a = await admin(galaxy, dev);
     const held = `held-${uuid().slice(0, 6)}`;
@@ -294,7 +217,7 @@ describe('a transaction or invite held at the validator across a wipe writes not
       [uuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'held' } },
     }), { timeoutMs: 30_000 }));
     await vi.waitFor(() => expect(marks('nebula.Resources.ontology', 'facet cold load').some((e) => e.data?.version === held)).toBe(true));
-    await wipe(a, dev);
+    await resetDev(a, dev);
     expect((await pending)?.name).toBe('OntologyStaleError');
     expect((await planeRows('STAR', dev)).Snapshots).toBe(0);
     a[Symbol.dispose](); holder[Symbol.dispose]();
@@ -309,7 +232,7 @@ describe('a transaction or invite held at the validator across a wipe writes not
     const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).invite(ROOT_NODE_ID, [{ email: 'held@example.com', tier: 'read' }]),
       { timeoutMs: 30_000 }));
     await vi.waitFor(() => expect(marks('nebula.Resources.ontology', 'facet cold load').some((e) => e.data?.version === held)).toBe(true));
-    await a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().resetDevData());
+    await resetDev(a, dev);
     expect((await pending)?.name).toBe('OntologyStaleError');
     expect((await planeRows('STAR', dev)).Snapshots).toBe(0);
     a[Symbol.dispose](); holder[Symbol.dispose]();
@@ -320,14 +243,15 @@ describe('Studio\'s Wipe records no ontology, so the next op installs once and w
   it('the index is empty, the next op is first told `installing`, it installs without a second wipe, and a tree row made after the reset survives', async () => {
     const { galaxy, dev } = newDev();
     const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));
+    // A real build over the faked job lands V1 as the `.dev` Star's current row.
     await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().writeSource('src/ontology.d.ts', V1));
-    const { version } = await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().applyOntology({}),
-      { timeoutMs: COMPILE_TIMEOUT_MS }) as { version: string };
+    await owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().buildNow({}), { timeoutMs: COMPILE_TIMEOUT_MS });
+    const { oid: version } = await git.hashBlob({ object: V1 });
     const a = await admin(galaxy, dev, version);
     await answer(a.lmz.callAsync('STAR', dev, door(a).read(version, uuid())));
     await vi.waitFor(async () => expect((await ontologyKv(a, dev)).index).toEqual([version]));
 
-    await a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().resetDevData());
+    await resetDev(a, dev);
     expect(await ontologyKv(a, dev)).toEqual({ index: [], rowVersions: [] });
     const watcher = await admin(galaxy, dev, version);
     await watcher.lmz.callAsync('STAR', dev, door(watcher).subscribeTree());
@@ -348,16 +272,17 @@ describe('an answer that installs nothing new changes nothing', () => {
     const { galaxy, dev } = newDev();
     const a = await admin(galaxy, dev);
     await install(a, dev, { version: 'v1', types: V1 });
-    const current = { version: 'v2', types: V2, wipeOnInstall: true };
+    const current = { version: 'v2', types: V2 };
     await install(a, dev, current);
     const { rid, out } = await create(a, dev, 'v2');
     expect(out.ok).toBe(true);
 
     await install(a, dev, current); // the same row, answered again
-    expect(await ontologyKv(a, dev)).toEqual({ index: ['v2'], rowVersions: ['v2'] });
+    // The index keeps its history, and one row: the replaced v1 row went at the install.
+    expect(await ontologyKv(a, dev)).toEqual({ index: ['v1', 'v2'], rowVersions: ['v2'] });
     expect(await answer(a.lmz.callAsync('STAR', dev, door(a).read('v2', rid)))).toBeNull();
     expect(((await a.lmz.callAsync('STAR', dev, door(a).read('v2', rid))) as Snapshot).value).toEqual({ title: 'x' });
-    expect(wipes(dev)).toHaveLength(1);
+    expect(wipes(dev)).toEqual([]);
     a[Symbol.dispose]();
   });
 

@@ -5,8 +5,8 @@
  * Two things, neither needing a client:
  *  1. **Frozen surface, in THREE tiers plus what the door hands back.** Every entry reachable
  *     on the Galaxy's whole prototype chain: the bare `@mesh()` door `resources` and the
- *     registry and config reads; the source entries — every entry `LOOP_TOOL_ENTRIES` names plus
- *     the Apply — at the CHAT FLOOR (`requireChatWrite`, the door a Message create passes); and
+ *     ontology and config reads; the source entries — every entry `LOOP_TOOL_ENTRIES` names —
+ *     at the CHAT FLOOR (`requireChatWrite`, the door a Message create passes); and
  *     configuration at dominion; the inherited `teardown` is `@rawRpc()`, on no tier. Past the door the plane's
  *     `requests` and `results` member lists are frozen, and so is `OrgTree`'s, which `requests`
  *     hands out as `orgTree` — past a gate nothing is checked, so a member added there is on the
@@ -64,13 +64,12 @@ function surfaceNames(surface: object): string[] {
 describe('Galaxy @mesh surface freeze — three guard tiers, and what the door hands back', () => {
   // Freeze the bare surface: a resource method accidentally shipped with a guard LEAVES
   // this set (→ red); a source or config method accidentally shipped bare ENTERS it (→ red).
-  it('bare @mesh surface == the resource + registry-read surface, exactly', () => {
+  it('bare @mesh surface == the resource + ontology-read surface, exactly', () => {
     expect(meshMethods('bare')).toEqual(
       [
-        // Ontology-registry reads — passage-gated only: getCurrentOntology is what a Star's pull
-        // reads, and getOntologyVersion one applied row by label (every member of a descendant
-        // scope reaches both).
-        'getCurrentOntology', 'getGalaxyConfig', 'getOntologyVersion',
+        // Passage-gated reads: getCurrentOntology is what a Star's pull reads (every member of a
+        // descendant scope reaches it, and only the `.dev` Star is answered a row), and the config.
+        'getCurrentOntology', 'getGalaxyConfig',
         // The one door onto the resource plane — every op, the org tree and the node invite
         // behind it check themselves (chat participants are non-admin but DAG-granted).
         'resources',
@@ -78,15 +77,14 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     );
   });
 
-  it('every entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR (requireChatWrite), and so does the Apply', () => {
+  it('every entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR (requireChatWrite)', () => {
     // Mutation: restore `requireDominionHere` on `writeSource` → it leaves this set → red.
     const chat = meshMethods('chat');
     const named = [...new Set(Object.values(LOOP_TOOL_ENTRIES).flat())];
     expect(named.length).toBeGreaterThan(0); // the table is not empty (positive control)
     for (const entry of named) expect(chat).toContain(entry);
-    // The exact chat-floor set: the table's three entries and the dev Apply, whose wipe
-    // bit is decided in the body at dominion over the `.dev` Star.
-    expect(chat).toEqual(['applyOntology', 'buildNow', 'readSource', 'writeSource']);
+    // The exact chat-floor set: the table's three entries, and nothing else.
+    expect(chat).toEqual(['buildNow', 'readSource', 'writeSource']);
   });
 
   it('the DOMINION list is exactly Galaxy configuration', () => {
