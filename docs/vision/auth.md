@@ -114,6 +114,17 @@ The Profile and the Registry are named by something other than a scope — the P
 
 Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This matters for § *Coarse-grained access control* below.
 
+### A Galaxy's `.dev` Star
+
+**Every Galaxy is born with one Star of its own, its workshop, where the app is built and tested.** For the Galaxy `acme.crm` it is `acme.crm.dev`, at `dev.crm.acme.lumenize.dev`. It has no real users. Its data is test data, wiped and seeded again whenever the app's builders ask, and everyone building the app is its admin. `dev` is a reserved slug, so nobody can claim it as a Star of their own.
+
+A few rules bend for it, each because nothing real lives there:
+
+- **A Galaxy's own chain is its `.dev` Star's admin** (§ *`activeScope`*).
+- **It holds personas.** Mary, Sally and Gerry are a cast of test users, each on a host of its own, `mary--dev.crm.acme.lumenize.dev`, with a token that rests on no membership (§ *Identity and membership*) and claims the Star can build itself (§ *How the claims travel*). Mary's `scopeAdmin` is held in the Galaxy's record of its cast, and the refresh that mints her token asks the Galaxy.
+- **An invite into the Galaxy makes the invitee its admin** (§ *Grants*).
+- **Provisioning writes there as the cast**, not as the person who asked (§ *When the agent acts*).
+
 ### The three roles a scope plays
 
 The same kind of value appears in three distinct roles.
@@ -144,7 +155,7 @@ The refresh takes it from the request's `Origin`, which no script can set, and m
 
 It is what the coarse-grained checks read, so a call acts within its `activeScope` and below ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*). Reading it only ever narrows what `authScope` alone would allow, because it already sits at or below `authScope`.
 
-**A call chain a node started has an `activeScope` too, though it carries no token.** It is the name of the node that started the chain, when that name is a scope. An alarm on the Star `acme.crm.bigco`, or an update it broadcasts, acts from `acme.crm.bigco` with no `scopeAdmin`: passage into that Star and up through `acme.crm` and `acme`, and dominion over nothing. A node named by an id rather than a scope, such as a Profile, gives its chains no `activeScope`, so a scoped node refuses them.
+**A call chain a node started has an `activeScope` too, though it carries no token.** It is the name of the node that started the chain, when that name is a scope. An alarm on the Star `acme.crm.bigco`, or an update it broadcasts, acts from `acme.crm.bigco` with no `scopeAdmin`: passage into that Star and up through `acme.crm` and `acme`, and dominion over nothing. The one exception is a Galaxy's chain into its own `.dev` Star, `acme.crm` calling `acme.crm.dev`, which acts as that Star's admin and nowhere else (§ *A Galaxy's `.dev` Star*). A node named by an id rather than a scope, such as a Profile, gives its chains no `activeScope`, so a scoped node refuses them.
 
 Moving between active scopes is moving between hosts, which a person does from Home (§ *Home*). A tab on the new host gets a token of its own, and a connection carries for its life the one `aud` it presented.
 
@@ -182,6 +193,8 @@ A whole token, annotated — a Galaxy admin on a page at one of their tenants' h
 The verified claims do not stop at the boundary they were checked on. The edge Worker verifies the JWT at the socket's upgrade, and the client's server-side half builds the claims once, when it accepts the connection. Every `lmz.call()` from there inherits them **unchanged** — so a node five hops deep reads the same `sub`, the same `aud`, the same `access`, and the same `act` chain the first node saw, without a lookup and without any caller threading them by hand. That is what makes the decision in § *Coarse-grained access control* local, and what lets a Resource write record its author from context alone.
 
 **A call can also start a fresh chain, carrying no claims at all.** `lmz.call()` does this when asked, with `newChain: true`, and whenever there is no incoming call to inherit from, as in an alarm handler. The fresh chain names only the calling node, so it is that node speaking for itself rather than for whoever caused it. A subscription update works this way, since `lmz.broadcast` starts a fresh chain by default: the identity of whoever made the change reaches no subscriber. A client can start neither a fresh chain nor a forged result: its server-side half builds every call the client makes from the connection's verified token, and sends it only to a node's request door, where `@mesh()` is required.
+
+**One node builds claims itself: a `.dev` Star, for its own personas.** It may run a block as one of them, Mary say, under exactly the claims Mary's tab on `mary--dev.crm.acme.lumenize.dev` would carry, so what it seeds is recorded as hers. It builds the cast's tree and grants the same way, as a setup identity whose slug, `_setup`, no host can spell. The subject is computed from the Star's own name and a slug, so it can never be a person's.
 
 So every node's M3 has to decide safely when the claims are absent, and each kind of node asks its own question there:
 
@@ -262,7 +275,7 @@ Seven example calls, all in the same Universe:
 
 The four rows between it and **Downward** are one rule against different target scopes, and none of them needs `scopeAdmin` to get in — passage is doing all the work. Dominion is then asked a second time *inside*, against the scope being acted on, which is why passing the boundary settles nothing about what you may do once there (§ *The data plane*).
 
-The last row is the invited collaborator on one app: they have passage into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
+The last row is the invited collaborator on one app, seen from the app's own host: they have passage into none of its Stars. They test from the `.dev` Star's own host, where their invite made them admin (§ *A Galaxy's `.dev` Star*).
 
 `_platform` is **not** an exception. It is the **root of the scope tree** — at or above every scope, and every scope at or below it — so a superuser's membership there gets them a token on every host by the ordinary rule, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. The two verdicts land differently there, and the asymmetry is the whole point: **passage to the platform scope is universal**, because the upward arm asks `isAtOrAbove('_platform', anything)`, which the root satisfies for everyone. **Dominion over it is nobody's**, because that asks the reverse, `isAtOrAbove(page, '_platform')`, which holds only for a page at the root, and no page sits there.
 
@@ -324,7 +337,7 @@ A Star's own admin acts through that bypass too, and holds no grant in its orgTr
 
 Access is anchored to the mailbox and managed by the Registry. Identity is anchored to the person and captured in the Profile.
 
-A membership is one address in one scope. It is what a token's `sub` names, and it is what "member" means everywhere in this document. Someone who belongs to three scopes holds three memberships and all of that is recorded in the Registry.
+A membership is one address in one scope. It is what a token's `sub` names, and it is what "member" means everywhere in this document. A persona's token is the one exception: its `sub` is computed from the persona's host and names no membership (§ *A Galaxy's `.dev` Star*). Someone who belongs to three scopes holds three memberships and all of that is recorded in the Registry.
 
 A Profile is the person. Name, nickname and picture follow them across every scope, Star and Universe, and one Profile can span several of their addresses. A Profile survives its last membership, so work stays attributed to a real person long after they have left.
 
@@ -412,7 +425,7 @@ An environment variable holds an array of superuser email addresses. Logging in 
 
 An admin can act as someone they administer. The token names both people: the top-level `sub` is the person being acted as, and `act.sub` is the admin doing it. The token format allows nesting, but impersonation does not chain — to act as someone else you go back to your original session.
 
-`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence. One refusal keys on the chain merely being there: the mint, which will not impersonate from a token that already carries one. Prepend an actor into somebody's own session token and they lose their ability to act as anyone, for a reason nobody intended. Chains grow on the **record** instead — § *Attribution* — where an actor is legitimately not an impersonator at all, since Nebula adds itself to every turn it writes.
+`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence. One refusal keys on the chain merely being there: the mint, which will not impersonate from a token that already carries one. Prepend an actor into somebody's own session token and they lose their ability to act as anyone, for a reason nobody intended. Chains grow on the **record** instead — § *Attribution* — where an actor is legitimately not an impersonator at all, since the agent adds itself to every write it makes for a person.
 
 It produces a token but not a session. There is no refresh cookie behind it, which is why ending it means tearing down the client and never calling the logout endpoint — that would spend the cookie of the session that minted it, ending the admin's own.
 
@@ -444,19 +457,23 @@ One test governs when a check may look at `act` at all: only where impersonation
 
 There is no consent step, deliberately. An admin can already read and write anything in their scope under their own name, so impersonation grants them nothing new. It only changes attribution, and it improves it by naming both parties — gating it would push an admin toward the less traceable path. This changes if a customer requires consent during a security review and the deal is worth it.
 
-### When Nebula is the actor
+### When the agent acts
 
-Studio's agent writes Resources on a user-developer's behalf, and it holds **no authority of its own** — no membership, no access token, no login. The write runs inside the triggering person's own call, carrying their `sub` and their permissions, and the platform adds itself as an **actor on the record**, never on the token. So the record reads *this human, via Nebula*, and authorization is unchanged: the agent can do exactly what that person could and nothing more, because it is that person's authority doing it.
+Studio's agent does two things in a chat: it writes on a user-developer's behalf, and it talks. It holds **no authority of its own** for either: no membership, no access token, no login.
 
-The actor id is `agent:lumenize` — self-describing and syntactically not a human, so a server-composed actor stays distinguishable from a token-attested one at a glance ([ADR-016](../adr/016-record-the-acting-principal.md)). It is only ever an actor, never a subject; `sub` names the person who prompted the turn. Nebula does hold a Profile, so it renders like any other participant (§ *Profiles*), but it has no membership and the Registry knows nothing about it.
+**When it writes, it writes as the person whose post started the turn.** A Resources write, a source edit or an invite runs inside that person's own call, carrying their `sub` and their permissions, and the platform adds itself as an **actor on the record**, never on the token. So the record reads *this human, via the agent*, and authorization is unchanged: the agent can do exactly what that person could and nothing more, because it is that person's authority doing it. Provisioning a `.dev` Star is the one exception: its record names the person, and what it builds is written as the cast (§ *A Galaxy's `.dev` Star*).
 
-Two inversions are tempting and both are wrong. Giving the agent its own login would **grant** it authority that then has to be confined, where this design has nothing to confine. And the actor is composed server-side: a client able to name its own actor would defeat the record entirely.
+**When it talks, it posts as itself.** Every message the agent puts in the chat names `agent:lumenize` as its subject, with no `act`. The server composes that subject the way it composes the actor, and the one thing written that way is a chat Message. So the agent can answer posts that arrived while it was busy without borrowing anyone's permissions. A turn the agent starts for that gets no tools: it reads the thread and replies, and anything more waits for someone's yes, whose post starts a turn that acts as them.
+
+The id `agent:lumenize` is self-describing and syntactically not a human, so a server-composed subject or actor stays distinguishable from a token-attested one at a glance ([ADR-016](../adr/016-record-the-acting-principal.md)). The agent does hold a Profile, shown as Lumenize, so it renders like any other participant (§ *Profiles*), but it has no membership and the Registry knows nothing about it.
+
+Two inversions are tempting and both are wrong. Giving the agent its own login would **grant** it authority that then has to be confined, where this design confines one thing, a chat post. And the subject and actor are composed server-side: a client able to name either would defeat the record entirely.
 
 ### Attribution
 
 An attribution record answers two questions.
 
-- **Identity** — *who acted* — is the acting principal: the subject, the `access` that token asserted, and the **actor chain** (`act` in the JWT) when an admin and/or Nebula acts on the subject's behalf. The chain is not decoration. Authorization keys off the subject alone (§ *Impersonation*), so a record carrying only the subject names the person acted *upon* as the person who acted — worse than no record, because it will be believed.
+- **Identity** — *who acted* — is the acting principal: the subject, the `access` that token asserted, and the **actor chain** (`act` in the JWT) when an admin and/or the agent acts on the subject's behalf. The chain is not decoration. Authorization keys off the subject alone (§ *Impersonation*), so a record carrying only the subject names the person acted *upon* as the person who acted — worse than no record, because it will be believed.
 - **Topology** — *through what path* — is `callChain`, the `[origin, …, caller]` list of mesh nodes a call travelled, extended automatically at each hop so provenance is never something a caller threads by hand. Naming who acted without what authorized them is half an answer, so both belong in what gets written.
 
 Two kinds of action write an attribution record, and **the same function builds both** — no site assembles its own fields — so the two cannot drift apart ([ADR-016](../adr/016-record-the-acting-principal.md)).
@@ -472,7 +489,7 @@ APIs and UIs allow the querying and inspection of both. These records are access
 
 **Grants are made with as little friction as possible and growth is why**. Our success is a function of how many people are on our platform, so friction in the path to getting someone *onto* it is not caution — it is failure. It is why a stranger may claim a Universe or an unclaimed Star and become its `scopeAdmin` with nobody's approval, and it is the same reason a member may bring in a peer.
 
-So, anyone may invite a non-admin at their own scope. Dominion additionally permits inviting downward, and is the only thing that permits conferring `scopeAdmin`.
+So, anyone may invite a non-admin at their own scope, except into a Galaxy, where only a Galaxy admin decides who builds the app. Every invite into a Galaxy also makes the invitee admin of its `.dev` Star (§ *A Galaxy's `.dev` Star*). Peer invites into a tenant Star stay open. Dominion additionally permits inviting downward, and is the only thing that permits conferring `scopeAdmin`.
 
 **Registry-only grants**. Only `scopeAdmin` grants are made in the Registry alone, by a claim or through the facade.
 

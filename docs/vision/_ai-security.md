@@ -136,6 +136,34 @@ per-tenant allow-list, and **codegen gate failures** as the secure-default regre
 complete measure of "was this safe." Together they are a great deal better than the nothing most systems have,
 and each is a byproduct of a mechanism we need anyway rather than a bespoke security telemetry project.
 
+#### Tripwires, not a human in the loop
+
+**A tripwire is what turns those signals into a change to the process.** It stays silent while things go normally and fires on one specific anomaly. Firing it commits us, decided in advance, to an incident review. The review's output is a change to the process that let the incident happen, never just a verdict on the one action.
+
+Say an end user asks an app's chat to mark one invoice paid, and the agent marks all 400 of their invoices paid. Nothing stopped it, and nothing should have: the user may write their own invoices, and a Resource write can be undone, so it sits below the gate line. A tripwire on writes per turn fires, and two things follow.
+
+- **Contain.** Find the turn's 400 writes through attribution and write the prior values back (§ *Two gaps to close at the center, and two we accept*).
+- **Learn.** Ask why the agent read "this invoice" as "all of them". If the app's tool description was ambiguous, the fix is a line in the Galaxy's guidance, and the next turn is less likely to do it again.
+
+An approval prompt, even one the user read carefully, would have changed nothing about the next turn. That is Deming's point about inspection, one level down.
+
+**What a tripwire is not.** Each neighbouring term gets one thing wrong:
+
+- **Human in the loop** puts a person in front of every action. Hughes's 93% (§ *The strongest version of the other view*) is what that buys. The human-era version measured the same: in 2019, change advisory boards approved over 90% of the major changes they reviewed, and some firms' boards rejected none ([FCA, *Implementing technology change*, 2021](https://www.fca.org.uk/publications/multi-firm-reviews/implementing-technology-change)).
+- **Human on the loop** still has someone watching. With a tripwire, nobody has to watch.
+- **A gate** gives a yes or no on each action and is done. A tripwire's work starts when it fires. On the irreversible tail it may also stop the action, and that is the gate § *The classifier is the real artifact* keeps.
+- **An alert** informs and obligates nothing. A tripwire's review was decided before the incident.
+
+**So the human moves rather than leaves.** A human in the loop spends attention on every action, nearly all of which never needed it. A tripwire spends it on the one that did, and on the work human judgment is actually good for: changing the process. The agent can run the review and draft the fix, per the SRE section's point about toil, while the human steers.
+
+**Tripwires are what the candidate signals above become, instead of SLOs.** An error budget tolerates a measured number of failures, and the SRE section's hard limit says security failures are not interchangeable. A tripwire fires on the first one, so it needs no budget.
+
+**Place a tripwire where a failure would otherwise go unnoticed.** A loud failure is its own tripwire. The ones worth building watch for what leaves everything green, or for what fails only where nobody runs it. A review's output is often a new tripwire for the class of failure it found.
+
+**This repo already runs the loop.** The Worker startup CPU limit (error 10021) once shipped behind weeks of green tests. The compilers moved out of the Worker, and `check-worker-graph.mjs` was added: it stays silent on every test run until a module reachable from the Worker imports a compiler. `/nightly-pass` opens with a tripwire preamble. `calibration.md` is the same loop in prose, each entry a dated incident and the change to standing guidance it produced. That is level 1 of § *Three places AI runs*, and Studio's job at level 2 is to hand user-developers the same practice.
+
+**The word comes with a security pedigree that makes our case for us.** Gene Kim wrote Tripwire at Purdue with Gene Spafford in 1992. It established file-integrity monitoring, which detects an unauthorized change after the fact rather than preventing it. Kim co-founded Tripwire, Inc. and was its CTO for thirteen years. He then co-authored *Accelerate* with Nicole Forsgren and Jez Humble, the book-length account of the DORA research cited above for change advisory boards. The person who built the detect-don't-prevent tool also measured the pre-approval board failing.
+
 ⚠️ **Two loops, one machinery — do not merge them.** [`self-improving-platform.md`](self-improving-platform.md)
 owns the loop that improves generation scaffolds and defaults from *outcome* signal, with its own claim
 discipline and timing gates. This document's loop improves security posture from *incident* signal. They share
@@ -159,6 +187,8 @@ experienced users' use of full auto-approve climbs past **40%** by their 750th s
 ⭐ **Take that as a gift rather than a rebuttal.** § *The part nobody wants to say out loud* predicts consent
 prompts decay into a checkbox nobody reads within about three years. Hughes has the measurement showing it
 already happened, in roughly eighteen months. **Cite it; do not argue with it.**
+
+What we put in place of the human in the loop is § *Tripwires, not a human in the loop*.
 
 **So here is the real opposing view, at full strength.** Having rejected human approval, the serious position
 pushes the control down into the architecture — and its standards expression is the Cloud Security Alliance's
@@ -326,7 +356,10 @@ at knowing within seconds when something has gone sideways and exactly who did i
 
 | Claim | Mechanism | Status |
 |---|---|---|
-| Nothing important is permanently destroyed | [ADR-004](../adr/004-snodgrass-temporal-resources.md) snapshot sequences; soft delete is a snapshot transition | **Built** |
+| No Resource write destroys anything | [ADR-004](../adr/004-snodgrass-temporal-resources.md) snapshot sequences; soft delete is a snapshot transition | **Built** |
+| Deleting a Star or Galaxy can be undone during a grace window | a tombstone, then a reaper's automatic permanent delete | **Not built** — teardown deletes at once (§ *Two gaps to close at the center, and two we accept*) |
+| A bad turn's writes can be undone without losing later ones | an agent that restores prior values from history | **Not built**; nothing reads a past snapshot yet (same section) |
+| A signal fires a tripwire, and the tripwire opens a review | none for Nebula; `check-worker-graph.mjs` and `/nightly-pass` run it for this repo | **Not built** (§ *Tripwires, not a human in the loop*) |
 | An injection's read blast radius is capped at the asking user | ReBAC/DAG substrate ([`auth.md`](auth.md) § *The data plane*) | **Built** |
 | Every resource change names who made it | `Snapshots.actingToken` | **Built** — the full ADR-016 record |
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
@@ -350,6 +383,18 @@ That converts the interview's central prescription from an aspiration into a pro
 not the power" is advice most platforms cannot follow, because they would first have to make their actions
 rankable. Ours are mostly one rank — and per § *The classifier is the real artifact*, this is the de-risking
 move already made for the highest-volume action class, rather than a classification we maintain.
+
+#### Two gaps to close at the center, and two we accept
+
+The edge argument below describes the design. Today two gaps sit at the center, and both are rows in [`backlog.md`](../../tasks/backlog.md) § *Nebula*.
+
+- **Deleting a Star or Galaxy is permanent today.** `ScopedMeshDO.teardown` runs `ctx.storage.deleteAll()` the moment a deletion lands. The fix is soft delete: the scope is tombstoned and stops answering, an admin can undelete it during a grace window, and a reaper then deletes it for good. The permanent delete is automatic on purpose. A deleted scope's storage is cost nobody can be billed for, unlike a live Star's Resource history, which its owner pays for. It also softens a cost [ADR-015](../adr/015-passage-and-dominion.md) accepts, where a careless admin can destroy a scope others are using with only a UI warning in the way.
+- **History is kept, but nothing restores from it.** ADR-004 says restoring means re-addressing a prior snapshot, and no operation does that yet. Undo will be agentic, not a deterministic merge of the kind a CRDT does. When a tripwire fires, an agent finds the bad turn's writes through attribution, writes the prior values back as new snapshots, and leaves alone what others have written since. Where someone has since edited the same Resource, the agent can read both edits and ask in chat, which no merge rule can. This undo is what makes pulling a tripwire cheap.
+
+Two other outcomes at the center are permanent, and we accept them rather than engineer them away:
+
+- **A disclosure cannot be taken back.** Authorization caps it at what the asker could already read, and sharing beyond that is a permission holder's decision in the consent loop (§ *A worked scenario*). A wrong disclosure inside those bounds is moderately bad, and we live with it.
+- **A data migration on a tenant Star cannot be undone.** [ADR-024](../adr/024-an-app-moves-one-version-at-a-time.md) moves a published app only forward. When a migration gets something wrong, the recovery is to roll forward: publish a version that fixes it.
 
 #### Where reversibility stops — and why the gap is at the edge rather than the center
 
@@ -553,7 +598,7 @@ re-check (withdrawn 2026-08-26).
 
 **The refusal is not a policy the model could be talked out of.** Nebula holds no authority of its
 own; it acts as the person who prompted it, and the query carries *that person's* reach
-([`auth.md`](auth.md) § *When Nebula is the actor*). There is no phrasing, no jailbreak and no
+([`auth.md`](auth.md) § *When the agent acts*). There is no phrasing, no jailbreak and no
 system-prompt edit that makes Austen's token reach a tenant Star, because the check never consults
 the model at all. Standing guidance that merely *discourages* the answer would be a lock a
 sufficiently clever prompt picks; this is a lock with no keyhole on the model's side.
@@ -581,7 +626,7 @@ locally.
 > because her token cannot reach those Stars. Everything after it is design: the request-access
 > notify/approve transport is unspecced, AI-initiated elevation is explicitly post-demo in its own
 > task file, the time-boxed grant in option (c) has no mechanism yet, and Nebula does not yet appear
-> as an actor on the resulting records (`auth.md` § *When Nebula is the actor*). Read this as the
+> as an actor on the resulting records (`auth.md` § *When the agent acts*). Read this as the
 > target, not a demo script.
 
 ---
@@ -611,6 +656,7 @@ without amendment; these are the additions specific to this document's argument.
 5. **"The cure for excessive agency is more agency" is a claim about *our* substrate.** It holds because
    reversibility is structural here. It is not a general-purpose defence of unbounded agency, and it should
    not be offered as one to anyone whose platform destroys data on write.
+6. **Write "tripwire" as a practice, never as a product name.** Tripwire is also a commercial file-integrity product and a trademark, and a security audience may hear the product first. In our copy the word names what we do, and no Nebula feature should be called that.
 
 ---
 
@@ -638,11 +684,6 @@ without amendment; these are the additions specific to this document's argument.
 - **Does the advisory path need any teeth at all?** The current answer is no — advice plus the user-developer's
   own record, no gate. Worth re-deriving once real money moves through a generated app, since that is the
   point at which "we told them" stops feeling sufficient to everyone but us.
-- **Do the candidate signals ever become real objectives?** § *What the SRE analogy actually buys* deliberately
-  stops at "instrument these," because an SLO over a non-fungible failure class is a footgun and the
-  reversible-class carve-out is not yet sharp enough to draw a budget around. The fork is whether that carve-out
-  ever gets sharp enough — and if it does not, the signals stay diagnostic and this stays an analogy rather
-  than a method.
 - **Who owns the codegen loop's own dependency surface?** § *Level 2* names what is exposed: the build box
   installs model-chosen packages over open egress against no lockfile, into apps that then ship to real
   tenants. `tasks/backlog.md` § *Nebula* holds both pieces as hygiene, which is why nobody has had to decide
