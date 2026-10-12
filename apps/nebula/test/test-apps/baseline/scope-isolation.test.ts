@@ -657,7 +657,16 @@ describe('local-executor path does not run the passage step (T-local-skip, B3)',
         // 15s (not the default): this waits on real CF-alarm DELIVERY, whose
         // latency balloons under workerd-zombie CPU starvation in a full parallel
         // run. See .claude/rules/testing.md (alarm-gated waits are contention-fragile).
-      }, { timeout: 15000 });
+      }, { timeout: 15000 }).catch(async (err: Error) => {
+        // It has timed out once in a full run (2026-10-12) and never alone or under CPU load, so a
+        // miss says what the Star held: the job with no alarm armed, an alarm armed late, or neither.
+        const held = await (runInDurableObject as any)((env as any).STAR.getByName(star), async (_i: unknown, ctx: DurableObjectState) => ({
+          now: Date.now(),
+          alarmAt: await ctx.storage.getAlarm(),
+          jobs: ctx.storage.sql.exec('SELECT time, type FROM __lmz_alarms').toArray(),
+        }));
+        throw new Error(`${err.message}\nThe Star at the miss: ${JSON.stringify(held)}`);
+      });
 
       // The local-executor path ran the passage step zero times for this star.
       const passageForStar = entries.filter(
