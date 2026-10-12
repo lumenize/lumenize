@@ -590,6 +590,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
   /** Whether a `connection_status` has arrived before, so a later one is known as a reconnect. */
   #connectedBefore = false;
   #ws: WebSocket | null = null;
+  /** A connect is waiting on its token or tab id and has not opened its socket yet. */
+  #connecting = false;
+  /** The socket whose `connection_status` arrived last, the one this Client is connected on. */
+  #connectedSocket: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
 
   /**
@@ -1384,7 +1388,27 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
   // Private - Connection Management
   // ============================================
 
-  async #connectInternal(): Promise<void> {
+  /**
+   * Whether a connect is under way: waiting on its token or tab id, or holding a socket its host
+   * has not yet answered with `connection_status`. A second connect then would open a second
+   * socket, and the queue could be flushed onto whichever was not yet open and lost.
+   */
+  #connectInFlight(): boolean {
+    return this.#connecting || (this.#ws !== null && this.#ws !== this.#connectedSocket);
+  }
+
+  /**
+   * Open a socket, unless a connect is already under way, which every caller then joins: a
+   * rotation, a reconnect after a close, `connect()`, and a browser's wake-up alike. Resolves once
+   * the socket exists, or at once when it joined.
+   */
+  #connectInternal(): Promise<void> {
+    if (this.#connectInFlight()) return Promise.resolve();
+    this.#connecting = true;
+    return this.#openSocket();
+  }
+
+  async #openSocket(): Promise<void> {
     const isReconnect = this.#connectionState === 'reconnecting';
     this.#setConnectionState(isReconnect ? 'reconnecting' : 'connecting');
 
@@ -1447,7 +1471,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
         this.#handleClose(event.code, event.reason);
       };
       this.#ws.onerror = (event) => this.#handleError(event);
-      this.#ws.onmessage = (event) => this.#handleMessage(event.data);
+      this.#ws.onmessage = (event) => this.#handleMessage(event.data, thisWs);
 
     } catch (error) {
       // Classify the first-connect failure, symmetric with #handleClose's
@@ -1470,6 +1494,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       } else {
         this.#scheduleReconnect();
       }
+    } finally {
+      // Ends with the socket opened, or with none: a socket opened with no await between is closed
+      // only after this, so its close is never read as a connect still under way.
+      this.#connecting = false;
     }
   }
 
@@ -1542,10 +1570,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       return;
     }
 
-    // A rotation under way is already refreshing and opening the socket that replaces this one, so
-    // the recovery below would open a second socket beside it, and the queue could be flushed onto
-    // whichever was not yet open and lost. The rotation reconnects on its own if it fails.
-    if (this.#rotating) return;
+    // A connect under way — a rotation waiting on its refresh — is already opening the socket that
+    // replaces this one, so the recovery below would open a second beside it. That connect
+    // reconnects on its own if it fails.
+    if (this.#connectInFlight()) return;
 
     if (code === 4401) {
       // Token expired - try refresh
@@ -1790,7 +1818,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
     });
     // A socket open under the old name is replaced. A reconnect already under way builds its URL
     // after this refresh, so it takes the new name by itself.
-    if (this.#ws?.readyState === WebSocket.OPEN && !this.#rotating) this.#rotateSocketForFreshToken();
+    if (this.#ws?.readyState === WebSocket.OPEN) this.#rotateSocketForFreshToken();
   }
 
   /** Ensure a usable access token is in memory — refresh via the configured `refresh` source when it's
@@ -1845,7 +1873,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
     // since judging the new token's `exp` never rotates it. Move it now, which also puts a changed
     // claim, such as an admin verdict, in front of the Gateway and its hosts. A socket a rotation or
     // reconnect already opened with this token is left alone.
-    if (this.#accessToken !== this.#socketToken && this.#ws?.readyState === WebSocket.OPEN && !this.#rotating) {
+    if (this.#accessToken !== this.#socketToken && this.#ws?.readyState === WebSocket.OPEN) {
       this.#rotateSocketForFreshToken();
     }
     return res;
@@ -1870,7 +1898,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
   // Private - Message Handling
   // ============================================
 
-  #handleMessage(data: string): void {
+  #handleMessage(data: string, ws: WebSocket): void {
     // Heartbeat auto-pong from the gateway — keepalive only, not a mesh message (and not JSON, so it
     // must be skipped BEFORE the parse below or it logs a spurious parse error every cadence).
     if (data === WS_HEARTBEAT_PONG) return;
@@ -1889,7 +1917,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
 
     switch (message.type) {
       case GatewayMessageType.CONNECTION_STATUS:
-        this.#handleConnectionStatus(message as ConnectionStatusMessage);
+        this.#handleConnectionStatus(message as ConnectionStatusMessage, ws);
         break;
 
       case GatewayMessageType.RESPONSE:
@@ -1905,7 +1933,8 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
     }
   }
 
-  #handleConnectionStatus(message: ConnectionStatusMessage): void {
+  #handleConnectionStatus(message: ConnectionStatusMessage, ws: WebSocket): void {
+    this.#connectedSocket = ws;
     // The name the host holds this Client under, before anything reads it: `callee` on every call
     // that arrives, and what the peer check compares a caller with. A host that names none, one
     // still on an older version during a rollout, leaves the Client unable to call itself, which
@@ -2151,11 +2180,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
     setTimeout(() => onRefused(refusal), 0);
   }
 
-  #rotating = false;
-
   /**
    * Replace an open socket whose token is due with one authenticated by a fresh token. The queue
    * carries whatever was meant for the old socket; the new socket's `connection_status` flushes it.
+   * Asked for while a connect is under way, it does nothing: that connect's socket is the new one.
    *
    * Order matters: the NEW socket is assigned before the old one is closed, so the old socket's
    * close event is the "stale close from superseded socket" the `onclose` guard already ignores —
@@ -2165,13 +2193,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
    * token is due, and `#ensureFreshToken` de-dupes, so the refresh happens exactly once.
    */
   #rotateSocketForFreshToken(): void {
-    if (this.#rotating) return;
-    this.#rotating = true;
+    if (this.#connectInFlight()) return;
     const old = this.#ws;
     this.#setConnectionState('reconnecting');
-    this.#connectInternal()
-      .then(() => { old?.close(1000, 'token rotated'); })
-      .finally(() => { this.#rotating = false; });
+    void this.#connectInternal().then(() => { old?.close(1000, 'token rotated'); });
   }
 
   #flushMessageQueue(): void {

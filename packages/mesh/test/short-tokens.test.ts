@@ -81,12 +81,79 @@ function openingWebSocket(Base: typeof WebSocket): typeof WebSocket & { opened: 
   } as never;
 }
 
+/**
+ * A WebSocket that holds back each `connection_status` its sockets receive while `hold` is set, as
+ * a slow upgrade would, and delivers them in order on `release()`.
+ */
+function holdingWebSocket(Base: typeof WebSocket): typeof WebSocket & { hold: boolean; held: unknown[]; release(): void } {
+  const Holding = class extends Base {
+    static hold = false;
+    static held: Array<() => void> = [];
+    static release(): void {
+      Holding.hold = false;
+      for (const deliver of Holding.held.splice(0)) deliver();
+    }
+    override dispatchEvent(event: Event): boolean {
+      if (Holding.hold && event.type === 'message' && isConnectionStatus((event as MessageEvent).data)) {
+        Holding.held.push(() => super.dispatchEvent(event));
+        return true;
+      }
+      return super.dispatchEvent(event);
+    }
+  };
+  return Holding as never;
+}
+
+/** Whether a frame is a host's `connection_status`; a heartbeat pong is not JSON. */
+function isConnectionStatus(data: unknown): boolean {
+  try { return JSON.parse(String(data)).type === 'connection_status'; } catch { return false; }
+}
+
 /** Close every socket `scope`'s host holds for the Client `instanceName`, as its Gateway does. */
 async function closeFromHost(scope: string, instanceName: string, code: number, reason: string): Promise<void> {
   const host = env.CLIENT_HOST_DO.getByName(scope);
   await runInDurableObject(host, (_instance: unknown, ctx: DurableObjectState) => {
     for (const ws of ctx.getWebSockets(`${scope}/${instanceName}`)) ws.close(code, reason);
   });
+}
+
+/**
+ * A connected Client on a fresh login whose refreshes the test can hold open: after `hold()`, each
+ * refresh waits, `releaseFirst()` lets the earliest go, and `release()` lets all go and stops
+ * holding. `counts` has the refreshes asked for and those not yet answered.
+ */
+async function refreshHeldClient(WebSocketClass: typeof WebSocket) {
+  const login = await loginAt(uniqueScope('h'));
+  const browser = new Browser();
+  let holding = false;
+  const waiting: Array<() => void> = [];
+  const counts = { refreshes: 0, pending: 0 };
+  const client = new FetchingClient({
+    instanceName: `${login.sub}.tab1`,
+    baseUrl: login.baseUrl,
+    refresh: (async () => {
+      counts.refreshes += 1;
+      counts.pending += 1;
+      try {
+        if (holding) await new Promise<void>((resolve) => { waiting.push(resolve); });
+        return await login.refresh();
+      } finally {
+        counts.pending -= 1;
+      }
+    }) as MeshClientConfig['refresh'],
+    fetch: browser.fetch,
+    WebSocket: WebSocketClass,
+  });
+  await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
+  return {
+    login, client, counts,
+    hold: () => { holding = true; },
+    releaseFirst: () => { waiting.shift()?.(); },
+    release: () => { holding = false; for (const resolve of waiting.splice(0)) resolve(); },
+    /** A call on a socket whose token is due: every token here is born due, so it rotates the socket. */
+    echo: (value: string) => client.lmz.callAsync(
+      'CLIENT_HOST_DO', login.scope, client.ctn<ClientHostDO>().echo(value), { timeoutMs: 10_000 }),
+  };
 }
 
 describe('a push the host sends again across a token rotation', () => {
@@ -171,41 +238,89 @@ describe('a new token reaches the socket', () => {
   }, 20_000);
 });
 
-describe('a token that lapses while a rotation waits on its refresh', () => {
-  // In-lane rather than `/live`: the host's 4401 has to land while the rotation's refresh is out,
-  // and only a `refresh` the test supplies can hold one open. Under load it lands there by chance,
-  // which is how Nebula's `resubscribe-on-signal` lost its rotation's call.
-  it('opens one socket, and the call that started the rotation is answered', async () => {
-    const login = await loginAt(uniqueScope('h'));
-    const browser = new Browser();
-    const Opening = openingWebSocket(browser.WebSocket);
-    let held: Promise<void> = Promise.resolve();
-    let refreshes = 0;
-    using client = new FetchingClient({
-      instanceName: `${login.sub}.tab1`,
-      baseUrl: login.baseUrl,
-      refresh: (async () => { refreshes += 1; await held; return login.refresh(); }) as MeshClientConfig['refresh'],
-      fetch: browser.fetch,
-      WebSocket: Opening,
-    });
-    await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
-    let release!: () => void;
-    held = new Promise((resolve) => { release = resolve; });
-    const [opened, refreshed] = [Opening.opened, refreshes];
-
-    // Every token here is born due, so the call is queued and the socket rotated, and the
-    // rotation's refresh is held.
-    const answered = client.lmz.callAsync(
-      'CLIENT_HOST_DO', login.scope, client.ctn<ClientHostDO>().echo('answered'), { timeoutMs: 10_000 });
-    await vi.waitFor(() => expect(refreshes).toBe(refreshed + 1));
+// A second socket beside the one a rotation is opening lets the queued call be flushed onto
+// whichever is not yet open, and lost. Each limb makes the second connect happen in one of the two
+// stretches a connect is under way: waiting on its refresh, then waiting for its socket's status.
+// In-lane rather than `/live`: only a `refresh` and a `WebSocket` the test supplies can hold either
+// stretch open. Under load a 4401 lands in the first by chance, which is how Nebula's
+// `resubscribe-on-signal` lost its rotation's call.
+describe('a Client opens one socket at a time', () => {
+  it('when the host closes the old socket 4401 while the rotation waits on its refresh', async () => {
+    const Opening = openingWebSocket(new Browser().WebSocket);
+    const held = await refreshHeldClient(Opening);
+    using client = held.client;
+    const [opened, refreshed] = [Opening.opened, held.counts.refreshes];
+    held.hold();
+    const answered = held.echo('answered');
+    await vi.waitFor(() => expect(held.counts.refreshes).toBe(refreshed + 1));
     // The host closes the old socket 4401, as its Gateway does when a frame arrives on a lapsed token.
-    await closeFromHost(login.scope, client.lmz.instanceName!, 4401, 'Token expired');
+    await closeFromHost(held.login.scope, client.lmz.instanceName!, 4401, 'Token expired');
     await vi.waitFor(() => expect(Opening.closed).toContain(4401));
-    release();
-
-    // MUTATION: let that close start its own refresh and reconnect, and a second socket opens
-    // beside the rotation's, onto which the queued call can be flushed before it is open and lost.
+    // The rotation's refresh answers first and the call is answered on its socket; then any refresh
+    // the close asked for answers, and any socket it would open is open.
+    held.releaseFirst();
     expect(await answered).toBe('answered');
+    held.release();
+    await vi.waitFor(() => expect(held.counts.pending).toBe(0));
+
+    // MUTATION: let a close start its own recovery while a connect is under way, and its refresh
+    // answers after the rotation is done, so its connect opens a second socket.
+    expect(Opening.opened - opened).toBe(1);
+  }, 20_000);
+
+  it('when connect() is called while the rotation waits on its refresh', async () => {
+    const Opening = openingWebSocket(new Browser().WebSocket);
+    const held = await refreshHeldClient(Opening);
+    using client = held.client;
+    const [opened, refreshed] = [Opening.opened, held.counts.refreshes];
+    held.hold();
+    const answered = held.echo('answered');
+    await vi.waitFor(() => expect(held.counts.refreshes).toBe(refreshed + 1));
+    client.connect();
+    held.release();
+
+    // MUTATION: drop the refresh's stretch from what counts as a connect under way, and connect()
+    // opens a second socket once the refresh answers.
+    expect(await answered).toBe('answered');
+    expect(Opening.opened - opened).toBe(1);
+  }, 20_000);
+
+  it('when connect() is called while the rotation\'s socket waits for its status', async () => {
+    const Holding = holdingWebSocket(new Browser().WebSocket);
+    const Opening = openingWebSocket(Holding);
+    const held = await refreshHeldClient(Opening);
+    using client = held.client;
+    const opened = Opening.opened;
+    Holding.hold = true;
+    const answered = held.echo('answered');
+    await vi.waitFor(() => expect(Holding.held).toHaveLength(1));
+    client.connect();
+    // Any refresh that connect() started has answered, so any socket it would open is open.
+    await vi.waitFor(() => expect(held.counts.pending).toBe(0));
+    Holding.release();
+
+    // MUTATION: drop the socket's stretch from what counts as a connect under way, and connect()
+    // opens a second socket while the first waits for its status.
+    expect(await answered).toBe('answered');
+    expect(Opening.opened - opened).toBe(1);
+  }, 20_000);
+
+  it('when a second call asks for a rotation while the rotation\'s socket waits for its status', async () => {
+    const Holding = holdingWebSocket(new Browser().WebSocket);
+    const Opening = openingWebSocket(Holding);
+    const held = await refreshHeldClient(Opening);
+    using client = held.client;
+    const opened = Opening.opened;
+    Holding.hold = true;
+    const first = held.echo('first');
+    await vi.waitFor(() => expect(Holding.held).toHaveLength(1));
+    // Every token here is born due, so this call asks for a rotation of its own.
+    const second = held.echo('second');
+    Holding.release();
+
+    // MUTATION: let a rotation start while a connect is under way, and it closes that connect's
+    // socket as the old one, so the calls wait for a reconnect on a third.
+    expect(await Promise.all([first, second])).toEqual(['first', 'second']);
     expect(Opening.opened - opened).toBe(1);
   }, 20_000);
 });
